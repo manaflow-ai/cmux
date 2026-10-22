@@ -1,6 +1,7 @@
 import type {
   AcpmuxActivity,
   AcpmuxFileDiff,
+  AcpmuxLocation,
   AcpmuxPermission,
   AcpmuxSecretAsk,
   AcpmuxSessionOffer,
@@ -53,6 +54,7 @@ import { incomingPrompt, renderedReply, type IncomingMessage } from "./conversat
 import { startedCardsShown } from "./started/startedSessions";
 import { OfferChildren } from "./offer/offerChildren";
 import { errorMessage } from "./transportErrors";
+import { failedSendText } from "./sendFailure";
 import { SessionPager, type SessionPage } from "./sessionPages";
 import { isWarmableCwd } from "./warmFolders";
 import { SubagentFold, subagentsLeft } from "./subagents/subagentFold";
@@ -318,6 +320,7 @@ function queuedEntry(
   next: boolean,
   sending = false,
   images?: readonly QueuedPromptImage[],
+  message?: IncomingMessage,
 ): QueuedPrompt {
   return {
     id,
@@ -325,7 +328,23 @@ function queuedEntry(
     ...(next ? { next } : {}),
     ...(sending ? { sending } : {}),
     ...(images?.length ? { images: [...images] } : {}),
+    ...(message ? { message } : {}),
   };
+}
+
+/// A `queued` record that is another agent's message, as its received line reads it once it runs
+/// (conversation/incomingMessage.ts), else as acpmux's `fromAgent` names it (`acpmux send --from`),
+/// its text without a leading "[name]" or "From name:" that only repeats the sender. Undefined for
+/// the person's own prompt.
+export function queuedMessage(msg: any): IncomingMessage | undefined {
+  const text = String(msg?.text ?? "");
+  const incoming = incomingPrompt(text, msg);
+  if (incoming?.kind === "message") return incoming.message;
+  const name = typeof msg?.fromAgent === "string" ? msg.fromAgent.trim() : "";
+  if (!name) return undefined;
+  const lead = text.trimStart();
+  const named = [`[${name}]`, `From ${name}:`].find((prefix) => lead.toLowerCase().startsWith(prefix.toLowerCase()));
+  return { name, text: (named ? lead.slice(named.length) : text).trim(), raw: text };
 }
 
 /// The images a `queued` or `queue_updated` record names (`images`, in its prompt's order), each
@@ -395,7 +414,16 @@ export function mergeQueue(current: readonly QueuedPrompt[], listed: readonly an
     // acpmux lists its images (after a reload or a restart too); one that lists none (an older
     // acpmux) keeps those the pane had.
     const images = Array.isArray(entry?.images) ? withKnownBytes(promptImages(entry.images), had?.images) : had?.images;
-    return queuedEntry(id, whole ? had.prompt : preview, had?.next === true, false, images);
+    // acpmux's list names no sender: the `queued` record the pane read did, while its text is still
+    // the one listed (an edit the pane missed makes it the person's, as acpmux does).
+    return queuedEntry(
+      id,
+      whole ? had.prompt : preview,
+      had?.next === true,
+      false,
+      images,
+      whole ? had.message : undefined,
+    );
   });
 }
 
@@ -458,8 +486,32 @@ export function toolDiffs(content: any, locations: any): AcpmuxFileDiff[] | unde
       newText: item.newText,
       line: lines.get(item.path),
       ...(item.fragment === true || item._meta?.acpmux?.fragment === true ? { fragment: true as const } : {}),
+      ...canonicalOf(item),
     }));
   return diffs.length ? diffs : undefined;
+}
+
+/// The canonical path acpmux recorded beside an item's path (hub/tool_paths.rs), as `canonical`:
+/// a `diff` item's or location's `_meta.acpmux.canonicalPath`, or a diff this page placed again.
+/// Composed (NFC), as every canonical path the page compares is (turnCheckpoint.ts `checkpointFiles`).
+function canonicalOf(item: any): { canonical?: string } {
+  const canonical = item?._meta?.acpmux?.canonicalPath ?? item?.canonical;
+  return typeof canonical === "string" && canonical ? { canonical: canonical.normalize("NFC") } : {};
+}
+
+/// A call's locations with their canonical paths read (`canonicalOf`).
+function readLocations(locations: any): AcpmuxLocation[] | undefined {
+  if (!Array.isArray(locations)) return undefined;
+  return locations.map((location: any) =>
+    location && typeof location === "object" ? { ...location, ...canonicalOf(location) } : location,
+  );
+}
+
+/// The input's file and the canonical path acpmux recorded for it on the update (`_meta.acpmux`).
+function inputPath(update: any): { path: string; canonical: string } | undefined {
+  const path = update.rawInput?.file_path;
+  const { canonical } = canonicalOf(update);
+  return typeof path === "string" && canonical ? { path, canonical } : undefined;
 }
 
 /// Claude Code's result for a Write that made a new file ("File created successfully at: …"). An
@@ -472,10 +524,10 @@ const CREATED_RESULT = /^\s*File created successfully at\b/;
 /// diff against, so it stays a path without counts. Each is marked `fragment` (the page never saw the
 /// file around it, so Undo, turnChanges/model.ts `fileUndo`, never writes a file back from these)
 /// and `fromInput` (a later input replaces them).
-export function inputDiffs(rawInput: any, result?: string): AcpmuxFileDiff[] | undefined {
+export function inputDiffs(rawInput: any, result?: string, canonical?: string): AcpmuxFileDiff[] | undefined {
   const path = rawInput?.file_path;
   if (typeof path !== "string" || !path) return undefined;
-  const mark = { fragment: true as const, fromInput: true as const };
+  const mark = { fragment: true as const, fromInput: true as const, ...(canonical ? { canonical } : {}) };
   if (typeof rawInput.content === "string")
     return result !== undefined && CREATED_RESULT.test(result)
       ? [{ path, newText: rawInput.content, ...mark }]
@@ -524,10 +576,11 @@ export function mergeToolItem(
   const status = String(update.status ?? before?.status ?? "in_progress");
   const ended = status === "completed" || status === "failed";
   const kind = update.kind ?? before?.kind;
+  const locations = readLocations(update.locations) ?? before?.locations;
+  // The input's file, from the update that carries the input.
+  const input = update.rawInput ? inputPath(update) : before?.inputPath;
   const placed =
-    update.content === undefined
-      ? placeDiffs(before?.diffs, update.locations)
-      : toolDiffs(update.content, Array.isArray(update.locations) ? update.locations : before?.locations);
+    update.content === undefined ? placeDiffs(before?.diffs, update.locations) : toolDiffs(update.content, locations);
   // An edit whose content names no `diff` (Claude Code's Edit, whose result is plain text) still
   // changed its file: its input has the change, read again from the latest input. A failed one
   // changed nothing. A `diff` in the content always wins over the input.
@@ -537,7 +590,7 @@ export function mergeToolItem(
     diffs =
       status === "failed"
         ? undefined
-        : (inputDiffs(update.rawInput ?? storedInput(before?.inputSummary), result) ?? placed);
+        : (inputDiffs(update.rawInput ?? storedInput(before?.inputSummary), result, input?.canonical) ?? placed);
   }
   return {
     kind: "tool",
@@ -557,7 +610,8 @@ export function mergeToolItem(
       endedAt: before?.endedAt ?? (ended ? at : undefined),
       // A shell that went to the background stays there as its call's result comes in.
       ...(before?.background ? { background: before.background } : {}),
-      locations: Array.isArray(update.locations) ? update.locations : before?.locations,
+      locations,
+      ...(input ? { inputPath: input } : {}),
       images: update.content === undefined ? before?.images : imagesFromContent(update.content),
       diffs,
     },
@@ -2314,7 +2368,8 @@ export class AcpmuxDirectClient {
   private reduceLiveState(event: EventRecord): void {
     const msg = event.msg ?? {};
     if (event.kind === "queue_updated") {
-      // An edit keeps the prompt's place.
+      // An edit keeps the prompt's place, and makes it the person's: acpmux drops its provenance
+      // and sender (hub/queue.rs), so its row loses the sender too.
       const id = String(msg.promptId ?? "");
       // An edit's record names the images the prompt keeps.
       this.queue = this.queue.map((entry) =>
@@ -2334,7 +2389,9 @@ export class AcpmuxDirectClient {
       this.queue = [...this.queue]
         .sort((a, b) => (at.get(a.id) ?? at.size) - (at.get(b.id) ?? at.size))
         .map((entry) =>
-          next === undefined ? entry : queuedEntry(entry.id, entry.prompt, entry.id === next, false, entry.images),
+          next === undefined
+            ? entry
+            : queuedEntry(entry.id, entry.prompt, entry.id === next, false, entry.images, entry.message),
         );
     } else if (event.kind === "queued") {
       const id = String(msg.promptId ?? "");
@@ -2347,7 +2404,7 @@ export class AcpmuxDirectClient {
         const images = named.length ? named : this.queue.find((entry) => entry.id === id)?.images;
         this.queue = [
           ...this.queue.filter((entry) => entry.id !== id),
-          queuedEntry(id, String(msg.text ?? ""), false, false, images),
+          queuedEntry(id, String(msg.text ?? ""), false, false, images, queuedMessage(msg)),
         ];
       }
       // acpmux took a prompt that waits behind the turn: its queue row shows it now, and the
@@ -2543,7 +2600,7 @@ export class AcpmuxDirectClient {
       return;
     }
     if (event.dir === "mux") {
-      // A stopped turn or a gone agent ends the subagents it would never report again.
+      // A stopped or completed turn, or a gone agent, ends the subagents it would never report again.
       const left = subagentsLeft(event.kind, msg);
       if (left && this.subagents.stopRunning(left, event.at)) this.takeSubagentRows();
       if (event.kind === BOOKMARKS_KIND) {
@@ -2563,6 +2620,24 @@ export class AcpmuxDirectClient {
             at: event.at,
             kind: "failover",
             failover: { from: msg.from, to: msg.to },
+          });
+        }
+      } else if (event.kind === "policy_unenforced") {
+        // The chat's policy is narrower than approve-all and its harness has no mode that asks
+        // (`hub/policy_mode.rs`): its agent runs without the asks the policy would answer.
+        if (typeof msg.policy === "string") {
+          const id = `policy-unenforced-${event.seq}`;
+          // From the record alone, so a rebuild before the summary is back draws the same note: acpmux's
+          // reason (never shown) says whether OpenCode's own settings decide; the family only for a
+          // record without one.
+          const opencode =
+            typeof msg.reason === "string" ? msg.reason.startsWith("opencode") : this.summary?.family === "opencode";
+          this.rows.set(id, {
+            id,
+            version: 1,
+            at: event.at,
+            kind: "policyUnenforced",
+            policyUnenforced: { policy: msg.policy, why: opencode ? "ownSettings" : "noAskingMode" },
           });
         }
       } else if (event.kind === "session_offer") {
@@ -2618,8 +2693,13 @@ export class AcpmuxDirectClient {
         // keeps an empty row that draws nothing, so the answer it brought stays its own turn
         // (turns.ts). Retry resends a message as the agent got it (`resend`); a notice, like
         // bookkeeping, is the harness's, not a prompt to send again, so it offers no Retry.
-        const incoming = received ? undefined : incomingPrompt(String(msg.text ?? ""), msg);
         const raw = String(msg.text ?? "");
+        // A prompt with nothing to read and no image draws nothing, never an empty bubble: a blank
+        // text, a record without `text` (one acpmux left out of the page for its size, paging.rs
+        // `fit`, keeps only `_meta`), or a steer that carried none. It stays a turn's start, as
+        // bookkeeping does. A prompt of images alone keeps its row: the images are what it says.
+        const blank = !received && !raw.trim() && promptImages(msg.images).length === 0;
+        const incoming = received ? undefined : blank ? ({ kind: "hidden" } as const) : incomingPrompt(raw, msg);
         const shown =
           incoming?.kind === "message"
             ? { text: incoming.message.text, incoming, resend: raw }
@@ -2739,7 +2819,9 @@ export class AcpmuxDirectClient {
             ...this.turnTotals(event.at),
             status,
             ...(continued ? { continued } : {}),
-            error: msg.errorText,
+            // An agent that could not start ends its turn with `error` and no `errorText`
+            // (acpmux fail_unstarted_turn): the row still names it, as the paused queue's note does.
+            error: msg.errorText ?? (status === "failed" && typeof msg.error === "string" ? msg.error : undefined),
             ...(checkpoint ? { checkpoint } : {}),
           });
         // acpmux ended a turn whose agent did not answer Stop (`hub/cancel.rs`). After the summary, so its fold never hides it.
@@ -3478,9 +3560,7 @@ export class AcpmuxDirectClient {
         // says just that, not the generic refusal's pick wording (cx-w2p8r).
         if (held && !isTrustRefusal(error))
           this.notice(
-            code === "transport.gesture_required"
-              ? translate("prompt.notSentAgain")
-              : translate("prompt.notSent", { reason: errorMessage(error) }),
+            code === "transport.gesture_required" ? translate("prompt.notSentAgain") : failedSendText(error, false),
           );
         else this.emit();
         throw error;
@@ -3501,18 +3581,14 @@ export class AcpmuxDirectClient {
       const row = this.rows.get(rowId);
       if (row) {
         // A new row object: the transcript's rows are memoized on identity and version. The
-        // bubble says why it got no reply, in the words of whoever refused it. A refusal for want
-        // of a gesture names that (the generic refusal's text is about a pick): posted input (a
-        // script, a computer-use agent) is never the person's (cx-ocdz), and the Retry click is
-        // (hq#2569 item 5). A Retry refused again says "Still", so the click visibly did something.
-        const reason = code === "transport.gesture_required" ? translate("prompt.gestureReason") : errorMessage(error);
+        // bubble says why it got no reply in one plain sentence chosen by the refusal's reason and
+        // code (sendFailure.ts); the refuser's own words and code stay for Details.
+        const reason = (error as { reason?: unknown } | null)?.reason;
         this.rows.set(rowId, {
           ...row,
           pending: false,
           failed: true,
-          error: translate(this.retriedPrompts.has(promptId) ? "prompt.stillNotSent" : "prompt.notSent", {
-            reason: reason || translate("transport.refused"),
-          }),
+          error: failedSendText(error, this.retriedPrompts.has(promptId)),
           version: row.version + 1,
         });
         this.failedPrompts.set(rowId, { input, attachments, promptId });
@@ -3521,7 +3597,8 @@ export class AcpmuxDirectClient {
           failedAt: Date.now(),
           hop: deliveryHop(typeof code === "string" ? code : undefined, taken),
           ...(typeof code === "string" ? { code } : {}),
-          error: errorMessage(error),
+          ...(typeof reason === "string" ? { reason } : {}),
+          error: error instanceof Error ? error.message : errorMessage(error),
         });
         // The prompt stays as this failed row: the pane's sender puts nothing back in the composer,
         // and a Trust answer re-sends this row (not whatever the composer holds then).
@@ -3556,6 +3633,7 @@ export class AcpmuxDirectClient {
     if (next.state !== "failed") {
       delete next.hop;
       delete next.code;
+      delete next.reason;
       delete next.error;
       delete next.failedAt;
     }
@@ -3580,7 +3658,14 @@ export class AcpmuxDirectClient {
     if (this.queue.some((queued) => queued.id === promptId && Boolean(queued.sending) !== (next.state === "sending")))
       this.queue = this.queue.map((queued) =>
         queued.id === promptId
-          ? queuedEntry(queued.id, queued.prompt, queued.next === true, next.state === "sending", queued.images)
+          ? queuedEntry(
+              queued.id,
+              queued.prompt,
+              queued.next === true,
+              next.state === "sending",
+              queued.images,
+              queued.message,
+            )
           : queued,
       );
     return true;
@@ -3618,6 +3703,29 @@ export class AcpmuxDirectClient {
     } finally {
       this.retriedPrompts.delete(promptId);
     }
+  }
+  /// Retry on a card for a run of prompts that were not sent for one cause (sendFailure.ts). One
+  /// click is one gesture, which the host spends on one `session/prompt`, so the run goes again as
+  /// one prompt: its texts in order, its attachments together, over `anchor`'s row and under its
+  /// prompt id (a trust refusal's kept gesture is bound to that id, heldPrompt.ts). The run's other
+  /// rows go.
+  async retryPrompts(rowIds: readonly string[], ticket?: string, anchor?: string): Promise<string | undefined> {
+    const run = rowIds.filter((id) => this.failedPrompts.has(id));
+    const kept = anchor && run.includes(anchor) ? anchor : run[run.length - 1];
+    if (!kept) return undefined;
+    if (run.length > 1) {
+      const failed = run.map((id) => this.failedPrompts.get(id)!);
+      const into = this.failedPrompts.get(kept)!;
+      for (const id of run) if (id !== kept) this.dropFailedPrompt(id, this.failedPrompts.get(id)?.promptId);
+      this.failedPrompts.set(kept, {
+        input: failed.map((prompt) => prompt.input).join("\n\n"),
+        attachments: failed
+          .flatMap((prompt) => prompt.attachments)
+          .filter((attachment, index, all) => all.findIndex((other) => other.id === attachment.id) === index),
+        ...(into.promptId ? { promptId: into.promptId } : {}),
+      });
+    }
+    return this.retryPrompt(kept, ticket);
   }
   /// Edit on a prompt that was not sent: its row goes and what it held comes back, for the composer.
   takeFailedPrompt(rowId: string): { input: string; attachments: ComposerAttachment[] } | undefined {
@@ -3795,7 +3903,7 @@ export class AcpmuxDirectClient {
     const shown = this.queue.filter((entry) => !entry.id.startsWith(OFFER_RESULT_PROMPT));
     return shown.length === this.queue.length ? this.queue : shown;
   }
-  /// The `agent.suggestedTasks` Debug toggle turned on or off: offers draw or go at once.
+  /// Suggested tasks turned on or off (`sessions.promptSuggestions` or the Debug tunable): offers draw or go at once.
   suggestedTasksChanged(): void {
     if (!this.selectedSessionId || this.events.length === 0) return;
     this.rebuildKeepingLiveState();
@@ -4350,7 +4458,7 @@ export class AcpmuxDirectClient {
         this.emit();
         return;
       }
-      this.adoptFailed(error instanceof Error && error.message ? error.message : undefined);
+      this.adoptFailed(errorMessage(error) || undefined);
       return;
     }
     const sessionId = result?.sessionId ? String(result.sessionId) : undefined;
@@ -4394,7 +4502,7 @@ export class AcpmuxDirectClient {
         this.emit();
         return false;
       }
-      this.notice(error instanceof Error && error.message ? error.message : String(error));
+      this.notice(errorMessage(error) || String(error));
       return false;
     }
   }
@@ -4451,7 +4559,7 @@ export class AcpmuxDirectClient {
     } catch (error) {
       if (generation === this.selectionGeneration) {
         const at = Date.now();
-        const reason = error instanceof Error && error.message ? error.message : undefined;
+        const reason = errorMessage(error) || undefined;
         const id = noticeId("notice-fork");
         this.rows.set(id, {
           id,
@@ -4587,9 +4695,19 @@ export class AcpmuxDirectClient {
   /// queue and permission stay as they are. A page that lands after the
   /// selection changed belongs to another session and is dropped.
   loadOlder(): Promise<void> {
-    if (Date.now() < this.olderRetryAt) return Promise.resolve();
     if (this.loadingOlder) return this.loadingOlder;
-    const loading = this.fetchOlder()
+    // An ask inside the back-off after a failed page waits it out, then reads. One that returned
+    // at once read nothing, and the transcript that asked at the very top had no scroll left to
+    // ask again with: a 720-turn chat stopped paging for good (Leo 2026-10-21).
+    const wait = this.olderRetryAt - Date.now();
+    const generation = this.selectionGeneration;
+    const read =
+      wait > 0
+        ? new Promise<void>((resolve) => setTimeout(resolve, wait)).then(() =>
+            !this.closed && generation === this.selectionGeneration ? this.fetchOlder() : undefined,
+          )
+        : this.fetchOlder();
+    const loading = read
       .catch((error: unknown) => {
         this.olderRetryAt = Date.now() + 2_000;
         throw error;
@@ -4628,7 +4746,8 @@ export class AcpmuxDirectClient {
       });
       if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
       // The held transcript's older end moved while this read was out (a kept tail the attach
-      // page did not continue): these records sit above a transcript the chat no longer holds.
+      // page did not continue): these records sit above a transcript the chat no longer holds. The
+      // ask brings nothing, and the transcript asks again (App.tsx checkOlder).
       if (epoch !== this.historyEpoch) return;
       const page = records(result?.events);
       older = [...page, ...older];

@@ -32,6 +32,7 @@ import {
 } from "react";
 import { usePresence, type Presence } from "../../../ui/presence";
 import { useChatDisplay } from "../chatDisplay";
+import { PanelToggle } from "../header/PanelToggle";
 import { useHeaderState, type HeaderPullRequest } from "../header/headerState";
 import { useTabRow } from "../header/tabRow";
 import { useT } from "../i18n";
@@ -95,6 +96,9 @@ function usePaneWidth(shell: HTMLElement | null | undefined, live: boolean): num
   return width;
 }
 
+/// How long a revealed section stays lit.
+const REVEAL_LIT_MS = 1200;
+
 /// The header's toggle and the Inspector for the chat's pane. `on` is Debug Settings
 /// `agent.inspector`: off, there is neither, and the App shows its summary card instead.
 export function useChatInspector({
@@ -109,6 +113,8 @@ export function useChatInspector({
   onStopProcess,
   subagents,
   sessions,
+  onOpenFolder,
+  onSaveEnvironment,
 }: {
   snapshot: AcpmuxSnapshot;
   /// This Mac's name from the handshake, for a local chat.
@@ -135,6 +141,10 @@ export function useChatInspector({
   };
   /// The chats the chat's agent started (App.tsx `childSessions`), and how one opens.
   sessions?: { list: readonly StartedSession[]; onOpen: (sessionId: string) => void };
+  /// Opens one of the chat's folders in the Files tree beside the chat (a chat on this Mac).
+  onOpenFolder?: (path: string) => void;
+  /// Saves the chat's machine and folder as an environment (`environment.save`).
+  onSaveEnvironment?: () => Promise<unknown>;
 }): {
   on: boolean;
   button?: ReactNode;
@@ -186,18 +196,7 @@ export function useChatInspector({
   return {
     on: true,
     reveal,
-    button: (
-      <button
-        type="button"
-        className="acpmux-header-tool acpmux-chat-inspector-toggle"
-        aria-label={label}
-        aria-pressed={shown}
-        title={label}
-        onClick={toggle}
-      >
-        <Icon name="pane.split.right" size={15} />
-      </button>
-    ),
+    button: <PanelToggle className="acpmux-chat-inspector-toggle" label={label} shown={shown} onToggle={toggle} />,
     panel: (
       <InspectorPresence
         shown={shown}
@@ -217,6 +216,8 @@ export function useChatInspector({
         onOpenOutput={openOutput}
         onOpenUrl={onOpenUrl}
         onOpenImage={onOpenImage}
+        onOpenFolder={onOpenFolder}
+        onSaveEnvironment={onSaveEnvironment}
       />
     ),
   };
@@ -244,6 +245,8 @@ function InspectorPresence({
   onOpenOutput,
   onOpenUrl,
   onOpenImage,
+  onOpenFolder,
+  onSaveEnvironment,
 }: {
   shown: boolean;
   snapshot: AcpmuxSnapshot;
@@ -269,6 +272,8 @@ function InspectorPresence({
   onOpenOutput?: (path: string) => void;
   onOpenUrl?: (url: string) => void;
   onOpenImage?: (src: string, alt: string) => void;
+  onOpenFolder?: (path: string) => void;
+  onSaveEnvironment?: () => Promise<unknown>;
 }) {
   const { width, sections } = useInspectorState();
   const placement = useChatDisplay().inspector;
@@ -337,6 +342,8 @@ function InspectorPresence({
         onOpenOutput={onOpenOutput}
         onOpenUrl={onOpenUrl}
         onOpenImage={onOpenImage}
+        onOpenFolder={onOpenFolder}
+        onSaveEnvironment={onSaveEnvironment}
       />
     </InspectorPanel>
   );
@@ -370,7 +377,7 @@ export function InspectorPanel({
         presence?.props.ref(node);
       }}
       inert={presence?.leaving}
-      className={placement === "overlay" ? "ui-glass acpmux-chat-inspector" : "acpmux-chat-inspector"}
+      className="ui-glass acpmux-chat-inspector"
       data-placement={placement}
       style={under ? ({ width, "--acpmux-inspector-top": under } as CSSProperties) : { width }}
       aria-label={t("chatInspector.title")}
@@ -434,6 +441,7 @@ export function ChatInspector({
   onOpenImage,
   remoteControl,
   onSaveEnvironment,
+  onOpenFolder,
 }: {
   summary?: Summary;
   machineName?: string;
@@ -473,7 +481,9 @@ export function ChatInspector({
   onOpenUrl?: (url: string) => void;
   onOpenImage?: (src: string, alt: string) => void;
   remoteControl?: { on: boolean; set: (on: boolean) => void };
-  onSaveEnvironment?: () => void;
+  onSaveEnvironment?: () => Promise<unknown> | void;
+  /// Opens one of the chat's folders in the Files tree beside the chat.
+  onOpenFolder?: (path: string) => void;
 }) {
   const t = useT();
   const stored = useInspectorState().sections;
@@ -488,12 +498,26 @@ export function ChatInspector({
   const body = useRef<HTMLDivElement>(null);
   // Once: then it is done, so the palette or another pane opening the Inspector again does not jump
   // back to this section.
+  // The section lights for a moment (inspector.css `[data-revealed]`), so a reveal of a section already
+  // in view still shows it answered (the header's Environment line, Leo 2026-10-21: no dead clicks).
+  // Not the reveal effect's cleanup: `onRevealed` clears the reveal at once, which would put it out.
+  const lit = useRef<{ section: HTMLElement; timer: number }>(undefined);
+  const unlight = () => {
+    if (!lit.current) return;
+    window.clearTimeout(lit.current.timer);
+    delete lit.current.section.dataset.revealed;
+    lit.current = undefined;
+  };
+  useEffect(() => unlight, []);
   useEffect(() => {
     if (!revealed) return;
-    body.current
-      ?.querySelector<HTMLElement>(`[data-section="${revealed.section}"]`)
-      ?.scrollIntoView?.({ block: "nearest" });
+    const section = body.current?.querySelector<HTMLElement>(`[data-section="${revealed.section}"]`);
+    section?.scrollIntoView?.({ block: "nearest" });
     onRevealed?.();
+    if (!section) return;
+    unlight();
+    section.dataset.revealed = "";
+    lit.current = { section, timer: window.setTimeout(unlight, REVEAL_LIT_MS) };
   }, [revealed, onRevealed]);
   const scheduled = made?.scheduled ?? [];
   const pullRequests = made?.pullRequests ?? [];
@@ -515,8 +539,10 @@ export function ChatInspector({
           machineName={machineName}
           peerKinds={peerKinds}
           repository={repository}
+          rows={rows}
           remoteControl={remoteControl}
           onSave={onSaveEnvironment}
+          onOpenFolder={onOpenFolder}
         />
       </InspectorSection>
       {known && (

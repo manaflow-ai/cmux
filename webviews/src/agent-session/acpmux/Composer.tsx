@@ -18,6 +18,7 @@ import type { Project } from "./ProjectChooser";
 import { ComposerContext } from "./ComposerContext";
 import { showsLocationRow } from "./locationRow";
 import { ComposerQueue } from "./ComposerQueue";
+import type { Subsessions } from "./subagents/subsessions";
 import {
   ArrowUpIcon,
   AtIcon,
@@ -71,12 +72,15 @@ import {
   AttachmentStrip,
   attachmentErrorText,
   useAttachmentIntake,
+  useSendWhenAttached,
 } from "./composer/attachmentIntake";
 import { type KeptAttachments, useKeptAttachments } from "./composer/keptAttachments";
 import { isPasteAsPlainTextKey, usePastedChips } from "./composer/pastedChips";
+import { usePasteAnywhere } from "./composer/pasteAnywhere";
 import type { SendBlock } from "./useFolderTrustAsk";
 import { folder, promptSuggestion, type LivePullRequest, type PromptSuggestion } from "./promptSuggestion";
 import { useHeaderState } from "./header/headerState";
+import { queuePauseReason } from "./queuePause";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 /// How long after a send the Stop button that replaces Send ignores clicks.
@@ -184,6 +188,8 @@ type Props = {
   /// Reads an image a queued prompt sends by its acpmux id, as a data URL (`_acpmux/attachment`).
   /// Stable: each queued thumbnail reads once.
   queueImage?(id: string): Promise<string | undefined>;
+  /// The listed chats, among which a queued agent's message finds its sender's (ComposerQueue.tsx).
+  queueSubsessions?: Subsessions;
   /// Asks a queued prompt in a new side chat and withdraws it (the queued row's Open in side chat);
   /// absent where the chat opens no side chat.
   onQueueSideChat?(promptId: string, prompt: string): Promise<boolean>;
@@ -296,6 +302,7 @@ export function Composer({
   onQueueLost,
   onQueueSideChat,
   queueImage,
+  queueSubsessions,
   draft,
   leading,
   permissionAccess,
@@ -432,10 +439,10 @@ export function Composer({
   /// Set while the host has not yet taken a prompt the composer still holds: Enter sends no copy.
   const sending = useRef(false);
   /// The newest submit, for the handle's `send` (rendered after the trust answer lands).
-  const submitNow = useRef<(force: boolean) => boolean>(() => false);
+  const submitNow = useRef<(force: boolean, steer?: boolean) => boolean>(() => false);
   const allowImages = snapshot.summary?.promptCapabilities?.image !== false;
   // A paste on the prompt or the shell field, and a file drop anywhere (composer/attachmentIntake.tsx).
-  const { attachments, setAttachments, attachError, setAttachError, dropping, attach } = useAttachmentIntake({
+  const { attachments, setAttachments, pending, attachError, setAttachError, dropping, attach } = useAttachmentIntake({
     allowImages,
     // A file pasted in shell mode is kept for the next prompt and uploads nothing; the mode stays.
     pasteTarget: (target) =>
@@ -449,8 +456,25 @@ export function Composer({
   });
   const attachmentsRef = useRef(attachments);
   attachmentsRef.current = attachments;
+  // A prompt sent while a pasted screenshot is still being read goes once its chip is ready.
+  const holdForAttachments = useSendWhenAttached(pending.length, sessionId);
   // A huge paste is a chip; Paste as Plain Text keeps it raw (composer/pastedChips.ts).
   const pastedChips = usePastedChips(attachmentsRef, setAttachments, field);
+  // A paste anywhere in the pane outside a text field goes into the prompt, after what is already
+  // there (composer/pasteAnywhere.ts).
+  usePasteAnywhere(() => {
+    const shellInput = shellRef.current.shell ? shellField.current : null;
+    if (shellInput) {
+      shellInput.focus();
+      shellInput.setSelectionRange(shellInput.value.length, shellInput.value.length);
+      return true;
+    }
+    const prompt = field.current;
+    if (!prompt?.element()) return false;
+    prompt.focus();
+    prompt.setCaret(Number.MAX_SAFE_INTEGER);
+    return true;
+  });
   // + then Attach files clicks this input: the system file chooser (an open panel in the app).
   const chooser = useRef<HTMLInputElement>(null);
   useLayoutEffect(() => {
@@ -726,6 +750,8 @@ export function Composer({
       setAttachError(t("composer.stillSending"));
       return false;
     }
+    // A file pasted or dropped a moment ago is still being read: the prompt waits for its chip.
+    if (holdForAttachments(() => submitNow.current(force, steer))) return false;
     // The field holds markdown with its typed text escaped; the agent gets the text as typed.
     const draftText = unwrapped();
     const prompt = (field.current?.agentText(draftText) ?? draftText).trim();
@@ -1103,7 +1129,7 @@ export function Composer({
   const stop = !shell && snapshot.isWorking && !text.trim();
   // Stop shows for the whole turn, a typed prompt or not; Esc stops only from an empty prompt.
   const running = !shell && snapshot.isWorking;
-  const hasDraft = Boolean(text.trim() || attachments.length);
+  const hasDraft = Boolean(text.trim() || attachments.length || pending.length);
   // Esc stops the turn on a double press (escapeStop.ts). The Quick Composer's page-level Esc hides
   // its panel, so only the pane counts an Esc that reaches the page.
   const escapeStop = useEscapeStop({
@@ -1373,6 +1399,8 @@ export function Composer({
       {escapeStop.armed ? <span className="acpmux-escape-key">{t(COMPOSER_LABELS.escapeKey)}</span> : <StopIcon />}
     </button>
   ) : null;
+  // Why a failed turn paused the queue: the paused note names it (queuePause.ts).
+  const pauseReason = snapshot.summary?.queuePaused === true ? queuePauseReason(snapshot.rows) : undefined;
   return (
     <form
       ref={form}
@@ -1420,12 +1448,14 @@ export function Composer({
         chat={snapshot.summary?.sessionId || sessionId}
         queue={snapshot.queue}
         paused={snapshot.summary?.queuePaused === true}
+        {...(pauseReason ? { pauseReason } : {})}
         t={t}
         onRemove={onQueueRemove}
         onChange={onQueueChange}
         onLost={onQueueLost}
         onSideChat={onQueueSideChat}
         readImage={queueImage}
+        subsessions={queueSubsessions}
         onLeave={() => field.current?.focus()}
       />
       {context}
@@ -1466,6 +1496,7 @@ export function Composer({
         )}
         <AttachmentStrip
           attachments={attachments}
+          pending={pending}
           {...(attachError ? { error: attachError } : {})}
           dropping={dropping}
           codex={snapshot.summary?.family === "codex" || snapshot.summary?.harness === "codex"}
