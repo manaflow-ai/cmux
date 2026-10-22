@@ -20,6 +20,18 @@ pub(crate) struct HostLivenessLease {
 
 impl HostLivenessLease {
     pub(crate) fn acquire(path: PathBuf) -> anyhow::Result<Self> {
+        let (lease, unsynced) = Self::acquire_deferring_sync(path)?;
+        if let Some(file) = unsynced {
+            barrier_sync(&file)?; // why no full sync: barrier_sync.rs
+        }
+        Ok(lease)
+    }
+
+    /// [`Self::acquire`] that leaves its barrier sync to the caller: the
+    /// returned duplicate, which a new host syncs after its Ready, off its
+    /// terminal's first output (new-terminal-100x). Liveness probes read the
+    /// flock, which holds at once; the sync only orders the file's creation.
+    pub(crate) fn acquire_deferring_sync(path: PathBuf) -> anyhow::Result<(Self, Option<File>)> {
         let file = OpenOptions::new()
             .read(true)
             .write(true)
@@ -34,8 +46,8 @@ impl HostLivenessLease {
             let _ = fs::remove_file(&path);
             return Err(error.into());
         }
-        barrier_sync(&file)?; // why no full sync: barrier_sync.rs
-        Ok(Self { file, path })
+        let unsynced = file.try_clone()?;
+        Ok((Self { file, path }, Some(unsynced)))
     }
 }
 
