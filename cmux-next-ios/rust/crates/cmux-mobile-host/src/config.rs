@@ -188,6 +188,9 @@ impl HostConfig {
                 std::sync::Arc::new(|event| crate::control::emit(&event)),
             )
             .with_identity(supplied.identity.clone())
+            .with_push_keys(std::sync::Arc::new(crate::push_keys::PushKeys::load(
+                default_state_dir().join("push-keys.json"),
+            )))
         });
         let max_tabs = env("CMUX_MOBILE_RB_MAX_TABS").and_then(|v| v.parse().ok()).unwrap_or(4);
         let browser = match (&supplied, env("CMUX_MOBILE_RB_HOST")) {

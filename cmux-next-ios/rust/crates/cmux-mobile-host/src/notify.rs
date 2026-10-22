@@ -327,11 +327,17 @@ pub fn enabled() -> bool {
 }
 
 /// Runs until the process stops: watch acpmux, report events, reconnect.
-pub async fn run(base_url: String, device_id: String, tokens: Arc<Tokens>, acpmux: AcpmuxTarget) {
+pub async fn run(
+    base_url: String,
+    device_id: String,
+    tokens: Arc<Tokens>,
+    acpmux: AcpmuxTarget,
+    sealer: Option<Arc<crate::sealed_notify::Sealer>>,
+) {
     let mut classifier = Classifier::default();
     let mut backoff = Duration::from_secs(2);
     loop {
-        match watch_once(&base_url, &device_id, &tokens, &acpmux, &mut classifier).await {
+        match watch_once(&base_url, &device_id, &tokens, &acpmux, &sealer, &mut classifier).await {
             Ok(()) => backoff = Duration::from_secs(2),
             Err(reason) => {
                 tracing::debug!(reason, "push watch ended");
@@ -345,7 +351,7 @@ pub async fn run(base_url: String, device_id: String, tokens: Arc<Tokens>, acpmu
                 Some(at) if at < until => {
                     tokio::time::sleep_until(at).await;
                     for event in classifier.due(Instant::now()) {
-                        report(&base_url, &device_id, &tokens, event);
+                        report(&base_url, &device_id, &tokens, &sealer, event);
                     }
                 }
                 _ => break tokio::time::sleep_until(until).await,
@@ -359,6 +365,7 @@ async fn watch_once(
     device_id: &str,
     tokens: &Arc<Tokens>,
     acpmux: &AcpmuxTarget,
+    sealer: &Option<Arc<crate::sealed_notify::Sealer>>,
     classifier: &mut Classifier,
 ) -> Result<(), String> {
     let socket = crate::services::connect_acpmux(acpmux).await.map_err(|r| r.reason)?;
@@ -382,7 +389,7 @@ async fn watch_once(
                 }
             } => {
                 for event in classifier.due(Instant::now()) {
-                    report(base_url, device_id, tokens, event);
+                    report(base_url, device_id, tokens, sealer, event);
                 }
                 continue;
             }
@@ -401,21 +408,34 @@ async fn watch_once(
             continue;
         }
         let Some(event) = classifier.handle(&value) else { continue };
-        report(base_url, device_id, tokens, event);
+        report(base_url, device_id, tokens, sealer, event);
     }
     Err("acpmux closed".into())
 }
 
 /// Sends one event to the backend in the background.
-fn report(base_url: &str, device_id: &str, tokens: &Arc<Tokens>, event: NotifyEvent) {
+fn report(
+    base_url: &str,
+    device_id: &str,
+    tokens: &Arc<Tokens>,
+    sealer: &Option<Arc<crate::sealed_notify::Sealer>>,
+    event: NotifyEvent,
+) {
     let tokens = Arc::clone(tokens);
+    let sealer = sealer.clone();
     let (base_url, device_id) = (base_url.to_owned(), device_id.to_owned());
     tokio::spawn(async move {
         let token = match tokens.access_token().await {
             Ok(token) => token,
             Err(error) => return tracing::warn!("no access token for a push ({error:#})"),
         };
-        match ApiClient::new(&base_url, &token).notify(&device_id, &event).await {
+        // Sealed to each paired phone's push key when it gave one (sealed_notify.rs).
+        let body = serde_json::to_value(&event).unwrap_or_default();
+        let body = match &sealer {
+            Some(sealer) => sealer.body(body).await,
+            None => body,
+        };
+        match ApiClient::new(&base_url, &token).notify_body(&device_id, &body).await {
             Ok(result) => tracing::info!(kind = event.kind, %result, "push reported"),
             Err(error) => tracing::warn!(kind = event.kind, %error, "push report failed"),
         }

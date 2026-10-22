@@ -288,6 +288,10 @@ async fn splice(
 ) -> Result<(), Refusal> {
     // The daemon lane: a phone's new terminal opens in its pane's folder (with_pane_folder).
     let terminal_folders = matches!(policy, LinePolicy::Daemon(_)).then(|| path.to_path_buf());
+    let reply_phone = match &policy {
+        LinePolicy::Daemon(daemon) => Some(daemon.device_id().to_owned()),
+        LinePolicy::Chief(_) => None,
+    };
     let socket = UnixStream::connect(path)
         .await
         .map_err(|e| Refusal::new("unavailable", format!("cmux-tui session {label}: {e}")))?;
@@ -340,6 +344,21 @@ async fn splice(
                     }
                     (_, verdict) => verdict,
                 };
+                // A reply to a terminal notification: hostd answers it itself
+                // (the daemon has no such command), into that terminal only.
+                if matches!(verdict, Verdict::Forward)
+                    && let (Some(path), Some(phone)) = (&terminal_folders, &reply_phone)
+                    && is_notification_reply(&line)
+                {
+                    let mut answer = crate::mailbox_apply::answer_notification_reply(path, phone, &line)
+                        .await
+                        .into_bytes();
+                    answer.push(b'\n');
+                    if refusals.send(answer).await.is_err() {
+                        return;
+                    }
+                    continue;
+                }
                 match verdict {
                     Verdict::Forward => {
                         if let Some(path) = &terminal_folders {
@@ -407,6 +426,13 @@ async fn splice(
     to_daemon.abort();
     from_daemon.abort();
     Ok(())
+}
+
+/// Whether `line` is a `notification-reply` request.
+fn is_notification_reply(line: &[u8]) -> bool {
+    serde_json::from_slice::<Value>(line)
+        .ok()
+        .is_some_and(|v| v.get("cmd").and_then(Value::as_str) == Some("notification-reply"))
 }
 
 /// The acpmux WebSocket address and token.
