@@ -47,6 +47,39 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
+        Command::ResumeQueue { session } => {
+            let client = connect(true).await?;
+            let id = resolve_id(&client, &session).await?;
+            let info = client.request(method::MUX_INFO, json!({"sessionId": id})).await?;
+            // `_acpmux/queue_edit` `resume` names the queue by any of its prompts: a held one.
+            let held = info["queue"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|q| q["held"] == true)
+                .and_then(|q| q["promptId"].as_str())
+                .map(str::to_owned);
+            let resumed = match held {
+                Some(prompt_id) => {
+                    let v = client
+                        .request(
+                            method::MUX_QUEUE_EDIT,
+                            json!({"sessionId": id, "promptId": prompt_id, "op": "resume"}),
+                        )
+                        .await?;
+                    v["ok"] == true
+                }
+                None => false,
+            };
+            if json_out {
+                print_json(&json!({"sessionId": id, "resumed": resumed}));
+            } else if resumed {
+                println!("resumed");
+            } else {
+                println!("nothing is held");
+            }
+            Ok(())
+        }
         Command::Rename { session, new_name } => {
             let client = connect(true).await?;
             let id = resolve_id(&client, &session).await?;
@@ -386,6 +419,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             let client = connect(true).await?;
             let v = match cmd {
                 PeerCmd::Add { name, url, token } => {
+                    let url = url.unwrap_or_else(|| format!("ssh://{name}"));
                     let mut p = json!({"name": name, "url": url});
                     if let Some(t) = token {
                         p["token"] = json!(t);
@@ -435,6 +469,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 PeerCmd::Candidates { probe } => {
                     return crate::cli::host_candidates::run(&client, probe, json_out).await;
                 }
+                PeerCmd::Ticket(cmd) => {
+                    return crate::cli::pairing::ticket(client, cmd, json_out).await;
+                }
+                PeerCmd::Join { ticket, name, peer_name, advertise } => {
+                    let args = crate::cli::pairing::JoinArgs { ticket, name, peer_name, advertise };
+                    return crate::cli::pairing::join(client, args, json_out).await;
+                }
             };
             if json_out {
                 print_json(&v);
@@ -442,14 +483,14 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             let peers = v.get("peers").and_then(Value::as_array).cloned().unwrap_or_default();
             if peers.is_empty() {
-                println!("no peers (add one: acpmux peer add sandbox-a ws://host:47811 --token T)");
+                println!("no peers (add one: acpmux host add HOST)");
             }
             for p in peers {
                 let state = crate::peer_link::state_label(&p, crate::store::now_ms());
                 let build = p.get("remoteBuild").and_then(Value::as_str).unwrap_or("");
                 let outdated = p.get("outdated").and_then(Value::as_bool).unwrap_or(false);
                 println!(
-                    "{:<16} {:<10} {:>3} sessions  {:<24} {}{}{}",
+                    "{:<16} {:<10} {:>3} sessions  {:<24} {}{}{}{}",
                     p.get("name").and_then(Value::as_str).unwrap_or(""),
                     state,
                     p.get("sessions").and_then(Value::as_u64).unwrap_or(0),
@@ -463,6 +504,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     p.get("error")
                         .and_then(Value::as_str)
                         .map(|e| format!("  ({e})"))
+                        .unwrap_or_default(),
+                    // A user or port: another account's or another daemon on that machine.
+                    p.get("canonicalEndpoint")
+                        .and_then(Value::as_str)
+                        .map(|c| format!("  (not the canonical endpoint {c})"))
                         .unwrap_or_default(),
                 );
             }
