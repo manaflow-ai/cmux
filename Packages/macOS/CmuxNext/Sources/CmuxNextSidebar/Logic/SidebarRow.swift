@@ -13,6 +13,8 @@ public nonisolated enum SidebarRowKey: Hashable, Sendable {
     case emptySection(SectionID)
     /// Group by Folder's header over one folder's loose rows ("" = none).
     case folder(SectionID, String)
+    /// Group by Status's header over one status section's rows (`SidebarLayout+Status`).
+    case status(SidebarStatusSection)
     /// A document item listed as a row (`SidebarNode.item`): its item id.
     case item(String)
     /// A document section's items in its own arrangement (tiles, a grid, a
