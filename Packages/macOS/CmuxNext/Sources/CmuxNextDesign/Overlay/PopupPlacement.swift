@@ -21,7 +21,8 @@ public nonisolated struct PopupPlacement {
         let height = max(0, min(size.height, room(side)))
         let width = min(size.width, screen.width - 2 * margin)
         let y = side == .below ? anchor.minY - gap - height : anchor.maxY + gap
-        let leading = centered ? anchor.midX - width / 2 : trailing ? anchor.maxX - width : anchor.minX
+        // A centered card starts on a whole point, so `integral` never widens it past its content.
+        let leading = centered ? (anchor.midX - width / 2).rounded() : trailing ? anchor.maxX - width : anchor.minX
         let x = min(max(screen.minX + margin, leading), screen.maxX - margin - width)
         return (CGRect(x: x, y: y, width: width, height: height).integral, side)
     }
