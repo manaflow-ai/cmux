@@ -155,9 +155,18 @@ public final class AppStoreModel {
     /// The App Store's title (window and tab).
     public static var title: String { AppsStrings.windowTitle }
 
-    /// Shows `appID`'s listing, else `tab` when given (`appStore.show` with `tab`).
-    public func present(appID: String?, tab: Tab?) {
-        if let appID { open(appID: appID) } else if let tab { show(tab) }
+    /// Shows `appID`'s listing, else Features in `category` (New Tab's + in its edit mode), else
+    /// `tab` when given (`appStore.show` with `tab` or `category`).
+    public func present(appID: String?, tab: Tab?, category: AppFeature.Category? = nil) {
+        if let appID {
+            open(appID: appID)
+        } else if let category {
+            show(.features)
+            query = ""
+            featureCategory = category
+        } else if let tab {
+            show(tab)
+        }
     }
 
     /// Opens a listing (`appStore.show` with `app`): clears filters so it shows.
