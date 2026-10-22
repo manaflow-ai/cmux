@@ -68,6 +68,9 @@ final class FindSectionView: NSView, RightSidebarRefreshing, NSTableViewDataSour
         table.headerView = nil
         table.rowHeight = 34
         table.style = .sourceList
+        // A source list paints the system sidebar gray; the section sits on the window's ground like
+        // the sidebar, so the search strip and the results read as one surface.
+        table.backgroundColor = .clear
         table.dataSource = self
         table.delegate = self
         table.target = self
