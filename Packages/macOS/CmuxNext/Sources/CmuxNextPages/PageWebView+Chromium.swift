@@ -34,8 +34,12 @@ extension PageWebView {
             // its own reason, any other one is on WebKit because Chromium is missing.
             return PageEnginePolicy(preference: .chromium, chromiumAvailable: false).decide(for: descriptor, options: options)
         }
+        // A live web override reaches only WebKit pages; deciding also arms its watch, so a launch
+        // whose first page is a Chromium one still reads web-dev.json.
+        WebDevOverrideWatcher.shared.start()
         return PageEnginePolicy(preference: hosting.preference, chromiumAvailable: hosting.isAvailable,
-                                chromiumServes: hosting.serves(descriptor)).decide(for: descriptor, options: options)
+                                chromiumServes: hosting.serves(descriptor),
+                                liveWebOverride: WebDevOverride.current.isActive).decide(for: descriptor, options: options)
     }
 
     /// The view that takes the keyboard when the page is focused: Chromium's view or the WebKit view.
