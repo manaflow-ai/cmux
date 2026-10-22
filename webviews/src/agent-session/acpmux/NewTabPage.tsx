@@ -27,8 +27,10 @@ import {
   type AcpmuxSessionEntry,
 } from "./sessionList";
 import { type StringKey, type Translate, translate, useT } from "./i18n";
+import { parsePageWidgets, type PageWidget } from "./newtab/pageWidgets";
 import { parseNewTabTemplate, type NewTabTemplate } from "./newtab/templates";
 import { seedWarmNewTab } from "./newtab/warmSnapshot";
+import { usePasteAnywhere } from "./composer/pasteAnywhere";
 
 /// The three things a new tab can become (#16620). Order is the switch's order and Tab's cycle.
 export const TAB_KINDS = ["terminal", "browser", "agent"] as const;
@@ -99,6 +101,9 @@ export type NewTabHost = {
   history?: boolean;
   /// The widget view under the composer (Debug Settings `newTab.widgets`, newtab/WidgetCards.tsx).
   widgets?: boolean;
+  /// The Minimal layout's widgets the user turned on (`tabs.newTabWidgets.*`, newtab/pageWidgets.ts);
+  /// unset is Settings' defaults (the greeting).
+  pageWidgets?: PageWidget[];
   /// The page lists only its own connection's chats, not the store every page shares (Debug
   /// Settings `newTab.privateChatLists`, newtab/chatStore.ts).
   privateChatLists?: boolean;
@@ -128,6 +133,7 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
   const omnibar = omnibarContext(object.omnibar);
   const openTabs = Array.isArray(object.openTabs) ? omnibarContext({ tabs: object.openTabs })?.tabs : undefined;
   const template = parseNewTabTemplate(object.template);
+  const pageWidgets = parsePageWidgets(object.pageWidgets);
   return {
     hotkeys,
     initialKind,
@@ -151,6 +157,7 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
     ...(object.focusesField === false ? { focusesField: false } : {}),
     ...(object.history === true ? { history: true } : {}),
     ...(object.widgets === true ? { widgets: true } : {}),
+    ...(pageWidgets ? { pageWidgets } : {}),
     ...(object.privateChatLists === true ? { privateChatLists: true } : {}),
     ...(object.allChats === false ? { allChats: false as const } : {}),
   };
@@ -316,6 +323,16 @@ export function NewTabPage({
   // The kind a prefix switched from, so Backspace in the empty field switches back.
   const [beforePrefix, setBeforePrefix] = useState<TabKind>();
   const field = useRef<HTMLInputElement>(null);
+  // Cmd-V anywhere on the page outside a text field (a row, a card, the empty page) goes into the
+  // field, caret at the end, as in a chat (composer/pasteAnywhere.ts; Leo 2026-10-22: "cmd v anywhere
+  // in chat should put it in chat").
+  usePasteAnywhere(() => {
+    const input = field.current;
+    if (!input) return false;
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+    return true;
+  });
   const composing = useRef(false);
   const recent = useMemo(() => recentSessions(snapshot.sessions), [snapshot.sessions]);
   // The suggestions float over the page under the field (cx-6k6cg), so they show only while the

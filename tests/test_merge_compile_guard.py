@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
-"""merge_compile_guard: a hand merge of a feat-cmux-next PR that changes Swift waits for its Release compile.
+"""merge_compile_guard: a hand merge of a feat-cmux-next PR that changes Swift is refused only once its compile
+finished red; a compile still pending, and the guard's own slow or failed read, are warnings.
 
-On 2026-10-21 (UTC) #22835, #21480 and #21487 were merged with `gh pr merge` while their compile was pending.
+On 2026-10-21 (UTC) #22835, #21480 and #21487 were merged with `gh pr merge` while their compile was pending. Later
+that day, under load on cosmic-gray, the guard's GitHub reads timed out and refused #23660 and #23371 for hours with
+every gate met (Leo: "IF THE MERGE HOOK IS WRONG THEN JUST FUCKING MERGE").
 """
 from __future__ import annotations
 
@@ -12,6 +15,7 @@ import subprocess
 import sys
 import tempfile
 import textwrap
+import time
 import unittest
 from pathlib import Path
 
@@ -43,6 +47,38 @@ class Verdict(unittest.TestCase):
         # A rerun that passed after a red counts.
         self.assertEqual(guard.verdict(pr(), SWIFT, [check(COMPILE, conclusion="failure"), check(COMPILE)]), "")
 
+    def test_only_a_compile_that_finished_red_refuses(self):
+        """Everything else is a Hold: the hook says it and the merge goes ahead (HQ's landing gate does the same)."""
+        for checks in ([], [check(COMPILE, "queued")], [check(COMPILE, "in_progress")],
+                       [check("cmux-next path routing", "in_progress")], [check(COMPILE, conclusion="cancelled")],
+                       [check(guard.FLEET_COMPILE, conclusion="cancelled")]):
+            with self.subTest(checks=checks):
+                self.assertIsInstance(guard.verdict(pr(), SWIFT, checks), guard.Hold)
+        for checks in ([check(COMPILE, conclusion="failure")], [check(COMPILE, conclusion="timed_out")],
+                       [check(guard.FLEET_COMPILE, conclusion="failure")],
+                       [check(COMPILE, conclusion="failure"), check(COMPILE, "queued")]):
+            with self.subTest(checks=checks):
+                why = guard.verdict(pr(), SWIFT, checks)
+                self.assertTrue(why)
+                self.assertNotIsInstance(why, guard.Hold)
+
+    def test_a_red_fleet_compile_refuses_even_with_a_release_compile_queued(self):
+        """Codex review of #24265: the red check read only Release attempts, so a failed build-fleet compile next to
+        a queued Release compile read as a wait and became a warning, and a fleet pass on the head could silence it."""
+        fleet = guard.FLEET_COMPILE
+        for runs in ([check(fleet, conclusion="failure"), check(COMPILE, "queued")],
+                     [check(fleet, conclusion="failure"), check(COMPILE, "in_progress")],
+                     [check(fleet, conclusion="timed_out"), check("cmux-next path routing", "in_progress")]):
+            with self.subTest(runs=runs):
+                self.assertFalse(guard.compile_wait(runs))
+                for fleet_passed in (False, True):
+                    why = guard.verdict(pr(), SWIFT, runs, fleet_passed=fleet_passed)
+                    self.assertIn(f"{fleet} finished", why)
+                    self.assertNotIsInstance(why, guard.Hold)
+        # A passing rerun of either compile clears it.
+        self.assertEqual(guard.verdict(pr(), SWIFT, [check(fleet, conclusion="failure"), check(fleet)]), "")
+        self.assertEqual(guard.verdict(pr(), SWIFT, [check(fleet, conclusion="failure"), check(COMPILE)]), "")
+
     def test_a_compile_not_created_yet_waits_while_cmux_next_routes_and_places(self):
         for job in guard.ROUTING:
             with self.subTest(job=job):
@@ -51,6 +87,29 @@ class Verdict(unittest.TestCase):
         # cmux-next finished routing without a compile, or never ran on this head.
         self.assertEqual(guard.verdict(pr(), SWIFT, [check("cmux-next path routing")]), "")
         self.assertEqual(guard.verdict(pr(), SWIFT, [check("web / lint")]), "")
+
+    def test_a_prs_build_fleet_compile_stands_in_for_its_skipped_release_compile(self):
+        # A same-repository PR compiles on the build fleet; its Mac Release compile runs only with no fleet verdict.
+        fleet = guard.FLEET_COMPILE
+        self.assertIn(fleet, guard.ROUTING)
+        self.assertIn("has not created", guard.verdict(pr(), SWIFT, [check(fleet, "in_progress")]))
+        self.assertEqual(guard.verdict(pr(), SWIFT, [check(fleet), check(COMPILE, conclusion="skipped")]), "")
+        for conclusion in ("failure", "timed_out"):
+            with self.subTest(conclusion=conclusion):
+                runs = [check(fleet, conclusion=conclusion), check(COMPILE, conclusion="skipped")]
+                self.assertIn(f"{fleet} finished {conclusion}", guard.verdict(pr(), SWIFT, runs))
+                self.assertIn(f"{fleet} finished {conclusion}", guard.verdict(pr(), SWIFT, runs, fleet_passed=True))
+        # A run cancelled while the fleet compiled leaves no verdict at all (the Release compile skips on a
+        # cancelled run): that is no compile, not a pass, and a fleet pass on the exact head stands in.
+        stopped = [check(fleet, conclusion="cancelled"), check(COMPILE, conclusion="skipped")]
+        self.assertIn(f"{fleet} was cancelled", guard.verdict(pr(), SWIFT, stopped))
+        self.assertTrue(guard.compile_wait(stopped))
+        self.assertEqual(guard.verdict(pr(), SWIFT, stopped, fleet_passed=True), "")
+        # A rerun that passed after the cancel counts.
+        self.assertEqual(guard.verdict(pr(), SWIFT, stopped + [check(fleet)]), "")
+        # No fleet verdict: the Mac Release compile that ran instead decides.
+        self.assertEqual(guard.verdict(pr(), SWIFT, [check(fleet), check(COMPILE)]), "")
+        self.assertIn("still running", guard.verdict(pr(), SWIFT, [check(fleet), check(COMPILE, "queued")]))
 
     def test_what_the_compile_does_not_cover_is_not_held(self):
         # The router skipped it (iOS, a package outside the graph, a fork).
@@ -122,6 +181,32 @@ class FleetCompileCheck(unittest.TestCase):
         why = guard.verdict(pr(), SWIFT, [check(COMPILE, "queued")])
         self.assertIn(f"cmux-ci compile-check --ref {HEAD} --app", why)
         self.assertNotIn("gh workflow run", why)
+
+    def test_a_missing_compile_result_names_the_fleet_compile_check_first(self):
+        """COMMON.md: the default path is a fleet compile-check on the dev-build workers, not waiting on the Mac
+        Release compile."""
+        for checks in ([], [check(COMPILE, "queued")], [check("cmux-next path routing", "in_progress")]):
+            why = guard.verdict(pr(), SWIFT, checks)
+            run = f"cmux-ci compile-check --ref {HEAD} --app"
+            self.assertIn(run, why)
+            self.assertIn("fleet dev-build workers", why)
+            self.assertLess(why.index(run), why.index(COMPILE), why)
+
+    def test_the_fleet_compile_check_refusal_reads_whole_with_several_or_oddly_named_swift_files(self):
+        """The refusal is built from its parts: a second file (" and more") or a path holding " and " can't split it."""
+        base = "Packages/macOS/CmuxNext/Sources/"
+        for swift, what in (([base + "A.swift", base + "B.swift"], f"({base}A.swift and more)"),
+                            ([base + "Find and Replace.swift"], f"({base}Find and Replace.swift)")):
+            why = guard.verdict(pr(), swift, [])
+            self.assertTrue(why.startswith(f"#7 changes Swift {what} and {HEAD[:12]} has no compile result yet."), why)
+            self.assertTrue(why.endswith(f"({HEAD[:12]} has no checks yet, so no {COMPILE} either.)"), why)
+            self.assertEqual(why.count("cmux-ci compile-check"), 1, why)
+
+    def test_a_refusal_names_the_cause_of_its_own_read_not_an_earlier_one(self):
+        guard.run(["false"])
+        self.assertTrue(guard.FAILED)
+        self.assertEqual(guard.run(["true"]), "")
+        self.assertEqual(guard.FAILED, [])
 
     def test_the_workflow_posts_the_status_the_guard_reads_on_the_sha_it_was_given(self):
         text = (ROOT / ".github/workflows" / guard.FLEET_WORKFLOW).read_text()
@@ -396,37 +481,55 @@ class Targets(unittest.TestCase):
         reader = lambda *a: self.fail("read another repo")  # noqa: E731
         self.assertEqual(guard.refusal("gh pr merge 662 -R teamleaderleo/leo-workspace --squash", None, reader), "")
 
-    def test_a_merge_in_a_checkout_it_cannot_read_is_refused_unless_it_names_the_repo(self):
+    def test_a_merge_in_a_checkout_it_cannot_read_is_a_warning_unless_it_names_the_repo(self):
         for command in ('ssh host "cd wt && gh pr merge 5"', 'cd "$WT" && gh pr merge 5'):
             with self.subTest(command=command):
                 self.assertEqual(guard.merge_targets(command, "/tmp")[0][2], guard.REMOTE)
-                self.assertIn("can't read", guard.refusal(command, "/tmp", lambda *a: self.fail("read")))
+                why = guard.refusal(command, "/tmp", lambda *a: self.fail("read"))
+                self.assertIn("can't read", why)
+                self.assertIsInstance(why, guard.Hold)
         self.assertEqual(guard.refusal('ssh host "gh pr merge 5 -R manaflow-ai/cmux"', "/tmp", lambda *a: ""), "")
         # Unquoted, ssh joins the words into the remote command.
         self.assertEqual(guard.merge_targets("ssh -p 22 cmux16 gh pr merge 5 -R manaflow-ai/cmux", "/tmp"),
                          [("manaflow-ai/cmux", "5", guard.REMOTE)])
 
-    def test_a_merge_whose_checkout_cannot_be_read_is_refused(self):
+    def test_a_merge_whose_checkout_cannot_be_read_is_a_warning(self):
         # Out of time (or no git): the checkout's repository is unknown, so the merge can't be judged.
         spent = guard.STARTED
         try:
             guard.STARTED = guard.time.monotonic() - guard.BUDGET
-            self.assertIn("can't tell which repository", guard.refusal("gh pr merge 5 --squash", "/tmp",
-                                                                      lambda *a: self.fail("read")))
+            why = guard.refusal("gh pr merge 5 --squash", "/tmp", lambda *a: self.fail("read"))
+            self.assertIn("can't tell which repository", why)
+            self.assertIsInstance(why, guard.Hold)
         finally:
             guard.STARTED = spent
 
-    def test_a_merge_it_cannot_name_is_refused(self):
+    def test_a_merge_it_cannot_name_is_a_warning(self):
         why = guard.refusal('gh pr merge "$PR" -R manaflow-ai/cmux', None, lambda *a: self.fail("read"))
         self.assertIn("can't name", why)
+        self.assertIsInstance(why, guard.Hold)
+
+    def test_a_warning_never_hides_a_red_compile_later_in_the_command(self):
+        red = "#5 changes Swift (A.swift) and its compile finished failure on cccccccccccc."
+        why = guard.refusal('gh pr merge "$PR" -R manaflow-ai/cmux; gh pr merge 5 -R manaflow-ai/cmux', None,
+                            lambda *a: red)
+        self.assertEqual(why, f"merge-compile-guard: {red}")
+        self.assertNotIsInstance(why, guard.Hold)
+        held = guard.refusal("gh pr merge 5 -R manaflow-ai/cmux", None, lambda *a: guard.Hold("still running"))
+        self.assertIsInstance(held, guard.Hold)
 
 
-def fake_gh(bin_dir: Path, answers: dict[str, str], log: Path) -> None:
-    """A `gh` that prints answers[<the first argument that names an endpoint>] and logs its argv."""
+def fake_gh(bin_dir: Path, answers: dict[str, str], log: Path, throttle: float = 0, sleep: float = 0) -> None:
+    """A `gh` that prints answers[<the first argument that names an endpoint>] and logs its argv. throttle: seconds
+    it sleeps first unless CMUX_GH_GUARD_DISABLE=1, as the PATH guard ~/.local/lib/cmux-local-build-guards/gh does
+    for a read its caller repeats within 30 s; sleep: seconds it sleeps whatever the environment (a slow GitHub)."""
     script = bin_dir / "gh"
     script.write_text(textwrap.dedent(f"""\
         #!{sys.executable}
-        import json, sys
+        import json, os, sys, time
+        if os.environ.get("CMUX_GH_GUARD_DISABLE") != "1":
+            time.sleep({throttle})
+        time.sleep({sleep})
         args = sys.argv[1:]
         with open({str(log)!r}, "a") as f:
             f.write(json.dumps(args) + "\\n")
@@ -442,8 +545,24 @@ def fake_gh(bin_dir: Path, answers: dict[str, str], log: Path) -> None:
 
 
 class Hook(unittest.TestCase):
+    @staticmethod
+    def denial(out) -> str | None:
+        """The hook's refusal, or None when the command goes ahead (with or without a warning)."""
+        decision = (out or {}).get("hookSpecificOutput") or {}
+        return decision.get("permissionDecisionReason") if decision.get("permissionDecision") == "deny" else None
+
+    def warning(self, out) -> str:
+        """What the hook says about a merge it lets through: shown to the person and added to the agent's context."""
+        self.assertIsNotNone(out)
+        self.assertIsNone(self.denial(out), out)
+        self.assertNotIn("permissionDecision", out["hookSpecificOutput"])
+        self.assertEqual(out["systemMessage"], out["hookSpecificOutput"]["additionalContext"])
+        self.assertIn("merging anyway", out["systemMessage"])
+        return out["systemMessage"]
+
     def run_hook(self, command: str, compile_state: tuple[str, str | None] | None, statuses=None, fleet_runs=None,
-                 other_statuses=None, on_base="ahead", head=HEAD, cmux_ci_jobs=(), cmux_ci_receipts=None):
+                 other_statuses=None, on_base="ahead", head=HEAD, cmux_ci_jobs=(), cmux_ci_receipts=None,
+                 gh_throttle=0, gh_sleep=0, env_extra=None):
         """statuses: the head's fleet/compile-check statuses; fleet_runs: {run id: fleet_run()}; other_statuses:
         statuses on another sha; cmux_ci_jobs, cmux_ci_receipts: what the controller holds (fake_cmux_ci)."""
         with tempfile.TemporaryDirectory() as tmp:
@@ -473,22 +592,29 @@ class Hook(unittest.TestCase):
             answers["repos/manaflow-ai/cmux/branches/feat-cmux-next"] = json.dumps(TIP)
             if on_base:
                 answers[f"repos/manaflow-ai/cmux/compare/{RUN_SHA}...{TIP}"] = json.dumps(on_base)
-            fake_gh(bin_dir, answers, log)
+            fake_gh(bin_dir, answers, log, throttle=gh_throttle, sleep=gh_sleep)
             client = fake_cmux_ci(bin_dir, list(cmux_ci_jobs) if cmux_ci_jobs is not None else None,
                                   cmux_ci_receipts or {JOB_23606["id"]: RECEIPTS_23606}, log)
             payload = json.dumps({"tool_name": "Bash", "cwd": str(tmp), "tool_input": {"command": command}})
-            env = {**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}", "CMUX_CI_CLIENT": str(client)}
+            env = {**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}", "CMUX_CI_CLIENT": str(client),
+                   **(env_extra or {})}
+            env.pop("CMUX_GH_GUARD_DISABLE", None)
             done = subprocess.run(["bash", str(HOOK)], input=payload, capture_output=True, text=True, env=env,
                                   timeout=60)
             self.assertEqual(done.returncode, 0, done.stderr)
             calls = log.read_text().splitlines() if log.exists() else []
             return (json.loads(done.stdout) if done.stdout.strip() else None), calls
 
-    def test_a_merge_with_the_compile_pending_is_refused(self):
+    def test_a_merge_with_the_compile_pending_goes_ahead_with_a_warning(self):
         out, _ = self.run_hook("gh pr merge 22835 -R manaflow-ai/cmux --squash", ("in_progress", None))
-        decision = out["hookSpecificOutput"]
-        self.assertEqual(decision["permissionDecision"], "deny")
-        self.assertIn("#22835 changes Swift", decision["permissionDecisionReason"])
+        why = self.warning(out)
+        self.assertIn("#22835 changes Swift", why)
+        self.assertIn("still running", why)
+
+    def test_a_merge_after_a_red_compile_is_refused(self):
+        out, _ = self.run_hook("gh pr merge 22835 -R manaflow-ai/cmux --squash", ("completed", "failure"))
+        self.assertIn("#22835 changes Swift", self.denial(out))
+        self.assertIn("finished failure", self.denial(out))
 
     def test_a_merge_after_a_green_compile_goes_ahead(self):
         out, calls = self.run_hook("gh pr merge 22835 -R manaflow-ai/cmux --squash", ("completed", "success"))
@@ -498,15 +624,33 @@ class Hook(unittest.TestCase):
     def test_a_bare_merge_checks_the_checkouts_branch(self):
         """gh refuses `pr view -R` without a selector, so the branch is looked up in the checkout."""
         out, calls = self.run_hook("gh pr merge --squash 2>&1", ("in_progress", None))
-        self.assertIn("#22835 changes Swift", out["hookSpecificOutput"]["permissionDecisionReason"])
+        self.assertIn("#22835 changes Swift", self.warning(out))
         view = [json.loads(c) for c in calls if json.loads(c)[:2] == ["pr", "view"]]
         self.assertEqual(view, [["pr", "view", "--json", "number"]])
         out, _ = self.run_hook("gh pr merge --squash", ("completed", "success"))
         self.assertIsNone(out)
 
-    def test_an_unreadable_github_refuses(self):
+    def test_the_gh_guards_repeat_throttle_does_not_slow_the_guard(self):
+        """2026-10-21: the hook shares the session's CLAUDE_SESSION_ID, so after a lane's `gh pr view N` the PATH guard
+        held the hook's identical read up to 30 s and #23611's merges were refused as unreadable. The guard reads once
+        per merge and never polls: its reads skip the throttle."""
+        started = time.monotonic()
+        out, _ = self.run_hook("gh pr merge 22835 -R manaflow-ai/cmux --squash", ("completed", "success"), gh_throttle=30)
+        self.assertIsNone(out)
+        self.assertLess(time.monotonic() - started, 10)
+
+    def test_a_slow_github_lets_the_merge_through_and_says_it_timed_out(self):
+        """The guard's own read timing out is no evidence against the PR (#23660 and #23371, 2026-10-21)."""
+        out, _ = self.run_hook("gh pr merge 22835 -R manaflow-ai/cmux --squash", ("completed", "success"), gh_sleep=5,
+                               env_extra={"CMUX_MERGE_GUARD_GH_TIMEOUT": "1"})
+        why = self.warning(out)
+        self.assertIn("could not read #22835 from GitHub", why)
+        self.assertIn("did not answer within 1 s", why)
+        self.assertNotIn("rate limit", why)
+
+    def test_an_unreadable_github_lets_the_merge_through(self):
         out, _ = self.run_hook("gh pr merge 1 -R manaflow-ai/cmux --squash", None)
-        self.assertIn("could not read #1 from GitHub", out["hookSpecificOutput"]["permissionDecisionReason"])
+        self.assertIn("could not read #1 from GitHub", self.warning(out))
 
     MERGE = "gh pr merge 22835 -R manaflow-ai/cmux --squash"
 
@@ -519,15 +663,15 @@ class Hook(unittest.TestCase):
         # The pass was posted on another commit (an older head): the head has no status.
         out, _ = self.run_hook(self.MERGE, ("queued", None), statuses=[], other_statuses=[status()],
                                fleet_runs={99: fleet_run(sha="d" * 40)})
-        self.assertIn("still running", out["hookSpecificOutput"]["permissionDecisionReason"])
+        self.assertIn("still running", self.warning(out))
         # A status on the head that links a run which compiled another sha.
         out, _ = self.run_hook(self.MERGE, ("queued", None), statuses=[status()],
                                fleet_runs={99: fleet_run(sha="d" * 40)})
-        self.assertIn("still running", out["hookSpecificOutput"]["permissionDecisionReason"])
+        self.assertIn("still running", self.warning(out))
         # A run that names only a prefix of the head.
         out, _ = self.run_hook(self.MERGE, ("queued", None), statuses=[status()],
                                fleet_runs={99: fleet_run(sha=HEAD[:12])})
-        self.assertIn("still running", out["hookSpecificOutput"]["permissionDecisionReason"])
+        self.assertIn("still running", self.warning(out))
 
     def test_a_self_posted_or_unverified_fleet_status_does_not_count(self):
         cases = {
@@ -546,15 +690,14 @@ class Hook(unittest.TestCase):
         for name, (statuses, fleet_runs) in cases.items():
             with self.subTest(name):
                 out, _ = self.run_hook(self.MERGE, ("queued", None), statuses=statuses, fleet_runs=fleet_runs)
-                self.assertIsNotNone(out, name)
-                self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")
+                self.assertIn("no compile result yet", self.warning(out), name)
 
     def test_a_run_whose_workflow_commit_left_the_branch_does_not_count(self):
         for on_base in ("diverged", "behind", None):
             with self.subTest(on_base=on_base):
                 out, _ = self.run_hook(self.MERGE, ("queued", None), statuses=[status()],
                                        fleet_runs={99: fleet_run()}, on_base=on_base)
-                self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")
+                self.assertIn("no compile result yet", self.warning(out))
 
     def test_every_attempt_of_the_compile_is_read(self):
         out, calls = self.run_hook(self.MERGE, ("queued", None), statuses=[status()], fleet_runs={99: fleet_run()})
@@ -563,7 +706,7 @@ class Hook(unittest.TestCase):
     def test_a_fleet_pass_does_not_let_a_red_release_compile_merge(self):
         out, calls = self.run_hook(self.MERGE, ("completed", "failure"), statuses=[status()],
                                    fleet_runs={99: fleet_run()})
-        self.assertIn("finished failure", out["hookSpecificOutput"]["permissionDecisionReason"])
+        self.assertIn("finished failure", self.denial(out))
         self.assertFalse(any("statuses" in " ".join(json.loads(c)) for c in calls))
 
     def test_a_newer_unverified_status_does_not_hide_a_verified_pass(self):
@@ -581,13 +724,13 @@ class Hook(unittest.TestCase):
 
     def test_a_cmux_ci_pass_on_another_head_refuses_and_says_what_to_run(self):
         out, _ = self.run_hook(self.MERGE, ("queued", None), statuses=[], cmux_ci_jobs=[job()])
-        why = out["hookSpecificOutput"]["permissionDecisionReason"]
+        why = self.warning(out)
         self.assertIn("still running", why)
         self.assertIn(f"cmux-ci compile-check --ref {HEAD} --app", why)
 
     def test_a_cmux_ci_pass_does_not_let_a_red_release_compile_merge(self):
         out, calls = self.run_hook(self.MERGE, ("completed", "failure"), head=HEAD_23606, cmux_ci_jobs=[job()])
-        self.assertIn("finished failure", out["hookSpecificOutput"]["permissionDecisionReason"])
+        self.assertIn("finished failure", self.denial(out))
         self.assertNotIn(["cmux-ci", "status"], [json.loads(c) for c in calls])
 
     def test_an_unreachable_controller_falls_back_to_the_fleet_status(self):

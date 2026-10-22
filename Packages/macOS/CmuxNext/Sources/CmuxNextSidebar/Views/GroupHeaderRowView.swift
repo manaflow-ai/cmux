@@ -395,7 +395,8 @@ final class GroupHeaderRowView: SidebarRowView {
         // The cx-rcby chip: one full-width rounded bar, the row's full height like a workspace row's fill.
         pill.frame = NSRect(x: 0, y: 0, width: b.width, height: b.height)
         pill.cornerRadius = SidebarStyle.rowCornerRadius // one radius with the pinned and workspace rows
-        // The dot is centred on the group line's x, where the line starts (SidebarListView+GroupLines).
+        // The quiet styles' dot sits in the header's leading corner; the members' line runs just
+        // left of the rows (SidebarStyle.groupLineX), as the rows keep the ungrouped rows' left edge.
         let dotSide = SidebarStyle.groupDotSize
         dot.frame = CGRect(x: SidebarStyle.groupBarX + SidebarStyle.groupBarWidth / 2 - dotSide / 2, y: (b.height - dotSide) / 2,
                            width: dotSide, height: dotSide)

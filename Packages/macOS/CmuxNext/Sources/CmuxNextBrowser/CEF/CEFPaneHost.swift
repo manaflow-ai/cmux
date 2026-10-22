@@ -50,6 +50,7 @@ final class CEFPaneHost {
         self.lifecycleTrace = lifecycleTrace
         self.contextMenus = contextMenus
         hostView.liveResizeWillStart = { [weak self] in self?.visibleTab?.samplePageBackdrop() }
+        hostView.fileDrag.target = { [weak self] in self?.visibleTab }
     }
 
     /// The viewport of a tab no pane has shown (Playwright's default page

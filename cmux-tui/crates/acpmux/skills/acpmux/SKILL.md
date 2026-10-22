@@ -25,6 +25,10 @@ Inside cmux your `cmux-subsessions` MCP server starts children instead:
 `start_session` (with `worktree: true` for a worktree of its own),
 `list_sessions`, `get_session`, `wait_for_sessions`, `send_message` and
 `stop_session`. Prefer them when you have them; this CLI is the fallback.
+At most `maxRunning` of your sub-sessions run at once (16 unless the user
+changed it); a start past it is queued and starts by itself when one finishes.
+`list_sessions` (under `self`) or `acpmux session limits @` shows your limits
+and how many run and wait; only the user or your parent session raises them.
 A lane is different: an agent with its own worktree and brief that reports
 back to you and outlives you. Start it with the one launcher command in
 section 3 (`acpmux new --worktree … --prompt-file …`), not a hand-made
@@ -51,6 +55,19 @@ default) may you answer one marked `answerable` yourself with
 refused (`subsessions.answers_off`, `subsessions.not_a_question`). A
 permission request or a plan approval is never a question: only the user
 allows it, in cmux NEXT, so tell the user which sub-session waits.
+
+Your own questions follow the same split. The user allows tools through the
+chat's mode and the harness's permission prompts, and a chat in Full access
+(Claude Code `bypassPermissions`, Codex full access) has already allowed
+every tool call its harness would ask about. Never ask the user to allow,
+confirm or approve a step, with AskUserQuestion or in text ("allow this?",
+"should I go ahead?"): decide, say why in one line, and go on. Deciding never
+widens the task: a step a cmux skill keeps for the user's own request
+(computer use, importing a browser's cookies, deleting their data) waits for
+that request, and a cmux consent panel is theirs to answer; leave such a step
+out and say so. Ask only about product taste you cannot settle from the
+request or the code (how something should look, read or behave), and ask it
+as that choice, never as a permission.
 
 ## 2. Pick a harness and a model: `-m HARNESS[/MODEL]`
 
@@ -98,6 +115,7 @@ acpmux send NAME "next step"                       # stream the reply; -q for th
 acpmux send NAME --no-wait "…"                     # a message: steers into the running turn when the harness steers (read at its next tool boundary; never stops it), else queues; returns at once
 acpmux send NAME --no-wait --no-steer "…"          # queue behind the running turn instead
 acpmux send NAME --steer "…"                       # steer a send that waits for its reply (it queues by default)
+acpmux send NAME --no-wait --supersede KEY "…"     # replace your own prompt still queued under KEY (a correction is never read after the order it corrects); prints "replaced N queued", --json adds replaced and replacedPromptIds
 acpmux last NAME [-n 3]                            # last reply text
 acpmux history NAME                                # one line per turn: prompt, status, tools, tokens, wall time
 acpmux ls [--status running|ready|waiting|idle|closed] [--pending] [--tag k=v]
@@ -106,6 +124,7 @@ acpmux session set NAME model=… | effort=… | mode=… | policy=…
 acpmux session fork NAME [--name NEW]              # new session sharing the history so far
 acpmux session cancel NAME                         # stop the running turn; the session stays
 acpmux session restart NAME                        # restart its agent process after the turn, same conversation
+acpmux session resume NAME                         # run the prompts a failed turn held (no person needed)
 acpmux session kill --purge NAME                   # delete (only sessions you created)
 ```
 
@@ -152,6 +171,14 @@ acpmux run --on-permission deny|fail …       # never hang a script on a prompt
 (`cmux://needs-you/<permissionId>`). Put it in a reply to point the user at an
 open ask instead of restating it; cmux draws it as a chip that opens the ask in
 its Needs you list.
+
+Show UI instead of describing it. A reply in cmux draws `![alt](/abs/path.png)`,
+a bare image path (`.png`, `.jpg`, `.gif`, `.webp`), a `file://` URL or an
+https image address (a PR's `pr-media` link) as a thumbnail that opens full
+size on click. Two images in one paragraph, such as
+`![Before](/tmp/a.png) ![After](/tmp/b.png)` or `Before: /tmp/a.png` and
+`After: /tmp/b.png` on two lines, sit side by side. `#N`, `owner/repo#N`,
+`hq#N`, commit SHAs and `path/to/file.ts:42` become links.
 
 `--policy ask` sends every request to a human or to you; the other policies
 answer locally. Rules sit above the policy and match tool kind, title, and
