@@ -56,8 +56,8 @@ export function newTabScreenActions(deps: {
           return;
         }
         // The person picked this project (or kept the default) and sent: the next New Tab starts
-        // here (newtab/startedProject.ts). No project leaves the default as it was.
-        if (deps.startsHere?.() !== false) rememberStartedProject(folder, callNative);
+        // here (newtab/startedProject.ts). No project, or nothing sent, leaves the default as it was.
+        if ((text || attachments?.length) && deps.startsHere?.() !== false) rememberStartedProject(folder, callNative);
         ignore(
           callNative("chat.new", {
             harness,
