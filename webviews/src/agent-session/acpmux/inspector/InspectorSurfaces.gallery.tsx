@@ -2,12 +2,14 @@
 // The Inspector beside what the chat pane shows: the header with its toggle, the transcript, and a
 // turn's diff open in place over the pane (App.tsx DiffPanel). Leo, 2026-10-22, the Inspector over a
 // diff: "WHY DOES IT STAY ON IN THESE RANDOM SITUATIONS WITHOUT BEING CLOSABLE!?" The panel is the
-// real useChatInspector's, open as the viewer left it (inspectorState.ts), so each state shows where
-// it draws, and whether its toggle can be reached, with the surface under it.
+// real useChatInspector's, open as the viewer left it (inspectorState.ts), wired as App.tsx wires it
+// (`covered` while the diff is in place, `beside` with a document in the side panel), so each state
+// shows where it draws, and whether its toggle can be reached, with the surface under it.
 import { useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import { activity, chat, CWD, tool } from "../../../gallery/fixtures/acpmux";
+import { ArtifactPanel } from "../conversation/ArtifactPanel";
 import { DiffPanel } from "../DiffPanel";
 import { diffHunks, diffLines, type TurnFile } from "../diff";
 import { ChatHeaderTools } from "../header/ChatHeaderTools";
@@ -65,7 +67,14 @@ const TRANSCRIPT = [
   "Show me the diff.",
 ];
 
-type Surface = "transcript" | "diff";
+/// A document the chat produced, open in the side panel beside the chat.
+const DOCUMENT = {
+  kind: "markdown" as const,
+  lang: "markdown",
+  code: "# Lane briefs\n\n- app-efficiency: one perf harness first\n- sidebar-rows: new workspaces at the top\n",
+};
+
+type Surface = "transcript" | "diff" | "document";
 type Props = { surface: Surface };
 
 function GalleryPane({ surface: initial }: Props) {
@@ -76,8 +85,15 @@ function GalleryPane({ surface: initial }: Props) {
     return initial;
   });
   const [shell, setShell] = useState<HTMLElement | null>(null);
-  const inspector = useChatInspector({ snapshot, machineName: "Studio Mac", shell });
   const diff = surface === "diff";
+  const inspector = useChatInspector({
+    snapshot,
+    machineName: "Studio Mac",
+    shell,
+    covered: diff,
+    onUncover: () => setSurface("transcript"),
+    beside: surface === "document" ? 1 : undefined,
+  });
   return (
     <section
       className="acpmux-shell"
@@ -119,6 +135,7 @@ function GalleryPane({ surface: initial }: Props) {
         </div>
       </div>
       {inspector.panel}
+      {surface === "document" && <ArtifactPanel artifact={DOCUMENT} onClose={() => setSurface("transcript")} />}
     </section>
   );
 }
@@ -141,8 +158,12 @@ export default componentEntry<Props>({
       props: { surface: "transcript" },
     },
     "diff-in-place": {
-      note: "A turn's diff open in place over the pane, with the Inspector left open: the diff's toolbar and code lines, and where the Inspector is.",
+      note: "A turn's diff open in place over the pane, with the Inspector left open: the Inspector steps aside, so the diff's toolbar and code lines are clear. Its open state is kept.",
       props: { surface: "diff" },
+    },
+    "document-beside": {
+      note: "A document open in the side panel beside the chat: the Inspector measures the chat's room without it and pushes the chat, never lying over the document.",
+      props: { surface: "document" },
     },
     "diff-closed": {
       note: "The diff's back button returns to the transcript: the Inspector the viewer left open is there again.",

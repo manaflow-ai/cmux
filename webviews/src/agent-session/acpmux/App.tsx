@@ -4962,6 +4962,10 @@ function AcpmuxPane() {
   // Inspector draws): what its task row opens where its terminal cannot (a peer's or Cloud chat).
   const showCallRef = useRef<(toolCallId: string) => boolean>(() => false);
   const showCall = useCallback((toolCallId: string) => showCallRef.current(toolCallId), []);
+  const uncoverChat = useCallback(() => {
+    closeDiff();
+    closeInspector();
+  }, [closeDiff, closeInspector]);
   const inspector = useChatInspector({
     snapshot,
     machineName,
@@ -4986,6 +4990,11 @@ function AcpmuxPane() {
     // Quick Chat's panel has no room beside it for the side panel.
     onOpenDocument: quick ? undefined : openArtifact,
     onShowCall: quick ? undefined : showCall,
+    // A turn's diff in place and the event Inspector take the pane in the chat's place, its header
+    // and the toggle with it: the panel steps aside while they show, and opening it closes them.
+    covered: (diffView !== undefined && diffFiles !== undefined) || inspectorOpen,
+    onUncover: uncoverChat,
+    beside: artifact?.opened,
   });
   // The running line's counts (conversation/WorkingFor.tsx), with the tray off (Debug Settings):
   // the subagents still running, the background commands that have not ended and the started chats
