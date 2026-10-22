@@ -62,6 +62,24 @@ final class NewTabButtonView: NSView {
         if let rect = ClickableButton.cursorRect(of: self) { addCursorRect(rect, cursor: .pointingHand) }
     }
 
+    /// The hand while a Chromium page (a child window) has the key, where cursor rects do nothing.
+    private lazy var cursorTracker = ClickableCursorTracker(self) { true }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil { cursorTracker.install() }
+    }
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        super.viewWillMove(toWindow: newWindow)
+        cursorTracker.viewWillLeave()
+    }
+
+    override func viewDidHide() {
+        super.viewDidHide()
+        cursorTracker.viewWillLeave()
+    }
+
     override func setAccessibilityFocused(_ accessibilityFocused: Bool) {
         super.setAccessibilityFocused(accessibilityFocused)
         onAccessibilityFocus?(accessibilityFocused)
