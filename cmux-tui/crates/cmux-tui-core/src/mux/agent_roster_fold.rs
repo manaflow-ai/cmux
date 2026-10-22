@@ -54,7 +54,7 @@ impl Mux {
             && self
                 .workspace_registry
                 .lock()
-                .unwrap()
+                .unwrap_or_else(PoisonError::into_inner)
                 .agent_hook_pending_before(&terminal_id, sequence)?
         {
             return Err(anyhow::Error::new(AgentHookTerminalUnavailable)
@@ -68,7 +68,10 @@ impl Mux {
                 native_event,
                 tool,
                 observed_at_ms,
-                self.agent_hook_fences.lock().unwrap().get(&terminal_id),
+                self.agent_hook_fences
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .get(&terminal_id),
             )
             .is_none()
         {
@@ -132,7 +135,8 @@ impl Mux {
         // then agent-record locks, so teardown acquires sequence before those
         // locks as well.
         // A row the startup restore already folded records no wait (`restored_through`).
-        let records_wait = sequence > self.agent_roster.lock().unwrap().restored_through;
+        let records_wait = sequence
+            > self.agent_roster.lock().unwrap_or_else(PoisonError::into_inner).restored_through;
         let mut fences = self.agent_hook_fences.lock().unwrap();
         let explicit_session_id = ingress
             .payload
