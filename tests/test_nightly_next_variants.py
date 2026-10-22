@@ -80,6 +80,14 @@ for name in ("verify-signed-nightly", "verify-final-dmg-nightly"):
     if "needs.decide.outputs.track == 'nightly-next' && needs.build-sign-notarize-nightly.result == 'failure'" not in job(name).split("    steps:", 1)[0]:
         failures.append(f"{name} must run its legs after a failed nightly-next notarize job")
 
+# A canary pass promotes the build from Dev to Nightly on both architectures'
+# feeds: an Intel item left on Dev would never reach a Mac on the Nightly ring.
+VERDICT = (ROOT / ".github" / "workflows" / "nightly-next-verdict.yml").read_text()
+promote = VERDICT[VERDICT.index("      - name: Move builds whose canary passed to Nightly\n"):]
+promote = promote[:promote.index("\n      - name:", 10)]
+if "NIGHTLY_APPCASTS: appcast-arm64.xml appcast-x86_64.xml" not in VERDICT or "for appcast in $NIGHTLY_APPCASTS" not in promote:
+    failures.append("nightly-next-verdict.yml must promote appcast-arm64.xml and appcast-x86_64.xml")
+
 # publish: nightly-next publishes both aliases and both feeds, and refuses a missing variant.
 publish = step("Publish nightly release assets")
 if 'variants=(arm64 x86_64)' not in publish or "$NIGHTLY_FEEDS" not in publish:

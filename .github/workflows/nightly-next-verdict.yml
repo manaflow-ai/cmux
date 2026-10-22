@@ -51,6 +51,9 @@ env:
   NIGHTLY_NEXT_FEED_BASE: https://files-next.cmux.com/nightly-next/next
   NIGHTLY_NEXT_R2_BUCKET: cmux-nightly-next
   NIGHTLY_NEXT_R2_PREFIX: nightly-next/next/
+  # The cmux NEXT feeds the verdict promotes: one per architecture.
+  NIGHTLY_APPCASTS: appcast-arm64.xml appcast-x86_64.xml
+  # The old cmux NIGHTLY-identity feed is arm64 only.
   NIGHTLY_APPCAST: appcast-arm64.xml
   # The old cmux NIGHTLY-identity feed (nightly.yml NIGHTLY_NEXT_LEGACY_FEED_BASE):
   # the same builds signed as cmux NIGHTLY, on the same rings.
@@ -144,33 +147,38 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p ring
-          curl -fsSL --retry 3 -A "cmux-nightly-next-ring/1" -H "Cache-Control: no-cache" \
-            -o ring/live.xml "${NIGHTLY_NEXT_FEED_BASE}/${NIGHTLY_APPCAST}?ring=${GITHUB_RUN_ID}"
-          summary="$(python3 scripts/ci/nightly_next_ring.py retag --feed ring/live.xml \
-            --out "ring/$NIGHTLY_APPCAST" --mode "$DEV_RING" --verdicts-base "$NIGHTLY_NEXT_FEED_BASE")"
-          echo "$summary"
-          if [ "$(python3 -I -c 'import json, sys; print(json.loads(sys.argv[1])["changed"])' "$summary")" != True ]; then
-            echo "Release rings ($DEV_RING): the feed's channels already match the verdicts." >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          key="${NIGHTLY_NEXT_R2_PREFIX}${NIGHTLY_APPCAST}"
-          python3 scripts/ci/nightly-next-guard.py appcast "ring/$NIGHTLY_APPCAST"
-          python3 scripts/ci/nightly-next-guard.py r2-key "$NIGHTLY_NEXT_R2_BUCKET" "$key"
-          status=0
-          python3 scripts/ci/upload-r2-object.py \
-            --file "ring/$NIGHTLY_APPCAST" \
-            --endpoint-url "$R2_ENDPOINT" \
-            --bucket "$NIGHTLY_NEXT_R2_BUCKET" \
-            --key "$key" \
-            --content-type "application/xml" \
-            --cache-control "no-cache, no-store, must-revalidate" \
-            --replace-sha256 "$(shasum -a 256 ring/live.xml | awk '{print $1}')" --conflict-exit-code 3 || status=$?
-          if [ "$status" = 3 ]; then
-            echo "::notice title=nightly-next rings::the feed changed after this run read it; the newer write sets the channels from the same verdicts"
-            exit 0
-          fi
-          [ "$status" = 0 ] || exit "$status"
-          echo "Release rings ($DEV_RING): wrote the feed's channels $summary" >> "$GITHUB_STEP_SUMMARY"
+          # Every nightly-next build ships an Apple silicon and an Intel app
+          # (nightly.yml decide): both feeds carry the same builds, so both
+          # take their channels from the same verdicts.
+          for appcast in $NIGHTLY_APPCASTS; do
+            curl -fsSL --retry 3 -A "cmux-nightly-next-ring/1" -H "Cache-Control: no-cache" \
+              -o "ring/live-$appcast" "${NIGHTLY_NEXT_FEED_BASE}/${appcast}?ring=${GITHUB_RUN_ID}"
+            summary="$(python3 scripts/ci/nightly_next_ring.py retag --feed "ring/live-$appcast" \
+              --out "ring/$appcast" --mode "$DEV_RING" --verdicts-base "$NIGHTLY_NEXT_FEED_BASE")"
+            echo "$appcast: $summary"
+            if [ "$(python3 -I -c 'import json, sys; print(json.loads(sys.argv[1])["changed"])' "$summary")" != True ]; then
+              echo "Release rings ($DEV_RING): $appcast's channels already match the verdicts." >> "$GITHUB_STEP_SUMMARY"
+              continue
+            fi
+            key="${NIGHTLY_NEXT_R2_PREFIX}${appcast}"
+            python3 scripts/ci/nightly-next-guard.py appcast "ring/$appcast"
+            python3 scripts/ci/nightly-next-guard.py r2-key "$NIGHTLY_NEXT_R2_BUCKET" "$key"
+            status=0
+            python3 scripts/ci/upload-r2-object.py \
+              --file "ring/$appcast" \
+              --endpoint-url "$R2_ENDPOINT" \
+              --bucket "$NIGHTLY_NEXT_R2_BUCKET" \
+              --key "$key" \
+              --content-type "application/xml" \
+              --cache-control "no-cache, no-store, must-revalidate" \
+              --replace-sha256 "$(shasum -a 256 "ring/live-$appcast" | awk '{print $1}')" --conflict-exit-code 3 || status=$?
+            if [ "$status" = 3 ]; then
+              echo "::notice title=nightly-next rings::$appcast changed after this run read it; the newer write sets the channels from the same verdicts"
+              continue
+            fi
+            [ "$status" = 0 ] || exit "$status"
+            echo "Release rings ($DEV_RING): wrote $appcast's channels $summary" >> "$GITHUB_STEP_SUMMARY"
+          done
 
       # The old cmux NIGHTLY-identity feed carries the same builds on the same
       # rings (nightly.yml publish-nightly-identity-legacy): the same promotion,
