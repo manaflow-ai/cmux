@@ -1,5 +1,5 @@
 import Foundation
-import Observation
+public import Observation
 
 /// The agent pane a chat's turn changes open in (`chat.changesPane`), one tracker per acpmux
 /// session, so every pane on that session asks the same one (Leo 2026-10-21: "why's the diff viewer
