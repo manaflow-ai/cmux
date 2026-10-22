@@ -22,8 +22,12 @@ not ask for what the daemon would refuse, and shows no control for it.
 - H1. Tab strip. The Home Chief pane shows its tab bar like every agent pane (Leo 2026-10-21: "JUST
   MAKE THE TAB THING SHOW UP ON THE MAIN PANE TOO"; it had no strip from 2026-10-20): Home's tab
   first with no close x, and the tabs dragged in. The strip has no +: what Home opens (New Tab,
-  Cmd-D, a new chat, Split Browser, a link) still goes beside it (`ChatColumnPlacement`,
-  `NewChatPlacement`, `LinkOpener`). The person's Hide Tab Bar hides it, as in any pane
+  Cmd-D, a new chat, Split Browser, a link, a file, an app page) still goes beside it
+  (`ChatColumnPlacement`, `NewChatPlacement`, `LinkOpener`). Only a drag puts a tab in the dock:
+  every tab creator (`newTerminalTab`, `PaneBrowserTabOpener`, `InternalPageTabStore.openStoreTab`,
+  the actions in `TabLifecycle`) moves a tab it made there to a new column right of it
+  (`HomeDockOpens`), and an open in the background keeps the focus in Home. The session-local
+  (WebKit) fallback opens in the pane right of Home, and with Home alone is refused. The person's Hide Tab Bar hides it, as in any pane
   (`PaneTabBarChoices`); New Horizontal Tab stays hidden for that pane in menus and the palette.
 - H2. Cmd-W. With focus in Home, the person's Cmd-W does nothing and shows no notice
   (`TabKeyboardClose.ignore`). The person's Close Pane does the same. With Home and other tabs
@@ -38,9 +42,12 @@ not ask for what the daemon would refuse, and shows no control for it.
   tabs drags out again like any tab: to the strip, the sidebar (a new workspace) or a new window
   (`HomeDock.keepsTab`). Over a pinned dock closed to tabs there is no drop target at all. A
   window-edge dock drop on the left edge is not offered, since the left dock is taken.
-- H5. CLI and MCP (`cmux tab close`, `pane close`, `screen close`, `pane split`, `tab move`,
-  `tab.create_*` into the pane, `set-column-dock` undock/move, layout undo) reach the daemon and
-  get the `dock-column-pinned` refusal, which the app shows as "Home stays open in its column."
+- H5. CLI and MCP (`cmux tab close`, `pane close`, `screen close`, `pane split`, `set-column-dock`
+  undock/move, layout undo) reach the daemon and get the `dock-column-pinned` refusal, which the app
+  shows as "Home stays open in its column." A new tab the app's actions open in Home's pane for the
+  CLI, MCP or a script (New Tab, Open Browser, `file open`) opens beside it (H1). A daemon op that
+  names the dock's pane itself (`tab.create_*`, `tab move`) is a move the dock takes while
+  `allow_tabs` is on, as a drag is.
 
 ## Tests
 
@@ -48,7 +55,8 @@ not ask for what the daemon would refuse, and shows no control for it.
   `HomeChiefPaneUncloseableTests.swift` (H2, H3, H4), `PinnedHomeDockTests.swift` (close x, Cmd-W,
   new-chat placement, which tabs a chat dock takes, refusal text), `HomeLoneDockTests.swift` (opens
   beside the dock, a dragged-in tab drags out) and, against the same-tree daemon,
-  `HomeSplitKeysTests.homesDockShowsItsTabStripAndTakesTabs` (`allow_tabs`, drag out and back in).
+  `HomeSplitKeysTests.homesDockShowsItsTabStripAndTakesTabs` (`allow_tabs`, drag in and back out),
+  `HomeDockOpensTests` (script, file, page and session-local opens beside Home; focus kept).
 - Daemon: `cmux-tui/crates/cmux-tui-core/src/server/pinned_columns_tests.rs` (close-surface,
   `tab.close`, close-pane, `pane.close`, `screen.close`, `pane.split`, new tabs, moves in and out,
   undock and edge changes).

@@ -70,16 +70,11 @@ extension PaneController {
     var isClosedPinnedDockPane: Bool { pinnedDock.map { !$0.takesTabs } ?? false }
 
     /// A pane of Home's pinned dock while it takes tabs: a tab made there stays there, so what Home
-    /// opens beside itself is made there and then moved to a column on its right.
+    /// opens beside itself is made there and then moved to a column on its right (``HomeDockOpens``).
     var isOpenPinnedDockPane: Bool { pinnedDock?.allowsTabs == true }
 
     /// The pinned dock this pane is in, if any.
-    private var pinnedDock: DockColumn? {
-        let column = daemon.store.workspace(containing: pane.handle)?.screens.lazy.flatMap(\.columns)
-            .first { $0.layout.paneIDs.contains(self.pane.handle) }
-        guard let dock = column?.dock.map({ LayoutMapping.dock($0) }), dock.isPinned else { return nil }
-        return dock
-    }
+    private var pinnedDock: DockColumn? { HomeDockOpens.pinnedDock(holding: pane, in: daemon.store) }
 
     /// Shows or hides this pane's tab bar now. Shown is the default, so it is no choice.
     func showTabBar(_ shown: Bool) {

@@ -107,12 +107,14 @@ struct PaneBrowserTabOpener {
             let newTabAddress = services.newTabAddress(for: choice)
             let controller = controller, model = controller.pane
             // Home's pinned dock takes dragged tabs (`allow_tabs`, Leo 2026-10-21) but opens nothing in
-            // itself: a new browser tab aimed at it (History, Bookmarks, a URL from another app, Split
-            // Browser) is made there and moves to a column on its right, as the daemon reroutes it for
-            // a dock closed to tabs. A caller that waits for the tab (`then`) places it itself.
-            let beside = child == nil && then == nil && controller.isOpenPinnedDockPane
+            // itself (HomeDockOpens): a new browser tab aimed at it (History, Bookmarks, a URL from another
+            // app, Split Browser) is made there and moves to a column on its right, as the daemon reroutes
+            // it for a dock closed to tabs. A caller's `then` places it itself (LinkOpener,
+            // AgentBesidePlacement, a script's HomeDockOpens.placing), so it is never selected here.
+            let leaves = child == nil && controller.isOpenPinnedDockPane
+            let beside = leaves && then == nil
             let linkOpener = services.linkOpener
-            let intent = background || beside ? nil : controller.workspace?.beginFocusIntent()
+            let intent = background || leaves ? nil : controller.workspace?.beginFocusIntent()
             services.registry.track(Task {
                 do {
                     // A new tab the user asked for opens the New Tab page; an
@@ -128,7 +130,7 @@ struct PaneBrowserTabOpener {
                         return nil
                     }
                     then?(surface)
-                    guard !background else { return nil }
+                    guard !background, !leaves else { return nil }
                     controller.selectWhenReported(surface: surface)
                     controller.workspace?.expectFocus(on: surface, target: url == nil ? .addressBar : .content, generation: intent)
                     return nil
@@ -146,16 +148,28 @@ struct PaneBrowserTabOpener {
             return false
         }
         child?.close()  // Session-local tabs are WebKit pages made on demand.
+        // Home's pinned dock holds no tab of this Mac's (H1): it opens in the pane right of the dock,
+        // and with the dock alone, where no daemon move can take an app-only tab, it is refused.
+        var holder = controller
+        if controller.isPinnedDockPane {
+            guard case .pane(let id) = services.linkOpener.target(from: controller), id != controller.layoutPaneID,
+                  let right = controller.workspace?.panes[id] else {
+                services.registry.refuse(RefusalStrings.needsDaemonCapability(DaemonCapabilities.shared.frontendBrowserTabs))
+                return false
+            }
+            holder = right
+        }
         let local = LocalBrowserTab.make(url: url)
         // Another machine's workspace: the tab is this Mac's; its page says so.
-        if !controller.daemon.isLocal, !onMachine {
-            browserTabs.setNotice(notice ?? RemoteStrings.browserRunsOnThisMac(browserTabs.machineName(controller.daemon)), forKey: local.id)
+        if !holder.daemon.isLocal, !onMachine {
+            browserTabs.setNotice(notice ?? RemoteStrings.browserRunsOnThisMac(browserTabs.machineName(holder.daemon)), forKey: local.id)
         }
-        controller.state?.localBrowserTabs[controller.paneKey].append(local)
-        controller.apply(controller.snapshot())
+        holder.state?.localBrowserTabs[holder.paneKey].append(local)
+        holder.apply(holder.snapshot())
         if background { return true }
-        controller.select(StripTabID(local.id))
-        if url == nil { controller.workspace?.focus.send(.focusTarget(.addressBar, source: .intent)) }
+        if holder !== controller, let content = holder.workspace { PaneHandlers.focus(holder.layoutPaneID, in: content) }
+        holder.select(StripTabID(local.id))
+        if url == nil { holder.workspace?.focus.send(.focusTarget(.addressBar, source: .intent)) }
         return true
     }
 }
