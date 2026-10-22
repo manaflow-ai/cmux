@@ -45,14 +45,16 @@ public final class AgentPageRedraw {
     }
 
     /// The page drew before and shows again at another size than it drew at: out of the window, or
-    /// parked hidden in its pane (it stays sized with the pane meanwhile, but draws nothing hidden),
-    /// at a size that changed or is about to (the pane has a layout pending: the strip hides with
-    /// this switch, cx-f6i7). Shown again at the size it drew at, it shows at once (perf-tabs).
+    /// parked hidden in its pane (the pane keeps it at the size it shows at meanwhile, which a window
+    /// resize changes, but it draws nothing hidden), at a size that changed or is about to (the pane
+    /// has a layout pending: the strip hides with this switch, cx-f6i7). Its own frame, not its
+    /// host's: a chat sharing the tab row shows over the whole pane while the host behind a terminal
+    /// is the area under the strip. Shown again at the size it drew at, it shows at once (perf-tabs).
     public func awaits(_ pane: NSView) -> Bool {
         guard let drawnSize else { return false }
         if pane.window == nil { return true }
         guard pane.isHidden, let host = pane.superview else { return false }
-        return host.bounds.size != drawnSize || host.superview?.needsLayout == true || host.needsLayout
+        return pane.frame.size != drawnSize || host.superview?.needsLayout == true || host.needsLayout
     }
 
     /// Runs `body` once the page drew at the size `pane` shows it at: at the pane's next layout when
