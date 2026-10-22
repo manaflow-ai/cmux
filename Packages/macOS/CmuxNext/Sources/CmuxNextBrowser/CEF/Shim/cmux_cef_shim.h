@@ -350,6 +350,9 @@ CMUX_SHIM_EXPORT void cmux_shim_set_focus(int browser_id, int focus);
 // Without a handler every focus request wins (CEF's default).
 CMUX_SHIM_EXPORT void cmux_shim_set_focus_request_handler(cmux_shim_focus_request_fn handler);
 CMUX_SHIM_EXPORT void cmux_shim_set_zoom_level(int browser_id, double level);
+// CefBrowserHost::SetAccessibilityState: 1 builds the page's accessibility tree (an assistive
+// client asked for the app's), 0 turns it off.
+CMUX_SHIM_EXPORT void cmux_shim_set_accessibility(int browser_id, int enabled);
 // File > Print… (CefBrowserHost::Print): Chromium's print preview over the
 // page, as the page's own window.print(). Returns 0 when the browser is gone.
 CMUX_SHIM_EXPORT int cmux_shim_print(int browser_id);

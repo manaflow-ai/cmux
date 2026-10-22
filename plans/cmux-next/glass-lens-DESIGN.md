@@ -62,6 +62,12 @@ lenses its own copy of it.
   - `--glass-refraction`: how far the rim bends, in px.
   - `--glass-rim`: the specular highlight's strength.
   - `--glass-dispersion`: the chromatic split, which only Spectrum uses.
+  - `--glass-opaque`: the surface's fill under Reduce Transparency. glass.css holds
+    every `.ui-glass` opaque there with `!important`, whatever tokens the surface set.
+  - `--glass-join`: `top`, `bottom` or `both`, the edges that continue into a
+    neighbouring glass (the queued prompts on the composer). The lens carries the
+    shape on past a joined edge, so it bends no rim at the seam, and clips the glass
+    to the box.
 
   A surface can override any token on itself.
 - **`.ui-glass`** is the only class a surface adds. It paints the tint, the
@@ -89,12 +95,16 @@ lenses its own copy of it.
 ## Surfaces
 
 Each owning lane keeps its layout. Adoption swaps a surface's own fill, blur and rim
-for `.ui-glass` and its tokens:
+for `.ui-glass` and its tokens. Under Plain glass each keeps the look it had before
+the lens.
 
-| Surface | Owning lane |
+| Surface | Adopted as |
 | --- | --- |
-| composer | composer-polish |
-| bubbles | transcript-density |
-| queued-prompt card | prompt-queue-edit |
-| menus, context menus, popovers | context-menus |
-| hover cards, link cards, the Updated card, thinking dots | none; glass-lens adopts these itself |
+| composer card | `.ui-glass` over art or a see-through window; the solid composer surface on an opaque one. Its ring stays the edge, the glass's specular rim sits inside it. |
+| location strip | the card's glass tint and frost, no class of its own (the New Tab shares the strip) |
+| queued prompts and their fold | `.ui-glass`, joined to the card (`--glass-join`); their fill is the card's glass tint |
+| user bubbles | `.ui-glass` with the bubble's 12% text tint and no blur of its own |
+| menus, context menus, popovers, pickers | `.ui-glass` on every `.ui-popup` (popupSurface.css) |
+| hover cards, link cards, the Updated card | `.ui-glass` (`.ui-card.ui-glass`) |
+| jump to latest | `.ui-glass` disc |
+| thinking dots | unchanged: 3-4 px, the rim moved almost nothing and the tint would replace the accent |
