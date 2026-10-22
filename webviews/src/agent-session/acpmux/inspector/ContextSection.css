@@ -60,6 +60,8 @@
    a deferred category (which takes no room yet) a fainter one with its row dimmed, and the free space
    is the bar's track. The gallery's other palettes set --acpmux-context-tone-N (ChatInspector.gallery). */
 .acpmux-context-breakdown {
+  /* Its own, so the ring's details (outside the Inspector's Context wrapper) draw the track too. */
+  --acpmux-context-free: color-mix(in srgb, var(--agent-text) 14%, transparent);
   --acpmux-context-buffer: color-mix(in srgb, var(--agent-text) 34%, transparent);
   min-width: 0;
 }
@@ -74,7 +76,7 @@
   background: var(--acpmux-context-buffer);
 }
 .acpmux-context-breakdown .acpmux-chat-inspector-context__swatch[data-kind="free"] {
-  background: var(--acpmux-context-free, color-mix(in srgb, var(--agent-text) 14%, transparent));
+  background: var(--acpmux-context-free);
 }
 .acpmux-context-breakdown .acpmux-chat-inspector-context__swatch[data-kind="deferred"] {
   background: color-mix(in srgb, var(--agent-text) 22%, transparent);
