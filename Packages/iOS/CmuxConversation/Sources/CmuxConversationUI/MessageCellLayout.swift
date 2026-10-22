@@ -396,7 +396,8 @@ extension MessageCellLayout {
             quoteFrame = frame
             let bodyMinX = quote.isOutgoing ? frame.minX : frame.minX + t.tailWidth
             quoteTextFrame = CGRect(x: bodyMinX + 12, y: y + 7, width: bodyWidth - 24, height: textHeight)
-            y += h + t.transcriptSpace(ConversationTranscriptMetrics.smallSpace)
+            // The quote's tail hangs below it, and the thread line leaves from under the tail.
+            y += h + Self.quoteTailDrop(quoteHeight: h, quoteBodyWidth: bodyWidth) + t.transcriptSpace(ConversationTranscriptMetrics.smallSpace)
         }
 
         var senderNameFrame: CGRect?

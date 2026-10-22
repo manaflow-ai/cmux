@@ -63,7 +63,9 @@ public struct ConversationReplyThread: Equatable, Sendable {
         ConversationReplyThread(
             quoteBody: quoteBody, quoteSide: quoteSide, quoteTailDrop: quoteTailDrop,
             reply: reply, replySide: replySide,
-            column: avatarColumnCenter,
+            // A group threads an incoming quote through the avatar column
+            // beside it; otherwise the line drops from under the quote's tail.
+            column: isGroup && quoteSide == .leading ? avatarColumnCenter : nil,
             stopY: replyAvatarTop.map { $0 - 6 }
         )
     }
@@ -89,19 +91,19 @@ public struct ConversationReplyThread: Equatable, Sendable {
     public var turnsTowardReply: Bool { quoteSide != replySide }
 
     public var path: CGPath {
-        // Base behavior: starts beside the quote at its middle.
-        let x = column ?? quoteBody.minX
+        let x = columnX
+        let start = startY
+        let end = endY
         let path = CGMutablePath()
-        let quoteBodyLeading = quoteBody.minX
-        path.move(to: CGPoint(x: min(quoteBodyLeading - 4, x + 14), y: quoteBody.midY))
-        path.addQuadCurve(to: CGPoint(x: x, y: quoteBody.midY + 14), control: CGPoint(x: x, y: quoteBody.midY))
-        if replySide == .trailing || stopY == nil {
-            let endY = max(quoteBody.midY + 28, reply.midY)
-            path.addLine(to: CGPoint(x: x, y: endY - 14))
-            path.addQuadCurve(to: CGPoint(x: x + 14, y: endY), control: CGPoint(x: x, y: endY))
-        } else {
-            path.addLine(to: CGPoint(x: x, y: max(quoteBody.midY + 16, stopY ?? reply.maxY)))
+        path.move(to: CGPoint(x: x, y: start))
+        guard turnsTowardReply else {
+            path.addLine(to: CGPoint(x: x, y: end))
+            return path
         }
+        let direction: CGFloat = quoteSide == .leading ? 1 : -1
+        let radius = min(Self.turnRadius, end - start)
+        path.addLine(to: CGPoint(x: x, y: end - radius))
+        path.addQuadCurve(to: CGPoint(x: x + direction * radius, y: end), control: CGPoint(x: x, y: end))
         return path
     }
 }
