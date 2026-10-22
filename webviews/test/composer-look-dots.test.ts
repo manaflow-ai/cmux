@@ -1,0 +1,147 @@
+// cmux-web-test-timeout: 300
+// The composer's two looks (composerLook.ts; Leo 2026-10-22: "first dot claude, second dot codex.
+// since it's just all looks anyways. first 2 dots minimal on the new tab page, and then when you're
+// in a chat you can also switch the dots if you hover on that bottom area"):
+//
+// - The New Tab page shows two dots under it, Claude then Codex, Claude checked by default. The
+//   second dot gives the page's composer Codex's look (data-composer-look="codex"): the model sits in
+//   the box's own row, no quiet row under it. The pick is remembered across a reload.
+// - In a chat the same two dots sit in the composer's bottom area, unseen until the pointer is over
+//   that area. The second dot switches the chat composer's look: the form takes
+//   data-composer-look="codex", the mode and model move into the box, and the quiet row goes; the
+//   dots then sit in the band under the box and the first dot brings Claude's look back.
+//
+// Real Chromium on the gallery stage. CI fails the file when it cannot launch it
+// (requireBrowserLane). Locally: CMUX_BROWSER_TESTS=1 bun test test/composer-look-dots.test.ts
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+import path from "node:path";
+import { chromium, type Browser, type Page } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
+import { requireBrowserLane } from "./support/requireBrowserLane";
+
+await requireBrowserLane("composer-look-dots.test.ts", async () => {
+  setDefaultTimeout(240_000);
+  try {
+    await (await chromium.launch({ headless: true })).close();
+  } catch {
+    describe.skip("composer look dots", () => test("browser", () => {}));
+    return;
+  }
+
+  const { createServer } = await import("vite");
+  const webviews = path.resolve(import.meta.dir, "..");
+  let vite: Awaited<ReturnType<typeof createServer>> | undefined;
+  let browser: Browser;
+  const stageURL = (entry: string, variant: string, width: number) =>
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame(entry, { variant, width })}`;
+
+  beforeAll(async () => {
+    vite = await createServer({
+      configFile: path.join(webviews, "vite.config.gallery-dev.ts"),
+      server: { port: 0, host: "127.0.0.1", strictPort: false },
+      logLevel: "error",
+    });
+    await vite.listen();
+    browser = await chromium.launch({ headless: true });
+    await warmGalleryFrame(vite, "agent-pane.new-tab", { browser, params: { variant: "minimal-default" } });
+    await warmGalleryFrame(vite, "agent-pane.composer", { browser, params: { variant: "quiet-chips" } });
+  });
+  afterAll(async () => {
+    await browser?.close();
+    await vite?.close();
+  });
+
+  const ready = async (page: Page) => {
+    await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
+      timeout: 120_000,
+    });
+    await page.mouse.move(1, 1);
+  };
+  const open = async (page: Page, entry: string, variant: string) => {
+    await page.goto(stageURL(entry, variant, 760));
+    await ready(page);
+  };
+  /** The look dots' radios: their values, names and which is checked. */
+  const dots = (page: Page, scope: string) =>
+    page.$$eval(`${scope} input[type=radio]`, (radios) =>
+      radios.map((radio) => ({
+        value: (radio as HTMLInputElement).value,
+        name: radio.getAttribute("aria-label"),
+        checked: (radio as HTMLInputElement).checked,
+      })),
+    );
+  /** Whether the dots draw: the group's opacity once its fade has run. */
+  const shown = (page: Page, scope: string) =>
+    page.$eval(`${scope} .acpmux-look-dots`, (group) => {
+      for (const animation of group.getAnimations()) animation.finish();
+      return Number(getComputedStyle(group).opacity) > 0.5;
+    });
+  const pickDot = async (page: Page, scope: string, value: string) => {
+    const box = (await page.$(`${scope} .nt-style-option[data-style="${value}"]`))!;
+    await box.hover();
+    await box.click();
+  };
+
+  test("New Tab: two dots, Claude by default; Codex's dot gives the composer Codex's look and stays", async () => {
+    const context = await browser.newContext({ viewport: { width: 760, height: 600 } });
+    const page = await context.newPage();
+    await open(page, "agent-pane.new-tab", "minimal-default");
+    expect(await dots(page, ".nt-style")).toEqual([
+      { value: "claude", name: "Claude", checked: true },
+      { value: "codex", name: "Codex", checked: false },
+    ]);
+    expect(await page.$(".nt-composer[data-composer-look]")).toBeNull();
+
+    await pickDot(page, ".nt-style", "codex");
+    await page.waitForSelector('.nt-composer[data-composer-look="codex"]');
+    // Codex's look: the model in the box's row, no quiet row under the box.
+    expect(await page.$(".nt-composer .nt-box .acpmux-model")).not.toBeNull();
+    expect(await page.$(".nt-composer .acpmux-composer-foot")).toBeNull();
+    // Still the Minimal page: the look dot does not change the page's style.
+    expect(await page.$(".nt-screen[data-template='minimal'], .nt-screen:not([data-template])")).not.toBeNull();
+
+    // The choice is remembered: the page opens on Codex's look again.
+    await page.reload();
+    await ready(page);
+    await page.waitForSelector('.nt-composer[data-composer-look="codex"]');
+    expect((await dots(page, ".nt-style")).find((dot) => dot.checked)?.value).toBe("codex");
+    await context.close();
+  });
+
+  test("in a chat the dots show on hover in the composer's bottom area and switch its look", async () => {
+    const context = await browser.newContext({ viewport: { width: 760, height: 600 } });
+    const page = await context.newPage();
+    await open(page, "agent-pane.composer", "quiet-chips");
+    const form = ".acpmux-composer";
+    // Claude's look: the quiet row under the box holds the dots, unseen at rest.
+    expect(await page.$(`${form}[data-composer-look]`)).toBeNull();
+    expect(await page.$(`${form} .acpmux-composer-foot .acpmux-look-dots`)).not.toBeNull();
+    expect(await shown(page, form)).toBe(false);
+    expect(await dots(page, `${form} .acpmux-look-dots`)).toEqual([
+      { value: "claude", name: "Claude", checked: true },
+      { value: "codex", name: "Codex", checked: false },
+    ]);
+
+    // The pointer in the bottom area's empty room, clear of the controls: the dots show.
+    const foot = (await (await page.$(`${form} .acpmux-composer-foot`))!.boundingBox())!;
+    await page.mouse.move(foot.x + foot.width * 0.35, foot.y + foot.height / 2);
+    expect(await shown(page, form)).toBe(true);
+
+    await pickDot(page, form, "codex");
+    await page.waitForSelector(`${form}[data-composer-look="codex"]`);
+    expect(await page.$(`${form} .acpmux-composer-box .acpmux-model`)).not.toBeNull();
+    expect(await page.$(`${form} .acpmux-composer-box .acpmux-access`)).not.toBeNull();
+    expect(await page.$(`${form} .acpmux-composer-foot`)).toBeNull();
+
+    // Codex's look: the dots in the band under the box, shown on hover there; the first dot goes back.
+    await page.mouse.move(1, 1);
+    expect(await shown(page, form)).toBe(false);
+    const under = (await (await page.$(`${form} .acpmux-composer-under`))!.boundingBox())!;
+    await page.mouse.move(under.x + under.width * 0.35, under.y + under.height / 2);
+    expect(await shown(page, form)).toBe(true);
+    await pickDot(page, form, "claude");
+    await page.waitForFunction((selector) => !document.querySelector(`${selector}[data-composer-look]`), form);
+    expect(await page.$(`${form} .acpmux-composer-foot`)).not.toBeNull();
+    await context.close();
+  });
+});
