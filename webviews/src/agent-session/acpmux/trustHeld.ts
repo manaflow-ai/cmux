@@ -11,9 +11,14 @@
 // Each keeps the gesture of its own send (heldPrompt.ts): the Trust click's gesture goes to the
 // trust answer, and the host keeps one ticket per held prompt (AgentPaneGestureIntent.slot). A
 // ticket is spent when its prompt goes, so a prompt acpmux refuses again goes back into the
-// composer, to be sent with a new gesture, and so does one a released page held (`pane.wakeState`).
+// composer, to be sent with a new gesture. A prompt acpmux refused for the folder's trust before
+// the pane knew to hold it joins the hold too (App.tsx `holdRefused`).
+//
+// The prompts live with the page: a hidden page that holds or sends any is not let go
+// (`pane.wakeState` `holdsPrompts`, AgentPageHibernation.swift), and quitting puts them back into
+// drafts (`release`).
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ComposerAttachment } from "./attachments";
+import { type ComposerAttachment, MAX_ATTACHMENTS } from "./attachments";
 import { attachedImages } from "./direct";
 import type { QueueEdit, QueuedPrompt } from "./model";
 
@@ -78,8 +83,9 @@ export function useTrustHeldPrompts({
   cwd: string | undefined;
   /// The folder's trust holds prompts now (useFolderTrustAsk `blocked`).
   holds: boolean;
-  /// Sends a held prompt; settles once acpmux took it, or rejects with its refusal.
-  send(entry: TrustHeldPrompt): Promise<unknown>;
+  /// Sends a held prompt; settles once acpmux took it (with the session a new chat's start made),
+  /// or rejects with its refusal.
+  send(entry: TrustHeldPrompt): Promise<string | undefined>;
   /// Reserves the current gesture for prompt `promptId` (`transport.gesture`).
   reserve(promptId: string): Promise<string | undefined>;
   /// A held prompt acpmux refused for another reason goes back into the composer.
@@ -98,20 +104,10 @@ export function useTrustHeldPrompts({
   // Bumped when a flush ends, so prompts that came due meanwhile (a new chat's session started) go.
   const [rounds, setRounds] = useState(0);
 
-  // A new chat's held prompts follow it into the session its first one started, whatever folder
-  // the host filled in: the prompts of the folder that first one was sent in. Only a start this hook
-  // sent moves them (`starting`: that folder): a new chat left for another one keeps its prompts.
-  const starting = useRef<{ cwd: string | undefined } | undefined>(undefined);
-  const lastChat = useRef(chat);
-  useEffect(() => {
-    const was = lastChat.current;
-    lastChat.current = chat;
-    const started = starting.current;
-    if (was !== undefined || chat === undefined || !started) return;
-    starting.current = undefined;
-    const ours = (entry: TrustHeldPrompt) => entry.chat === undefined && entry.cwd === started.cwd;
-    setHeld((list) => (list.some(ours) ? list.map((entry) => (ours(entry) ? { ...entry, chat } : entry)) : list));
-  }, [chat]);
+  /// A new chat's first held prompt is starting it: no other new chat's prompt goes meanwhile.
+  const starting = useRef(false);
+  /// The prompt being sent, until acpmux took or refused it (a page that quits keeps it, `release`).
+  const going = useRef<TrustHeldPrompt | undefined>(undefined);
 
   useEffect(() => {
     if (holds || flushing.current || !held.some((entry) => sentIn(entry, chat, cwd))) return;
@@ -127,17 +123,35 @@ export function useTrustHeldPrompts({
         if (!entry || shown.holds || shown.chat !== chat || shown.cwd !== cwd) break;
         now.current = { ...shown, held: shown.held.filter((item) => item.id !== entry.id) };
         setHeld((list) => list.filter((item) => item.id !== entry.id));
-        if (chat === undefined) starting.current = { cwd: entry.cwd };
+        if (chat === undefined) starting.current = true;
+        going.current = entry;
         try {
-          await latest.current.send(entry);
+          const started = await latest.current.send(entry);
+          going.current = undefined;
+          // A new chat's other prompts in that folder follow it into the session its start made,
+          // whatever chat shows by then. Without that session they go back into the composer
+          // rather than start a second chat.
+          if (chat === undefined) {
+            const ours = (item: TrustHeldPrompt) => item.chat === undefined && item.cwd === entry.cwd;
+            const rest = now.current.held.filter(ours);
+            const bound = now.current.held.map((item) => (ours(item) && started ? { ...item, chat: started } : item));
+            now.current = { ...now.current, held: started ? bound : now.current.held.filter((item) => !ours(item)) };
+            setHeld((list) =>
+              started
+                ? list.map((item) => (ours(item) ? { ...item, chat: started } : item))
+                : list.filter((item) => !ours(item)),
+            );
+            if (!started) for (const item of rest) latest.current.putBack(item);
+          }
         } catch (error) {
-          // A start that came to nothing moves no prompts later.
-          if (chat === undefined) starting.current = undefined;
+          going.current = undefined;
           // Refused: its ticket is spent, so it goes back into the composer, unless a harness
           // switch already handed it back there (harnessSwitch.ts). A trust refusal (acpmux holds
           // the folder again) leaves the rest waiting for the next answer.
           if ((error as { handedBack?: unknown } | null)?.handedBack !== true) latest.current.putBack(entry);
           if (latest.current.refusedForTrust(error)) break;
+        } finally {
+          if (chat === undefined) starting.current = false;
         }
       }
       flushing.current = false;
@@ -145,12 +159,22 @@ export function useTrustHeldPrompts({
     })();
   }, [holds, chat, cwd, held, rounds]);
 
-  /// Holds a prompt sent now, with its send's gesture.
+  /// Holds a prompt sent now, with its send's gesture. False when the chat's held prompts would
+  /// carry more chips than a composer holds (MAX_ATTACHMENTS): they could not all come back into
+  /// it, so this one stays in the composer.
   const hold = useCallback(
-    (text: string, attachments: ComposerAttachment[]) => {
+    (text: string, attachments: ComposerAttachment[]): boolean => {
+      const chips = (list: readonly ComposerAttachment[]) => list.filter((chip) => !chip.shellRun).length;
+      const carried = now.current.held
+        .filter((entry) => sentIn(entry, chat, cwd))
+        .reduce((total, entry) => total + chips(entry.attachments), 0);
+      if (carried + chips(attachments) > MAX_ATTACHMENTS) return false;
       const id = crypto.randomUUID();
       const ticket = reserve(id).catch(() => undefined);
-      setHeld((list) => [...list, { id, chat, cwd, text, attachments, ticket }]);
+      const entry = { id, chat, cwd, text, attachments, ticket };
+      now.current = { ...now.current, held: [...now.current.held, entry] };
+      setHeld((list) => [...list, entry]);
+      return true;
     },
     [chat, cwd, reserve],
   );
@@ -167,10 +191,14 @@ export function useTrustHeldPrompts({
     /// so it never goes before one sent earlier.
     pending: () =>
       flushing.current || now.current.held.some((entry) => sentIn(entry, now.current.chat, now.current.cwd)),
-    /// Takes every held prompt out, for a page about to let go (`pane.wakeState`): their tickets
-    /// end with the page, so they go back into the composer.
+    /// Whether any chat's prompt is held or going: a hidden page that has one is not let go.
+    holdsAny: () => flushing.current || now.current.held.length > 0,
+    /// Takes every held prompt out, and the one going, for a page that quits (`pane.wakeState`):
+    /// their tickets end with it, so they go back into drafts. The one going may also reach
+    /// acpmux; its copy in a draft is then only a draft, never sent twice.
     release: () => {
-      const all = now.current.held;
+      const all = [...(going.current ? [going.current] : []), ...now.current.held];
+      going.current = undefined;
       now.current = { ...now.current, held: [] };
       setHeld([]);
       return all;

@@ -176,6 +176,24 @@ struct AgentPageHibernationTests {
         #expect((again["value"] as? [String: Any])?["wake"] == nil)
     }
 
+    /// A page holding prompts for a folder trust answer (webviews trustHeld.ts) keeps its page:
+    /// each prompt's gesture ticket lives with it, and letting it go lost them (Leo 2026-10-21 P0).
+    @Test func aChatHoldingPromptsForATrustAnswerKeepsItsPage() async throws {
+        let rig = Rig()
+        let asked = Asked()
+        rig.hibernation.wakeState = { _ in
+            asked.count += 1
+            return AgentPaneWakeState(holdsPrompts: true)
+        }
+        rig.hibernation.update(setting: BrowserHibernationSetting(mode: .moderate), pressure: .normal)
+        let page = try rig.hiddenChat("tab_held", session: "s-held")
+        rig.advance(minutes: 61)
+        await rig.settle { asked.count > 0 }
+        await rig.settle { false }
+        #expect(asked.count > 0, "the page was never asked what it held")
+        #expect(rig.tabs.existingView("tab_held") === page, "a page holding prompts for a trust answer was let go")
+    }
+
     /// With the acpmux turn watch down no chat's turn is known: every chat counts as busy and
     /// keeps its page until the watch is back.
     @Test func withTheTurnWatchDownEveryChatKeepsItsPage() async throws {

@@ -614,6 +614,10 @@ const reserveHeldPrompt = (promptId: string) =>
     intent: { method: "session/prompt", params: { promptId } },
   }).then((reply) => reply?.ticket);
 
+/// acpmux's trust refusals of prompts that joined the pane's hold (`holdRefused`): the composer that
+/// sent one lets it go, as if acpmux took it, since it waits in the queue now.
+const heldRefusals = new WeakSet<object>();
+
 /// A held prompt's id and ticket as `chat.send` takes them (in-page only).
 function heldPromptParams(value: unknown): { promptId: string; ticket?: string } | undefined {
   const held = value as { promptId?: unknown; ticket?: unknown } | null | undefined;
@@ -3990,19 +3994,10 @@ function AcpmuxPane() {
   /// Takes acpmux's trust refusal of a prompt (useFolderTrustAsk.ts): the question shows for the
   /// folder it named, and `again` sends the held prompt after Trust.
   const trustRefused = useRef<((error: unknown, again?: () => void) => boolean) | undefined>(undefined);
-  /// Keeps a send's gesture for the prompt acpmux held behind the trust question (heldPrompt.ts).
-  const holdPrompt = useRef<(() => void) | undefined>(undefined);
-  /// Trust sends again the prompt acpmux refused (with the gesture heldPrompt.ts kept for it): that
-  /// send goes now, never into the pane's own hold (trustHeld.ts), which would lose its ticket.
-  const trustResend = useRef(false);
-  const resendAfterTrust = useRef(() => {
-    trustResend.current = true;
-    try {
-      composerHandle.current?.send();
-    } finally {
-      trustResend.current = false;
-    }
-  });
+  /// Puts a prompt acpmux refused for the folder's trust into the pane's hold (trustHeld.ts), with
+  /// this send's gesture: it shows in the queue and goes, in order, after Trust. False when the hold
+  /// cannot take it (too many chips): then it stays in the composer, to send again after Trust.
+  const holdRefused = useRef<(text: string, attachments: ComposerAttachment[], error: unknown) => boolean>(() => false);
   // A folder without a trust answer is asked about beside the chat's other permission asks as
   // soon as the chat's folder is known (a new chat's chosen one before its first prompt). No
   // prompt goes until the answer is Trust; acpmux refuses one that does (`trust_gate.rs`).
@@ -4036,7 +4031,9 @@ function AcpmuxPane() {
   const trustRemote = !trustPasses && trustAsk.blocked?.reason === "trust.remote";
   const trustHolds = Boolean(trustAsk.blocked) && !trustPasses && !trustRemote;
   /// Sends a prompt the folder's trust held, once it is trusted (set where the composer sends).
-  const sendTrustHeld = useRef<(entry: TrustHeldPrompt) => Promise<unknown>>(() => Promise.resolve());
+  const sendTrustHeld = useRef<(entry: TrustHeldPrompt) => Promise<string | undefined>>(() =>
+    Promise.resolve(undefined),
+  );
   // A prompt sent while the folder's trust holds prompts waits in the pane and goes after Trust
   // (trustHeld.ts): Send and steer never wait on the question.
   const trustHeld = useTrustHeldPrompts({
@@ -4048,9 +4045,15 @@ function AcpmuxPane() {
     putBack: (entry) => composerHandle.current?.restore(entry.text, entry.attachments),
     refusedForTrust: isTrustRefusal,
   });
-  /// Puts every prompt the folder's trust held back where it was typed, for a page about to let go:
-  /// the shown chat's (and a new chat's) into the composer, another chat's into that chat's draft
-  /// and kept chips. True when there were any.
+  holdRefused.current = (text, attachments, error) => {
+    if (!trustHeld.hold(text, attachments)) return false;
+    if (error && typeof error === "object") heldRefusals.add(error);
+    return true;
+  };
+  /// Puts every prompt the folder's trust held back where it was typed, for a page that quits: the
+  /// shown chat's into the composer, another chat's into its draft and kept chips. A new chat's
+  /// prompts in a folder no longer shown go into the composer too: it is the only draft such a chat
+  /// has, and they show there rather than be lost. True when there were any.
   const releaseTrustHeld = useRef(async () => false);
   releaseTrustHeld.current = async () => {
     const all = trustHeld.release();
@@ -5686,7 +5689,6 @@ function AcpmuxPane() {
     /// The tickets of prompts the folder's trust held (trustHeld.ts) that a harness switch holds now,
     /// by prompt id, for the switch's send.
     const trustTickets = new Map<string, string>();
-    holdPrompt.current = () => void heldPrompt.hold();
     /// The gesture a failed prompt row kept for its Trust re-send, apart from `heldPrompt`, which
     /// the next ordinary send takes: a prompt typed before Trust never goes under the row's id.
     const heldRowPrompt = heldPrompts((intent) =>
@@ -5945,7 +5947,7 @@ function AcpmuxPane() {
         const send = async (
           text: string,
           attachments: import("./attachments").ComposerAttachment[] = [],
-          accepted?: () => void,
+          accepted?: (sessionId?: string) => void,
           steer = false,
           promptId?: string,
           fromTrust?: { promptId: string; ticket?: string },
@@ -5976,9 +5978,14 @@ function AcpmuxPane() {
                     ),
                 );
               } else {
-                void heldPrompt.hold();
-                if (!inComposer) restorePrompt(text, attachments);
-                trustRefused.current?.(error, resendAfterTrust.current);
+                // It joins the pane's hold (trustHeld.ts) and goes, in order, after Trust; one a
+                // harness switch handed back is in the composer already, as is one the hold could
+                // not take: it stays there to send again.
+                const handedBack = (error as { handedBack?: unknown } | null)?.handedBack === true;
+                if (handedBack || !holdRefused.current(text, attachments, error)) {
+                  if (!inComposer) restorePrompt(text, attachments);
+                }
+                trustRefused.current?.(error);
               }
             }
             throw error;
@@ -6013,7 +6020,7 @@ function AcpmuxPane() {
           });
           await persistSession(sessionId);
           const turn = client
-            .send(text, attachments, kept?.promptId, accepted, kept?.ticket, steer)
+            .send(text, attachments, kept?.promptId, accepted && (() => accepted(sessionId)), kept?.ticket, steer)
             .catch((error: unknown) => refused(error, Boolean(accepted)));
           // The prompt is written; a Quick Composer hand-off can close this page now.
           promptLanded.current();
@@ -6026,7 +6033,7 @@ function AcpmuxPane() {
             send(
               String(text ?? ""),
               Array.isArray(attachments) ? attachments : [],
-              typeof accepted === "function" ? (accepted as () => void) : undefined,
+              typeof accepted === "function" ? (accepted as (sessionId?: string) => void) : undefined,
               steer === true,
               undefined,
               heldPromptParams(fromTrust),
@@ -6372,12 +6379,14 @@ function AcpmuxPane() {
           // lets go and handed back with the next page's handshake (`wake`).
           // The transcript's place: an anchor, at its latest message, or left out when unknown
           // (never in view, or a subagent's view open) so the chat's kept anchor stands.
-          "pane.wakeState": async () => {
-            // Prompts the folder's trust held go back into the composer: their tickets end with
-            // the page, and the composer's draft and chips are what a woken page gets back.
-            // The composer saves its draft once the text settles (UNSENT_DRAFT_SETTLE_MS for a new
-            // chat), within the host's wait.
-            if (await releaseTrustHeld.current()) await new Promise((settled) => setTimeout(settled, 400));
+          "pane.wakeState": async ({ quitting }) => {
+            // Prompts the folder's trust holds or sends keep a hidden page (AgentPageHibernation
+            // `holdsPrompts`): their tickets live with it. Quitting puts them back into drafts; the
+            // composer saves its draft once the text settles (UNSENT_DRAFT_SETTLE_MS for a new chat),
+            // within the host's wait.
+            if (quitting !== true && trustHeld.holdsAny()) return { holdsPrompts: true };
+            if (quitting === true && (await releaseTrustHeld.current()))
+              await new Promise((settled) => setTimeout(settled, 400));
             const anchor = transcriptAnchor.current?.();
             return {
               ...composerHandle.current?.wakeState(),
@@ -7376,6 +7385,8 @@ function AcpmuxPane() {
     // trust, the remote guard, the sandbox) leaves it there to send again.
     let accept: (taken: true) => void = () => undefined;
     const taken = new Promise<true>((resolve) => (accept = resolve));
+    /// The session acpmux took the prompt in (a new chat's, once its start made it).
+    let startedIn: string | undefined;
     const send = async () => {
       // Replying to a View Only chat takes it over first (`takeOver`); while the app that
       // runs it still does, the pane asks how, and the composer keeps the message.
@@ -7387,18 +7398,19 @@ function AcpmuxPane() {
         // question, keeps this prompt (with its send's gesture) and sends it after Trust
         // (cx-nn3e P0b; the prompt was lost when only the start ran again).
         await callNative("chat.new", { cwd: projectDraft, ...heldPick(snapshot) }).catch((error: unknown) => {
-          // A held prompt waits in the hold again; the question shows either way.
-          if (isTrustRefusal(error) && fromTrust) trustRefused.current?.(error);
-          else if (isTrustRefusal(error)) {
-            holdPrompt.current?.();
-            trustRefused.current?.(error, resendAfterTrust.current);
-          }
+          // The prompt joins the pane's hold (a held one goes back there: trustHeld.ts); one the hold
+          // cannot take stays in the composer. The question shows either way.
+          if (isTrustRefusal(error) && !fromTrust) holdRefused.current(text, attachments, error);
+          if (isTrustRefusal(error)) trustRefused.current?.(error);
           throw error;
         });
       return callNative("chat.send", {
         text,
         attachments,
-        accepted: () => accept(true),
+        accepted: (sessionId?: string) => {
+          startedIn = sessionId;
+          accept(true);
+        },
         steer,
         ...(fromTrust ? { fromTrust } : {}),
       });
@@ -7411,20 +7423,26 @@ function AcpmuxPane() {
     const turn = send();
     turn.then(() => promptLanded.current(), cancelOpenInWindow);
     // Taken, or refused before acpmux took it (the turn's later failure is the transcript's).
-    const held = Promise.race([taken, turn.then(() => true as const)]);
+    // A prompt acpmux refused for the folder's trust that joined the hold (`holdRefused`) leaves
+    // the composer: it waits in the queue.
+    const held = Promise.race([taken, turn.then(() => true as const)]).catch((error: unknown) => {
+      if (error && typeof error === "object" && heldRefusals.has(error)) return true as const;
+      throw error;
+    });
     held.catch(() => {
       if (composerHandle.current === holder || fromTrust) return;
       if (composerHandle.current) composerHandle.current.restore(text, attachments);
       else heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
     });
-    return held;
+    return fromTrust ? held.then(() => startedIn) : held;
   };
   sendTrustHeld.current = async (entry) => {
     const ticket = await entry.ticket;
     // Not connected: the prompt goes back into the composer (the hold puts back what fails).
     // l10n-allow: never shown; the hold reads only that it failed.
     if (!window.cmuxAcpmuxActions?.["chat.send"]) throw new Error("not connected");
-    return sendFromComposer(entry.text, entry.attachments, false, { promptId: entry.id, ticket });
+    const sent = await sendFromComposer(entry.text, entry.attachments, false, { promptId: entry.id, ticket });
+    return typeof sent === "string" ? sent : undefined;
   };
   // A subagent's own pane is a tab on the chat's session: the chat's composer, queue and pull
   // request bars there were the chat's, and a prompt typed in it went to the chat.
@@ -7664,11 +7682,8 @@ function AcpmuxPane() {
               const attachments = shellContextAttachments(chips ?? [], (id) => shellRuns.get(id));
               // The folder's trust holds prompts: this one waits in the pane and goes after Trust.
               // One sent while earlier held prompts still go waits behind them, so none overtakes
-              // another. Trust's own re-send of a prompt acpmux refused goes now (resendAfterTrust).
-              if ((trustHolds || trustHeld.pending()) && !trustResend.current) {
-                trustHeld.hold(text, attachments);
-                return true;
-              }
+              // another. One the hold cannot take (too many chips) stays in the composer.
+              if (trustHolds || trustHeld.pending()) return trustHeld.hold(text, attachments);
               return sendFromComposer(text, attachments, steer);
             }}
             onStop={() => void callNative("chat.cancel")}

@@ -42,13 +42,14 @@ afterAll(() => {
 
 /// A stand-in for acpmux: each prompt waits until the test takes or refuses it.
 function standIn() {
-  const sent: { entry: Entry; take(): void; refuse(error: unknown): void }[] = [];
+  /// `take(session)`: acpmux took it, in `session` (a new chat's, once its start made it).
+  const sent: { entry: Entry; take(session?: string): void; refuse(error: unknown): void }[] = [];
   const putBack: string[] = [];
   return {
     sent,
     putBack,
     send: (entry: Entry) =>
-      new Promise<unknown>((take, refuse) => sent.push({ entry, take: () => take(undefined), refuse })),
+      new Promise<string | undefined>((take, refuse) => sent.push({ entry, take: (session) => take(session), refuse })),
     reserve: async (promptId: string) => `ticket-${promptId}`,
     put: (entry: Entry) => void putBack.push(entry.text),
   };
@@ -143,7 +144,7 @@ test("a refused prompt goes back into the composer; after a trust refusal the re
   expect(acpmux.sent.map((sent) => sent.entry.text)).toEqual(["one", "two", "three"]);
 });
 
-test("a new chat's prompts follow it into the session its first one started, in the folder the host filled in", async () => {
+test("a new chat's prompts follow it into the session its start made, whatever chat shows meanwhile", async () => {
   const acpmux = standIn();
   await act(async () => root.render(<Probe key="d" acpmux={acpmux} holds chat={undefined} cwd="/Users/you/picked" />));
   await act(async () => shown!.hold("start it", []));
@@ -154,10 +155,13 @@ test("a new chat's prompts follow it into the session its first one started, in 
   await settle();
   // Only the first goes: it starts the chat, and no second start goes before its session shows.
   expect(acpmux.sent.map((sent) => sent.entry.text)).toEqual(["start it"]);
-  acpmux.sent[0]!.take();
+  // The start is slow, and the person opens another chat meanwhile: the backlog is not its.
+  await act(async () => root.render(<Probe key="d" acpmux={acpmux} holds={false} chat="chat-other" />));
+  acpmux.sent[0]!.take("chat-new");
   await settle();
   expect(acpmux.sent).toHaveLength(1);
-  // The session shows, in the folder acpmux resolved (not the one picked).
+  expect(shown!.rows).toEqual([]);
+  // The new chat's session shows, in the folder acpmux resolved (not the one picked): its backlog goes.
   await act(async () =>
     root.render(<Probe key="d" acpmux={acpmux} holds={false} chat="chat-new" cwd="/private/you/picked" />),
   );
@@ -166,11 +170,45 @@ test("a new chat's prompts follow it into the session its first one started, in 
   expect(acpmux.sent[1]!.entry.chat).toBe("chat-new");
 });
 
-test("a page about to let go takes every held prompt out", async () => {
+test("a start that names no session puts the new chat's other prompts back, never starts a second chat", async () => {
+  const acpmux = standIn();
+  await act(async () => root.render(<Probe key="h" acpmux={acpmux} holds chat={undefined} />));
+  await act(async () => shown!.hold("start it", []));
+  await act(async () => shown!.hold("and this", []));
+  await act(async () => root.render(<Probe key="h" acpmux={acpmux} holds={false} chat={undefined} />));
+  await settle();
+  acpmux.sent[0]!.take(undefined);
+  await settle();
+  expect(acpmux.sent).toHaveLength(1);
+  expect(acpmux.putBack).toEqual(["and this"]);
+  expect(shown!.holdsAny()).toBe(false);
+});
+
+test("the hold takes no more chips than a composer holds; that prompt stays in the composer", async () => {
+  const acpmux = standIn();
+  const images = (count: number, from: number) =>
+    Array.from({ length: count }, (_, index) => ({
+      id: `img-${from + index}`,
+      kind: "image" as const,
+      name: `shot-${from + index}.png`,
+      mimeType: "image/png",
+      size: 4,
+      data: "iVBO",
+    }));
+  await act(async () => root.render(<Probe key="i" acpmux={acpmux} holds chat="chat-9" />));
+  let took: boolean[] = [];
+  await act(async () => void (took = [shown!.hold("six", images(6, 0)), shown!.hold("six more", images(6, 6))]));
+  expect(took).toEqual([true, false]);
+  expect(shown!.rows.map((row) => row.prompt)).toEqual(["six"]);
+});
+
+test("a page that quits takes every held prompt out", async () => {
   const acpmux = standIn();
   await act(async () => root.render(<Probe key="e" acpmux={acpmux} holds chat="chat-5" />));
   await act(async () => shown!.hold("kept one", []));
   await act(async () => shown!.hold("kept two", []));
+  // It is not let go while it holds them (AgentPageHibernation `holdsPrompts`).
+  expect(shown!.holdsAny()).toBe(true);
   let released: { text: string }[] = [];
   await act(async () => void (released = shown!.release()));
   expect(released.map((entry) => entry.text)).toEqual(["kept one", "kept two"]);
