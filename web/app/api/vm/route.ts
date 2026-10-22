@@ -262,6 +262,10 @@ export async function GET(request: Request): Promise<Response> {
         freeAccessExpiresAt: freeAccessExpiresAtMs(entry.createdAt, freeAccessWindowDays),
         // "image" keeps the baked coding-agent pins; "latest" updates them on attach.
         agentUpdates: entry.agentUpdates,
+        // Minutes without activity before the machine pauses by itself (0 is
+        // Off), and why a paused machine is paused ("idle" or "user", else null).
+        idlePauseMinutes: entry.idlePauseMinutes,
+        pauseReason: entry.pauseReason,
         // Contract recorded when the provider attached cmux-tui. This is
         // rollout metadata, not a live daemon probe.
         cmuxTuiContract: entry.cmuxTuiContract,
