@@ -30,6 +30,7 @@ fn process_help(args: &[String]) -> Option<i32> {
         "link" => Some(crate::link::run(&["--help".to_owned()])),
         "mcp" => super::super::mcp::run_if_requested(&flag()),
         "coderouter" => super::super::coderouter::run_if_requested(&flag()),
+        "billing" => super::super::billing::run_if_requested(&flag()),
         _ => None,
     }
 }

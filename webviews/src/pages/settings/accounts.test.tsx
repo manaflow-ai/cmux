@@ -19,6 +19,17 @@ test("Accounts lists the providers by group and refreshes detection when it open
   page.unmount();
 });
 
+test("coming back to the Settings window asks the host to free rows a login left busy", async () => {
+  const page = await renderPage({ path: "/settings/accounts" });
+  await act(async () => window.dispatchEvent(new window.Event("focus")));
+  await settle();
+  expect(page.provider.accountRuns.at(-1)).toEqual({ action: "focus" });
+  page.unmount();
+  const runs = page.provider.accountRuns.length;
+  window.dispatchEvent(new window.Event("focus"));
+  expect(page.provider.accountRuns.length).toBe(runs);
+});
+
 test("removing a linked account runs remove with its id", async () => {
   const page = await renderPage({ path: "/settings/accounts" });
   const linked = page.container.querySelector<HTMLElement>('[data-linked="acct-1"]')!;

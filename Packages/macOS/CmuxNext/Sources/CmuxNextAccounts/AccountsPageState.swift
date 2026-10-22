@@ -93,8 +93,10 @@ public struct AccountsPageState: Encodable, Equatable, Sendable {
 /// One gesture on the Accounts part of the Settings page.
 public enum AccountsPageAction: Equatable, Sendable {
     case refresh, signInToCmux
+    /// The Settings window came forward: re-detect rows a login or logout left busy.
+    case windowFocused
     case cmux(CmuxAccountAction)
-    case reauthenticate(AIProvider), addKey(AIProvider), deleteSavedKey(AIProvider), connect(AIProvider)
+    case reauthenticate(AIProvider), signOut(AIProvider), addKey(AIProvider), deleteSavedKey(AIProvider), connect(AIProvider)
     case confirmConnect(AIProvider), cancelConfirm
     case remove(accountID: String)
     case runSetupToken, cancelPaste
@@ -121,8 +123,10 @@ public enum AccountsPageAction: Equatable, Sendable {
         case ("selectTeam", _):
             guard let team, !team.isEmpty else { return nil }
             self = .selectTeam(team)
+        case ("focus", _): self = .windowFocused
         case ("signIn", _): self = .signInToCmux
         case ("reauth", let provider?): self = .reauthenticate(provider)
+        case ("signOut", let provider?): self = .signOut(provider)
         case ("addKey", let provider?): self = .addKey(provider)
         case ("deleteKey", let provider?): self = .deleteSavedKey(provider)
         case ("connect", let provider?): self = .connect(provider)
@@ -164,9 +168,11 @@ extension AccountsModel {
     public func perform(_ action: AccountsPageAction) async -> String? {
         switch action {
         case .refresh: refresh()
+        case .windowFocused: appDidBecomeActive()
         case .signInToCmux: services.runCmuxAccount(.signIn)
         case .cmux(let gesture): services.runCmuxAccount(gesture)
         case .reauthenticate(let provider): return await performReauthenticate(provider)
+        case .signOut(let provider): return signOut(provider)
         case .addKey(let provider): pasteTarget = provider
         case .deleteSavedKey(let provider): deleteSavedKey(for: provider)
         case .connect(let provider): connect(provider)
@@ -201,6 +207,9 @@ extension AccountsModel {
         if row.canReauthenticate {
             buttons.append(.init(id: "reauth", title: AccountsStrings.reauthTitle(row), disabled: row.isBusy, help: nil, destructive: false))
         }
+        if row.canSignOut {
+            buttons.append(.init(id: "signOut", title: AccountsStrings.signOut, disabled: row.isBusy, help: nil, destructive: true))
+        }
         if provider.acceptsPastedKey {
             buttons.append(.init(id: "addKey", title: AccountsStrings.addKey, disabled: row.isBusy, help: nil, destructive: false))
             if row.detection?.sources.contains(.cmuxKeychain) == true {
@@ -224,11 +233,17 @@ extension AccountsModel {
                 .init(id: account.id, label: account.label, state: account.state, healthy: account.isHealthy,
                       busy: row.phase == .removing(accountID: account.id))
             },
-            note: provider.codeRouterLink == .bedrockKeys && isSignedInToCmux && !row.hasBedrockKeys ? AccountsStrings.bedrockNeedsKeys : nil,
+            note: Self.note(row, cmuxSignedIn: isSignedInToCmux),
             outcome: outcome,
             confirm: confirmTarget == provider
                 ? .init(text: AccountsStrings.codexRefreshNote, confirm: AccountsStrings.confirmConnect, cancel: AccountsStrings.cancel) : nil,
             paste: pasteTarget == provider ? pasteForm(provider) : nil)
+    }
+
+    static func note(_ row: AccountRowState, cmuxSignedIn: Bool) -> String? {
+        if row.shellVariableInUse != nil { return AccountsStrings.shellSignInWins }
+        if row.provider.codeRouterLink == .bedrockKeys, cmuxSignedIn, !row.hasBedrockKeys { return AccountsStrings.bedrockNeedsKeys }
+        return nil
     }
 
     private func pasteForm(_ provider: AIProvider) -> AccountsPageState.Paste {
