@@ -16,10 +16,19 @@ gesture until the panes rest:
 Budget rows (printed; they fail the run with --gate): no missed frame beyond --missed-budget, and at most
 one grid per terminal of the row (presses + 1) for the whole gesture.
 
+With --suite=pane-perf it runs scripts/cmux-next/pane-perf-terminal.py instead (split, close, New Column, zoom
+and a divider drag in 2, 8 and 30 pane layouts; the controller allowlists this entry, not pane-perf.sh yet).
+
 Usage: split-spring-terminal.py --tag <tag> --app PATH [--rounds 3] [--presses 5] [--interval 100]
        [--directions right,down] [--scrollback 20000] [--stream] [--json PATH] [--out DIR] [--gate]
 """
 import argparse, glob, json, os, signal, subprocess, sys, tempfile, time
+
+# `--suite=pane-perf` (through the allowlisted fleet entry scripts/measure/split-spring.sh): the whole pane
+# motion suite instead, scripts/cmux-next/pane-perf-terminal.py, with the same --tag/--app/--out/--json.
+if "--suite=pane-perf" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pane-perf-terminal.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=pane-perf"])
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)

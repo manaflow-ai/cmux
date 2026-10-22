@@ -1,0 +1,57 @@
+/* The Inspector's Context, open (ContextSection.tsx): the total line, the bar split by part, and a row
+   per part with its colored square, its tokens and its share of the window, as Claude Code desktop's. */
+.acpmux-chat-inspector-context {
+  --acpmux-context-used: var(--agent-accent);
+  --acpmux-context-free: color-mix(in srgb, var(--agent-text) 14%, transparent);
+  min-width: 0;
+  padding-bottom: 4px;
+}
+.acpmux-chat-inspector-context__total {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 8px 6px;
+  white-space: nowrap;
+}
+.acpmux-chat-inspector-context__tokens {
+  margin-left: auto;
+  color: var(--agent-muted);
+  font-variant-numeric: tabular-nums;
+}
+.acpmux-chat-inspector-context__bar {
+  display: flex;
+  gap: 2px;
+  height: 6px;
+  margin: 0 8px 6px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: var(--acpmux-context-free);
+}
+.acpmux-chat-inspector-context__bar > span {
+  flex: none;
+  min-width: 2px;
+  height: 100%;
+}
+.acpmux-chat-inspector-context__bar > [data-part="used"],
+.acpmux-chat-inspector-context__swatch[data-part="used"] {
+  background: var(--acpmux-context-used);
+}
+.acpmux-chat-inspector-context__swatch {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+.acpmux-chat-inspector-context__swatch[data-part="free"] {
+  background: var(--acpmux-context-free);
+}
+.acpmux-chat-inspector-context__count {
+  color: var(--agent-muted);
+}
+.acpmux-chat-inspector-context__share {
+  flex: none;
+  min-width: 44px;
+  text-align: right;
+  font-size: var(--text-detail);
+  font-variant-numeric: tabular-nums;
+}
