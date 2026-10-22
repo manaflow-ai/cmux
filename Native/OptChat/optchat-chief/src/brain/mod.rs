@@ -35,16 +35,20 @@ mod mux_ack;
 mod outbox;
 mod previews;
 mod prewarm;
+pub mod reaction_wake;
 mod recover;
 mod replies;
 mod send;
 mod side;
 mod spawns;
 mod steer;
+mod transcript;
 mod turns;
 mod wakes;
+pub use reaction_wake::{JudgeAsk, ReactionJudge};
 pub use replies::{REACTIONS, reaction, tapback};
 pub use steer::STEER_DEADLINE;
+pub use transcript::{TRANSCRIPT_DEFAULT, TRANSCRIPT_MAX};
 pub use turns::stuck_notice;
 
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -225,6 +229,13 @@ pub enum Input {
         reaction: String,
         reply: Sender<Result<String, String>>,
     },
+    /// `transcript(n, before)` (transcript.rs): the conversation as the
+    /// daemon stores it; the answer goes to `reply`.
+    Transcript {
+        n: u32,
+        before: Option<u64>,
+        reply: Sender<Result<String, String>>,
+    },
     /// `reply(id, text)` (replies.rs): the answer goes to `reply`.
     Reply {
         id: u64,
@@ -313,6 +324,13 @@ pub enum Input {
         input: serde_json::Value,
         reply: Sender<Result<(), String>>,
     },
+    /// The reaction classifier's answer for decision `id` on Chief message
+    /// `seq` (reaction_wake.rs).
+    ReactionJudged {
+        seq: u64,
+        id: u64,
+        answer: Result<String, String>,
+    },
     /// A description of a turn's image arrived (or failed): logged as a note.
     Described {
         image: Box<images::TurnImage>,
@@ -399,7 +417,21 @@ pub enum EngineRequest {
         compactor_speed: Option<String>,
         compactor_harness: Option<String>,
         compactor_model: Option<String>,
+        /// The reaction classifier's fields (reaction_wake.rs).
+        reactions: Box<ReactionFields>,
     },
+}
+
+/// The reaction-wake fields of an engine set (engine.json
+/// `classifier_harness`, `classifier_model`, `classifier_prompt`,
+/// `reactions_can_wake`): an absent field stays; `default` clears one.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ReactionFields {
+    pub classifier_harness: Option<String>,
+    pub classifier_model: Option<String>,
+    pub classifier_prompt: Option<String>,
+    /// `true`, `false` or `default`.
+    pub reactions_can_wake: Option<String>,
 }
 
 impl From<DaemonEvent> for Input {
@@ -755,6 +787,8 @@ pub struct Brain {
     repeat_denials: u32,
     /// Writes the log's description of each turn image (None: references only).
     describer: Option<Arc<dyn images::Describe>>,
+    /// A user's reaction that may wake the Chief (reaction_wake.rs).
+    reaction_wake: reaction_wake::State,
     /// Images being described now (`conversation/hash`), started once each.
     describing: HashSet<String>,
     /// Highest seq handled (queued or skipped) of each side conversation;
@@ -922,6 +956,7 @@ impl Brain {
             turn_view: None,
             turn_engine: None,
             describer: None,
+            reaction_wake: reaction_wake::State::default(),
             describing: HashSet::new(),
             side_handled: HashMap::new(),
             mux_pending: HashMap::new(),
@@ -1113,6 +1148,7 @@ impl Brain {
         self.phase == Phase::Idle
             && !self.queue.iter().any(Queued::wakes)
             && self.steering.is_empty()
+            && !self.reaction_wake.busy()
     }
 
     /// When the outbox timer fires, if armed.
@@ -1123,6 +1159,7 @@ impl Brain {
             self.orphan_wait,
             self.handoff_at,
             self.steer_due.as_ref().map(|(at, _)| *at),
+            self.reaction_wake.due(),
         ]
         .into_iter()
         .flatten()
@@ -1269,6 +1306,9 @@ impl Brain {
             Input::Reply { id, text, reply } => {
                 let _ = reply.send(self.reply_now(id, &text));
             }
+            Input::Transcript { n, before, reply } => {
+                let _ = reply.send(self.transcript(n, before));
+            }
             Input::TellUnsteered {
                 id,
                 session,
@@ -1338,6 +1378,7 @@ impl Brain {
                 let _ = reply.send(self.turn_gate(&tool, &input));
             }
             Input::Described { image, description } => self.described(&image, description),
+            Input::ReactionJudged { seq, id, answer } => self.reaction_judged(seq, id, answer),
             Input::Engine { request, reply } => {
                 let _ = reply.send(self.engine_control(request));
             }
@@ -1470,6 +1511,7 @@ impl Brain {
         }
         self.on_resume_timer();
         self.on_steer_deadline(now);
+        self.reaction_timer(now);
         if self.orphan_wait.is_some_and(|at| at <= now) {
             (self.log)("an adopted turn session ran past its wait; folding and ending it");
             self.adopt_orphans(true);
