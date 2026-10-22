@@ -1565,6 +1565,10 @@ pre.cv-math-source {
     color: color-mix(in srgb, var(--agent-accent, var(--cv-text)) 70%, var(--cv-text));
     animation: cmux-shimmer-lit var(--cmux-breath-period, 2.4s) linear infinite;
   }
+  /* The lit words are generated content: the DOM holds the line's words once. */
+  :root:not([data-status-indicators="static"]) .cv-shimmer__lit::before {
+    content: attr(data-text);
+  }
 }
 
 .cv-tools {

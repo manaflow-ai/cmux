@@ -63,7 +63,9 @@ await requireBrowserLane("working-loops-compositor.test.tsx", async () => {
         browser = await type.launch({ headless: true }).catch(() => undefined);
       });
       afterAll(async () => {
-        await browser?.close();
+        // WebKit's close can hang on the fleet with loops still running; the pages are closed.
+        // fixed-wait: a bounded wait for a close that has no completion signal when it hangs.
+        await Promise.race([browser?.close(), new Promise((resolve) => setTimeout(resolve, 5000))]);
       });
 
       async function open(reducedMotion: "reduce" | "no-preference"): Promise<Page> {

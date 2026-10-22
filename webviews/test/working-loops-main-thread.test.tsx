@@ -6,7 +6,7 @@
 // frame once its loops start. Prints the table (main-thread task ms/s, style recalcs/s) and fails
 // when the current lines restyle per frame.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
 import { chromium, type Browser } from "playwright";
@@ -86,12 +86,15 @@ await requireBrowserLane("working-loops-main-thread.test.tsx", async () => {
         // fixed-wait: each cost() call is a timed measurement window.
         rows.push({ shimmer: "after (compositor)", count, ...(await cost(css, line, count)) });
       }
-      console.log(
+      const table =
         "SPINNERS-MAIN-THREAD\n" +
-          rows
-            .map((row) => `${row.shimmer}\t${row.count}\t${row.taskMsPerS} ms/s\t${row.recalcsPerS} recalcs/s`)
-            .join("\n"),
-      );
+        rows
+          .map((row) => `${row.shimmer}\t${row.count}\t${row.taskMsPerS} ms/s\t${row.recalcsPerS} recalcs/s`)
+          .join("\n");
+      console.log(table);
+      // The table for the fleet step's artifact (a passing file's output is not printed).
+      mkdirSync(path.resolve(import.meta.dir, "../../artifacts"), { recursive: true });
+      writeFileSync(path.resolve(import.meta.dir, "../../artifacts/spinners-main-thread.txt"), table + "\n");
       // The measurement sees per-frame work: the old shimmer restyles every frame.
       const old20 = rows.find((row) => row.count === 20 && row.shimmer.startsWith("before"))!;
       expect(old20.recalcsPerS).toBeGreaterThan(20);
