@@ -55,14 +55,17 @@ export function newTabScreenActions(deps: {
           );
           return;
         }
-        // The person picked this project (or kept the default) and sent: the next New Tab starts
-        // here (newtab/startedProject.ts). No project, or nothing sent, leaves the default as it was.
-        if ((text || attachments?.length) && deps.startsHere?.() !== false) rememberStartedProject(folder, callNative);
+        // The person picked this project (or kept the default) and sent: once the chat has started
+        // there (`chat.new` resolves to it), the next New Tab starts here (newtab/startedProject.ts).
+        // A refused or failed start, no project, or nothing sent leaves the default as it was.
+        const remembers = (text || attachments?.length) && deps.startsHere?.() !== false;
         ignore(
           callNative("chat.new", {
             harness,
             ...(folder ? { cwd: folder } : noProject ? { noProject: true } : {}),
             ...(model ? { model } : {}),
+          }).then((started) => {
+            if (started && remembers) rememberStartedProject(folder, callNative);
           }),
         );
         // Attachments pasted or dropped on the page go with the first prompt, or alone.

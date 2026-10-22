@@ -31,10 +31,8 @@ function actions() {
 test("the first prompt carries the attachments pasted on the page", () => {
   const { screen, sent } = actions();
   screen.onAsk("claude", "what is this", undefined, undefined, undefined, [image]);
-  // The agent pick, then the project the chat starts in (the next New Tab's default), then the chat.
-  expect(sent.map(([method]) => method)).toEqual(["newTab.remember", "newTab.remember", "chat.new", "chat.send"]);
-  expect(sent[1]![1]).toEqual({ started: "/Users/you/src/app" });
-  expect(sent[3]![1]).toEqual({ text: "what is this", attachments: [image] });
+  expect(sent.map(([method]) => method)).toEqual(["newTab.remember", "chat.new", "chat.send"]);
+  expect(sent[2]![1]).toEqual({ text: "what is this", attachments: [image] });
 });
 
 test("attachments alone start the chat with them", () => {

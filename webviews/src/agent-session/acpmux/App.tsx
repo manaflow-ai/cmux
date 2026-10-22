@@ -5387,6 +5387,8 @@ function AcpmuxPane() {
     setWorktreeError(undefined);
     setWorktreeCreating(true);
     const use = (folder: string) => {
+      // The person's pick: a send there makes it the New Tab default (newtab/startedProject.ts).
+      pickedProject.current = folder;
       // A chat that started meanwhile keeps its folder: the worktree gets a new chat of its own.
       if (freshRef.current) setProjectDraft(folder);
       else void callNative("chat.new", { cwd: folder }).catch(() => undefined);
@@ -6825,9 +6827,9 @@ function AcpmuxPane() {
         // A chat on another machine starts only with a send (cx-k21v): with no text, the folder
         // waits for the first send.
         if (folder && !text && directClient.current?.startsOnSend) return setProjectDraft(folder);
-        // A chat the person starts here with a prompt makes its project the default.
-        if (text && !directClient.current?.startsOnSend) rememberStartedProject(folder, callNative);
-        if (folder) await callNative("chat.new", { cwd: folder });
+        const started = folder ? await callNative("chat.new", { cwd: folder }) : undefined;
+        // A chat the person started here with a prompt makes its project the default.
+        if (started && text && !directClient.current?.startsOnSend) rememberStartedProject(folder, callNative);
         if (text) await callNative("chat.send", { text });
       })().catch(() => undefined);
     // The page's own folder is inherited (`~` in a fresh workspace): the chat starts in its start
@@ -7497,13 +7499,17 @@ function AcpmuxPane() {
               // Shell mode's chips carry their commands' output as it is now.
               const attachments = shellContextAttachments(chips ?? [], (id) => shellRuns.get(id));
               if (!snapshot.sessionId) claimShellRuns.current = true;
-              // A send in the project the person picked here starts their chat there: the next New
-              // Tab defaults to it (Leo 2026-10-21, newtab/startedProject.ts).
+              // A send in the project the person picked here starts their chat there: once that chat
+              // has started (or the send to it landed), the next New Tab defaults to it (Leo
+              // 2026-10-21, newtab/startedProject.ts). A refused or failed start leaves the default.
               const sentIn = !snapshot.sessionId ? projectDraft : snapshot.summary?.cwd;
-              if (pickedProject.current && sentIn === pickedProject.current && !remoteChat) {
-                rememberStartedProject(pickedProject.current, callNative);
-                pickedProject.current = undefined;
-              }
+              const startedHere =
+                pickedProject.current && sentIn === pickedProject.current && !remoteChat ? sentIn : undefined;
+              const rememberStart = () => {
+                if (!startedHere) return;
+                rememberStartedProject(startedHere, callNative);
+                if (pickedProject.current === startedHere) pickedProject.current = undefined;
+              };
               // A started chat never holds the prompt (plans/cmux-next/composer-delivery-DESIGN.md):
               // it leaves the composer at once and shows as its own row, which says how far it got,
               // and a refusal stays on that row with Retry, Edit and Remove. One refused before any
@@ -7517,7 +7523,10 @@ function AcpmuxPane() {
               ) {
                 const holder = composerHandle.current;
                 callNative("chat.send", { text, attachments, steer }).then(
-                  () => promptLanded.current(),
+                  () => {
+                    rememberStart();
+                    promptLanded.current();
+                  },
                   (error: unknown) => {
                     cancelOpenInWindow();
                     if (failedRowOf(error) || isTrustRefusal(error)) return;
@@ -7542,13 +7551,18 @@ function AcpmuxPane() {
                   // The chat's start is part of this send: a trust refusal there asks the folder's
                   // question, keeps this prompt (with its send's gesture) and sends it after Trust
                   // (cx-nn3e P0b; the prompt was lost when only the start ran again).
-                  await callNative("chat.new", { cwd: projectDraft, ...heldPick(snapshot) }).catch((error: unknown) => {
-                    if (isTrustRefusal(error)) {
-                      holdPrompt.current?.();
-                      trustRefused.current?.(error, () => composerHandle.current?.send());
-                    }
-                    throw error;
-                  });
+                  await callNative("chat.new", { cwd: projectDraft, ...heldPick(snapshot) }).then(
+                    (started) => {
+                      if (started) rememberStart();
+                    },
+                    (error: unknown) => {
+                      if (isTrustRefusal(error)) {
+                        holdPrompt.current?.();
+                        trustRefused.current?.(error, () => composerHandle.current?.send());
+                      }
+                      throw error;
+                    },
+                  );
                 return callNative("chat.send", { text, attachments, accepted: () => accept(true), steer });
               };
               // The composer that holds the prompt: a refusal that comes once it is gone (the pane
@@ -7944,6 +7958,7 @@ function AcpmuxPane() {
               hotkeys={newTab.hotkeys}
               initialKind={newTab.initialKind}
               cwd={newTab.cwd}
+              {...(newTab.startedProject ? { startedProject: newTab.startedProject } : {})}
               host={newTab.host ?? machineName}
               location={newTab.location}
               omnibar={newTab.omnibar}

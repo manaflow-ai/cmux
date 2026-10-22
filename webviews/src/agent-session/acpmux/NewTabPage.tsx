@@ -29,7 +29,7 @@ import {
 import { type StringKey, type Translate, translate, useT } from "./i18n";
 import { parsePageWidgets, type PageWidget } from "./newtab/pageWidgets";
 import { parseNewTabTemplate, type NewTabTemplate } from "./newtab/templates";
-import { isStartableProject } from "./newtab/startedProject";
+import { isStartableProject, rememberedStartedProject } from "./newtab/startedProject";
 import { seedWarmNewTab } from "./newtab/warmSnapshot";
 
 /// The three things a new tab can become (#16620). Order is the switch's order and Tab's cycle.
@@ -239,6 +239,9 @@ type Props = {
   initialKind?: TabKind;
   /// The folder the new tab starts in (the pane's terminal cwd).
   cwd?: string;
+  /// The app's copy of the project of the chat the person last picked and started (this run's own
+  /// copy wins): the project a tab with no folder of its own starts on.
+  startedProject?: string;
   /// The machine it runs on (the handshake's `machineName`); "This Mac" when absent.
   host?: string;
   inputToken?: string;
@@ -273,6 +276,7 @@ export function NewTabPage({
   hotkeys = {},
   initialKind = "agent",
   cwd,
+  startedProject,
   host,
   chips: Chips,
   omnibar = EMPTY_OMNIBAR,
@@ -293,7 +297,11 @@ export function NewTabPage({
   // placeholder and context a visible swipe without moving the composer or stealing its focus.
   const [kindSwitch, setKindSwitch] = useState<KindSwitchDirection>();
   const kindSwitchTimer = useRef<number | undefined>(undefined);
-  const [projectCwd, setProjectCwd] = useState(cwd);
+  // A tab with no project of its own (none, `~`, a private agent-home folder) starts on the project
+  // of the chat the person last picked and started (Leo 2026-10-21, newtab/startedProject.ts).
+  const [projectCwd, setProjectCwd] = useState(() =>
+    isStartableProject(cwd) ? cwd : (rememberedStartedProject() ?? startedProject ?? cwd),
+  );
   const [text, setText] = useState(location ?? "");
   /// The last open was refused (the host made no tab): a note under the field until the next edit.
   const [openFailed, setOpenFailed] = useState(false);
