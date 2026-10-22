@@ -1,7 +1,8 @@
 //! `acpmux host update`: bring ssh peers to this build (or the one for
 //! their target in `--binary-dir`), check the restarted daemon answers with
 //! it, and roll back what does not. The scripts it runs live in the parent
-//! module (`hosts.rs`), the unit migration in `host_migrate.rs`.
+//! module (`hosts.rs`), the unit migration in `host_migrate.rs`; `host
+//! self-update` (`host_self_update.rs`) runs the same update on this machine.
 
 use super::{
     DAEMON_UNIT, MIGRATING, REFUSED, RESTORE_PREV, Remote, RemoteOut, SshRemote, connect_peer,
@@ -13,6 +14,10 @@ use anyhow::{Result, anyhow};
 use serde_json::{Value, json};
 use std::path::PathBuf;
 use std::sync::Arc;
+
+#[path = "host_self_update.rs"]
+mod host_self_update;
+pub(crate) use host_self_update::self_update;
 
 /// Restart the launchd daemon of a macOS host, then give it
 /// [`super::LAUNCHD_START_GRACE`] (2 s) so its status is not read from the old one.

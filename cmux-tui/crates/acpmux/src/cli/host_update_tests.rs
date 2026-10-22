@@ -153,7 +153,7 @@ esac
 /// the build in `$HOME/old-build`), `$HOME/fails-<unit>` does not start,
 /// and a stop without `KillMode=process` (the unit's, or the migration's
 /// runtime drop-in) ends the agent host `$HOME/agents`. `$HOME/no-systemd`:
-/// no manager answers.
+/// no manager answers. A timer only needs its unit file.
 #[cfg(unix)]
 const FAKE_SYSTEMCTL: &str = r#"#!/bin/sh
 echo "systemctl $*" >> "$HOME/calls"
@@ -165,6 +165,7 @@ cat) test -f "$d/$3";;
 is-active) test -f "$HOME/active-$4";;
 restart) rm -f "$HOME/daemon"; ~/.local/bin/acpmux __start; under "$3";;
 enable)
+  case "$4" in *.timer) test -f "$d/$4"; exit;; esac
   test -f "$d/$4" && test ! -f "$HOME/fails-$4" || exit 1
   touch "$HOME/active-$4"; under "$4"
   if [ "$4" = acpmux.service ]; then cat "$d/acpmux.service.d/"*.conf > "$HOME/started-with" 2>/dev/null; ~/.local/bin/acpmux __start; else cp "$HOME/old-build" "$HOME/daemon"; fi;;
@@ -751,3 +752,7 @@ fn a_listen_address_acpmux_service_would_lose_is_refused() {
     assert!(up.error.as_deref().unwrap_or("").contains("127.0.0.1:47822"), "{up:?}");
     peer.assert_untouched(&fake_acpmux(STALE, Some(STALE)), OLD);
 }
+
+#[cfg(unix)]
+#[path = "host_self_update_tests.rs"]
+mod self_update;
