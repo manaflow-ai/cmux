@@ -255,13 +255,26 @@ async fn a_build_whose_daemon_does_not_come_back_is_rolled_back_and_not_tried_ag
     assert!(peer.take_calls().is_empty(), "the daemon is not restarted again");
     assert_eq!(files.asked().len(), 1);
 
-    // A newer build is tried, and the rejected download goes.
+    // A newer build is tried, and the rejected download goes; its
+    // rejection stays.
     let newer = "b2c3d4e5f 2026-10-22";
     let files = serving(&fake_acpmux(newer, Some(newer)));
     let plan = ready(&peer, &files).await;
     let up = apply(&peer, &plan, TARGET);
     assert_eq!((up.outcome, up.build.as_deref()), (Outcome::Updated, Some(newer)), "{up:?}");
-    assert!(!peer.exists(&format!(".acpmux/update/{}", sha_of(&bad))));
+    assert!(!peer.exists(&format!(".acpmux/update/{}/acpmux-{TARGET}", sha_of(&bad))));
+    assert!(peer.exists(&format!(".acpmux/update/{}/{ROLLED_BACK}", sha_of(&bad))));
+    drop(plan);
+    let _ = peer.take_calls();
+
+    // Review of #24232: pruning took the rejection with the download, so a
+    // channel that moved back to the bad build installed it again.
+    let files = serving(&bad);
+    let again = prepared(&peer, &files).await;
+    assert!(matches!(&again, Prepared::RolledBackBefore(commit) if commit == COMMIT));
+    assert!(peer.take_calls().is_empty(), "the healthy daemon is not restarted");
+    assert_eq!(files.asked().len(), 1, "the bad build is not downloaded again");
+    assert_eq!(peer.daemon(), newer);
 }
 
 #[tokio::test]
@@ -446,12 +459,25 @@ fn the_timer_units_install_once_and_a_unit_someone_else_wrote_is_left_alone() {
     std::fs::remove_file(units.join("acpmux-update.service")).unwrap();
     let (calls, err) = install_units(&home);
     assert!(calls.is_empty(), "{calls:?}");
-    assert!(err.contains("acpmux-update.timer differs"), "{err}");
+    assert!(err.contains("acpmux-update.timer is a unit acpmux did not write"), "{err}");
     assert_eq!(read("acpmux-update.timer"), theirs);
     assert!(!units.join("acpmux-update.service").exists());
 
-    // The opt-out stops the timer and writes nothing.
+    // Review of #24232: a unit in another directory systemd reads (here
+    // ~/.local/share/systemd/user; /etc/systemd/user the same way) would be
+    // shadowed by the one written here, so neither is written.
     std::fs::remove_dir_all(&units).unwrap();
+    let shared = home.join(".local/share/systemd/user");
+    std::fs::create_dir_all(&shared).unwrap();
+    std::fs::write(shared.join("acpmux-update.service"), "[Service]\nExecStart=/bin/true\n")
+        .unwrap();
+    let (calls, err) = install_units(&home);
+    assert!(calls.is_empty(), "{calls:?}");
+    assert!(err.contains(".local/share/systemd/user/acpmux-update.service is a unit"), "{err}");
+    assert!(!units.exists());
+    std::fs::remove_dir_all(home.join(".local")).unwrap();
+
+    // The opt-out stops the timer and writes nothing.
     std::fs::create_dir_all(home.join(".acpmux")).unwrap();
     std::fs::write(home.join(".acpmux").join(NO_AUTO_UPDATE), "").unwrap();
     let (calls, _) = install_units(&home);

@@ -52,11 +52,17 @@ WantedBy=timers.target
 /// The two unit files, as [`install_script`] names them.
 const UNITS: &str = "acpmux-update.service acpmux-update.timer";
 
+/// The directories besides `~/.config/systemd/user` that systemd's user
+/// manager reads unit files from (`systemd.unit(5)`), as a shell list.
+const OTHER_UNIT_DIRS: &str = "/etc/systemd/user ~/.local/share/systemd/user /usr/local/lib/systemd/user /usr/lib/systemd/user /run/systemd/user";
+
 /// Installs the two units and starts the timer; it runs once
 /// `acpmux.service` (re)started. A unit file that is missing is written; one
 /// with the same text is kept; one with other text was written by someone
 /// else and is theirs, so neither file is written and the timer is not
-/// started (the reason goes to stderr). With [`NO_AUTO_UPDATE`] the timer is
+/// started (the reason goes to stderr). The same holds for either unit in
+/// another directory systemd reads user units from ([`OTHER_UNIT_DIRS`]): a
+/// file written here would shadow it. With [`NO_AUTO_UPDATE`] the timer is
 /// stopped instead. Nothing here fails the script it runs in.
 pub(super) fn install_script() -> String {
     format!(
@@ -68,8 +74,9 @@ cat > "$au_t/acpmux-update.service" <<'ACPMUX_UPDATE_UNIT'
 cat > "$au_t/acpmux-update.timer" <<'ACPMUX_UPDATE_UNIT'
 {UPDATE_TIMER}ACPMUX_UPDATE_UNIT
 au_c=; au_w=
-for au_f in {UNITS}; do if [ -e "$au_d/$au_f" ] && ! cmp -s "$au_t/$au_f" "$au_d/$au_f"; then au_c=$au_f; fi; done
-if [ -n "$au_c" ]; then echo "$au_d/$au_c differs from the unit acpmux writes, so this host does not update itself: remove it, then run host update again" >&2
+for au_f in {UNITS}; do if [ -e "$au_d/$au_f" ] && ! cmp -s "$au_t/$au_f" "$au_d/$au_f"; then au_c=$au_d/$au_f; fi
+for au_o in {OTHER_UNIT_DIRS}; do if [ -e "$au_o/$au_f" ]; then au_c=$au_o/$au_f; fi; done; done
+if [ -n "$au_c" ]; then echo "$au_c is a unit acpmux did not write, so this host does not update itself: remove it, then run host update again" >&2
 else
 for au_f in {UNITS}; do if [ ! -e "$au_d/$au_f" ]; then mkdir -p "$au_d" && cp "$au_t/$au_f" "$au_d/$au_f" && au_w=1; fi; done
 if [ -z "$au_w" ] || systemctl --user daemon-reload; then systemctl --user enable --now acpmux-update.timer >/dev/null 2>&1 || :; fi

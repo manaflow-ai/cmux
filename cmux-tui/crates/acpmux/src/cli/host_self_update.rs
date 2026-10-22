@@ -249,13 +249,25 @@ pub(super) async fn prepare(paths: &Paths, fetch: &dyn Fetch, channel: &str) -> 
     Ok(Prepared::Ready(Plan { commit: feed.commit, sha256: sha, step, lease }))
 }
 
-/// Remove the download folders (`<sha256>/`) of builds other than `keep`.
+/// Remove the download folders (`<sha256>/`) of builds other than `keep`,
+/// except a rolled-back build's [`ROLLED_BACK`] marker: only its binary goes,
+/// so the channel moving on and back never installs that build again.
 fn prune(downloads: &Path, keep: &str) {
     let Ok(entries) = std::fs::read_dir(downloads) else { return };
     for entry in entries.flatten() {
         let name = entry.file_name();
-        if name.to_str().is_some_and(|n| n != keep && lower_hex(n, 64)) {
-            let _ = std::fs::remove_dir_all(entry.path());
+        if !name.to_str().is_some_and(|n| n != keep && lower_hex(n, 64)) {
+            continue;
+        }
+        let dir = entry.path();
+        if !dir.join(ROLLED_BACK).exists() {
+            let _ = std::fs::remove_dir_all(&dir);
+            continue;
+        }
+        for file in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+            if file.file_name() != ROLLED_BACK {
+                let _ = std::fs::remove_file(file.path());
+            }
         }
     }
 }
