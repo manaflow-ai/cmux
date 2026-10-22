@@ -214,11 +214,23 @@ export function jumpDuration(distance: number): number {
 /// chat's snapshot hashes and previews only the turns that changed.
 const turnsByPrompt = new WeakMap<AcpmuxRow, { turn: MinimapTurn; sessionId: string; reply?: AcpmuxRow }>();
 
-/// The turns of `rows`, and the rows they were read from.
-export type MinimapTurns = { rows: readonly AcpmuxRow[]; sessionId: string; turns: MinimapTurn[] };
+/// What a turn's tick on the rail shows: its prompt, by key. A tick changes only when its prompt
+/// does, not when the reply it previews streams on.
+export type MinimapTick = Pick<MinimapTurn, "key" | "id" | "prompt">;
+
+/// The turns of `rows`, the ticks they draw, and the rows they were read from.
+export type MinimapTurns = {
+  rows: readonly AcpmuxRow[];
+  sessionId: string;
+  turns: MinimapTurn[];
+  ticks: readonly MinimapTick[];
+};
 
 /// The transcript's turns. A turn that ends before the first row that differs from
 /// `previous.rows` (by object) is kept, and `turns` stays `previous.turns` when every turn is.
+/// `ticks` stays `previous.ticks` while the prompts are the same, so a token streaming into a reply
+/// leaves the rail's ticks alone (ThreadMinimap draws them from `ticks`). Only the turns from the
+/// first changed one on are compared: the ones before it are the previous ones.
 export function minimapTurns(rows: readonly AcpmuxRow[], sessionId = "", previous?: MinimapTurns): MinimapTurns {
   const reuse = previous?.sessionId === sessionId ? previous : undefined;
   let from = 0;
@@ -262,8 +274,31 @@ export function minimapTurns(rows: readonly AcpmuxRow[], sessionId = "", previou
   }
   close();
   const old = reuse?.turns;
-  const same = old && old.length === turns.length && old.every((turn, index) => turn === turns[index]);
-  return { rows, sessionId, turns: same ? old : turns };
+  const oldTicks = reuse?.ticks;
+  let sameTurns = old !== undefined && old.length === turns.length;
+  let sameTicks = oldTicks !== undefined && oldTicks.length === turns.length;
+  for (let index = keep; index < turns.length && (sameTurns || sameTicks); index += 1) {
+    const turn = turns[index]!;
+    if (old?.[index] !== turn) sameTurns = false;
+    const tick = oldTicks?.[index];
+    if (tick?.key !== turn.key || tick.prompt !== turn.prompt || tick.id !== turn.id) sameTicks = false;
+  }
+  return {
+    rows,
+    sessionId,
+    turns: sameTurns ? old! : turns,
+    ticks: sameTicks ? oldTicks! : ticksOf(turns, oldTicks),
+  };
+}
+
+/// Each turn's tick, the previous one where its prompt is the same.
+function ticksOf(turns: readonly MinimapTurn[], previous: readonly MinimapTick[] = []): MinimapTick[] {
+  return turns.map((turn, index) => {
+    const tick = previous[index];
+    return tick && tick.key === turn.key && tick.prompt === turn.prompt && tick.id === turn.id
+      ? tick
+      : { key: turn.key, id: turn.id, prompt: turn.prompt };
+  });
 }
 
 /// FNV-1a of `text`, as base 36.
