@@ -33,6 +33,7 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
+import { flushSync } from "react-dom";
 import { usePresence, type Presence } from "../../../ui/presence";
 import { useChatDisplay } from "../chatDisplay";
 import { chatColumnOf, useChatWidth, type ChatColumn } from "../chatWidth";
@@ -43,6 +44,7 @@ import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { transcriptColumn, type AcpmuxRow, type AcpmuxSnapshot } from "../model";
 import { registerPicker } from "../pickerOpeners";
+import { opensProcessTerminal } from "../processTerminal";
 import { tooltipProps } from "../shortcuts";
 import { subagentsIn } from "../subagents/subagentRows";
 import { chatGallery } from "../summary/chatGallery";
@@ -98,15 +100,17 @@ export const pushes = (placement: InspectorPlacement, paneWidth: number, width: 
 export const pushedWidth = (paneWidth: number, width: number) =>
   paneWidth <= 0 ? width : Math.min(width, Math.max(INSPECTOR_WIDTH.min, paneWidth - PUSH_MIN_CHAT - FLOAT_MARGIN));
 
-/// The pane's width, followed as it resizes; 0 before it is measured.
+/// The pane's width, followed as it resizes; 0 before it is measured. A resize draws in the frame
+/// that has the new width: the observer runs after that frame's layout and before its paint, and
+/// `flushSync` renders the panel's place there (state set plainly drew a frame or more later, the panel
+/// floating over the narrowed transcript before the chat jumped aside: "WHY DOES IT FLICKER").
 function usePaneWidth(shell: HTMLElement | null | undefined, live: boolean): number {
   const [width, setWidth] = useState(0);
   useLayoutEffect(() => {
     if (!shell || !live) return;
-    const measure = () => setWidth(shell.clientWidth);
-    measure();
+    setWidth(shell.clientWidth);
     if (typeof ResizeObserver !== "function") return;
-    const observer = new ResizeObserver(measure);
+    const observer = new ResizeObserver(() => flushSync(() => setWidth(shell.clientWidth)));
     observer.observe(shell);
     return () => observer.disconnect();
   }, [shell, live]);
@@ -133,6 +137,7 @@ export function useChatInspector({
   sessions,
   onOpenFolder,
   onSaveEnvironment,
+  onShowCall,
 }: {
   snapshot: AcpmuxSnapshot;
   /// This Mac's name from the handshake, for a local chat.
@@ -165,6 +170,8 @@ export function useChatInspector({
   onOpenFolder?: (path: string) => void;
   /// Saves the chat's machine and folder as an environment (`environment.save`).
   onSaveEnvironment?: () => Promise<unknown>;
+  /// Shows the Bash call that started a background command in the transcript (App.tsx `showToolRow`).
+  onShowCall?: (toolCallId: string) => boolean;
 }): {
   on: boolean;
   button?: ReactNode;
@@ -265,6 +272,7 @@ export function useChatInspector({
         onOpenFolder={onOpenFolder}
         onSaveEnvironment={onSaveEnvironment}
         onOpenDocument={onOpenDocument}
+        onShowCall={onShowCall}
       />
     ),
   };
@@ -298,6 +306,7 @@ function InspectorPresence({
   onOpenFolder,
   onSaveEnvironment,
   onOpenDocument,
+  onShowCall,
 }: {
   shown: boolean;
   snapshot: AcpmuxSnapshot;
@@ -327,6 +336,7 @@ function InspectorPresence({
   onOpenFolder?: (path: string) => void;
   onSaveEnvironment?: () => Promise<unknown>;
   onOpenDocument?: (artifact: Artifact) => void;
+  onShowCall?: (toolCallId: string) => boolean;
 }) {
   const { width, sections } = useInspectorState();
   const display = useChatDisplay();
@@ -403,6 +413,7 @@ function InspectorPresence({
         onOpenFolder={onOpenFolder}
         onSaveEnvironment={onSaveEnvironment}
         onOpenDocument={onOpenDocument}
+        onShowCall={onShowCall}
       />
     </InspectorPanel>
   );
@@ -521,6 +532,7 @@ export function ChatInspector({
   remoteControl,
   onSaveEnvironment,
   onOpenFolder,
+  onShowCall,
 }: {
   summary?: Summary;
   machineName?: string;
@@ -567,6 +579,9 @@ export function ChatInspector({
   onSaveEnvironment?: () => Promise<unknown> | void;
   /// Opens one of the chat's folders in the Files tree beside the chat.
   onOpenFolder?: (path: string) => void;
+  /// Shows the Bash call that started a background command in the transcript: what its row opens
+  /// in a chat whose terminal cannot open here (TasksSection).
+  onShowCall?: (toolCallId: string) => boolean;
 }) {
   const t = useT();
   const stored = useInspectorState().sections;
@@ -578,6 +593,17 @@ export function ChatInspector({
   // As the composer's context ring reads it (ComposerPickers ContextRing).
   const percent = known ? Math.round(Math.min(1, Math.max(0, usage.used / usage.size)) * 100) : 0;
   const { servers, tasks: commands } = inspectorLists(processes, transcriptTasks, listed);
+  // A chat on this Mac opens a task's terminal; elsewhere a row shows the call that started it,
+  // when the loaded transcript holds it. Read only then, so a local chat adds no pass over its rows.
+  const local = opensProcessTerminal(summary);
+  const showsCalls = !local && !!onShowCall && commands.some((command) => command.toolCallId);
+  const calls = useMemo(
+    () =>
+      showsCalls
+        ? new Set(rows.flatMap((row) => (row.items ?? []).flatMap((item) => (item.tool?.id ? [item.tool.id] : []))))
+        : undefined,
+    [showsCalls, rows],
+  );
   const body = useRef<HTMLDivElement>(null);
   // Once: then it is done, so the palette or another pane opening the Inspector again does not jump
   // back to this section.
@@ -643,7 +669,7 @@ export function ChatInspector({
             </>
           }
         >
-          <ContextSection usage={usage} percent={percent} />
+          <ContextSection usage={usage} percent={percent} breakdown={summary?.contextBreakdown} />
         </InspectorSection>
       )}
       {mcp.length > 0 && (
@@ -725,7 +751,14 @@ export function ChatInspector({
           onOpenChange={fold("tasks")}
           meta={runningTasks > 0 ? value(t("rail.running", { count: runningTasks })) : undefined}
         >
-          <TasksSection commands={commands} scheduled={scheduled} onStop={onStopProcess} />
+          <TasksSection
+            commands={commands}
+            scheduled={scheduled}
+            onStop={onStopProcess}
+            local={local}
+            calls={calls}
+            onShowCall={onShowCall}
+          />
         </InspectorSection>
       )}
       {outputs.length + links.length + artifacts + (onOpenDocument ? documents.length : 0) > 0 && (
