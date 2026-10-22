@@ -15,8 +15,8 @@ import CmuxNextSidebar
 /// Undo brings them all back (`WorkspaceGroupClose.offerUndo`), as the other bulk closes do.
 @MainActor
 enum WorkspaceSelectionClose {
-    /// Rows whose batch close has started and not ended, the offline ones until their machine took them
-    /// too: a second press (this batch, or Close Workspace on the row the window keeps) sends nothing.
+    /// Rows whose batch close has started and not settled (each leaves as its own close settles): a second
+    /// press (this batch, or Close Workspace on the row the window keeps) sends nothing for them.
     private(set) static var running: Set<String> = []
 
     /// Closes the workspaces `ids` that window `state` lists.
@@ -41,7 +41,6 @@ enum WorkspaceSelectionClose {
         let hidden = InstantClose.begin(closing, in: window, windows: windows)
         let afterPress = controller?.state.workspaceID
         services.registry.track(Task { @MainActor in
-            defer { running.subtract(closing) }
             // One question for the whole selection, asked after the rows left (as WorkspaceCloseFlow does).
             if var prompt = await WorkspaceBulkClose.prompt(members, warn: warn, askWithoutUndo: undoWindow == nil, incognito: incognito) {
                 prompt.returnConfirms = false
@@ -51,6 +50,7 @@ enum WorkspaceSelectionClose {
                     }
                 }
                 guard confirmed else {
+                    running.subtract(closing)
                     for id in hidden { ClosingWorkspaces.shared.end(id, refused: false, in: nil) }
                     // The window shows its workspace again unless the person moved on meanwhile.
                     if let shownAtPress, closing.contains(shownAtPress), services.workspace(id: shownAtPress) != nil, let controller,
@@ -64,14 +64,23 @@ enum WorkspaceSelectionClose {
             // its row is no longer closing.
             let batch = zip(members, terminals).filter { services.workspace(id: $0.0.0.id) != nil }
             let sent = Set(batch.map { $0.0.0.id })
+            running.subtract(closing.filter { !sent.contains($0) })
             for id in hidden where !sent.contains(id) { ClosingWorkspaces.shared.end(id, refused: false, in: nil) }
             let live = batch.filter { $0.0.1.isLive }, offline = batch.filter { !$0.0.1.isLive }
-            let outcome = Outcome()
+            // Every row of the batch that closed, the offline ones too, under one toast and one Undo: shown once
+            // the live rows settled, and shown again in place (same id) as each offline row closes later.
+            let outcome = Outcome { closed in
+                guard closed.count > 1, let undoWindow else { return }
+                WorkspaceGroupClose.offerUndo("workspaces-closed", WorkspaceBulkClose.closedToast(closed.count), groups: [(nil, closed)],
+                                              after: seen, in: undoWindow, services)
+            }
             // A machine that is not connected (a paused Cloud VM): its closes wait for it outside the
             // window's lane, so later creates and closes never wait for it (WorkspaceCloseFlow).
-            // task-owner: one close each that waits for its machine; awaited below, before the undo toast.
-            let waiting = offline.map { pair in
-                Task { @MainActor in await settle([(pair.0, await send(pair.0, terminals: pair.1, waits: true, services))], in: controller?.window) }
+            for pair in offline {
+                // task-owner: one close that waits for its machine (until it connects or leaves the app)
+                Task { @MainActor in
+                    outcome.add(await settle([(pair.0, await send(pair.0, terminals: pair.1, waits: true, services))], in: controller?.window))
+                }
             }
             let failure = await WorkspaceLanes.shared.run(in: window) {
                 // task-owner: one close request each, all sent now; awaited right below.
@@ -80,22 +89,35 @@ enum WorkspaceSelectionClose {
                 }
                 var results: [(WorkspaceBulkClose.Member, ActionWorkFailure?)] = []
                 for task in started { results.append(await task.value) }
-                outcome.closed += await settle(results, in: controller?.window)
+                let closed = await settle(results, in: controller?.window)
+                outcome.liveSettled(closed)
                 return results.first { $0.1 != nil }?.1
             }.value
-            for task in waiting { outcome.closed += await task.value }
-            // Every row of the batch that closed, the offline ones too: one toast, one Undo.
-            if outcome.closed.count > 1, let undoWindow {
-                WorkspaceGroupClose.offerUndo("workspaces-closed", WorkspaceBulkClose.closedToast(outcome.closed.count), groups: [(nil, outcome.closed)],
-                                              after: seen, in: undoWindow, services)
-            }
             return failure
         })
     }
 
-    /// The names a batch closed, collected from inside and outside the window's lane.
+    /// The names a batch closed, from inside the window's lane and from the offline closes after it.
     @MainActor private final class Outcome {
-        var closed: [String] = []
+        private var closed: [String] = []
+        private var shown = false
+        private let offer: @MainActor ([String]) -> Void
+
+        init(offer: @escaping @MainActor ([String]) -> Void) { self.offer = offer }
+
+        /// The live rows settled: the toast shows for everything closed so far.
+        func liveSettled(_ names: [String]) {
+            closed += names
+            shown = true
+            offer(closed)
+        }
+
+        /// An offline row settled; once the toast has shown, it shows again with it.
+        func add(_ names: [String]) {
+            guard !names.isEmpty else { return }
+            closed += names
+            if shown { offer(closed) }
+        }
     }
 
     /// Ends the closes of `results`: one that went through stays hidden until its store has applied its
@@ -109,6 +131,8 @@ enum WorkspaceSelectionClose {
         }
         let firstRefused = results.first { $0.1 != nil }?.0.0.id
         for (member, failure) in results {
+            // Settled: a refused row can be closed again at once.
+            running.remove(member.0.id)
             ClosingWorkspaces.shared.end(member.0.id, refused: failure != nil, in: member.0.id == firstRefused ? window : nil)
         }
         return results.filter { $0.1 == nil }.map { $0.0.0.name }
