@@ -34,6 +34,9 @@ class SidebarRowView: NSView {
         wantsLayer = true
         layer?.cornerCurve = .continuous
         layer?.cornerRadius = SidebarStyle.rowCornerRadius
+        // A new row starts as a recycled one does (`prepareForReuse`): it clips only while its slot
+        // opens or closes. AppKit's default clipped a new group header's joined line away (#21999).
+        clipsToBounds = false
     }
 
     @available(*, unavailable)
