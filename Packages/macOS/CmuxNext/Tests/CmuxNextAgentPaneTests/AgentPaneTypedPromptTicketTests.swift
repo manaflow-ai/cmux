@@ -97,4 +97,19 @@ struct AgentPaneTypedPromptTicketTests {
         // A reserve with no gesture of the person's gets no ticket.
         #expect(pane.transport.reserveGesture(try Self.intent("p-script")) == nil)
     }
+
+    /// Tickets do not pile up: a connection keeps the newest few prompt tickets, so a page that
+    /// reserves one on every key press cannot send them all once the person has gone.
+    @Test func aConnectionKeepsOnlyTheNewestPromptTickets() async throws {
+        let pane = try await Self.chat()
+        defer { pane.server.stop(); try? FileManager.default.removeItem(atPath: pane.folder) }
+
+        let kept = AgentPaneUserGestures.promptTicketsKept
+        var tickets: [String] = []
+        for index in 0...kept { tickets.append(try Self.enter(pane, promptId: "p-\(index)")) }
+        #expect(pane.transport.gestures.ticketCount == kept)
+        // The oldest went; the newest still goes.
+        #expect(await Self.send(pane, Self.prompt(id: 2, promptId: "p-0", ticket: tickets[0])) == .gestureRequired)
+        #expect(await Self.send(pane, Self.prompt(id: 3, promptId: "p-\(kept)", ticket: tickets[kept])) == nil)
+    }
 }

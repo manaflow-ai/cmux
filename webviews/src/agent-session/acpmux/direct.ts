@@ -3266,10 +3266,11 @@ export class AcpmuxDirectClient {
     resend = false,
   ): Promise<string | undefined> {
     // The person's Enter (or Send, Retry) is a gesture the host counts once, and only while it is
-    // fresh. Bound to this promptId now, before anything below waits, it is this prompt's alone: a
-    // prompt sent behind a running turn or as a steer, right after another, no longer loses it to
-    // the one before when the host checks both after both key presses. A chat still starting is
-    // left to its start: the start takes the gesture and hands its credit to the first prompt.
+    // fresh. Bound to this promptId now, before this send waits on anything, it is this prompt's
+    // alone: a prompt sent behind a running turn or as a steer, right after another, no longer
+    // loses it to the one before when the host checks both after both key presses. A chat still
+    // starting is left to its start: the start takes the gesture and hands its credit to the first
+    // prompt (a harness switch's prompts reserve when the switch sends them).
     const reserved =
       ticket === undefined && !this.creating && this.selectedSessionId ? reservePromptGesture(promptId) : undefined;
     // A `data:` image written into the prompt goes as an image, never as text: the bubble, the

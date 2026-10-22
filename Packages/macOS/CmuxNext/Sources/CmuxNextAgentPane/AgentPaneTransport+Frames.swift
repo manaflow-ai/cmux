@@ -387,7 +387,7 @@ extension AgentPaneTransport {
             // (another prompt's ticket stays: the person sent that one too). A prompt went out: a
             // seed ticket it did not redeem and the start's credit end too.
             if facts.method == "session/prompt" {
-                gestures.clearPickTickets(); gestures.dropSeedTicket(); startCredit.clear(); pickCredit.clear()
+                gestures.clearTicketsKeepingPrompts(); gestures.dropSeedTicket(); startCredit.clear(); pickCredit.clear()
             }
         }
         if let error = await Self.encodeAndSend(box, relayID: relayID, socket: socket) {
