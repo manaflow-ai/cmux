@@ -61,14 +61,14 @@ import Testing
 
     /// An icon fits the 14pt box with its shape kept: an SF Symbol is rarely square, and stretching
     /// it to a square made the menu's icons look oversized.
-    @Test func iconsFitAFourteenPointBox() {
+    @Test func iconsFitAFourteenPointBox() throws {
         #expect(ThemedMenuRowView.imageSide == 14)
         let wide = ThemedMenuRowView.iconRect(for: NSSize(width: 20, height: 10), x: 15, midY: 11)
         #expect(wide == NSRect(x: 15, y: 7.5, width: 14, height: 7))
         let tall = ThemedMenuRowView.iconRect(for: NSSize(width: 12, height: 16), x: 15, midY: 11)
         #expect(tall.height == 14 && abs(tall.width - 10.5) < 0.001 && abs(tall.midX - 22) < 0.001 && tall.midY == 11)
         for symbol in ["doc.on.doc", "text.quote", "questionmark.bubble", "magnifyingglass"] {
-            guard let size = NSImage.menuSymbol(symbol)?.size else { continue }
+            let size = try #require(NSImage.menuSymbol(symbol), "\(symbol) is a system symbol").size
             let rect = ThemedMenuRowView.iconRect(for: size, x: 0, midY: 0)
             #expect(rect.width <= 14.001 && rect.height <= 14.001, "\(symbol) draws \(rect.size)")
             #expect(abs(rect.width / rect.height - size.width / size.height) < 0.01, "\(symbol) keeps its shape")

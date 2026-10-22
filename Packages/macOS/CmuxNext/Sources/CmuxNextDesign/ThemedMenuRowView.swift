@@ -286,9 +286,10 @@ extension ThemedMenuRowView {
     // AppKit's leading, the highlight 5pt in from the menu's edge. ThemedMenuMetricsTests pins them.
     static let rowHeight: CGFloat = 22, subtitleRowHeight: CGFloat = 36
     static let inset: CGFloat = 5, radius: CGFloat = 4
-    /// Where a row's icon (or title) starts: AppKit's own leading, so icons line up with the
-    /// menu's native separators. Only a menu with a checkmark or dash keeps a state column
-    /// (``markX``, then content at ``stateTitleX``), as a native menu does.
+    /// Where a row's icon (or title) starts: AppKit's own leading, where the menu's native
+    /// separators start. Only a menu with a checkmark or dash keeps a state column (``markX``,
+    /// then content at ``stateTitleX``), as current macOS context menus do. A row is measured
+    /// when it is themed: a checkmark set later moves its content into the trailing margin.
     static let titleX: CGFloat = 15
     static let markX: CGFloat = 10, stateTitleX: CGFloat = 22
     /// The box an icon fits in, keeping its shape (an SF Symbol is rarely square), and the space after it.
