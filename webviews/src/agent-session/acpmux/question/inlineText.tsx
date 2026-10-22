@@ -3,7 +3,7 @@
 // draws these as marks; drawn as plain text they showed their backticks and asterisks. Only marks:
 // an option row is a button, so a link draws as its label (a link or chip inside the row would
 // take the click that answers it), and nothing here loads, runs or opens anything.
-import type { ReactNode } from "react";
+import { Fragment, type ReactNode } from "react";
 
 // Groups: code, bold, strikethrough, italic, link (its label), backslash escape. The same shapes
 // the transcript's renderInline reads (conversation/Markdown.tsx), so an agent's text reads alike.
@@ -27,7 +27,7 @@ function marks(text: string, key: string): ReactNode[] {
     const at = match.index!;
     if (at > last) out.push(text.slice(last, at));
     const whole = match[0];
-    const k = `${key}${index++}`;
+    const k = `${key}.${index++}`;
     if (match[1])
       out.push(
         <code key={k} className="acpmux-question-code">
@@ -37,7 +37,7 @@ function marks(text: string, key: string): ReactNode[] {
     else if (match[2]) out.push(<strong key={k}>{marks(whole.slice(2, -2), k)}</strong>);
     else if (match[3]) out.push(<del key={k}>{marks(whole.slice(2, -2), k)}</del>);
     else if (match[4]) out.push(<em key={k}>{marks(whole.slice(1, -1), k)}</em>);
-    else if (match[5]) out.push(...marks(whole.slice(1, whole.indexOf("](")), k));
+    else if (match[5]) out.push(<Fragment key={k}>{marks(whole.slice(1, whole.indexOf("](")), k)}</Fragment>);
     else out.push(whole.slice(1));
     last = at + whole.length;
   }
