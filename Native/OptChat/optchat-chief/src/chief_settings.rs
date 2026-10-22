@@ -31,6 +31,10 @@ pub struct ChiefSettings {
     /// pauses it (`cloud.autoPauseIdleSeconds`, cloud-subagents-DESIGN.md
     /// B4). Default 60.
     pub cloud_auto_pause_idle_secs: u64,
+    /// Days a finished subagent's own VM stays paused (for a later tell)
+    /// before the host deletes it (`cloud.deleteAfterPausedDays`,
+    /// cloud-subagents-DESIGN.md v2).
+    pub cloud_delete_after_paused_days: u64,
 }
 
 /// `replies.thread`: when a Chief reply in its DM is threaded under the user
@@ -74,6 +78,7 @@ impl Default for ChiefSettings {
             reply_threads: ReplyThreads::Auto,
             show_after_report: true,
             cloud_auto_pause_idle_secs: 60,
+            cloud_delete_after_paused_days: 0,
         }
     }
 }
@@ -107,6 +112,7 @@ impl ChiefSettings {
             cloud_auto_pause_idle_secs: value["cloud"]["autoPauseIdleSeconds"]
                 .as_u64()
                 .unwrap_or(60),
+            cloud_delete_after_paused_days: 0,
         }
     }
 

@@ -1100,6 +1100,12 @@ impl Brain {
         self.agent_key_grace = grace;
     }
 
+    /// How long a finished subagent's own VM stays paused before it is
+    /// deleted (`cloud.deleteAfterPausedDays`).
+    pub fn cloud_delete_after_paused(&self) -> std::time::Duration {
+        self.cloud_reap
+    }
+
     /// `cloud.autoPauseIdleSeconds`: how long a cloud VM idles before it
     /// pauses.
     pub fn cloud_auto_pause_idle(&self) -> std::time::Duration {

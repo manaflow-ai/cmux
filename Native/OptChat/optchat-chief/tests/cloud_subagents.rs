@@ -1085,3 +1085,159 @@ fn a_cloud_subagents_workspace_terminal_opens_in_a_folder_on_this_mac() {
         opened[0]
     );
 }
+
+// ---- v2: every subagent in its own VM by default (cloud-subagents-DESIGN.md, "v2") ----
+
+/// A spawner and brain with `vms` as the pool tool and no `control cloud`.
+fn pool_unset(h: &mut Harness, vms: Arc<dyn optchat_chief::cloud_vms::CloudVms>) -> Arc<Spawner> {
+    let sp = Arc::new(
+        Arc::try_unwrap(spawner(h, None))
+            .ok()
+            .unwrap()
+            .with_cloud_text("SUBAGENT SYSTEM TEXT".into())
+            .with_cloud_vms(Some(vms.clone())),
+    );
+    h.brain.set_sub_starter(Some(sp.queue_starter()));
+    h.brain.set_cloud_vms(Some(vms), Duration::from_secs(3600));
+    sp
+}
+
+/// Cloud is the default: with a pool tool set up and no `control cloud`
+/// ever saved, each subagent gets its own VM; a task that needs the Mac
+/// stays here; `control cloud off` is remembered and wins.
+#[test]
+fn with_a_pool_tool_and_no_saved_choice_each_subagent_gets_its_own_vm() {
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    let vms = Arc::new(PerAgentVms::default());
+    let sp = pool_unset(&mut h, vms.clone());
+    let a = sp.clone();
+    run(&mut h, move || {
+        a.spawn(
+            vec![
+                "Design doc for cloud groups".into(),
+                "Screenshot the Home sidebar in the tagged app".into(),
+            ],
+            None,
+        )
+    })
+    .unwrap();
+    let peers: Vec<Option<String>> = subs(&h).into_iter().map(|(s, _)| s.peer).collect();
+    assert_eq!(peers, vec![Some("chief-sub-a1".to_owned()), None]);
+    assert!(
+        calls_of(&vms).contains(&"provision chief-sub-a1 small".to_owned()),
+        "{:?}",
+        calls_of(&vms)
+    );
+
+    set_cloud(&mut h, &sp, "off");
+    let a = sp.clone();
+    run(&mut h, move || {
+        a.spawn(vec!["Write the README".into()], None)
+    })
+    .unwrap();
+    assert_eq!(subs(&h).last().unwrap().0.peer, None, "off wins");
+}
+
+/// A pool tool that is not set up (no `vm-cmd`) leaves the default local.
+#[test]
+fn with_no_pool_tool_set_up_subagents_stay_here() {
+    struct NotSetUp;
+    impl optchat_chief::cloud_vms::CloudVms for NotSetUp {
+        fn resume(&self, _: &str) -> Result<(), String> {
+            Ok(())
+        }
+        fn pause(&self, _: &str) -> Result<(), String> {
+            Ok(())
+        }
+        fn available(&self) -> bool {
+            false
+        }
+    }
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    let sp = pool_unset(&mut h, Arc::new(NotSetUp));
+    let a = sp.clone();
+    run(&mut h, move || a.spawn(vec!["Design doc".into()], None)).unwrap();
+    assert_eq!(subs(&h).last().unwrap().0.peer, None);
+}
+
+/// A subagent's own VM pauses as soon as its run ends (its final report),
+/// not after `cloud.autoPauseIdleSeconds` (an hour here) and without a tick.
+#[test]
+fn a_subagents_own_vm_pauses_at_its_final_report() {
+    use optchat_chief::brain::Input;
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    let vms = Arc::new(PerAgentVms::default());
+    let sp = per_agent(&mut h, &vms);
+    let a = sp.clone();
+    run(&mut h, move || a.spawn(vec!["Design doc".into()], None)).unwrap();
+    assert!(!calls_of(&vms).iter().any(|c| c.starts_with("pause")));
+    h.brain.step(Input::SubagentFailed {
+        id: "a1".into(),
+        error: "ended".into(),
+    });
+    let until = Instant::now() + Duration::from_secs(5);
+    while !calls_of(&vms).contains(&"pause chief-sub-a1".to_owned()) && Instant::now() < until {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(
+        calls_of(&vms).contains(&"pause chief-sub-a1".to_owned()),
+        "{:?}",
+        calls_of(&vms)
+    );
+}
+
+/// A finished subagent's VM stays (paused) for `cloud.deleteAfterPausedDays`
+/// (default 7) for a later tell, and is deleted after that; 30 minutes is no
+/// longer enough.
+#[test]
+fn a_finished_subagents_vm_is_kept_paused_for_n_days_then_deleted() {
+    use optchat_chief::brain::Input;
+    use optchat_chief::chief_settings::ChiefSettings;
+    assert_eq!(ChiefSettings::default().cloud_delete_after_paused_days, 7);
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    let vms = Arc::new(PerAgentVms::default());
+    let sp = per_agent(&mut h, &vms);
+    assert_eq!(
+        h.brain.cloud_delete_after_paused(),
+        Duration::from_secs(7 * 86_400)
+    );
+    let a = sp.clone();
+    run(&mut h, move || a.spawn(vec!["Design doc".into()], None)).unwrap();
+    h.brain.step(Input::SubagentFailed {
+        id: "a1".into(),
+        error: "ended".into(),
+    });
+    for _ in 0..3 {
+        h.brain.step(Input::CloudTick);
+        while let Ok(input) = h.rx.recv_timeout(Duration::from_millis(20)) {
+            h.brain.step(input);
+        }
+    }
+    assert!(
+        !calls_of(&vms).iter().any(|c| c.starts_with("destroy")),
+        "kept: {:?}",
+        calls_of(&vms)
+    );
+    let set = h
+        .brain
+        .set_setting("cloud.deleteAfterPausedDays", "0")
+        .unwrap();
+    assert!(set.contains("cloud.deleteAfterPausedDays = 0"), "{set}");
+    assert!(
+        h.brain
+            .set_setting("cloud.deleteAfterPausedDays", "soon")
+            .is_err()
+    );
+    let until = Instant::now() + Duration::from_secs(5);
+    while !calls_of(&vms).contains(&"destroy chief-sub-a1".to_owned()) && Instant::now() < until {
+        h.brain.step(Input::CloudTick);
+        while let Ok(input) = h.rx.recv_timeout(Duration::from_millis(20)) {
+            h.brain.step(input);
+        }
+    }
+    assert!(calls_of(&vms).contains(&"destroy chief-sub-a1".to_owned()));
+}
