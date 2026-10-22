@@ -17,18 +17,25 @@ export const PreviewCard = React.forwardRef<
     prompt?: string;
     reply: readonly ReplyBlock[];
     bookmark?: PreviewBookmark;
+    /// The rail's edge (railSide.ts): on the right, `x` counts in from the right and the card opens
+    /// on the rail's left.
+    side?: "left" | "right";
     onPointerLeave(event: React.PointerEvent<HTMLDivElement>): void;
     onFocus?(): void;
     onBlur?(event: React.FocusEvent<HTMLDivElement>): void;
   }
->(function PreviewCard({ id, x, y, prompt, reply, bookmark, onPointerLeave, onFocus, onBlur }, ref) {
+>(function PreviewCard({ id, x, y, prompt, reply, bookmark, side, onPointerLeave, onFocus, onBlur }, ref) {
   const t = useT();
   return (
     <div
       ref={ref}
       id={id}
       className="acpmux-minimap__card"
-      style={{ transform: `translate3d(${x}px, ${y}px, 0)` }}
+      style={
+        side === "right"
+          ? { left: "auto", right: 0, transform: `translate3d(${-x}px, ${y}px, 0)` }
+          : { transform: `translate3d(${x}px, ${y}px, 0)` }
+      }
       onPointerLeave={onPointerLeave}
       onFocus={onFocus}
       onBlur={onBlur}
