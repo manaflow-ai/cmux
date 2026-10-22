@@ -94,16 +94,14 @@ export function isHomeFolder(path: string): boolean {
   return /^\/(?:Users|home)\/[^/]+$/.test(trim(path));
 }
 
-/// A lane's or agent's scratch folder: Spotlight-hidden `.noindex` checkouts and caches, and lane
-/// folders named `<owner>--<lane>` (`leo--ask-cost-dollar`, `codex--protocol-contract`,
-/// `cmux--queue-scroll`). Never a project row of its own; it shows only folded under a repository it
-/// is known to belong to. Only a folder in no repository is judged by its name: a Git checkout is
-/// placed by its `.git`, whatever it is called.
+/// A lane's or agent's scratch folder: Spotlight-hidden `.noindex` checkouts, caches, temp folders
+/// and the lane mirrors (`.wt-mirrors/<owner>/<repo>.git`). Never a project row of its own; it shows
+/// only folded under a repository it is known to belong to. Judged by where it lives, never by its
+/// name alone: `~/leo--feature` is an ordinary folder, and a lane checkout under `checkouts/<repo>/`
+/// is placed under its repository by `guessProjectRepo`.
 export function isScratchFolder(path: string): boolean {
-  const folder = trim(path);
-  return (
-    /\/[^/]+\.noindex(?:\/|$)|\/\.cache\/|^\/(?:private\/)?tmp\/|^\/(?:private\/)?var\/folders\//.test(folder) ||
-    /\/[^/.][^/]*--[^/]+$/.test(folder)
+  return /\/[^/]+\.noindex(?:\/|$)|\/\.wt-mirrors\/|\/\.cache\/|^\/(?:private\/)?tmp\/|^\/(?:private\/)?var\/folders\//.test(
+    trim(path),
   );
 }
 
