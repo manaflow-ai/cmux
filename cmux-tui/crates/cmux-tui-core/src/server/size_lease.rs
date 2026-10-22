@@ -12,7 +12,8 @@
 //! lease is the safety net for a phone that can no longer say so: a
 //! suspended app whose link has not timed out yet, or a bug that never
 //! releases. A dead phone can never pin a Mac's grid for longer than the
-//! lease.
+//! lease: a view that left without releasing ends the departed-view grid
+//! hold of that terminal when its lease would have ended.
 
 use super::*;
 use std::collections::HashMap;
@@ -121,6 +122,12 @@ pub(super) fn renew_size_lease(mux: &Arc<Mux>, client: u64, surface: SurfaceId) 
                 continue;
             }
             if !mux.control_clients.contains(client) {
+                // The view left without releasing (its link dropped, hostd
+                // was killed): the departed-view hold it set ends with its
+                // lease, so a phone that can no longer refresh never pins
+                // the grid past it. A reattach inside the lease is a new
+                // connection with its own claim.
+                mux.release_terminal_grid_holds(&[surface]);
                 return;
             }
             eprintln!(

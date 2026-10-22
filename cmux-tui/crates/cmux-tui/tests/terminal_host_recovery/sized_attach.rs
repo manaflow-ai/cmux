@@ -462,7 +462,8 @@ fn a_dropped_leased_phone_holds_the_grid_only_until_its_lease_ends() {
 
     // The hold (60 s here) keeps the grid at first ...
     std::thread::sleep(Duration::from_millis(500));
-    let state = request(&harness.socket, serde_json::json!({"cmd": "vt-state", "surface": surface}));
+    let state =
+        request(&harness.socket, serde_json::json!({"cmd": "vt-state", "surface": surface}));
     assert_eq!((state["cols"].as_u64(), state["rows"].as_u64()), (Some(53), Some(39)));
     // ... and ends with the lease, not after 60 s.
     wait_for_vt_size(&harness.socket, surface, 120, 39);
