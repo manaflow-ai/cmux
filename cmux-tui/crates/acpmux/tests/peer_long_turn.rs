@@ -192,3 +192,46 @@ async fn a_forwarded_prompt_stops_waiting_when_its_client_goes() {
     assert_eq!(until_pending(&a, 0).await, 0, "the prompt still waits after its client went");
     let _ = std::fs::remove_dir_all(&home);
 }
+
+#[tokio::test]
+async fn a_forwarded_prompt_stops_waiting_when_its_socket_client_exits() {
+    // A CLI on the daemon's unix socket that exits mid-turn, while the turn says nothing: the
+    // daemon's writer for it has nothing to write, so only its read side learns it closed.
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+    let Pair { a, home } = pair("sock").await;
+    let gate = home.join("gate");
+    let made = std::process::Command::new("mkfifo").arg(&gate).status().unwrap();
+    assert!(made.success(), "mkfifo");
+    let path = home.join("a.sock");
+    let listener = acpmux::server::bind_unix(&path).await.unwrap();
+    tokio::spawn(acpmux::server::serve_unix(a.clone(), listener));
+    let (rd, mut wr) = tokio::net::UnixStream::connect(&path).await.unwrap().into_split();
+    let hello = json!({"protocolVersion": 1, "clientInfo": {"name": "t"}});
+    let text = format!("gate: {}", gate.display());
+    let prompt = json!({"sessionId": "b/lane", "prompt": [{"type": "text", "text": text}]});
+    for line in [
+        Message::request(1, method::INITIALIZE, hello).to_line(),
+        Message::request(2, method::MUX_ATTACH, json!({"sessionId": "b/lane"})).to_line(),
+        Message::request(3, method::SESSION_PROMPT, prompt).to_line(),
+    ] {
+        wr.write_all(line.as_bytes()).await.unwrap();
+    }
+    // The turn is at its gate and silent from here on.
+    let mut lines = tokio::io::BufReader::new(rd).lines();
+    let at_gate = async {
+        while let Some(line) = lines.next_line().await.unwrap() {
+            if line.contains("before-gate") {
+                return;
+            }
+        }
+        panic!("the CLI's connection ended before the turn reached its gate");
+    };
+    tokio::time::timeout(Duration::from_secs(20), at_gate).await.expect("never at the gate");
+    assert_eq!(until_pending(&a, 1).await, 1, "the prompt waits on the peer");
+    drop((lines, wr));
+    let left = until_pending(&a, 0).await;
+    // Open the gate so the fake agent ends its turn.
+    let _ = std::fs::write(&gate, b"go");
+    assert_eq!(left, 0, "the prompt still waits after the CLI exited");
+    let _ = std::fs::remove_dir_all(&home);
+}
