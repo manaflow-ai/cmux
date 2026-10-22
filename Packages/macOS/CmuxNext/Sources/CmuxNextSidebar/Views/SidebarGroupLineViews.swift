@@ -45,6 +45,7 @@ final class SidebarGroupLineViews {
                 return view
             }()
             view.color = line.color
+            view.strength = SidebarGroupLine.opacity(level: line.level)
             moves.append((view, line.frame))
         }
         var leaving: [(GroupLineView, CGRect)] = []
@@ -83,6 +84,7 @@ final class SidebarGroupLineViews {
                 view.alphaValue = 1
             }
             view.color = line.color
+            view.strength = SidebarGroupLine.opacity(level: line.level)
         }
     }
 
@@ -110,6 +112,10 @@ final class GroupLineView: NSView {
     var color: GroupTint = .palette(.grey) {
         didSet { if color != oldValue { needsDisplay = true } }
     }
+    /// The share of `color` the rail draws (`SidebarGroupLine.opacity(level:)`).
+    var strength: CGFloat = 1 {
+        didSet { if strength != oldValue { needsDisplay = true } }
+    }
 
     init() {
         super.init(frame: .zero)
@@ -136,7 +142,10 @@ final class GroupLineView: NSView {
 
     override func updateLayer() {
         let themed = observedThemed()
-        performWithTheme { layer?.backgroundColor = color.lineColor(themed: themed).cgColor }
+        performWithTheme {
+            let line = color.lineColor(themed: themed)
+            layer?.backgroundColor = line.withAlphaComponent(line.alphaComponent * strength).cgColor
+        }
     }
 
     /// Reads `sidebar.groupColors` and repaints once when it changes; one observation at a time.

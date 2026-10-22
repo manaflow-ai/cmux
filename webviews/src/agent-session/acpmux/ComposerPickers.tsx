@@ -32,6 +32,7 @@ import { ContextMenu } from "../../ui/ContextMenu";
 import { useComposerSettings } from "./composerSettings";
 import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
 import { registerPicker } from "./pickerOpeners";
+import { ContextBreakdownView, contextBreakdown } from "./inspector/ContextSection";
 import { UI_ANCHOR_GAP, useUiAnchor } from "../../ui/anchor";
 import { useEscapingPopup } from "../../ui/popupHost";
 import { usePopupHost } from "../../ui/UiProvider";
@@ -1057,11 +1058,14 @@ export function isPlan(modeId: string): boolean {
 }
 
 /// How much of the context window the session has used, as a pie that fills. A click opens
-/// the details: the share used, tokens used of the window, and Compact when the agent offers it.
+/// the details: the share used, tokens used of the window, what fills it by category when the
+/// harness reports a breakdown (Claude Code's /context, drawn as the Inspector's Context draws it),
+/// and Compact when the agent offers it.
 export function ContextRing({
   used,
   size,
   setup,
+  breakdown: reported,
   onCompact,
   working = false,
 }: {
@@ -1069,6 +1073,8 @@ export function ContextRing({
   size?: number;
   /// Tokens the agent took before the conversation; the details split it out when known.
   setup?: number;
+  /// Claude Code's /context (`summary.contextBreakdown`): its categories replace the bar and parts.
+  breakdown?: unknown;
   onCompact?(): void;
   working?: boolean;
 }) {
@@ -1102,6 +1108,7 @@ export function ContextRing({
   }, [known]);
   const tokens = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
   const full = fraction >= 0.8 ? " acpmux-context-full" : "";
+  const breakdown = known ? contextBreakdown(reported) : undefined;
   // On the wrapper, so it also shows while the ring is inert before the first usage report.
   const tooltip = known
     ? t("context.ringTooltip", { percent, used: tokens.format(used), size: tokens.format(size) })
@@ -1155,20 +1162,23 @@ export function ContextRing({
         onOpenChange={setOpen}
         anchor={open ? trigger.current : null}
         label={t("context.title")}
-        className={`acpmux-context-pop${full}`}
+        className={`acpmux-context-pop${full}${breakdown ? " acpmux-context-pop--breakdown" : ""}`}
         finalFocus={trigger}
       >
         <div className="acpmux-context-title">{t("context.title")}</div>
         <div className="acpmux-context-percent">{t("context.percent", { percent })}</div>
-        <div className="acpmux-context-bar" aria-hidden="true">
-          <span style={{ width: `${percent}%` }} />
-        </div>
+        {!breakdown && (
+          <div className="acpmux-context-bar" aria-hidden="true">
+            <span style={{ width: `${percent}%` }} />
+          </div>
+        )}
         {known && (
           <div className="acpmux-context-tokens">
             {t("context.tokens", { used: tokens.format(used), size: tokens.format(size) })}
           </div>
         )}
-        {known && setup !== undefined && setup <= used && (
+        {breakdown && <ContextBreakdownView breakdown={breakdown} />}
+        {known && !breakdown && setup !== undefined && setup <= used && (
           <div className="acpmux-context-parts">
             <div className="acpmux-context-part">
               <span className="acpmux-context-part-name">{t("context.setup")}</span>

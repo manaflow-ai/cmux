@@ -5,6 +5,47 @@ use super::*;
 const JOURNAL_MAINTENANCE_INTERVAL: Duration = Duration::from_secs(30);
 const JOURNAL_MAINTENANCE_CHECKPOINT_RECORDS: u64 = 4_096;
 const JOURNAL_MAINTENANCE_SEAL_BATCHES_PER_TICK: usize = 8;
+/// A maintenance tick this long is logged: its steps hold the workspace
+/// registry lock that `tab.update` and `list-workspaces` wait on, so a slow
+/// tick stalls the app's requests (a 12-15 s stall on 2026-10-21 left no
+/// trace of its cause).
+const SLOW_MAINTENANCE_TICK: Duration = Duration::from_millis(500);
+
+/// How long each step of one maintenance tick took.
+#[derive(Default)]
+struct MaintenanceSteps {
+    steps: Vec<(&'static str, Duration)>,
+}
+
+impl MaintenanceSteps {
+    fn time<T>(&mut self, step: &'static str, run: impl FnOnce() -> T) -> T {
+        let started = Instant::now();
+        let value = run();
+        self.record(step, started.elapsed());
+        value
+    }
+
+    fn record(&mut self, step: &'static str, took: Duration) {
+        self.steps.push((step, took));
+    }
+
+    /// One line naming the tick's total and its slowest step, when the tick
+    /// took at least `threshold`.
+    fn slow_report(&self, threshold: Duration) -> Option<String> {
+        let total: Duration = self.steps.iter().map(|(_, took)| *took).sum();
+        if total < threshold {
+            return None;
+        }
+        let (slowest, took) = self.steps.iter().max_by_key(|(_, took)| *took)?;
+        Some(format!(
+            "slow journal maintenance: {} ms ({} steps; slowest {slowest} {} ms)",
+            total.as_millis(),
+            self.steps.len(),
+            took.as_millis()
+        ))
+    }
+}
+
 /// Debug builds only: overrides [`JOURNAL_MAINTENANCE_INTERVAL`] so behavior
 /// tests through the binary see maintenance ticks in seconds. Release builds
 /// ignore it.
@@ -141,13 +182,15 @@ impl Mux {
         if self.journal_maintenance_paused() {
             return;
         }
-        self.run_ledger_maintenance(ledgers);
+        let mut steps = MaintenanceSteps::default();
+        steps.time("ledgers", || self.run_ledger_maintenance(ledgers));
         let result = (|| -> anyhow::Result<()> {
-            let migration = self
-                .workspace_registry
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .migrate_journal_auto_vacuum()?;
+            let migration = steps.time("auto_vacuum_migration", || {
+                self.workspace_registry
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .migrate_journal_auto_vacuum()
+            })?;
             match migration {
                 // A legacy registry migration performs one full VACUUM. Keep
                 // that rewrite isolated to this maintenance tick before
@@ -180,10 +223,12 @@ impl Mux {
             if !pending_seal
                 && head.saturating_sub(checkpoint_source) < JOURNAL_MAINTENANCE_CHECKPOINT_RECORDS
             {
-                self.workspace_registry
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .incremental_journal_vacuum()?;
+                steps.time("incremental_vacuum", || {
+                    self.workspace_registry
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .incremental_journal_vacuum()
+                })?;
                 return Ok(());
             }
 
@@ -191,7 +236,10 @@ impl Mux {
                 checkpoint_source
             } else {
                 let checkpoint_key = format!("auto_checkpoint_{head}");
-                self.create_journal_checkpoint("journal-maintenance", &checkpoint_key)?
+                steps
+                    .time("checkpoint", || {
+                        self.create_journal_checkpoint("journal-maintenance", &checkpoint_key)
+                    })?
                     .checkpoint
                     .source_sequence
             };
@@ -204,18 +252,26 @@ impl Mux {
                     break;
                 }
                 let key = format!("auto_segment_{target}_{batch}_{sealed_through}");
-                let commit = self.seal_journal_segments(target, "journal-maintenance", &key)?;
+                let commit = steps.time("seal", || {
+                    self.seal_journal_segments(target, "journal-maintenance", &key)
+                })?;
                 if commit.through_sequence <= sealed_through {
                     break;
                 }
                 sealed_through = commit.through_sequence;
             }
-            self.workspace_registry
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .incremental_journal_vacuum()?;
+            steps.time("incremental_vacuum", || {
+                self.workspace_registry
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .incremental_journal_vacuum()
+            })?;
             Ok(())
         })();
+        if let Some(report) = steps.slow_report(SLOW_MAINTENANCE_TICK) {
+            eprintln!("cmux-tui: {report}");
+            self.report_internal_diagnostic(report);
+        }
         if let Err(error) = result {
             eprintln!("cmux-tui: journal maintenance deferred: {error:#}");
             self.report_internal_diagnostic(
@@ -612,5 +668,31 @@ impl Mux {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .corrupt_agent_projection_for_test(terminal_id);
+    }
+}
+
+#[cfg(test)]
+mod maintenance_steps_tests {
+    use super::*;
+
+    #[test]
+    fn a_fast_tick_reports_nothing() {
+        let mut steps = MaintenanceSteps::default();
+        steps.record("ledgers", Duration::from_millis(3));
+        steps.record("incremental_vacuum", Duration::from_millis(40));
+        assert_eq!(steps.slow_report(SLOW_MAINTENANCE_TICK), None);
+    }
+
+    #[test]
+    fn a_slow_tick_names_its_slowest_step() {
+        let mut steps = MaintenanceSteps::default();
+        steps.record("ledgers", Duration::from_millis(5));
+        steps.record("checkpoint", Duration::from_millis(900));
+        steps.record("seal", Duration::from_millis(11_000));
+        steps.record("incremental_vacuum", Duration::from_millis(400));
+        assert_eq!(
+            steps.slow_report(SLOW_MAINTENANCE_TICK).as_deref(),
+            Some("slow journal maintenance: 12305 ms (4 steps; slowest seal 11000 ms)")
+        );
     }
 }

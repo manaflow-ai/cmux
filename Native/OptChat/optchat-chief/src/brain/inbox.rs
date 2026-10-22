@@ -46,6 +46,7 @@ impl Brain {
                         self.state.logged_seq = cursor;
                         // Side conversations' replies stay.
                         self.state.outbox.retain(|e| e.conversation != old);
+                        self.state.awaiting.clear();
                     }
                     self.state.conversation = Some(conversation.id.clone());
                     self.save();
@@ -129,7 +130,10 @@ impl Brain {
             return;
         };
         let (text, change) = match (&message.retracted_at, &message.edited_at) {
-            (Some(_), _) => (optchat_core::retracted(target), "retracted".to_owned()),
+            (Some(_), _) => {
+                self.reply_not_needed(std::slice::from_ref(&message.id));
+                (optchat_core::retracted(target), "retracted".to_owned())
+            }
             (None, Some(at)) => (
                 optchat_core::edit_of(target, &message_text(message)),
                 format!("edited@{at}"),
@@ -194,6 +198,7 @@ impl Brain {
         };
         if message.retracted_at.is_some() {
             self.queue.retain(|q| !is_it(q));
+            self.reply_not_needed(std::slice::from_ref(&message.id));
             if !self.queued_messages_of(None) {
                 self.state.logged_seq = self.handled;
                 self.save();
@@ -335,6 +340,10 @@ impl Brain {
                         .is_owner_message(summary, &message),
                 },
             );
+            // A waking message of the Chief conversation is a person's
+            // (other Chiefs wake it only in side conversations): it waits
+            // for a reply (reply_ledger.rs).
+            self.await_reply(&message, &text);
             return;
         }
         if !self.queued_messages_of(None) {

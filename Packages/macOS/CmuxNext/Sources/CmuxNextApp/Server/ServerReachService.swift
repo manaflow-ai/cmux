@@ -70,16 +70,6 @@ final class ServerReachService {
         self.linkPeers = linkPeers
     }
 
-    /// The local Chief owner daemon's row (``ServerReach/localChief(homeID:socket:name:)``), nil
-    /// while it has no socket (AppServices). Shown signed in or not; a read keeps it.
-    var localChief: () -> ServerReach? = { nil }
-
-    /// Adds the local Chief owner's row when it is not shown yet.
-    func showLocalChief() {
-        guard let reach = localChief() else { return }
-        add(reach, connect: true)
-    }
-
     func start() {
         let machines = machines, signedInUser = signedInUser
         observers.append(Task { [weak self] in
@@ -89,7 +79,6 @@ final class ServerReachService {
                 // Servers belong to the account: any change of user closes them.
                 if previous != nil, user != previous {
                     self.closeAll()
-                    self.showLocalChief()
                 }
                 previous = user
                 if user != nil {
@@ -181,7 +170,7 @@ final class ServerReachService {
             let plan = ServerReachPlan.make(chiefs: chiefs, hosts: hosts, local: local(), link: link)
             lastPlan = plan
             for name in plan.unroutable { logger.error("server \(name, privacy: .public): no route to its chief session") }
-            await apply(plan.desired + [localChief()].compactMap { $0 })
+            await apply(plan.desired)
         } catch {
             logger.error("server reach read failed: \(String(describing: error), privacy: .public)")
         }

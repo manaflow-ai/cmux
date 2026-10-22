@@ -9,6 +9,7 @@ import type {
   AcpmuxBackgroundState,
   AcpmuxBackgroundTask,
   AcpmuxCompaction,
+  AcpmuxContextBreakdown,
   AcpmuxPlanEntry,
   AcpmuxRow,
   AcpmuxSnapshot,
@@ -59,7 +60,7 @@ import { errorMessage } from "./transportErrors";
 import { failedSendText } from "./sendFailure";
 import { SessionPager, type SessionPage } from "./sessionPages";
 import { isWarmableCwd } from "./warmFolders";
-import { SubagentFold, subagentsLeft } from "./subagents/subagentFold";
+import { SubagentFold, subagentsLeft, subagentStops, type SubagentStopReason } from "./subagents/subagentFold";
 import { WORKSPACE_CONTEXT } from "./workspaceContext";
 import { promptSurfaceMeta } from "./surfaces/promptSurface";
 import { BOOKMARKS_KIND, bookmarksHeard } from "./threadMinimap/bookmarks";
@@ -184,6 +185,9 @@ const USAGE_KIND = "usage_update";
 /// repeats its last call's for the context ring; other harnesses, whatever their family, report
 /// only that), which does not add up.
 const isCallUsage = (update: any) => update?._meta?.acpmux?.call === true;
+/// acpmux's `contextBreakdown` (a Claude Code chat's /context), or unset when it sent none.
+const contextBreakdownOf = (value: any): AcpmuxContextBreakdown | undefined =>
+  value && typeof value === "object" && Array.isArray(value.categories) ? value : undefined;
 /// The agent's own change of a config option (a reasoning level, a model): the whole option list.
 const CONFIG_KIND = "config_option_update";
 const SESSION_INFO_KIND = "session_info_update";
@@ -1137,8 +1141,11 @@ export class AcpmuxDirectClient {
   /// TodoWrite calls a drawn checklist stands for (cx-ncc.80): acpmux sends each one's plan just
   /// before it, so the call and its updates draw no tool row.
   private planCalls = new Set<string>();
+  /// Why subagents stopped, as far as this pane knows, kept across the fold's rebuilds (a new
+  /// session forgets them).
+  private subagentStops = subagentStops();
   /// Subagents and their records, which draw as group rows (subagents/subagentFold.ts).
-  private subagents = new SubagentFold();
+  private subagents = new SubagentFold(this.subagentStops);
   private readonly listener: Listener;
   private host: AcpmuxHostConfig;
   private peers: string[] = [];
@@ -1541,7 +1548,8 @@ export class AcpmuxDirectClient {
     this.planCalls.clear();
     this.planRow = undefined;
     this.compactionHeardAt.clear();
-    this.subagents = new SubagentFold();
+    this.subagentStops = subagentStops();
+    this.subagents = new SubagentFold(this.subagentStops);
     this.pendingPermission = undefined;
     this.waitingPermissions.clear();
     this.pendingSecret = undefined;
@@ -1796,12 +1804,32 @@ export class AcpmuxDirectClient {
   }
 
   /// The missing chat is listed again (its machine connected and acpmux listed its chats): it
-  /// opens, as the tab's own chat. True when it does.
+  /// opens, as the tab's own chat. True when it does. An open that fails (its machine dropped again
+  /// before the attach) leaves the chat missing as it was, so the pane says why again and the next
+  /// listing or Reconnect opens it.
   private reopenMissing(): boolean {
     const missing = this.missingSession;
     if (this.selectedSessionId !== undefined || missing === undefined || this.closed) return false;
     if (!this.sessions.some((session) => session.sessionId === missing)) return false;
-    void this.select(missing).catch(() => undefined);
+    const [reason, since, peer] = [this.missingReason, this.missingSince, this.missingPeer];
+    const opening = this.select(missing);
+    // select() takes its generation before its first await: a newer selection (even of this same
+    // chat, switching away and back) moves it, and this failure is then not the pane's to undo.
+    const generation = this.selectionGeneration;
+    void opening.catch(() => {
+      if (this.closed || generation !== this.selectionGeneration || this.selectedSessionId !== missing) return;
+      this.wire.lifecycle("reopen failed", { sessionId: missing });
+      this.selectedSessionId = undefined;
+      this.selectionGeneration += 1;
+      this.resetSessionState();
+      [this.missingSession, this.missingReason, this.missingSince, this.missingPeer] = [missing, reason, since, peer];
+      this.emit("session changed");
+      void this.refreshPeers()
+        .catch(() => undefined)
+        .then(() => {
+          if (!this.closed && !this.snapshotHold) this.emit();
+        });
+    });
     return true;
   }
 
@@ -1813,6 +1841,7 @@ export class AcpmuxDirectClient {
       ...(this.missingPeer !== undefined ? { peer: this.missingPeer } : {}),
       peers: this.peerStatus,
       waitedMs: Date.now() - this.missingSince,
+      seenListed: this.missingReason === "leftListWhileShown",
     });
     if (unavailable.reason === "connecting" && this.missingRecheck === undefined && !this.closed)
       this.missingRecheck = setTimeout(() => {
@@ -1833,6 +1862,8 @@ export class AcpmuxDirectClient {
     if (this.missingSession === undefined || this.selectedSessionId !== undefined) return;
     await this.refreshPeers().catch(() => undefined);
     await this.refreshSessions().catch(() => undefined);
+    // Listed but not open (an earlier open failed): open it now.
+    if (!this.reopenMissing() && !this.closed && !this.snapshotHold) this.emit();
   }
 
   /// The selected session is gone: a tab bound to its session (`sessionMustExist`) says so;
@@ -1992,7 +2023,17 @@ export class AcpmuxDirectClient {
   /// when Claude stops it. A Claude that never answers fails it after 10 s.
   stopSubagent(subagentSessionId: string): Promise<unknown> {
     if (!this.selectedSessionId) return Promise.reject(new Error());
-    return this.request("_acpmux/subagent_stop", { sessionId: this.selectedSessionId, subagentSessionId }, 10_000);
+    // Its end, when Claude stops it, reads "stopped by you" (subagentFold.ts `stopReasonOf`).
+    const requested = this.subagentStops.requested;
+    requested.add(subagentSessionId);
+    return this.request(
+      "_acpmux/subagent_stop",
+      { sessionId: this.selectedSessionId, subagentSessionId },
+      10_000,
+    ).catch((error: unknown) => {
+      requested.delete(subagentSessionId);
+      throw error;
+    });
   }
 
   /// Reads the selected session's durable composer draft from acpmux.
@@ -2479,7 +2520,7 @@ export class AcpmuxDirectClient {
     this.compactionHeardAt.clear();
     this.toolRows.clear();
     this.planCalls.clear();
-    this.subagents = new SubagentFold();
+    this.subagents = new SubagentFold(this.subagentStops);
     this.pendingPermission = undefined;
     this.waitingPermissions = new Map();
     this.pendingSecret = undefined;
@@ -2621,6 +2662,14 @@ export class AcpmuxDirectClient {
     else if (event.kind === "status") this.summary = { ...this.summary, status: msg.status };
   }
 
+  /// What is ending the running turn, as `event` finds it: a prompt sent now (its `queue_order`
+  /// set `interrupting`), or this pane's Stop, pressed before the event. Else unknown.
+  private turnStopCause(event: EventRecord): SubagentStopReason | undefined {
+    if (this.interrupting !== undefined) return "sendNow";
+    if (this.stopAfterSeq !== undefined && event.seq > this.stopAfterSeq) return "user";
+    return undefined;
+  }
+
   /// A turn event newer than Stop ends its grace and its give-up.
   private stopAnswered(event: EventRecord): void {
     if (this.stopAfterSeq === undefined || event.seq <= this.stopAfterSeq) return;
@@ -2733,6 +2782,17 @@ export class AcpmuxDirectClient {
       if (event.seq) this.configSeq = event.seq;
       return;
     }
+    // Claude Code's /context after a turn (acpmux claude_stdio): the session detail's
+    // `contextBreakdown` from then on. Before the detail is in, the detail itself carries it.
+    // The same update may carry more (a title, Claude Code's facts), which the code below reads.
+    const breakdown =
+      update?.sessionUpdate === SESSION_INFO_KIND
+        ? contextBreakdownOf(update?._meta?.acpmux?.contextBreakdown)
+        : undefined;
+    if (breakdown && this.summary) this.summary = { ...this.summary, contextBreakdown: breakdown };
+    // An update that carries only the breakdown has nothing more to draw.
+    if (breakdown && update.title === undefined && Object.keys(update._meta ?? {}).every((key) => key === "acpmux"))
+      return;
     // Claude Code names its version and model on every turn's init line: one row, where the
     // session first said so, that a later line with other facts (a restart on a new version, a
     // model switch) updates in place.
@@ -2756,6 +2816,7 @@ export class AcpmuxDirectClient {
     if (event.dir === "mux") {
       // A stopped or completed turn, or a gone agent, ends the subagents it would never report again.
       const left = subagentsLeft(event.kind, msg);
+      this.subagents.cause = this.turnStopCause(event);
       if (left && this.subagents.stopRunning(left, event.at)) this.takeSubagentRows();
       if (event.kind === BOOKMARKS_KIND) {
         // Another pane (or the TUI) marked a prompt: the minimap shows acpmux's marks.
@@ -3008,6 +3069,7 @@ export class AcpmuxDirectClient {
       return;
     }
     if (!update) return;
+    this.subagents.cause = this.turnStopCause(event);
     if (this.subagents.reduce(event, update)) {
       this.takeSubagentRows();
       return;
@@ -3381,6 +3443,7 @@ export class AcpmuxDirectClient {
             cwd: summary.cwd,
             turnCount: summary.turnCount,
             usage: this.usage,
+            contextBreakdown: contextBreakdownOf(summary.contextBreakdown),
             host: text(summary.host),
             peer: text(summary.peer),
             hostKind: hostKind(summary.hostKind),
@@ -4360,7 +4423,9 @@ export class AcpmuxDirectClient {
     this.selectedSessionId = sessionId;
     this.missingSession = undefined;
     this.missingReason = undefined;
-    this.markSeen(sessionId);
+    // A hidden pane does not see the chat it opens (the tab's missing chat came back while its
+    // workspace was in the background): it stays unread until the page shows (`showChanged`).
+    if (pageShown()) this.markSeen(sessionId);
     this.resetSessionState();
     // A chat this page read already draws from what that visit left, on the frame the switch lands;
     // its attach lays what acpmux holds now over that (Leo: "instant if cached").
@@ -5083,7 +5148,7 @@ export class AcpmuxDirectClient {
     this.messageRows = new Map();
     this.toolRows = new Map();
     this.planCalls = new Set();
-    this.subagents = new SubagentFold();
+    this.subagents = new SubagentFold(this.subagentStops);
     this.groupedPermissions = new Map();
     this.waitingPermissions = new Map();
     this.openQuestions = new Set();

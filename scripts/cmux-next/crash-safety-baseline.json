@@ -15,7 +15,7 @@
    "cmux-app-host": 2,
    "cmux-browser-host": 1,
    "cmux-mux2": 42,
-   "cmux-remote": 57,
+   "cmux-remote": 44,
    "cmux-terminal-client": 1,
    "cmux-tui": 76,
    "cmux-tui-core": 191,
@@ -35,7 +35,7 @@
   "unwrap": {
    "acpmux": 140,
    "chatmux-relay": 7,
-   "cmux-remote": 25,
+   "cmux-remote": 4,
    "cmux-terminal-client": 30,
    "cmux-tui": 435,
    "cmux-tui-core": 1162,
