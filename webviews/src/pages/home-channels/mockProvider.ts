@@ -363,6 +363,7 @@ function rawChief(c: HomeChief): Record<string, unknown> {
     avatar: c.avatar ? { sha256: c.avatar, media_type: "image/png", bytes: 0 } : null,
     ...(c.engine ? { engine: c.engine } : {}),
     locked: c.locked === true,
+    ...(c.forkedFrom ? { forked_from: { ...c.forkedFrom, cut: 0 } } : {}),
   };
 }
 
@@ -832,6 +833,29 @@ export class MockHomeProvider implements PageClient {
         // The gallery reads what the sheet sent (which grant fields it named).
         if (typeof document !== "undefined")
           document.documentElement.dataset.mockChiefCreate = Object.keys(params).sort().join(",");
+        // A fork (`fork {chief, conversation?, seq?}`): the source's profile, as the daemon gives it.
+        const fork = params.fork as { chief?: string; conversation?: string; seq?: number } | undefined;
+        if (fork?.chief) {
+          const source = this.chief(fork.chief);
+          const forked = this.addChief(String(params.display_name), {
+            role: source.role,
+            personality: source.personality,
+            instructions: source.instructions,
+            tools: source.tools,
+            harnesses: source.harnesses,
+            ...(source.engine ? { engine: source.engine } : {}),
+            forkedFrom: {
+              chief: source.id,
+              name: source.name,
+              ...(fork.conversation ? { conversation: fork.conversation } : {}),
+              ...(typeof fork.seq === "number" ? { seq: fork.seq } : {}),
+              by: "person",
+              at: new Date(BASE).toISOString(),
+            },
+          });
+          this.commit(forked, "chief.profile.create");
+          return { value: rawChief(forked) } as R;
+        }
         const made = this.addChief(String(params.display_name), {
           role: String(params.role ?? ""),
           personality: String(params.personality ?? ""),

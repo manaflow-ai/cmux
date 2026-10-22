@@ -80,6 +80,38 @@ root, else the message itself). The local owner has no wake queue: a side
 conversation's messages that arrive while the host is down are not read after
 the restart. Behavior test: `tests/channels_daemon.rs` (real daemon).
 
+## Forking a Chief
+
+A new Chief can start from another Chief's memory instead of an empty one
+(user 2026-10-22: "right click any message and 'fork to new chief', which
+will copy over the optchat memories at that point in time"). Home's message
+menu (Fork to New Chief) and the `chiefs` tool's `fork` action (a Chief
+forks only itself, at this moment) both send `chief.profile.create` with
+`fork {chief, conversation?, seq?}`; the daemon (cmux-tui
+`server/chief_fork.rs`) runs `optchat-chief memory fork` into the new
+Chief's brain directory before its record exists, so its first brain start
+opens the fork.
+
+What the copy (`optchat-host` `db/fork.rs`) keeps: messages `0..cut` (the
+cut is right after the person's message, found by its log key; a Chief's
+own reply by its commit time; or now), every summary that lies wholly
+before the cut, the imported ranges clipped to it, and the next subagent
+number. What it leaves out: later messages; every summary that spans or
+follows the cut (the new compactor builds them again from the kept log, so
+no line summarizes what the fork does not have); all other host state (the
+conversation, outbox, turns, fold positions, subagent records, the view
+checkpoint). A last `note` says where the memory came from and that the
+source's subagents and their chats are not in it. Attachments the kept log
+names are copied as files into the new home and their paths rewritten.
+The source is read in one read transaction, so a fork of a running Chief
+is consistent; the two share nothing afterwards. The record keeps
+`forked_from` (source, name, message, cut, who, when), which Home shows
+above the new Chief's chat.
+
+The Cloud Chief has no fork: its memory lives in the hosted brain's
+Durable Object, and the hosted `chiefs` tool has no copy; Home offers the
+fork only in conversations of this Mac's Chiefs.
+
 ## Pure Rust over ACP
 
 The Chief's own path is Rust end to end, checked 2026-10-05:

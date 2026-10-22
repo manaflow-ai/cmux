@@ -138,16 +138,14 @@ fn a_fork_at_a_message_keeps_what_came_before_and_nothing_after() {
     // The source is as it was, and still writes.
     assert_eq!(chat.status().messages, before);
     chat.append(Kind::User, "after the fork").unwrap();
-    let files: Vec<_> = std::fs::read_dir(target.parent().unwrap())
+    // Nothing of the build is left beside it (the read connection above may keep -shm/-wal).
+    let left: Vec<String> = std::fs::read_dir(target.parent().unwrap())
         .unwrap()
         .flatten()
         .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|name| name.contains("forking"))
         .collect();
-    assert_eq!(
-        files,
-        vec!["memory.sqlite3".to_owned()],
-        "the fork left more than its file"
-    );
+    assert!(left.is_empty(), "the fork left {left:?}");
 
     // The fork opens as a memory of its own: folded from its log, and its
     // compactor builds the lines the cut split; no view line reaches past it.
