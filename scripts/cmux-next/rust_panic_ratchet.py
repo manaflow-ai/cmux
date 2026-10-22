@@ -13,7 +13,7 @@ use the same baseline but only warn when they grow.
 
 Why not `[workspace.lints.clippy] unwrap_used = "deny"`: Cargo applies the
 workspace table to every target of every member with no per-crate or
-per-target override, so a workspace deny would fail 60 crates at once, and
+per-target override, so a workspace deny would fail 56 crates at once, and
 also fail test helpers in `tests/` and build scripts unless hundreds of
 test roots carried an allow. Checking only the production targets keeps
 tests free by construction and needs no Cargo.toml change.
@@ -63,7 +63,8 @@ TRACKED_LINTS = [
 ]
 LINTS = DENY_LINTS + TRACKED_LINTS
 
-ALLOW_ATTR = re.compile(r"#!?\[(?:allow|expect)\(([^\]]*)\)\]", re.S)
+ALLOW_ATTR = re.compile(r"#!?\[(?:cfg_attr\([^\]]*?,\s*)?(allow|expect)\(([^\]]*)\)\]", re.S)
+REASON = re.compile(r"\breason\s*=")
 LINT_NAME = re.compile(r"clippy::(\w+)")
 
 
@@ -98,7 +99,9 @@ def package_name(package_id):
 def read_clippy(path):
     """Return (checked crate set, {crate: {lint: count}}, {crate: {file: count}})."""
     checked = set()
+    finished = None
     seen = set()
+    hits = collections.defaultdict(list)
     counts = collections.defaultdict(collections.Counter)
     files = collections.defaultdict(collections.Counter)
     with open(path, encoding="utf-8", errors="replace") as handle:
@@ -111,6 +114,9 @@ def read_clippy(path):
             except json.JSONDecodeError:
                 continue
             reason = item.get("reason")
+            if reason == "build-finished":
+                finished = bool(item.get("success"))
+                continue
             if reason == "compiler-artifact":
                 name = package_name(item.get("package_id", ""))
                 if name and any(k in ("lib", "rlib", "bin", "cdylib", "staticlib", "proc-macro", "dylib")
@@ -140,14 +146,21 @@ def read_clippy(path):
                 continue  # the same source line seen through a lib and a bin target
             seen.add(key)
             counts[crate][lint] += 1
+            hits[(crate, lint)].append(f"{file_name}:{span.get('line_start')}:{span.get('column_start')}")
             files[crate][file_name.split("cmux-tui/", 1)[-1]] += 1
-    return checked, counts, files
+    return checked, counts, files, finished, hits
 
 
 def allow_without_reason(root):
     """Production-source allow/expect attributes on our lints that carry no reason."""
     bad = []
-    crates_dir = os.path.join(root, "cmux-tui", "crates")
+    for top in ("crates", "bindings"):
+        bad.extend(_allow_scan(root, os.path.join(root, "cmux-tui", top)))
+    return bad
+
+
+def _allow_scan(root, crates_dir):
+    bad = []
     for dirpath, dirnames, filenames in os.walk(crates_dir):
         rel = os.path.relpath(dirpath, crates_dir).replace("\\", "/")
         parts = rel.split("/")
@@ -164,12 +177,28 @@ def allow_without_reason(root):
             except OSError:
                 continue
             for match in ALLOW_ATTR.finditer(text):
-                body = match.group(1)
+                kind, body = match.group(1), match.group(2)
                 lints = [l for l in LINT_NAME.findall(body) if l in LINTS]
-                if lints and "reason" not in body:
+                if lints and kind == "expect":
+                    line = text.count("\n", 0, match.start()) + 1
+                    bad.append(f"{os.path.relpath(path, root)}:{line}: use allow, not expect, for {', '.join(lints)} "
+                               "(the plain clippy run does not enable these lints, so expect is unfulfilled)")
+                elif lints and not REASON.search(body):
                     line = text.count("\n", 0, match.start()) + 1
                     bad.append(f"{os.path.relpath(path, root)}:{line}: allow({', '.join(lints)}) needs reason = \"...\"")
     return bad
+
+
+def _changed_first(root, locations):
+    """Hit locations in files changed against origin/feat-cmux-next first (where a new hit is)."""
+    try:
+        import subprocess
+        out = subprocess.run(["git", "-C", root, "diff", "--name-only", "origin/feat-cmux-next...HEAD"],
+                             capture_output=True, text=True, timeout=30).stdout
+    except (OSError, subprocess.SubprocessError):
+        out = ""
+    changed = {line.split("cmux-tui/", 1)[-1] for line in out.splitlines()}
+    return sorted(locations, key=lambda loc: (loc.split(":", 1)[0] not in changed, loc))
 
 
 def load_baseline():
@@ -230,9 +259,10 @@ def main():
         return 0
     if not args.clippy_json:
         parser.error("--clippy-json is required")
-    checked, counts, files = read_clippy(args.clippy_json)
-    if not checked:
-        print("rust-panic-ratchet: the clippy output names no checked crate (did the build fail?)", file=sys.stderr)
+    checked, counts, files, finished, hits = read_clippy(args.clippy_json)
+    if not checked or finished is not True:
+        print("rust-panic-ratchet: the clippy run did not finish successfully (no build-finished success line);"
+              " counts from a partial build prove nothing", file=sys.stderr)
         return 2
     if args.report:
         report(checked, counts, files, args.report)
@@ -255,9 +285,16 @@ def main():
                 where = "new crate (must be 0)" if base is None else f"baseline {allowed}"
                 # Tracked lints warn only: an added `x + 1` must not block a landing.
                 (failures if lint in DENY_LINTS else warnings).append(f"{crate}: clippy::{lint} {got} > {where}")
+                if lint in DENY_LINTS:
+                    for loc in _changed_first(args.repo, hits.get((crate, lint), []))[:20]:
+                        failures.append(f"    {loc}")
         if base is not None and any(now.get(l, 0) < base.get(l, 0) for l in LINTS):
             lowered[crate] = {l: min(now.get(l, 0), base.get(l, 0)) for l in LINTS}
 
+    missing = sorted(set(baseline) - checked)
+    if missing and not args.init_baseline:
+        print("::warning title=rust panic ratchet::baseline crates not checked by this run (a -p run, a removed "
+              "member, or a bin with required-features): " + ", ".join(missing), file=sys.stderr)
     for line in allow_without_reason(args.repo):
         failures.append(line)
 
@@ -276,8 +313,9 @@ def main():
     deny = sorted(c for c in checked if is_deny(counts.get(c, {})))
     print(f"rust-panic-ratchet: {len(checked)} crates checked, {len(deny)} at deny", file=sys.stderr)
     if lowered and not args.update_baseline:
-        print("rust-panic-ratchet: counts went down in " + ", ".join(sorted(lowered))
-              + "; lower the baseline with --update-baseline in this commit", file=sys.stderr)
+        print("::warning title=rust panic ratchet::counts went down in " + ", ".join(sorted(lowered))
+              + "; lower scripts/cmux-next/rust-panic-baseline.json with --update-baseline in this commit,"
+              " or a later change can add hits up to the old count", file=sys.stderr)
     for line in warnings:
         print(f"::warning title=rust panic ratchet (tracked lint)::{line}", file=sys.stderr)
     if failures:

@@ -19,9 +19,16 @@ stack overflow, out of memory, a signal) never loses user state.
    (`lock().unwrap_or_else(PoisonError::into_inner)`), no `RefCell`
    double borrow. A failure is a typed `Result` handled at a boundary that
    logs it and keeps serving.
+   Known gaps of the lint set (no clippy lint; reviewers and the fuzz
+   targets cover them): `assert!`/`assert_eq!` outside `Result` functions,
+   `copy_from_slice`, `split_at`, `Vec::remove`/`insert`/`drain(range)`,
+   `RefCell` double borrow, `Duration` subtraction, and `/` or `%` by zero
+   (tracked by `arithmetic_side_effects`, which only warns).
 2. A reviewed exception is `#[allow(clippy::<lint>, reason = "...")]` on the
    smallest item, for an invariant the item proves locally (a const regex, an
-   FFI contract). An allow without `reason` fails the ratchet.
+   FFI contract). An allow without `reason` fails the ratchet. Use `allow`,
+   not `expect`: the plain `clippy -D warnings` run does not enable these
+   lints, so an `expect` there is unfulfilled.
 3. The compiler enforces it (section 3); counts only go down.
 4. What can still unwind (third-party code, a missed path) is contained by a
    supervisor at every task and connection boundary (section 5).
@@ -150,12 +157,20 @@ python3 ../scripts/cmux-next/rust_panic_ratchet.py --clippy-json /tmp/c.jsonl [-
   is "at deny": any hit fails, the same as `#![deny]`.
 - Tracked lints (`arithmetic_side_effects`, `cast_possible_truncation`): the
   same baseline, but growth only warns (section 4).
+- The step fails when the clippy run did not finish (`build-finished`
+  success), and warns when counts went down without a baseline update or a
+  baseline crate was not checked. A red run prints the hit locations, files
+  changed by the branch first. Not checked: the root `cmux-tui-source-watch`
+  package and bins with `required-features`.
+- Run `--update-baseline` only from a Linux clippy run (rbx, Testbox):
+  macOS compiles other `cfg` paths and would lower the Linux counts.
 - Lower the baseline with `--update-baseline` in the commit that removes
   hits. It refuses to run while the ratchet is red and never raises a count.
 
 Why not `[workspace.lints.clippy] unwrap_used = "deny"` (the first plan):
-Cargo applies the workspace table to every target of every member, with no
-per-crate or per-target override. A workspace deny fails 56 crates at once,
+Cargo applies the workspace table to every target of every member that
+inherits it, with no per-target override (a crate can only drop the
+inheritance and copy the whole table). A workspace deny fails 56 crates at once,
 and also fails helper functions in `tests/`, benches and build scripts unless
 hundreds of test roots carry an allow (clippy's `allow-unwrap-in-tests` covers
 only `#[test]` and `#[cfg(test)]` items). Linting only the `--lib --bins`
@@ -189,8 +204,9 @@ Decision: `[profile.release]` keeps the default `panic = "unwind"`.
   whole owner: every terminal and every connection, instead of one task.
 - A panic inside an `extern "C"` function aborts anyway (Rust 1.81+), so the
   FFI edges cannot unwind into C; they wrap calls in `catch_unwind` already.
-- The cost of unwinding is a poisoned lock. Every `lock()` recovers from
-  poison (rule 1), so one panicked request cannot turn every later request
+- The cost of unwinding is a poisoned lock. The target is that every
+  `lock()` recovers from poison (rule 1; most of the 1434 cmux-tui-core
+  unwraps today are `lock().unwrap()`), so one panicked request cannot turn every later request
   into a panic: that cascade is how a crash becomes a hang (the process is
   alive and answers nothing).
 
