@@ -64,9 +64,16 @@ public actor LocalHostPressureSource: HostPressureSource {
 /// the run, so a hop or a level change already queued from it is dropped.
 public actor HostPressureMonitor {
     public typealias Change = @MainActor @Sendable (HostPressureLevel, HostBudgetVerdict) -> Void
+    /// How a level change reaches the main actor: a hop by default; tests hold it to run later.
+    public typealias Delivery = @Sendable (@escaping @MainActor @Sendable () -> Void) -> Void
+    public static let mainActorHop: Delivery = { work in
+        // task-owner: hands one level change to the main actor; ends after the call
+        Task { @MainActor in work() }
+    }
 
     private let source: any HostPressureSource
     private let interval: Duration
+    private let deliver: Delivery
     private let queue = DispatchQueue(label: "com.cmux.host-pressure", qos: .utility)
     private var tracker: HostPressureTracker
     private var memorySource: (any DispatchSourceMemoryPressure)?
@@ -82,9 +89,11 @@ public actor HostPressureMonitor {
     /// Off in tests, which drive `read()` and `memoryPressureChanged(_:)` themselves.
     private let ticks: Bool
 
-    public init(source: any HostPressureSource, interval: Duration = .seconds(15), calmSamples: Int = 2, ticks: Bool = true) {
+    public init(source: any HostPressureSource, interval: Duration = .seconds(15), calmSamples: Int = 2, ticks: Bool = true,
+                deliver: @escaping Delivery = HostPressureMonitor.mainActorHop) {
         self.source = source
         self.interval = interval
+        self.deliver = deliver
         self.ticks = ticks
         tracker = HostPressureTracker(calmSamples: calmSamples)
     }
@@ -186,9 +195,8 @@ public actor HostPressureMonitor {
         guard let level = tracker.feed(verdict), let onChange else { return }
         let run = run
         let generation = self.generation
-        // task-owner: hands one level change to the main actor; ends after the call, and
-        // drops it when stop() ended this run while it waited for the main actor
-        Task { @MainActor in
+        // Dropped when stop() ended this run while it waited for the main actor.
+        deliver {
             guard run.withLock({ $0 }) == generation else { return }
             onChange(level, verdict)
         }

@@ -1,4 +1,5 @@
 import Foundation
+import os
 @testable import CmuxNextHostPressure
 import Testing
 
@@ -23,6 +24,13 @@ private actor ScriptedSource: HostPressureSource {
 
 @MainActor private final class Delivered {
     var levels: [HostPressureLevel] = []
+}
+
+/// The main-actor hops the monitor asked for, held until the test runs them.
+private final class Held: Sendable {
+    private let work = OSAllocatedUnfairLock<[@MainActor @Sendable () -> Void]>(initialState: [])
+    func add(_ item: @escaping @MainActor @Sendable () -> Void) { work.withLock { $0.append(item) } }
+    func take() -> [@MainActor @Sendable () -> Void] { work.withLock { items in defer { items = [] }; return items } }
 }
 
 /// The monitor escalates normal, warning, critical and back, telling the main
@@ -91,25 +99,22 @@ struct HostPressureMonitorTests {
         #expect(await !monitor.isRunning)
     }
 
-    /// A level change queued for a busy main actor is dropped once stop() ends its run.
-    @MainActor @Test func aChangeQueuedBeforeStopIsDropped() async {
+    /// A level change still waiting for the main actor is dropped once stop() ends its run,
+    /// and delivered when the run goes on.
+    @MainActor @Test(arguments: [true, false]) func aChangeQueuedBeforeStopIsDropped(stops: Bool) async {
         let source = ScriptedSource()
         await source.set(local: ScriptedSource.verdict(pressure: .critical))
-        let monitor = HostPressureMonitor(source: source, ticks: false)
+        let held = Held()
+        let monitor = HostPressureMonitor(source: source, ticks: false) { held.add($0) }
         let delivered = Delivered()
         await monitor.start { level, _ in delivered.levels.append(level) }
-        let done = DispatchSemaphore(value: 0)
-        // task-owner: the test; it reads (queueing a delivery behind the blocked main actor), then stops
-        Task.detached {
-            await monitor.read()
-            await monitor.stop()
-            done.signal()
-        }
-        // concurrency-allow: the test blocks the main actor on purpose so the delivery waits behind stop()
-        #expect(done.wait(timeout: .now() + 30) == .success)
-        // The main queue is FIFO: this runs after the queued delivery.
-        await Task { @MainActor in }.value
-        #expect(delivered.levels.isEmpty)
+        await monitor.read()
+        if stops { await monitor.stop() }
+        let queued = held.take()
+        #expect(queued.count == 1)
+        queued.forEach { $0() }
+        #expect(delivered.levels == (stops ? [] : [.critical]))
+        await monitor.stop()
     }
 
     /// A hop from a run that stop() ended applies nothing to the next run.
