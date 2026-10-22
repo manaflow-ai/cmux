@@ -67,12 +67,17 @@ jobs:
           QUICK: ${{ inputs.quick || '0' }}
         run: |
           set -uo pipefail
+          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
+          if ! [[ -x "$client" ]]; then
+            echo "::error title=Build fleet client missing::$client is not installed on runner $RUNNER_NAME; perf100 did not run."
+            exit 127
+          fi
           SHA="$EVENT_SHA"
           [ "$EVENT" = schedule ] && SHA="$(git rev-parse HEAD)"
           quick=()
           [ "$QUICK" = 1 ] && quick=(--arg=quick=1)
           status=0
-          "${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}" run --class exclusive --measurement --label measure \
+          "$client" run --class exclusive --measurement --label measure \
             --script scripts/measure/perf100.sh --ref "$SHA" --timeout 7200 --key "perf100-headless-$SHA-${{ github.run_attempt }}" \
             --artifact artifacts/perf100/results.json --arg=mode=headless --arg=gate=1 --arg=host_class=aws-m4pro \
             ${quick[@]+"${quick[@]}"} | tee "$RUNNER_TEMP/perf100.log" || status=$?
@@ -96,11 +101,16 @@ jobs:
           QUICK: ${{ inputs.quick || '0' }}
         run: |
           set -uo pipefail
+          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
+          if ! [[ -x "$client" ]]; then
+            echo "::error title=Build fleet client missing::$client is not installed on runner $RUNNER_NAME; perf100 did not run."
+            exit 127
+          fi
           sha="$(git rev-parse HEAD)"
           quick=()
           [ "$QUICK" = 1 ] && quick=(--arg=quick=1)
           status=0
-          "${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}" run --class exclusive --measurement --label bench \
+          "$client" run --class exclusive --measurement --label bench \
             --target-worker cmux20-bench --script scripts/measure/perf100.sh --ref "$sha" --timeout 12600 \
             --key "perf100-app-$sha-${{ github.run_attempt }}" --artifact artifacts/perf100/results.json \
             --arg=mode=app --arg=gate=1 --arg=host_class=cmux20-bench ${quick[@]+"${quick[@]}"} | tee "$RUNNER_TEMP/perf100.log" || status=$?
