@@ -88,7 +88,7 @@ public nonisolated struct TailnetPairCode: Equatable, Sendable {
     static let maxTicketBytes = 2048
 
     public init?(address: String, ticket: String) {
-        guard let address = TailnetAddress.canonicalAddress(address), Self.isTicket(ticket) else { return nil }
+        guard let address = TailnetPairCode.canonicalAddress(address), Self.isTicket(ticket) else { return nil }
         self.address = address
         self.ticket = ticket
     }
@@ -103,7 +103,7 @@ public nonisolated struct TailnetPairCode: Equatable, Sendable {
 }
 
 /// Tailnet addresses as the card shows and dials them.
-public nonisolated enum TailnetAddress {
+extension TailnetPairCode {
     /// `https://<host>` for a typed address (`name.tail1234.ts.net`, with or without https://, a
     /// trailing dot or slash); nil for another scheme, a path, a user, a port or no host.
     public static func canonicalAddress(_ text: String) -> String? {

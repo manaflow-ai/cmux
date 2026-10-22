@@ -151,13 +151,13 @@ import Testing
     }
 
     @Test func addressesAreCanonical() {
-        #expect(TailnetAddress.canonicalAddress("Mac-CMUX.tail1.ts.net.") == "https://mac-cmux.tail1.ts.net")
-        #expect(TailnetAddress.canonicalAddress("https://mac.tail1.ts.net/") == "https://mac.tail1.ts.net")
-        #expect(TailnetAddress.canonicalAddress("http://mac.tail1.ts.net") == nil)
-        #expect(TailnetAddress.canonicalAddress("https://mac.tail1.ts.net:8443") == nil)
-        #expect(TailnetAddress.canonicalAddress("https://u@mac.tail1.ts.net") == nil)
-        #expect(TailnetAddress.canonicalAddress("https://mac.tail1.ts.net/x") == nil)
-        #expect(TailnetAddress.canonicalAddress("") == nil)
+        #expect(TailnetPairCode.canonicalAddress("Mac-CMUX.tail1.ts.net.") == "https://mac-cmux.tail1.ts.net")
+        #expect(TailnetPairCode.canonicalAddress("https://mac.tail1.ts.net/") == "https://mac.tail1.ts.net")
+        #expect(TailnetPairCode.canonicalAddress("http://mac.tail1.ts.net") == nil)
+        #expect(TailnetPairCode.canonicalAddress("https://mac.tail1.ts.net:8443") == nil)
+        #expect(TailnetPairCode.canonicalAddress("https://u@mac.tail1.ts.net") == nil)
+        #expect(TailnetPairCode.canonicalAddress("https://mac.tail1.ts.net/x") == nil)
+        #expect(TailnetPairCode.canonicalAddress("") == nil)
     }
 }
 

@@ -108,7 +108,7 @@ public final class TailnetNodeModel {
     nonisolated static func phase(of state: TailnetNodeState, signInRequested: Bool) -> Phase {
         switch state.state {
         case "running":
-            guard let address = state.dnsName.flatMap(TailnetAddress.canonicalAddress) else { return .starting }
+            guard let address = state.dnsName.flatMap(TailnetPairCode.canonicalAddress) else { return .starting }
             return .signedIn(address: address, login: state.owner?.loginName)
         case "needs_login":
             guard signInRequested, let url = state.browseToURL, url.hasPrefix("https://") else { return .signedOut }

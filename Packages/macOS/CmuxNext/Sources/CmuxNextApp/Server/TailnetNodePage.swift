@@ -8,7 +8,7 @@ import Foundation
 /// or mints a credential, so only the person's own click on the bundled Settings page runs one.
 enum TailnetNodePage {
     @MainActor static func json(model: TailnetNodeModel, qr: (String) -> String?) -> JSONValue {
-        typealias S = TailnetNodeStrings
+        let S = TailnetNodeText()
         var card: [String: JSONValue] = [
             "title": .string(S.title), "status_title": .string(S.statusTitle),
             "busy": .bool(model.busy), "error": model.actionError.map(JSONValue.string) ?? .null,
