@@ -46,9 +46,9 @@ import Testing
     }
 
     /// The selected member (Leo's screenshot) and an unselected one, against the ungrouped row.
-    @Test(arguments: [SidebarGroupMembersAlignTests.leadID, SidebarGroupMembersAlignTests.looseID])
-    func groupMembersKeepTheUngroupedRowsLeftEdgeAndWidth(selected: WorkspaceID) throws {
-        let (sidebar, window) = Self.sidebar(selected: selected)
+    @Test(arguments: [true, false])
+    func groupMembersKeepTheUngroupedRowsLeftEdgeAndWidth(memberSelected: Bool) throws {
+        let (sidebar, window) = Self.sidebar(selected: memberSelected ? Self.leadID : Self.looseID)
         defer { window.close() }
         let list = sidebar.list
         let loose = try Self.row(sidebar, Self.looseID)
