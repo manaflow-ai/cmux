@@ -16,8 +16,9 @@ import os
 /// each pid at most once, and at most `perLaunch` times per home in one app launch (a daemon that
 /// wedges again after every start is left for a person). That process is known by its pid and
 /// start time (``Daemon``), read before those checks and again after them and before each signal:
-/// a pid the kernel gave to another process meanwhile is never signalled, and the exit watch is
-/// on the process before its SIGTERM, so it never follows the pid to a successor. The
+/// a pid the kernel gave to another process meanwhile is never signalled (``signal(_:_:process:)``
+/// puts a kernel exit watch on the process before that check), and the exit wait is on the
+/// process before its SIGTERM, so it never follows the pid to a successor. The
 /// `agent.restartUnresponsiveAcpmux` Debug Settings toggle turns it off.
 nonisolated final class AcpmuxUnresponsiveWatch: Sendable {
     static let shared = AcpmuxUnresponsiveWatch(clock: ContinuousClock())
@@ -135,11 +136,7 @@ nonisolated final class AcpmuxUnresponsiveWatch: Sendable {
     @concurrent func stop(_ daemon: Daemon, grace: Duration) async -> Bool {
         let pid = daemon.pid
         let process = process
-        // Sends `signal` to `daemon`: nil when sent (wait for the exit), else whether it is gone.
-        func send(_ signal: Int32) -> Bool? {
-            guard process(pid) == daemon else { return true }
-            return kill(pid, signal) == 0 ? nil : !agentPaneProcessIsRunning(pid)
-        }
+        func send(_ signal: Int32) -> Bool? { Self.signal(daemon, signal, process: process) }
         var unsent = false
         let exited = await AgentPaneProcessExit(pid: pid).event(within: grace) {
             let answer = send(SIGTERM)
@@ -149,6 +146,32 @@ nonisolated final class AcpmuxUnresponsiveWatch: Sendable {
         if exited || unsent { return exited }
         Self.logger.error("acpmux \(pid) outlived SIGTERM by \(grace, privacy: .public); sending SIGKILL")
         return await AgentPaneProcessExit(pid: pid).event(within: .seconds(5)) { send(SIGKILL) }
+    }
+
+    /// Sends `signal` to `daemon`: nil when sent (wait for the exit), else whether it is gone.
+    /// A kernel exit watch (kqueue `EVFILT_PROC`) goes on the pid first, registered before
+    /// `kevent` returns, and the identity check after it proves the watch is on `daemon` itself;
+    /// an exit that watch saw by the moment before `kill` means nothing is sent. What is left is
+    /// the instant between that look and `kill`, and the pid could only name another process
+    /// there if the daemon exited, launchd reaped it and the kernel handed the pid out again in
+    /// it; XNU hands pids out in order and reaches one again only after wrapping past
+    /// `PID_MAX`. Without a watch (no kqueue) nothing is sent.
+    static func signal(_ daemon: Daemon, _ signal: Int32, process: (Int32) -> Daemon?) -> Bool? {
+        let pid = daemon.pid
+        let queue = kqueue()
+        guard queue >= 0 else { return false }
+        defer { close(queue) }
+        var watch = kevent()
+        watch.ident = UInt(pid)
+        watch.filter = Int16(EVFILT_PROC)
+        watch.flags = UInt16(EV_ADD | EV_ENABLE)
+        watch.fflags = UInt32(NOTE_EXIT)
+        guard Darwin.kevent(queue, &watch, 1, nil, 0, nil) == 0 else { return errno == ESRCH }
+        guard process(pid) == daemon else { return true }
+        var seen = kevent()
+        var now = timespec(tv_sec: 0, tv_nsec: 0)
+        if Darwin.kevent(queue, nil, 0, &seen, 1, &now) > 0 { return true }
+        return kill(pid, signal) == 0 ? nil : !agentPaneProcessIsRunning(pid)
     }
 
     /// The process `pid` names now (its start time from `proc_pidinfo`), nil when none or unreadable.

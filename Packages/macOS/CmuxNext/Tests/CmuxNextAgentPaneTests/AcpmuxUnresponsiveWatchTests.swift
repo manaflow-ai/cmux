@@ -201,6 +201,31 @@ struct AcpmuxUnresponsiveIdentityTests {
         #expect(agentPaneProcessIsRunning(child.processIdentifier), "the process that has the pid now got SIGKILL")
     }
 
+    /// Review of #23199: the check and the signal were apart, so a daemon that exited between
+    /// them got the signal sent to its pid. The process here is this test's own unreaped child
+    /// (`posix_spawn`, so nothing reaps it), so `kill` alone would still report it signalled.
+    @Test func aDaemonThatExitsAfterItsCheckGetsNoSignal() throws {
+        var pid: pid_t = 0
+        var argv: [UnsafeMutablePointer<CChar>?] = ["/bin/sleep", "60"].map { strdup($0) } + [nil]
+        defer { argv.forEach { free($0) } }
+        try #require(posix_spawn(&pid, "/bin/sleep", nil, nil, &argv, environ) == 0)
+        defer {
+            kill(pid, SIGKILL)
+            var status: Int32 = 0
+            waitpid(pid, &status, 0)
+        }
+        let found = try #require(AcpmuxUnresponsiveWatch.kernelProcess(pid: pid))
+
+        let answer = AcpmuxUnresponsiveWatch.signal(found, SIGTERM) { _ in
+            // The check passes, then the daemon exits (a zombie until the defer reaps it).
+            kill(pid, SIGKILL)
+            var info = siginfo_t()
+            waitid(P_PID, id_t(pid), &info, WEXITED | WNOWAIT)
+            return found
+        }
+        #expect(answer == true, "an exit after the check is seen and nothing is sent")
+    }
+
     @Test func theProcessItFoundGetsSigtermThenSigkill() async throws {
         let child = try await child(ignoresTerm: true)
         defer { kill(child.processIdentifier, SIGKILL) }

@@ -201,9 +201,11 @@ public nonisolated struct AgentPaneProcessExit: Sendable {
     }
 
     /// True at the exit; false when `timeout` passes first. A nil `timeout` waits for the exit only.
-    /// `armed` runs once the exit watch is on `pid` and before the check for an exit that came
-    /// first: a signal sent there cannot end the process unseen, and a later reuse of `pid` cannot
-    /// take the watch. It returns the answer when there is nothing to wait for (nil: wait).
+    /// `armed` runs once the exit watch is resumed and before the check for an exit that came
+    /// first, so a signal sent there cannot end the process unseen. The watch's registration with
+    /// the kernel may still be in flight then: a caller that must signal only the process it
+    /// found registers its own watch first (``AcpmuxUnresponsiveWatch/signal(_:_:process:)``).
+    /// It returns the answer when there is nothing to wait for (nil: wait).
     public func event(within timeout: Duration?, armed: () -> Bool? = { nil }) async -> Bool {
         let pid = self.pid
         return await withCheckedContinuation { continuation in
