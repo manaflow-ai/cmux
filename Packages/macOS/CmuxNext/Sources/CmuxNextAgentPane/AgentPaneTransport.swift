@@ -302,7 +302,7 @@ import CmuxNextCompat
         socket.close(code: 1000, reason: "", error: nil)
         self.socket = nil
         localAppToken = nil
-        promptRelay?.ended()
+        promptRelay?.ended(byDaemon: false)
     }
 
     private func arrived(_ id: Int) {
@@ -321,7 +321,9 @@ import CmuxNextCompat
         if batch.closed != nil {
             self.socket = nil
             localAppToken = nil
-            promptRelay?.ended()
+            // A connection the daemon closed: the page was told, so its prompts are the page's again
+            // (Retry), unless Debug Settings agentPane.debug.lostPromptReplay sends them again.
+            promptRelay?.ended(byDaemon: deliver != nil && !AgentPaneTunables.lostPromptReplay.value)
             // Kept in the log (notice, not info): the page's "connection interrupted" needs its reason.
             Self.logger.notice("agent pane transport closed connection=\(self.current, privacy: .public) code=\(batch.closed?.code ?? 0, privacy: .public) error=\(batch.closed?.error?.rawValue ?? "-", privacy: .public)")
         }

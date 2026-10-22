@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { withoutRestored } from "./lostPrompt";
 // Send's iMessage colors (--cmux-messages-blue); build-agent-pane-web.sh inlines the sheet.
 import "../../theme/messages.css";
 import type { ConnectKind, OffloadKind } from "./environments";
@@ -133,18 +132,7 @@ export const COMPOSER_LABELS = {
 /// What the pane can do to the composer from outside it.
 export type ComposerHandle = {
   /// Puts a held-back prompt in: `text` before what is typed now, `attachments` before the rest.
-  /// `sessionId`: the chat it belongs to; it waits until the composer shows that chat with its
-  /// saved draft and chips read, so it never lands in another chat's draft.
-  restore(text: string, attachments: ComposerAttachment[], sessionId?: string): void;
-  /// Takes out `parts[index]`, one of the prompts `restore` put in (`parts`, in the order they came
-  /// back), when the composer still holds them as they came back (lostPrompt.ts
-  /// `withoutRestored`); true when it did. `sessionId`: the chat they belong to; while the composer
-  /// does not hold that chat with its draft read, only a part still waiting to go in is taken.
-  takeBack(
-    parts: readonly { text: string; attachments: ComposerAttachment[] }[],
-    index: number,
-    sessionId: string,
-  ): boolean;
+  restore(text: string, attachments: ComposerAttachment[]): void;
   /// Adds a chip after the ones held, leaving the prompt as typed (the floating chat's Include
   /// focused tab); one with the same id is replaced. Nothing changes when it holds the most it can.
   attach(attachment: ComposerAttachment): void;
@@ -420,15 +408,7 @@ export function Composer({
   /// The session id owns the prompt. A page can switch sessions without remounting the composer.
   const persistedSession = useRef(sessionId);
   const hydratedSession = useRef<string | undefined>(undefined);
-  /// The chat whose saved draft has been read, as state: prompts waiting for it go in then.
-  const [hydratedFor, setHydratedFor] = useState<string>();
   const restoringSession = useRef(false);
-  /// The chat shown now, as of this render, and the one whose draft and chips are read.
-  const shownSession = useRef(sessionId);
-  shownSession.current = sessionId;
-  const readySession = useRef<string | undefined>(undefined);
-  /// Prompts `restore` put back for a chat before the composer held it, by chat.
-  const waitingRestores = useRef(new Map<string, { text: string; attachments: ComposerAttachment[] }[]>());
   /// Set while a switch runs and kept until the session change it brings (Lucas 2026-10-19).
   const carryPrompt = useRef(false);
   // Once a new chat has shown its location strip, keep its layout slot through the first send.
@@ -522,71 +502,23 @@ export function Composer({
     sendButton.current?.focus();
     if (snapshot.isWorking) refocusSend.current = false;
   });
-  /// What comes back goes first; what was typed or attached since stays after it.
-  const restoreNow = (restoredText: string, restoredAttachments: ComposerAttachment[]) => {
-    const typed = field.current?.value() ?? "";
-    const next = typed.trim() ? `${restoredText}\n\n${typed}` : restoredText;
-    if (field.current) field.current.type(next);
-    else {
-      setText(next);
-      setCaret(next.length);
-    }
-    if (restoredAttachments.length)
-      setAttachments((current) => [
-        ...restoredAttachments,
-        ...current.filter((attachment) => !restoredAttachments.some((back) => back.id === attachment.id)),
-      ]);
-  };
   useImperativeHandle(
     handle,
     () => ({
-      restore(restoredText, restoredAttachments, forSession) {
-        if (forSession && (shownSession.current !== forSession || readySession.current !== forSession)) {
-          const waiting = waitingRestores.current.get(forSession) ?? [];
-          waitingRestores.current.set(forSession, [
-            ...waiting,
-            { text: restoredText, attachments: restoredAttachments },
-          ]);
-          return;
-        }
-        restoreNow(restoredText, restoredAttachments);
-      },
-      takeBack(parts, index, forSession) {
-        // Not put in yet: it goes from the prompts waiting for that chat.
-        const part = parts[index];
-        const waiting = waitingRestores.current.get(forSession);
-        const queued =
-          part && waiting
-            ? waiting.findIndex((back) => back.text === part.text && back.attachments === part.attachments)
-            : -1;
-        if (waiting && queued >= 0) {
-          const rest = waiting.filter((_, at) => at !== queued);
-          if (rest.length) waitingRestores.current.set(forSession, rest);
-          else waitingRestores.current.delete(forSession);
-          return true;
-        }
-        // Another chat's draft, however alike, is never this chat's.
-        if (shownSession.current !== forSession || readySession.current !== forSession) return false;
-        const held = {
-          text: field.current?.value() ?? textRef.current,
-          attachmentIds: attachmentsRef.current.map((attachment) => attachment.id),
-        };
-        const left = withoutRestored(
-          held,
-          parts.map((part) => ({ text: part.text, attachmentIds: part.attachments.map((attachment) => attachment.id) })),
-          index,
-        );
-        if (!left) return false;
-        if (field.current) field.current.type(left.text);
+      restore(restoredText, restoredAttachments) {
+        // What comes back goes first; what was typed or attached since stays after it.
+        const typed = field.current?.value() ?? "";
+        const next = typed.trim() ? `${restoredText}\n\n${typed}` : restoredText;
+        if (field.current) field.current.type(next);
         else {
-          setText(left.text);
-          setCaret(left.text.length);
+          setText(next);
+          setCaret(next.length);
         }
-        const byId = new Map(attachmentsRef.current.map((attachment) => [attachment.id, attachment] as const));
-        const kept = left.attachmentIds.flatMap((id) => byId.get(id) ?? []);
-        attachmentsRef.current = kept;
-        setAttachments(kept);
-        return true;
+        if (restoredAttachments.length)
+          setAttachments((current) => [
+            ...restoredAttachments,
+            ...current.filter((attachment) => !restoredAttachments.some((back) => back.id === attachment.id)),
+          ]);
       },
       attach(attachment) {
         // A pick past the most the composer holds says so, as a dropped file does.
@@ -670,24 +602,7 @@ export function Composer({
     pendingCaret.current = initial.length;
   }, [sessionId, text, draft]);
   // The chat's own chips come back with its prompt; a switch carries the ones held (keptAttachments.ts).
-  const chipsFor = useKeptAttachments(
-    sessionId,
-    attachments,
-    setAttachments,
-    keptAttachments,
-    () => carryPrompt.current,
-  );
-  // Once the chat's saved draft and chips are in, the prompts put back for it while it was not shown
-  // go in, over them.
-  const ready = sessionId && hydratedFor === sessionId && chipsFor === sessionId ? sessionId : undefined;
-  useEffect(() => {
-    readySession.current = ready;
-    const waiting = ready ? waitingRestores.current.get(ready) : undefined;
-    if (!ready || !waiting) return;
-    waitingRestores.current.delete(ready);
-    for (const back of waiting) restoreNow(back.text, back.attachments);
-    // oxlint-disable-next-line react-hooks/exhaustive-deps -- restoreNow reads refs and setters only.
-  }, [ready]);
+  useKeptAttachments(sessionId, attachments, setAttachments, keptAttachments, () => carryPrompt.current);
   // After the session effect, so a switch that ends with its session change still carries.
   useEffect(() => {
     if (!switching) carryPrompt.current = false;
@@ -708,7 +623,6 @@ export function Composer({
         writePersistedDraft(sessionId, currentText);
       }
       hydratedSession.current = sessionId;
-      setHydratedFor(sessionId);
       flushPendingDraftWrites();
     });
     return () => {

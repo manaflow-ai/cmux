@@ -43,16 +43,6 @@ import { AcpmuxDirectClient, type AcpmuxHostConfig, harnessBlock, type HarnessBl
 import { postNative } from "./native";
 import { NativeError } from "./nativeError";
 import { errorMessage } from "./transportErrors";
-import {
-  LOST_PROMPT_CONNECT_MS,
-  LOST_PROMPT_SHOW_MS,
-  clientWaiter,
-  lostDrafts,
-  lostPrompt,
-  lostPromptSlot,
-  waitForResend,
-  withoutParts,
-} from "./lostPrompt";
 import { pageHostClient, startHostEvents } from "./pageHost";
 import { FOCUS_LOCATION_EVENT, NewTabPage, newTabHost, type NewTabHost } from "./NewTabPage";
 import { setDeviceChats } from "./newtab/deviceChats";
@@ -5219,9 +5209,7 @@ function AcpmuxPane() {
   const composerHandle = useRef<ComposerHandle | null>(null);
   /// The composer is in shell mode, whose ⌘Return answers no recap card (RecapCard.tsx `keyHint`).
   const [composerShell, setComposerShell] = useState(false);
-  const heldBack = useRef<{ text: string; attachments: ComposerAttachment[]; sessionId?: string }[] | undefined>(
-    undefined,
-  );
+  const heldBack = useRef<{ text: string; attachments: ComposerAttachment[] }[] | undefined>(undefined);
   /// What a released page's composer held (the handshake's `wake`), for the composer once it mounts.
   const pendingWake = useRef<ComposerWake | undefined>(undefined);
   /// Where the shown transcript rests now (VirtualTranscript `anchorNow`).
@@ -5239,7 +5227,7 @@ function AcpmuxPane() {
     const waiting = heldBack.current;
     if (!handle || !waiting) return;
     heldBack.current = undefined;
-    for (const back of waiting) handle.restore(back.text, back.attachments, back.sessionId);
+    for (const back of waiting) handle.restore(back.text, back.attachments);
   }, []);
   useComposerKeyboard(() => {
     if (!prompt.current) return false;
@@ -5600,8 +5588,6 @@ function AcpmuxPane() {
     window.addEventListener(NEW_TAB_CLOSE_EVENT, discardUnsent);
     let retryTimer: number | undefined;
     let retryDelay = 250;
-    // Each connected client, for a prompt the connection before it lost (lostPrompt.ts).
-    const connectedClients = clientWaiter<AcpmuxDirectClient>();
     // Once a daemon was lost, handshakes only look for one: the user may have stopped it.
     // Looking is cheap, so a daemon started again elsewhere is found within seconds.
     const RECONNECT_MAX_DELAY_MS = 2_000;
@@ -5620,24 +5606,6 @@ function AcpmuxPane() {
     /// Sessions a switch started whose first summary has not arrived: it names the model a new
     /// chat on that harness starts on.
     const startedSessions = new Set<string>();
-    /// The prompt a send gave up on after its connection went, for the person's resend (lostPrompt.ts).
-    const lostPrompts = lostPromptSlot();
-    /// A lost prompt's draft and "Not sent" for a chat the pane left while it waited, until the pane
-    /// shows that chat again (lostPrompt.ts `lostDrafts`).
-    const lostDraftsKept = lostDrafts<{
-      promptId: string;
-      text: string;
-      attachments: ComposerAttachment[];
-      notice: string;
-      inDraft?: boolean;
-      delivered?: boolean;
-    }>();
-    /// Lost prompts put back in their chat's composer with a "Not sent", by prompt id, until the
-    /// chat's next send takes the draft with it. `delivered`: the host sent it again after all.
-    const restoredLost = new Map<
-      string,
-      { sessionId: string; text: string; attachments: ComposerAttachment[]; noticeId: string; delivered?: boolean }
-    >();
     /// Prompts a failed or cancelled switch held go back into the composer with their
     /// attachments, before what was typed since; while no composer is mounted they wait for one.
     /// The gesture of a send acpmux held for the folder trust answer (heldPrompt.ts).
@@ -5650,45 +5618,9 @@ function AcpmuxPane() {
     const heldRowPrompt = heldPrompts((intent) =>
       postNative<{ ticket?: string }>("transport.gesture", { intent }).then((reply) => reply?.ticket),
     );
-    /// `sessionId`: the chat it belongs to, when the composer may not hold that chat yet.
-    const restorePrompt = (text: string, attachments: ComposerAttachment[], sessionId?: string) => {
-      if (composerHandle.current) composerHandle.current.restore(text, attachments, sessionId);
-      else heldBack.current = [...(heldBack.current ?? []), { text, attachments, sessionId }];
-    };
-    /// The host sent a lost prompt again after its sender gave up, and acpmux ran it: its id goes
-    /// (the next identical prompt is new) and its draft waiting for another chat goes. Its part of
-    /// the draft put back in the composer is marked delivered: the chat's next send leaves it out
-    /// (`send`), wherever the draft went since (another chat shown, the saved draft, a remount).
-    /// When the composer shows the chat now and still holds it as it came back, it goes from there
-    /// too, with its "Not sent".
-    const retireLost = (promptId: string) => {
-      lostPrompts.forget(promptId);
-      lostDraftsKept.drop(promptId);
-      const back = restoredLost.get(promptId);
-      if (!back) return;
-      back.delivered = true;
-      const shown = directClient.current;
-      if (shown?.selectedSession !== back.sessionId) return;
-      // This chat's lost prompts put back in the composer, in the order they came back.
-      const parts = [...restoredLost].filter(([, other]) => other.sessionId === back.sessionId);
-      const at = parts.findIndex(([id]) => id === promptId);
-      const waiting = heldBack.current;
-      const unmounted = waiting?.findIndex(
-        (draft) =>
-          draft.text === back.text &&
-          draft.attachments === back.attachments &&
-          (draft.sessionId ?? back.sessionId) === back.sessionId,
-      );
-      let taken = false;
-      if (composerHandle.current)
-        taken = composerHandle.current.takeBack(parts.map(([, part]) => part), at, back.sessionId);
-      else if (waiting && unmounted !== undefined && unmounted >= 0) {
-        heldBack.current = waiting.filter((_, index) => index !== unmounted);
-        taken = true;
-      }
-      if (!taken) return;
-      restoredLost.delete(promptId);
-      shown.dismissNotice(back.noticeId);
+    const restorePrompt = (text: string, attachments: ComposerAttachment[]) => {
+      if (composerHandle.current) composerHandle.current.restore(text, attachments);
+      else heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
     };
     const connectHost = async () => {
       if (connecting) return;
@@ -5834,28 +5766,6 @@ function AcpmuxPane() {
             harnessSwitch.reconcile(next);
             rowsRef.current = next.rows;
             snapshotRef.current = next;
-            // A lost prompt of this chat that came back while the pane showed another one.
-            const backHere = lostDraftsKept.take(next.summary?.sessionId);
-            if (backHere.length > 0)
-              queueMicrotask(() => {
-                const shown = directClient.current;
-                for (const draft of backHere) {
-                  // The composer may still hold the chat shown before: it goes in once this one is.
-                  // One that never left the composer is in this chat's saved draft already.
-                  if (!draft.inDraft && (draft.text || draft.attachments.length > 0))
-                    restorePrompt(draft.text, draft.attachments, next.summary?.sessionId);
-                  // Sent after all: no "Not sent", but this chat's next send leaves it out.
-                  const noticeId = draft.delivered ? "" : shown?.notice(draft.notice);
-                  if (noticeId !== undefined && next.summary)
-                    restoredLost.set(draft.promptId, {
-                      sessionId: next.summary.sessionId,
-                      text: draft.text,
-                      attachments: draft.attachments,
-                      noticeId,
-                      ...(draft.delivered ? { delivered: true } : {}),
-                    });
-                }
-              });
             // What each harness reports feeds the next switch's first frame (harnessProfiles.ts).
             const summary = next.summary;
             const started = summary?.model !== undefined && startedSessions.delete(summary.sessionId);
@@ -5908,12 +5818,6 @@ function AcpmuxPane() {
           return;
         }
         directClient.current = client;
-        // A lost prompt the host sent again after its sender gave up is that prompt, done: its id
-        // goes, so the next identical prompt runs as a new one (lostPrompt.ts).
-        client.promptShown = retireLost;
-        const shownAlready = lostPrompts.forgetShown((sessionId, promptId) => client.showsPrompt(sessionId, promptId));
-        for (const promptId of shownAlready) retireLost(promptId);
-        connectedClients.connected(client);
         setClientEpoch((epoch) => epoch + 1);
         // The minimap's prompt bookmarks live in acpmux's session (threadMinimap/bookmarks.ts).
         setBookmarkTransport({
@@ -5965,74 +5869,14 @@ function AcpmuxPane() {
         /// passes it (the composer) still holds the prompt until then, so a refusal loses nothing.
         /// Without it a refused prompt goes back into the composer.
         const send = async (
-          typed: string,
-          typedAttachments: import("./attachments").ComposerAttachment[] = [],
+          text: string,
+          attachments: import("./attachments").ComposerAttachment[] = [],
           accepted?: () => void,
           steer = false,
           promptId?: string,
         ) => {
           // The reader sent it: the transcript goes to its latest message now, even scrolled up.
           setSends((count) => count + 1);
-          // A lost prompt put back in this chat's composer that the host sent after all goes out of
-          // this send: it ran once already. Only as it came back; an edited draft goes as typed.
-          const parts = [...restoredLost].filter(([, back]) => back.sessionId === client.selectedSession);
-          // What goes, by which of those parts ran by now (`retireLost` marks each entry in place, and
-          // the send asks again just before it goes: a replay can land while the session persists).
-          const outOfRan = () => {
-            const delivered = new Set(parts.flatMap(([, back], at) => (back.delivered ? [at] : [])));
-            const left =
-              delivered.size > 0
-                ? withoutParts(
-                    { text: typed, attachmentIds: typedAttachments.map((attachment) => attachment.id) },
-                    parts.map(([, back]) => ({
-                      text: back.text,
-                      attachmentIds: back.attachments.map((attachment) => attachment.id),
-                    })),
-                    delivered,
-                  )
-                : undefined;
-            for (const at of left ? delivered : []) client.dismissNotice(parts[at]![1].noticeId);
-            const attachments = left
-              ? typedAttachments.filter((attachment) => left.attachmentIds.includes(attachment.id))
-              : typedAttachments;
-            return { ran: left ? delivered.size : 0, text: left ? left.text : typed, attachments };
-          };
-          const first = outOfRan();
-          let { text, attachments } = first;
-          if (first.ran > 0 && !text.trim() && attachments.length === 0) {
-            // Nothing but prompts that ran already: nothing goes, and the composer lets go of them.
-            for (const [promptId] of parts) restoredLost.delete(promptId);
-            accepted?.();
-            return;
-          }
-          // A send in a chat takes the lost drafts put back there with it (the composer sends all it
-          // holds): a late resend of one of them then has no draft left to take out. Only once the
-          // prompt is somewhere else: acpmux took it, or a switch row or a failed row holds it. A send
-          // that fails before that (the socket closing while the session persists) puts the draft
-          // back as it was, and its next send must still leave out what ran.
-          const putBack = [...restoredLost].filter(([, back]) => back.sessionId === client.selectedSession);
-          const letGo = () => {
-            for (const [id] of putBack) restoredLost.delete(id);
-            claimed.commit();
-          };
-          // Whether the composer let go of the prompt (acpmux took it, or a switch row holds it).
-          let released = !accepted;
-          const accept =
-            accepted &&
-            (() => {
-              released = true;
-              letGo();
-              accepted();
-            });
-          // The person sends a prompt "Not sent" named again: it goes under its first promptId.
-          // The slot changes only once the send has left (`letGo`): one that fails before that goes
-          // back to the composer, and its next send still runs the lost prompt at most once.
-          const claimed = lostPrompts.claim(
-            client.selectedSession ?? "",
-            text,
-            attachments.map((attachment) => attachment.id),
-          );
-          const again = claimed.promptId;
           // acpmux holds the prompt while the folder's trust question is open (on session/new
           // or session/prompt): the question shows for the folder acpmux named, and Trust sends
           // the prompt the composer kept. `inComposer`: the composer still holds the prompt (or got it back); else it goes back.
@@ -6063,68 +5907,14 @@ function AcpmuxPane() {
             }
             throw error;
           };
-          // The connection went before acpmux took the prompt: the host sends it again on the next
-          // one. The sender (the composer) holds it until it shows there; "Not sent" only when it
-          // never does. The host may still send it later (acpmux back after the wait), so the
-          // prompt stays in the composer and its resend goes under the same promptId.
-          const resent = async (error: unknown): Promise<string | undefined> => {
-            const lost = lostPrompt(error);
-            if (!lost) throw error;
-            const ids = attachments.map((attachment) => attachment.id);
-            // Kept at once: the same prompt sent again while it waits goes under its id, so
-            // acpmux runs it once however the two land.
-            lostPrompts.keep(lost.sessionId, lost.promptId, text, ids);
-            const shown = await waitForResend(
-              connectedClients,
-              client,
-              lost,
-              LOST_PROMPT_CONNECT_MS,
-              LOST_PROMPT_SHOW_MS,
-            );
-            if (shown) {
-              lostPrompts.forget(lost.promptId);
-              accept?.();
-              letGo();
-              return lost.sessionId;
-            }
-            lostPrompts.keep(lost.sessionId, lost.promptId, text, ids);
-            // Back in the composer once, here: the composer's own catch leaves a prompt handed back.
-            // Only into its own chat's composer: in another chat the next Send would run it there,
-            // so it waits until the pane shows its chat again.
-            const notice = translate("prompt.notSent", { reason: errorMessage(error) });
-            const shownNow = directClient.current ?? client;
-            if (shownNow.selectedSession === lost.sessionId) {
-              if (released) restorePrompt(text, attachments);
-              // An unreleased prompt is still in the composer as it was sent: the same draft.
-              restoredLost.set(lost.promptId, {
-                sessionId: lost.sessionId,
-                text,
-                attachments,
-                noticeId: shownNow.notice(notice),
-              });
-            } else
-              lostDraftsKept.hold(lost.sessionId, {
-                promptId: lost.promptId,
-                text,
-                attachments,
-                notice,
-                // Still in the composer as sent, which saves it as its chat's draft on the switch.
-                ...(released ? {} : { inDraft: true }),
-              });
-            throw released && error && typeof error === "object" ? Object.assign(error, { handedBack: true }) : error;
-          };
           // A harness switch holds the prompt in its own row until its session is ready, and
           // hands it back to the composer when the switch fails.
-          // A lost prompt sent again goes under its own id and never marks itself a resend: only the
-          // host may (it refuses a page frame with `resend`, #22881), and it marks a prompt id it sent
-          // the daemon before; acpmux runs an id once either way (lostPrompt.ts).
-          const held = harnessSwitch.send(text, attachments, () => promptLanded.current(), promptId ?? again);
+          const held = harnessSwitch.send(text, attachments, () => promptLanded.current(), promptId);
           if (held) {
-            accept?.();
-            letGo();
-            return held
-              .catch(resent)
-              .catch((error: unknown) => refused(error, (error as { handedBack?: unknown }).handedBack === true));
+            accepted?.();
+            return held.catch((error: unknown) =>
+              refused(error, (error as { handedBack?: unknown }).handedBack === true),
+            );
           }
           // A prompt acpmux held goes with the gesture its first send kept.
           const kept = heldPrompt.take();
@@ -6137,29 +5927,8 @@ function AcpmuxPane() {
             return refused(error, Boolean(accepted));
           });
           await persistSession(sessionId);
-          // One of the parts ran while the session persisted: it goes out of this send too.
-          const late = outOfRan();
-          if (late.ran > first.ran) {
-            ({ text, attachments } = late);
-            if (!text.trim() && attachments.length === 0) {
-              letGo();
-              accepted?.();
-              return;
-            }
-          }
           const turn = client
-            .send(text, attachments, kept?.promptId ?? again, accept, kept?.ticket, steer)
-            .then(
-              (sent) => {
-                letGo();
-                return sent;
-              },
-              (error: unknown) => {
-                if (failedRowOf(error)) letGo();
-                throw error;
-              },
-            )
-            .catch(resent)
+            .send(text, attachments, kept?.promptId, accepted, kept?.ticket, steer)
             .catch((error: unknown) => refused(error, Boolean(accepted)));
           // The prompt is written; a Quick Composer hand-off can close this page now.
           promptLanded.current();

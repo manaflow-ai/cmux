@@ -1,7 +1,7 @@
 // A prompt whose connection went before acpmux took it (an acpmux restart, a reset socket, the
-// app's transport closing). The host's prompt journal (Swift `AgentPanePromptJournal`) sends it
-// again, once, on the pane's next connection with the same promptId, and acpmux runs a promptId
-// at most once. So the pane does not ask the person to read the chat's saved state and press
+// app's transport closing). With Debug Settings agentPane.debug.lostPromptReplay on, the host's
+// prompt journal (Swift `AgentPanePromptJournal`) sends it again, once, on the pane's next
+// connection with the same promptId, and acpmux runs a promptId at most once. So the pane does not ask the person to read the chat's saved state and press
 // Enter again: the sender waits for the next connection and for the prompt to show there, and
 // says "Not sent" only when it never does (a prompt the host did not keep: too large, a chat on
 // another machine).
@@ -140,82 +140,4 @@ export function lostPromptSlot() {
       return undefined;
     },
   };
-}
-
-/// Lost prompts that came back while the pane showed another chat, by chat. Each goes back into
-/// the composer, with its "Not sent", only once the pane shows its own chat again: in another
-/// chat's composer, the next Send would run it there. `inDraft`: the prompt never left the composer,
-/// so it is in its chat's saved draft already and only its provenance waits.
-export function lostDrafts<Draft extends { promptId: string; inDraft?: boolean; delivered?: boolean }>() {
-  const kept = new Map<string, Draft[]>();
-  return {
-    hold(sessionId: string, draft: Draft): void {
-      kept.set(sessionId, [...(kept.get(sessionId) ?? []), draft]);
-    },
-    /// The host sent `promptId` again after all: its draft never comes back, in any chat. One in its
-    /// chat's saved draft stays, marked delivered, so that chat's next send leaves it out.
-    drop(promptId: string): void {
-      for (const [sessionId, drafts] of kept) {
-        const left = drafts.flatMap((draft) =>
-          draft.promptId !== promptId ? [draft] : draft.inDraft ? [{ ...draft, delivered: true }] : [],
-        );
-        if (left.length > 0) kept.set(sessionId, left);
-        else kept.delete(sessionId);
-      }
-    },
-    /// The drafts kept for `sessionId`, once: the pane shows that chat now.
-    take(sessionId: string | undefined): Draft[] {
-      if (sessionId === undefined) return [];
-      const drafts = kept.get(sessionId) ?? [];
-      kept.delete(sessionId);
-      return drafts;
-    },
-  };
-}
-
-/// A composer's prompt, by its text and its chips' ids in order.
-export type HeldPrompt = { text: string; attachmentIds: readonly string[] };
-
-/// The composer as it would hold had `parts[index]` never come back into it, or undefined when
-/// the person changed it since (`withoutParts`).
-export function withoutRestored(
-  composer: HeldPrompt,
-  parts: readonly HeldPrompt[],
-  index: number,
-): HeldPrompt | undefined {
-  if (index < 0 || index >= parts.length) return undefined;
-  return withoutParts(composer, parts, new Set([index]));
-}
-
-/// The composer as it would hold had the `parts` at `drop` never come back into it, or undefined
-/// when the person changed it since. `parts`: the lost prompts put back into this chat's composer,
-/// in the order they came back. `restore` puts each one first, ahead of what the composer held, a
-/// blank line apart, with its chips first; so the composer is taken apart from its newest part
-/// back to what was there before the first, and built again without the parts that went. Matching
-/// whole parts by where they were put, never by searching the text, keeps a part that is also a
-/// paragraph of another one.
-export function withoutParts(
-  composer: HeldPrompt,
-  parts: readonly HeldPrompt[],
-  drop: ReadonlySet<number>,
-): HeldPrompt | undefined {
-  const gap = "\n\n";
-  let text = composer.text;
-  let attachmentIds = [...composer.attachmentIds];
-  for (let at = parts.length - 1; at >= 0; at--) {
-    const part = parts[at]!;
-    if (!text.startsWith(part.text)) return undefined;
-    const rest = text.slice(part.text.length);
-    if (rest && part.text && !rest.startsWith(gap)) return undefined;
-    // An empty part over typed text left a blank line ahead of it, which Send trims away.
-    text = rest.startsWith(gap) ? rest.slice(gap.length) : rest;
-    if (!part.attachmentIds.every((id, position) => attachmentIds[position] === id)) return undefined;
-    attachmentIds = attachmentIds.slice(part.attachmentIds.length);
-  }
-  for (const [at, part] of parts.entries()) {
-    if (drop.has(at)) continue;
-    text = text.trim() ? `${part.text}${gap}${text}` : part.text;
-    attachmentIds = [...part.attachmentIds, ...attachmentIds.filter((id) => !part.attachmentIds.includes(id))];
-  }
-  return { text, attachmentIds };
 }

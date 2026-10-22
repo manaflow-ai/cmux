@@ -24,10 +24,11 @@ nonisolated struct AgentPanePromptRelay: Sendable {
         { [journal, daemon] promptId in journal.forget(daemon: daemon, promptId: promptId) }
     }
 
-    /// The connection ended (the host or the daemon closed it): its prompts are left over for the
-    /// next connection, which sends them again.
-    func ended() {
-        journal.connectionEnded(owner: owner)
+    /// The connection ended: `byDaemon` when the daemon's side closed it and the page was told
+    /// (its prompts are the page's again, with Retry); otherwise its prompts are left over for the
+    /// next connection.
+    func ended(byDaemon: Bool) {
+        journal.connectionEnded(owner: owner, byDaemon: byDaemon)
     }
 
     /// Records the decided prompt in `box` on disk before it goes (a prompt with no promptId gets

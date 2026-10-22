@@ -56,7 +56,6 @@ import { startedCardsShown } from "./started/startedSessions";
 import { OfferChildren } from "./offer/offerChildren";
 import { errorMessage } from "./transportErrors";
 import { failedSendText } from "./sendFailure";
-import { isLostConnection } from "./lostPrompt";
 import { SessionPager, type SessionPage } from "./sessionPages";
 import { isWarmableCwd } from "./warmFolders";
 import { SubagentFold, subagentsLeft } from "./subagents/subagentFold";
@@ -3616,11 +3615,6 @@ export class AcpmuxDirectClient {
           this.rows.set(rowId, { id: rowId, version: 1, at, kind: "user", text, pending: true });
       }
       const refused = typeof code === "string" && code.startsWith("transport.");
-      // The connection went before acpmux took the prompt: the host sends it again on the next one
-      // (its prompt journal), so the sender waits for it there (`lostPrompt.ts`) and says "Not
-      // sent" only when it never shows.
-      const lost = !taken && isLostConnection(error);
-      if (lost && error && typeof error === "object") Object.assign(error, { lostPrompt: { sessionId, promptId } });
       // acpmux holds every prompt while the folder's trust question is open (`trust_gate.rs`), and
       // a sender that holds its prompt (`accepted`) keeps every refused one: the prompt never
       // went, so it leaves no bubble, and the pane keeps it in (or puts it back in) the composer.
@@ -3637,7 +3631,7 @@ export class AcpmuxDirectClient {
         // The prompt is still in the composer, so Enter sends it again (no Retry button). A refusal
         // for want of a real key or click (dictation's autoSend after a session ended by itself)
         // says just that, not the generic refusal's pick wording (cx-w2p8r).
-        if (held && !isTrustRefusal(error) && !lost)
+        if (held && !isTrustRefusal(error))
           this.notice(
             code === "transport.gesture_required" ? translate("prompt.notSentAgain") : failedSendText(error, false),
           );

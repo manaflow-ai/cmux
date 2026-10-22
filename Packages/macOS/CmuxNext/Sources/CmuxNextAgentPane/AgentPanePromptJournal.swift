@@ -10,13 +10,12 @@ import CmuxNextCompat
 /// - The relay records a `session/prompt` after every page rule passed it and before it goes out
 ///   (``AgentPaneTransport``), and forgets it at acpmux's `_acpmux/prompt_accepted` for its
 ///   promptId or at the reply to its request (a result, a `duplicate` or an error).
-/// - Entries of an earlier run, and those of a connection that ended (the host closed it, or the
-///   daemon did: a restart, a reset socket), are left over: the next connection to the same daemon
-///   on this Mac claims them and sends each again, once, with `_meta.acpmux.resend` and the same
-///   promptId (``claimLeftovers(daemon:owner:)``). acpmux runs a prompt id at most once: its ledger
-///   and its session log answer one it has seen as `duplicate`. The page that lost the prompt with
-///   its connection waits for it on the next one (`webviews/.../lostPrompt.ts`) instead of asking
-///   the person to send it again.
+/// - Entries of an earlier run, and those of a connection the host closed, are left over: the next
+///   connection to the same daemon on this Mac claims them and sends each again, once, with
+///   `_meta.acpmux.resend` and the same promptId (``claimLeftovers(daemon:owner:)``). acpmux runs a
+///   prompt id at most once: its ledger and its session log answer one it has seen as `duplicate`.
+/// - A connection the daemon closed while the app runs drops the prompts its page sent: the pane
+///   shows each as not sent, with Retry, so the pane owns them from then on.
 /// - An entry older than ``maximumAge`` is dropped, never sent. The file holds at most
 ///   ``maximumEntries``; a prompt larger than ``maximumParamsBytes`` is not kept.
 ///
@@ -170,13 +169,27 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
         }
     }
 
-    /// Connection `owner` ended, however it ended: the prompts it held are left over for the next
-    /// connection. Nothing on disk changes (who holds an entry is this run's memory only).
-    func connectionEnded(owner: UUID) {
-        state.withLock { state in
+    /// Connection `owner` ended. `byDaemon`: the daemon's side closed it, and its page was told,
+    /// so the prompts that page sent are the page's again (Retry); the rest are left over. The
+    /// change is made at once (no file read on the caller's thread) and written off it.
+    func connectionEnded(owner: UUID, byDaemon: Bool) {
+        let snapshot = state.withLock { state -> (Int, [Entry])? in
             state.ended.insert(owner)
-            for (key, holder) in state.holders where holder.owner == owner { state.holders[key] = nil }
+            guard state.loaded else { return nil }
+            var changed = false
+            for (key, holder) in state.holders where holder.owner == owner {
+                state.holders[key] = nil
+                if byDaemon, case .page = holder {
+                    state.entries.removeAll { Self.key($0.daemon, $0.promptId) == key }
+                    changed = true
+                }
+            }
+            guard changed else { return nil }
+            state.generation += 1
+            return (state.generation, state.entries)
         }
+        guard let (generation, entries) = snapshot else { return }
+        queue.async { [self] in write(entries, generation: generation) }
     }
 
     /// The prompts kept now (tests).

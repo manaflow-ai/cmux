@@ -3,16 +3,7 @@
 // for a Refresh). The host sends it again on the next connection; the sender waits for it there.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import {
-  clientWaiter,
-  isLostConnection,
-  lostDrafts,
-  lostPrompt,
-  lostPromptSlot,
-  waitForResend,
-  withoutParts,
-  withoutRestored,
-} from "./lostPrompt";
+import { clientWaiter, isLostConnection, lostPrompt, lostPromptSlot, waitForResend } from "./lostPrompt";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -31,14 +22,6 @@ afterAll(() => {
     if (saved[key]) scope[key] = saved.values[key];
     else delete scope[key];
 });
-
-/// Yields a macrotask at a time until `done`.
-const settle = async (done: () => boolean) => {
-  for (let tries = 0; tries < 500 && !done(); tries += 1) await new Promise((resolve) => setTimeout(resolve, 0));
-};
-
-type Hooks = { answer: (method: string, params: any) => Promise<unknown> };
-type Row = { kind: string; text?: string };
 
 test("a lost prompt names its chat and prompt id; other errors name none", () => {
   const error = Object.assign(new Error("gone"), {
@@ -126,40 +109,6 @@ test("a connection that drops while the prompt waits for its resend waits on the
   expect(await waitForResend(clients, third, { sessionId: "s-1", promptId: "p-2" }, 50, 10)).toBeUndefined();
 });
 
-test("a prompt lost with its connection says so to its sender, with no Not sent line", async () => {
-  const { AcpmuxDirectClient } = await import("./direct");
-  const { MockAcpmuxSocket, mockHost } = await import("./mock");
-  // acpmux never answers the prompt: the connection goes first.
-  class SilentHost extends MockAcpmuxSocket {
-    constructor() {
-      super(() => Promise.resolve());
-      const hooks = this as unknown as Hooks;
-      const answer = hooks.answer.bind(this);
-      hooks.answer = (method, params) =>
-        method === "session/prompt" ? new Promise<unknown>(() => undefined) : answer(method, params);
-    }
-  }
-  let socket: SilentHost | undefined;
-  let rows: Row[] = [];
-  let lost = false;
-  const client = await AcpmuxDirectClient.connect(
-    mockHost,
-    (next) => (rows = [...((next as { rows?: Row[] }).rows ?? [])]),
-    () => (lost = true),
-    () => (socket = new SilentHost()) as unknown as WebSocket,
-  );
-  let accepted = false;
-  const sent = client.send("keep this", [], "p-lost", () => (accepted = true)).catch((error: unknown) => error);
-  await settle(() => rows.some((row) => row.kind === "user" && row.text === "keep this"));
-  const sessionId = client.selectedSession;
-  (socket as unknown as { onclose: (event: { code: number }) => void }).onclose({ code: 1006 });
-  const error = await sent;
-  expect(lost).toBe(true);
-  expect(accepted).toBe(false);
-  expect(lostPrompt(error)).toEqual({ sessionId: sessionId!, promptId: "p-lost" });
-  expect(rows.some((row) => row.kind === "notice")).toBe(false);
-});
-
 test("the next connection's chat shows the prompt the host sent again", async () => {
   const { AcpmuxDirectClient } = await import("./direct");
   const { MockAcpmuxSocket, mockHost } = await import("./mock");
@@ -198,45 +147,6 @@ test("a connection waiting for a resend says no as soon as it closes", async () 
   client.close();
   expect(client.isClosed).toBe(true);
   expect(await waiting).toBe(false);
-});
-
-test("a harness switch sends a lost prompt it held under its id, never marked a resend by the page", async () => {
-  const { HarnessSwitch } = await import("./harnessSwitch");
-  // The host refuses a page frame with `resend` (#22881): the page reuses the id, the host marks it.
-  const sent: { promptId: string; args: number }[] = [];
-  const store = new HarnessSwitch({ now: () => 0, schedule: () => () => undefined });
-  store.connect({
-    turnRunning: () => false,
-    shown: () => undefined,
-    create: async () => "s-new",
-    leave: () => undefined,
-    open: async (sessionId) => sessionId,
-    send: async (...args) => {
-      sent.push({ promptId: args[2], args: args.length });
-    },
-    setModel: async () => undefined,
-    setMode: async () => undefined,
-    setConfig: async () => undefined,
-    discard: () => undefined,
-    prewarm: () => undefined,
-    prewarmSupported: () => false,
-  });
-  void store.switchTo("codex", "/tmp/project");
-  const turn = store.send("fix it", [], undefined, "p-lost");
-  expect(turn).toBeDefined();
-  await turn;
-  expect(sent).toEqual([{ promptId: "p-lost", args: 3 }]);
-});
-
-test("a lost prompt that comes back while another chat shows waits for its own chat", () => {
-  const drafts = lostDrafts<{ promptId: string; text: string }>();
-  drafts.hold("s-a", { promptId: "p-a", text: "chat A's task" });
-  // Chat B shows: nothing of chat A goes into its composer.
-  expect(drafts.take("s-b")).toEqual([]);
-  expect(drafts.take(undefined)).toEqual([]);
-  // Chat A shows again: its draft comes back, once.
-  expect(drafts.take("s-a")).toEqual([{ promptId: "p-a", text: "chat A's task" }]);
-  expect(drafts.take("s-a")).toEqual([]);
 });
 
 test("a connection waiting for a resend says no once the pane shows another chat", async () => {
@@ -318,85 +228,6 @@ test("a late resend names the kept prompts a connection's history shows, and ret
   slot.keep("s-1", "p-read", "continue", []);
   expect(slot.take("s-1", "and test it", [])).toBe("p-other");
   expect(slot.take("s-1", "continue", [])).toBeUndefined();
-});
-
-test("a lost prompt the host sent again after all never comes back into its chat's composer", () => {
-  const drafts = lostDrafts<{ promptId: string; text: string }>();
-  drafts.hold("s-a", { promptId: "p-1", text: "continue" });
-  drafts.hold("s-a", { promptId: "p-2", text: "and test it" });
-  drafts.hold("s-b", { promptId: "p-3", text: "ship it" });
-  drafts.drop("p-1");
-  drafts.drop("p-3");
-  expect(drafts.take("s-a")).toEqual([{ promptId: "p-2", text: "and test it" }]);
-  expect(drafts.take("s-b")).toEqual([]);
-});
-
-test("a send leaves out every lost prompt that ran after all, as it came back, and keeps the rest", () => {
-  const first = { text: "continue", attachmentIds: [] };
-  const image = { text: "", attachmentIds: ["img-1"] };
-  const last = { text: "and test it", attachmentIds: [] };
-  // Restored first, then the image, then the last: the composer holds the newest first.
-  const draft = { text: "and test it\n\n\n\ncontinue\n\nmy note", attachmentIds: ["img-1"] };
-  expect(withoutParts(draft, [first, image, last], new Set([0, 1]))).toEqual({
-    text: "and test it\n\nmy note",
-    attachmentIds: [],
-  });
-  // An attachment-only prompt that ran goes too.
-  expect(withoutParts({ text: "", attachmentIds: ["img-1"] }, [image], new Set([0]))).toEqual({
-    text: "",
-    attachmentIds: [],
-  });
-  // Edited: the person's draft, sent as typed.
-  expect(withoutParts({ text: "continue now", attachmentIds: [] }, [first], new Set([0]))).toBeUndefined();
-  // An attachment-only prompt put back ahead of a note: the composer holds "\n\nmy note", and
-  // Send trims it to "my note" (Composer.tsx `submit`); the image that ran still goes.
-  const held = { text: "\n\nmy note".trim(), attachmentIds: ["img-1"] };
-  expect(withoutParts(held, [image], new Set([0]))).toEqual({ text: "my note", attachmentIds: [] });
-  expect(withoutParts({ text: "\n\nmy note", attachmentIds: ["img-1"] }, [image], new Set([0]))).toEqual({
-    text: "my note",
-    attachmentIds: [],
-  });
-  // Kept, it goes back ahead of the note.
-  expect(withoutParts(held, [image], new Set())).toEqual({ text: "\n\nmy note", attachmentIds: ["img-1"] });
-});
-
-test("a lost prompt the host sent after all leaves the composer; the person's own text and edits stay", () => {
-  const go = { text: "continue", attachmentIds: ["img-1"] };
-  expect(withoutRestored({ text: "continue", attachmentIds: ["img-1"] }, [go], 0)).toEqual({ text: "", attachmentIds: [] });
-  // Two prompts lost together come back as one draft, the newer first: each goes on its own.
-  const test2 = { text: "and test it", attachmentIds: ["img-2"] };
-  const both = { text: "and test it\n\ncontinue", attachmentIds: ["img-2", "img-1"] };
-  expect(withoutRestored(both, [go, test2], 0)).toEqual({ text: "and test it", attachmentIds: ["img-2"] });
-  expect(withoutRestored(both, [go, test2], 1)).toEqual({ text: "continue", attachmentIds: ["img-1"] });
-  // A part that is also a paragraph of another: the part that went goes, never the paragraph.
-  const plain = { text: "continue", attachmentIds: [] };
-  const longer = { text: "continue\n\nand test it", attachmentIds: [] };
-  const overlap = { text: "continue\n\nand test it\n\ncontinue", attachmentIds: [] };
-  expect(withoutRestored(overlap, [plain, longer], 0)).toEqual({ text: "continue\n\nand test it", attachmentIds: [] });
-  expect(withoutRestored(overlap, [plain, longer], 1)).toEqual({ text: "continue", attachmentIds: [] });
-  // What the person typed before it came back stays, after it.
-  expect(withoutRestored({ text: "continue\n\nmy note", attachmentIds: ["img-1", "img-3"] }, [go], 0)).toEqual({
-    text: "my note",
-    attachmentIds: ["img-3"],
-  });
-  // Edited, or a chip of it removed: the person's draft now, so it stays.
-  expect(withoutRestored({ text: "continue please", attachmentIds: ["img-1"] }, [go], 0)).toBeUndefined();
-  expect(withoutRestored({ text: "please continue", attachmentIds: ["img-1"] }, [go], 0)).toBeUndefined();
-  expect(withoutRestored({ text: "continue", attachmentIds: [] }, [go], 0)).toBeUndefined();
-  expect(withoutRestored({ text: "and test it, continue", attachmentIds: [] }, [plain, longer], 0)).toBeUndefined();
-  // Sent already: the composer is empty, nothing to take out.
-  expect(withoutRestored({ text: "", attachmentIds: [] }, [go], 0)).toBeUndefined();
-});
-
-test("a prompt still in its chat's saved draft keeps its provenance once the host sends it after all", () => {
-  const kept = lostDrafts<{ promptId: string; text: string; inDraft?: boolean; delivered?: boolean }>();
-  kept.hold("a", { promptId: "p1", text: "continue", inDraft: true });
-  kept.hold("a", { promptId: "p2", text: "and test it" });
-  kept.drop("p1");
-  kept.drop("p2");
-  // The one handed back goes; the one in the saved draft stays, marked delivered.
-  expect(kept.take("a")).toEqual([{ promptId: "p1", text: "continue", inDraft: true, delivered: true }]);
-  expect(kept.take("a")).toEqual([]);
 });
 
 test("a claimed lost prompt keeps its slot until its send has left", () => {

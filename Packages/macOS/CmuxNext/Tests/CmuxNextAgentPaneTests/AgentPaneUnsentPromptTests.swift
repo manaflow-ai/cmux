@@ -136,10 +136,16 @@ struct AgentPaneUnsentPromptTests {
     }
 
     /// The daemon closes the connection before it acknowledged a prompt (an acpmux restart, a reset
-    /// socket): the pane's next connection sends it again, once, as a resend of the same prompt id,
-    /// and the page waits for it there instead of asking the person to send it again ("The agent
-    /// connection was interrupted", 2026-10-20).
-    @Test func aPromptTheDaemonDroppedWithItsConnectionGoesAgainOnTheNextOne() async throws {
+    /// socket). With Debug Settings agentPane.debug.lostPromptReplay on, the pane's next connection
+    /// sends it again, once, as a resend of the same prompt id ("The agent connection was
+    /// interrupted", 2026-10-20). Off (the default), it never goes again: the page says "Not sent"
+    /// with Retry, so the prompt runs at most once whichever way.
+    @Test(arguments: [true, false])
+    func aPromptTheDaemonDroppedWithItsConnectionGoesAgainOnTheNextOne(replay: Bool) async throws {
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register(AgentPaneTunables.all)
+        TunableStore.shared.set(AgentPaneTunables.lostPromptReplay.key, .bool(replay))
+        defer { TunableStore.shared.set(AgentPaneTunables.lostPromptReplay.key, nil) }
         let url = Self.journalURL()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let daemon = AcpmuxStandInServer()
@@ -165,6 +171,10 @@ struct AgentPaneUnsentPromptTests {
         #expect(await pane.transport.send(connection: again, frames: [#"{"jsonrpc":"2.0","id":2,"method":"_acpmux/status","params":{}}"#]) == nil)
         try #require(await Self.frame(inbox, containing: #""id":2"#) != nil, "the new connection never answered")
         let resent = Self.prompts(daemon, peer: 1)
+        guard replay else {
+            #expect(resent.isEmpty, "with the replay off, the page owns the dropped prompt (Retry): it must not go again")
+            return
+        }
         #expect(resent.count == 1, "the prompt the daemon dropped with its connection was not sent again")
         guard let frame = resent.first else { return }
         #expect(Self.mux(frame)?["promptId"] as? String == "p-5")
