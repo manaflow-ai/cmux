@@ -25,6 +25,7 @@ extension ScreenContentView {
                                               source: context.model.lastFocusSource, animated: flashAnimated ?? animated)
         for pane in paneFrames.keys {
             guard let host = context.hosts[pane] else { continue }
+            LayoutRootView.paneChromeUpdates &+= 1
             let isFocused = pane == focused
             host.setChrome(
                 showsRing: ringAllowed && isFocused,
