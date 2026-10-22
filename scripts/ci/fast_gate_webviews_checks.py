@@ -27,6 +27,7 @@ the new check:fixed-waits; replayed, #22975 merged with 01ea78b3 adds
 from __future__ import annotations
 
 import argparse
+import os
 from collections import Counter
 import re
 import shutil
@@ -52,9 +53,14 @@ def run_check(webviews: Path, check: str) -> tuple[int, str]:
 
 def key(line: str, root: str = "") -> str:
     """A line as a finding: stripped, its checkout root, `path:line[:col]` numbers and timings dropped."""
-    if root:
-        line = line.replace(root, "<root>")
-    return TIMING.sub("<time>", LINE_REF.sub(r"\1", line.strip()))
+    return TIMING.sub("<time>", LINE_REF.sub(r"\1", unroot(line, root).strip()))
+
+
+def unroot(text: str, root: str) -> str:
+    """The checkout root, as given and resolved (macOS /var is /private/var), as <root>."""
+    for form in sorted({root, os.path.realpath(root)} if root else (), key=len, reverse=True):
+        text = text.replace(form, "<root>")
+    return text
 
 
 def findings(output: str, root: str = "") -> list[tuple[str, str]]:
@@ -71,7 +77,7 @@ def findings(output: str, root: str = "") -> list[tuple[str, str]]:
             continue
         where = LOCATION.match(line)
         if where and pending:
-            path = where["path"].replace(root, "<root>") if root else where["path"]
+            path = unroot(where["path"], root)
             diagnostics.append((f"{path}: {pending[0]}", f"{where['path']}: {pending[1]}"))
             pending = None
     if pending:
