@@ -29,6 +29,8 @@ mod cursor_requests;
 mod drafts;
 #[path = "hub_integration/lanes.rs"]
 mod lanes;
+#[path = "hub_integration/permission_display.rs"]
+mod permission_display;
 #[path = "hub_integration/permission_groups.rs"]
 mod permission_groups;
 #[path = "hub_integration/prompt_context.rs"]

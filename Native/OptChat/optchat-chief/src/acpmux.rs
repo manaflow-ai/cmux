@@ -56,6 +56,18 @@ pub fn chief_tags(home_id: &str, role: &str) -> BTreeMap<String, String> {
     ])
 }
 
+/// A turn session's tags: [`chief_tags`] plus the names acpmux puts on its
+/// approval cards (Leo 2026-10-21, #89(4): "Chief wants to message a12 ·
+/// Nightly train"): the asker is the Chief, and its children are the
+/// sessions whose `mux.parent` is `parent`.
+pub fn turn_tags(home_id: &str, parent: &str) -> BTreeMap<String, String> {
+    use cmux_chief::rules::{CHIEF_DISPLAY_NAME, CHILDREN_TAG, LABEL_TAG};
+    let mut tags = chief_tags(home_id, "turn");
+    tags.insert(LABEL_TAG.to_owned(), CHIEF_DISPLAY_NAME.to_owned());
+    tags.insert(CHILDREN_TAG.to_owned(), parent.to_owned());
+    tags
+}
+
 /// A harness's family, as acpmux reports it: it decides the layout and the
 /// isolation each Chief session gets.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
