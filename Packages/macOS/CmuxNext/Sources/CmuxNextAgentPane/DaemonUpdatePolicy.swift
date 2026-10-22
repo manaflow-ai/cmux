@@ -61,10 +61,13 @@ public actor DaemonUpdatePolicy {
         }
     }
 
-    // Named functions, not async closure literals, as default arguments (crash ratchet, cx-bsue).
-    @Sendable nonisolated static func noTargets() async -> [any DaemonUpdateTarget] { [] }
+    // Named functions, not async closure literals, as default arguments (crash ratchet, cx-bsue);
+    // public, since the public init's defaults name them.
+    /// No targets: ``Dependencies/targets`` by default.
+    @Sendable public nonisolated static func noTargets() async -> [any DaemonUpdateTarget] { [] }
 
-    @Sendable nonisolated static func showOnBoard(_ event: DaemonUpdateEvent) async {
+    /// Applies `event` to ``DaemonUpdateBoard/shared``: ``Dependencies/report`` by default.
+    @Sendable public nonisolated static func showOnBoard(_ event: DaemonUpdateEvent) async {
         await MainActor.run { DaemonUpdateBoard.shared.apply(event) }
     }
 
@@ -155,13 +158,16 @@ public actor DaemonUpdatePolicy {
         let now = elapsed()
         if let index = queue.firstIndex(where: { $0.target.id == target.id }) {
             queue[index].target = target
-            guard urgent, !queue[index].urgent else { return }
-            queue[index].urgent = true
-            queue[index].due = min(queue[index].due, now)
+            if urgent, !queue[index].urgent {
+                queue[index].urgent = true
+                queue[index].due = min(queue[index].due, now)
+                sleeper?.cancel()
+            }
         } else {
             queue.append(Pending(target: target, urgent: urgent, due: now, backoff: dependencies.busyBackoff))
+            sleeper?.cancel()
         }
-        sleeper?.cancel()
+        // Also for a target already queued: a queued target always has a drain.
         guard drain == nil else { return }
         // task-owner: this policy; drains the queue one target at a time and ends when it is empty
         drain = Task { await self.drainQueue() }
@@ -189,7 +195,9 @@ public actor DaemonUpdatePolicy {
                 for each in retried {
                     await deps.report(DaemonUpdateEvent(each.target, .cleared))
                 }
-                break
+                // The toggle may have come back on during the reports, and a target offered
+                // since sits in the queue with no other drain to run it: read the queue again.
+                continue
             }
             let pending = queue.remove(at: index)
             running = pending.target.id

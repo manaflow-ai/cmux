@@ -301,6 +301,35 @@ import Testing
         #expect(fixture.targetReads == 0)
     }
 
+    /// The toggle goes off while a target waits to be asked again, and back on while the policy
+    /// reports that target cleared; a target offered during that report still updates, and the
+    /// policy only counts as drained once it did.
+    @Test func aTargetOfferedWhileTheToggleOffIsReportedStillUpdates() async throws {
+        let fixture = try PolicyFixture()
+        defer { fixture.remove() }
+        let enabled = Mutex(true)
+        let busy = fixture.target("busy", build: Self.older, outcomes: [.busy])
+        let later = fixture.target("later", build: Self.older, outcomes: [.updated(build: nil)])
+        let policy = Mutex<DaemonUpdatePolicy?>(nil)
+        let made = fixture.policy([], isEnabled: { enabled.withLock { $0 } }, board: { event in
+            switch event.state {
+            case .retrying: enabled.withLock { $0 = false }
+            case .cleared where event.id == "busy":
+                enabled.withLock { $0 = true }
+                await policy.withLock { $0 }?.offer(later)
+            default: break
+            }
+        })
+        policy.withLock { $0 = made }
+        await made.offer(busy)
+        await made.drained()
+
+        #expect(fixture.calls == ["busy", "later"])
+        #expect(fixture.states("busy") == [.updating, .retrying, .cleared])
+        #expect(fixture.states("later") == [.updating, .updated(build: "abc123def")])
+        #expect(fixture.ledger.targets == ["later": "updated"])
+    }
+
     @Test func toggleIsOnByDefaultAndInDebugSettings() {
         #expect(AgentPaneTunables.updatePeersAutomatically.defaultValue)
         #expect(AgentPaneTunables.all.contains { $0.key == AgentPaneTunables.updatePeersAutomatically.key })
@@ -364,8 +393,10 @@ nonisolated final class PolicyFixture: Sendable {
     func ended() { log.withLock { $0.running -= 1 } }
 
     /// `updateBusyAfter`: nil keeps the production default (``DaemonUpdatePolicy/Dependencies/updateBusyAfter``).
+    /// `isEnabled`, when given, is read at every step instead of `enabled`.
     func policy(_ targets: [FakeUpdateTarget], bundled: String = DaemonUpdatePolicyTests.bundled, clock: any Clock<Duration> = PolicyTestClock(),
-                enabled: Bool = true, board: (@Sendable (DaemonUpdateEvent) async -> Void)? = nil,
+                enabled: Bool = true, isEnabled: (@Sendable () -> Bool)? = nil,
+                board: (@Sendable (DaemonUpdateEvent) async -> Void)? = nil,
                 updateBusyAfter: Duration? = nil) -> DaemonUpdatePolicy {
         var dependencies = DaemonUpdatePolicy.Dependencies(
             bundledBuild: { bundled },
@@ -373,7 +404,7 @@ nonisolated final class PolicyFixture: Sendable {
                 self.log.withLock { $0.targetReads += 1 }
                 return targets
             },
-            enabled: { enabled },
+            enabled: isEnabled ?? { enabled },
             report: { event in
                 self.log.withLock { $0.events.append(event) }
                 await board?(event)
