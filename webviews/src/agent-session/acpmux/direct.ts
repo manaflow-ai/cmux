@@ -2572,7 +2572,7 @@ export class AcpmuxDirectClient {
       return;
     }
     if (event.dir === "mux") {
-      // A stopped turn or a gone agent ends the subagents it would never report again.
+      // A stopped or completed turn, or a gone agent, ends the subagents it would never report again.
       const left = subagentsLeft(event.kind, msg);
       if (left && this.subagents.stopRunning(left, event.at)) this.takeSubagentRows();
       if (event.kind === BOOKMARKS_KIND) {
