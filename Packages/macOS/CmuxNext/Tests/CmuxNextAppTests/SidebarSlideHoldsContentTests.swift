@@ -90,7 +90,9 @@ struct SidebarSlideHoldsContentTests {
                 frame(root, width: sidebar * step)
                 #expect(root.contentHost.frame.minX < edge, "the card's edge follows the sidebar")
                 edge = root.contentHost.frame.minX
-                #expect(content.frame == CGRect(x: 0, y: 0, width: held, height: card.height),
+                // The width is what the hold pins; the height follows the card (the window's
+                // first layout passes can still move the card's top inset by a few points).
+                #expect(content.frame == CGRect(x: 0, y: 0, width: held, height: root.contentHost.bounds.height),
                         "frame at \(step): the content resized to \(content.frame.width) mid-slide")
             }
             root.sidebar.isWidthAnimating = false
