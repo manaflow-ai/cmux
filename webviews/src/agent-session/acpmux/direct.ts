@@ -885,6 +885,8 @@ export class AcpmuxDirectClient {
   static scheduleFrame: ((run: () => void) => void) | undefined;
   /// The connection state of the snapshot waiting for the next frame.
   private frameSnapshot?: string;
+  /// Another chat changed while the page was hidden: the list draws again when it shows.
+  private listChangedWhileHidden = false;
   private socket?: WebSocket;
   private nextRequest = 1;
   private pending = new Map<
@@ -1775,6 +1777,10 @@ export class AcpmuxDirectClient {
   /// The page was hidden or shown (a tab in a background workspace, an occluded window): acpmux
   /// leaves a turn that ends while nobody shows the chat unread, and showing it is seeing it.
   private showChanged = (): void => {
+    if (this.listChangedWhileHidden && pageShown() && !this.closed) {
+      this.listChangedWhileHidden = false;
+      this.emitInFrame("session changed");
+    }
     const sessionId = this.selectedSessionId;
     if (!sessionId || this.closed) return;
     this.syncView();
@@ -2245,8 +2251,14 @@ export class AcpmuxDirectClient {
     }
     if (this.offerChildIds().includes(session.sessionId) || this.isStartedChild(session))
       this.childChanged(session.sessionId);
-    // The picker lists every session, so a change elsewhere still needs a snapshot.
-    this.emit("session changed");
+    // The picker lists every session, so a change elsewhere still needs a snapshot, but each pane
+    // hears every running chat's changes: a burst draws once, in the next frame, and a hidden pane
+    // draws other chats' changes when it shows again (agent-pane-session-change-coalesce.test.ts).
+    if (session.sessionId !== this.selectedSessionId && !pageShown()) {
+      this.listChangedWhileHidden = true;
+      return;
+    }
+    this.emitInFrame("session changed");
   }
 
   private applyPermission(message: any): void {
