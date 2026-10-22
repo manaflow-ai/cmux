@@ -57,6 +57,19 @@ import Testing
         let checked = Self.selectionMenu(checked: true)
         #expect(ThemedMenuRowView.hasStateColumn(checked.items[4]))
         #expect(ThemedMenuRowView.leading(of: checked.items[4]) == ThemedMenuRowView.stateTitleX)
+
+        // A hidden checked row (the device menu's search hides its browse rows) leaves no column
+        // in the rows that show, measured and drawn alike.
+        let searching = Self.selectionMenu(checked: true)
+        searching.items[0].isHidden = true
+        let result = NSMenuItem(title: "Search the Web", action: #selector(NSText.copy(_:)), keyEquivalent: "")
+        result.image = .menuSymbol("magnifyingglass")
+        searching.addItem(result)
+        searching.themeAddedRows()
+        #expect(!ThemedMenuRowView.hasStateColumn(result))
+        #expect(ThemedMenuRowView.leading(of: result) == 15)
+        let withColumn = try #require(checked.items[4].view).frame.width
+        #expect(try #require(result.view).frame.width == withColumn - (ThemedMenuRowView.stateTitleX - 15))
     }
 
     /// An icon fits the 14pt box with its shape kept: an SF Symbol is rarely square, and stretching

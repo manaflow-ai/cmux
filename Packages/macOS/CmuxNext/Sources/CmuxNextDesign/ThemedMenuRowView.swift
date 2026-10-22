@@ -313,9 +313,11 @@ extension ThemedMenuRowView {
         item.image != nil || item.menu?.items.contains { $0.image != nil } == true
     }
 
-    /// Whether `item`'s menu draws a state column: some row in it shows a checkmark or a dash.
+    /// Whether `item`'s menu draws a state column: some row it shows has a checkmark or a dash. A
+    /// hidden row does not count: the device menu's search hides its browse rows, the checked
+    /// device among them, and its results must not keep an empty column for it.
     static func hasStateColumn(_ item: NSMenuItem) -> Bool {
-        item.state != .off || item.menu?.items.contains { $0.state != .off } == true
+        item.state != .off || item.menu?.items.contains { !$0.isHidden && $0.state != .off } == true
     }
 
     /// Where `item`'s icon, or its title without one, starts.
