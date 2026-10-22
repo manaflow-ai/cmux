@@ -1,6 +1,399 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.group.machineColors": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Machine Colors"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ألوان الأجهزة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Boje računara"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maskinfarver"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rechnerfarben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colores de los equipos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couleurs des machines"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colori delle macchine"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンの色"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពណ៌ម៉ាស៊ីន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기기 색상"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maskinfarger"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kolory maszyn"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cores das máquinas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цвета компьютеров"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สีของเครื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Makine Renkleri"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кольори комп’ютерів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Màu của máy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "机器颜色"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "機器顏色"
+          }
+        }
+      }
+    },
+    "settings.machines.colors": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Machine Color"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لون الجهاز"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Boja računara"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maskinfarve"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rechnerfarbe"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Color del equipo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couleur de la machine"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colore della macchina"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンの色"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពណ៌ម៉ាស៊ីន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기기 색상"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maskinfarge"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kolor maszyny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cor da máquina"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цвет компьютера"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สีของเครื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Makine Rengi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Колір комп’ютера"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Màu của máy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "机器颜色"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "機器顏色"
+          }
+        }
+      }
+    },
+    "settings.machines.colors.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The color of each machine's sidebar rows and tab badges, by machine name: \"#RRGGBB\", or an accent name (red, green, yellow, purple, cyan, orange, pink, blue) that follows the theme. A machine without one gets a color from its name."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لون صفوف كل جهاز في الشريط الجانبي وشاراته على علامات التبويب، حسب اسم الجهاز: \"#RRGGBB\"، أو اسم لون مميز (red وgreen وyellow وpurple وcyan وorange وpink وblue) يتبع السمة. الجهاز الذي ليس له لون يأخذ لونًا من اسمه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Boja redova svakog računara u bočnoj traci i oznaka na karticama, po imenu računara: \"#RRGGBB\" ili naziv akcentne boje (red, green, yellow, purple, cyan, orange, pink, blue) koja prati temu. Računar bez boje dobija boju iz svog imena."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Farven på hver maskines rækker i sidepanelet og mærker på faner, efter maskinens navn: \"#RRGGBB\" eller navnet på en accentfarve (red, green, yellow, purple, cyan, orange, pink, blue), som følger temaet. En maskine uden farve får en farve ud fra sit navn."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Farbe der Seitenleistenzeilen und Tab-Markierungen jedes Rechners, nach Rechnername: \"#RRGGBB\" oder der Name einer Akzentfarbe (red, green, yellow, purple, cyan, orange, pink, blue), die dem Theme folgt. Ein Rechner ohne Farbe erhält eine Farbe aus seinem Namen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El color de las filas de la barra lateral y de las insignias de pestaña de cada equipo, por nombre de equipo: \"#RRGGBB\" o el nombre de un color de acento (red, green, yellow, purple, cyan, orange, pink, blue) que sigue el tema. Un equipo sin color recibe uno a partir de su nombre."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La couleur des lignes de la barre latérale et des badges d’onglet de chaque machine, par nom de machine : \"#RRGGBB\" ou le nom d’une couleur d’accent (red, green, yellow, purple, cyan, orange, pink, blue) qui suit le thème. Une machine sans couleur en reçoit une d’après son nom."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il colore delle righe nella barra laterale e dei badge delle schede di ogni macchina, per nome della macchina: \"#RRGGBB\" oppure il nome di un colore d’accento (red, green, yellow, purple, cyan, orange, pink, blue) che segue il tema. Una macchina senza colore ne riceve uno dal suo nome."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各マシンのサイドバーの行とタブのバッジの色を、マシン名ごとに指定します。\"#RRGGBB\"、またはテーマに従うアクセント名（red、green、yellow、purple、cyan、orange、pink、blue）を使えます。指定のないマシンには名前から色が決まります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពណ៌នៃជួរដេករបស់ម៉ាស៊ីននីមួយៗនៅរបារចំហៀង និងស្លាកនៅលើផ្ទាំង តាមឈ្មោះម៉ាស៊ីន៖ \"#RRGGBB\" ឬឈ្មោះពណ៌សង្កត់ (red, green, yellow, purple, cyan, orange, pink, blue) ដែលធ្វើតាមរូបរាង។ ម៉ាស៊ីនដែលគ្មានពណ៌ ទទួលបានពណ៌ពីឈ្មោះរបស់វា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기기 이름별로 각 기기의 사이드바 행과 탭 배지 색상을 지정합니다. \"#RRGGBB\" 또는 테마를 따르는 강조 색상 이름(red, green, yellow, purple, cyan, orange, pink, blue)을 사용할 수 있습니다. 색상이 없는 기기는 이름에서 색상을 받습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fargen på hver maskins rader i sidepanelet og merker på faner, etter maskinnavn: \"#RRGGBB\" eller navnet på en aksentfarge (red, green, yellow, purple, cyan, orange, pink, blue) som følger temaet. En maskin uten farge får en farge ut fra navnet sitt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kolor wierszy każdej maszyny na pasku bocznym i jej plakietek na kartach, według nazwy maszyny: \"#RRGGBB\" albo nazwa koloru akcentu (red, green, yellow, purple, cyan, orange, pink, blue), który podąża za motywem. Maszyna bez koloru dostaje kolor na podstawie swojej nazwy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A cor das linhas da barra lateral e dos selos de aba de cada máquina, pelo nome da máquina: \"#RRGGBB\" ou o nome de uma cor de destaque (red, green, yellow, purple, cyan, orange, pink, blue) que segue o tema. Uma máquina sem cor recebe uma a partir do nome."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цвет строк каждого компьютера на боковой панели и его меток на вкладках, по имени компьютера: \"#RRGGBB\" или название акцентного цвета (red, green, yellow, purple, cyan, orange, pink, blue), который следует теме. Компьютер без цвета получает цвет по своему имени."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สีของแถวในแถบด้านข้างและป้ายบนแท็บของแต่ละเครื่อง ตามชื่อเครื่อง: \"#RRGGBB\" หรือชื่อสีเน้น (red, green, yellow, purple, cyan, orange, pink, blue) ที่เปลี่ยนตามธีม เครื่องที่ไม่มีสีจะได้สีจากชื่อของมัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Her makinenin kenar çubuğu satırlarının ve sekme rozetlerinin rengi, makine adına göre: \"#RRGGBB\" veya temayı izleyen bir vurgu rengi adı (red, green, yellow, purple, cyan, orange, pink, blue). Rengi olmayan bir makine, rengini adından alır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Колір рядків кожного комп’ютера на бічній панелі та його позначок на вкладках, за назвою комп’ютера: \"#RRGGBB\" або назва акцентного кольору (red, green, yellow, purple, cyan, orange, pink, blue), що слідує за темою. Комп’ютер без кольору отримує колір за своєю назвою."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Màu của các hàng trên thanh bên và huy hiệu trên thẻ của từng máy, theo tên máy: \"#RRGGBB\" hoặc tên một màu nhấn (red, green, yellow, purple, cyan, orange, pink, blue) theo chủ đề. Máy không có màu sẽ nhận màu từ tên của nó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按机器名称设置每台机器的侧边栏行和标签页徽标颜色：\"#RRGGBB\"，或跟随主题的强调色名称（red、green、yellow、purple、cyan、orange、pink、blue）。未设置的机器按名称获得颜色。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "依機器名稱設定每台機器的側邊欄列與分頁徽章顏色：\"#RRGGBB\"，或跟隨主題的強調色名稱（red、green、yellow、purple、cyan、orange、pink、blue）。未設定的機器會依名稱取得顏色。"
+          }
+        }
+      }
+    },
     "settings.sidebar.style": {
       "extractionState": "manual",
       "localizations": {
@@ -56,6 +449,78 @@
           "stringUnit": {
             "state": "translated",
             "value": "サイドバーのスタイル"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stil bočne trake"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidepanelstil"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stile barra laterale"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រចនាប័ទ្មរបារចំហៀង"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidefeltstil"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Styl paska bocznego"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estilo da barra lateral"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стиль боковой панели"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สไตล์แถบด้านข้าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kenar çubuğu stili"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стиль бічної панелі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kiểu thanh bên"
           }
         }
       }
@@ -116,6 +581,78 @@
             "state": "translated",
             "value": "レールはサイドバーを、ワークスペースごとに印のある細い帯に縮めます。帯にポインタを置くと、作業の上にサイドバー全体が開きます。"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Traka smanjuje bočnu traku na usku traku s oznakom za svaki radni prostor. Pokažite na traku da otvorite cijelu bočnu traku iznad svog rada."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skinne gør sidepanelet til en smal stribe med et mærke for hvert arbejdsområde. Peg på striben for at åbne hele sidepanelet over dit arbejde."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barra riduce la barra laterale a una striscia sottile con un segno per ogni area di lavoro. Punta la striscia per aprire la barra laterale completa sopra il tuo lavoro."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "របារបង្រួមរបារចំហៀងទៅជាបន្ទះស្តើងដែលមានសញ្ញាមួយសម្រាប់កន្លែងធ្វើការនីមួយៗ។ ចង្អុលទៅបន្ទះដើម្បីបើករបារចំហៀងពេញលើការងាររបស់អ្នក។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skinne gjør sidefeltet til en smal stripe med et merke for hvert arbeidsområde. Pek på stripen for å åpne hele sidefeltet over arbeidet ditt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pasek zwęża pasek boczny do wąskiego paska ze znacznikiem dla każdego obszaru roboczego. Wskaż pasek, aby otworzyć pełny pasek boczny nad swoją pracą."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trilho reduz a barra lateral a uma faixa fina com uma marca para cada espaço de trabalho. Aponte para a faixa para abrir a barra lateral completa sobre o seu trabalho."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Полоса сжимает боковую панель до узкой полосы с меткой для каждого рабочего пространства. Наведите на полосу, чтобы открыть полную боковую панель поверх работы."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แถบจะย่อแถบด้านข้างเป็นแถบแคบที่มีเครื่องหมายสำหรับแต่ละพื้นที่ทำงาน ชี้ที่แถบเพื่อเปิดแถบด้านข้างแบบเต็มเหนืองานของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Şerit, kenar çubuğunu her çalışma alanı için bir işaret taşıyan ince bir şeride küçültür. Kenar çubuğunun tamamını işinizin üzerinde açmak için şeridin üzerine gelin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Смуга зменшує бічну панель до вузької смуги з позначкою для кожного робочого простору. Наведіть на смугу, щоб відкрити повну бічну панель поверх роботи."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thanh mảnh thu thanh bên thành một dải hẹp có dấu cho mỗi không gian làm việc. Trỏ vào dải để mở toàn bộ thanh bên trên công việc của bạn."
+          }
         }
       }
     },
@@ -175,6 +712,78 @@
             "state": "translated",
             "value": "標準"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standardno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្តង់ដារ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standardowy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Padrão"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стандартный"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "มาตรฐาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standart"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стандартний"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tiêu chuẩn"
+          }
         }
       }
     },
@@ -233,6 +842,78 @@
           "stringUnit": {
             "state": "translated",
             "value": "レール"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Traka"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skinne"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barra"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "របារ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skinne"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pasek"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trilho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Полоса"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แถบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Şerit"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Смуга"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thanh mảnh"
           }
         }
       }
