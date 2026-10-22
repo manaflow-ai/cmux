@@ -22,6 +22,10 @@ inputs match. Two readers:
       prints those the pull request does not own. A path is owned when the
       pull request changed it, or when it is an output whose inputs the pull
       request changed. pr-autofix-apply.sh leaves the rest out of the push.
+  generated_outputs.py caused PATH --changed FILE
+      Exit 0 when the pull request changed an input of the output PATH, so a
+      stale PATH is its own (cmux-next.yml's generated files job then exports
+      the settings fresh and compares); exit 1 when a stale PATH is the base's.
 """
 from __future__ import annotations
 
@@ -59,8 +63,7 @@ OUTPUTS: tuple[tuple[tuple[str, ...], str, str], ...] = (
      "scripts/cmux-next/ci-target-graph.py; only the base autofix writes it"),
     (("plans/cmux-next/action-surfaces.json", "plans/cmux-next/actions.md", "plans/cmux-next/links.json"),
      ACTIONS_INPUTS, "scripts/cmux-next/regenerate-action-exports.sh (a Mac; the autofix)"),
-    (("schemas/settings/settings-schema.json", "schemas/settings-export/settings-schema.sources.sha256",
-      "docs/mdm/com.manaflow.cmux.json", "docs/mdm/com.manaflow.cmux.plist",
+    (("schemas/settings/settings-schema.json", "docs/mdm/com.manaflow.cmux.json", "docs/mdm/com.manaflow.cmux.plist",
       "docs/mdm/com.manaflow.cmux.intune.plist", "docs/mdm/cmux-example.mobileconfig",
       "docs/mdm/managed-preferences.md"),
      SETTINGS_INPUTS, "scripts/cmux-next/regenerate-settings-exports.sh (a Mac; the autofix)"),
@@ -136,11 +139,16 @@ def read_lines(text: str) -> list[str]:
 
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("command", choices=("drift", "drop"))
+    parser.add_argument("command", choices=("drift", "drop", "caused"))
+    parser.add_argument("path", nargs="?", help="caused: the output to ask about")
     parser.add_argument("--changed", required=True, help="file with the pull request's changed paths, one per line")
     args = parser.parse_args(argv)
     with open(args.changed, encoding="utf-8") as handle:
         changed = read_lines(handle.read())
+    if args.command == "caused":
+        if not args.path:
+            parser.error("caused needs PATH")
+        return 0 if caused(args.path, changed) else 1
     if args.command == "drift":
         messages = drift(changed)
         for message in messages:

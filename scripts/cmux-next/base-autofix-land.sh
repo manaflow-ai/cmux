@@ -17,9 +17,10 @@
 # exports there when this run made them (ACTIONS_MADE_AT) and none was held: the tip then holds this
 # run's exports, or a newer commit's own copy (base-autofix-push.sh lands them as progress past a
 # move of their inputs), and the checks compare the built files with the exports committed beside them. The defaults snapshot, which reads
-# both exports, also needs the tip's settings stamp current: the tip has one, and the tip's own
-# defaults_guard.py check-stamp passes in the checkout of the tip (the guard finds the repository
-# from its own path, so a copy elsewhere reads nothing and passes). Otherwise,
+# both exports, also needs the settings exports' inputs on the tip to be the ones this run judged
+# them at: the tip's sources give the same source stamp (defaults_guard.py source-stamp, derived from
+# each tree; the stamp is never committed) as SETTINGS_MADE_AT when this run made them and none was
+# held, or else as BASE_SHA, whose committed exports the first push built the snapshot from. Otherwise,
 # and for the webviews formatting, a held file waits for the next run and the run fails.
 # A round that finds nothing left to repair on the tip ends the run.
 #
@@ -40,6 +41,7 @@ main() {
   actions_made_at="${5:-}"
   actions_current=0 settings_current=0
   action_exports='^plans/cmux-next/(action-surfaces\.json|actions\.md|links\.json)$'
+  settings_exports='^(schemas/settings/settings-schema\.json|docs/mdm/(com\.manaflow\.cmux(\.intune)?\.plist|com\.manaflow\.cmux\.json|cmux-example\.mobileconfig|managed-preferences\.md))$'
   here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   rounds="${CMUX_BASE_AUTOFIX_ROUNDS:-3}"
   token="${TOKEN:-}"
@@ -116,9 +118,16 @@ main() {
     actions_current=0 settings_current=0
     if exports_landed "$held"$'\n'"$waits"; then
       actions_current=1
-      if git cat-file -e "$tip:schemas/settings-export/settings-schema.sources.sha256" 2>/dev/null \
-        && [[ -f "$root/scripts/ci/defaults_guard.py" ]] \
-        && python3 "$root/scripts/ci/defaults_guard.py" check-stamp --ref "$tip" >/dev/null 2>&1; then
+      judged="$base"
+      if [[ -n "$settings_made_at" ]]; then
+        judged="$settings_made_at"
+        grep -qE "$settings_exports" <<<"$held"$'\n'"$waits" && judged=""
+      fi
+      # The tip's own guard (it finds the repository from its own path) derives both stamps.
+      if [[ -n "$judged" && -f "$root/scripts/ci/defaults_guard.py" ]] \
+        && judged_stamp="$(python3 "$root/scripts/ci/defaults_guard.py" source-stamp --ref "$judged" 2>/dev/null)" \
+        && [[ -n "$judged_stamp" ]] \
+        && [[ "$judged_stamp" == "$(python3 "$root/scripts/ci/defaults_guard.py" source-stamp --ref "$tip" 2>/dev/null)" ]]; then
         settings_current=1
       fi
     fi

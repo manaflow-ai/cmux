@@ -38,7 +38,6 @@ SCRIPT = ROOT / "scripts/ci/cmux_next_fast_gates.py"
 GATE_SCRIPTS = {
     "web lint": "scripts/web_lint_prepush.py",
     "crash ratchet": "scripts/ci/crash_ratchet_compare.py",
-    "defaults stamp": "scripts/ci/defaults_guard.py",
     "prepush gate": "scripts/cmux-next/prepush-gate.py",
     "crash-class rules": "scripts/ci/crash_class_fast_gate.py",
     "webviews checks": "scripts/ci/fast_gate_webviews_checks.py",
@@ -450,7 +449,6 @@ class ScriptBehavior(unittest.TestCase):
         base, merge = self.tip, out["merge"]
         self.assertEqual(calls["web lint"]["argv"][:4], ["--base", base, "--head", merge])
         self.assertEqual(calls["prepush gate"]["argv"][:4], ["--base", base, "--head", merge])
-        self.assertEqual(calls["defaults stamp"]["argv"], ["check-stamp", "--base", base])
         self.assertEqual(calls["webviews checks"]["argv"], ["--base", base])
         ratchet = calls["crash ratchet"]["argv"]
         self.assertEqual(ratchet[:2], ["--script", "scripts/cmux-next/crash_ratchet.py"])

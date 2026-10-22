@@ -10,8 +10,12 @@ red it caused needed a 30-minute Mac export to clear (#22674). `defaults_guard.p
 from __future__ import annotations
 
 import subprocess
+import sys
+import tempfile
 import unittest
 from pathlib import Path
+
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 STAMP = "schemas/settings-export/settings-schema.sources.sha256"
@@ -39,6 +43,35 @@ class SettingsStampIsNotCommitted(unittest.TestCase):
         found = git("grep", "-l", "-e", "check-stamp", "--", ".github", "scripts",
                     ":!scripts/ci/cmux-tui-rust-check.sh").stdout.split()
         self.assertEqual(found, [])
+
+
+class ExportsAreComparedWithAFreshExport(unittest.TestCase):
+    """The generated files job exports the settings fresh when the event changed an export input,
+    and fails when the committed copies differ; staleness the base left is the base autofix's."""
+
+    def caused(self, *changed: str) -> int:
+        with tempfile.NamedTemporaryFile("w", suffix=".txt") as handle:
+            handle.write("\n".join(changed) + "\n")
+            handle.flush()
+            return subprocess.run([sys.executable, str(ROOT / "scripts/cmux-next/generated_outputs.py"), "caused",
+                                   "schemas/settings/settings-schema.json", "--changed", handle.name],
+                                  capture_output=True, text=True, check=False).returncode
+
+    def test_a_settings_source_change_owns_the_export(self):
+        self.assertEqual(self.caused("Packages/macOS/CmuxNext/Sources/CmuxNextSettings/TabsSetting.swift"), 0)
+
+    def test_an_unrelated_change_leaves_the_export_to_the_base(self):
+        self.assertEqual(self.caused("README.md", "schemas/settings/settings-schema.json"), 1)
+
+    def test_the_generated_files_job_exports_fresh_and_compares(self):
+        workflow = yaml.safe_load((ROOT / ".github/workflows/cmux-next.yml").read_text(encoding="utf-8"))
+        steps = [step for job in workflow["jobs"].values() for step in job.get("steps", [])
+                 if step.get("id") == "settings"]
+        self.assertEqual(len(steps), 1)
+        script = steps[0]["run"]
+        self.assertIn("generated_outputs.py caused schemas/settings/settings-schema.json", script)
+        self.assertIn("scripts/cmux-next/regenerate-settings-exports.sh", script)
+        self.assertIn("grep -q '^regenerated: '", script)
 
 
 if __name__ == "__main__":

@@ -34,7 +34,7 @@ for path in cmux-tui/spec/resource-operations-v2.json backend/catalog/cloud-oper
   [[ "$(apphost "$path")" == true ]] || fail "a change to $path must regenerate the app-host files"
 done
 [[ "$(apphost webviews/src/main.tsx)" == false ]] || fail "a webviews change must not regenerate the app-host files"
-# The settings exports (schemas/settings/settings-schema.json, the source stamp,
+# The settings exports (schemas/settings/settings-schema.json and
 # docs/mdm) follow a CmuxNextSettings change on the same Mac job, so a pull
 # request that adds a setting lands with them instead of a red defaults-snapshot.
 settings() { printf '%s\n' "$1" | bash "$AREAS" | sed -n 's/^settings=//p'; }

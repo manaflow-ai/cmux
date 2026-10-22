@@ -8,10 +8,8 @@
 # at its repository path: the --generated DIR of
 # scripts/cmux-next/base-autofix.sh, which copies them over the checkout and
 # then rewrites the defaults snapshot (defaults_guard.py snapshot) from them.
-# The exports and their source stamp
-# (schemas/settings-export/settings-schema.sources.sha256, which
-# defaults_guard.py check-stamp compares with the CmuxNextSettings sources)
-# stay checked in; no lane regenerates them by hand.
+# The exports stay checked in; no lane regenerates them by hand. Their source
+# stamp is derived (defaults_guard.py source-stamp), never committed.
 #
 # Usage: scripts/cmux-next/regenerate-settings-exports.sh OUT
 # CMUX_SETTINGS_EXPORTS_ALL=1 copies every export into OUT, changed or not.
@@ -29,7 +27,6 @@ exports=(
   docs/mdm/cmux-example.mobileconfig
   docs/mdm/managed-preferences.md
   schemas/settings/settings-schema.json
-  schemas/settings-export/settings-schema.sources.sha256
 )
 
 cd "$root/Packages/macOS/CmuxNext"
@@ -38,22 +35,29 @@ swift build --build-tests
 # runner; the exported texts come from the compiled tables.
 CMUX_SWIFT_BIN_PATH="$(swift build --show-bin-path)" "$root/scripts/cmux-next/compile-string-catalogs.sh"
 # The exports are written before each test compares them, so an export test
-# that fails for another reason still leaves them current (and says so).
+# that fails for another reason still leaves them current (and says so). One
+# that fails before it writes leaves an old copy: each export must be newer
+# than this marker (checked below).
+marker="$(mktemp)"
+trap 'rm -f "$marker"' EXIT
+sleep 1 # the marker's mtime must be older than anything the tests write
 status=0
 CMUX_UPDATE_MDM_SCHEMA=1 swift test --skip-build --filter ManagedPreferencesManifestTests || status=$?
 CMUX_UPDATE_ACTION_SURFACES=1 swift test --skip-build --filter SettingsSchemaExportTests || status=$?
 (( status == 0 )) || echo "::warning::a settings export test failed (exit $status); the exports were still regenerated"
 cd "$root"
 # A file the exporters wrote that this list does not name would be left stale
-# by the bots while the stamp says fresh: refuse it.
+# by the bots: refuse it.
 listed="$(printf '%s\n' "${exports[@]}")"
 while IFS= read -r path; do
   [[ -n "$path" ]] || continue
   grep -qxF -- "$path" <<<"$listed" || { echo "::error::the settings export wrote $path, which regenerate-settings-exports.sh does not list" >&2; exit 1; }
-done < <(git status --porcelain --untracked-files=all -- docs/mdm schemas/settings schemas/settings-export | cut -c4-)
+done < <(git status --porcelain --untracked-files=all -- docs/mdm schemas/settings | cut -c4-)
 for file in "${exports[@]}"; do
   [[ -f "$file" ]] || { echo "::error::$file was not written by the settings export" >&2; exit 1; }
-  # An export that is not committed yet (the first stamp) counts as changed. With
+  # An export test that failed before it wrote leaves the old copy: a failed regeneration, not a fresh one.
+  [[ "$file" -nt "$marker" ]] || { echo "::error::the settings export did not rewrite $file" >&2; exit 1; }
+  # An export that is not committed yet counts as changed. With
   # CMUX_SETTINGS_EXPORTS_ALL=1 every export is copied (base-autofix-settings-exports.sh).
   if [[ "${CMUX_SETTINGS_EXPORTS_ALL:-}" != 1 ]] && git ls-files --error-unmatch -- "$file" >/dev/null 2>&1 \
     && git diff --quiet -- "$file"; then continue; fi
@@ -61,6 +65,3 @@ for file in "${exports[@]}"; do
   cp "$file" "$out/$file"
   echo "regenerated: $file"
 done
-# The stamp must now match the sources: an export test that failed before it
-# wrote leaves the stamp stale, and that is a failed regeneration, not a fresh one.
-python3 scripts/ci/defaults_guard.py check-stamp

@@ -25,8 +25,7 @@ name: cmux-next base autofix
 # swift test: the action-exports job regenerates them on a Mac at the newest
 # tip (scripts/cmux-next/base-autofix-action-exports.sh) and autofix copies them in
 # before it rewrites the docs shortcuts from them. The settings exports
-# (schemas/settings/settings-schema.json, docs/mdm, and the source stamp
-# schemas/settings-export/settings-schema.sources.sha256) need one too: the
+# (schemas/settings/settings-schema.json, docs/mdm) need one too: the
 # same job regenerates them (scripts/cmux-next/regenerate-settings-exports.sh)
 # when CmuxNextSettings or an export changed, again on the newest tip while a
 # push moves their inputs (scripts/cmux-next/base-autofix-settings-exports.sh,
@@ -615,9 +614,11 @@ jobs:
         if: success() && needs.action-exports.result == 'success' && steps.areas.outputs.settings == 'true' && vars.CMUX_NEXT_BASE_AUTOFIX == '1'
         env:
           HEAD_SHA: ${{ github.sha }}
+          SETTINGS_MADE_AT: ${{ needs.action-exports.outputs.settings_made_at }}
+          EXPORTS_DIR: ${{ runner.temp }}/action-exports
         run: |
           set -euo pipefail
-          scripts/cmux-next/base-autofix-settings-landed.sh "https://github.com/$GITHUB_REPOSITORY.git" feat-cmux-next "$HEAD_SHA" 2>&1 \
+          scripts/cmux-next/base-autofix-settings-landed.sh "https://github.com/$GITHUB_REPOSITORY.git" feat-cmux-next "$HEAD_SHA" "$SETTINGS_MADE_AT" "$EXPORTS_DIR" 2>&1 \
             | tee -a "$GITHUB_STEP_SUMMARY"
 
   # When the ghostty gitlink moves, pins its GhosttyKit checksum
