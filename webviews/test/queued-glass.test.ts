@@ -194,30 +194,39 @@ await requireBrowserLane("queued-glass.test.ts", async () => {
         await page.close();
       });
 
-  // Reduce Transparency, from the host's attribute and from the system setting: the band and its fold
-  // are the card's solid fill with no blur (the tray over a clear page left them a 9% film).
+  // Reduce Transparency, from the host's attribute and from the system setting, in every top-strip
+  // layout (the default, bump, plain and tray): the band and its fold are the card's solid fill with
+  // no blur (the tray over a clear page left them a 9% film; the plain strip left the band clear text).
+  const strips = [undefined, "bump", "plain", "tray"] as const;
   for (const via of ["data-reduce-transparency", "prefers-reduced-transparency"] as const)
-    test(`Reduce Transparency (${via}) makes the band and its fold solid and unblurred`, async () => {
-      for (const colorScheme of ["light", "dark"] as const) {
-        const media = via === "prefers-reduced-transparency";
-        const page = await open(
-          colorScheme,
-          { "data-cmux-see-through": "", "data-glass": "plain", ...(media ? {} : { "data-reduce-transparency": "" }) },
-          media,
-        );
-        const look = await band(page);
-        expect(look.reduceMedia, `${colorScheme}: the system setting is emulated`).toBe(media);
-        expect(look.backdrop, `${colorScheme}: the band does not blur`).toBe("none");
-        expect(look.foldBackdrop, `${colorScheme}: the fold does not blur`).toBe("none");
-        for (const [name, fill] of [
-          ["the band", look.fill],
-          ["a long band", look.longFill],
-          ["the fold", look.foldFill],
-        ] as const) {
-          expect(fill[3], `${colorScheme}: ${name} is opaque`).toBe(1);
-          expect(fill, `${colorScheme}: ${name} is the card's fill`).toEqual(look.card);
+    for (const strip of strips)
+      test(`Reduce Transparency (${via}), ${strip ?? "default"} strip: the band and its fold are solid and unblurred`, async () => {
+        for (const colorScheme of ["light", "dark"] as const) {
+          const media = via === "prefers-reduced-transparency";
+          const page = await open(
+            colorScheme,
+            {
+              "data-cmux-see-through": "",
+              "data-glass": "plain",
+              ...(strip ? { "data-top-strip": strip } : {}),
+              ...(media ? {} : { "data-reduce-transparency": "" }),
+            },
+            media,
+          );
+          const look = await band(page);
+          const at = `${colorScheme}, ${strip ?? "default"} strip`;
+          expect(look.reduceMedia, `${at}: the system setting is emulated`).toBe(media);
+          expect(look.backdrop, `${at}: the band does not blur`).toBe("none");
+          expect(look.foldBackdrop, `${at}: the fold does not blur`).toBe("none");
+          for (const [name, fill] of [
+            ["the band", look.fill],
+            ["a long band", look.longFill],
+            ["the fold", look.foldFill],
+          ] as const) {
+            expect(fill[3], `${at}: ${name} is opaque`).toBe(1);
+            expect(fill, `${at}: ${name} is the card's fill`).toEqual(look.card);
+          }
+          await page.close();
         }
-        await page.close();
-      }
-    });
+      });
 });
