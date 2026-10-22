@@ -104,6 +104,9 @@ const PANE = `
       <fieldset disabled><input data-expect="default" data-name="box in a disabled fieldset in the legend" type="checkbox" /><span data-expect="default" data-name="text there">Off</span><a data-expect="pointer" data-name="link there" href="/help">Help</a></fieldset></legend>
   </fieldset>
   <div role="group" aria-disabled="true"><button data-expect="default" data-name="button in an aria-disabled group" type="button"><span data-expect="default" data-name="its words, too">Off</span></button></div>
+  <!-- Inert content takes no pointer input (a sheet's background, a closing popup), so it keeps the arrow. -->
+  <button data-expect="default" data-name="inert button" type="button" inert><span data-expect="default" data-name="inert button's words">Off</span></button>
+  <div inert><a data-expect="default" data-name="link in an inert subtree" href="/help"><span data-expect="default" data-name="its words, inert">Help</span></a><div data-expect="default" data-name="menu row in an inert subtree" role="menuitem">Copy</div><input data-expect="default" data-name="checkbox in an inert subtree" type="checkbox" /></div>
   <!-- A locked choice keeps the arrow, but a link in its label still opens. -->
   <label data-expect="default" data-name="locked choice with a link"><input type="checkbox" disabled /><span data-expect="default" data-name="locked choice words">Locked</span> <a data-expect="pointer" data-name="help link in a locked choice" href="/help"><span data-expect="pointer" data-name="help link words">Help</span></a> <button data-expect="pointer" data-name="button in a locked choice" type="button">Why</button></label>
 </div>`;
