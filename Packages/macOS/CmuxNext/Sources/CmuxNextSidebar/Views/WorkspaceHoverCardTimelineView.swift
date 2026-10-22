@@ -137,7 +137,7 @@ final class WorkspaceHoverCardTimelineView: NSView {
         for (index, row) in rows.enumerated() {
             let entry = index < entries.count ? entries[index] : nil
             row.time.textColor = Palette.textSecondary
-            row.icon.contentTintColor = entry?.kind == .waiting ? Palette.accent : Palette.textSecondary
+            row.icon.contentTintColor = entry?.kind == .waiting ? Palette.litGlyph : Palette.textSecondary
             // What the person said reads in the primary ink, what happened in the secondary.
             row.text.textColor = entry?.kind == .prompt ? Palette.textPrimary : Palette.textSecondary
         }

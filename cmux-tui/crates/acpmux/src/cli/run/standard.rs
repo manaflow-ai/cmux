@@ -193,7 +193,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                         req.get("options").and_then(Value::as_array).cloned().unwrap_or_default();
                     let hint = crate::question_answer::pending_hint(&req, &name);
                     let is_question = crate::question_answer::question(&req).is_some();
-                    out.push(json!({"session": name, "sessionId": id, "permissionId": p.get("permissionId"), "title": title, "kind": kind, "options": options, "question": is_question, "answer": hint}));
+                    // The ask's Needs you link: an agent writes it in a reply instead of restating
+                    // the ask, and the pane draws it as a chip that opens the list on this ask.
+                    let needs_you = p
+                        .get("permissionId")
+                        .and_then(Value::as_str)
+                        .map(|pid| format!("cmux://needs-you/{pid}"));
+                    out.push(json!({"session": name, "sessionId": id, "permissionId": p.get("permissionId"), "title": title, "kind": kind, "options": options, "question": is_question, "answer": hint, "needsYou": needs_you}));
                 }
             }
             if json_out {
@@ -340,6 +346,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             }
             if let Some((w, _)) = &launch.worktree {
                 meta["worktree"] = w.clone();
+            }
+            if let Some(tools) = launch.disallowed_tools() {
+                meta["disallowedTools"] = tools;
             }
             // A session of this name already running is the one asked for:
             // found before the create, or after losing the create to another
@@ -517,12 +526,34 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             on_permission,
             stall,
             prompt_id,
+            from,
+            status,
+            supersede,
         } => {
-            let prompt_id = PromptId::new(prompt_id);
+            let client = connect(true).await?;
+            if let Some(delivery) = status {
+                return super::send_async::status(&client, &delivery, json_out).await;
+            }
+            let session = session.ok_or_else(|| anyhow!("a session is required"))?;
+            let mut prompt_id = PromptId::new(prompt_id);
+            prompt_id.from_agent = from;
+            let superseding = supersede.is_some();
+            prompt_id.supersede = supersede;
             // A message (--no-wait) steers; a send that waits for its reply queues.
             let steer = send_steers(steer, no_steer, no_wait);
-            let client = connect(true).await?;
             let text = arg_or_stdin(&prompt)?;
+            if no_wait {
+                return super::send_async::queue(
+                    &client,
+                    &session,
+                    &text,
+                    steer,
+                    &prompt_id,
+                    superseding,
+                    json_out,
+                )
+                .await;
+            }
             let id = resolve_id(&client, &session).await?;
             let on_permission = OnPermission::parse(&on_permission)?;
             // Never refuse: report what the prompt queues behind.
@@ -551,21 +582,6 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     ));
                 }
                 eprintln!("queued behind {}", parts.join(" and "));
-            }
-            if no_wait {
-                // Return once the daemon recorded the prompt, not after a guess.
-                let accepted = queue_prompt(client, &id, &text, steer, None, &prompt_id).await?;
-                let steered = accepted.get("steer") == Some(&json!(true));
-                if json_out {
-                    print_json(
-                        &json!({"sessionId": id, "queued": !steered, "steered": steered, "queuedBehind": behind, "promptId": prompt_id.id, "accepted": accepted}),
-                    );
-                } else if steered {
-                    println!("steered");
-                } else {
-                    println!("queued");
-                }
-                return Ok(());
             }
             let opts = CollectOpts { timeout, on_permission, stall_secs: stall, retries: 0 };
             if quiet || json_out {

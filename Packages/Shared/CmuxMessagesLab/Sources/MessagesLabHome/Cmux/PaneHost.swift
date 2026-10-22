@@ -56,6 +56,9 @@ final class HostView: NSView {
     let fieldChrome = FieldChrome()
     /// cmux: the field's send button (the waveform's slot when the field has text; ComposeSendButton).
     let sendButton = ComposeSendButton(frame: .zero)
+    /// cmux: the voice input's mic, waveform and finish buttons, and "Listening…" (ComposeVoiceControls.swift).
+    let voiceControls = ComposeVoiceControls(frame: .zero)
+    let listeningLine = ComposeListeningLine(frame: .zero)
     /// The blurred, darkened transcript under the header controls.
     let headerBackdrop = HeaderBackdropView(frame: .zero)
     /// cmux: the in-pane header controls (HeaderBar's avatar and name pill).
@@ -78,8 +81,9 @@ final class HostView: NSView {
         // cmux: the pane's fill shows through (the window view paints the
         // themed background); a pane has no black window behind it.
         layer?.backgroundColor = nil
-        registerForDraggedTypes([.fileURL, .png, .tiff])
-        scrollView.document.registerForDraggedTypes([.fileURL, .png, .tiff])
+        // cmux: drops on the pane (outside the field) go to the host's view around it
+        // (HomeNativeTranscriptView: Home's drop target and its highlight), so neither
+        // this view nor the transcript registers drag types.
     }
     required init?(coder: NSCoder) { fatalError() }
     override var isFlipped: Bool { true }
@@ -112,6 +116,8 @@ final class HostView: NSView {
         addSubview(demo.compose.textView.clip)
         // cmux: above the text view's clip (the text leaves its slot free).
         addSubview(sendButton)
+        addSubview(listeningLine)
+        addSubview(voiceControls)
         addSubview(paneHeader)
         addSubview(above)
         // The in-pane header replaces the shared drawn header (fitted blur,
@@ -270,10 +276,6 @@ final class HostView: NSView {
         controller?.demo?.compose.hoverAttachments(nil)
     }
 
-    // MARK: Drop
-
-    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation { controller?.dragEntered(sender) ?? [] }
-    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool { controller?.performDrop(sender) ?? false }
 }
 
 extension FieldChrome {
@@ -286,11 +288,6 @@ extension FieldChrome {
         let tint: NSColor = light ? symbol : .white
         for b in [plus, emoji] where b.contentTintColor != tint { b.contentTintColor = tint }
     }
-}
-
-extension TranscriptDocumentView {
-    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation { controller?.dragEntered(sender) ?? [] }
-    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool { controller?.performDrop(sender) ?? false }
 }
 
 /// Live app glue (Catalyst's ChatViewController): the store, the engine clock,
@@ -381,6 +378,12 @@ final class ChatController: NSObject, NSTextViewDelegate {
     var onInstalled: [(ChatController) -> Void] = []
     /// cmux: the host's shared stop action (Home: stop the Chief's turn).
     var onStop: (() -> Void)?
+    /// cmux: the host's Stop all agents (Option-click on the stop button);
+    /// nil: Option-click stops as a click does.
+    var onStopAll: (() -> Void)?
+    /// cmux: the stop button's tooltip while the Chief works (the host's
+    /// words, naming Option-click); nil: "Stop".
+    var stopToolTip: String? { didSet { updateStopButton() } }
     /// cmux: whether a pasteboard holds text the field pastes (Cmd+V from the
     /// pane, PaneHost+Keyboard.swift); tests stub it.
     var pasteboardHasText: (NSPasteboard) -> Bool = { $0.availableType(from: [.string]) != nil }
@@ -395,6 +398,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
     var isWorking = false { didSet { if isWorking != oldValue { updateStopButton() } } }
     /// cmux: opens the system emoji picker (ChatController+Emoji.swift; tests count the calls).
     var openEmojiPalette: () -> Void = { NSApp.orderFrontCharacterPalette(nil) }
+    /// cmux: the message box's dictation (ComposeVoice.swift).
+    private(set) lazy var voice = ComposeVoice(controller: self)
     /// cmux: Up and Down in the field browse the sent messages (PaneHost+History.swift).
     var composerHistory = ComposerHistory()
     var clock: Double { CACurrentMediaTime() - start }
@@ -412,6 +417,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
         super.init()
         host.controller = self
         host.fieldChrome.onEmoji = { [weak self] in self?.roundButtonClicked() }
+        host.voiceControls.onMic = { [weak self] in self?.voice.toggle() }
+        host.voiceControls.onFinish = { [weak self] in self?.voice.finish() }
     }
 
     deinit {
@@ -473,17 +480,20 @@ final class ChatController: NSObject, NSTextViewDelegate {
         }
         let tv = demo.compose.textView
         tv.view.delegate = self
-        tv.onSend = { [weak self] in self?.send() }
+        // cmux: Return while dictating finishes it (the words stay to edit), it does not send.
+        tv.onSend = { [weak self] in if self?.voice.finish() != true { self?.send() } }
         // cmux: the send button sends as Return does, and follows the field and the draft.
         host.sendButton.onSend = { [weak self] in self?.send(); self?.focusCompose() }
         demo.compose.onSlotChange = { [weak self] in self?.placeSendButton(animated: true) }
+        voiceChromeChanged(animated: false)  // cmux: the mic, when the host gave an engine before the field existed
         tv.onEscape = { [weak self] in self?.escape() }
         // cmux: files and pictures go through the host's intake (Home's type
         // rule, prepared by HomeStore); a picture it refuses is not attached.
         tv.view.onPastePasteboard = { [weak self] pb in self?.intents?.takeAttachments(from: pb) ?? false }
         tv.view.acceptsPastePasteboard = { [weak self] pb in self?.intents?.acceptsAttachments(from: pb) ?? false }
         tv.view.onDropPasteboard = { [weak self] pb in self?.takeDrop(pb) ?? false }
-        tv.view.onPasteImage = { _ in }
+        tv.view.acceptsDropPasteboard = { [weak self] pb in self?.intents?.acceptsDroppedAttachments(from: pb) ?? false }
+        tv.view.onDropTargetChange = { [weak self] targeted in self?.intents?.attachmentDropTargeted(targeted) }
         tv.view.onMarkedTextChange = { [weak self] in
             guard let self, let demo = self.demo, let store = self.store else { return }
             let s = demo.compose.textView.view.string
@@ -628,6 +638,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
     func textDidChange(_ notification: Notification) {
         guard let demo else { return }
         let tv = demo.compose.textView.view
+        voice.fieldChanged()  // cmux: the person typed while dictating: the words stay, the session stops
         let draft = store?.state.ui.draft.attachments ?? []
         // An edit can move the pictures: the remove button waits for the pointer to move again.
         demo.compose.inlineHover.hide()
@@ -648,6 +659,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
 
     func escape() {
         if picker != nil { closePicker(); return }
+        // cmux: Esc while dictating drops the words and leaves the draft as it was.
+        if voice.cancel() { return }
         // In the field a working agent stops first (one Esc), as before threads; then the
         // thread view. The pane's Esc monitor (focus on the transcript) only closes the view.
         if isWorking { onStop?(); return }
@@ -655,14 +668,6 @@ final class ChatController: NSObject, NSTextViewDelegate {
         if replyQuote != nil, store?.state.ui.draft.text.isEmpty != false { replyQuote = nil; return }
         _ = thread.escape()
     }
-
-    // MARK: Drops
-
-    // cmux: the host's intake reads the pasteboard (types only while dragging).
-    func dragEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        intents?.acceptsAttachments(from: sender.draggingPasteboard) == true ? .copy : []
-    }
-    func performDrop(_ sender: NSDraggingInfo) -> Bool { takeDrop(sender.draggingPasteboard) }
 
     // MARK: Clicks
 

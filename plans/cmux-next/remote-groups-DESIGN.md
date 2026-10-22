@@ -27,7 +27,7 @@ Chief to move between this Mac, a Mac mini, a Linux VM and cmux cloud.
    shows `Reconnecting…`/`Offline since 14:02`, rows stay dimmed, actions queue only where the
    daemon already queues (we never fake local execution).
 5. **Chief rides the same object.** Chief's placement (`chief.brain_place`) names a machine;
-   "Move Chief to…" lists the same remote groups. Moving Chief is a remote-group operation, not
+   "Move Chief To…" lists the same remote groups. Moving Chief is a remote-group operation, not
    a separate feature.
 
 ## 1. Competitive teardown
@@ -172,7 +172,7 @@ message; we never run it locally by surprise.
 
 ## 6. Chief
 
-Chief's placement (`chief.brain_place {host}`) names a machine. "Move Chief to…" in the Chief
+Chief's placement (`chief.brain_place {host}`) names a machine. "Move Chief To…" in the Chief
 menu lists remote groups (this Mac, Mac minis, Linux VMs, Cloud). The move itself is
 server-reach.md's and cloud-chief-vm.md's job (save turn, stop, start on target, resume); this
 design only makes the target list the remote groups, so a remote group added once is a Chief
@@ -202,14 +202,14 @@ Three layouts were mocked (gallery in Home's right pane,
 | 3 | "New Subgroup" (`workspaceGroup.newSubgroup`: group menu, palette, CLI `workspace-group new-subgroup`, MCP; `SidebarDocSubgroupPlan` refuses past 3 levels) | `WorkspaceSubgroupActionTests`, `SidebarDocSubgroupPlanTests` |
 | 4 | "New Remote Group…" (`remote.newGroup`: palette, sidebar background menu, CLI `remote new-group <host>`, MCP): connects the host as `remote.connect` does and marks its machine section `host_group`, which keeps its header in one list | Rust `host_group_tests`, `SidebarHostGroupLayoutTests`, `RemoteGroupActionTests` |
 | 5 | a remote group's header names every state (Connected, Connecting…, Reconnecting…, Offline, Unreachable…); "Remove Remote Group" (`remote.removeGroup`, header menu of a remote group only) unmarks it without disconnecting; SSH hosts keep their Reconnect/Disconnect/Forget menu | `HostGroupHeaderStatusTests`, `RemoteGroupRemoveActionTests`, `SidebarDocHostGroupPlanTests` |
-| 6 (landed) | "Move Chief to…" (`chief.moveTo`, palette; `cmux chief move --to` and the Chief's MCP `move` tool are the CLI and MCP): This Mac (`local:<home>`), SSH remote groups (`ssh:<destination>`), paired servers greyed out "not supported yet", cmux Cloud (`cloud` / `cloud:staging`, from the app's auth; one entry, Cloud VMs are not targets) greyed out until signed in, offline hosts greyed out. Dry run report, confirm, move, then `move reach` on the target; the Cloud token goes through a 0600 file in a 0700 folder, deleted after | `ChiefMoveTargetsTests`, `ChiefMovePlanTests`, `ChiefMoveTargetHomeTests`, `ChiefMoveActionTests`, `CmuxDialogDisabledOptionTests` |
+| 6 (landed) | "Move Chief To…" (`chief.moveTo`, palette; `cmux chief move --to` and the Chief's MCP `move` tool are the CLI and MCP): This Mac (`local:<home>`), SSH remote groups (`ssh:<destination>`), paired servers greyed out "not supported yet", cmux Cloud (`cloud` / `cloud:staging`, from the app's auth; one entry, Cloud VMs are not targets) greyed out until signed in, offline hosts greyed out. Dry run report, confirm, move, then `move reach` on the target; the Cloud token goes through a 0600 file in a 0700 folder, deleted after | `ChiefMoveTargetsTests`, `ChiefMovePlanTests`, `ChiefMoveTargetHomeTests`, `ChiefMoveActionTests`, `CmuxDialogDisabledOptionTests` |
 
 ### 8.1 Interface offered to a284 (Chief move)
 
 A Chief move target is a remote group: the document's machine sections with `host_group: true`
 (`SidebarDocRecords.sections[…].hostGroup`), each named by its daemon session (`sec_m_<session>`),
 with the machine's name, kind (ssh, server, cloud) and live status from `MachineRegistry`. This Mac
-is always a target. a284's "Move Chief to…" menu lists those; the move itself (save the turn, stop,
+is always a target. a284's "Move Chief To…" menu lists those; the move itself (save the turn, stop,
 start on the target, resume) stays a284's.
 
 ### 8.2 Known gaps after slice 5

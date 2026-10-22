@@ -114,6 +114,9 @@ public final class SidebarModel {
     /// Multi-selection (Cmd/Shift-click). Always contains `activeWorkspaceID`
     /// when that is set.
     public var selection: Set<WorkspaceID> = []
+    /// Every workspace on screen in this window, the shown one too (`sidebar.multiView`): their rows draw a
+    /// soft fill under the selection's. The App sets it; empty draws nothing extra.
+    public var onScreen: Set<WorkspaceID> = []
     /// The window's one sidebar selection (SIDEBAR-SELECTION-ONE-MODEL): a
     /// top-section item while the window shows its page, else the shown
     /// workspace. The App derives it from the window state; the one
@@ -127,7 +130,7 @@ public final class SidebarModel {
     public var selectedItem: SidebarItem? {
         didSet {
             guard selectedItem != oldValue else { return }
-            if case let .workspace(old)? = oldValue, let group = collapsedGroup(of: old) { revealedMembers[group, default: []].insert(old) }
+            noteLeft(oldValue)
             guard case let .workspace(id)? = selectedItem else { return }
             expandSections(hiding: id)
         }
@@ -203,6 +206,8 @@ public final class SidebarModel {
     public var detailedStatus = false
     /// Rows show when they last changed (`sidebar.showTimestamps`, off by default).
     public var showsTimestamps = false
+    /// This Mac's rows carry its machine mark too (`sidebar.showLocalMachine`, off by default).
+    public var showsLocalMachine = false
     /// What a collapsed group header shows beside its loading spinner
     /// (`sidebar.groupHeader.*`, all off by default; `sidebar.detailedStatusIcons`
     /// adds its members' other states).
@@ -342,7 +347,7 @@ public final class SidebarModel {
         case let .switchProfile(id):
             activeProfileID = id
         case .activateItem, .installUpdate, .setAutomaticUpdates, .openUpdateLink, .openUpdateChanges, .dropOnLayoutSection, .noticeAction, .dismissNotice,
-             .openWhatsNew, .dismissUpdated, .nowPlaying, .hideNowPlayingCard, .toggleWorkspaceAudio:
+             .openWhatsNew, .dismissUpdated, .nowPlaying, .hideNowPlayingCard, .toggleWorkspaceAudio, .addItems:
             break
         case let .layout(op):
             if case .success(let next) = SidebarLayoutReducer.reduce(layout, op) { layout = next }
@@ -354,7 +359,7 @@ public final class SidebarModel {
         case let .toggleCollapse(.section(id)):
             let collapse = !(section(id)?.isCollapsed ?? collapsedSections.contains(id))
             if collapse { collapsedSections.insert(id) } else { collapsedSections.remove(id) }
-            setSections(sections)
+            sections = Self.folding(sections, collapsedSections)
         case let .reorderProfile(id, index):
             guard let from = profiles.firstIndex(where: { $0.id == id }),
                   let to = ProfileBarLogic.finalIndex(from: from, insertion: index, count: profiles.count) else { return }
@@ -372,12 +377,8 @@ public final class SidebarModel {
     /// collapsed sections applied; assigns only when something changed.
     public func setSections(_ new: [SidebarSection]) {
         // The sidebar document places every item: links in machine lists, Pinned and custom groups in their own list sections.
-        var shown = docDrag.flatMap { drag in SidebarDocStore.current?.shown.map { $0.arrange(new, drag: drag) } } ?? new
-        for index in shown.indices {
-            let collapsed = collapsedSections.contains(shown[index].id)
-            if shown[index].isCollapsed != collapsed { shown[index].isCollapsed = collapsed }
-        }
-        sections = shown // the setter skips an unchanged list
+        let shown = docDrag.flatMap { drag in SidebarDocStore.current?.shown.map { $0.arrange(new, drag: drag) } } ?? new
+        sections = Self.folding(shown, collapsedSections) // the setter skips an unchanged list
     }
 
     /// Row content of listed workspaces (status, title, unread, progress, icon), written in place with no structural
@@ -412,9 +413,9 @@ public final class SidebarModel {
         return true
     }
 
-    /// A content change that changes which rows the list draws.
+    /// A content change that changes which rows the list draws: a folder, Done (the Done fold) or the listed tabs.
     private static func movesRows(from old: SidebarWorkspace, to new: SidebarWorkspace, groupsByFolder: Bool, listsTabs: Bool) -> Bool {
-        if groupsByFolder && old.folder != new.folder { return true }
+        if groupsByFolder && old.folder != new.folder || SidebarTunables.doneFold.value && (old.taskStatus == .done) != (new.taskStatus == .done) { return true }
         return listsTabs && !old.tabs.elementsEqual(new.tabs) { $0.id == $1.id && $0.kind == $1.kind }
     }
 
@@ -448,7 +449,7 @@ public final class SidebarModel {
         if !layoutIDs.isEmpty { collapsedLayoutSections.subtract(layoutIDs) }
         guard !sectionIDs.isEmpty else { return }
         collapsedSections.subtract(sectionIDs)
-        setSections(sections)
+        sections = Self.folding(sections, collapsedSections)
     }
 
     private func listedPaths(of id: WorkspaceID) -> [SidebarRowIndex.Path] {
@@ -465,60 +466,6 @@ public final class SidebarModel {
             let next = FocusAfterClose.workspace(shown: oldActive, old: oldOrder, surviving: surviving, orders: [drawnWorkspaceOrder()])
             activeWorkspaceID = next
             selection = next.map { [$0] } ?? []
-        }
-    }
-
-    // MARK: Selection (UI-local)
-
-    /// A placeholder row (a machine still connecting) is never selected,
-    /// renamed, dragged or shown.
-    public func isPlaceholder(_ id: WorkspaceID) -> Bool { workspace(id)?.rowState.isPending == true }
-
-    /// Plain click: select only `id` and activate it.
-    public func click(_ id: WorkspaceID) {
-        guard !isPlaceholder(id) else { return }
-        selection = [id]
-        send(.select(id))
-    }
-
-    /// Cmd-click: toggle `id` in the selection without changing the active
-    /// workspace, unless it is the only selected item.
-    public func toggleSelection(_ id: WorkspaceID) {
-        guard !isPlaceholder(id) else { return }
-        if selection.contains(id) {
-            guard selection.count > 1 else { return }
-            selection.remove(id)
-            if activeWorkspaceID == id, let next = orderedSelection.first { send(.select(next)) }
-        } else {
-            selection.insert(id)
-        }
-    }
-
-    /// Shift-click: select the visual range from the active workspace to `id`.
-    public func extendSelection(to id: WorkspaceID, visibleOrder: [WorkspaceID]) {
-        guard !isPlaceholder(id) else { return }
-        guard let anchor = activeWorkspaceID,
-              let a = visibleOrder.firstIndex(of: anchor),
-              let b = visibleOrder.firstIndex(of: id) else {
-            click(id)
-            return
-        }
-        selection = Set(visibleOrder[min(a, b)...max(a, b)])
-    }
-
-    /// Arrow-key navigation over the visible rows.
-    public func moveActive(by delta: Int, extending: Bool, visibleOrder: [WorkspaceID]) {
-        guard !visibleOrder.isEmpty else { return }
-        let current = activeWorkspaceID.flatMap { visibleOrder.firstIndex(of: $0) }
-        let next = current.map { max(0, min(visibleOrder.count - 1, $0 + delta)) } ?? (delta > 0 ? 0 : visibleOrder.count - 1)
-        let id = visibleOrder[next]
-        guard !isPlaceholder(id) else { return }
-        if extending {
-            selection.insert(id)
-            activeWorkspaceID = id
-            send(.select(id))
-        } else {
-            click(id)
         }
     }
 
@@ -557,6 +504,7 @@ public final class SidebarModel {
         (minimal, expanded) = (preferences.minimal, preferences.density == .expanded)
         detailedStatus = preferences.detailedStatusIcons
         showsTimestamps = preferences.showTimestamps
+        showsLocalMachine = preferences.showLocalMachine
         groupHeaderDetails = GroupHeaderDetails(memberCount: preferences.groupHeaderMemberCount,
                                                 unreadCount: preferences.groupHeaderUnreadCount)
         hidesWorkspaces = !preferences.showProjects
@@ -573,7 +521,9 @@ public final class SidebarModel {
     func listOptions() -> SidebarLayoutOptions {
         var o = SidebarLayoutOptions()
         o.filterMatches = filterMatches
-        o.showWorkspaceTabs = showWorkspaceTabs
+        // Workspaces as tabs lists no tab rows under a workspace, as minimal mode.
+        (o.workspacesAsTabs, o.foldsDone) = (SidebarTunables.workspacesAsTabs.value, SidebarTunables.doneFold.value)
+        o.showWorkspaceTabs = showWorkspaceTabs && !o.workspacesAsTabs
         o.collapsedWorkspaces = collapsedWorkspaces
         o.activeWorkspaceID = activeWorkspaceID
         // A group opened by a structural set (another client) forgets its revealed members.
@@ -590,6 +540,12 @@ public final class SidebarModel {
                       let status = Strings.attentionStatus(machine.status) else { continue }
                 o.machineStatusLabels[machine.id] = status
             }
+        }
+        // The local Chief runs on this Mac (SidebarRowIndex.machineLabel): not another machine.
+        let listed = sections.compactMap(\.machine).filter { !$0.id.isLocalChief }
+        if Set(listed.map(\.id)).count > 1 {
+            o.machines = Dictionary(listed.filter { $0.kind != .local || showsLocalMachine }.map { ($0.id, $0) },
+                                    uniquingKeysWith: { first, _ in first })
         }
         o.now = Calendar.current.startOfDay(for: Date())
         o.hidesWorkspaces = hidesWorkspaces

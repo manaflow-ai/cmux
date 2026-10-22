@@ -72,6 +72,8 @@ pub struct Peer {
     person_instance: StdMutex<Option<String>>,
     /// Whether the peer advertised the folder-trust gate in initialize.
     trust_gate: AtomicBool,
+    /// Whether the peer takes `_acpmux/file_put` (`hub/file_uploads.rs`).
+    file_put: AtomicBool,
     /// The peer token was held back: the transport is plain `ws://` to a
     /// host that is not loopback (`carries_peer_token`). Logged once.
     withheld: AtomicBool,
@@ -116,6 +118,7 @@ impl Peer {
             served_as: StdMutex::new(None),
             person_instance: StdMutex::new(None),
             trust_gate: AtomicBool::new(false),
+            file_put: AtomicBool::new(false),
             withheld: AtomicBool::new(false),
             attached: StdMutex::new(HashSet::new()),
             notices,
@@ -265,6 +268,11 @@ impl Peer {
         self.trust_gate.load(Ordering::SeqCst)
     }
 
+    /// Whether the peer said at its last handshake that it takes `_acpmux/file_put`.
+    pub fn supports_file_put(&self) -> bool {
+        self.file_put.load(Ordering::SeqCst)
+    }
+
     pub fn summary(&self) -> Value {
         let link = self.link();
         json!({
@@ -277,6 +285,7 @@ impl Peer {
             "localBuild": crate::hub::BUILD,
             "servedAs": self.served_as.lock().unwrap_or_else(|e| e.into_inner()).clone(),
             "peerTokenWithheld": self.withheld.load(Ordering::SeqCst),
+            "canonicalEndpoint": canonical_endpoint(&self.url),
             "outdated": self.remote_version.lock().unwrap().as_ref().map(|(_, b)| b != crate::hub::BUILD).unwrap_or(false),
             "state": link.state().as_str(),
             "lastSeen": link.last_seen,
@@ -302,7 +311,9 @@ impl Peer {
         // A request that times out, or whose caller stops waiting, takes its
         // entry with it rather than leaving it until the connection drops.
         let _forget = ForgetPending { pending: self.pending.clone(), key: Some(key) };
-        if self.out.send(Message::request(id, m, params).to_line()).await.is_err() {
+        // One frame larger than the peer reads with would drop the link and every chat on it.
+        let line = Message::request(id, m, params).bounded_line().map_err(RpcError::too_large)?;
+        if self.out.send(line).await.is_err() {
             return Err(RpcError::internal(format!("peer {} connection closed", self.name)));
         }
         match tokio::time::timeout(Duration::from_secs(600), rx).await {
@@ -315,8 +326,9 @@ impl Peer {
     }
 
     pub async fn notify(&self, m: &str, params: Value) -> Result<(), RpcError> {
+        let line = Message::notification(m, params).bounded_line().map_err(RpcError::too_large)?;
         self.out
-            .send(Message::notification(m, params).to_line())
+            .send(line)
             .await
             .map_err(|_| RpcError::internal(format!("peer {} connection closed", self.name)))
     }
@@ -464,6 +476,13 @@ impl Peer {
                     |features| features.iter().any(|f| f.as_str() == Some("trustGate")),
                 ) || init.pointer("/_meta/acpmux/trustGate").and_then(Value::as_bool) == Some(true);
             me.trust_gate.store(advertised, Ordering::SeqCst);
+            let file_put = init
+                .pointer("/_meta/acpmux/features")
+                .and_then(Value::as_array)
+                .is_some_and(|features| {
+                    features.iter().any(|f| f.as_str() == Some(crate::hub::FILE_PUT_FEATURE))
+                });
+            me.file_put.store(file_put, Ordering::SeqCst);
             let watch = me.request(method::MUX_WATCH, json!({"enabled": true})).await?;
             let sessions = watch
                 .get("sessions")
@@ -642,6 +661,17 @@ pub fn ssh_target(url: &str) -> Result<SshTarget, &'static str> {
         None => host.to_owned(),
     };
     Ok(SshTarget { destination, port })
+}
+
+/// A peer's canonical endpoint (hq plans/cmux-next/acpmux-one-daemon.md):
+/// `ssh://HOST`, the ssh config's user and the machine's one daemon on
+/// [`SSH_PEER_PORT`]. Some(it) when `url` is an `ssh://` URL that names a user
+/// or another port, so a listing can say where it should point; None when it
+/// already is canonical or is not an `ssh://` peer. It never re-points one.
+pub fn canonical_endpoint(url: &str) -> Option<String> {
+    let t = ssh_target(url).ok()?;
+    let host = t.destination.rsplit_once('@').map_or(t.destination.as_str(), |(_, h)| h);
+    (t.destination != host || t.port != SSH_PEER_PORT).then(|| format!("ssh://{host}"))
 }
 
 fn check_ssh_part(part: &str, what: &'static str) -> Result<(), &'static str> {

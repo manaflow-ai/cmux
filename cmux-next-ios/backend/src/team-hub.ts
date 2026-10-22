@@ -130,6 +130,8 @@ export class TeamHub extends DurableObject<Env> {
     addColumn("devices", "team_id")
     // Devices deleted here, so a database read that raced the deletion cannot seed them back.
     this.sql.exec(`CREATE TABLE IF NOT EXISTS forgotten (device_id TEXT PRIMARY KEY)`)
+    // The last turn-ending push per Mac and session (`turnPushAllowed`); rows older than the window go.
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS turn_pushes (key TEXT PRIMARY KEY, at INTEGER NOT NULL)`)
   }
 
   // ---- RPC from the Worker -------------------------------------------------------------------
@@ -245,6 +247,20 @@ export class TeamHub extends DurableObject<Env> {
     this.sql.exec(`DELETE FROM sessions WHERE initiator = ? OR responder = ?`, deviceId, deviceId)
   }
 
+  /**
+   * Push coalescing (PROTOCOL.md notify): whether a turn-ending push under `key` (src/push.ts `turnPushKey`) may
+   * go now, at most one per `windowMs`. Here and not in a Workers rate limit, which counts per location and lags:
+   * a burst passed it whole in the 2026-10-21 check.
+   */
+  async turnPushAllowed(ownerKey: string, key: string, windowMs: number): Promise<boolean> {
+    this.bind(ownerKey)
+    const now = Date.now()
+    this.sql.exec(`DELETE FROM turn_pushes WHERE at <= ?`, now - windowMs)
+    if (this.sql.exec(`SELECT 1 FROM turn_pushes WHERE key = ?`, key).toArray().length > 0) return false
+    this.sql.exec(`INSERT INTO turn_pushes (key, at) VALUES (?, ?)`, key, now)
+    return true
+  }
+
   /** Account data deletion (`DELETE /v1/me`): close every socket with 4002 `removed` and wipe this hub. */
   async purge(ownerKey: string): Promise<void> {
     this.bind(ownerKey)
@@ -257,7 +273,7 @@ export class TeamHub extends DurableObject<Env> {
     this.live.clear()
     this.sessions.clear()
     this.members.clear()
-    for (const t of ["macs", "devices", "sessions", "meta", "forgotten"]) this.sql.exec(`DELETE FROM ${t}`)
+    for (const t of ["macs", "devices", "sessions", "meta", "forgotten", "turn_pushes"]) this.sql.exec(`DELETE FROM ${t}`)
     this.ownerKey = null
   }
 

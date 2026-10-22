@@ -52,6 +52,7 @@ extension SettingsSchema {
         "tabs.barPosition", "tabs.barOrder", "tabs.toolbarButtons", "browser.toolbarPosition",
         "navigation.historyScope", "navigation.history.scope",
         "sidebar.minimalMode", "sidebar.minimal", "sidebar.density", "sidebar.detailedStatusIcons", "sidebar.showTimestamps",
+        "sidebar.showLocalMachine",
         "sidebar.groupHeader.memberCount", "sidebar.groupHeader.unreadCount",
         "sidebar.numbering", "sidebar.cmd9", "sidebar.stepping", "sidebar.steppingWraps",
         "sidebar.side",
@@ -174,7 +175,7 @@ extension SettingsSchema {
         "sidebar.hoverCards.groups.delay", "sidebar.hoverCards.groups.order", "sidebar.hoverCards.groups.maxMembers",
         "sidebar.hoverCards.groups.sections.status", "sidebar.hoverCards.groups.sections.members",
         "sidebar.hoverCards.groups.sections.activity", "sidebar.hoverCards.groups.sections.git",
-        "sidebar.hoverCards.groups.sections.ports", "sidebar.nowPlaying.enabled", "tabs.newTabNowPlaying", "sidebar.showProjects", "sidebar.showSpaces", "sidebar.showProfileControl", "sidebar.showSearchButton", "sidebar.groupBy",
+        "sidebar.hoverCards.groups.sections.ports", "sidebar.nowPlaying.enabled", "tabs.newTabNowPlaying", "tabs.newTabWidgets.greeting", "tabs.newTabWidgets.projects", "tabs.newTabWidgets.actions", "tabs.newTabWidgets.chats", "tabs.newTabWidgets.styleDots", "sidebar.showProjects", "sidebar.showSpaces", "sidebar.showProfileControl", "sidebar.showSearchButton", "sidebar.groupBy",
         "sidebar.priorityView.enabled", "sidebar.priorityView.shown",
         "browser.defaultEngine",
         "browser.siteEngines",
@@ -204,6 +205,8 @@ extension SettingsSchema {
         "notifications.attention.blinkCount",
         "notifications.attention.duration",
         "notifications.attention.persist",
+        "notifications.attention.flash",
+        "notifications.attention.flashOnTyping",
         "notifications.attention.showOnTab",
         "notifications.attention.showOnSidebar",
         "notifications.attention.moveToTop",
@@ -293,6 +296,11 @@ extension SettingsSchema {
         "updates.meteredNetwork": .network,
         // Which builds this Mac installs (a faster ring runs less-tested code): the person's call.
         "updates.channel": .userOnly,
+        // Web UI updates download and run new page code from files.cmux.com.
+        "updates.web": .network,
+        // How long a nightly waits before it restarts into an update: the person's call.
+        "updates.idleInstallMaxWaitSeconds": .userOnly,
+        "updates.idleInstallQuietSeconds": .userOnly,
         "announcements.fetch": .network,
         // On, cmux starts a helper that sees and controls other apps; only the person turns it on.
         // What a new chat may do without asking: an agent must not widen its own approvals.
@@ -314,6 +322,8 @@ extension SettingsSchema {
         // How many agent sessions an agent may start, and how deep, is the person's call: an agent
         // must not raise its own limits.
         "agents.subsessions.enabled": .userOnly,
+        // Who answers a sub-session's questions is the person's call too.
+        "agents.subsessions.answerQuestions": .userOnly,
         "agents.subsessions.maxChildren": .userOnly,
         "agents.subsessions.maxDepth": .userOnly,
         // Which folders an agent may open without asking is the person's call: an agent must not

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextDesign
+import CmuxNextSettings
 import CmuxNextSidebar
 
 /// A sidebar right-click's menu, by target. The layout sections' menus stay
@@ -37,12 +38,24 @@ enum SidebarContextMenus {
             MenuIdentityHeader.install(in: menu, registry: registry, target: target, name: selection ? nil : model.workspace(first)?.title ?? "",
                                        rename: "renameWorkspace")
             if selection { nameSelection(menu, ids, services) }
+            if !selection, model.workspace(first)?.machineID.isLocalChief == true { noteStartedByChief(menu) }
             menu.themeRows(in: scope)
             return menu
         case .group(let id):
             let target = ActionTargetRef(kind: .workspaceGroup, id: id.rawValue)
             let menu = registry.makeContextMenu(for: .workspaceGroup, target: target)
             let group = model.group(id)
+            // cmux.json `workspaceGroups.byCwd`: the group's own rows, after the menu's first group.
+            let configured = WorkspaceGroupConfigLook(config: services.settings?.snapshot.workspaceGroups ?? WorkspaceGroupConfig(), machines: services.machines)
+                .menuItems(for: group, target: target, registry: registry)
+            if !configured.isEmpty {
+                var at = menu.items.firstIndex(where: \.isSeparatorItem) ?? menu.items.count
+                menu.insertItem(.separator(), at: at)
+                for item in configured {
+                    at += 1
+                    menu.insertItem(item, at: at)
+                }
+            }
             MenuIdentityHeader.install(in: menu, registry: registry, target: target, name: group?.name ?? "", rename: "workspaceGroup.rename",
                                        current: group?.custom == nil ? group?.color : nil)
             menu.themeRows(in: scope)
@@ -62,13 +75,27 @@ enum SidebarContextMenus {
         case .profile(let id):
             return registry.makeContextMenu(for: .profile, target: ActionTargetRef(kind: .profile, id: id.rawValue)).themeRows(in: scope)
         case .nowPlaying:
-            // The media card's rows (u2437): Play/Pause, Hide, Hide Until Relaunch, Never Show Media Card.
-            let menu = registry.makeContextMenu(for: .nowPlayingCard)
+            // The media card's rows (u2437): Play/Pause, Picture in Picture (on the tab the card
+            // shows), Hide, Hide Until Relaunch, Never Show Media Card.
+            let menu = registry.makeContextMenu(for: .nowPlayingCard,
+                                                arguments: [PictureInPictureHandlers.cardArgument: .bool(true)])
             menu.themeRows(in: scope)
             return menu
+        case .priorityChat(let id):
+            // A Priority row: the actions its hover buttons run, on its chat.
+            return registry.makeContextMenu(for: .priorityRow, target: SidebarPriorityRowActions.target(id)).themeRows(in: scope)
         case .layoutItem, .layoutSection:
             return nil
         }
+    }
+
+    /// A Chief subagent's workspace says who started it at the end of its menu, as its hover card
+    /// does, since its row no longer does (Leo 2026-10-21).
+    private static func noteStartedByChief(_ menu: NSMenu) {
+        let note = NSMenuItem(title: ChiefWorkspaceName.startedBy, action: nil, keyEquivalent: "")
+        note.isEnabled = false
+        if !menu.items.isEmpty { menu.addItem(.separator()) }
+        menu.addItem(note)
     }
 
     /// A multi-selection's menu says what its rows do to every selected row: Pin pins them when

@@ -336,10 +336,17 @@ final class NotificationCenterService {
         }
     }
 
-    /// An agent chat's turn ended: ring the panes that show its tab until the person goes in.
+    /// An agent chat's turn ended: with `AgentTurnRing` on (Debug, off by default), ring the panes
+    /// that show its tab until the person goes in. Off, nothing rings: acpmux reads a turn that
+    /// ends in a shown chat at once, as before #22678.
     func agentTurnEnded(session: String) {
         guard let services else { return }
-        for workspace in services.daemon.store.workspaces {
+        agentTurnEnded(session: session, in: services.daemon.store.workspaces)
+    }
+
+    func agentTurnEnded(session: String, in workspaces: [WorkspaceModel], rings: Bool = AgentTurnRing.tunable.value) {
+        guard rings else { return }
+        for workspace in workspaces {
             for tab in workspace.screens.flatMap(\.panes).flatMap(\.tabs) where tab.agentSession?.session == session {
                 agentFinishGeneration &+= 1
                 agentFinished[tab.id] = agentFinishGeneration
@@ -394,9 +401,9 @@ final class NotificationCenterService {
             feedDriver?.run()
             if let workspace, decision.attention { moveToTop(workspace) }
             if decision.desktop {
-                // A workspace's notification names its workspace, as a terminal's does.
-                post(notification, tab: nil, workspace: workspace?.id, sound: decision.sound,
-                     subtitle: notification.shownSubtitle ?? workspace?.displayName)
+                // A workspace's notification names its workspace in the title, as a terminal's does.
+                post(notification, tab: nil, workspace: workspace?.id, workspaceName: workspace?.displayName,
+                     sound: decision.sound)
             }
             if !notification.desktop, let sound = decision.sound { NotificationSounds.playWithoutBanner(sound) }
             if let mode = decision.bounce { dockAttention.bounce(untilActive: mode == .untilActive) }
@@ -492,7 +499,8 @@ final class NotificationCenterService {
     /// where it came from (`workspaceName › tab`), which the app writes, so a terminal program
     /// cannot pose as another terminal; the poster's title is the subtitle.
     private func post(_ notification: DaemonNotification, tab: TabModel?, workspace: String?, workspaceName: String? = nil,
-                      sound: String?, program: ProgramStatusNotification? = nil, headline: String? = nil, owner: TabModel? = nil) {
+                      sound: String?, program: ProgramStatusNotification? = nil, headline: String? = nil,
+                      owner: TabModel? = nil) {
         let id = "cmux-notification-\(notification.notification.rawValue)"
         let owner = owner ?? tab
         // An OSC 7501 alert reads in the app's language; the daemon's English is the fallback.

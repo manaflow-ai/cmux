@@ -157,6 +157,13 @@ extension CEFRuntime {
     // MARK: Browser lifetime
 
     private func browserCreated(_ browser: Int32, request: Int32, window: Int32, created: CEFCreatedBy) {
+        if shutdownSequence != nil {
+            // Its creation was under way when quit closed every browser (`shutdown`): close it
+            // too, or the wait for Chromium's windows runs out and CefShutdown is skipped.
+            pendingWindows[request] = nil
+            shim?.close(browser)
+            return
+        }
         if request != 0, let host = pendingWindows.removeValue(forKey: request) {
             host.windowCreated(browser: browser, request: request)
             return
@@ -181,6 +188,7 @@ extension CEFRuntime {
         swipeNavigation.start()
         tabsByBrowser[browser] = tab
         tab.attach(browser: browser)
+        accessibility.attached(browser)
         CEFSignInCallbacks.shared.attached(tab)
     }
 
@@ -284,6 +292,15 @@ extension CEFRuntime {
     }
 
     // MARK: Quit
+
+    /// False once quit began to stop Chromium: CEF aborts making a browser after its shutdown
+    /// began. AppKit still closes the windows after CefShutdown, and a hidden tab's view unhid
+    /// there created one (crash on quit, NIGHTLY 1.0.0-nightly.3953614980201).
+    var acceptsNewBrowsers: Bool { Self.acceptsNewBrowsers(state: state, stopping: shutdownSequence != nil) }
+
+    static func acceptsNewBrowsers(state: State, stopping: Bool) -> Bool {
+        state != .shutDown && !stopping
+    }
 
     /// Closes every browser, waits (without blocking the main thread) until
     /// the Chromium windows are destroyed or `timeout` passes, then calls

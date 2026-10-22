@@ -336,7 +336,7 @@ public final class HoverCardGalleryHost: NSView, ThemeResponsive {
         self.recolor = recolor
         super.init(frame: .zero)
         // The real card's shape (`HoverCardPanel.cornerRadius`), so the gallery shows what a hover shows.
-        let glass = Glass.makeOverlayPanel(cornerRadius: HoverCardPanel.cornerRadius, interactive: false)
+        let glass = Glass.makeOverlayPanel(cornerRadius: HoverCardPanel.cornerRadius, interactive: false, cardFill: false)
         body.translatesAutoresizingMaskIntoConstraints = false
         glass.contentView.addSubview(body)
         addSubview(glass)

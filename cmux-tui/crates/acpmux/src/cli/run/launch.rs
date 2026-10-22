@@ -28,6 +28,8 @@ pub(super) struct Launch {
     pub reuse: bool,
     /// `--prompt-file`'s text, read now.
     pub file_prompt: Option<String>,
+    /// `--report-to` was given: another session started this one.
+    pub reports: bool,
 }
 
 impl Launch {
@@ -92,12 +94,28 @@ impl Launch {
         {
             bail!("--report-to goes with the session's first prompt: give one or --prompt-file");
         }
-        Ok(Self { reuse: args.reuse || worktree.is_some(), name, title, worktree, file_prompt })
+        Ok(Self {
+            reuse: args.reuse || worktree.is_some(),
+            name,
+            title,
+            worktree,
+            file_prompt,
+            reports: args.report_to.is_some(),
+        })
     }
 
     /// Whether a launcher flag (not only `--reuse`) was given.
     pub(super) fn launches(&self) -> bool {
         self.worktree.is_some() || self.file_prompt.is_some()
+    }
+
+    /// `_meta.acpmux.disallowedTools` for `session/new`: a session the
+    /// launcher starts is a lane nobody sits at, so Claude Code's
+    /// AskUserQuestion (a multiple-choice question that waits for a pick)
+    /// would lock its chat; it decides, says why and goes on. Kept in the
+    /// session's meta, so a respawn, a resume and a restart keep it too.
+    pub(super) fn disallowed_tools(&self) -> Option<Value> {
+        (self.launches() || self.reports).then(|| json!(["AskUserQuestion"]))
     }
 
     /// The first prompt: who started the session and how to answer, where
@@ -294,6 +312,32 @@ pub(super) fn show_in_group(id: &str, title: &str, group: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn launch(words: &[&str]) -> Launch {
+        #[derive(clap::Parser)]
+        struct New {
+            #[command(flatten)]
+            args: NewArgs,
+        }
+        let dir = std::env::temp_dir().join(format!("acpmux-launch-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let brief = dir.join("brief.md");
+        std::fs::write(&brief, "do it\n").unwrap();
+        let mut argv = vec!["new".to_owned()];
+        argv.extend(words.iter().map(|w| w.replace("BRIEF", &brief.to_string_lossy())));
+        let new = <New as clap::Parser>::try_parse_from(argv).unwrap();
+        Launch::prepare(&new.args).unwrap()
+    }
+
+    #[test]
+    fn a_launched_session_never_gets_ask_user_question() {
+        // Nobody sits at its chat: a multiple-choice question would lock it.
+        let ask = Some(json!(["AskUserQuestion"]));
+        assert_eq!(launch(&["-n", "x", "--prompt-file", "BRIEF"]).disallowed_tools(), ask);
+        assert_eq!(launch(&["--report-to", "coord", "go"]).disallowed_tools(), ask);
+        assert_eq!(launch(&["-n", "x", "go"]).disallowed_tools(), None);
+        assert_eq!(launch(&["-n", "x", "--reuse"]).disallowed_tools(), None);
+    }
 
     #[test]
     fn a_name_with_slashes_becomes_a_session_name() {
