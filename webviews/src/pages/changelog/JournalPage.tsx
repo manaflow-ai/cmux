@@ -205,7 +205,13 @@ function SectionBody({
       {view.count === 0 && view.changes.length === 0 && !unpublished && <Maintenance strings={ctx.strings} />}
       {unpublished && <p className="cl-muted">{ctx.strings.t("changelog.page.unavailable")}</p>}
       {news ? <SpanNews view={view} ctx={ctx} /> : <Groups view={view} ctx={ctx} />}
-      <ChangesFold changes={view.changes} hidden={view.underTheHood} strings={ctx.strings} />
+      {/* With no curated notes the changes are the news, so the update opens them. */}
+      <ChangesFold
+        changes={view.changes}
+        hidden={view.underTheHood}
+        strings={ctx.strings}
+        open={news && view.count === 0}
+      />
     </>
   );
 }
