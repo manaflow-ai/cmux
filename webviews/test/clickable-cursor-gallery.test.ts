@@ -117,12 +117,13 @@ await requireBrowserLane("clickable-cursor-gallery.test.ts", async () => {
           // A label of a disabled control is disabled too.
           const labelOfDisabled = (element: Element) =>
             element instanceof HTMLLabelElement && (element.control as HTMLInputElement | null)?.disabled === true;
-          const checked = all.filter(
-            (element) =>
-              drawn(element) &&
-              !element.closest(':disabled, [aria-disabled="true"], [inert]') &&
-              !labelOfDisabled(element),
-          );
+          // Disabled as the browser has it: the element itself (a disabled fieldset's first legend
+          // stays enabled; a link in one still opens), inside a disabled button, aria-disabled or inert.
+          const disabled = (element: Element) =>
+            element.matches(":disabled") ||
+            element.closest('button:disabled, [aria-disabled="true"], [inert]') !== null ||
+            labelOfDisabled(element);
+          const checked = all.filter((element) => drawn(element) && !disabled(element));
           const arrows = checked
             .map((element) => ({ element, cursor: getComputedStyle(element).cursor }))
             .filter(({ cursor }) => cursor === "default" || cursor === "auto")

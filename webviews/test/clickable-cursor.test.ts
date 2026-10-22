@@ -91,6 +91,15 @@ const PANE = `
     <input data-expect="pointer" data-name="file picker" type="file" />
     <input data-expect="default" data-name="disabled checkbox" type="checkbox" disabled />
   </div>
+  <!-- A disabled fieldset's first legend stays enabled (HTML); a link inside the fieldset still opens. -->
+  <fieldset disabled>
+    <legend><input data-expect="pointer" data-name="checkbox in a disabled fieldset's legend" type="checkbox" /><label data-expect="pointer" data-name="legend label" for="fixture-legend-box">All</label><input id="fixture-legend-box" type="checkbox" /></legend>
+    <input data-expect="default" data-name="checkbox in a disabled fieldset" type="checkbox" />
+    <span data-expect="default" data-name="text in a disabled fieldset">Off</span>
+    <a data-expect="pointer" data-name="link in a disabled fieldset" href="/help"><span data-expect="pointer" data-name="its words">Help</span></a>
+  </fieldset>
+  <!-- A locked choice keeps the arrow, but a link in its label still opens. -->
+  <label data-expect="default" data-name="locked choice with a link"><input type="checkbox" disabled /><span data-expect="default" data-name="locked choice words">Locked</span> <a data-expect="pointer" data-name="help link in a locked choice" href="/help"><span data-expect="pointer" data-name="help link words">Help</span></a> <button data-expect="pointer" data-name="button in a locked choice" type="button">Why</button></label>
 </div>`;
 
 test("every clickable thing in the agent pane shows the pointing hand, a disabled one the arrow", () => {
@@ -122,6 +131,8 @@ test("every clickable thing in the agent pane shows the pointing hand, a disable
 // ---- 2. No surface turns a clickable element back to the arrow ----
 
 const CLICKABLE_TAGS = new Set(["button", "a", "summary", "select"]);
+/// An <input> that is a control, not a field (its `type`, in JSX or in a selector).
+const CLICKABLE_INPUT = /\btype=["']?(checkbox|radio|button|submit|reset|color|file)\b/;
 const CLICKABLE_ROLES = new Set([
   "button",
   "link",
@@ -169,6 +180,7 @@ function clickableClassNames(): { file: string; line: number; value: string }[] 
         // Selectable text that also takes a click (a cut message opens) keeps the I-beam.
         (/\son(Click|DoubleClick)=/.test(attributes) && !/(^|\s)selectable(\s|$)/.test(value)) ||
         CLICKABLE_TAGS.has(tag) ||
+        (tag === "input" && CLICKABLE_INPUT.test(attributes)) ||
         (role !== undefined && CLICKABLE_ROLES.has(role)) ||
         (/^[A-Z]/.test(tag) && CLICKABLE_COMPONENT.test(tag.split(".").at(-1)!));
       if (!clickable) continue;
@@ -186,10 +198,33 @@ function clickableClasses(): Set<string> {
   return classes;
 }
 
+/// `text` cut at each separator outside parentheses (a selector list at its commas, a selector at
+/// its combinators), however deeply they nest: `a:not(:is(b, c)) d` has the subject `d`.
+function splitTop(text: string, separator: RegExp): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let index = 0; index < text.length; index++) {
+    const char = text[index]!;
+    if (char === "(" || char === "[") depth++;
+    else if (char === ")" || char === "]") depth--;
+    else if (depth === 0 && separator.test(char)) {
+      parts.push(text.slice(start, index));
+      start = index + 1;
+    }
+  }
+  parts.push(text.slice(start));
+  return parts.map((part) => part.trim()).filter(Boolean);
+}
+
+/// A selector's subject, its last compound.
+const subjectOf = (selector: string) => splitTop(selector, /[\s>+~]/).at(-1) ?? selector;
+
 /// The selector's subject (its last compound) targets a clickable element.
 function targetsClickable(selector: string, classes: Set<string>): boolean {
-  const subject = selector.split(/\s*[>+~]\s*|\s+(?![^()]*\))/).at(-1) ?? selector;
+  const subject = subjectOf(selector);
   if (/^(button|a|summary|select)(?![\w-])/.test(subject)) return true;
+  if (/^input(?![\w-])/.test(subject) && CLICKABLE_INPUT.test(subject.replace(/\[type=/g, " type="))) return true;
   for (const [, inner] of subject.matchAll(/:(?:is|where)\(([^)]*)\)/g))
     if (
       /(^|[\s,])(button|a|summary|select)(?![\w-])|\[role="?(button|link|menuitem\w*|tab|option|treeitem)/.test(inner!)
@@ -239,15 +274,26 @@ function styleRules(): Rule[] {
       const selectorText = rule[1]!.trim();
       if (selectorText.startsWith("@")) continue;
       const line = text.slice(0, rule.index! + rule[0].indexOf(rule[2]!)).split("\n").length;
-      const selectors = selectorText.split(/,(?![^()]*\))/).map((part) => part.trim());
+      const selectors = splitTop(selectorText, /,/);
       rules.push({ file: relative(src, join(src, file)), line, selectors, body: rule[2]! });
     }
   }
   return rules;
 }
 
-const subjectOf = (selector: string) => selector.split(/\s*[>+~]\s*|\s+(?![^()]*\))/).at(-1) ?? selector;
 const SETS_A_CURSOR = /(^|[;\s{])cursor\s*:\s*(?!default\b|auto\b|inherit\b|unset\b|initial\b|revert)[a-z-]/;
+
+test("the scan counts the clickable input types as clickable", () => {
+  const none = new Set<string>();
+  expect(
+    ['input[type="checkbox"]', "input[type=radio]", '.x input:is([type="submit"], [type="reset"])'].map((selector) =>
+      targetsClickable(selector, none),
+    ),
+  ).toEqual([true, true, true]);
+  expect(
+    ['input[type="text"]', "input", 'input[type="range"]'].map((selector) => targetsClickable(selector, none)),
+  ).toEqual([false, false, false]);
+});
 
 test("only a disabled selector is exempt", () => {
   expect(["button:disabled", '.x[aria-disabled="true"]', "a:not(.y):disabled"].map(DISABLED.test)).toEqual([
