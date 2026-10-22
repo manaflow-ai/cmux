@@ -960,6 +960,11 @@ export default agentPaneEntry({
         const receipt = steer?.querySelector('.cv-user__read[data-read="true"]');
         if (!receipt) throw new Error("the read steer shows no read check");
         receipt.setAttribute("data-gallery-target", "steer-read");
+        // Bring the steer in whole and let the scroll end first: the hover's own scroll-into-view
+        // would put the tooltip away (titleTooltips dismisses on scroll) and never bring it back.
+        receipt.scrollIntoView({ block: "center" });
+        const scrolled = performance.now();
+        await ctx.waitFor(() => performance.now() - scrolled > 250);
         await ctx.hover({ selector: '[data-gallery-target="steer-read"]' });
         await ctx.waitFor(
           () =>
