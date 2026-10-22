@@ -22,6 +22,10 @@ public nonisolated struct ImportSuggestionStrings: Sendable {
     static func workspaces(_ count: Int) -> String {
         String(localized: "importSuggestions.facts.workspaces", defaultValue: "\(count) saved workspaces", table: "ImportSuggestions", bundle: .module)
     }
+    /// cmux Classic's saved session, all of it here already.
+    static var classicAllHere: String {
+        String(localized: "importSuggestions.facts.classicAllHere", defaultValue: "Every saved workspace is here", table: "ImportSuggestions", bundle: .module)
+    }
     static var needsFullDiskAccess: String { String(localized: "importSuggestions.facts.fullDiskAccess", defaultValue: "Needs Full Disk Access", table: "ImportSuggestions", bundle: .module) }
     static var inUse: String { String(localized: "importSuggestions.facts.inUse", defaultValue: "Already in use", table: "ImportSuggestions", bundle: .module) }
 
@@ -65,6 +69,11 @@ public nonisolated struct ImportSuggestionStrings: Sendable {
         String(localized: "importSuggestions.benefit.classic", defaultValue: "Your Classic workspaces open here, with their tabs, folders and agent chats.",
                table: "ImportSuggestions", bundle: .module)
     }
+    static var classicAgain: String {
+        String(localized: "importSuggestions.benefit.classicAgain",
+               defaultValue: "Import again to reopen Classic workspaces you closed here. Ones still open aren't duplicated.",
+               table: "ImportSuggestions", bundle: .module)
+    }
     static var iterm2: String {
         String(localized: "importSuggestions.benefit.iterm2", defaultValue: "Your iTerm2 colors become a cmux terminal theme you can pick in Appearance.",
                table: "ImportSuggestions", bundle: .module)
@@ -92,6 +101,7 @@ public nonisolated struct ImportSuggestionStrings: Sendable {
     static var importButton: String { String(localized: "importSuggestions.button.import", defaultValue: "Import", table: "ImportSuggestions", bundle: .module) }
     static var showChats: String { String(localized: "importSuggestions.button.showChats", defaultValue: "Show Chats", table: "ImportSuggestions", bundle: .module) }
     static var importWorkspaces: String { String(localized: "importSuggestions.button.importWorkspaces", defaultValue: "Import Workspaces", table: "ImportSuggestions", bundle: .module) }
+    static var importAgain: String { String(localized: "importSuggestions.button.importAgain", defaultValue: "Import Again", table: "ImportSuggestions", bundle: .module) }
     static var importColors: String { String(localized: "importSuggestions.button.importColors", defaultValue: "Import Colors", table: "ImportSuggestions", bundle: .module) }
     static var notNow: String { String(localized: "importSuggestions.button.notNow", defaultValue: "Not Now", table: "ImportSuggestions", bundle: .module) }
     static var resume: String { String(localized: "importSuggestions.button.resume", defaultValue: "Resume", table: "ImportSuggestions", bundle: .module) }
@@ -122,6 +132,11 @@ public nonisolated struct ImportSuggestionStrings: Sendable {
     static var doneTheme: String { String(localized: "importSuggestions.status.doneTheme", defaultValue: "Your colors are a theme now.", table: "ImportSuggestions", bundle: .module) }
     static var doneClassic: String { String(localized: "importSuggestions.status.doneClassic", defaultValue: "Your Classic workspaces are open.", table: "ImportSuggestions", bundle: .module) }
 
+    /// A cmux Classic import's end: the workspaces this run opened.
+    static func importedSessions(_ count: Int) -> String {
+        String(localized: "importSuggestions.status.importedSessions", defaultValue: "Imported \(count) sessions", table: "ImportSuggestions", bundle: .module)
+    }
+
     static func pages(_ count: Int) -> String {
         String(localized: "importSuggestions.count.pages", defaultValue: "\(count) pages", table: "ImportSuggestions", bundle: .module)
     }
@@ -132,7 +147,7 @@ public nonisolated struct ImportSuggestionStrings: Sendable {
         String(localized: "importSuggestions.count.cookies", defaultValue: "\(count) cookies", table: "ImportSuggestions", bundle: .module)
     }
 
-    // MARK: Refusals and the Home strip
+    // MARK: Refusals and the Home row
 
     public static func noSuchCard(_ id: String) -> String {
         String(localized: "importSuggestions.refusal.noSuchCard", defaultValue: "No import card \(id).", table: "ImportSuggestions", bundle: .module)

@@ -273,6 +273,12 @@ CMUX_SHIM_EXPORT void cmux_shim_set_background_color(unsigned int argb);
 // tab moves and popups; later theme changes (cmux_shim_set_background_color)
 // no longer repaint it. Returns 0 when the fork lacks the call.
 CMUX_SHIM_EXPORT int cmux_shim_browser_set_background_color(int browser_id, unsigned int argb);
+// Fork API 17: browser_id's page is see-through (transparent 1): where the
+// document draws no background of its own (and before its first paint) the
+// parent view under the page window shows, as under a WebKit view that draws
+// no background. 0 gives the page its background color back. Kept across
+// navigations and tab moves. Returns 0 when the fork lacks the call.
+CMUX_SHIM_EXPORT int cmux_shim_tab_set_transparent_background(int browser_id, int transparent);
 // The page chrome://newtab shows when no extension overrides the New Tab
 // page (fork API 12); NULL or "" keeps Chromium's. Any time, also before
 // cmux_shim_initialize. The ADDRESS event reports "chrome://newtab/" for a
@@ -350,6 +356,9 @@ CMUX_SHIM_EXPORT void cmux_shim_set_focus(int browser_id, int focus);
 // Without a handler every focus request wins (CEF's default).
 CMUX_SHIM_EXPORT void cmux_shim_set_focus_request_handler(cmux_shim_focus_request_fn handler);
 CMUX_SHIM_EXPORT void cmux_shim_set_zoom_level(int browser_id, double level);
+// CefBrowserHost::SetAccessibilityState: 1 builds the page's accessibility tree (an assistive
+// client asked for the app's), 0 turns it off.
+CMUX_SHIM_EXPORT void cmux_shim_set_accessibility(int browser_id, int enabled);
 // File > Print… (CefBrowserHost::Print): Chromium's print preview over the
 // page, as the page's own window.print(). Returns 0 when the browser is gone.
 CMUX_SHIM_EXPORT int cmux_shim_print(int browser_id);
