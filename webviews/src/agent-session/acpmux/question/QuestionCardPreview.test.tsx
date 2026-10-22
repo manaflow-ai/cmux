@@ -94,3 +94,18 @@ test("the preview sits beside a narrower list by default", async () => {
   const card = await render(withPreviews());
   expect(card.querySelector("fieldset")?.dataset.previewLayout).toBe("split");
 });
+
+test("a line holding an inline code span is content, not a fence", async () => {
+  const question = withPreviews();
+  question.items[0]!.options[0]!.preview = { text: "```literal``` stays\n~~~\nbody", format: "monospace" };
+  const card = await render(question);
+  expect(previewBody(card)).toBe("```literal``` stays\nbody");
+});
+
+test("the pointer on Other shows the highlighted option's preview, not the last hovered one", async () => {
+  const card = await render(withPreviews());
+  await pointer(row(card, 1), "mouseover", null);
+  expect(previewLabel(card)).toBe("Preview of Tabs");
+  await pointer(row(card, 3), "mouseover", row(card, 1));
+  expect(previewLabel(card)).toBe("Preview of Sidebar");
+});

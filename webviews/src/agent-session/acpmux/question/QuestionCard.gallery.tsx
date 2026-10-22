@@ -71,7 +71,9 @@ const fenced = (question: AgentQuestion): AgentQuestion => ({
   items: question.items.map((item) => ({
     ...item,
     options: item.options.map((option) =>
-      option.preview ? { ...option, preview: { ...option.preview, text: `\`\`\`text\n${option.preview.text}\n\`\`\`` } } : option,
+      option.preview
+        ? { ...option, preview: { ...option.preview, text: `\`\`\`text\n${option.preview.text}\n\`\`\`` } }
+        : option,
     ),
   })),
 });
@@ -231,8 +233,14 @@ export default componentEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-question-error"));
       },
     },
-    answered: variant(answeredCollapsed, "Answered: one line per question (header: the chosen answers), and who answered."),
-    "answered-remote": variant(answeredRemote, "Answered from a paired phone: the line names the person and the device."),
+    answered: variant(
+      answeredCollapsed,
+      "Answered: one line per question (header: the chosen answers), and who answered.",
+    ),
+    "answered-remote": variant(
+      answeredRemote,
+      "Answered from a paired phone: the line names the person and the device.",
+    ),
     "answered-by-session": variant(
       answeredBySession,
       "A sub-session's question answered by the session above it: named as that session, never a person.",

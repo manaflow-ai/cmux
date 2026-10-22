@@ -360,28 +360,28 @@ function PendingQuestion({
             const key = row < 9 ? String(row + 1) : undefined;
             return (
               <React.Fragment key={option.id}>
-              <button
-                type="button"
-                className="acpmux-question-row"
-                data-focus-ring="row"
-                role={multi ? "checkbox" : "radio"}
-                aria-checked={chosen}
-                aria-keyshortcuts={key}
-                aria-disabled={sent || undefined}
-                data-row={row}
-                data-highlighted={row === highlighted || undefined}
-                // ui-allow: the roving tab stop follows the reducer's highlighted row (radio and checkbox rows alike).
-                tabIndex={row === highlighted ? 0 : -1}
-                onClick={() => dispatch({ type: "click", row })}
-                onMouseEnter={() => setHovered({ item: item.id, row })}
-              >
-                <ChoiceMark multi={multi} chosen={chosen} />
-                <span className="acpmux-question-text">
-                  <span className="acpmux-question-label">{option.label}</span>
-                  {option.detail && <span className="acpmux-question-detail">{option.detail}</span>}
-                </span>
-              </button>
-              {layout === "inline" && option === previewOption && preview}
+                <button
+                  type="button"
+                  className="acpmux-question-row"
+                  data-focus-ring="row"
+                  role={multi ? "checkbox" : "radio"}
+                  aria-checked={chosen}
+                  aria-keyshortcuts={key}
+                  aria-disabled={sent || undefined}
+                  data-row={row}
+                  data-highlighted={row === highlighted || undefined}
+                  // ui-allow: the roving tab stop follows the reducer's highlighted row (radio and checkbox rows alike).
+                  tabIndex={row === highlighted ? 0 : -1}
+                  onClick={() => dispatch({ type: "click", row })}
+                  onMouseEnter={() => setHovered({ item: item.id, row })}
+                >
+                  <ChoiceMark multi={multi} chosen={chosen} />
+                  <span className="acpmux-question-text">
+                    <span className="acpmux-question-label">{option.label}</span>
+                    {option.detail && <span className="acpmux-question-detail">{option.detail}</span>}
+                  </span>
+                </button>
+                {layout === "inline" && option === previewOption && preview}
               </React.Fragment>
             );
           })}
@@ -396,6 +396,7 @@ function PendingQuestion({
               chosen={draft.trim() !== ""}
               disabled={sent}
               onChoose={() => dispatch({ type: "click", row: item.options.length })}
+              onHover={() => setHovered({ item: item.id, row: item.options.length })}
               onText={(text) => dispatch({ type: "otherText", text })}
             />
           )}
@@ -457,12 +458,13 @@ export function shownPreview(options: Option[], rows: (number | undefined)[]): O
 }
 
 /// A preview's text as Claude Code draws it, Markdown in a monospace box: an agent often wraps its
-/// mockup or code in a fence, which the box stands for, so the fence lines go and the rest keeps
-/// every space and line break (ASCII mockups line up only that way).
+/// mockup or code in a fence, which the box stands for, so the fence lines go (a fence and its info
+/// string alone on a line, never a line with an inline code span) and the rest keeps every space
+/// and line break (ASCII mockups line up only that way).
 export function previewText(text: string): string {
   return text
     .split("\n")
-    .filter((line) => !/^\s*(```|~~~)/.test(line))
+    .filter((line) => !/^\s*(`{3,}|~{3,})[^`~]*$/.test(line))
     .join("\n")
     .replace(/^\n+|\s+$/g, "");
 }
@@ -491,6 +493,7 @@ function OtherRow({
   chosen,
   disabled,
   onChoose,
+  onHover,
   onText,
 }: {
   t: Translate;
@@ -502,12 +505,19 @@ function OtherRow({
   chosen: boolean;
   disabled: boolean;
   onChoose(): void;
+  /// The pointer came onto the row: it has no preview, so the highlighted option's shows.
+  onHover(): void;
   onText(text: string): void;
 }) {
   const key = row < 9 ? String(row + 1) : undefined;
   if (editing)
     return (
-      <div className="acpmux-question-row acpmux-question-other" data-row-editing="true" data-highlighted>
+      <div
+        className="acpmux-question-row acpmux-question-other"
+        data-row-editing="true"
+        data-highlighted
+        onMouseEnter={onHover}
+      >
         <ChoiceMark multi={multi} chosen={multi ? draft.trim() !== "" : true} />
         <input
           type="text"
@@ -533,6 +543,7 @@ function OtherRow({
       // ui-allow: the roving tab stop follows the reducer's highlighted row.
       tabIndex={highlighted ? 0 : -1}
       onClick={onChoose}
+      onMouseEnter={onHover}
     >
       <ChoiceMark multi={multi} chosen={chosen} />
       <span className="acpmux-question-text">
