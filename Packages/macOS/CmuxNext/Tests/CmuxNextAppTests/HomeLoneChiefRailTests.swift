@@ -1,5 +1,6 @@
 import AppKit
 import CmuxHomeCore
+import CmuxNextDesign
 @testable import CmuxNextHome
 import Testing
 
@@ -7,7 +8,8 @@ import Testing
 /// the avatar-only list (33224e07f08) as a column with one lone avatar in it, an empty band beside
 /// the chat. With one conversation that list takes no column: the chat gets the width and keeps
 /// compose at its top-left. Two or more conversations keep the avatar-only list, and a column wide
-/// enough for names keeps the list with names.
+/// enough for names keeps the list with names. Debug Settings > Home > "Avatar list for one
+/// conversation" keeps the column.
 @MainActor
 struct HomeLoneChiefRailTests {
     struct Page {
@@ -44,7 +46,7 @@ struct HomeLoneChiefRailTests {
 
     /// A Home page `width` wide whose list holds `chiefs` Chiefs (400 pt leaves the list 119 pt:
     /// avatars only, `HomeSidebarWidth.clamp`).
-    static func page(chiefs: Int, width: CGFloat) throws -> Page {
+    static func page(chiefs: Int, width: CGFloat, tunables: TunableStore? = nil) throws -> Page {
         _ = NSApplication.shared
         let suite = "cmux.tests.loneChiefRail.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
@@ -52,6 +54,7 @@ struct HomeLoneChiefRailTests {
         home.update(model(chiefs: chiefs))
         let split = HomeSidebarSplitView(sidebar: home, content: NSView(), widths: HomeSidebarWidth(defaults: defaults))
         split.windowKey = { "w" }
+        if let tunables { split.tunables = tunables }
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: 600), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -97,5 +100,23 @@ struct HomeLoneChiefRailTests {
         #expect(abs(p.split.sidebarWidth - HomeSidebarWidth.standard) < 1, "the list came back \(p.split.sidebarWidth) pt wide")
         p.resize(width: 400)
         #expect(p.listFolded, "a narrow column again keeps the lone avatar's column")
+    }
+
+    @Test func theDebugToggleKeepsTheAvatarListForOneConversation() async throws {
+        let store = TunableStore()
+        store.register([HomeTunables.loneConversationRail.descriptor])
+        store.activate(file: nil)
+        store.set(HomeTunables.loneConversationRail.key, .bool(true))
+        let p = try Self.page(chiefs: 1, width: 400, tunables: store)
+        defer { p.close() }
+        #expect(!p.home.isHidden, "the toggle is on and the list folded")
+        #expect(abs(p.split.sidebarWidth - 119) < 1, "the avatar list is \(p.split.sidebarWidth) pt")
+        // Turned off in Debug Settings: the open page folds the list without a resize.
+        store.set(HomeTunables.loneConversationRail.key, .bool(false))
+        for _ in 0..<100 where !p.listFolded {
+            await Task.yield()
+            p.split.layoutSubtreeIfNeeded()
+        }
+        #expect(p.listFolded, "the list stays after the toggle went off")
     }
 }
