@@ -62,13 +62,15 @@ jobs queued on a pool they hold exceeds a threshold:
      (find_unclaimed()): a job on an owned label (owned_pool_rescue.job_pool())
      still queued with no runner, longer after it could first run than
      max(UNCLAIMED_QUEUED_SECONDS, 45 minutes; the pool's p90 wait over the
-     jobs a runner took in this sweep's inventory, pool_wait_p90(), published
-     in the snapshot under WAIT_P90_KEY), with no evidence needed.
+     jobs a runner took in this sweep's inventory, from when each could first
+     run, pool_wait_p90(), once a pool has UNCLAIMED_MIN_SAMPLES of them,
+     published in the snapshot under WAIT_P90_KEY), with no evidence needed.
      Run 39652497071's cmux-tui macOS leg (a dispatch on a live branch, on
      glaeda-side-std-xcode-26.6) sat unclaimed 18:25Z to 00:37Z until
      GitHub's queue timeout. It is acted on only at a live head: the head of
      an open pull request, or a push or dispatch whose branch head, read with
-     one request (at most BRANCH_HEAD_LOOKUPS a sweep), is still the run's.
+     one request (CANDIDATE_HEAD_LOOKUPS a sweep, and PENDING_HEAD_LOOKUPS
+     more for the settled cancels waiting on a re-run), is still the run's.
      The run is cancelled and its failed jobs re-run once by the same carried
      re-run as category e, so the leg takes the route a re-run gives it:
      owned_pool_rescue.bot_rerun_leaves_owned() must say it leaves the owned
@@ -76,7 +78,8 @@ jobs queued on a pool they hold exceeds a threshold:
      the run is left to owned_pool_rescue.py's watch. A run category e holds
      is never counted here, so the two never cancel it twice, and the same
      exceptions hold: a bot's attempt, a run that already failed, a newer run
-     at its head, no re-run state, `no-janitor`, and an unfinished sibling.
+     at its head (never a second workflow_dispatch: each dispatch is its own
+     request), no re-run state, `no-janitor`, and an unfinished sibling.
 
 Draft pull requests are deliberately not a category: a draft can be an active
 integration branch other work depends on, and ci.yml has no ready_for_review
@@ -254,8 +257,14 @@ UNCLAIMED_EVENTS = frozenset({"push", "pull_request", "workflow_dispatch"})
 # The pool-wait percentile the bound follows, from the jobs a runner took.
 UNCLAIMED_WAIT_PERCENTILE = 90
 # Branch head reads (one REST request each) per sweep, for push and dispatch
-# runs of categories e and f and their pending re-runs (branch_head_lookups()).
-BRANCH_HEAD_LOOKUPS = 10
+# runs of categories e and f (branch_head_lookups()), and, from a budget of
+# their own so new candidates can never starve them, for the settled cancels
+# whose re-run waits on the branch being live (at most LOST_RERUN_MAX re-run a
+# sweep anyway).
+CANDIDATE_HEAD_LOOKUPS = 6
+PENDING_HEAD_LOOKUPS = 10
+# A pool's p90 wait needs this many samples; with fewer the bound is the floor.
+UNCLAIMED_MIN_SAMPLES = 5
 # The snapshot key with each owned pool's p90 wait in seconds.
 WAIT_P90_KEY = "wait_p90_seconds"
 SNAPSHOT_UNREADABLE = (ValueError, KeyError, EOFError, NotImplementedError, zipfile.BadZipFile, zlib.error)
@@ -908,7 +917,15 @@ def newer_run_at_head(run: Mapping[str, Any], runs: Iterable[Mapping[str, Any]])
     A `labeled` ci.yml run queued behind `run` in the same concurrency group is
     one. Re-running `run` would replay its event (cancel-in-progress included)
     over the newer run, so category e never re-runs a run that has one.
+
+    A workflow_dispatch has none: each dispatch is its own request
+    (cmux-tui.yml runs each in its own `cmux-tui-<request_id>` group, never
+    cancelled in progress), so a second dispatch at the same head takes
+    nothing over, and counting it would block category f's rescue or drop its
+    pending re-run, leaving the run cancelled for good.
     """
+    if run.get("event") == "workflow_dispatch":
+        return None
     for other in runs:
         if (int(other.get("id") or 0) > int(run.get("id") or 0)
                 and other.get("path") == run.get("path") and other.get("event") == run.get("event")
@@ -1257,24 +1274,36 @@ def classify_lost(
 # macOS default).
 
 
-def pool_wait_p90(jobs: Iterable[Mapping[str, Any]]) -> dict[str, int]:
-    """Owned pool -> the p90 (nearest rank) of how long the jobs a runner took waited, created to started, in seconds.
+def pool_wait_p90(*maps: Mapping[int, Sequence[Mapping[str, Any]]] | None) -> dict[str, int]:
+    """Owned pool -> the p90 (nearest rank) of how long the jobs a runner took waited for one, in seconds.
 
-    Read from the jobs the sweep already listed, so it costs nothing; it is
-    published in the pool snapshot under WAIT_P90_KEY. A job record can exist
-    before its `needs` finished, which only lengthens a wait and so the bound.
+    Read from the jobs the sweep already listed (run id -> jobs, one or more
+    maps), so it costs nothing; it is published in the pool snapshot under
+    WAIT_P90_KEY. A wait runs from when the job could first run to its start:
+    its `created_at`, or the last completion among its run's other jobs before
+    it started (as lost_wait_start() measures a queued one), since a job record
+    can exist before its `needs` finished. A pool with fewer than
+    UNCLAIMED_MIN_SAMPLES samples has no p90, so its bound is the floor.
     """
     waits: dict[str, list[float]] = {}
-    for job in jobs:
-        pool = rescue.job_pool(job)
-        if not pool or not took_runner(job):
-            continue
-        created, started = parse_time(job.get("created_at")), parse_time(job.get("started_at"))
-        if created is None or started is None or started < created:
-            continue
-        waits.setdefault(pool, []).append((started - created).total_seconds())
+    for jobs_by_run in maps:
+        for run_jobs in (jobs_by_run or {}).values():
+            for job in run_jobs:
+                pool = rescue.job_pool(job)
+                if not pool or not took_runner(job):
+                    continue
+                created, started = parse_time(job.get("created_at")), parse_time(job.get("started_at"))
+                if created is None or started is None:
+                    continue
+                gates = [parse_time(other.get("completed_at")) for other in run_jobs
+                         if other is not job and other.get("status") == "completed"]
+                since = max([created, *(moment for moment in gates if moment is not None and moment <= started)])
+                if started >= since:
+                    waits.setdefault(pool, []).append((started - since).total_seconds())
     result = {}
     for pool, values in waits.items():
+        if len(values) < UNCLAIMED_MIN_SAMPLES:
+            continue
         values.sort()
         rank = max(1, -(-len(values) * UNCLAIMED_WAIT_PERCENTILE // 100))
         result[pool] = int(values[rank - 1])
@@ -1315,7 +1344,7 @@ def find_unclaimed(
     unclaimed_bound(). As in category e, a run with any other unfinished job
     that is not unclaimed itself is left alone (_gated()).
     """
-    p90 = pool_wait_p90(_all_jobs(jobs_by_run, evidence_jobs))
+    p90 = pool_wait_p90(jobs_by_run, evidence_jobs)
     held = set(lost or ())
     found_by_run: dict[int, UnclaimedJob] = {}
     for run in runs:
@@ -1392,18 +1421,36 @@ def classify_unclaimed(
 
 def branch_head_lookups(runs: Iterable[Mapping[str, Any]], run_ids: Iterable[int], *,
                         prs_by_branch: Mapping[str, Sequence[Mapping[str, Any]]] | None = None,
-                        known: Iterable[str] = (), cap: int = BRANCH_HEAD_LOOKUPS) -> list[str]:
+                        known: Iterable[str] = (), cap: int = CANDIDATE_HEAD_LOOKUPS,
+                        jobs_by_run: Mapping[int, Sequence[Mapping[str, Any]]] | None = None,
+                        unclaimed: Iterable[int] = ()) -> list[str]:
     """Branches whose head to read (one request each, at most `cap`): those of the push and dispatch runs
-    named, oldest run first, unless an open pull request already has the run's head or the head is `known`."""
+    named, oldest run first, unless an open pull request already has the run's head or the head is `known`.
+
+    A read is spent only where it can change the outcome into a re-run: never for a bot's attempt, a run
+    that already failed (in `jobs_by_run`), a branch whose open pull request opted out (`no-janitor`, or
+    labels left unread), or a category-f run (`unclaimed`) whose re-run would stay on the owned label.
+    """
     wanted = set(run_ids)
+    in_f = set(unclaimed)
     seen = set(known)
     branches: list[str] = []
     for run in sorted(runs, key=lambda item: (str(item.get("created_at") or ""), int(item.get("id") or 0))):
         branch = str(run.get("head_branch") or "")
         if run.get("id") not in wanted or run.get("event") not in ("push", "workflow_dispatch") or not branch \
-                or branch in seen:
+                or branch in seen or bot_rerun(run):
             continue
-        if prs_by_branch is not None and lost_pr_state(run, prs_by_branch.get(branch) or [])[0] == "current":
+        if run.get("id") in in_f and not rescue.bot_rerun_leaves_owned(str(run.get("path") or ""),
+                                                                       int(run.get("run_attempt") or 1)):
+            continue
+        if jobs_by_run is not None and any(job.get("status") == "completed" and job.get("conclusion") == "failure"
+                                           for job in jobs_by_run.get(run.get("id")) or ()):
+            continue
+        prs = (prs_by_branch or {}).get(branch) or []
+        if prs_by_branch is not None and lost_pr_state(run, prs)[0] == "current":
+            continue
+        if any(pr.get("state") == "OPEN" and (JANITOR_OPT_OUT_LABEL in pr_labels(pr) or not labels_complete(pr))
+               for pr in prs):
             continue
         seen.add(branch)
         branches.append(branch)
@@ -2541,22 +2588,22 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1
 
     # Categories e and f: is a push or dispatch run's branch live (its head still the run's)? One request a
-    # branch, at most BRANCH_HEAD_LOOKUPS a sweep; a read that fails leaves the branch unknown.
+    # branch: at most CANDIDATE_HEAD_LOOKUPS for this sweep's candidates, and PENDING_HEAD_LOOKUPS of their
+    # own for settled cancels waiting on a re-run. A read that fails leaves the branch unknown.
     branch_heads: dict[str, str] = {}
     head_reads = 0
 
     def read_heads(branches_wanted: Sequence[str]) -> None:
         nonlocal head_reads
         for branch in branches_wanted:
-            if head_reads >= BRANCH_HEAD_LOOKUPS:
-                return
             head_reads += 1
             try:
                 branch_heads[branch] = github.branch_head(branch)
             except RuntimeError as error:
                 print(f"queue-janitor: head of {branch}: {error}", file=sys.stderr)
 
-    read_heads(branch_head_lookups(runs, {*lost, *unclaimed}, prs_by_branch=prs_by_branch))
+    read_heads(branch_head_lookups(runs, {*lost, *unclaimed}, prs_by_branch=prs_by_branch, jobs_by_run=jobs_by_run,
+                                   unclaimed=unclaimed))
 
     snapshot: dict[str, Any] | None = None
     if args.pool_load:
@@ -2586,7 +2633,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         snapshot = pool_load_snapshot(runs, jobs_by_run, now=now, settings=pool_settings, markers=markers,
                                       capability_markers=capability_markers)
         # Category f's bound, published for the next reader (pr_runner_pool.py ignores unknown keys).
-        waits = pool_wait_p90(_all_jobs(jobs_by_run, evidence_jobs))
+        waits = pool_wait_p90(jobs_by_run, evidence_jobs)
         if waits:
             snapshot[WAIT_P90_KEY] = waits
         # Warm affinity on: which root runner kept a build of which main
@@ -2646,7 +2693,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         settled = [run for run in runs_now.values()
                    if run.get("status") == "completed" and run.get("conclusion") == "cancelled"]
         read_heads(branch_head_lookups(settled, {run.get("id") for run in settled}, prs_by_branch=prs_by_branch,
-                                       known=branch_heads))
+                                       known=branch_heads, cap=PENDING_HEAD_LOOKUPS))
         rerun_decisions = plan_lost_reruns(pending, runs_now, prs_by_branch, now=now, head_runs=head_runs,
                                            branch_heads=branch_heads)
         if args.dry_run:

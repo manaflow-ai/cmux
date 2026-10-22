@@ -2025,9 +2025,26 @@ class UnclaimedLegDetectionTests(unittest.TestCase):
     def test_pool_p90_wait_comes_from_the_jobs_runners_took(self):
         jobs = [waited_job(waited=minutes) for minutes in (1, 2, 3, 4, 5, 6, 7, 8, 9, 70)]
         jobs += [waited_job(waited=90, label=MAC), unassigned_job(age=200)]
-        p90 = janitor.pool_wait_p90(jobs)
+        p90 = janitor.pool_wait_p90({1: jobs})
         # Nearest rank over ten samples: the ninth. Blacksmith labels are not owned pools.
         self.assertEqual(p90, {SIDE: 9 * 60})
+
+    def test_a_pool_with_fewer_than_five_samples_has_no_p90(self):
+        jobs = [waited_job(waited=minutes) for minutes in (60, 70, 80, 90)]
+        self.assertEqual(janitor.pool_wait_p90({1: jobs}), {})
+        self.assertEqual(janitor.pool_wait_p90({1: jobs + [waited_job(waited=100)]}), {SIDE: 100 * 60})
+
+    def test_a_sample_waits_from_when_its_run_let_it_run(self):
+        # Created 60 minutes ago behind a gate that finished 30 minutes ago, taken 20 minutes ago: it waited
+        # 10 minutes for a runner, not 40. A sibling that finished after it started gated nothing.
+        jobs = {}
+        for index in range(5):
+            gate = started_job(age=60, status="completed", label=LINUX)
+            gate["completed_at"] = iso(30)
+            late = started_job(age=15, status="completed", label=LINUX)
+            late["completed_at"] = iso(5)
+            jobs[index] = [waited_job(waited=40, age=20), gate, late]
+        self.assertEqual(janitor.pool_wait_p90(jobs), {SIDE: 10 * 60})
 
     def test_bound_is_45_minutes_or_the_pools_p90_when_higher(self):
         self.assertEqual(janitor.unclaimed_bound(SIDE, {}), 45 * 60)
@@ -2046,7 +2063,7 @@ class UnclaimedLegDetectionTests(unittest.TestCase):
     def test_a_slow_pool_waits_for_its_own_p90(self):
         run, jobs = unclaimed_world(age=60)
         other = make_run(event="push", branch="other", status="in_progress", path=TUI)
-        jobs[other["id"]] = [waited_job(waited=75)]
+        jobs[other["id"]] = [waited_job(waited=75) for _ in range(5)]
         self.assertEqual(janitor.find_unclaimed([run, other], jobs, now=NOW), {})
         run, jobs2 = unclaimed_world(age=80)
         jobs2[other["id"]] = jobs[other["id"]]
@@ -2115,12 +2132,21 @@ class UnclaimedLegPlanTests(unittest.TestCase):
         failed = dict(started_job(age=100, label=LINUX, status="completed", conclusion="failure"))
         run, jobs = unclaimed_world(age=50, siblings=[failed])
         self.assertEqual(decision_for(unclaimed_plan([run], jobs, {DISPATCH_BRANCH: []}), run).action, "skip")
-        run, jobs = unclaimed_world(age=50)
-        newer = make_run(event="workflow_dispatch", branch=DISPATCH_BRANCH, sha=DISPATCH_SHA, status="in_progress",
-                         path=TUI, age=10)
-        decision = decision_for(unclaimed_plan([run, newer], jobs, {DISPATCH_BRANCH: []}), run)
+        run, jobs = unclaimed_world(age=50, event="pull_request", branch="feature", sha="aaa")
+        newer = make_run(event="pull_request", branch="feature", sha="aaa", status="in_progress", path=TUI, age=10)
+        decision = decision_for(unclaimed_plan([run, newer], jobs, {"feature": [make_pr(5)]}, heads={}), run)
         self.assertEqual(decision.action, "skip")
         self.assertIn(str(newer["id"]), decision.note)
+
+    def test_two_dispatches_at_the_same_head_do_not_block_the_rescue(self):
+        # cmux-tui.yml runs each dispatch in its own group (cmux-tui-${{ inputs.request_id }}, never cancelled
+        # in progress): a second dispatch at the head is another request, not a takeover.
+        run, jobs = unclaimed_world(age=50)
+        second = make_run(event="workflow_dispatch", branch=DISPATCH_BRANCH, sha=DISPATCH_SHA,
+                          status="in_progress", path=TUI, age=10)
+        decision = decision_for(unclaimed_plan([run, second], jobs, {DISPATCH_BRANCH: []}), run)
+        self.assertEqual((decision.action, decision.candidate.category), ("cancel", "unclaimed"))
+        self.assertIsNone(janitor.newer_run_at_head(run, [run, second]))
 
     def test_no_re_run_state_or_no_janitor_leaves_it_alone(self):
         run, jobs = unclaimed_world(age=50)
@@ -2164,12 +2190,42 @@ class UnclaimedLegRerunTests(unittest.TestCase):
                                                      now=NOW, head_runs={run["id"]: []}, branch_heads=heads)
                 self.assertEqual([d.action for d in decisions], [action])
 
+    def test_a_second_dispatch_at_the_head_never_drops_the_pending_re_run(self):
+        run = make_run(event="workflow_dispatch", branch=DISPATCH_BRANCH, sha=DISPATCH_SHA, status="completed",
+                       path=TUI)
+        run["conclusion"] = "cancelled"
+        second = make_run(event="workflow_dispatch", branch=DISPATCH_BRANCH, sha=DISPATCH_SHA, status="queued",
+                          path=TUI)
+        decisions = janitor.plan_lost_reruns([pending_entry(run)], {run["id"]: run}, {DISPATCH_BRANCH: []},
+                                             now=NOW, head_runs={run["id"]: [run, second]},
+                                             branch_heads={DISPATCH_BRANCH: DISPATCH_SHA})
+        self.assertEqual([d.action for d in decisions], ["rerun"])
+
     def test_head_lookups_are_capped_and_only_for_branches_a_push_or_dispatch_needs(self):
         runs = [make_run(event="workflow_dispatch", branch=f"b{index}") for index in range(20)]
         runs.append(make_run(event="pull_request", branch="pr-branch"))
         wanted = janitor.branch_head_lookups(runs, {run["id"] for run in runs})
-        self.assertEqual(len(wanted), janitor.BRANCH_HEAD_LOOKUPS)
+        self.assertEqual(len(wanted), janitor.CANDIDATE_HEAD_LOOKUPS)
         self.assertNotIn("pr-branch", wanted)
+
+    def test_candidates_that_could_not_be_re_run_spend_no_head_read(self):
+        runs, jobs = [], {}
+        for index, (path, actor, attempt) in enumerate(((TUI, "leo", 1), (".github/workflows/cmux-next.yml", "leo", 1),
+                                                        (TUI, "github-actions[bot]", 2))):
+            run, world = unclaimed_world(age=50, branch=f"b{index}", path=path, actor=actor, attempt=attempt)
+            runs.append(run)
+            jobs.update(world)
+        failed, world = unclaimed_world(age=50, branch="failed",
+                                        siblings=[started_job(age=90, label=LINUX, status="completed",
+                                                              conclusion="failure")])
+        opted, world2 = unclaimed_world(age=50, branch="opted")
+        runs += [failed, opted]
+        jobs.update(world)
+        jobs.update(world2)
+        prs = {"opted": [make_pr(9, head="other", labels=("no-janitor",))]}
+        wanted = janitor.branch_head_lookups(runs, {run["id"] for run in runs}, prs_by_branch=prs,
+                                             jobs_by_run=jobs, unclaimed={run["id"] for run in runs})
+        self.assertEqual(wanted, ["b0"])
 
 
 class UnclaimedLegSweepTests(unittest.TestCase):
@@ -2202,10 +2258,29 @@ class UnclaimedLegSweepTests(unittest.TestCase):
             self.sweep(fake, temp)
             self.assertEqual(fake.posts(), [])
 
+    def test_settled_cancels_get_head_reads_however_many_candidates_spend_theirs(self):
+        runs, jobs = {}, {}
+        for index in range(janitor.CANDIDATE_HEAD_LOOKUPS + 4):
+            run, world = unclaimed_world(age=50, branch=f"c{index}", sha=f"s{index}")
+            runs[run["id"]] = dict(run)
+            jobs.update(world)
+        settled = make_run(event="workflow_dispatch", branch=DISPATCH_BRANCH, sha=DISPATCH_SHA, status="completed",
+                           path=TUI, age=120)
+        settled["conclusion"] = "cancelled"
+        runs[settled["id"]] = settled
+        fake = FakeGitHub(runs, jobs)
+        fake.branches[DISPATCH_BRANCH] = DISPATCH_SHA
+        fake.snapshots.append({"generated_at": iso(10), "pools": {}, "lost_reruns": [pending_entry(settled)]})
+        with tempfile.TemporaryDirectory() as temp:
+            self.sweep(fake, temp)
+        self.assertIn([str(settled["id"]), "rerun-failed-jobs"], fake.posts())
+        reads = [path for _, path in fake.log if "/branches/" in path]
+        self.assertEqual(len(reads), janitor.CANDIDATE_HEAD_LOOKUPS + 1)
+
     def test_the_snapshot_carries_each_owned_pools_p90_wait(self):
         run, jobs = unclaimed_world(age=10)
         other = make_run(event="push", branch="other", status="in_progress", path=TUI)
-        jobs[other["id"]] = [waited_job(waited=12)]
+        jobs[other["id"]] = [waited_job(waited=12) for _ in range(5)]
         fake = FakeGitHub({run["id"]: dict(run), other["id"]: dict(other)}, jobs)
         with tempfile.TemporaryDirectory() as temp:
             self.sweep(fake, temp)
