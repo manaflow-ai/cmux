@@ -1,0 +1,8 @@
+{
+  "title": "Update Everything: the one confirmation",
+  "steps": [
+    {"title": "Launch", "wait": 2},
+    {"title": "The progress toast a run shows", "cmux": ["app", "call", "debug.update_everything", "{\"action\": \"progress\"}"], "wait": 2},
+    {"title": "The confirmation: This Mac, an SSH machine, a Cloud machine and a paired server (included by its setting)", "cmux": ["app", "call", "debug.update_everything", "{\"action\": \"confirm\"}"], "wait": 2}
+  ]
+}

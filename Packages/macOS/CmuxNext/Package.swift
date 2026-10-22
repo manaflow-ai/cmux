@@ -262,6 +262,7 @@ let package = Package(
                 "CmuxNextMobile",
                 "CmuxNextMobileHost",
                 "CmuxNextUpdater",
+                "CmuxNextUpdateEverything",
                 "CmuxNextWebUpdates",
                 "CmuxNextResources",
                 "CmuxNextBrowserImport",
@@ -1061,6 +1062,15 @@ let package = Package(
             ],
             swiftSettings: uiSwiftSettings
         ),
+        // Update Everything (cx-1mbnu) and the app's update actions: the plan, confirmation,
+        // runner, relaunch note, daemon reads and agent CLI steps over an injected
+        // UpdateEverythingHost (kept out of CmuxNextApp's size cap).
+        .target(
+            name: "CmuxNextUpdateEverything",
+            dependencies: ["CmuxNextActions", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDaemonService", "CmuxNextDesign", "CmuxNextRemote", "CmuxNextUpdater"],
+            resources: [.process("Resources/Localizable.xcstrings")],
+            swiftSettings: uiSwiftSettings
+        ),
         // Web updates in the app (plans/cmux-next/web-ota.md): serves a signed web update from
         // a safe point and answers `updates.web.*`.
         .target(
@@ -1445,6 +1455,7 @@ let package = Package(
                 "CmuxNextTabs",
                 "CmuxNextTasks",
                 "CmuxNextTerminalGeometry",
+                "CmuxNextUpdateEverything",
                 "CmuxNextVSCodeServer",
                 "CmuxNextWakeups",
                 "CmuxNextWorkspaceNaming",

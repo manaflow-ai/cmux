@@ -71376,6 +71376,268 @@
         }
       }
     },
+    "settings.updates.updateEverythingServers": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تضمين الخوادم المقترنة في «تحديث كل شيء»"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uključi uparene servere u Ažuriraj sve"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Medtag parrede servere i Opdater alt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gekoppelte Server in „Alles aktualisieren“ einbeziehen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Include Paired Servers in Update Everything"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Incluir servidores emparejados en Actualizar todo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inclure les serveurs appairés dans Tout mettre à jour"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Includi i server abbinati in Aggiorna tutto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「すべてをアップデート」にペアリング済みサーバーを含める"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រួមបញ្ចូលម៉ាស៊ីនមេដែលបានផ្គូផ្គងក្នុង «ធ្វើបច្ចុប្បន្នភាពទាំងអស់»"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모두 업데이트에 페어링된 서버 포함"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta med parede servere i Oppdater alt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uwzględnij sparowane serwery w Zaktualizuj wszystko"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Incluir servidores pareados em Atualizar Tudo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Включать сопряжённые серверы в «Обновить всё»"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "รวมเซิร์ฟเวอร์ที่จับคู่ไว้ใน “อัปเดตทั้งหมด”"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eşleştirilmiş sunucuları Her Şeyi Güncelle'ye dahil et"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Включати спарені сервери в «Оновити все»"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bao gồm máy chủ đã ghép đôi trong Cập nhật tất cả"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在“全部更新”中包含已配对的服务器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在「全部更新」中包含已配對的伺服器"
+          }
+        }
+      }
+    },
+    "settings.updates.updateEverythingServers.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحدّث «تحديث كل شيء» أيضًا أدوات CLI للوكلاء على خوادمك المقترنة ويعيد تشغيل محادثاتها. لا يُعاد تثبيت cmux على الخادم أبدًا؛ يتولى مثبّته تحديثه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ažuriraj sve ažurira i CLI alate agenata na tvojim uparenim serverima i ponovo pokreće njihove razgovore. cmux na serveru se nikad ne reinstalira; ažurira ga njegov vlastiti instalater."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opdater alt opdaterer også agent-CLI'erne på dine parrede servere og genstarter deres chats. En servers cmux geninstalleres aldrig; dens egen installer opdaterer den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„Alles aktualisieren“ aktualisiert auch die Agent-CLIs auf deinen gekoppelten Servern und startet ihre Chats neu. cmux auf einem Server wird nie neu installiert; das übernimmt sein eigenes Installationsprogramm."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update Everything also updates the agent CLIs on your paired servers and restarts their chats. A server's cmux is never reinstalled; its own installer updates it."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actualizar todo también actualiza las CLI de agentes en tus servidores emparejados y reinicia sus chats. El cmux de un servidor nunca se reinstala; lo actualiza su propio instalador."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tout mettre à jour met aussi à jour les CLI d’agents sur vos serveurs appairés et redémarre leurs discussions. Le cmux d’un serveur n’est jamais réinstallé ; son propre installateur le met à jour."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiorna tutto aggiorna anche le CLI degli agenti sui server abbinati e riavvia le loro chat. Il cmux di un server non viene mai reinstallato; lo aggiorna il suo programma di installazione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「すべてをアップデート」は、ペアリング済みサーバーのエージェント CLI もアップデートし、そのチャットを再起動します。サーバーの cmux は再インストールされません。サーバー自身のインストーラがアップデートします。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«ធ្វើបច្ចុប្បន្នភាពទាំងអស់» ក៏ធ្វើបច្ចុប្បន្នភាព CLI របស់ភ្នាក់ងារនៅលើម៉ាស៊ីនមេដែលបានផ្គូផ្គង ហើយចាប់ផ្ដើមការជជែករបស់វាឡើងវិញ។ cmux របស់ម៉ាស៊ីនមេមិនដែលត្រូវបានដំឡើងឡើងវិញទេ កម្មវិធីដំឡើងរបស់វាផ្ទាល់ធ្វើបច្ចុប្បន្នភាពវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모두 업데이트가 페어링된 서버의 에이전트 CLI도 업데이트하고 해당 채팅을 다시 시작합니다. 서버의 cmux는 다시 설치되지 않으며, 서버 자체 설치 프로그램이 업데이트합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oppdater alt oppdaterer også agent-CLI-ene på de parede serverne dine og starter chattene deres på nytt. En servers cmux installeres aldri på nytt; dens eget installasjonsprogram oppdaterer den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zaktualizuj wszystko aktualizuje też CLI agentów na sparowanych serwerach i uruchamia ponownie ich czaty. cmux na serwerze nigdy nie jest instalowany ponownie; aktualizuje go jego własny instalator."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atualizar Tudo também atualiza as CLIs de agentes nos seus servidores pareados e reinicia os chats deles. O cmux de um servidor nunca é reinstalado; o próprio instalador dele o atualiza."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«Обновить всё» также обновляет CLI агентов на сопряжённых серверах и перезапускает их чаты. cmux на сервере никогда не переустанавливается; его обновляет собственный установщик сервера."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“อัปเดตทั้งหมด” จะอัปเดต CLI ของเอเจนต์บนเซิร์ฟเวอร์ที่จับคู่ไว้และเริ่มแชทของเซิร์ฟเวอร์ใหม่ด้วย cmux ของเซิร์ฟเวอร์จะไม่ถูกติดตั้งใหม่ ตัวติดตั้งของเซิร์ฟเวอร์เองเป็นผู้อัปเดต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Her Şeyi Güncelle, eşleştirilmiş sunucularındaki ajan CLI'larını da günceller ve sohbetlerini yeniden başlatır. Bir sunucunun cmux'u asla yeniden kurulmaz; onu kendi yükleyicisi günceller."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«Оновити все» також оновлює CLI агентів на спарених серверах і перезапускає їхні чати. cmux на сервері ніколи не перевстановлюється; його оновлює власний інсталятор сервера."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cập nhật tất cả cũng cập nhật CLI của tác tử trên các máy chủ đã ghép đôi và khởi động lại các cuộc trò chuyện của chúng. cmux trên máy chủ không bao giờ được cài lại; trình cài đặt riêng của máy chủ sẽ cập nhật nó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“全部更新”也会更新已配对服务器上的智能体 CLI，并重启其聊天。服务器上的 cmux 永远不会被重新安装，由服务器自己的安装程序更新。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「全部更新」也會更新已配對伺服器上的代理程式 CLI，並重新啟動其聊天。伺服器上的 cmux 永遠不會重新安裝，由伺服器自己的安裝程式更新。"
+          }
+        }
+      }
+    },
     "settings.layout.newPanePlacement": {
       "extractionState": "manual",
       "localizations": {
