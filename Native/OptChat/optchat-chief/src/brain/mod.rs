@@ -35,6 +35,7 @@ mod mux_ack;
 mod outbox;
 mod previews;
 mod prewarm;
+pub mod reaction_wake;
 mod recover;
 mod replies;
 mod send;
@@ -44,6 +45,7 @@ mod steer;
 mod transcript;
 mod turns;
 mod wakes;
+pub use reaction_wake::{JudgeAsk, ReactionJudge};
 pub use replies::{REACTIONS, reaction, tapback};
 pub use steer::STEER_DEADLINE;
 pub use transcript::{TRANSCRIPT_DEFAULT, TRANSCRIPT_MAX};
@@ -764,6 +766,8 @@ pub struct Brain {
     repeat_denials: u32,
     /// Writes the log's description of each turn image (None: references only).
     describer: Option<Arc<dyn images::Describe>>,
+    /// A user's reaction that may wake the Chief (reaction_wake.rs).
+    reaction_wake: reaction_wake::State,
     /// Images being described now (`conversation/hash`), started once each.
     describing: HashSet<String>,
     /// Highest seq handled (queued or skipped) of each side conversation;
@@ -931,6 +935,7 @@ impl Brain {
             turn_view: None,
             turn_engine: None,
             describer: None,
+            reaction_wake: reaction_wake::State::default(),
             describing: HashSet::new(),
             side_handled: HashMap::new(),
             mux_pending: HashMap::new(),

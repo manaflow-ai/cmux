@@ -35,6 +35,20 @@ pub struct EngineChoice {
     pub speed: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compactor_speed: Option<String>,
+    /// The reaction classifier's harness (reaction_wake.rs); None: the
+    /// user's `chief.reactionClassifier.harness`, else the host's Claude route.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub classifier_harness: Option<String>,
+    /// The reaction classifier's model; None: the user's, else Claude Haiku.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub classifier_model: Option<String>,
+    /// The reaction classifier's prompt; None: the user's, else the built-in one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub classifier_prompt: Option<String>,
+    /// Whether a user's reaction on a Chief message may wake this Chief;
+    /// None: the user's `chief.reactionsCanWake`, else on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reactions_can_wake: Option<bool>,
 }
 
 /// The speeds a Chief engine takes: `default` (the harness's) and `fast`
