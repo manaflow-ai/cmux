@@ -6,4 +6,12 @@ extension SidebarModel {
         if let group = collapsedGroup(of: id) { revealedMembers[group, default: []].insert(id) }
         SidebarLookedStore.shared.stamp(id)
     }
+
+    /// Collapsed groups stop drawing the members the selection left (`revealedMembers`); only the active one stays.
+    /// Returns whether any group drew one.
+    func forgetRevealedMembers() -> Bool {
+        guard !revealedMembers.isEmpty else { return false }
+        revealedMembers = [:]
+        return true
+    }
 }

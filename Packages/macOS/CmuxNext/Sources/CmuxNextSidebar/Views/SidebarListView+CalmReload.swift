@@ -26,6 +26,18 @@ extension SidebarListView {
         return true
     }
 
+    /// A member a collapsed group kept drawing after the selection left it (a click moves no row, #22960) folds away
+    /// once the pointer is not over the rows (Lawrence 2026-10-21: "if we choose another workspace, it should
+    /// completely disappear"), with its line and fills. A selection made away from the list (a key, the palette, the
+    /// CLI) folds it at once; a click folds it when the pointer leaves. False when nothing folded.
+    @discardableResult
+    func foldLeftMembers() -> Bool {
+        guard drag == nil, settling == nil, landing == nil, external == nil, !pointerIsOverList(self),
+              model.forgetRevealedMembers() else { return false }
+        reload(animated: model.followsUserIntent, fromModel: true)
+        return true
+    }
+
     /// Shows a change held while the pointer was over the rows, in one step.
     func releaseHeldModelChange() {
         guard holdsModelChange, drag == nil, settling == nil, landing == nil, external == nil else { return }

@@ -26,7 +26,8 @@ extension SidebarListViewComponents {
 }
 
 extension SidebarGroupLine {
-    /// Every open group in `rows` with shown members: its line from just
+    /// Every group in `rows` with shown members (an open group's, or the
+    /// member a collapsed group draws): its line from just
     /// under the header bar, rounded off there (cg-design-judge 2026-10-14: a
     /// line under the bar cut its rounded corner), to the last member row's
     /// bottom, rounded off just above it, just left of the members' rows
@@ -44,7 +45,8 @@ extension SidebarGroupLine {
         }
         let width = SidebarStyle.groupBarWidth
         return headers.compactMap { id, header in
-            guard !header.isCollapsed, let end = last[id], end.y > header.y else { return nil }
+            // A collapsed group's shown member (its active one) has the line too (Lawrence 2026-10-21: "should still show left rail").
+            guard let end = last[id], end.y > header.y else { return nil }
             let head = frame(header), tail = frame(end)
             // The header's bar fills its row: the line starts just under it.
             let top = head.maxY + Metrics.space1, bottom = tail.maxY - Metrics.space1

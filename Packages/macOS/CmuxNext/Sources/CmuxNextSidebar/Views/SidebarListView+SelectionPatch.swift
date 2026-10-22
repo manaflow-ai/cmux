@@ -17,6 +17,9 @@ extension SidebarListViewComponents {
     /// kept it out of "Done (N)" or "Show N more": a click moves no row, and the next reload folds it.
     func patchSelection(from oldItem: SidebarItem?, oldSelection: Set<WorkspaceID>) -> Bool {
         guard drag == nil, external == nil, settling == nil, landing == nil, !displayed.rows.isEmpty else { return false }
+        // A selection made away from the rows folds the members collapsed groups kept (`foldLeftMembers`): the caller's
+        // reload draws it without them.
+        if !pointerIsOverList(self), model.forgetRevealedMembers() { return false }
         let oldActive: WorkspaceID? = if case let .workspace(id)? = oldItem { id } else { nil }
         let newActive = model.activeWorkspaceID
         // A collapsed group's member the list does not draw yet joins the rows; one it draws stays (`revealedMembers`).
