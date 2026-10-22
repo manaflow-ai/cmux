@@ -49,15 +49,17 @@ impl Hub {
         )?;
         let std_cmd = cmd.as_std();
         let dir = pool_dir();
+        let env = if draft.remote_origin {
+            crate::agent::command_env_cleared(&cmd)
+        } else {
+            crate::agent::command_env(&cmd)
+        };
         let host_spec = agent_host::SpawnSpec {
             session_id: session_id.clone(),
             program: std_cmd.get_program().to_string_lossy().into_owned(),
             args: std_cmd.get_args().map(|a| a.to_string_lossy().into_owned()).collect(),
-            env: if draft.remote_origin {
-                crate::agent::command_env_cleared(&cmd)
-            } else {
-                crate::agent::command_env(&cmd)
-            },
+            uses_local_router: Some(crate::routes::names_local_router(&env)),
+            env,
             cwd: draft.cwd.clone(),
             codex_bridge: !claude && crate::codex_app_server::is_profile_launch(&profile.argv),
             translator,
