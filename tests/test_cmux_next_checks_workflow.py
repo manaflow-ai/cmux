@@ -1159,7 +1159,9 @@ class FastTierBuildsLibghosttyVt(unittest.TestCase):
         self.assertIn("github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404'", runs_on)
         self.assertTrue(runs_on.endswith("'blacksmith-32vcpu-ubuntu-2404' }}"), runs_on)
         self.assertNotIn("vars.", runs_on, "an ephemeral Linux VM, never a reused mini")
-        self.assertEqual(cargo["if"], mac["if"])
+        # The same gate, except that the Mac half also follows the route (MacFastTierFollowsTheRoute).
+        self.assertEqual(cargo["if"], mac["if"].replace(" && needs.path_route.outputs.macos != 'false'", ""))
+        self.assertNotEqual(cargo["if"], mac["if"])
         self.assertEqual(cargo["needs"], ["push-head-preflight"])
         self.assertEqual(cargo["concurrency"]["group"], mac["concurrency"]["group"].replace("-fast-tier'", "-fast-tier-cargo'"))
         self.assertNotEqual(cargo["name"], mac["name"])
