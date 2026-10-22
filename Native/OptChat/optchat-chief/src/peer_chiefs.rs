@@ -642,9 +642,15 @@ fn bridge_cli(
             .collect();
         return Ok(serde_json::to_string_pretty(&rows).unwrap_or_default());
     }
+    // --chief, else the config's "chief" (the unit names no account id).
+    let from_config = std::fs::read_to_string(config)
+        .ok()
+        .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+        .and_then(|v| v.get("chief").and_then(Value::as_str).map(str::to_owned));
     let chief = chief
-        .ok_or("bridge needs --chief agent_… (see --list)")?
-        .to_owned();
+        .map(str::to_owned)
+        .or(from_config)
+        .ok_or("bridge needs --chief agent_… or \"chief\" in the config (see --list)")?;
     let peers = PeerChiefs::from_file(config)?
         .ok_or_else(|| format!("{}: no peer Chiefs configured", config.display()))?;
     let lease: Mutex<Option<crate::cloud::auth::Lease>> = Mutex::new(None);
