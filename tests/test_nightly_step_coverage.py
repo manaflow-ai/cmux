@@ -283,7 +283,7 @@ def pr_routes(workflows: dict) -> dict:
         skipped = skipped_jobs(workflows[name], inputs)
         for job_id, job in jobs(workflows[name]).items():
             callee = local_callee(job)
-            if callee not in workflows or job_id in skipped:
+            if callee not in workflows or job_id in skipped or matrix_rows(job, inputs) == []:
                 continue
             passed = {key: literal_input(value) for key, value in (job.get("with") or {}).items()}
             passed = {key: value for key, value in passed.items() if value is not None}
