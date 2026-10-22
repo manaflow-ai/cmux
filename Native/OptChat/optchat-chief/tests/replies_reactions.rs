@@ -452,11 +452,21 @@ fn a_user_tapback_on_a_chief_reply_reaches_the_next_turn() {
         .map(|(_, text)| text)
         .collect();
     let quoted = reply_text.lines().next().unwrap_or_default().to_owned();
+    let who = h
+        .owner
+        .lock()
+        .unwrap()
+        .summary
+        .as_ref()
+        .and_then(|s| s.participants.iter().find(|p| p.id == "user_local"))
+        .map(|p| p.display_name.clone())
+        .filter(|n| !n.is_empty())
+        .unwrap_or_else(|| "user_local".into());
     assert_eq!(
         notes,
         vec![
-            format!("reaction ❤️ love from user_local on your message: {quoted}"),
-            format!("reaction 🔥 from user_local on your message: {quoted}"),
+            format!("reaction ❤️ love from {who} on your message: {quoted}"),
+            format!("reaction 🔥 from {who} on your message: {quoted}"),
         ],
         "one note per user reaction, none for the Chief's own"
     );
@@ -470,7 +480,7 @@ fn a_user_tapback_on_a_chief_reply_reaches_the_next_turn() {
         .map(|b| b["text"].as_str().unwrap_or_default())
         .collect();
     assert!(
-        next.contains("reaction ❤️ love from user_local on your message"),
+        next.contains(&format!("reaction ❤️ love from {who} on your message")),
         "the next turn reads the tapback: {next}"
     );
 }
