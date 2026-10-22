@@ -6,8 +6,9 @@
 //! session on this daemon or on a peer behind ssh, connected or not. The daemon then delivers it
 //! in the background, retrying with the same prompt id, so a target that already took it answers
 //! with the first outcome instead of running it twice. Each delivery is `queued`, `delivering`
-//! (attempt n), `delivered` (the target's acceptance: its session, turn and whether it steered)
-//! or `failed` (the last error). The record is saved in `outbox.json` beside the sessions on
+//! (attempt n), `delivered` (the target's acceptance: its session, turn and whether it steered),
+//! `held` (the runaway guard holds it until the person resumes the pair, `agent_pairs.rs`) or
+//! `failed` (the last error). The record is saved in `outbox.json` beside the sessions on
 //! every change, so a daemon restart goes on with what was not delivered yet; a store in memory
 //! keeps it in memory. Settled deliveries are kept for [`KEEP_SETTLED_MS`].
 //!
@@ -34,6 +35,9 @@ pub enum State {
     Queued,
     Delivering,
     Delivered,
+    /// The target's daemon holds it for a paused agent pair: it runs when the person resumes the
+    /// pair, never by a retry here.
+    Held,
     Failed,
 }
 
@@ -68,7 +72,7 @@ impl Delivery {
     }
 
     pub fn settled(&self) -> bool {
-        matches!(self.state, State::Delivered | State::Failed)
+        matches!(self.state, State::Delivered | State::Held | State::Failed)
     }
 
     /// What `_acpmux/send_status` answers.
@@ -100,10 +104,13 @@ impl Outbox {
     /// Reads the saved deliveries at `path` and saves there from now on. Returns the ones not
     /// settled, to deliver again. A file that cannot be read starts empty (and is replaced).
     pub fn open(&self, path: &Path) -> Vec<Delivery> {
-        let saved: BTreeMap<String, Delivery> = std::fs::read(path)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-            .unwrap_or_default();
+        let saved: BTreeMap<String, Delivery> = match std::fs::read(path) {
+            Ok(bytes) => serde_json::from_slice(&bytes).unwrap_or_else(|e| {
+                tracing::warn!("outbox: {} cannot be read, starting empty: {e}", path.display());
+                BTreeMap::new()
+            }),
+            Err(_) => BTreeMap::new(),
+        };
         *self.path.lock().unwrap_or_else(|e| e.into_inner()) = Some(path.to_owned());
         let mut deliveries = self.deliveries.lock().unwrap_or_else(|e| e.into_inner());
         deliveries.extend(saved);
@@ -158,26 +165,47 @@ impl Outbox {
 
 type AcceptHook = Box<dyn FnOnce(Value) + Send>;
 
-/// Prompts forwarded to a peer that wait for the peer's acceptance, by prompt id.
+/// Prompts forwarded to a peer that wait for the peer's acceptance, by peer and prompt id. Two
+/// forwards of one id (a retry while the first still waits) each get theirs.
 #[derive(Default)]
-pub struct PeerAccepts(StdMutex<HashMap<String, AcceptHook>>);
+pub struct PeerAccepts {
+    hooks: StdMutex<HashMap<(String, String), Vec<(u64, AcceptHook)>>>,
+    next: std::sync::atomic::AtomicU64,
+}
 
 impl PeerAccepts {
-    /// Calls `hook` with the peer's `_acpmux/prompt_accepted` for `prompt_id`, once.
-    pub fn wait(&self, prompt_id: &str, hook: AcceptHook) {
-        self.0.lock().unwrap_or_else(|e| e.into_inner()).insert(prompt_id.to_owned(), hook);
+    /// Calls `hook` with peer `peer`'s `_acpmux/prompt_accepted` for `prompt_id`, once. Returns
+    /// the wait's token for [`Self::forget`].
+    pub fn wait(&self, peer: &str, prompt_id: &str, hook: AcceptHook) -> u64 {
+        let token = self.next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let key = (peer.to_owned(), prompt_id.to_owned());
+        self.hooks
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .entry(key)
+            .or_default()
+            .push((token, hook));
+        token
     }
 
-    /// The forwarded prompt answered: no acceptance is waited for any more.
-    pub fn forget(&self, prompt_id: &str) {
-        self.0.lock().unwrap_or_else(|e| e.into_inner()).remove(prompt_id);
+    /// The forwarded prompt answered: this wait no longer listens.
+    pub fn forget(&self, peer: &str, prompt_id: &str, token: u64) {
+        let mut hooks = self.hooks.lock().unwrap_or_else(|e| e.into_inner());
+        let key = (peer.to_owned(), prompt_id.to_owned());
+        if let Some(waits) = hooks.get_mut(&key) {
+            waits.retain(|(t, _)| *t != token);
+            if waits.is_empty() {
+                hooks.remove(&key);
+            }
+        }
     }
 
-    /// A peer's `_acpmux/prompt_accepted` arrived.
-    pub fn accepted(&self, params: &Value) {
+    /// Peer `peer`'s `_acpmux/prompt_accepted` arrived: every forward of that id to it hears it.
+    pub fn accepted(&self, peer: &str, params: &Value) {
         let Some(prompt_id) = params.get("promptId").and_then(Value::as_str) else { return };
-        let hook = self.0.lock().unwrap_or_else(|e| e.into_inner()).remove(prompt_id);
-        if let Some(hook) = hook {
+        let key = (peer.to_owned(), prompt_id.to_owned());
+        let waits = self.hooks.lock().unwrap_or_else(|e| e.into_inner()).remove(&key);
+        for (_, hook) in waits.into_iter().flatten() {
             hook(params.clone());
         }
     }

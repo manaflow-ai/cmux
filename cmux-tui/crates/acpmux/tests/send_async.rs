@@ -77,6 +77,23 @@ impl C {
         c
     }
 
+    /// The connection a session's own tools open: `initialize` with its caller token.
+    async fn as_session(h: Arc<Hub>, id: &str) -> Self {
+        let (in_tx, in_rx) = mpsc::channel(64);
+        let (out_tx, out_rx) = mpsc::channel(4096);
+        tokio::spawn(serve_connection(h, in_rx, out_tx));
+        let mut c = C { tx: in_tx, rx: out_rx, next: 0 };
+        let token = acpmux::hub::person::caller_token(id);
+        c.call(
+            method::INITIALIZE,
+            json!({"protocolVersion": 1,
+                   "_meta": {"acpmux": {"callerSession": {"sessionId": id, "token": token}}}}),
+        )
+        .await
+        .unwrap();
+        c
+    }
+
     async fn send(&mut self, m: &str, p: Value) -> i64 {
         self.next += 1;
         self.tx.send(Message::request(self.next, m, p).to_line()).await.unwrap();
@@ -243,4 +260,45 @@ async fn send_queue_to_a_peer_that_is_down_acks_at_once_and_keeps_trying() {
         .await
         .unwrap_err();
     assert!(e.contains("no session"), "{e}");
+}
+
+/// A session repeating itself to another is paused (`hub/agent_pairs.rs`): the delivery settles
+/// as `held` with the refusal, never retried, so `--no-wait` shows the sender the refusal a
+/// direct send gave.
+#[tokio::test]
+async fn a_paused_agent_pair_holds_the_delivery_and_says_so() {
+    let mut cfg = config();
+    cfg.harnesses.get_mut("fake").unwrap().family = Some("codex".into());
+    let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    let h = Hub::new(cfg, store);
+    let mut c = C::new(h.clone()).await;
+    let new = || json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"harness": "fake"}}});
+    let a =
+        c.call(method::SESSION_NEW, new()).await.unwrap()["sessionId"].as_str().unwrap().to_owned();
+    let b =
+        c.call(method::SESSION_NEW, new()).await.unwrap()["sessionId"].as_str().unwrap().to_owned();
+    let mut lane = C::as_session(h, &a).await;
+    let mut last = Value::Null;
+    for (n, text) in [
+        "Please check the build, run 1",
+        "please  check the BUILD, run 2",
+        "Please check the build, run 3",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let queued = lane
+            .call(SEND_QUEUE, json!({"request": prompt(&b, text, &format!("p-pair-{n}"))}))
+            .await
+            .unwrap();
+        let delivery = queued["deliveryId"].as_str().unwrap().to_owned();
+        last =
+            lane.call(SEND_STATUS, json!({"deliveryId": delivery, "waitMs": 5000})).await.unwrap();
+        if n < 2 {
+            assert_eq!(last["status"], "delivered", "message {n}: {last}");
+        }
+    }
+    assert_eq!(last["status"], "held", "the third near-identical message is held: {last}");
+    assert_eq!(last["attempts"], 1, "a held message is not sent again: {last}");
+    assert!(last["error"].as_str().is_some_and(|e| !e.is_empty()), "{last}");
 }

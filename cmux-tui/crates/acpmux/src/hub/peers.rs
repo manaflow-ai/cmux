@@ -496,7 +496,7 @@ impl Hub {
                 PeerNotice::Notification { method: m, params }
                     if m == method::MUX_PROMPT_ACCEPTED =>
                 {
-                    self.peer_accepts.accepted(&params);
+                    self.peer_accepts.accepted(&peer, &params);
                 }
                 PeerNotice::Notification { method: m, params } if m == "_acpmux/lagged" => {
                     let ids: Vec<String> = self

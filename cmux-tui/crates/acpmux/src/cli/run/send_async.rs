@@ -32,8 +32,9 @@ pub(super) async fn queue(
         .await
         .unwrap_or(queued);
     let state = status.get("status").and_then(Value::as_str).unwrap_or("queued");
-    // A refusal the target gave at once (its folder's trust, a bad prompt) is this send's error.
-    if state == "failed" {
+    // A refusal the target gave at once (its folder's trust, a bad prompt, a paused or full agent
+    // pair) is this send's error, as it was before the outbox.
+    if matches!(state, "failed" | "held") {
         let error = status.get("error").and_then(Value::as_str).unwrap_or("delivery failed");
         return Err(anyhow!("{error}"));
     }

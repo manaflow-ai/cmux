@@ -10,7 +10,9 @@
 //! answer), on a refusal, or after [`ATTEMPT_WAIT`]. A connection error, a peer that is down
 //! and a slow target are tried again after [`RETRY_DELAYS_SECS`], with the same prompt id and
 //! `resend`, so a target that took the first attempt answers with it and never runs it twice. A
-//! refusal (no such session, the folder's trust, a bad prompt) fails the delivery at once.
+//! refusal (no such session, the folder's trust, a bad prompt, a full agent pair) fails the
+//! delivery at once, and a paused agent pair (`agent_pairs.rs`) leaves it `held` there: the
+//! person's resume runs it, so it is never sent again from here.
 //!
 //! `send_status {deliveryId, waitMs?}` answers the delivery's state, after waiting up to
 //! `waitMs` (at most [`MAX_STATUS_WAIT_MS`]) for it to settle.
@@ -19,6 +21,17 @@ use std::time::Duration;
 
 use super::*;
 use crate::hub::outbox::{Delivery, State};
+
+/// What an attempt that did not deliver leaves the delivery as.
+#[derive(Debug, PartialEq)]
+enum Next {
+    /// Tried again after the next delay.
+    Retry,
+    /// A refusal: failed, with its error.
+    Fail,
+    /// The target holds it for a paused agent pair.
+    Held,
+}
 
 /// How long one attempt waits for the target's acceptance.
 const ATTEMPT_WAIT: Duration = Duration::from_secs(120);
@@ -146,10 +159,14 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                 });
                 return;
             }
-            Err((error, retry)) => {
-                let delay = delays.next().filter(|_| retry);
+            Err((error, next)) => {
+                let delay = delays.next().filter(|_| next == Next::Retry);
                 hub.outbox.update(id, |d| {
-                    d.state = if delay.is_some() { State::Queued } else { State::Failed };
+                    d.state = match (next, delay) {
+                        (Next::Held, _) => State::Held,
+                        (_, Some(_)) => State::Queued,
+                        _ => State::Failed,
+                    };
                     d.error = Some(error);
                 });
                 let Some(secs) = delay else { return };
@@ -164,7 +181,7 @@ async fn attempt_once(
     hub: &Arc<Hub>,
     caller: Option<&str>,
     request: Value,
-) -> Result<Value, (String, bool)> {
+) -> Result<Value, (String, Next)> {
     let prompt_id = request
         .pointer("/_meta/acpmux/promptId")
         .and_then(Value::as_str)
@@ -192,7 +209,7 @@ async fn attempt_once(
     ];
     for line in lines {
         if in_tx.send(line).await.is_err() {
-            return Err(("this daemon's connection closed".into(), true));
+            return Err(("this daemon's connection closed".into(), Next::Retry));
         }
     }
     let deadline = tokio::time::sleep(ATTEMPT_WAIT);
@@ -201,35 +218,53 @@ async fn attempt_once(
         let line = tokio::select! {
             line = out_rx.recv() => line,
             () = &mut deadline => {
-                return Err((format!("no answer within {} s", ATTEMPT_WAIT.as_secs()), true));
+                return Err((
+                    format!("no answer within {} s", ATTEMPT_WAIT.as_secs()),
+                    Next::Retry,
+                ));
             }
         };
         let Some(line) = line else {
-            return Err(("this daemon's connection closed".into(), true));
+            return Err(("this daemon's connection closed".into(), Next::Retry));
         };
         match Message::parse(&line) {
+            // A duplicate with no turn is a run of this id still in flight, which may yet be
+            // held or refused: its answer says.
             Ok(Message::Notification { method: m, params: Some(p) })
                 if m == method::MUX_PROMPT_ACCEPTED
-                    && p.get("promptId").and_then(Value::as_str) == Some(prompt_id.as_str()) =>
+                    && p.get("promptId").and_then(Value::as_str) == Some(prompt_id.as_str())
+                    && !(p["duplicate"] == true && p["turnId"].is_null()) =>
             {
                 return Ok(p);
             }
             Ok(Message::Response { id, result, error }) if id == 2 => {
                 return match error {
                     None => Ok(result.unwrap_or(Value::Null)),
-                    Some(e) => Err((e.message.clone(), retryable(&e))),
+                    Some(e) => Err((e.message.clone(), next(&e))),
                 };
             }
             Ok(Message::Response { id, error: Some(e), .. }) if id == 1 => {
-                return Err((e.message, true));
+                return Err((e.message, Next::Retry));
             }
             _ => {}
         }
     }
 }
 
-/// A refusal is final; a connection, a peer or a timeout is tried again.
-fn retryable(e: &RpcError) -> bool {
-    let flagged = e.data.as_ref().and_then(|d| d.get("retryable")).and_then(Value::as_bool);
-    flagged.unwrap_or(e.code != RpcError::invalid_params("").code)
+/// A paused pair holds it; any other refusal (a full pair among them) is final; a connection, a
+/// peer or a timeout is tried again.
+fn next(e: &RpcError) -> Next {
+    let data = e.data.as_ref();
+    if data.and_then(|d| d.get("held")).and_then(Value::as_bool) == Some(true) {
+        return Next::Held;
+    }
+    let reason = data.and_then(|d| d.get("reason")).and_then(Value::as_str).unwrap_or_default();
+    let flagged = data.and_then(|d| d.get("retryable")).and_then(Value::as_bool);
+    match flagged {
+        _ if reason.starts_with("agent_pair.") => Next::Fail,
+        Some(true) => Next::Retry,
+        Some(false) => Next::Fail,
+        None if e.code != RpcError::invalid_params("").code => Next::Retry,
+        None => Next::Fail,
+    }
 }

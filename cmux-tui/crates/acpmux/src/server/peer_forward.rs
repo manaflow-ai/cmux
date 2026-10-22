@@ -142,9 +142,10 @@ async fn forward_inner(
             .then(|| p.pointer("/_meta/acpmux/promptId").and_then(Value::as_str))
             .flatten()
             .map(str::to_owned);
-        if let Some(prompt_id) = &accept {
+        let token = accept.as_ref().map(|prompt_id| {
             let (conn, peer_name) = (conn.clone(), peer.name.clone());
             hub.peer_accepts.wait(
+                &peer.name,
                 prompt_id,
                 Box::new(move |mut v| {
                     if let Some(obj) = v.as_object_mut() {
@@ -152,11 +153,11 @@ async fn forward_inner(
                     }
                     conn.send(&Message::notification(method::MUX_PROMPT_ACCEPTED, v));
                 }),
-            );
-        }
+            )
+        });
         let result = peer.request(m, p).await;
-        if let Some(prompt_id) = &accept {
-            hub.peer_accepts.forget(prompt_id);
+        if let (Some(prompt_id), Some(token)) = (&accept, token) {
+            hub.peer_accepts.forget(&peer.name, prompt_id, token);
         }
         let mut result = result.map_err(|e| {
                         if e.message.contains("Method not found") {
