@@ -42,4 +42,19 @@ import Testing
         #expect(LinkPairing.boxKey(try frame(signedBy: identity, box: "04" + String(repeating: "00", count: 64)), mac: Self.mac, identityKey: identityHex) == nil)
         #expect(LinkPairing.boxKeyMessage(mac: "m", boxKey: "04") == Data("cmux-mobile-mac-box-v1\u{0}m\u{0}04".utf8))
     }
+
+    /// The Mac host's vectors: the push key and box key statements are the same bytes, and their signatures verify.
+    @Test func matchesTheMacHostsKeyStatements() throws {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("rust/crates/cmux-mobile-host/tests/fixtures/seal-vectors.json")
+        let v = try JSONDecoder().decode([String: JSONValue].self, from: try Data(contentsOf: url))
+        func s(_ k: String) throws -> String { try #require(v[k]?.stringValue) }
+        let mac = try s("mac"), phone = try s("phone")
+        #expect(PushSignature.hex(LinkPairing.pushKeyMessage(mac: mac, phone: phone, pushKey: try s("phonePushKey"))) == (try s("pushKeyMessage")))
+        #expect(MacPins.verify(key: try s("phoneIdentityKey"), signature: try s("pushKeySignature"),
+                               message: LinkPairing.pushKeyMessage(mac: mac, phone: phone, pushKey: try s("phonePushKey"))))
+        #expect(PushSignature.hex(LinkPairing.boxKeyMessage(mac: mac, boxKey: try s("macBoxKey"))) == (try s("macBoxMessage")))
+        let frame: JSONValue = .object(["macBoxKey": .string(try s("macBoxKey")), "macBoxSignature": .string(try s("macBoxSignature"))])
+        #expect(LinkPairing.boxKey(frame, mac: mac, identityKey: try s("macIdentityKey")) == (try s("macBoxKey")))
+    }
 }

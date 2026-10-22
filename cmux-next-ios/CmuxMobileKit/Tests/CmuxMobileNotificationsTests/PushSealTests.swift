@@ -55,40 +55,106 @@ import Testing
         #expect(value.canonical == #"{"a":["x\"\n\u0001",true,null],"b":2,"é":-1}"#)
     }
 
-    /// The Mac host's vectors (cmux-mobile-host `seal.rs`), when that branch is merged in.
-    @Test(.enabled(if: SealVectors.load() != nil)) func opensTheMacHostsVectors() throws {
-        for vector in try #require(SealVectors.load()) {
-            let recipient = try P256.KeyAgreement.PrivateKey(rawRepresentation: try #require(PushSignature.hexData(vector.recipientPrivate)))
-            let context = try #require(PushSignature.hexData(vector.contextHex))
-            let opened = try PushSeal.open(vector.sealed, with: recipient, context: context)
-            #expect(PushSignature.hex(opened) == vector.plaintextHex, "\(vector.name)")
-            if let ephemeralHex = vector.ephemeralPrivate, let nonceHex = vector.nonceHex {
-                let ephemeral = try P256.KeyAgreement.PrivateKey(rawRepresentation: try #require(PushSignature.hexData(ephemeralHex)))
-                let nonce = try AES.GCM.Nonce(data: try #require(PushSignature.hexData(nonceHex)))
-                let sealed = try PushSeal.seal(opened, to: recipient.publicKey.x963Representation, context: context,
-                                               ephemeral: ephemeral, nonce: nonce)
-                #expect(sealed == vector.sealed, "\(vector.name)")
-            }
+    /// The Mac host's vectors (cmux-mobile-host `seal.rs`, `gen_seal_vectors.py`):
+    /// a box made with the same ephemeral key and nonce matches byte for byte;
+    /// ECDSA signatures are randomized, so they are verified, not reproduced.
+    @Test func matchesTheMacHostsPushVector() throws {
+        let v = try SealVectors.load()
+        let push = v.push
+        #expect(PushSeal.pushContext(mac: v.mac, phone: v.phone, eventId: push.eventId) == (try v.hex(push.context)))
+        let ephemeral = try P256.KeyAgreement.PrivateKey(rawRepresentation: try v.hex(push.ephemeralScalar))
+        let sealed = try PushSeal.seal(Data(push.plaintext.utf8), to: try v.hex(v.phonePushKey), context: try v.hex(push.context),
+                                       ephemeral: ephemeral, nonce: try AES.GCM.Nonce(data: try v.hex(push.nonce)))
+        #expect(sealed == push.box)
+        let phonePush = try P256.KeyAgreement.PrivateKey(rawRepresentation: try v.hex(v.phonePushScalar))
+        #expect(phonePush.publicKey.x963Representation == (try v.hex(v.phonePushKey)))
+        #expect(try PushSeal.open(push.box, with: phonePush, context: try v.hex(push.context)) == Data(push.plaintext.utf8))
+        // The Mac's signature over the box, as the service extension checks it.
+        let message = SealedPush.signedMessage(mac: v.mac, phone: v.phone, eventId: push.eventId, box: push.box)
+        #expect(message == (try v.hex(push.signatureMessage)))
+        #expect(PushSignature.verify(key: v.macIdentityKey, signature: push.signature, message: message))
+        // And the whole path: a trust record with the Mac's key opens it into a payload.
+        let keys = PushKeys(store: PushMemoryStore(), enclave: false)
+        try keys.store.write(phonePush.rawRepresentation, account: "push-key.u1")
+        keys.trust(mac: v.mac, identityKey: v.macIdentityKey, boxKey: v.macBoxKey, user: "u1", phone: v.phone)
+        let sealedPush = SealedPush(mac: v.mac, kind: .question, eventId: push.eventId, box: push.box, sig: push.signature)
+        let payload = try sealedPush.open(trust: keys.trust(), keys: keys)
+        #expect(payload.title == "Which branch?" && payload.kind == .question)
+    }
+
+    @Test func matchesTheMacHostsReplyVector() throws {
+        let v = try SealVectors.load()
+        let reply = v.reply
+        #expect(PushSeal.replyContext(mac: v.mac, phone: v.phone, replyId: reply.id) == (try v.hex(reply.context)))
+        // The phone's canonical JSON is the Mac's: parse it and write it again.
+        let parsed = try JSONDecoder().decode(PushJSON.self, from: Data(reply.canonical.utf8))
+        #expect(parsed.canonical == reply.canonical)
+        #expect(PushSignature.sha256Hex(Data(reply.canonical.utf8)) == reply.digest)
+        #expect(PushSeal.joined("cmux-mobile-reply-v1", [v.mac, v.phone, reply.digest]) == (try v.hex(reply.signatureMessage)))
+        let ephemeral = try P256.KeyAgreement.PrivateKey(rawRepresentation: try v.hex(reply.ephemeralScalar))
+        let sealed = try PushSeal.seal(Data(reply.plaintext.utf8), to: try v.hex(v.macBoxKey), context: try v.hex(reply.context),
+                                       ephemeral: ephemeral, nonce: try AES.GCM.Nonce(data: try v.hex(reply.nonce)))
+        #expect(sealed == reply.box)
+        let macBox = try P256.KeyAgreement.PrivateKey(rawRepresentation: try v.hex(v.macBoxScalar))
+        #expect(macBox.publicKey.x963Representation == (try v.hex(v.macBoxKey)))
+        #expect(try PushSeal.open(reply.box, with: macBox, context: try v.hex(reply.context)) == Data(reply.plaintext.utf8))
+        // The sealed plaintext is the canonical JSON plus `sig`, and `sig` verifies with the phone's identity key.
+        guard case .object(var object) = try JSONDecoder().decode(PushJSON.self, from: Data(reply.plaintext.utf8)),
+              case .string(let sig)? = object.removeValue(forKey: "sig") else { Issue.record("no sig"); return }
+        #expect(PushJSON.object(object).canonical == reply.canonical)
+        #expect(PushSignature.verify(key: v.phoneIdentityKey, signature: sig, message: try v.hex(reply.signatureMessage)))
+    }
+
+    /// What this phone's `MailboxReply` writes for the vector's reply is the Mac's canonical text.
+    @Test func aMailboxReplyWritesTheVectorsCanonicalText() throws {
+        let v = try SealVectors.load()
+        let parsed = try JSONDecoder().decode(PushJSON.self, from: Data(v.reply.canonical.utf8))
+        guard case .string(let text)? = parsed["action"]?["text"], case .string(let nonce)? = parsed["nonce"],
+              case .int(let issued)? = parsed["issuedAt"], case .string(let kind)? = parsed["kind"],
+              let kindValue = PushKind(rawValue: kind), case .object(let target)? = parsed["target"] else {
+            Issue.record("unexpected vector reply: \(v.reply.canonical)")
+            return
         }
+        func t(_ k: String) -> String? { if case .string(let s)? = target[k] { s } else { nil } }
+        let reply = PushReply(id: try #require(UUID(uuidString: v.reply.id)), mac: v.mac, kind: kindValue, sessionId: t("sessionId"),
+                              permissionId: t("permissionId"), conversationId: t("conversationId"), tabId: t("tabId"),
+                              notificationId: t("notificationId"), action: .text(text, attachments: []))
+        let mailbox = try MailboxReply(reply: reply, phone: v.phone, nonce: nonce, now: Date(timeIntervalSince1970: TimeInterval(issued)))
+        #expect(mailbox.plaintext.canonical == v.reply.canonical)
+        #expect(mailbox.signedMessage == (try v.hex(v.reply.signatureMessage)))
     }
 }
 
 /// `cmux-next-ios/rust/crates/cmux-mobile-host/tests/fixtures/seal-vectors.json`.
 struct SealVectors: Decodable {
-    var name: String
-    var recipientPrivate: String
-    var ephemeralPrivate: String?
-    var nonceHex: String?
-    var contextHex: String
-    var plaintextHex: String
-    var sealed: String
+    struct Push: Decodable {
+        var eventId, context, ephemeralScalar, nonce, plaintext, box, signatureMessage, signature: String
+    }
 
-    static func load() -> [SealVectors]? {
-        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    struct Reply: Decodable {
+        var id, context, ephemeralScalar, nonce, canonical, digest, signatureMessage, plaintext, box: String
+    }
+
+    var mac, phone: String
+    var macIdentityKey, macBoxScalar, macBoxKey, macBoxMessage, macBoxSignature: String
+    var phoneIdentityKey, phonePushScalar, phonePushKey, pushKeyMessage, pushKeySignature: String
+    var push: Push
+    var reply: Reply
+
+    struct BadHex: Error {}
+
+    func hex(_ text: String) throws -> Data {
+        guard let data = PushSignature.hexData(text) else { throw BadHex() }
+        return data
+    }
+
+    static var url: URL {
+        URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().appendingPathComponent("rust/crates/cmux-mobile-host/tests/fixtures/seal-vectors.json")
-        guard let data = try? Data(contentsOf: url) else { return nil }
-        struct File: Decodable { var vectors: [SealVectors] }
-        return (try? JSONDecoder().decode(File.self, from: data))?.vectors
+    }
+
+    static func load() throws -> SealVectors {
+        try JSONDecoder().decode(SealVectors.self, from: try Data(contentsOf: url))
     }
 }
 
