@@ -129,7 +129,9 @@ export const MACHINE_COLORS_KEY = "appearance.machineColors";
 
 function stringMap(value: unknown): Record<string, string> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return {};
-  return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
+  return Object.fromEntries(
+    Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
+  );
 }
 
 /**
@@ -152,9 +154,8 @@ function MachineColor({
   const key = row.color_key;
   if (!key || !row.color) return null;
   // cmux.json may spell the machine another way ("Big-Red "); the app reads the first in key order.
-  const own = Object.keys(picks)
-    .filter((name) => name.trim().toLowerCase() === key)
-    .sort();
+  const own = Object.keys(picks).filter((name) => name.trim().toLowerCase() === key);
+  own.sort();
   const rest = Object.fromEntries(Object.entries(picks).filter(([name]) => !own.includes(name)));
   const pick = own.length > 0 ? picks[own[0]!] : undefined;
   // An accent pick ("cyan") has no hex here; the host's color is that accent in the theme.
