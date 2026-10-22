@@ -718,6 +718,10 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-question-preview{flex:1 1 280px;display:flex;flex-direction:column;gap:6px;min-width:0;margin:10px 0;padding:10px;border-radius:10px;background:color-mix(in srgb,var(--agent-text) 4%,var(--agent-page-bg,var(--acpmux-base)))}
 .acpmux-question-preview-label{color:var(--agent-muted);font-size:var(--text-caption);line-height:var(--text-caption--line-height)}
 .acpmux-question-preview pre{margin:0;overflow:auto;white-space:pre;font:var(--text-detail)/1.45 var(--font-mono,ui-monospace,SFMono-Regular,Menlo,monospace);color:var(--agent-text)}
+/* An HTML preview (question/HtmlPreview.tsx): a still picture in a frame that runs nothing. framed (the default): in the preview box like a monospace one. canvas: an inset artboard in the page colour with an edge. bleed: no box, the picture fills the column. */
+.acpmux-question-html{display:block;width:100%;min-width:0;border:0;background:transparent}
+.acpmux-question-html[data-look=canvas]{border-radius:8px;background:var(--agent-page-bg,var(--acpmux-base));box-shadow:0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-question-edge)}
+.acpmux-question-preview:has(>.acpmux-question-html[data-look=bleed]){padding:10px 0 0;background:transparent}
 /* A refused reply: why, above Skip and Submit, which work again for a retry. */
 .acpmux-question-error{margin:0;padding:8px 14px 0;color:var(--agent-danger,var(--agent-warning));font-size:var(--text-detail);line-height:var(--text-detail--line-height);overflow-wrap:anywhere;user-select:text;-webkit-user-select:text}
 .acpmux-question-error-reason{color:var(--agent-muted)}

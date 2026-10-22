@@ -108,6 +108,7 @@ pub mod person;
 mod processes;
 mod pull_requests;
 mod questions;
+pub(crate) use questions::{PREVIEW_FORMAT_ENV, PreviewFormat};
 mod remote_floor;
 mod remote_sandbox;
 pub use remote_sandbox::vm_host_peer_approves;
@@ -745,6 +746,7 @@ impl Hub {
             forum_retold: std::sync::Mutex::default(),
             forum_telling: std::sync::Mutex::default(),
             launched_with_tools: std::sync::atomic::AtomicU8::new(0),
+            html_previews: AtomicBool::new(false),
             route_switch: AtomicBool::new(false),
             inbound_tx,
             inbound_rx: Mutex::new(Some(inbound_rx)),

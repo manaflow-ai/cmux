@@ -40,6 +40,7 @@ impl Hub {
         let remote = session.meta().remote_origin;
         let left_out = crate::agent_tools::left_out(remote, &profile.env, args);
         session.launched_with_tools.store(if left_out { 2 } else { 1 }, Ordering::SeqCst);
+        self.note_preview_format(session, profile);
         let mut cmux = if left_out {
             Vec::new()
         } else {
@@ -55,6 +56,19 @@ impl Hub {
         let reported = m.tools.rows.iter().filter(|r| r.source != "cmux").cloned();
         m.tools.rows = cmux.into_iter().chain(reported).collect();
         m.tools.mutable = claude;
+    }
+
+    /// How the session's agent writes question previews.
+    pub(super) fn preview_format(session: &Session) -> super::questions::PreviewFormat {
+        super::questions::PreviewFormat::from_flag(session.html_previews.load(Ordering::SeqCst))
+    }
+
+    /// How the agent `profile` starts writes its question previews (`questions.rs`).
+    pub(super) fn note_preview_format(&self, session: &Session, profile: &HarnessProfile) {
+        let claude = profile.kind == crate::config::HarnessKind::ClaudeStdio;
+        let html = super::questions::PreviewFormat::of(claude, &profile.env)
+            == super::questions::PreviewFormat::Html;
+        session.html_previews.store(html, Ordering::SeqCst);
     }
 
     /// Claude Code's system/init (`_meta.claude` of its session_info_update):

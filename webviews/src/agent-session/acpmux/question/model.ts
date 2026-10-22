@@ -28,7 +28,12 @@ export type Source = {
 };
 
 /// Content shown beside the options while one is highlighted (a code sample, a layout sketch).
-export type Preview = { text: string; format: "markdown" | "monospace" };
+/// `html` is a fragment with inline styles (Claude Code launched with
+/// `CLAUDE_CODE_QUESTION_PREVIEW_FORMAT=html`, acpmux hub/questions.rs): the card draws it in a
+/// frame that runs no script and loads nothing, never into the pane's own document.
+export type Preview = { text: string; format: PreviewFormat };
+export type PreviewFormat = "markdown" | "monospace" | "html";
+const PREVIEW_FORMATS: readonly PreviewFormat[] = ["markdown", "monospace", "html"];
 
 export type Option = {
   /// Stable within its item: the harness's option id, else the label.
@@ -254,8 +259,9 @@ function decodeOption(value: Json): Option | undefined {
   if (preview !== undefined && preview !== null) {
     const previewText = string(field(preview, "text"));
     const format = field(preview, "format");
-    if (previewText === undefined || (format !== "markdown" && format !== "monospace")) return undefined;
-    decodedPreview = { text: previewText, format };
+    const known = PREVIEW_FORMATS.find((candidate) => candidate === format);
+    if (previewText === undefined || !known) return undefined;
+    decodedPreview = { text: previewText, format: known };
   }
   return compact({ id, label, detail: string(detail), preview: decodedPreview });
 }
