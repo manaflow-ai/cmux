@@ -6,6 +6,8 @@
 #   cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/pane-perf.sh \
 #     --ref <sha> --key <key> --artifact artifacts/pane-perf/report.json [--arg=--rounds=3] [--arg=--layouts=1x2,4x2,6x5]
 #     [--arg=--actions=split,close,column,zoom,drag] [--arg=--stream] [--arg=--record] [--arg=--gate]
+# Until the controller allowlists this entry, the same run goes through split-spring.sh:
+#   --script scripts/measure/split-spring.sh --arg=--suite=pane-perf ... --artifact artifacts/split-spring/report.json
 # With --record the recordings are artifacts/pane-perf/frames.tgz (a second step with that --artifact).
 # To time an older commit, revert the change on a scratch ref of the tip (this script's blob must match the reviewed one).
 set -euo pipefail
