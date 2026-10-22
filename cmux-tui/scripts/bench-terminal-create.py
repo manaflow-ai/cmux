@@ -16,6 +16,10 @@ For each it records two numbers, in ms:
          writes one line to a FIFO the bench holds open, then execs
          `sleep`; so this is the daemon + host + PTY + exec chain and no
          shell rc file)
+  first-text  request arrival -> the daemon reads the terminal's first
+         printable output (the marker shell's "up"; debug span follow mark
+         first_printable_output, so it needs --spans): the keypress-to-first-
+         text cost the app waits on, minus the app's own frame
 
 and, per live terminal, the processes and footprint it costs (host count,
 host RSS). Prints one CREATE line per op and metric, and writes JSON with
@@ -38,6 +42,7 @@ import sys
 import tempfile
 import threading
 import time
+import uuid
 
 
 class Conn:
@@ -188,6 +193,26 @@ def rss_kb(pids):
     return sum(int(x) for x in out.split())
 
 
+def first_text_marks(path):
+    """terminal hex -> ms from its request's arrival to its first printable output."""
+    out = {}
+    try:
+        lines = open(path).read().splitlines()
+    except OSError:
+        return out
+    for line in lines:
+        try:
+            t = json.loads(line)
+        except ValueError:
+            continue
+        if not str(t.get("label", "")).endswith(".follow") or not t.get("terminal"):
+            continue
+        for m in t.get("marks") or []:
+            if m[0] == "first_printable_output":
+                out[t["terminal"]] = m[1] / 1000.0
+    return out
+
+
 def print_marks(label, path):
     """p50/p95 of each debug-span mark (ms from the request's arrival), per trace label."""
     marks = {}
@@ -216,6 +241,11 @@ def main():
     ap.add_argument("--max-p50-ms", type=float, default=None,
                     help="gate: exit 1 when any exec p50 is above this many ms")
     ap.add_argument("--spans", action="store_true", help="set CMUX_TUI_DEBUG_SPANS and keep the file")
+    ap.add_argument("--gate-metric", default=" first-text",
+                    help="the metric --max-p50-ms gates (suffix of the op name)")
+    ap.add_argument("--login", action="store_true",
+                    help="as the app: a frontend client (terminal-frontend-shell-integration-v1) and the "
+                         "account's HOME, so each shell starts through login(1)")
     ap.add_argument("--disk-load", type=int, default=0,
                     help="background writers that write and F_FULLFSYNC in a loop (a busy Mac's disk)")
     args = ap.parse_args()
@@ -230,14 +260,15 @@ def main():
     marker = Marker(root)
     shell = os.path.join(root, "marker-shell")
     with open(shell, "w") as f:
-        f.write(f"#!/bin/sh\necho up > '{marker.path}'\nexec sleep 3600\n")
+        # "up" on the terminal is its first text; the FIFO line stamps exec.
+        f.write(f"#!/bin/sh\necho up\necho up > '{marker.path}'\nexec sleep 3600\n")
     os.chmod(shell, 0o755)
     env = dict(os.environ)
     for k in list(env):
         if k.startswith("CMUX_"):
             del env[k]
     env.update(
-        HOME=home,
+        HOME=os.environ["HOME"] if args.login else home,
         XDG_CONFIG_HOME=os.path.join(home, ".config"),
         XDG_STATE_HOME=os.path.join(home, ".local/state"),
         XDG_DATA_HOME=os.path.join(home, ".local/share"),
@@ -264,6 +295,10 @@ def main():
                 try:
                     c = Conn(sock)
                     result["identify"] = must(c.call("identify"), "identify")
+                    if args.login:
+                        must(c.call("set-client-info", name="bench", kind="bench",
+                                    capabilities=["terminal-frontend-shell-integration-v1"]),
+                             "set-client-info")
                     break
                 except OSError:
                     pass
@@ -278,7 +313,11 @@ def main():
         base_pane, _ = pane_of(c, base["surface"])
         marker.wait(time.perf_counter())
         sized = {"cols": 80, "rows": 24}
+        # The app names the shell in each new tab's env; with the frontend
+        # capability that shell starts through login(1).
+        tab = dict(sized, env={"SHELL": shell}) if args.login else sized
         samples = {}
+        followed = {}
 
         def rec(name, metric, ms, counted):
             if counted:
@@ -290,24 +329,43 @@ def main():
             data = must(c.call(cmd, **params), cmd)
             rec(label, "reply", (time.perf_counter() - t0) * 1000.0, counted)
             rec(label, "exec", marker.wait(t0), counted)
+            terminal = params.get("terminal_id") or data.get("terminal_id")
+            if counted and terminal:
+                followed.setdefault(label, []).append(terminal)
             return data
 
         for i in range(args.warmup + args.rounds):
             counted = i >= args.warmup
-            data = create("new-tab", "new-tab", counted, pane=base_pane, **sized)
+            data = create("new-tab", "new-tab", counted, pane=base_pane, terminal_id=uuid.uuid4().hex, **tab)
             c.call("close-surface", surface=data["surface"])
-            data = create("split right", "split", counted, pane=base_pane, dir="right", **sized)
+            data = create("split right", "split", counted, pane=base_pane, dir="right",
+                          terminal_id=uuid.uuid4().hex, **tab)
             pane = data.get("pane") or pane_of(c, data["surface"])[0]
             c.call("close-pane", pane=pane, end_terminals=True)
             data = create("new-workspace", "new-workspace", counted, name=f"w{i}", **sized)
             _, ws = pane_of(c, data["surface"])
             c.call("close-workspace", workspace=ws, end_terminals=True)
 
+        # First text: the daemon's first printable output of each terminal
+        # (debug span follow marks), from its request's arrival.
+        if args.spans:
+            deadline = time.time() + 12
+            want = {t for ids in followed.values() for t in ids}
+            first = {}
+            while time.time() < deadline:
+                first = first_text_marks(spans_path)
+                if want <= set(first):
+                    break
+                time.sleep(0.25)
+            for label, ids in followed.items():
+                got = [first[t] for t in ids if t in first]
+                if got:
+                    samples[f"{label} first-text"] = got
         for name, s in samples.items():
             sm = summary(s)
             result["ops"][name] = {"summary": sm, "samples_ms": [round(x, 3) for x in s]}
             print(f"CREATE {args.label} op=\"{name}\" n={sm['n']} p50={sm['p50']} p95={sm['p95']} max={sm['max']}", flush=True)
-            if args.max_p50_ms is not None and name.endswith(" exec") and sm["p50"] > args.max_p50_ms:
+            if args.max_p50_ms is not None and name.endswith(args.gate_metric) and sm["p50"] > args.max_p50_ms:
                 failed = True
 
         # Per-terminal cost: processes and RSS added by --live open terminals.
@@ -369,7 +427,7 @@ def main():
         with open(args.out, "w") as f:
             json.dump(result, f, indent=1)
     if failed:
-        print(f"CREATE {args.label} FAIL: an exec p50 is above {args.max_p50_ms} ms", flush=True)
+        print(f"CREATE {args.label} FAIL: a {args.gate_metric.strip()} p50 is above {args.max_p50_ms} ms", flush=True)
         return 1
     return 0
 
