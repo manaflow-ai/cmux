@@ -29,9 +29,11 @@ import {
   validateInputsLock,
   withFingerprint,
 } from "../scripts/cmux-vm-image/lock";
-import { programChecksCommand } from "../scripts/cmux-vm-image/smoke";
+import { acpmuxListCommand, acpmuxListProblems, programChecksCommand } from "../scripts/cmux-vm-image/smoke";
+import { runChild } from "./helpers/run-child";
 
 const lockText = readFileSync(DEFAULT_LOCK_PATH, "utf8");
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- tests mutate arbitrary nested lock fields
 const fresh = () => JSON.parse(lockText) as Record<string, any>;
 
 function problemsOf(raw: unknown): string[] {
@@ -49,8 +51,27 @@ describe("images/cmux-vm/inputs.lock.json", () => {
     const lock = readInputsLock();
     expect(lock.programs.map((p) => p.name).sort()).toEqual([...KNOWN_PROGRAMS, "cmux-cua", "chrome-for-testing", "cmux-browser-host"].sort());
     expect(lock.apt.ubuntu.uri).toContain(lock.apt.ubuntu.snapshot);
-    expect(lock.apt.ubuntu.snapshot).toBe("20261001T000000Z");
+    expect(lock.apt.ubuntu.snapshot).toBe("20261022T000000Z");
     expect(profileLinks(lock).map((l) => l.command)).toContain("cr");
+  });
+
+  test("acpmux is cmux-tui under its own name (argv0 dispatch), checked by version and by a session list", async () => {
+    // Automation agent steps run `acpmux run`; cmux-tui runs acpmux when argv0 is `acpmux`.
+    const lock = readInputsLock();
+    const tui = lock.programs.find((p) => p.name === "cmux-tui")!;
+    expect(tui.bin.acpmux).toBe(tui.fileName!);
+    const link = profileLinks(lock).find((l) => l.command === "acpmux");
+    expect(link?.target).toBe(profileLinks(lock).find((l) => l.command === "cmux-tui")!.target);
+    expect(programChecksCommand(lock)).toContain("acpmux --version");
+    const list = acpmuxListCommand();
+    expect(list).toContain("acpmux ls --json");
+    const syntax = await runChild("bash", ["-n"], { input: list, timeout: 20_000 });
+    expect(syntax.stderr).toBe("");
+    expect(syntax.status).toBe(0);
+    expect(acpmuxListProblems(0, '{"sessions": []}\n', "")).toEqual([]);
+    expect(acpmuxListProblems(127, "", "bash: line 1: acpmux: command not found\n")).toEqual(["acpmux ls --json: exit 127: bash: line 1: acpmux: command not found"]);
+    expect(acpmuxListProblems(0, "no sessions", "")[0]).toContain("not JSON");
+    expect(acpmuxListProblems(0, "{}", "")[0]).toContain("no sessions list");
   });
 
   test("refuses a version range or tag on a program", () => {
@@ -148,6 +169,14 @@ describe("base fingerprint and closure checks", () => {
       "lock package acl was not installed",
     ]);
     expect(aptClosureProblems({ ripgrep: "14.1.0-2" }, new Map([["ripgrep", "14.1.0-1"]]))).toEqual(["apt installed ripgrep=14.1.0-1, the lock says 14.1.0-2"]);
+  });
+
+  test("a locked package the base already has at the locked version counts as installed", () => {
+    // The 10-21 Freestyle base started shipping ripgrep 14.1.0-1, so apt had nothing to add for it.
+    const base = parseDpkgList("ripgrep\t14.1.0-1\tamd64\nacl\t2.3.2-1build1\tamd64\n");
+    expect(aptClosureProblems({ ripgrep: "14.1.0-1" }, new Map(), base)).toEqual([]);
+    expect(aptClosureProblems({ acl: "2.3.2-1build1.1" }, new Map(), base)).toEqual(["lock package acl=2.3.2-1build1.1 was not installed (the base has 2.3.2-1build1)"]);
+    expect(aptClosureProblems({ ripgrep: "14.1.0-1" }, new Map())).toEqual(["lock package ripgrep was not installed"]);
   });
 
   test("base packages and npm globals must be in the lock", () => {
@@ -273,7 +302,7 @@ describe("roles: baked packages that stay off, first-use packages, optional prog
 
 describe("browser role: off by default, installed on first use, sandboxed, background tabs throttled (RT8, D-A1)", () => {
   const lock = readInputsLock();
-  const CFT_SHA256 = "ff43322f335e436b2f4dcdfeeec5db032299e335a7e8c1c618b326e100ce8732";
+  const CFT_SHA256 = "e6c94490f0b6b337225aeb2d2a5034858516b7017356980ba94f5176d8774a50";
   const cftIndex = () => fresh().programs.findIndex((p: { name: string }) => p.name === "chrome-for-testing");
 
   test("the browser role is off and first-use; its closure is never baked; background tabs are not full rate", () => {
@@ -286,12 +315,12 @@ describe("browser role: off by default, installed on first use, sandboxed, backg
     expect(lock.roles.browser.apt).toEqual(expect.arrayContaining(["libnss3", "libasound2t64", "libcups2t64", "fonts-liberation"]));
   });
 
-  test("Chrome for Testing 154 (the CEF fork's major) x86_64 is pinned by Google's release URL, our sha256 and size; first use, role browser", () => {
+  test("Chrome for Testing 156 (CfT Stable) x86_64 is pinned by Google's release URL, our sha256 and size; first use, role browser", () => {
     const cft = lock.programs.find((p) => p.name === "chrome-for-testing")!;
-    expect(cft).toMatchObject({ ...chromeForTestingShape("154.0.8037.92"), sha256: CFT_SHA256, size: 196202491, firstUse: true });
-    expect(cft.url).toBe("https://storage.googleapis.com/chrome-for-testing-public/154.0.8037.92/linux64/chrome-linux64.zip");
-    expect(cft.source).toContain("md5=eb+FnbaHwkXCE8wFqB2DJw==");
-    expect(isExactProgramVersion("154.0.8037.92")).toBe(true);
+    expect(cft).toMatchObject({ ...chromeForTestingShape("156.0.8078.47"), sha256: CFT_SHA256, size: 200206486, firstUse: true });
+    expect(cft.url).toBe("https://storage.googleapis.com/chrome-for-testing-public/156.0.8078.47/linux64/chrome-linux64.zip");
+    expect(cft.source).toContain("md5=cvpoYXzFXs9OK75pfi91hA==");
+    expect(isExactProgramVersion("156.0.8078.47")).toBe(true);
     expect(isExactProgramVersion("154.0.8037.*")).toBe(false);
   });
 
@@ -307,7 +336,7 @@ describe("browser role: off by default, installed on first use, sandboxed, backg
     expect(browser.firstUse).toBe(true);
     expect(browser.env).toEqual({ CMUX_BROWSER_HOST_BACKGROUND_FULL_RATE: "0", CMUX_BROWSER_HOST_CHROMIUM: `/opt/cmux/store/${CFT_SHA256}/chrome-linux64/chrome` });
     expect(browser.programs).toEqual([
-      expect.objectContaining({ name: "chrome-for-testing", version: "154.0.8037.92", sha256: CFT_SHA256, size: 196202491, format: "zip", url: lock.programs.find((p) => p.name === "chrome-for-testing")!.url }),
+      expect.objectContaining({ name: "chrome-for-testing", version: "156.0.8078.47", sha256: CFT_SHA256, size: 200206486, format: "zip", url: lock.programs.find((p) => p.name === "chrome-for-testing")!.url }),
       expect.objectContaining({ name: "cmux-browser-host" }),
     ]);
     expect(rolesManifest(lock).roles.display.programs).toEqual([]);
@@ -346,7 +375,7 @@ describe("browser role: off by default, installed on first use, sandboxed, backg
   test("Chrome for Testing must come from Google's versioned release URL", () => {
     const raw = fresh();
     raw.programs[cftIndex()].url = "https://example.com/chrome-linux64.zip";
-    expect(problemsOf(raw)).toContain(`programs[${cftIndex()}].url: must be ${chromeForTestingShape("154.0.8037.92").url}`);
+    expect(problemsOf(raw)).toContain(`programs[${cftIndex()}].url: must be ${chromeForTestingShape("156.0.8078.47").url}`);
   });
 });
 

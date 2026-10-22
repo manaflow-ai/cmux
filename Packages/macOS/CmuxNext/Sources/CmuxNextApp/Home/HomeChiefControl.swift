@@ -29,7 +29,10 @@ struct HomeChiefControl {
     /// The `shared stop action` (palette, the compose bar's stop button, Esc
     /// and Cmd-. in the field): the key window's Home view stops its Chief.
     static let stopAction: ActionID = "home.stopChief"
-    static let stopNotification = Notification.Name("HomeHostView.stopChief")
+    /// Stop all agents (the menu, the palette, Option-click on the stop
+    /// button): the front window's Chief Home stops its Chief's turn and
+    /// every subagent, and its toast offers Restart (HomeHostView+StopAll).
+    static let stopAllAction: ActionID = "home.stopAllAgents"
 
     var isCloud: Bool { services.home.isCloudConversation(conversation) }
 
@@ -102,5 +105,62 @@ struct HomeChiefControl {
         } catch {
             return .other(String(describing: error))
         }
+    }
+
+    /// `chief.stop {all: true}` on this Chief's brain: what stopped, else why not.
+    func stopAll() async -> Result<ChiefStopAll, HomeChiefEngineError> {
+        if isHosted { return .failure(.cloudStopUnsupported) }
+        guard let connection else { return .failure(.unreachable) }
+        do throws(ChiefControlError) {
+            let answer = try await ChiefControlClient(connection).stopAllAgents(chief: named)
+            Self.logger.info("home: stop all agents stopped \(answer.subagents.count, privacy: .public) subagent(s)")
+            return .success(answer)
+        } catch {
+            Self.logger.error("home: stop all agents failed: \(String(describing: error), privacy: .public)")
+            return .failure(HomeChiefEngineError(error))
+        }
+    }
+
+    /// `chief.stop {restart: names}`: Restart on the stop-all toast; nil when
+    /// every one went on, else why not.
+    func restart(_ names: [String]) async -> HomeChiefEngineError? {
+        guard let connection else { return .unreachable }
+        do throws(ChiefControlError) {
+            let answer = try await ChiefControlClient(connection).restartAgents(names, chief: named)
+            guard answer.errors.isEmpty else {
+                Self.logger.error("home: restart: \(answer.errors.joined(separator: "; "), privacy: .public)")
+                return .other(answer.errors.joined(separator: "; "))
+            }
+            return nil
+        } catch {
+            return HomeChiefEngineError(error)
+        }
+    }
+}
+
+/// The stop-all toast's words. Keys live in Resources/Localizable.xcstrings.
+enum HomeStopAllStrings {
+    static var stopToolTip: String {
+        String(localized: "home.stop.toolTip", defaultValue: "Stop the Chief (Option-click: Stop All Agents)", bundle: .module)
+    }
+    static var restart: String { String(localized: "home.stopAll.restart", defaultValue: "Restart", bundle: .module) }
+    static var stoppedNone: String {
+        String(localized: "home.stopAll.none", defaultValue: "No agents were running", bundle: .module)
+    }
+    static var stoppedChiefOnly: String {
+        String(localized: "home.stopAll.chiefOnly", defaultValue: "Stopped the Chief; no subagents were running", bundle: .module)
+    }
+    /// Why Stop All Agents is unavailable: the key window shows no Chief's Home.
+    static var unavailable: String {
+        String(localized: "home.stopAll.unavailable", defaultValue: "Stop All Agents works in a Chief's Home", bundle: .module)
+    }
+    /// The toast after Stop all agents: the subagents it stopped, else whether the Chief's turn stopped.
+    static func message(for answer: ChiefStopAll) -> String {
+        if !answer.subagents.isEmpty { return stopped(answer.subagents) }
+        return answer.stopped ? stoppedChiefOnly : stoppedNone
+    }
+    static func stopped(_ names: [String]) -> String {
+        String(format: String(localized: "home.stopAll.stopped", defaultValue: "Stopped all agents: %@", bundle: .module),
+               ListFormatter.localizedString(byJoining: names))
     }
 }

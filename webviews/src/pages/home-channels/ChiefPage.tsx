@@ -1,5 +1,5 @@
 // A Chief's editor as a page (u2586): New Chief (#/new/chief) and Edit Chief (#/chief/<agent>/edit)
-// on the right side of Home, and the same component in Settings > Agents > Chiefs. Name, role and
+// on the right side of Home, and the same component in Settings > Chief > Chiefs. Name, role and
 // picture; personality and instructions; the backend (an acpmux harness, its model and effort, or
 // one the person brings); the grant (tools, harnesses); the lock; and the record's history with
 // Undo. Every write goes through `service` (chiefEditing.ts). Creating a Chief and the gesture

@@ -4,7 +4,8 @@
 .acpmux-mp {
   --acpmux-mp-press: color-mix(in srgb, var(--agent-text) 20%, var(--acpmux-base));
   --acpmux-mp-gap: 4px;
-  width: min(310px, calc(100vw - 24px));
+  /* Never wider than the room the chat column leaves it (useUiAnchor's --available-width). */
+  width: min(310px, var(--available-width, calc(100vw - 24px)));
   min-width: 0;
   box-sizing: border-box;
 }
@@ -57,8 +58,8 @@
     /* useUiAnchor resolves these coordinates in viewport space. Fixed positioning keeps a
        narrow picker from enlarging the composer's scrollable row while it is open. */
     position: fixed !important;
-    width: calc(100vw - 16px) !important;
-    max-width: calc(100vw - 16px);
+    width: min(calc(100vw - 16px), var(--available-width, calc(100vw - 16px))) !important;
+    max-width: min(calc(100vw - 16px), var(--available-width, calc(100vw - 16px)));
     flex-direction: column !important;
   }
   .acpmux-mp-rail-scroll {
@@ -99,16 +100,19 @@
 /* The compact model menu (QuickModelMenu.tsx, Claude Code's look, Leo 2026-10-18): a short rounded
    menu with no boxes inside it. Rows are one line; the chosen row's check and the other rows' number
    keys share the trailing edge; Effort and Account name their value in secondary text before the
-   chevron. Theme tokens only. */
+   chevron. Theme tokens only. Its width keeps to the room its side of the chip has inside the chat
+   column (Base UI's --available-width, MenuPopup `boundary`), its floor giving way in a narrow one;
+   submenus are the same surface and keep to theirs. */
 .acpmux-quick-menu {
   width: max-content;
-  min-width: 220px;
-  max-width: min(300px, calc(100vw - 24px));
+  min-width: min(220px, var(--available-width, calc(100vw - 24px)));
+  max-width: min(300px, var(--available-width, calc(100vw - 24px)));
   padding: 6px;
   border: 0;
   border-radius: 12px;
-  background-color: var(--surface-popup);
-  box-shadow: var(--acpmux-popup-elevation);
+  /* Never past the room on its side (Base UI's --available-height, cx-m6jn0): the list scrolls. */
+  max-height: var(--available-height, none);
+  overflow-y: auto;
 }
 .acpmux-quick-menu .ui-menu-group-label {
   display: block;
@@ -122,7 +126,11 @@
   margin: 4px var(--ui-row-padding-inline);
   border-block-start: var(--cmux-hairline, 0.5px) solid var(--agent-border);
 }
+/* The agent pane does not load src/ui/ui.css, so its rows carry their own flex line: the check and
+   the number key can only trail the label in one. */
 .ui-menu-item.acpmux-quick-item {
+  display: flex;
+  align-items: center;
   gap: 8px;
   height: var(--ui-row-height);
   min-height: 0;
@@ -148,7 +156,7 @@
   width: auto;
   margin-inline-start: auto;
   padding-inline-start: 20px;
-  color: var(--agent-accent, var(--agent-text));
+  color: var(--agent-lit-glyph, var(--agent-accent, var(--agent-text)));
   font-weight: 600;
 }
 .acpmux-quick-item .ui-menu-check:empty { display: none; }
@@ -168,8 +176,11 @@
 
 /* The harness rail beside the compact list (Leo 2026-10-18): Starred, then each harness, as round
    icon tabs on a hairline; the chosen tab keeps the row wash. The list keeps Claude Code's rows. */
-.acpmux-quick-railed { max-width: min(360px, calc(100vw - 24px)); padding: 0; }
-.acpmux-quick-layout { display: flex; align-items: stretch; }
+.acpmux-quick-railed { max-width: min(360px, var(--available-width, calc(100vw - 24px))); padding: 0; overflow: hidden; }
+/* A rail or list taller than the room scrolls on its own; the other stays put. */
+.acpmux-quick-layout { display: flex; align-items: stretch; max-height: var(--available-height, none); }
+.acpmux-quick-rail,
+.acpmux-quick-body { overflow-y: auto; }
 .acpmux-quick-rail {
   flex: none;
   min-inline-size: 0;
@@ -180,6 +191,7 @@
 }
 .acpmux-quick-rail { display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .acpmux-quick-rail-tab {
+  flex: none;
   display: grid;
   place-items: center;
   width: 32px;
@@ -197,7 +209,8 @@
   color: var(--agent-text);
 }
 .acpmux-quick-rail-initial { font-size: var(--text-control); font-weight: 600; }
-.acpmux-quick-body { flex: 1; min-width: 200px; padding: 6px; }
+/* The list's floor gives way to the rail (a 32 px tab, its padding and hairline) in a narrow column. */
+.acpmux-quick-body { flex: 1; min-width: min(200px, calc(var(--available-width, 100vw - 24px) - 45px)); padding: 6px; }
 /* A filtered row names its harness in secondary text. */
 .acpmux-quick-item:not(.acpmux-quick-sub) .acpmux-quick-value {
   padding-inline-start: 12px;

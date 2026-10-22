@@ -31,6 +31,8 @@ on:
       - scripts/cmux-next/check-acpmux-guest-commands.ts
       - .github/workflows/backend.yml
       - .github/workflows/backend-migrations.yml
+      - scripts/cmux-next/release/prod-promote.ts
+      - scripts/cmux-next/release/production-approvals.json
   push:
     branches: [feat-cmux-next, main]
     paths:
@@ -78,7 +80,7 @@ env:
 jobs:
   test:
     if: github.event.action != 'closed'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || 'blacksmith-32vcpu-ubuntu-2404' }}
     services:
       postgres:
         image: postgres:17@sha256:2d2b8998d31037bf721cfdf764d76ba74171b4fab3431b7f72c27c56ddbdf9e3
@@ -152,6 +154,9 @@ jobs:
         run: bun run test
       - name: API Worker tests (workerd)
         working-directory: backend/apps/api
+        run: bun run test
+      - name: Self-hosted chat server (cloud owners on the local runtime, Tailscale admission)
+        working-directory: backend/apps/home-server
         run: bun run test
       - name: Dashboard build
         working-directory: backend/apps/dashboard

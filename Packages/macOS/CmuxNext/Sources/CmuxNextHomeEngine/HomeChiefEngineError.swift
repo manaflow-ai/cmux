@@ -38,7 +38,8 @@ public nonisolated enum HomeChiefEngineError: Error, Equatable, Sendable {
         }
     }
 
-    var text: String {
+    /// The error as the person reads it (the settings card, a refused Stop).
+    public var text: String {
         switch self {
         case .unreachable: HomeEngineStrings.errorUnreachable
         case .localUnreachable: HomeEngineStrings.errorLocalUnreachable

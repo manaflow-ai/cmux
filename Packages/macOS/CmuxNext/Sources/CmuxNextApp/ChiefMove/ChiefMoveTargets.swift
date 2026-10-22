@@ -1,5 +1,6 @@
-/// The "Move Chief to…" list (remote-groups-DESIGN.md slice 6, chief-migration-DESIGN.md 8a): This Mac
-/// first, then every SSH or paired-server host the person made a remote group, then cmux Cloud. Pure:
+/// The "Move Chief To…" list (remote-groups-DESIGN.md slice 6, chief-migration-DESIGN.md 8a): This Mac
+/// first, then every SSH or paired-server host the person made a remote group (a server moves over SSH like
+/// an SSH host), then cmux Cloud. Pure:
 /// the handler reads the machines, this decides the list.
 struct ChiefMoveTargets {
     /// Where a target is, which decides its `--to` value.
@@ -8,8 +9,10 @@ struct ChiefMoveTargets {
         case local(home: String)
         /// An SSH host (`ssh:<destination>`): what `ssh` takes on this Mac.
         case ssh(destination: String)
-        /// A paired server: listed, not a target yet.
-        case server
+        /// A paired server, moved over SSH like an SSH host (`ssh:<destination>`): its SSH route's
+        /// destination, or the server name as a host name for an overlay route; nil when no SSH
+        /// route exists.
+        case server(destination: String?)
         /// The account's Cloud Chief (`cloud`, or `cloud:staging` when the app signs in to staging).
         case cloud(staging: Bool)
     }
@@ -45,8 +48,11 @@ struct ChiefMoveTargets {
             case .ssh(let destination):
                 list.append(ChiefMoveTarget(machineID: host.machineID, name: host.name, kind: host.kind, to: "ssh:\(destination)",
                                             disabledReason: host.isOnline ? nil : .offline))
-            case .server:
-                list.append(ChiefMoveTarget(machineID: host.machineID, name: host.name, kind: host.kind, to: nil, disabledReason: .notSupportedYet))
+            case .server(let destination?):
+                list.append(ChiefMoveTarget(machineID: host.machineID, name: host.name, kind: host.kind, to: "ssh:\(destination)",
+                                            disabledReason: host.isOnline ? nil : .offline))
+            case .server(nil):
+                list.append(ChiefMoveTarget(machineID: host.machineID, name: host.name, kind: host.kind, to: nil, disabledReason: .noSSHRoute))
             case .local, .cloud:
                 continue
             }

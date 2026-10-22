@@ -158,9 +158,13 @@ when `cmux` is not on the client's `PATH`. Global options go before `mcp`:
     an answer being written or a tool call running is `partial`, and `next_after` never
     passes it.
     Waiting for the reply is `agents_wait` with `until: idle` and the chat as target;
-  - `render` (`html`, `title`): a page the cmux NEXT chat draws as a live render card
+  - `render` (`html`, `title`, `id`): a page the cmux NEXT chat draws as a live render card
     above the turn's answer (webviews `renderCall.ts`). It reaches no owner; the result is
-    the receipt (`rendered`, `bytes`, `title`);
+    the receipt (`rendered`, `id`, `updated`, `bytes`, `title`). `id` is the page's render
+    id, which the chat derives from the call's input too. A render without `id` is always a
+    card of its own; one that passes an id this server returned shows its page in place in
+    the most recent card with that id, the earlier page a previous version in the side
+    panel (cx-ncc.94). An id it did not return is refused;
   - one tool per app action that `action.list` offers to the CLI and to MCP
     (`surfaces.cli` and `surfaces.mcp` are `offered`), named `app_` plus its
     CLI name (`app_new_window`, `app_workspace_move_to_window`), with the action's
@@ -207,7 +211,7 @@ when `cmux` is not on the client's `PATH`. Global options go before `mcp`:
 | `session.*` (list, get, open, snapshot, ping, creation, journal, defaults, window title, shutdown, reload), `client.get/list`, `frontend_projection.*`, `pairing_request.*`, `sidebar_view.*` | cmux-tui-only scopes the curated `cmux` CLI also refuses; pairing needs a person |
 | app actions the app exempts from MCP (`surfaces.mcp` in `action.list`, its `ActionSurfacePlan`: `credentials` such as account connect/remove and sign in/out, `endsApp` such as quit, `systemChange` such as toggle setting or install CLI) | the app owns the decision; the server words the reason and refuses an action whose app reports no `surfaces.mcp` |
 | GUI-only actions, `action.run` by id | only `cli: true` actions |
-| `settings.*`, `history.list`, `bookmark.list`, `accounts.list`, `browser.page.*`, `events.stream`, `system.*` | not catalog operations or CLI actions; private data, credentials or page access; later phases decide |
+| `settings.*`, `history.list`, `bookmark.list`, `bookmark.importSources`, `accounts.list`, `browser.page.*`, `events.stream`, `system.*` | not catalog operations or CLI actions; private data, credentials or page access; later phases decide |
 
 The parity test (`cli/mcp/tests.rs`) fails when a catalog operation is neither a tool
 nor excluded, when a tool's operation has no `cmux` command, or when `cmux` offers an

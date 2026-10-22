@@ -26,14 +26,26 @@ from a Swift test, so committed files can agree with each other and still be
 stale against Swift (e190c402850c); a stamp that differs from the sources says so.
   python3 scripts/ci/defaults_guard.py check --base B --head H [--pr N --repo R]
 
-`check` compares the snapshot at the merge base with the one at the head (the
-trees are read with git as data; nothing from the head runs). A change passes
-only with an approving review, on the head commit, from a call owner in
-.github/defaults-call-owners.json who is not the pull request's author: the
-`needs a call` label alone never passes, and a push after the approval needs
-a new one. The workflow (pull_request_target only) runs this script and reads
-the owners file from the base branch, so a pull request cannot approve itself
-by editing either.
+`check` compares the defaults at the merge base with the ones at the head, each
+computed from that tree's exports and sources (the trees are read with git as
+data; nothing from the head runs). The snapshot is bot-only (#21946): the base
+autofix rewrites it after a merge, no pull request commits it, and `check`
+never reads it, so a hand-edited copy hides nothing.
+
+A setting the pull request adds whose default is off (false, null, "off",
+"never", "none", "disabled" or empty) keeps the behavior from before it
+existed (new things ship off), so it passes on its own (Leo 2026-10-21); it
+stays listed. Any other change passes with an independent review receipt on
+the head: a comment or review whose first line is
+`Review (<reviewer>): SHIP at <full head sha>` from a member (OWNER, MEMBER or
+COLLABORATOR, a user, not a bot), not a self-review, the grammar
+scripts/ci/risk_tier.py reads. The newest verdict naming the head decides, so
+a later BLOCK beats an earlier SHIP, and a push needs a new receipt. An
+approving review of the head from a call owner in
+.github/defaults-call-owners.json other than the author still passes too. The
+`needs a call` label alone never passes. The workflow (pull_request_target
+only) runs this script and reads the owners file from the base branch, so a
+pull request cannot approve itself by editing either.
 """
 
 from __future__ import annotations
@@ -66,8 +78,10 @@ SETTINGS_EXPORTER_FILES = (
     "Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests/ManagedPreferencesManifestTests.swift",
     "Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests/SettingsSchemaExportTests.swift",
 )
-STALE_EXPORTS = ("settings exports are stale against CmuxNextSettings sources: run the fleet export "
-                 "(REPAIR.md row 'generated settings export stale after a safe-push merge')")
+STALE_EXPORTS = ("settings exports are stale against CmuxNextSettings sources: the PR autofix "
+                 "(.github/workflows/cmux-next-pr-autofix.yml) commits them to a pull request that changes "
+                 "these sources, and the base autofix after a merge; to regenerate them yourself, run "
+                 "scripts/cmux-next/regenerate-settings-exports.sh on a fleet Mac and commit what it writes")
 # Default bindings that step aside in a context (a code editor, a focused terminal): a change to
 # one changes what a key does there.
 KEY_BINDING_DEFAULTS = "Packages/macOS/CmuxNext/Sources/CmuxNextActions/KeyBindingDefaults.swift"
@@ -93,6 +107,14 @@ MODIFIER_ORDER = ("ctrl", "opt", "shift", "cmd")
 KEYBIND_RE = re.compile(r'"keybind\s*=\s*([^"=]+?)\s*=\s*([^"]*)"')
 YIELDS_RE = re.compile(r"static\s+let\s+(yieldsTo\w+)\s*:\s*Set<ActionID>\s*=\s*\[(.*?)\]", re.S)
 FLAG_RE = re.compile(r"\bstatic\s+(?:let|var)\s+(\w*Enabled)\s*(?::\s*Bool\s*)?=\s*(true|false)\b")
+# An independent review's verdict on the exact head, on a comment's or review's first line:
+# "Review (subagent, correctness first): SHIP at <full head sha>". Same grammar as
+# scripts/ci/risk_tier.py RECEIPT (and next_autoland, merge_audit).
+RECEIPT = re.compile(r"^\W*(?:independent\s+)?review\s*\(([^)\n]*)\)\s*:\W*(ship|block|fix|not ship|hold)(?![\w-])",
+                     re.I)
+TRUSTED = ("OWNER", "MEMBER", "COLLABORATOR")
+# Default values that read as "off": a new setting with one of them changes nothing for anyone.
+OFF_WORDS = ("off", "never", "none", "disabled", "")
 
 
 # MARK: Reading a tree
@@ -358,6 +380,16 @@ def changes(old: Mapping[str, object], new: Mapping[str, object]) -> list[Change
     return found
 
 
+def is_off(value: object) -> bool:
+    return value is None or value is False or value == [] or value == {} or \
+        (isinstance(value, str) and value.lower() in OFF_WORDS)
+
+
+def exempt(found: list[Change], before: Mapping[str, object]) -> list[Change]:
+    """The settings the head adds with an off default: what everyone got before the setting existed."""
+    return [c for c in found if c.id.startswith("setting.") and c.id not in before and is_off(c.new)]
+
+
 def guard_changes(base: Tree, head: Tree) -> list[Change]:
     found = []
     for path in GUARD_FILES:
@@ -378,6 +410,8 @@ class Approval:
     head: str
     approvers: list[str] = field(default_factory=list)
     stale: list[str] = field(default_factory=list)
+    shipped: str | None = None  # the reviewer whose SHIP receipt is the newest verdict on the head
+    blocked: str | None = None  # the reviewer whose BLOCK receipt is
 
     @property
     def eligible(self) -> list[str]:
@@ -385,7 +419,28 @@ class Approval:
 
     @property
     def approved(self) -> bool:
-        return bool(self.approvers)
+        return bool(self.approvers) or self.shipped is not None
+
+
+def receipt_verdict(pull: Mapping[str, object], head: str) -> tuple[str, str] | None:
+    """("ship" or "block", reviewer) of the newest receipt naming the full head sha on the first line
+    of a trusted comment or review body; a self-review never counts and a BLOCK wins a tie."""
+    found = []
+    items = [(c, c.get("createdAt")) for c in (pull.get("comments") or {}).get("nodes") or []]
+    items += [(r, r.get("submittedAt")) for r in (pull.get("reviews") or {}).get("nodes") or []]
+    for item, at in items:
+        author = item.get("author") or {}
+        if author.get("__typename") != "User" or item.get("authorAssociation") not in TRUSTED:
+            continue
+        first = next((line for line in str(item.get("body") or "").splitlines() if line.strip()), "")
+        line = RECEIPT.match(first)
+        if head and line and "self" not in line.group(1).lower() and head in first:
+            verdict = "ship" if line.group(2).lower() == "ship" else "block"
+            found.append((str(at or ""), verdict == "block", verdict, f"review ({line.group(1).strip()})"))
+    if not found:
+        return None
+    _, _, verdict, who = max(found)
+    return verdict, who
 
 
 def owners_for(text: str | None) -> list[str]:
@@ -412,6 +467,12 @@ def approval(owners: list[str], pull: Mapping[str, object]) -> Approval:
             result.approvers.append(owner)
         else:
             result.stale.append(owner)
+    receipt = receipt_verdict(pull, head)
+    if receipt:
+        if receipt[0] == "ship":
+            result.shipped = receipt[1]
+        else:
+            result.blocked = receipt[1]
     return result
 
 
@@ -420,8 +481,8 @@ query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
       author { login } headRefOid merged mergeCommit { oid }
-      reviews(last: 100) { nodes { author { login } state commit { oid } } }
-      comments(last: 100) { nodes { databaseId body author { login } } }
+      reviews(last: 100) { nodes { author { login __typename } authorAssociation state body submittedAt commit { oid } } }
+      comments(last: 100) { nodes { databaseId body createdAt authorAssociation author { login __typename } } }
     }
   }
 }
@@ -445,7 +506,13 @@ def fetch_pull(repo: str, number: int) -> dict:
 # MARK: Report
 
 
-def comment_body(found: list[Change], verdict: Approval | None, head: str, merged: str | None = None) -> str:
+def signed(verdict: Approval) -> str:
+    who = [f"@{a}" for a in verdict.approvers] + ([f"`{plain(verdict.shipped)}`"] if verdict.shipped else [])
+    return ", ".join(who)
+
+
+def comment_body(found: list[Change], verdict: Approval | None, head: str, merged: str | None = None,
+                 free: list[Change] | None = None) -> str:
     lines = [MARKER, "## Default changes"]
     if not found:
         lines.append(f"No defaults change at `{head[:12]}`.")
@@ -453,22 +520,31 @@ def comment_body(found: list[Change], verdict: Approval | None, head: str, merge
     lines.append(f"This pull request changes {len(found)} default{'s' if len(found) != 1 else ''} at `{head[:12]}` "
                  "(what everyone gets without configuring anything):")
     lines.append("")
-    lines += [f"- {code(c.id)}: {code(c.detail)}" for c in found]
+    free = free or []
+    lines += [f"- {code(c.id)}: {code(c.detail)}" + (" (a new setting, off by default: passes on its own)" if c in free else "")
+              for c in found]
     lines.append("")
-    if verdict is not None:
+    if all(c in free for c in found):
+        lines.append("Every change is a new setting that defaults to off, the behavior from before it existed.")
+    elif verdict is not None:
         if verdict.approved:
-            lines.append(f"Approved on this commit by {', '.join('@' + a for a in verdict.approvers)}.")
+            lines.append(f"Signed off on this commit by {signed(verdict)}.")
         else:
             who = " or ".join(f"@{o}" for o in verdict.eligible) or "(no eligible call owner)"
-            lines.append(f"**Needs a call.** It passes only with an approving review on this commit from {who} "
-                         f"(the call owners in `{OWNERS}`, never the author). The `needs a call` label alone does not pass, "
-                         "and a new push needs a new approval.")
+            if verdict.blocked:
+                lines.append(f"The newest verdict on this commit is a BLOCK from `{plain(verdict.blocked)}`.")
+            lines.append(f"**Needs a review.** It passes with an independent review receipt on this commit: a comment "
+                         f"or review whose first line is `Review (<reviewer>): SHIP at {head}`, from a member, not a "
+                         "self-review (the newest verdict naming the head decides; a later BLOCK beats an earlier "
+                         f"SHIP), or with an approving review on this commit from {who} (the call owners in `{OWNERS}`, "
+                         "never the author). A receipt posted as a review re-runs this check; after a plain comment, "
+                         "re-run it. The `needs a call` label alone does not pass, and a new push needs a new receipt.")
             if verdict.stale:
                 lines.append(f"Earlier approvals on an older commit: {', '.join('@' + s for s in verdict.stale)}.")
     if merged:
         lines += ["", f"**Merge receipt:** merged as `{merged[:12]}` with these defaults changed"
-                  + (f", approved by {', '.join('@' + a for a in verdict.approvers)}." if verdict and verdict.approved
-                     else ", WITHOUT an approving call owner review on its head.")]
+                  + (f", signed off by {signed(verdict)}." if verdict and verdict.approved
+                     else ", WITHOUT a SHIP receipt or an approving call owner review on its head.")]
     lines += ["", f"Regenerate the snapshot with `{REGENERATE}`."]
     return "\n".join(lines) + "\n"
 
@@ -544,8 +620,12 @@ def stamp_entries(stamp: str) -> dict[str, str]:
     return entries
 
 
-def stamp_freshness(tree: Tree) -> tuple[list[str], list[str]]:
-    """(problems, notes) for the settings export stamp of `tree`."""
+def stamp_freshness(tree: Tree, base: Tree | None = None) -> tuple[list[str], list[str]]:
+    """(problems, notes) for the settings export stamp of `tree`. With `base`, a stale source whose
+    bytes and stamp entry are both the base's is the base's: a warning note, not a problem (the base
+    autofix regenerates the exports after each merge, so the base is often stale for minutes). One
+    whose bytes are the base's but whose stamp entry is not is the head's: a problem labeled as this
+    pull request's red, since the source's name makes it look like the base's."""
     stamp = tree.read(SETTINGS_STAMP)
     if stamp is None and SETTINGS_STAMP.rsplit("/", 1)[1] in (tree.read(SETTINGS_EXPORTER_FILES[1]) or ""):
         # The tree's exporter writes the stamp, so a missing stamp is a deleted or never-run export.
@@ -562,13 +642,41 @@ def stamp_freshness(tree: Tree) -> tuple[list[str], list[str]]:
                 f"  {SETTINGS_STAMP} is a single digest from before the per-source stamp"], []
     moved = sorted((path for path in stored.keys() | current.keys() if stored.get(path) != current.get(path)),
                    key=lambda path: path.encode("utf-8"))
-    lines = [f"  {path}: {'not stamped' if path not in stored else 'gone' if path not in current else 'changed'}"
-             for path in moved[:20]]
-    if len(moved) > 20:
-        lines.append(f"  and {len(moved) - 20} more")
     if not moved:
-        lines = [f"  {SETTINGS_STAMP} lists the right digests but is not in the exporter's format"]
-    return [f"DEFAULTS exports: {STALE_EXPORTS}", *lines], []
+        return [f"DEFAULTS exports: {STALE_EXPORTS}",
+                f"  {SETTINGS_STAMP} lists the right digests but is not in the exporter's format"], []
+
+    def listed(paths: list[str]) -> list[str]:
+        lines = [f"  {path}: {'not stamped' if path not in stored else 'gone' if path not in current else 'changed'}"
+                 for path in paths[:20]]
+        return lines + ([f"  and {len(paths) - 20} more"] if len(paths) > 20 else [])
+
+    notes: list[str] = []
+    kept: list[str] = []
+    if base is not None:
+        base_stored = stamp_entries(base.read(SETTINGS_STAMP) or "")
+        base_current = stamp_entries(settings_source_stamp(base))
+        inherited = [path for path in moved
+                     if current.get(path) == base_current.get(path) and stored.get(path) == base_stored.get(path)]
+        if inherited:
+            moved = [path for path in moved if path not in inherited]
+            notes = [f"::warning title=Settings exports stale on the base::settings exports stale on the base "
+                     f"{(base.ref or str(base.root))[:12]} too, for sources not changed here; the base autofix "
+                     "regenerates them:", *listed(inherited)]
+        # A source the head left as the base has it, whose stamp entry is not the base's: a local base
+        # merge with cmux-generated-v1 kept this branch's stamp (#22762). The files are base sources,
+        # so the red reads as the base's; merged, it puts the old digests back on the base.
+        kept = [path for path in moved if current.get(path) == base_current.get(path)]
+        moved = [path for path in moved if path not in kept]
+    problems = [f"DEFAULTS exports: {STALE_EXPORTS}", *listed(moved)] if moved else []
+    if kept:
+        problems += ["::error title=Settings stamp: this pull request's red::DEFAULTS exports: this pull "
+                     "request's red, not the base's: its stamp keeps older digests than the base's for "
+                     "sources it did not change, as a local base merge with the "
+                     "cmux-generated-v1 driver does (it keeps this branch's stamp). Merged, this puts the old "
+                     "digests back on the base. Apply the pr-autofix-patch artifact of this head's cmux-next PR "
+                     "autofix run, or regenerate the exports, and push:", *listed(kept)]
+    return problems, notes
 
 
 def command_check_fresh(args: argparse.Namespace) -> int:
@@ -584,23 +692,33 @@ def command_check_fresh(args: argparse.Namespace) -> int:
 
 
 def command_check_stamp(args: argparse.Namespace) -> int:
-    """Only the settings export stamp: exit 1 when the exports need the Swift export."""
-    problems, notes = stamp_freshness(Tree.named(args.ref) if args.ref else Tree(None))
-    for line in notes + problems:
+    """Only the settings export stamp: exit 1 when the exports need the Swift export. With --base,
+    only the sources the head changed since the base fail."""
+    problems, notes = stamp_freshness(Tree.named(args.ref) if args.ref else Tree(None),
+                                      Tree.named(args.base) if args.base else None)
+    for line in problems + notes:
         print(line)
     return 1 if problems else 0
+
+
+def command_source_stamp(args: argparse.Namespace) -> int:
+    """The stamp the settings sources of a commit give (what the export would write there). Base autofix
+    compares it with the stamp its exports carry: equal means the exports' inputs did not move."""
+    sys.stdout.write(settings_source_stamp(Tree.named(args.ref) if args.ref else Tree(None)))
+    return 0
 
 
 def command_check(args: argparse.Namespace) -> int:
     base, head = Tree.named(args.base), Tree.named(args.head)
     head_sha = args.head_sha or args.head
-    # A pull request branched before the snapshot existed is judged by its sources alone.
-    adopted = base.read(SNAPSHOT) is not None or head.read(SNAPSHOT) is not None
-    problems = freshness(head) if adopted else []
-    # The base's snapshot, or (before the first snapshot lands) its sources.
-    before = snapshot_of(base) or defaults(base)
-    after = snapshot_of(head) or defaults(head)
+    # Both sides are judged by their sources and exports, never by a committed
+    # snapshot: the snapshot is bot-only (#21946), so a pull request does not
+    # commit it, and a hand-edited copy could hide a change.
+    problems: list[str] = []
+    before = defaults(base)
+    after = defaults(head)
     found = changes(before, after) + guard_changes(base, head)
+    free = exempt(found, before)
     trusted = Tree(None)  # the base checkout the workflow runs from
     owners = owners_for(trusted.read(OWNERS))
     pull = None
@@ -618,7 +736,7 @@ def command_check(args: argparse.Namespace) -> int:
     if pull is not None and verdict is not None and verdict.head != head_sha:
         problems.append(f"DEFAULTS head: the pull request's head is {verdict.head[:12]}, not {head_sha[:12]}; re-run on the new head")
     merged = str((pull.get("mergeCommit") or {}).get("oid") or "") if pull and pull.get("merged") else None
-    body = comment_body(found, verdict, head_sha, merged)
+    body = comment_body(found, verdict, head_sha, merged, free)
     annotate(found)
     for problem in problems:
         print(f"::error title=Defaults snapshot::{command_text(problem)}" if not problem.startswith("  ") else plain(problem))
@@ -632,9 +750,12 @@ def command_check(args: argparse.Namespace) -> int:
             print(f"::warning title=Defaults comment not posted::{error}")
     if problems:
         return 1
-    if found and not (verdict and verdict.approved):
+    needed = [c for c in found if c not in free]
+    if needed and not (verdict and verdict.approved):
         who = " or ".join(verdict.eligible) if verdict else "a call owner"
-        print(f"::error title=Default changes need a call::{len(found)} default(s) changed; needs an approving review on {head_sha[:12]} from {who}")
+        print(f"::error title=Default changes need a review::{len(needed)} default(s) changed; needs a comment or review "
+              f"whose first line is `Review (<reviewer>): SHIP at {head_sha}` from a member (not a self-review), "
+              f"or an approving review on {head_sha[:12]} from {who}")
         return 1
     return 0
 
@@ -648,7 +769,11 @@ def main(argv: list[str]) -> int:
     fresh.set_defaults(run=command_check_fresh)
     stamp = sub.add_parser("check-stamp", help="only the settings export stamp matches the CmuxNextSettings sources")
     stamp.add_argument("--ref", help="a commit to check instead of the working tree")
+    stamp.add_argument("--base", help="fail only for sources changed since this commit; the rest is the base's")
     stamp.set_defaults(run=command_check_stamp)
+    source = sub.add_parser("source-stamp", help="print the settings export stamp the CmuxNextSettings sources give")
+    source.add_argument("--ref", help="a commit to read instead of the working tree")
+    source.set_defaults(run=command_source_stamp)
     check = sub.add_parser("check", help="list changed defaults between two commits and judge the approval")
     check.add_argument("--base", required=True, help="the merge base: a commit, or a directory checked out at it")
     check.add_argument("--head", required=True, help="the head: a commit, or a directory checked out at it")

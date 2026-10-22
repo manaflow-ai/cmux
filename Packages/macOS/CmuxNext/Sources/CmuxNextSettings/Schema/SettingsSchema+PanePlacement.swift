@@ -3,9 +3,10 @@ public import CmuxNextDesign
 /// Where new panes open (`CmuxConfigSnapshot+PanePlacement`), in the General
 /// section's Columns group.
 nonisolated enum PanePlacementSettingsSchema {
-    /// Agents may change all three: layout choices, like `layout.dockColumnMode`.
+    /// Agents may change them all: layout choices, like `layout.dockColumnMode`.
     static var agentSettableKeys: Set<String> {
-        [CmuxConfigSnapshot.newPanePlacementPath, CmuxConfigSnapshot.tileBrowsersPath, LinkPlacement.configPath]
+        [CmuxConfigSnapshot.newPanePlacementPath, CmuxConfigSnapshot.tileBrowsersPath, LinkPlacement.configPath,
+         MainPaneSetting.configPath]
             .reduce(into: []) { $0.insert($1.joined(separator: ".")) }
     }
 
@@ -36,7 +37,7 @@ nonisolated enum PanePlacementSettingsSchema {
                 LinkPlacement.configPath, section: .general, group: columns,
                 title: SettingsText.keyed("settings.layout.linkPlacement", "Open Links and Files"),
                 help: SettingsText.keyed("settings.layout.linkPlacement.help",
-                                        "Where a link or file you Command-click in a terminal or a browser page appears. Split Right uses the pane on the right, or makes one. What you open from an agent chat, Home or another page opens as a tab in its own pane."),
+                                        "Where a link or file you open from a terminal, an agent chat, Home or a page appears. Split Right uses the pane on the right, or makes one."),
                 kind: .choice([
                     SettingChoice(LinkPlacement.splitRight.rawValue, SettingsText.keyed("settings.choice.linkPlacementSplitRight", "Split Right")),
                     SettingChoice(LinkPlacement.newColumn.rawValue, SettingsText.keyed("settings.choice.linkPlacementNewColumn", "New Column on the Right")),
@@ -44,6 +45,18 @@ nonisolated enum PanePlacementSettingsSchema {
                 ]),
                 default: .string(LinkPlacement.fallback.rawValue),
                 keywords: ["link", "url", "path", "file", "open", "split", "right", "column", "pane", "tab"]
+            ),
+            SettingDescriptor(
+                MainPaneSetting.configPath, section: .general, group: columns,
+                title: SettingsText.keyed("settings.layout.mainPane", "Main Pane"),
+                help: SettingsText.keyed("settings.layout.mainPane.help",
+                                        "Agent Chats keeps an agent chat as the main pane: links, files, subagents and side chats it opens appear as tabs in a column on its right, and closing that column gives the chat its full width back."),
+                kind: .choice([
+                    SettingChoice(MainPaneSetting.agentChats.rawValue, SettingsText.keyed("settings.choice.mainPaneAgentChats", "Agent Chats")),
+                    SettingChoice(MainPaneSetting.off.rawValue, SettingsText.keyed("settings.choice.mainPaneOff", "Off")),
+                ]),
+                default: .string(MainPaneSetting.fallback.rawValue),
+                keywords: ["main", "pane", "chat", "agent", "right", "column", "side", "link", "subagent", "tab"]
             ),
         ]
     }

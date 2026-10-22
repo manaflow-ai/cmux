@@ -8,8 +8,8 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("chief-context-copy.test.ts", async () => {
   setDefaultTimeout(240_000);
@@ -35,7 +35,7 @@ await requireBrowserLane("chief-context-copy.test.ts", async () => {
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   const browsers = new Map<string, Browser>();
   const stageURL = (width: number, theme: string) =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=agent-pane.chief-prompt&variant=context&frame=component&width=${width}&theme=${encodeURIComponent(theme)}`;
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame("agent-pane.chief-prompt", { variant: "context", frame: "component", width, theme })}`;
 
   beforeAll(async () => {
     vite = await createServer({
@@ -44,29 +44,27 @@ await requireBrowserLane("chief-context-copy.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
-    for (const [name, engine] of engines) {
-      const browser = await engine.launch({ headless: true });
-      browsers.set(name, browser);
-      // The first load can run Vite's dependency optimizer and reload mid-compile.
-      const warm = await browser.newPage({ viewport: { width: 760, height: 600 } });
-      await warm.goto(stageURL(760, "Catppuccin Mocha"));
-      for (;;) {
-        try {
-          await warm.waitForFunction(() => document.documentElement.dataset.galleryReady, undefined, { timeout: 0 });
-          break;
-        } catch (error) {
-          if (!/context was destroyed|navigat/i.test(String(error))) throw error;
-        }
-      }
-      await warm.close();
-    }
+    for (const [name, engine] of engines) browsers.set(name, await engine.launch({ headless: true }));
+    await warmGalleryFrame(vite, "agent-pane.chief-prompt", {
+      browser: [...browsers.values()][0],
+      params: { variant: "context" },
+    });
   });
   afterAll(async () => {
     for (const browser of browsers.values()) await browser.close();
     await vite?.close();
   });
 
+  /** Resolves once nothing on the page is easing: no transition or animation left to run (a
+   *  looping one never ends). */
+  const eased = (page: Page) =>
+    page.waitForFunction(() =>
+      document
+        .getAnimations()
+        .every(
+          (animation) => animation.playState !== "running" || animation.effect?.getTiming().iterations === Infinity,
+        ),
+    );
   const open = async (engine: string, width: number, theme: string): Promise<Page> => {
     const page = await browsers.get(engine)!.newPage({ viewport: { width, height: 600 } });
     await page.goto(stageURL(width, theme));
@@ -83,17 +81,28 @@ await requireBrowserLane("chief-context-copy.test.ts", async () => {
       for (const width of [760, 420, 300])
         test(`${engine}, ${theme}, ${width}px: the context's Copy trails its label and covers no text`, async () => {
           const page = await open(engine, width, theme);
-          // Keyboard focus on the row shows its floating Copy too (conversation.css .acpmux-row__copy).
+          // Keyboard focus on the row shows its action row's buttons too.
           await page.locator(".acpmux-row:has(.cv-user__context)").first().focus();
-          await page.waitForTimeout(200);
+          // The Copy has faded in.
+          await eased(page);
           const geometry = await page.evaluate(() => {
             const context = document.querySelector<HTMLElement>(".cv-user__context")!;
             const summary = context.querySelector("summary")!;
             const label = summary.querySelector<HTMLElement>(".cv-user__context-label");
-            // The label's drawn text: a range over its text nodes, not its box.
+            // The label's drawn text: a range over its text nodes, not its box, cut to the box. A
+            // truncated label's range still spans the whole string past its ellipsis, where
+            // overflow: hidden draws nothing.
             const range = document.createRange();
             range.selectNodeContents(label ?? summary);
-            const text = range.getBoundingClientRect();
+            const glyphs = range.getBoundingClientRect();
+            const box = (label ?? summary).getBoundingClientRect();
+            const text = {
+              left: Math.max(glyphs.left, box.left),
+              right: Math.min(glyphs.right, box.right),
+              top: glyphs.top,
+              bottom: glyphs.bottom,
+              height: glyphs.height,
+            };
             const lineHeight = parseFloat(getComputedStyle(label ?? summary).lineHeight) || 18;
             const copy = context.querySelector<HTMLElement>(".cv-user__context-copy");
             const row = context.closest(".acpmux-row")!;
@@ -121,6 +130,8 @@ await requireBrowserLane("chief-context-copy.test.ts", async () => {
                 ? { left: copyBox.left, right: copyBox.right, top: copyBox.top, bottom: copyBox.bottom }
                 : null,
               truncates: label ? getComputedStyle(label).textOverflow === "ellipsis" : false,
+              // The cut above holds only while the label clips what runs past its box.
+              clips: label ? getComputedStyle(label).overflowX === "hidden" : false,
             };
           });
           expect(geometry.copy, "the context line has its own Copy").not.toBeNull();
@@ -140,6 +151,7 @@ await requireBrowserLane("chief-context-copy.test.ts", async () => {
           }
           expect(geometry.text.height, "the label stays on one line").toBeLessThanOrEqual(geometry.lineHeight * 1.5);
           expect(geometry.truncates, "a long label ends in an ellipsis").toBe(true);
+          expect(geometry.clips, "the label clips its overflow, so nothing draws past its box").toBe(true);
           await page.close();
         });
 });

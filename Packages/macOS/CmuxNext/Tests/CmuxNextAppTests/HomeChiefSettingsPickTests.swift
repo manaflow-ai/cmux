@@ -18,7 +18,7 @@ import Testing
         view.picked(view.harness)
         var received = writes.makeAsyncIterator()
         let write = await received.next()
-        let expected: [String: String?] = ["harness": "codex", "model": nil, "effort": nil]
+        let expected: [String: String?] = ["harness": "codex", "model": nil, "effort": nil, "speed": nil]
         #expect(write == expected)
     }
 

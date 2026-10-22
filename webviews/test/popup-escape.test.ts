@@ -12,8 +12,8 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("popup-escape.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -34,7 +34,7 @@ await requireBrowserLane("popup-escape.test.ts", async () => {
     const page = await browser!.newPage({ viewport });
     const port = (vite!.httpServer!.address() as { port: number }).port;
     for (let attempt = 0; ; attempt += 1) {
-      await page.goto(`http://127.0.0.1:${port}/gallery/frame.html?entry=${entry}&variant=${variant}`);
+      await page.goto(`http://127.0.0.1:${port}${galleryFrame(entry, { variant })}`);
       try {
         await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
           timeout: 60_000,
@@ -88,9 +88,9 @@ await requireBrowserLane("popup-escape.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
-    await (await stage("agent-pane.composer", "idle", { width: 900, height: 700 })).close();
+    await warmGalleryFrame(vite, "agent-pane.composer", { browser, params: { variant: "idle" } });
+    await warmGalleryFrame(vite, "agent-pane.new-tab", { browser });
   });
   afterAll(async () => {
     await browser?.close();

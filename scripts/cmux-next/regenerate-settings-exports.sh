@@ -10,10 +10,11 @@
 # then rewrites the defaults snapshot (defaults_guard.py snapshot) from them.
 # The exports and their source stamp
 # (schemas/settings-export/settings-schema.sources.sha256, which
-# defaults_guard.py check-fresh compares with the CmuxNextSettings sources)
+# defaults_guard.py check-stamp compares with the CmuxNextSettings sources)
 # stay checked in; no lane regenerates them by hand.
 #
 # Usage: scripts/cmux-next/regenerate-settings-exports.sh OUT
+# CMUX_SETTINGS_EXPORTS_ALL=1 copies every export into OUT, changed or not.
 set -euo pipefail
 # swift test builds and runs cmux-next's test host: fleet or GitHub runner only.
 # shellcheck source-path=SCRIPTDIR source=lib/fleet-only.sh
@@ -52,8 +53,10 @@ while IFS= read -r path; do
 done < <(git status --porcelain --untracked-files=all -- docs/mdm schemas/settings schemas/settings-export | cut -c4-)
 for file in "${exports[@]}"; do
   [[ -f "$file" ]] || { echo "::error::$file was not written by the settings export" >&2; exit 1; }
-  # An export that is not committed yet (the first stamp) counts as changed.
-  if git ls-files --error-unmatch -- "$file" >/dev/null 2>&1 && git diff --quiet -- "$file"; then continue; fi
+  # An export that is not committed yet (the first stamp) counts as changed. With
+  # CMUX_SETTINGS_EXPORTS_ALL=1 every export is copied (base-autofix-settings-exports.sh).
+  if [[ "${CMUX_SETTINGS_EXPORTS_ALL:-}" != 1 ]] && git ls-files --error-unmatch -- "$file" >/dev/null 2>&1 \
+    && git diff --quiet -- "$file"; then continue; fi
   mkdir -p "$out/$(dirname "$file")"
   cp "$file" "$out/$file"
   echo "regenerated: $file"

@@ -22,6 +22,7 @@ import {
   PromotionRuntimeUnavailableError,
 } from "./promotion";
 import { encodeRunCursor, type RunCursor } from "./model";
+import { RuntimeAttemptConflictError } from "../vms/runtimeRepository";
 
 export function runJson(data: unknown, status = 200): Response {
   return jsonResponse(data, status);
@@ -75,6 +76,9 @@ export function runError(error: unknown): Response {
   }
   if (error instanceof PromotionIdempotencyConflictError) {
     return vmErrorResponse({ error: "run_promotion_idempotency_conflict", status: 409, message: error.message, action: "Retry with the original request or choose a new idempotency key." });
+  }
+  if (error instanceof RuntimeAttemptConflictError) {
+    return vmErrorResponse({ error: "run_attempt_conflict", status: 409, message: error.message, action: "Refresh the run and retry against the attempt's current state." });
   }
   if (error instanceof PromotionRuntimeUnavailableError) {
     return vmErrorResponse({ error: "run_promotion_unavailable", status: 503, message: "The persistent runtime service is temporarily unavailable.", action: "Retry in a moment.", retryable: true, retryAfterSeconds: 5 });

@@ -4,6 +4,12 @@
 
 export type StringTable = Record<string, Record<string, string>>;
 
+const RTL_LANGUAGES = new Set(["ar", "fa", "he", "ur", "ps", "sd", "ug", "yi"]);
+
+export function isRtlLanguage(language: string): boolean {
+  return RTL_LANGUAGES.has(language.split(/[-_]/)[0].toLowerCase());
+}
+
 /** Apple localization code for a BCP 47 language tag, among the codes the table has. */
 export function resolveLanguage(tags: readonly string[], available: readonly string[]): string {
   const has = new Set(available);
@@ -69,7 +75,7 @@ export function setDocumentLanguage(language: string): void {
   const root = globalThis.document?.documentElement;
   if (!root) return;
   root.lang = language;
-  root.dir = /^(ar|fa|he|ur|ps|sd|ug|yi)(-|$)/i.test(language) ? "rtl" : "ltr";
+  root.dir = isRtlLanguage(language) ? "rtl" : "ltr";
 }
 
 function followDocumentLanguage(available: readonly string[]): void {

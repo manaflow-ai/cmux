@@ -9,7 +9,7 @@ import Testing
 /// and Cloud switches run on the active window through the registry (palette, View menu,
 /// keyboard, `cmux action run`, MCP). The sidebar sits on the edge opposite the sidebar and the
 /// main pane gives it room; the shown section and visibility are remembered for the next window.
-/// Files and Find stay greyed out until the file explorer registers its sections.
+/// Files shows the file explorer and Find its project-wide search.
 @MainActor @Suite(.serialized)
 struct RightSidebarTests {
     static let owned: [ActionID] = ["toggleRightSidebar", "focusRightSidebar", "switchRightSidebarToSessions",
@@ -39,16 +39,22 @@ struct RightSidebarTests {
         return Harness(services: services, controller: controller, defaults: defaults, suite: suite)
     }
 
-    @Test func theRightSidebarActionsAreAvailableAndFilesAndFindWaitForTheFileExplorer() {
+    @Test func theRightSidebarActionsAreAvailable() {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         AppActions.bind(services)
-        for id in Self.owned {
+        for id in Self.owned + ["switchRightSidebarToFiles", "switchRightSidebarToFind"] {
             #expect(services.registry.unavailableReason(for: id) == nil, "\(id) is still greyed out")
         }
-        for id: ActionID in ["switchRightSidebarToFiles", "switchRightSidebarToFind"] {
-            #expect(services.registry.unavailableReason(for: id) != nil, "\(id) has no section yet")
-        }
+    }
+
+    @Test func showFilesShowsTheFileExplorerOfTheFocusedFolder() throws {
+        let h = try Self.harness()
+        defer { h.close() }
+        #expect(h.services.registry.perform("switchRightSidebarToFiles", invocation: ActionInvocation(origin: .cli)))
+        let panel = try #require(h.controller.root.rightPanel)
+        #expect(panel.shownMode == .files)
+        #expect(panel.shownSection is FileExplorerSectionView)
     }
 
     @Test func toggleShowsTheSidebarBesideAnarrowerContentAndHidesIt() throws {

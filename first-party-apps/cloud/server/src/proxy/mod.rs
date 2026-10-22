@@ -201,12 +201,10 @@ fn target_authority(target: &Target) -> String {
 /// same connection. The reusable credential never crosses the socket.
 fn authenticate(head: &[u8], target: &Target, credential: &str) -> Option<String> {
     let text = std::str::from_utf8(head).ok()?;
-    let Some(value) = text.split("\r\n").skip(1).find_map(|line| {
+    let value = text.split("\r\n").skip(1).find_map(|line| {
         let (name, value) = line.split_once(':')?;
         name.eq_ignore_ascii_case("proxy-authorization").then(|| value.trim())
-    }) else {
-        return None;
-    };
+    })?;
     let fields: Vec<&str> = value.strip_prefix("CMUX ")?.split(':').collect();
     let [username, nonce, supplied] = fields.as_slice() else { return None };
     if *username != "cmux"

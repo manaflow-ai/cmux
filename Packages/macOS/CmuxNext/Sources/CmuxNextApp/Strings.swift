@@ -36,7 +36,5 @@ enum Strings {
     static var localMachine: String { String(localized: "sidebar.machine.local", defaultValue: "This Mac", bundle: .module) }
     static var untitledTerminal: String { String(localized: "tab.untitled.terminal", defaultValue: "Terminal", bundle: .module) }
     static var untitledBrowser: String { String(localized: "tab.untitled.browser", defaultValue: "New Tab", bundle: .module) }
-    static var renameTabTitle: String { String(localized: "rename.tab.title", defaultValue: "Rename Tab", bundle: .module) }
-    static var renameConfirm: String { String(localized: "rename.confirm", defaultValue: "Rename", bundle: .module) }
     static var cancel: String { String(localized: "common.cancel", defaultValue: "Cancel", bundle: .module) }
 }

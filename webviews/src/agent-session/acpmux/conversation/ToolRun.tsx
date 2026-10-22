@@ -1,12 +1,14 @@
-// A settled run of tool calls: one summary line ("Read files, ran commands")
-// that opens to the calls themselves, in a list that scrolls past nine rows.
+// A settled run of tool calls: one summary line ("Read 6 files, ran 4 commands", and "1 failed"
+// when a call failed) that opens to the calls themselves, in a list that scrolls past nine rows.
 import { useFindReveal } from "./chatFind";
 import { useId, type ReactNode } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import { ChevronRight, Globe, Magnifier, Pencil, TerminalSquare, ToolGroup } from "./icons";
+import { isFailed } from "./toolGroups";
 import { toolRunCategories, toolRunSummary, type ToolRunCategory } from "./toolRunSummary";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
+import { useFold } from "./fold";
 
 /// The summary's glyph: its leading category's, with searches and reads both as the magnifier.
 function runIcon(category: ToolRunCategory | undefined): ReactNode {
@@ -37,7 +39,10 @@ export function ToolRun({
   const t = useT();
   const [open, setOpen] = useTranscriptDisclosure(disclosureKey);
   useFindReveal(items, () => setOpen(true));
+  const fold = useFold(open);
   const list = useId();
+  // A failed call never hides behind the summary: the line counts it, as a group's line does.
+  const failures = items.filter((item) => item.tool && isFailed(item.tool)).length;
   return (
     <>
       <button
@@ -50,6 +55,7 @@ export function ToolRun({
         <span className="cv-tool__icon">{runIcon(toolRunCategories(items)[0])}</span>
         <span className="cv-tool__text" data-find-skip>
           {toolRunSummary(t, items)}
+          {failures > 0 && <span className="cv-tool__failed"> {t("tools.failedCount", { n: failures })}</span>}
         </span>
         <ChevronRight
           size={14}
@@ -57,9 +63,11 @@ export function ToolRun({
           className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
         />
       </button>
-      {open && (
-        <div className="cv-tool-run" id={list}>
-          {children}
+      {fold.present && (
+        <div ref={fold.ref} className="cv-fold">
+          <div className="cv-tool-run" id={list}>
+            {children}
+          </div>
         </div>
       )}
     </>

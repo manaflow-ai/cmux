@@ -10,6 +10,7 @@ import { Avatar, ChannelMark, PicturesContext } from "./Avatar";
 import { Composer } from "./Composer";
 import { GoalStrip } from "./GoalStrip";
 import { useHostSelection, type HomeSelection } from "./hostSelection";
+import { useHostMove } from "./hostMove";
 import { ConversationList, useStamp } from "./ConversationList";
 import { HomeIcon } from "./icons";
 import {
@@ -263,7 +264,7 @@ export function HomeChannelsPage({
     [measured, listShown, snap.selected, selectionMessage],
   );
   useHostSelection(store.host, selection);
-  const moveList = (delta: 1 | -1, unreadOnly: boolean) => {
+  const moveList = (delta: 1 | -1, unreadOnly: boolean): boolean => {
     // The order the list shows: my pins first, then newest activity.
     const { pinned, rest } = listOrder(snap.conversations.values());
     const order = [...pinned, ...rest];
@@ -274,10 +275,13 @@ export function HomeChannelsPage({
       const next = order[(((base + delta * step) % n) + n) % n];
       if (next && (!unreadOnly || isUnread(next))) {
         select(next.id, true);
-        return;
+        return true;
       }
     }
+    return false;
   };
+  // The host's Cmd-Shift-[ / ] while the docked Home shows Channels (hostMove.ts).
+  useHostMove(store.host, (delta) => moveList(delta, false));
   useHomeKeys({
     openPalette: () => setPalette(true),
     move: moveList,

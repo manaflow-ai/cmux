@@ -45,6 +45,10 @@ await requireBrowserLane("agent-pane-seen.test.ts", async () => {
   /// While set, the stand-in holds the attach's reply until `releaseAttach` runs.
   let holdAttach = false;
   let releaseAttach: (() => void) | undefined;
+  /// The socket of the pane that last spoke to the daemon.
+  let socket: { send(data: string): void } | undefined;
+  /// The waits on what the daemon heard: each message it takes wakes them.
+  const waiting = new Set<() => void>();
 
   function answer(method: string): unknown {
     switch (method) {
@@ -75,9 +79,13 @@ await requireBrowserLane("agent-pane-seen.test.ts", async () => {
         message(ws, raw) {
           const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, unknown> };
           sent.push({ method: message.method, params: message.params ?? {} });
+          socket = ws;
           const result = answer(message.method);
           const reply = () => ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
-          if (message.id === undefined) return;
+          if (message.id === undefined) {
+            for (const wake of waiting) wake();
+            return;
+          }
           if (coldStart && message.method === "initialize") {
             coldStart = false;
             setTimeout(reply, COLD_START_MS);
@@ -85,6 +93,7 @@ await requireBrowserLane("agent-pane-seen.test.ts", async () => {
           }
           if (holdAttach && message.method === "_acpmux/attach") releaseAttach = reply;
           else reply();
+          for (const wake of waiting) wake();
         },
       },
     });
@@ -117,20 +126,64 @@ await requireBrowserLane("agent-pane-seen.test.ts", async () => {
       .filter((m) => m.method === "_acpmux/view")
       .map((m) => ({ sessionId: m.params.sessionId, visible: m.params.visible }));
 
-  /// Waits until `done` holds (or `ms` pass).
-  async function until(done: () => boolean, ms = 10_000): Promise<void> {
-    const deadline = Date.now() + ms;
-    while (!done() && Date.now() < deadline) await Bun.sleep(20);
+  /// Waits until `done` holds, checked as the daemon hears each message; fails naming `what` after `ms`.
+  function until(done: () => boolean, what: string, ms = 10_000): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const check = () => {
+        if (!done()) return;
+        waiting.delete(check);
+        clearTimeout(timer);
+        resolve();
+      };
+      const timer = setTimeout(() => {
+        waiting.delete(check);
+        reject(new Error(`the daemon never saw ${what} within ${ms} ms`));
+      }, ms);
+      waiting.add(check);
+      check();
+    });
+  }
+  let marks = 0;
+  /// Returns once the daemon has a marker the page sent down its own connection after the page ran
+  /// what is pending (its promise chains and the next task): a request the page sent before it has
+  /// reached the daemon by then.
+  async function caughtUp(page: Page): Promise<void> {
+    const mark = `test/mark-${++marks}`;
+    await page.evaluate(async (method) => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      for (const ws of (window as unknown as { __sockets: WebSocket[] }).__sockets)
+        if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ jsonrpc: "2.0", method }));
+    }, mark);
+    await until(() => sent.some((m) => m.method === mark), mark);
+  }
+  /// Returns once the pane has answered a lag notice sent now with its refetch: anything it sent
+  /// before (a second view) has reached the daemon by then.
+  async function settled(): Promise<void> {
+    const reads = () => sent.filter((m) => m.method === "_acpmux/events").length;
+    const before = reads();
+    socket?.send(JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/lagged", params: { sessionIds: [SESSION] } }));
+    await until(() => reads() > before, "the lag resync's refetch");
   }
 
   /// A pane's first attach: its cold modules can take far longer than 10 s on a busy runner.
   const ATTACH_MS = 60_000;
 
   /// Waits until the pane has sent `count` `_acpmux/view` requests.
-  const sentViews = (count: number) => until(() => views().length >= count);
+  const sentViews = (count: number) => until(() => views().length >= count, `${count} views`);
 
   async function openPane(): Promise<Page> {
     const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
+    // Keeps the page's sockets, so a test can send a marker down the pane's own connection.
+    await page.addInitScript(() => {
+      const sockets: WebSocket[] = [];
+      (window as unknown as { __sockets: WebSocket[] }).__sockets = sockets;
+      window.WebSocket = class extends window.WebSocket {
+        constructor(...args: ConstructorParameters<typeof WebSocket>) {
+          super(...args);
+          sockets.push(this);
+        }
+      };
+    });
     const { port } = vite!.httpServer!.address() as { port: number };
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
     await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${SESSION}`);
@@ -143,13 +196,14 @@ await requireBrowserLane("agent-pane-seen.test.ts", async () => {
       // Closed even on a failure: a page left open would attach during the next test.
       try {
         const attached = () => sent.find((m) => m.method === "_acpmux/attach" && m.params.sessionId === SESSION);
-        await until(() => attached() !== undefined, ATTACH_MS);
+        await until(() => attached() !== undefined, "the attach", ATTACH_MS);
         const attach = attached();
         expect(attach?.params.visible).toBe(true);
         await setVisibility(page, "hidden");
         await sentViews(1);
         await setVisibility(page, "visible");
         await sentViews(2);
+        await settled();
         expect(views()).toEqual([
           { sessionId: SESSION, visible: false },
           { sessionId: SESSION, visible: true },
@@ -165,15 +219,16 @@ await requireBrowserLane("agent-pane-seen.test.ts", async () => {
       releaseAttach = undefined;
       const page = await openPane();
       try {
-        await until(() => releaseAttach !== undefined, ATTACH_MS);
+        await until(() => releaseAttach !== undefined, "the attach", ATTACH_MS);
         expect(releaseAttach).toBeDefined();
         await setVisibility(page, "hidden");
-        await Bun.sleep(500);
+        await caughtUp(page);
         // acpmux would refuse a view for a chat it has not attached yet.
         expect(views(from)).toEqual([]);
         holdAttach = false;
         releaseAttach!();
-        await until(() => views(from).length >= 1);
+        await until(() => views(from).length >= 1, "the view");
+        await settled();
         expect(views(from)).toEqual([{ sessionId: SESSION, visible: false }]);
       } finally {
         holdAttach = false;

@@ -14,8 +14,8 @@ final class LegacyHistoryFile: Sendable, Equatable {
     private let identity: Identity
 
     init?(url: URL, supportDirectory: URL) {
-        let support = supportDirectory.standardizedFileURL
-        let candidate = url.standardizedFileURL
+        let support = Self.plainPath(supportDirectory, isDirectory: true)
+        let candidate = Self.plainPath(url, isDirectory: false)
         let supportParts = support.pathComponents
         let candidateParts = candidate.pathComponents
         guard candidateParts.count > supportParts.count,
@@ -66,7 +66,7 @@ final class LegacyHistoryFile: Sendable, Equatable {
     }
 
     static func pathEntryExists(_ url: URL) -> Bool {
-        identity(at: url.standardizedFileURL) != nil
+        identity(at: plainPath(url, isDirectory: false)) != nil
     }
 
     /// Removes a captured SQLite generation only when every present member is
@@ -79,21 +79,21 @@ final class LegacyHistoryFile: Sendable, Equatable {
     ) -> Bool {
         guard !files.isEmpty, files.allSatisfy(\.isUnchanged),
               missing.allSatisfy({ !pathEntryExists($0) }) else { return false }
-        var quarantined: [(LegacyHistoryFile, String)] = []
+        var quarantined: [(LegacyHistoryFile, Quarantine)] = []
         for file in files {
-            guard let name = file.quarantineIfUnchanged() else {
-                for (moved, quarantine) in quarantined.reversed() { moved.restore(quarantine) }
+            guard let quarantine = file.quarantineIfUnchanged() else {
+                for (moved, quarantine) in quarantined.reversed() { moved.restore(quarantine.name) }
                 return false
             }
-            quarantined.append((file, name))
+            quarantined.append((file, quarantine))
         }
         guard quarantined.allSatisfy({ $0.0.quarantinedIsUnchanged($0.1) }) else {
-            for (file, quarantine) in quarantined.reversed() { file.restore(quarantine) }
+            for (file, quarantine) in quarantined.reversed() { file.restore(quarantine.name) }
             return false
         }
         var removed = true
         for (file, quarantine) in quarantined {
-            if unlinkat(file.parentDescriptor, quarantine, 0) != 0 { removed = false }
+            if unlinkat(file.parentDescriptor, quarantine.name, 0) != 0 { removed = false }
         }
         return removed
     }
@@ -103,20 +103,28 @@ final class LegacyHistoryFile: Sendable, Equatable {
         Self.removeGenerationIfUnchanged([self], missing: [])
     }
 
-    private func quarantineIfUnchanged() -> String? {
+    /// A file moved aside for removal, with its identity as of the move.
+    private struct Quarantine {
+        let name: String
+        let identity: Identity
+    }
+
+    private func quarantineIfUnchanged() -> Quarantine? {
         guard Self.directoryIdentity(at: parentURL)?.isSameObject(as: parentIdentity) == true,
               Self.identity(at: parentDescriptor, name: name) == identity else { return nil }
         let quarantine = ".cmux-history-cleanup-\(UUID().uuidString.lowercased())"
         guard renameat(parentDescriptor, name, parentDescriptor, quarantine) == 0 else { return nil }
-        guard Self.identity(at: parentDescriptor, name: quarantine) == identity else {
+        // The rename itself moves the change time (APFS), so the moved file matches
+        // the captured one in everything else; it must then stay as it is after the move.
+        guard let moved = Self.identity(at: parentDescriptor, name: quarantine), moved.isRenamed(identity) else {
             restore(quarantine)
             return nil
         }
-        return quarantine
+        return Quarantine(name: quarantine, identity: moved)
     }
 
-    private func quarantinedIsUnchanged(_ quarantine: String) -> Bool {
-        Self.identity(at: parentDescriptor, name: quarantine) == identity
+    private func quarantinedIsUnchanged(_ quarantine: Quarantine) -> Bool {
+        Self.identity(at: parentDescriptor, name: quarantine.name) == quarantine.identity
     }
 
     private func restore(_ quarantine: String) {
@@ -152,6 +160,12 @@ final class LegacyHistoryFile: Sendable, Equatable {
         func isSameObject(as other: Identity) -> Bool {
             device == other.device && inode == other.inode && kind == other.kind
         }
+
+        /// `other` after a rename: the same file and contents; only the change time may differ.
+        func isRenamed(_ other: Identity) -> Bool {
+            isSameObject(as: other) && size == other.size
+                && modifiedSeconds == other.modifiedSeconds && modifiedNanoseconds == other.modifiedNanoseconds
+        }
     }
 
     private static func identity(at url: URL) -> Identity? {
@@ -172,12 +186,20 @@ final class LegacyHistoryFile: Sendable, Equatable {
         return Identity(info)
     }
 
+    /// `url` as the file system sees it, with `.` and `..` collapsed. Rebuilt from the
+    /// decoded path first, so an encoded `%2E%2E` collapses too and an encoded `%2F` stays
+    /// part of one name. Not `standardizedFileURL`: it also drops a leading /private,
+    /// turning /private/var/… into /var/…, a link that cleanup refuses.
+    private static func plainPath(_ url: URL, isDirectory: Bool) -> URL {
+        URL(fileURLWithPath: url.path, isDirectory: isDirectory).standardized
+    }
+
     /// The directory identity only when every path component from `/` is a
     /// real directory rather than a symbolic link.
     private static func directoryIdentity(at url: URL) -> Identity? {
         var current = URL(fileURLWithPath: "/", isDirectory: true)
         guard var found = identity(at: current), found.isDirectory else { return nil }
-        for component in url.standardizedFileURL.pathComponents.dropFirst() {
+        for component in plainPath(url, isDirectory: true).pathComponents.dropFirst() {
             current.append(path: component, directoryHint: .isDirectory)
             guard let next = identity(at: current), next.isDirectory else { return nil }
             found = next

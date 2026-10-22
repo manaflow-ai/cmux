@@ -5,13 +5,18 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash scripts/ci/lint-swift-post-edit.sh 1>&2; printf '{}\\n'",
+            "command": "bash \"$(git rev-parse --show-toplevel)/scripts/ci/lint-swift-post-edit.sh\" 1>&2; printf '{}\\n'",
             "timeout": 10
           },
           {
             "type": "command",
-            "command": "bash scripts/ci/format-post-edit.sh 1>&2; printf '{}\\n'",
+            "command": "bash \"$(git rev-parse --show-toplevel)/scripts/ci/format-post-edit.sh\" 1>&2; printf '{}\\n'",
             "timeout": 30
+          },
+          {
+            "type": "command",
+            "command": "bash \"$(git rev-parse --show-toplevel 2>/dev/null)/scripts/ci/check-post-edit.sh\" 2>/dev/null || printf '{}\\n'",
+            "timeout": 15
           }
         ]
       }

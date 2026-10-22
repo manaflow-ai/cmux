@@ -234,6 +234,7 @@ Speed `fast` (default) scales times by 1, `normal` by 1.5, `off` disables (`Moti
 | hover | 0.08 | hover fills, revealed buttons |
 | focus | 0.10 | focus ring |
 | paneDim | 0.15 | inactive pane dim |
+| focusFlash | 0.5 | ring flash when focus moves without a click (Debug, off) |
 | fadeIn / fadeOut | 0.12 / 0.08 | palette, find bar, notices, hover card |
 | crossfade | 0.10 | thumbnail swap; Reduce Motion ceiling |
 | lift | 0.12 | drag lift shadow |
@@ -255,7 +256,7 @@ Reduce Motion: no movement springs and no loops; fades capped at 0.1 s; the atte
 | appearance.tabBarBackground | retired | ignored: every surface draws the one window background |
 | focusRing.contrast | subtle 0.20, standard 0.55, strong 0.85 | ring alpha |
 | focusRing.{enabled,style,color,width,cornerRadius,showWhenSinglePane} | true, ring, nil, 1, nil, false | |
-| focus.inactiveTabStyle (the Debug tunable of the same name overrides it) | fade, tonal, quiet; strength 0.35 (Debug tunable) | see tabs page (`CmuxNextSettings/PaneFocusSettings.swift (PaneFocusSettings.inactiveTabStylePath)`) |
+| focus.inactiveTabStyle (the Debug tunable of the same name overrides it) | fade, tonal, quiet; strength 0.4 (Debug tunable) | see tabs page (`CmuxNextSettings/PaneFocusSettings.swift (PaneFocusSettings.inactiveTabStylePath)`) |
 | sidebar.sectionLook (Debug tunable `sidebar.sections.look` overrides it) | quiet, card, tray, lines, linesIcons | see sidebar page |
 | sidebar.topBandMaxShare / bottomBandMaxShare / pinnedBandsScroll | 1/3, 0.25 (range 0.1-0.9), true | share of the sidebar height a pinned band takes before it scrolls inside; false: bands never scroll and the list shrinks (three rows minimum) |
 | notifications.attention.* | style blink, width 2, blinkCount 2, duration 3 s, persist true | pane attention ring. Blink: blinkCount blinks over 0.5 s each (1.0 s for 2), then holds. duration applies to the pulse style only |

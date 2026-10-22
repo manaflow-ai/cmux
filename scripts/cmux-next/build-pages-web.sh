@@ -25,7 +25,7 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
-PAGES="history apps coderouter cloud keybindings icon-picker settings passwords changelog files stats chief-usage mobile-pairing chief-inspector home-channels debug-settings"
+PAGES="history apps coderouter cloud keybindings icon-picker settings passwords changelog files stats chief-usage chief-views mobile-pairing chief-inspector home-channels debug-settings"
 # Pages whose string table ships as one script per locale (locales/<locale>.js), loaded before the
 # app: only English and the active locale are parsed at open (R82 first-open speed).
 SPLIT_STRINGS="settings"
@@ -87,5 +87,11 @@ for page in $PAGES; do
     echo "wrote $out ($(wc -c < "$out" | tr -d ' ') bytes)"
   fi
 done
+# The native interface version the bundles need (webviews/src/web-abi.json, plans/cmux-next/web-ota.md):
+# the app compares a web update's abi with this copy before it serves the update.
+if [ "$MODE" != "--check" ]; then
+  mkdir -p "$OUT_ROOT"
+  cp "$ROOT/webviews/src/web-abi.json" "$OUT_ROOT/web-abi.json"
+fi
 [ "$MODE" = "--check" ] && [ "$status" -eq 0 ] && echo "page bundles build"
 exit "$status"

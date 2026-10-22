@@ -14,10 +14,11 @@ import Observation
 public final class ChiefPaneTools: NSView {
     public let indicator = StatusIndicatorView()
     public let subagentsButton = TitlebarBandButton(symbol: "person.2")
-    public let actionsButton = TitlebarBandButton(symbol: "ellipsis")
+    /// The app's one more button (⋮, OverflowButton); its menu opens on press.
+    public let actionsButton = OverflowButton(label: ChiefToolStrings.actions)
     /// What Chief Actions lists, in this order (each runs on the shown Chief, as from the palette).
-    public static let actions: [ActionID] = ["home.stopChief", "home.toggleChiefSettings", "chief.openMemoryInspector",
-                                             "chief.openUsage", "home.newChief"]
+    public static let actions: [ActionID] = ["home.stopChief", "home.stopAllAgents", "home.toggleChiefSettings",
+                                             "chief.openMemoryInspector", "chief.openUsage", "home.newChief"]
     private let chief: ChiefSidebar
     private weak var registry: ActionRegistry?
     private var watch: Task<Void, Never>?
@@ -29,16 +30,14 @@ public final class ChiefPaneTools: NSView {
         super.init(frame: .zero)
         setAccessibilityIdentifier("cmux.chief.paneTools")
         indicator.tracksWindowOcclusion = true
-        for (button, title, id) in [(subagentsButton, ChiefToolStrings.subagents, "subagents"), (actionsButton, ChiefToolStrings.actions, "actions")] {
-            button.target = self
-            button.action = #selector(openMenu(_:))
-            button.longPressOpensMenu = false
-            button.themedToolTip = title
-            button.setAccessibilityLabel(title)
-            button.setAccessibilityIdentifier("cmux.chief.paneTools.\(id)")
-            addSubview(button)
-        }
-        addSubview(indicator)
+        subagentsButton.target = self
+        subagentsButton.action = #selector(openMenu(_:))
+        subagentsButton.longPressOpensMenu = false
+        subagentsButton.themedToolTip = ChiefToolStrings.subagents
+        subagentsButton.setAccessibilityLabel(ChiefToolStrings.subagents)
+        subagentsButton.setAccessibilityIdentifier("cmux.chief.paneTools.subagents")
+        actionsButton.setAccessibilityIdentifier("cmux.chief.paneTools.actions")
+        [subagentsButton, actionsButton, indicator].forEach(addSubview)
         subagentsButton.pressMenu = { [weak self] in self?.subagentsMenu() }
         actionsButton.pressMenu = { [weak self] in self?.actionsMenu() }
         // task-owner: this view (cancelled in deinit); event-driven (Observation).
@@ -92,14 +91,19 @@ public final class ChiefPaneTools: NSView {
         sender.presentMenu(menu, sender)
     }
 
-    /// Every subagent, with its status; a row opens it like its sidebar row.
+    /// Every subagent, with its status; a row runs Open Chief Subagent on its sidebar row's item,
+    /// as a click on that row does.
     func subagentsMenu() -> NSMenu {
         let menu = NSMenu()
+        guard let registry else { return menu }
         for row in chief.allSubagents() {
-            let item = NSMenuItem(title: row.info.title, action: #selector(openSubagent(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = row.item.id.rawValue
-            item.toolTip = row.info.activity.shortLabel
+            let target = ActionTargetRef(kind: .sidebarItem, id: row.item.id.rawValue)
+            let built = registry.makeContextMenu(for: .sidebarItem, target: target, entries: [.action(ChiefSidebar.openSubagentAction)])
+            guard let item = built.items.first else { continue }
+            built.removeItem(item)
+            // The subagent's own row: its title and status, no action icon or key.
+            (item.title, item.toolTip, item.image) = (row.info.title, row.info.activity.shortLabel, nil)
+            (item.keyEquivalent, item.keyEquivalentModifierMask) = ("", [])
             menu.addItem(item)
         }
         return menu
@@ -112,15 +116,16 @@ public final class ChiefPaneTools: NSView {
         for id in Self.actions { if let item = registry.makeMenuItem(for: id) { menu.addItem(item) } }
         return menu
     }
-
-    @objc private func openSubagent(_ item: NSMenuItem) {
-        guard let registry, let id = item.representedObject as? String else { return }
-        _ = chief.activate(LayoutItemID(id), registry: registry)
-    }
 }
 
-/// Strings of the Chief's pane tools (Resources/Localizable.xcstrings).
+/// Strings of the Chief's pane tools and Open Chief Subagent (Resources/Localizable.xcstrings).
 enum ChiefToolStrings {
     static var subagents: String { String(localized: "chief.tools.subagents", defaultValue: "Subagents", bundle: .module) }
     static var actions: String { String(localized: "chief.tools.actions", defaultValue: "Chief Actions", bundle: .module) }
+    /// A Chief subagent's row or menu item before its chat has a title.
+    nonisolated static var subagent: String { String(localized: "chief.subagent.untitled", defaultValue: "Subagent", bundle: .module) }
+    /// Open Chief Subagent's refusal when its run names no subagent row.
+    static var noSubagent: String {
+        String(localized: "chief.openSubagent.noSubagent", defaultValue: "Choose a subagent from the Subagents menu or the sidebar.", bundle: .module)
+    }
 }

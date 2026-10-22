@@ -46,7 +46,7 @@ nonisolated enum HomeMessageActionCatalog: ActionCatalogGroup {
                 ])
             ),
             ActionDescriptor(
-                id: "home.sendSelectionTo", title: t("action.home.sendSelectionTo", "Send to…"),
+                id: "home.sendSelectionTo", title: t("action.home.sendSelectionTo", "Send To…"),
                 keywords: ["home", "send", "forward", "agent", "selection", "quote", "message", "chat", "text"],
                 category: .window, symbol: "arrowshape.turn.up.right", surfaces: [.contextMenu],
                 arguments: [selectionText, recipient],

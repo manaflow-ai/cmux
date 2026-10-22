@@ -4,12 +4,13 @@
 import AppKit
 
 extension ChatController {
-    /// A drop on the pane or on the field: the host's intake takes the files
-    /// and pictures, then the field takes the keyboard.
+    /// A drop on the field: the host's intake takes the files, promised files
+    /// and pictures, then the field takes the keyboard. (A drop on the rest of
+    /// the pane goes to the host's view around it.)
     /// - Parameter pasteboard: The drag's pasteboard.
     /// - Returns: True when the intake took the drop.
     func takeDrop(_ pasteboard: NSPasteboard) -> Bool {
-        guard intents?.takeAttachments(from: pasteboard) == true else { return false }
+        guard intents?.takeDroppedAttachments(from: pasteboard) == true else { return false }
         focusComposeForTyping()
         return true
     }

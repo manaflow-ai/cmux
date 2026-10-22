@@ -30,6 +30,51 @@
   overflow-x: auto;
   overflow-y: hidden;
 }
+/* More attachments than fit scroll sideways, and the side with chips past it (data-fade-left /
+   data-fade-right, scrollEdges.ts) fades them out as they scroll under it, as the prompt's edges do
+   (markdownField.css): an alpha mask on the row itself, never a painted overlay, so the composer's
+   glass shows through; at the start and the end that side is plain. The band is the prompt's
+   (--acpmux-md-fade-band, set on the row from MarkdownField.tsx). Reduce Transparency keeps plain
+   sides. */
+.acpmux-attachments {
+  --acpmux-attach-fade-left: 0px;
+  --acpmux-attach-fade-right: 0px;
+}
+.acpmux-attachments[data-fade-left] {
+  --acpmux-attach-fade-left: var(--acpmux-md-fade-band);
+}
+.acpmux-attachments[data-fade-right] {
+  --acpmux-attach-fade-right: var(--acpmux-md-fade-band);
+}
+.acpmux-attachments[data-fade-left],
+.acpmux-attachments[data-fade-right] {
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent,
+    #000 var(--acpmux-attach-fade-left),
+    #000 calc(100% - var(--acpmux-attach-fade-right)),
+    transparent
+  );
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    #000 var(--acpmux-attach-fade-left),
+    #000 calc(100% - var(--acpmux-attach-fade-right)),
+    transparent
+  );
+}
+@media (prefers-reduced-transparency: reduce) {
+  .acpmux-attachments[data-fade-left],
+  .acpmux-attachments[data-fade-right] {
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+}
+:root[data-reduce-transparency] .acpmux-attachments[data-fade-left],
+:root[data-reduce-transparency] .acpmux-attachments[data-fade-right] {
+  -webkit-mask-image: none;
+  mask-image: none;
+}
 /* Under the strip, the prompt, its placeholder and the shell field (with its glyph) start one gap
    down instead of the field's own top inset, so entering shell mode still moves nothing. */
 .acpmux-attachments ~ .acpmux-composer-field-menu :is(.acpmux-md-field, .acpmux-shell-field) {
@@ -104,6 +149,21 @@
   font-size: var(--text-caption);
   line-height: 1.2;
 }
+/* A pasted or dropped file still being read (composer/attachmentIntake.tsx PendingChip): there in
+   the paste's frame, an image as a thumbnail-sized tile with a dimmed picture glyph, so the strip
+   does not jump when the thumbnail replaces it. */
+.acpmux-attachment-pending {
+  color: var(--agent-muted);
+}
+.acpmux-attachment-image.acpmux-attachment-pending {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 104px;
+}
+.acpmux-attachment-file.acpmux-attachment-pending {
+  padding-right: 10px;
+}
 .acpmux-attachment-file {
   display: flex;
   align-items: center;
@@ -116,6 +176,13 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* A file that goes as its path: its name, then what happens to it in the caption's color. */
+.acpmux-attachment-link { gap: 6px; }
+.acpmux-attachment-link .acpmux-attachment-link-note {
+  flex: none;
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
 }
 .acpmux-attachment-document {
   display: grid;
@@ -306,4 +373,46 @@
 /* The prompt's context menu host wraps the field without a box of its own. */
 .acpmux-composer-field-menu {
   display: contents;
+}
+/* A huge paste kept as a chip (pastedText.ts): its first words over "Pasted text · N lines", as in
+   Claude. The chip is a button that puts the text back in the prompt; × removes it. */
+.acpmux-attachment-pasted {
+  display: flex;
+  width: min(240px, 70vw);
+  height: 44px;
+  overflow: hidden;
+}
+.acpmux-attachment-pasted-open {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  align-content: center;
+  gap: 2px;
+  padding: 0 28px 0 10px;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  color: var(--agent-text);
+  font: inherit;
+  text-align: start;
+}
+button.acpmux-attachment-pasted-open:hover {
+  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+}
+.acpmux-attachment-pasted-open:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: -2px;
+}
+.acpmux-attachment-pasted-name,
+.acpmux-attachment-pasted-lines {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-attachment-pasted-lines {
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+}
+.acpmux-attachment-pasted .acpmux-attachment-remove {
+  top: 14px;
 }

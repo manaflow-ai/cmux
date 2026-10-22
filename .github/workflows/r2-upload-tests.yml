@@ -36,3 +36,5 @@ jobs:
       # finalize-release.py runs only at real publish time; at least prove it loads.
       - run: python3 scripts/ci/finalize-release.py publish --help && python3 scripts/ci/finalize-release.py download --help
       - run: python3 tests/test_cmux_tui_artifacts_retry.py
+      # The uploader's CLI and the headers R2 receives (scripts/ci/upload-r2-object.py).
+      - run: python3 tests/test_r2_upload_requests.py

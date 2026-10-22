@@ -446,7 +446,7 @@ export function DiffPanel({
     { label: t("changes.copyApply"), disabled: !command, run: () => command && copyText(command) },
   ];
   return (
-    <section ref={panel} className="acpmux-diff-panel" aria-label={t("changes.panel")}>
+    <section ref={panel} className="acpmux-diff-panel" data-enter="right" aria-label={t("changes.panel")}>
       <header className="acpmux-diff-header">
         <button ref={back} type="button" className="acpmux-diff-back" aria-label={t("changes.back")} onClick={onClose}>
           <ChevronLeft />

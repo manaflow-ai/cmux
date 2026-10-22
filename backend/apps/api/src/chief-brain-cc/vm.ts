@@ -7,8 +7,8 @@ import { personalTeamIdFor } from "../domains/user.ts"
  * The machine side of the Claude Code route (turn.ts, backend/chief-cc/bake.sh): one Freestyle VM per
  * Chief turn, made from the chief-cc snapshot (CHIEF_CC_SNAPSHOT: Claude Code, tailscale, the turn runner
  * and the model forward), joined to the tailnet with a one-use, pre-authorized, ephemeral key tagged
- * tag:agent-cloud (minted per VM with the Tailscale OAuth client CHIEF_CC_TS_OAUTH, scope auth_keys, that
- * tag only), so its model calls reach the sr2 gateway, which admits it by its tailnet identity. Deleted by
+ * CHIEF_CC_TS_TAG (default tag:agent-cloud; minted per VM with the Tailscale OAuth client CHIEF_CC_TS_OAUTH,
+ * scope auth_keys, that tag only), so its model calls reach the sr2 gateway, which admits it by its tailnet identity. Deleted by
  * exact id after the turn; Freestyle's own timers (idle pause 300 s, ttl 30 min, run cap 15 min) are the
  * backstop for a turn whose object never came back. Keys, tokens and the VM's output are never logged:
  * errors carry only the step and the HTTP status.
@@ -36,9 +36,10 @@ export const ccRoute = (env: Env, owner: string | null | undefined): boolean => 
 export class CcError extends Error {}
 
 const base = (env: Env) => (env.CHIEF_CC_FREESTYLE_API_URL || API).replace(/\/+$/, "")
-const fs = async (env: Env, method: string, path: string, body?: unknown, ms = CALL_MS): Promise<Response> => {
+/** One Freestyle API call with the route's key (sandbox.ts uses it too; the key never leaves the Worker). */
+export const freestyle = async (env: Env, method: string, path: string, body?: unknown, ms = CALL_MS, headers: Record<string, string> = {}): Promise<Response> => {
   try {
-    return await fetch(`${base(env)}${path}`, { method, redirect: "manual", signal: AbortSignal.timeout(ms), headers: { authorization: `Bearer ${env.CHIEF_CC_FREESTYLE_API_KEY}`, "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) })
+    return await fetch(`${base(env)}${path}`, { method, redirect: "manual", signal: AbortSignal.timeout(ms), headers: { ...headers, authorization: `Bearer ${env.CHIEF_CC_FREESTYLE_API_KEY}`, "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) })
   } catch {
     throw new CcError(`${method} ${path.split("/").slice(0, 3).join("/")}: no answer`)
   }
@@ -48,7 +49,7 @@ const fs = async (env: Env, method: string, path: string, body?: unknown, ms = C
 export const vmName = (env: Env): string => `cmuxnp-${cloudEnvTag(env.ENVIRONMENT)}-ccb-${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`
 
 export const createVm = async (env: Env, name: string, meta: { agent: string; conversation: string; run: string }): Promise<string> => {
-  const res = await fs(env, "POST", "/v5/vms", {
+  const res = await freestyle(env, "POST", "/v5/vms", {
     slug: name,
     snapshotId: env.CHIEF_CC_SNAPSHOT,
     idleTimeoutSeconds: 300,
@@ -56,7 +57,8 @@ export const createVm = async (env: Env, name: string, meta: { agent: string; co
     ttlSeconds: 1800,
     automaticRestart: false,
     metadata: { cmux_chief_cc: meta.agent, cmux_conversation: meta.conversation, cmux_run: meta.run },
-    // Out to the Internet only (the tailnet comes up inside the guest); nothing comes in.
+    // Out to the Internet only, IPv4 and IPv6 (the tailnet comes up inside the guest); nothing comes in.
+    // What the agent user may reach inside is net.ts.
     firewall: { rules: [{ action: "allow", source: {}, destination: { public: true } }] }
   }, 120_000)
   const body = (await res.json().catch(() => null)) as { id?: string; vmId?: string } | null
@@ -65,9 +67,21 @@ export const createVm = async (env: Env, name: string, meta: { agent: string; co
   return id
 }
 
+/**
+ * The VM's network as Freestyle reports it (its IP mode and egress addresses), for `chief-net show`; null
+ * when the call fails (it never holds up a turn).
+ */
+export const vmNetwork = async (env: Env, vm: string): Promise<{ vm: string; ip_mode: string | null; egress_ipv4: string | null; egress_ipv6: string | null } | null> => {
+  const res = await freestyle(env, "GET", `/v5/vms/${encodeURIComponent(vm)}`, undefined, 10_000).catch(() => null)
+  if (!res?.ok) return void (await res?.body?.cancel().catch(() => undefined)), null
+  const r = (await res.json().catch(() => null)) as { ipMode?: unknown; egressIpv4?: unknown; egressIpv6?: unknown } | null
+  const str = (x: unknown) => (typeof x === "string" ? x : null)
+  return { vm, ip_mode: str(r?.ipMode), egress_ipv4: str(r?.egressIpv4), egress_ipv6: str(r?.egressIpv6) }
+}
+
 /** Runs `command` as root with `stdin`; the exit code and stdout (the guest's stderr is never read back). */
 export const execRoot = async (env: Env, vm: string, command: string, stdin: Uint8Array | null, timeoutMs: number): Promise<{ exit: number; stdout: string }> => {
-  const res = await fs(env, "POST", `/v5/vms/${encodeURIComponent(vm)}/exec-await`, { command, timeoutMs, linuxUser: "root", ...(stdin ? { stdin: b64(stdin) } : {}) }, timeoutMs + 15_000)
+  const res = await freestyle(env, "POST", `/v5/vms/${encodeURIComponent(vm)}/exec-await`, { command, timeoutMs, linuxUser: "root", ...(stdin ? { stdin: b64(stdin) } : {}) }, timeoutMs + 15_000)
   if (res.status !== 200) {
     await res.body?.cancel().catch(() => undefined)
     throw new CcError(`exec: ${res.status}`)
@@ -79,7 +93,7 @@ export const execRoot = async (env: Env, vm: string, command: string, stdin: Uin
 /** Deletes by exact id (the tailnet node leaves first, best effort); true once the provider confirms (missing counts). */
 export const removeVm = async (env: Env, vm: string): Promise<boolean> => {
   await execRoot(env, vm, "tailscale logout >/dev/null 2>&1 || true", null, 8_000).catch(() => undefined)
-  const res = await fs(env, "DELETE", `/v5/vms/${encodeURIComponent(vm)}`).catch(() => null)
+  const res = await freestyle(env, "DELETE", `/v5/vms/${encodeURIComponent(vm)}`).catch(() => null)
   await res?.body?.cancel().catch(() => undefined)
   return res !== null && (res.ok || res.status === 404)
 }
@@ -107,14 +121,17 @@ const tailnetAccess = async (env: Env): Promise<string> => {
   return access.token
 }
 
-/** One key for one VM: single use, pre-authorized, ephemeral (the node goes when the VM goes), tag:agent-cloud, 10 min to use it. */
+/** The turn machine's tailnet tag: CHIEF_CC_TS_TAG when it is a well-formed tag, else tag:agent-cloud. */
+export const tailnetTag = (env: Env): string => (/^tag:[a-z0-9][a-z0-9-]{0,62}$/.test(env.CHIEF_CC_TS_TAG ?? "") ? env.CHIEF_CC_TS_TAG! : "tag:agent-cloud")
+
+/** One key for one VM: single use, pre-authorized, ephemeral (the node goes when the VM goes), tagged tailnetTag, 10 min to use it. */
 export const mintTailnetKey = async (env: Env): Promise<Uint8Array> => {
   const token = await tailnetAccess(env)
   const res = await fetch("https://api.tailscale.com/api/v2/tailnet/-/keys", {
     method: "POST",
     signal: AbortSignal.timeout(CALL_MS),
     headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-    body: JSON.stringify({ capabilities: { devices: { create: { reusable: false, ephemeral: true, preauthorized: true, tags: ["tag:agent-cloud"] } } }, expirySeconds: 600, description: "cloud chief turn" })
+    body: JSON.stringify({ capabilities: { devices: { create: { reusable: false, ephemeral: true, preauthorized: true, tags: [tailnetTag(env)] } } }, expirySeconds: 600, description: "cloud chief turn" })
   }).catch(() => null)
   const body = (await res?.json().catch(() => null)) as { key?: string } | null
   if (res?.status === 401) access = undefined

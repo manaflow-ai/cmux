@@ -30,10 +30,23 @@ nonisolated enum PageBackground {
     /// Chromium's white default, 0xAARRGGBB.
     static let engineDefaultARGB: UInt32 = 0xFFFF_FFFF
 
-    /// The Chromium page background: the theme color until the tab's first
-    /// real page, then white.
-    static func chromiumARGB(pastFirstRealPage: Bool, theme: UInt32) -> UInt32 {
-        pastFirstRealPage ? engineDefaultARGB : theme
+    /// The Chromium page background, in the order the page's own paint takes
+    /// it over: the theme color until the tab's first real page, the theme
+    /// color again while a committed document has not painted
+    /// (`CEFTab+LoadingBackground`), then the document's own background, then
+    /// Chromium's white.
+    ///
+    /// - Parameters:
+    ///   - pastFirstRealPage: The tab showed a real page (`CEFTab.pastFirstRealPage`).
+    ///   - documentSettled: The committed document's load ended, so it owns the page area.
+    ///   - document: The document's own background once read (`CEFTab+ResizeBackdrop`); nil for white.
+    ///   - newTab: The theme color of the New Tab surface.
+    ///   - loading: The theme color behind a committed page that has not painted.
+    static func chromiumARGB(pastFirstRealPage: Bool, documentSettled: Bool, document: UInt32?,
+                             newTab: UInt32, loading: UInt32) -> UInt32 {
+        guard pastFirstRealPage else { return newTab }
+        guard documentSettled else { return loading }
+        return document ?? engineDefaultARGB
     }
 
     /// True when a committed document is a real page (not blank, not the

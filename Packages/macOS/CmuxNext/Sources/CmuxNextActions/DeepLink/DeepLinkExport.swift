@@ -68,11 +68,18 @@ public nonisolated struct DeepLinkExport: Sendable {
              "hints": "optional ?\(DeepLink.hostHintKey)=<machine name>&\(DeepLink.nameHintKey)=<agent name>, for display only: "
                 + "\(DeepLink.shortTokenLengths.lowerBound) to \(DeepLink.shortTokenLengths.upperBound) characters of the session id rule; "
                 + "a malformed hint is dropped",
+             "message": "optional ?\(DeepLink.messageKey)=<harness message id>, the session's own id for one message "
+                + "(\(tokenRule)): the chat scrolls to it and marks it, and leaves the view where it is when its "
+                + "transcript has no such message. A malformed or repeated one is dropped, never the link",
+             "schema": "schemas/deeplinks/agent-link.json states these parameters and their vectors for every emitter "
+                + "and parser (cmux.com/deeplink/agent writes links by it)",
              "opens": "only a tab this app already shows the session in (the chat tab that adopted it, else the terminal "
                 + "running it); it never starts, resumes or connects to anything",
              "example": example(.agent(harness: "claude", session: Self.exampleAgentSession)),
              "example_with_hints": DeepLink(.agent(harness: "claude", session: Self.exampleAgentSession),
-                                            hostHint: "build-mac", nameHint: "Lanternfish").url(scheme: scheme)?.absoluteString ?? ""],
+                                            hostHint: "build-mac", nameHint: "Lanternfish").url(scheme: scheme)?.absoluteString ?? "",
+             "example_with_message": DeepLink(.agent(harness: "claude", session: Self.exampleAgentSession),
+                                              message: "msg_01hq9f4c7k").url(scheme: scheme)?.absoluteString ?? ""],
         ]
         let root: [String: Any] = [
             "description": "cmux-next object links (Copy Workspace/Pane/Tab Link, agent chat sessions, outside agent sessions), generated from "

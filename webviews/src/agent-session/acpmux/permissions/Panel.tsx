@@ -137,7 +137,8 @@ function AskRow({
       {open && (
         <div id={detailsId} className="acpmux-ask-details">
           {ask.command ? (
-            <ShellBlock command={ask.command} />
+            // A command waiting to run shows whole: what is approved is never under a fade.
+            <ShellBlock command={ask.command} whole />
           ) : ask.input !== undefined ? (
             <pre className="acpmux-ask-input">
               {typeof ask.input === "string" ? ask.input : JSON.stringify(ask.input, null, 2)}
@@ -157,7 +158,8 @@ function AskRow({
         </div>
       )}
       {files.map((file) => (
-        <EditDiff key={file.path} file={file} />
+        // An edit awaiting approval shows whole: never under a fade.
+        <EditDiff key={file.path} file={file} whole />
       ))}
     </>
   );

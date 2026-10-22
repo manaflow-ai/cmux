@@ -1,34 +1,89 @@
 name: gallery visual evidence (advisory)
 
-# This is a small, best-effort visual receipt for webview changes. The existing
-# `gallery PR diff` workflow remains the full matrix and publisher; this lane
-# samples the first few touched states so a reviewer gets before/after PNGs
-# quickly. It is deliberately separate and non-blocking: do not add this check
-# to branch protection, and keep the job-level continue-on-error guard.
+# This is a small, best-effort visual receipt for webview changes: before/after
+# PNGs of the gallery states a pull request touches, at most 16 states (dark and
+# light each), picked by relevance (scripts/ci/gallery_select.py on touched.ts's
+# ranking: the changed component's own states first, a shared file's unrelated
+# states last). A `Gallery: entry.id, entry.id/variant` line in the PR body
+# picks the states instead. Do not add this check to branch protection. A
+# capture that touched gallery states but rendered zero real frames (none
+# ready, on disk and not one flat color; scripts/gallery-matrix/frames.ts)
+# fails the run: a green receipt with nothing in it hid that for weeks.
+#
+# The images stay in the run's artifact, gallery-advisory-<PR>-<HEAD_SHA> (#21400:
+# no gallery renders on the public PR). gallery-review.json in it lists every
+# image, its diff and the changed file that picked it; visual-manifest.json
+# (the team feed) and previews.json (HQ's preview tool) are other shapes of it. The PR status comment's `gallery` section
+# names the states and the download command, and says stale when the head moves.
 on:
   pull_request:
     branches: [feat-cmux-next]
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, edited]
     paths:
       - "webviews/**"
       - "scripts/gallery-matrix/**"
       - "scripts/cmux-next/build-agent-pane-web.sh"
+      - "scripts/ci/gallery_select.py"
       - "bun.lock"
       - ".github/workflows/gallery-advisory.yml"
 
 permissions:
   contents: read
 
+# A body edit that does not touch a `Gallery:` line gets its own group, so it
+# never cancels a capture in flight; every job then skips.
 concurrency:
-  group: gallery-advisory-${{ github.event.pull_request.number }}
+  group: gallery-advisory-${{ github.event.pull_request.number }}${{ github.event.action == 'edited' && !(github.event.changes.body && (contains(github.event.pull_request.body, 'allery:') || contains(github.event.changes.body.from, 'allery:'))) && format('-noop-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 jobs:
-  capture:
-    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
-    # A visual receipt must never hold up a functional PR. The final artifact
-    # step still runs when a browser or gallery build is unavailable.
+  # The section shows the previous head's images until the capture replaces
+  # them; say so. Base-branch scripts only, no pull request code.
+  mark-stale:
+    # Same events as capture: a body edit that mentions `Gallery:` shares the
+    # concurrency group and can cancel a synchronize run, so it must mark stale
+    # too. stale() writes nothing when the section already shows this head.
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository && (github.event.action != 'edited' || github.event.changes.body && (contains(github.event.pull_request.body, 'allery:') || contains(github.event.changes.body.from, 'allery:'))) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted pull-request-write token
     continue-on-error: true
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout the status scripts from the base branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.ref }}
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci/pr_status.py
+            scripts/ci/gallery_select.py
+          sparse-checkout-cone-mode: false
+      - name: Mark the gallery section stale
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          test -f scripts/ci/gallery_select.py || exit 0  # a base before this workflow change
+          python3 - <<'PY'
+          import os, sys
+          sys.path.insert(0, "scripts/ci")
+          import gallery_select, pr_status
+          repo, pr = os.environ["REPOSITORY"], int(os.environ["PR"])
+          text = gallery_select.stale(pr_status.section(repo, pr, "gallery"), os.environ["HEAD_SHA"])
+          if text is not None:
+              print(pr_status.upsert(repo, pr, "gallery", text))
+          PY
+
+  capture:
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository && (github.event.action != 'edited' || github.event.changes.body && (contains(github.event.pull_request.body, 'allery:') || contains(github.event.changes.body.from, 'allery:'))) }}
+    # The capture step may fail (a browser or gallery build unavailable); the
+    # frame check after it decides the job's result, and the artifact step
+    # always runs.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
     timeout-minutes: 20
     steps:
@@ -60,7 +115,15 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: "24.11.1"
+          node-version: "24.22.1"
+
+      # This job checks out the pull request head, which has no copy of the action until it
+      # merges a base that does; a missing cache must not cost the receipt.
+      - name: Cache Playwright's apt packages
+        continue-on-error: true
+        uses: ./.github/actions/playwright-apt-cache
+        with:
+          engines: chromium
 
       - name: Capture a bounded before/after receipt
         continue-on-error: true
@@ -68,6 +131,7 @@ jobs:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           PR: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_BODY: ${{ github.event.pull_request.body }}
           CMUX_GALLERY_IN_VM: "1"
         run: |
           set -euo pipefail
@@ -78,17 +142,18 @@ jobs:
           cd webviews
           bun install --frozen-lockfile
           bun scripts/gallery/touched.ts --changed "$RUNNER_TEMP/changed.txt" --out "$RUNNER_TEMP/touched.json"
-          ids=$(jq -r '.entries | join(",")' "$RUNNER_TEMP/touched.json")
-          count=$(jq '.entries | length' "$RUNNER_TEMP/touched.json")
+          select="$GITHUB_WORKSPACE/scripts/ci/gallery_select.py"
+          # The touched entries plus any the PR body's `Gallery:` line names.
+          ids=$(python3 "$select" entries --touched "$RUNNER_TEMP/touched.json")
           cp "$RUNNER_TEMP/touched.json" "$evidence/touched.json"
-          if [ "$count" = 0 ]; then
+          if [ -z "$ids" ]; then
             echo "No gallery entries were touched; no visual receipt was needed." | tee "$evidence/summary.txt"
             exit 0
           fi
 
           # Pair the default dark/light themes at one compact width. The cap is
-          # intentional: the full gallery workflow owns exhaustive coverage. The
-          # manifests list every touched state; the sample below picks 16.
+          # intentional: the manifests list every touched state; the sample
+          # below picks the 16 most relevant.
           bun scripts/gallery/manifest.ts --entries "$ids" --themes pair --widths narrow \
             --frame component --out "$RUNNER_TEMP/head-all.json"
           CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery-head" bun run gallery:build
@@ -104,17 +169,14 @@ jobs:
             echo '[]' > "$RUNNER_TEMP/base-all.json"
           fi
 
-          # The sample: the states this PR adds first (no base case has their id),
-          # then the rest in order, 16 at most. A PR that touches a shared file
-          # touches every entry, and the first 16 in order are then unrelated to
-          # it. The base keeps the sampled states, then the ones this PR removes.
-          jq -s '(.[1] | map({key: .id, value: true}) | from_entries) as $base
-            | ([.[0][] | select($base[.id] | not)] + [.[0][] | select($base[.id])]) | .[0:16]' \
-            "$RUNNER_TEMP/head-all.json" "$RUNNER_TEMP/base-all.json" > "$RUNNER_TEMP/head.json"
-          jq -s '(.[0] | map({key: .id, value: true}) | from_entries) as $head
-            | (.[2] | map({key: .id, value: true}) | from_entries) as $all
-            | ([.[1][] | select($head[.id])] + [.[1][] | select($all[.id] | not)]) | .[0:16]' \
-            "$RUNNER_TEMP/head.json" "$RUNNER_TEMP/base-all.json" "$RUNNER_TEMP/head-all.json" > "$RUNNER_TEMP/base.json"
+          # The sample: touched.ts's ranking (the changed component's own states,
+          # then a gallery that names it, importers by hops, the same folder, a
+          # shared stylesheet, a broad change), or the PR body's `Gallery:` line.
+          # The base renders the sampled states it has, including ones the PR removes.
+          python3 "$select" select --touched "$RUNNER_TEMP/touched.json" \
+            --head-all "$RUNNER_TEMP/head-all.json" --base-all "$RUNNER_TEMP/base-all.json" \
+            --cap 16 --out-dir "$RUNNER_TEMP"
+          cp "$RUNNER_TEMP/selection.json" "$evidence/selection.json"
 
           cd "$GITHUB_WORKSPACE/scripts/gallery-matrix"
           bun install --frozen-lockfile
@@ -132,8 +194,13 @@ jobs:
               continue
             fi
             if [ -d "$gallery" ]; then
+              # The runner exits 1 when a state's play check fails (a base state
+              # whose play script no longer finds its element is common); the
+              # images and results.json are still written and pr.ts reports the
+              # failure, so only a missing results.json ends the receipt.
               bun runner.ts --manifest "$RUNNER_TEMP/$stage.json" --gallery-dir "$gallery" \
-                --output-dir "$out" --engines chromium --shard-count 1 --shard-index 0
+                --output-dir "$out" --engines chromium --shard-count 1 --shard-index 0 \
+                || echo "::warning::the $stage render exited $? (a failed play check or an unready state); see results.json"
             else
               echo "Missing $stage gallery build; advisory capture failed." >&2
               exit 1
@@ -157,11 +224,43 @@ jobs:
             --artifact-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}#artifacts"
           jq -r '.[] | [.status, .entry, .variant, .theme, .engine] | @tsv' \
             "$evidence/diff/outcomes.json" > "$evidence/summary.tsv"
+          python3 "$select" review --selection "$RUNNER_TEMP/selection.json" \
+            --outcomes "$evidence/diff/outcomes.json" --cases "$RUNNER_TEMP/head.json" "$RUNNER_TEMP/base.json" \
+            --pr "$PR" --head-sha "$HEAD_SHA" --base-sha "$base_sha" --repo "$GITHUB_REPOSITORY" \
+            --run-id "$GITHUB_RUN_ID" --out "$evidence/gallery-review.json" \
+            --visual-out "$evidence/visual-manifest.json" --previews-out "$evidence/previews.json"
           {
             echo "Captured advisory receipt for $HEAD_SHA (base $base_sha)."
-            echo "Sample: up to 16 states, new ones first, dark/light themes, narrow component width, Chromium."
+            echo "Sample: the 16 most relevant states ($(jq .more "$RUNNER_TEMP/selection.json") more touched), dark/light themes, narrow component width, Chromium."
             echo "The receipt is informational and never a merge gate."
           } | tee "$evidence/summary.txt" >> "$GITHUB_STEP_SUMMARY"
+
+      # Zero real frames fails the run. No touched state needs no frame.
+      - name: Require real frames
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/gallery-advisory"
+          if [ -f "$evidence/summary.txt" ] && grep -q "No gallery entries were touched" "$evidence/summary.txt"; then
+            echo "No gallery entries were touched; no frames needed."
+            exit 0
+          fi
+          if [ ! -f "$evidence/head/results.json" ] && [ ! -f "$evidence/base/results.json" ]; then
+            echo "::error::gallery advisory: zero real frames; the capture rendered nothing (see the capture step)"
+            exit 1
+          fi
+          cd scripts/gallery-matrix
+          [ -d node_modules ] || bun install --frozen-lockfile
+          bun test frames.test.ts
+          # The head's frames decide; only a PR that removes every sampled state
+          # (an empty head sample) is judged on its base frames.
+          stage="head"
+          if [ "$(jq length "$evidence/head/results.json" 2>/dev/null || echo 0)" = 0 ]; then stage="base"; fi
+          bun frames.ts --dir "$evidence/$stage" --out "$evidence/frames.json" --require || {
+            echo "::error::gallery advisory: zero real frames ($(jq -c 'del(.dirs)' "$evidence/frames.json"))"
+            exit 1
+          }
+          echo "Real frames: $(jq .real "$evidence/frames.json") of $(jq .total "$evidence/frames.json")" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload advisory visual receipt
         if: always()
@@ -171,3 +270,69 @@ jobs:
           path: ${{ runner.temp }}/gallery-advisory
           if-no-files-found: warn
           retention-days: 30
+
+  # The PR status comment's `gallery` section, from the artifact's data only:
+  # base-branch scripts, no pull request code, plain ids (gallery_select.py).
+  comment:
+    needs: capture
+    # Not on a cancelled run: a newer push cancelled it, and its mark-stale
+    # line must stand until the newer capture lands.
+    if: ${{ !cancelled() && needs.capture.result != 'skipped' && github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted pull-request-write token
+    continue-on-error: true
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout the status scripts from the base branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.ref }}
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci/pr_status.py
+            scripts/ci/gallery_select.py
+          sparse-checkout-cone-mode: false
+      - name: Download the receipt
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: gallery-advisory-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+          path: ${{ runner.temp }}/receipt
+      - name: Update the PR's gallery section
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          test -f scripts/ci/gallery_select.py || exit 0  # a base before this workflow change
+          # A run that finished after a newer push leaves the section to that push's run.
+          live=$(gh api "repos/$REPOSITORY/pulls/$PR" --jq .head.sha)
+          if [ "$live" != "$HEAD_SHA" ]; then
+            echo "#$PR moved to ${live:0:7}; its own run writes the gallery section"
+            exit 0
+          fi
+          receipt="$RUNNER_TEMP/receipt"
+          if [ -f "$receipt/gallery-review.json" ] \
+            && jq -e --arg sha "$HEAD_SHA" '.head_sha == $sha' "$receipt/gallery-review.json" >/dev/null; then
+            # Re-render from the review's fields with the base's code; the run id and repo are this run's.
+            jq --arg repo "$REPOSITORY" --argjson run "$GITHUB_RUN_ID" --argjson pr "$PR" \
+              '.repo = $repo | .run_id = $run | .pr = $pr
+               | .artifact = "gallery-advisory-\($pr)-\(.head_sha)"
+               | .download = "gh run download \($run) -R \($repo) -n \(.artifact)"' \
+              "$receipt/gallery-review.json" > "$RUNNER_TEMP/review.json"
+            python3 scripts/ci/gallery_select.py section --review "$RUNNER_TEMP/review.json" --out "$RUNNER_TEMP/gallery.md"
+            python3 scripts/ci/pr_status.py set --repo "$REPOSITORY" --pr "$PR" --section gallery --body-file "$RUNNER_TEMP/gallery.md"
+          elif [ -f "$receipt/summary.txt" ] && grep -q "No gallery entries were touched" "$receipt/summary.txt"; then
+            python3 scripts/ci/pr_status.py set --repo "$REPOSITORY" --pr "$PR" --section gallery --clear
+          else
+            {
+              echo "<!-- gallery-head: $HEAD_SHA -->"
+              echo "Gallery before/after for \`${HEAD_SHA:0:7}\`: the capture produced no images ([run]($RUN_URL))."
+            } > "$RUNNER_TEMP/gallery.md"
+            python3 scripts/ci/pr_status.py set --repo "$REPOSITORY" --pr "$PR" --section gallery --body-file "$RUNNER_TEMP/gallery.md"
+          fi

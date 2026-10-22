@@ -42,6 +42,9 @@ export interface UiAnchorOptions {
    * the overlay opens below and runs past the visible box, where its scroller can scroll to it
    * (above, it would run off the top, out of reach). */
   minHeight?: number;
+  /** A selector for the box the overlay stays inside, found from the anchor (the agent pane's chat
+   * column), cut with the visible box; the overlay learns its width as `--available-width`. */
+  boundary?: string;
 }
 
 // An overlay is mounted before its measured coordinates are available. Keep that first hidden
@@ -163,7 +166,7 @@ export function useUiAnchor(
   open: boolean,
   options: UiAnchorOptions = {},
 ): CSSProperties {
-  const { align, direction: requestedDirection, gap, margin, minHeight, side } = options;
+  const { align, boundary, direction: requestedDirection, gap, margin, minHeight, side } = options;
   const [style, setStyle] = useState<CSSProperties>(HIDDEN_ANCHOR_STYLE);
   useLayoutEffect(() => {
     if (!open) {
@@ -180,7 +183,15 @@ export function useUiAnchor(
         requestedDirection ??
         (anchorNode.ownerDocument.defaultView?.getComputedStyle(anchorNode).direction === "rtl" ? "rtl" : "ltr");
       // Resolved in the visible box's coordinates, then back in the window's.
-      const box = visibleBox(overlayNode);
+      let box = visibleBox(overlayNode);
+      const bound = boundary ? anchorNode.closest(boundary)?.getBoundingClientRect() : undefined;
+      if (bound)
+        box = {
+          left: Math.max(box.left, bound.left),
+          top: Math.max(box.top, bound.top),
+          right: Math.min(box.right, bound.right),
+          bottom: Math.min(box.bottom, bound.bottom),
+        };
       const inBox = resolveUiOverlayPosition(
         { left: a.left - box.left, top: a.top - box.top, right: a.right - box.left, bottom: a.bottom - box.top },
         { width: o.width, height: o.height },
@@ -193,6 +204,8 @@ export function useUiAnchor(
       const scale = scaleFor(parent);
       const left = (position.left - parentRect.left) / scale.x + (parent?.scrollLeft ?? 0);
       const top = (position.top - parentRect.top) / scale.y + (parent?.scrollTop ?? 0);
+      // With a boundary, the width the overlay may take: the box less its margin on both sides.
+      const room = Math.max(0, box.right - box.left - 2 * (margin ?? 8)) / scale.x;
       setStyle({
         position: "absolute",
         left,
@@ -201,7 +214,11 @@ export function useUiAnchor(
         bottom: "auto",
         maxHeight: position.maxHeight / scale.y,
         visibility: "visible",
-      });
+        // It travels out of its trigger on the side it opened (ui/popupSurface.css): rising from
+        // above it, dropping from below, whichever side it asked for.
+        "--ui-popup-y": position.side === "below" ? "-4px" : "4px",
+        ...(bound ? { "--available-width": `${room}px` } : {}),
+      } as CSSProperties);
     };
     update();
     window.addEventListener("resize", update);
@@ -214,6 +231,6 @@ export function useUiAnchor(
       window.removeEventListener("scroll", update, true);
       observer?.disconnect();
     };
-  }, [align, anchor, gap, margin, minHeight, open, overlay, requestedDirection, side]);
+  }, [align, anchor, boundary, gap, margin, minHeight, open, overlay, requestedDirection, side]);
   return style;
 }

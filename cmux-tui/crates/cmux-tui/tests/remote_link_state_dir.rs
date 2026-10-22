@@ -69,6 +69,8 @@ impl Fixture {
 
 impl Drop for Fixture {
     fn drop(&mut self) {
+        // One stop per daemon: a stop waits for an owner that still
+        // restores its session (it binds its socket first, d674e3164cc).
         self.stop_daemons();
         let _ = self
             .command()

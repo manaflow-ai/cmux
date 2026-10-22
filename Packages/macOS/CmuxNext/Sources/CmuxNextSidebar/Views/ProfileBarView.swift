@@ -9,16 +9,21 @@ import CmuxNextDesign
 /// show better"): the strip is centered on the sidebar, each space shows its
 /// icon, emoji or initial in its color, the current space sits on a
 /// selection-fill chip that slides to the new space on a switch, and the "+"
-/// (on hover) sits at the bar's trailing edge so it never moves the strip.
+/// (on hover) sits right after the last space, in a slot the strip always
+/// leaves free, so it never moves the strip (Lawrence 2026-10-21).
 /// Too many spaces narrow the slots, then turn compact (small dots, the
 /// current one full). Layers, back to front: the hover chip (this view),
 /// the current-space chip (`indicator`), the marks (`marks`).
 final class ProfileBarView: NSView {
-    private let model: SidebarModel
+    let model: SidebarModel
     var contextMenuProvider: ((SidebarContextTarget) -> NSMenu?)?
 
     private(set) var hovered: Int?
-    private var pressed: Int?
+    private(set) var pressed: Int?
+    /// Where the press on a space started (bar coordinates): a move past the threshold drags its dot.
+    var pressPoint: NSPoint?
+    /// The space dot being dragged (`ProfileBarView+DotDrag`); nil otherwise.
+    var dotDrag: ProfileBarDotDrag?
     private var swipeTracker = ProfileSwipeTracker()
     private var wheel = SpaceWheelPager()
     private var paging = false
@@ -167,6 +172,11 @@ final class ProfileBarView: NSView {
     /// Moves the chip to the current space; a switch slides it (Reduce
     /// Motion and speed "off" snap, `Motion.set`).
     private func placeIndicator(animated: Bool) {
+        // The dots are layers of their own while one is dragged: the current one carries the chip.
+        if dotDrag != nil {
+            indicator.isHidden = true
+            return
+        }
         // A switch not yet shown (`refresh` slides it): a relayout first
         // would snap the chip to the new space and leave nothing to slide.
         if !animated, shownActive != nil, model.activeProfileID != shownActive, !indicator.isHidden { return }
@@ -281,17 +291,24 @@ final class ProfileBarView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        setPressed(index(at: convert(event.locationInWindow, from: nil)))
+        let point = convert(event.locationInWindow, from: nil)
+        pressPoint = point
+        setPressed(index(at: point))
     }
 
-    // No drag: a dot cannot be dragged to reorder, and nothing drops on
-    // the dots (SIDEBAR-FOOTER-AND-SPACE-MENU amendment 3, for now). The
-    // space menu's Move Left / Move Right reorder spaces.
+    /// A press on a space that moves drags its dot to reorder the spaces (`ProfileBarView+DotDrag`).
+    override func mouseDragged(with event: NSEvent) {
+        dragDot(to: convert(event.locationInWindow, from: nil))
+    }
+
     override func mouseUp(with event: NSEvent) {
         defer {
             pressed = nil
+            pressPoint = nil
             needsDisplay = true
         }
+        // A dragged dot drops (over the footer band it moves its space); the release is no click.
+        if dropDot() { return }
         guard let pressed, pressed == index(at: convert(event.locationInWindow, from: nil)) else { return }
         activate(pressed)
     }

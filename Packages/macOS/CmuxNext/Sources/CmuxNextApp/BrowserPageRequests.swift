@@ -5,6 +5,7 @@ import CmuxNextBrowser
 import CmuxNextBrowserHistory
 import CmuxNextDaemon
 import CmuxNextNowPlaying
+import CmuxNextSettings
 import CmuxNextTabs
 
 /// Tabs a page asks for: a link opened in a new tab (Cmd-click, middle
@@ -60,8 +61,11 @@ final class BrowserPageRequests: BrowserTabDelegate {
     /// cmux's own music player (cx-imt2i, a preview feature).
     let music = MusicPlayer()
     /// What the Now Playing card shows and drives: the player while it plays, else the playing tab,
-    /// else another app that plays (Spotify, Music: macOS Now Playing, cmux's own entries left out).
-    private(set) lazy var sidebarSources = NowPlayingSources(player: music, tabs: sidebarNowPlaying, system: SystemNowPlaying.bundled())
+    /// else another app that plays (Spotify, Music: macOS Now Playing, cmux's own entries left out)
+    /// while `sidebar.nowPlaying.otherApps` is on (off by default: only what plays in cmux).
+    private(set) lazy var sidebarSources = NowPlayingSources(
+        player: music, tabs: sidebarNowPlaying, system: SystemNowPlaying.bundled(),
+        otherApps: { [weak self] in self?.services?.settings?.snapshot.nowPlaying.otherApps ?? NowPlayingSettings.otherAppsDefault })
     /// Whether the Now Playing card is put away (its x, Hide, Hide Until Relaunch; u2437), for every window's sidebar.
     let nowPlayingCard = NowPlayingCardDismissal()
     /// Where a page's new tab goes next to its opener.
@@ -169,7 +173,11 @@ final class BrowserPageRequests: BrowserTabDelegate {
             services.cache.existingBrowser(key)?.chrome.showNotice(text)
         case .download(let item):
             downloads.add(item, tab: key, keep: !services.cache.browserTabs.isIncognitoTab(key)) { [weak services] notice in
-                guard let chrome = services?.cache.existingBrowser(key)?.chrome else { return }
+                guard let services, let entry = services.cache.existingBrowser(key) else { return }
+                // A finished download opens the Downloads popup under the tab's
+                // button, as Chrome's bubble does; the notice is for a tab not on screen.
+                if notice.finished, BrowserToolbarHandlers.showDownloads(for: entry, services: services, finished: true) { return }
+                let chrome = entry.chrome
                 // A blocked download offers the blocking site's Site
                 // settings, where its automatic-downloads choice changes
                 // (the same path as browser.download.openBlockedSiteSettings).
@@ -324,7 +332,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
             return open(url: url, adopting: child, engine: engine, profile: profile, in: pane, opener: opener, background: true)
         }
         // A refusal closes an adopted child itself (PaneBrowserTabOpener).
-        services.linkOpener.open(from: source, cmdClick: true) { target, placed in
+        services.linkOpener.open(from: source) { target, placed in
             target.newBrowserTab(url: url, inherited: engine, adopting: child, background: placed != nil, profile: profile,
                                  opener: target === source ? opener : nil, then: placed)
         }

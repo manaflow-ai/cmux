@@ -1,5 +1,6 @@
 //! Attach replay and live-stream delivery, shared by every native attach caller.
 use super::*;
+use crate::panic_free::JsonFields;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn connect_and_attach(
@@ -70,9 +71,10 @@ pub(super) fn connect_and_attach(
     }
     slot.lock().unwrap_or_else(|e| e.into_inner()).session = Some(resolved.clone());
     // Session status changes (`_acpmux/session_changed`) come only to
-    // watchers; the reader keeps only this session's. The answer (every
-    // session's summary) is dropped here and never reaches the client.
-    let _ = link.call("_acpmux/watch", json!({"enabled": true}), CALL_TIMEOUT);
+    // watchers; the reader keeps only this session's and its descendants'.
+    // The answer (every session's summary) never reaches the client: only
+    // the descendants it names are followed from now on.
+    let watched = link.call("_acpmux/watch", json!({"enabled": true}), CALL_TIMEOUT);
     let attachment = Arc::new(Attachment {
         client,
         surface,
@@ -87,7 +89,12 @@ pub(super) fn connect_and_attach(
         ended: AtomicBool::new(false),
         permissions: Mutex::default(),
         prompts: Mutex::default(),
+        children: Mutex::default(),
     });
+    if let Ok(watched) = &watched {
+        attachment
+            .follow_children(&agent_session_children::descendant_ids(&attachment.session, watched));
+    }
     for pending in page.pointer("/session/pending").and_then(Value::as_array).into_iter().flatten()
     {
         if let Some(permission) = pending.get("permissionId").and_then(Value::as_str) {
@@ -141,16 +148,16 @@ pub(crate) fn bound_page(mut page: Value, newest_first: bool) -> Value {
     let mut keep_to = events.len();
     while total > MAX_PAGE_BYTES && keep_from < keep_to {
         if newest_first {
-            total -= sizes[keep_from];
+            total = total.saturating_sub(sizes.get(keep_from).copied().unwrap_or(0));
             keep_from += 1;
         } else {
             keep_to -= 1;
-            total -= sizes[keep_to];
+            total = total.saturating_sub(sizes.get(keep_to).copied().unwrap_or(0));
         }
     }
     let kept: Vec<Value> = events.drain(keep_from..keep_to).collect();
     *events = kept;
-    page["hasMore"] = json!(true);
+    page.insert("hasMore", json!(true));
     page
 }
 
@@ -187,7 +194,12 @@ pub(super) fn deliver(attachment: &Attachment, inbound: Inbound) {
                 attachment.end(None);
             }
         }
-        "_acpmux/session_changed" if same_session => {
+        // The session's own changes, and its descendants' (`agent-session-children-v1`),
+        // while the tab still shows the session.
+        "_acpmux/session_changed" if same_session || attachment.follows_change(&params) => {
+            if !same_session && !attachment.tab_current() {
+                return attachment.end(Some("detached"));
+            }
             let event = json!({"event": "agent-session-changed", "surface": attachment.surface, "change": params});
             if attachment.writer.send_stream(&event, &attachment.outbound).is_err() {
                 attachment.end(None);

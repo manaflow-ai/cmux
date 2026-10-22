@@ -43,7 +43,8 @@ public final class PaneToolbarView: NSView {
     /// Buttons' room the bar keeps even while fewer show (``show(_:more:lit:reserving:)``).
     public private(set) var reservedCount = 0
     public private(set) var buttons: [TitlebarBandButton] = []
-    public let moreButton = TitlebarBandButton(symbol: "ellipsis")
+    /// The app's one more button (⋮, OverflowButton); its menu opens on press.
+    public let moreButton = OverflowButton(label: Strings.paneMore)
     /// The tab bar's tracking area (``refreshCorner()``) reports the pointer.
     public private(set) lazy var reveal = HoverReveal(region: self, tracksPointer: false)
     private var corner: NSTrackingArea?
@@ -52,13 +53,9 @@ public final class PaneToolbarView: NSView {
 
     override public init(frame: NSRect) {
         super.init(frame: frame)
-        moreButton.target = self
-        moreButton.action = #selector(openMore)
-        moreButton.longPressOpensMenu = false
-        moreButton.setAccessibilityLabel(Strings.paneMore)
         moreButton.setAccessibilityIdentifier("cmux.pane.more")
         moreButton.pressMenu = { [weak self] in self?.moreMenu?() }
-        // "…" stays shown while its menu is up: the pointer leaves the corner for the menu.
+        // "⋮" stays shown while its menu is up: the pointer leaves the corner for the menu.
         let present = moreButton.presentMenu
         moreButton.presentMenu = { [weak self] menu, button in
             let hold = self?.reveal.hold()
@@ -193,10 +190,11 @@ public final class PaneToolbarView: NSView {
         applyTint()
     }
 
-    /// Lit: the accent; else the chrome's secondary text. Runs again on a theme change.
+    /// Lit: the lit glyph (the accent, never fainter than at rest); else the chrome's secondary text.
+    /// Runs again on a theme change.
     private func applyTint() {
-        moreButton.contentTintColor = performWithTheme { lit ? Palette.accent : Palette.textSecondary }
-        for (button, item) in zip(buttons, items) { button.contentTintColor = performWithTheme { item.lit ? Palette.accent : Palette.textSecondary } }
+        moreButton.tintOverride = lit ? performWithTheme { Palette.litGlyph } : nil
+        for (button, item) in zip(buttons, items) { button.contentTintColor = performWithTheme { item.lit ? Palette.litGlyph : Palette.textSecondary } }
     }
 
     // MARK: The tab bar
@@ -258,12 +256,6 @@ public final class PaneToolbarView: NSView {
         guard items.indices.contains(sender.tag) else { return }
         onPerform?(items[sender.tag].id)
     }
-
-    /// A keyboard or VoiceOver press; a pointer press opens the menu on mouse-down.
-    @objc private func openMore() {
-        guard let menu = moreMenu?(), !menu.items.isEmpty else { return }
-        moreButton.presentMenu(menu, moreButton)
-    }
 }
 
 // Like the strip's empty space (TabStripView+TitlebarDrag): in the window's top row, a press
@@ -271,7 +263,7 @@ public final class PaneToolbarView: NSView {
 extension PaneToolbarView: TitlebarPressDeciding {
     public func titlebarPress(atWindowPoint windowPoint: CGPoint) -> TitlebarPress {
         let point = convert(windowPoint, from: nil)
-        let onButton = (buttons + [moreButton]).contains { !$0.isHidden && $0.frame.contains(point) }
+        let onButton = (buttons as [NSView] + [moreButton]).contains { !$0.isHidden && $0.frame.contains(point) }
         return !onButton && WindowTitlebar.isInTopRow(self) ? .movesWindow : .staysPut
     }
 }

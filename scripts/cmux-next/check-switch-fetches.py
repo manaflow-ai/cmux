@@ -48,8 +48,15 @@ ALLOWED_LISTENERS = {
     "page is focused with nothing in it focused (#22456), as composerFocus.ts does; reads no data",
     (f"{ACPMUX}/newtab/listMotion.ts", "visibilitychange"): "cancels the list's own motion when "
     "the page hides; reads no data",
+    (f"{ACPMUX}/subagents/SubagentGroup.tsx", "visibilitychange"): "`useNow` rests the running "
+    "tray's and cards' one-second clock while the page hides and catches it up on show; reads no "
+    "data",
     (f"{ACPMUX}/pageKey.ts", "focus"): "marks the page key or not for the caret; reads no data",
+    (f"{ACPMUX}/MarkdownField.tsx", "focus"): "puts back the prompt's selection, which WebKit moves "
+    "to the start while the web view is away (#22798); reads no data",
     (f"{ACPMUX}/pageKey.ts", "visibilitychange"): "the same, on hide and show",
+    (f"{ACPMUX}/composer/keptAttachments.ts", "visibilitychange"): "sends a resting write of the "
+    "chat's unsent attachments before the page can go away (#23139); a write, not a read",
     (f"{ACPMUX}/harnesses/HarnessesScreen.tsx", "focus"): "follow-up: re-reads harness health on "
     "every focus to catch a Sign In run in a terminal; should re-read only once one ran, as App.tsx "
     "`healthStale` does",

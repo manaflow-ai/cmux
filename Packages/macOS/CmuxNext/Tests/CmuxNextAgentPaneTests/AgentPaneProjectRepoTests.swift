@@ -8,7 +8,7 @@ import Testing
 /// icon file draws its manifest's language mark or its GitHub owner's avatar (`project.icon`).
 @Suite(.serialized)
 struct AgentPaneProjectRepoTests {
-    private static let png = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0x0D])
+    nonisolated private static let png = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0x0D])
     private static let githubConfig = """
         [core]
         \tbare = false

@@ -115,6 +115,10 @@ public struct SettingsSchemaExport {
             row["kind"] = "choice_or_number"
             row["choices"] = choices(list)
             row["range"] = range(number)
+        case .choiceOrURL(let list, let urlKey):
+            row["kind"] = "choice_or_url"
+            row["choices"] = choices(list)
+            row["url_key"] = urlKey
         case .number(let number):
             row["kind"] = "number"
             row["range"] = range(number)
