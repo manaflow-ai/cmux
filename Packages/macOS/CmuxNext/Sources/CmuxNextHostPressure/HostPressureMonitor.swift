@@ -16,21 +16,24 @@ public protocol HostPressureSource: Sendable {
 public actor LocalHostPressureSource: HostPressureSource {
     private let sampler = HostSampler()
     private let host: String
-    private let formula: HostBudgetFormula
+    /// Read from the override file on the first local read, off the caller's thread.
+    private lazy var formula = HostBudgetFile.loadFormula(host: host)
     private var swap = SwapRate()
-    private let acpmux: @Sendable () async -> HostBudgetVerdict?
+    private let acpmux: (@Sendable () async -> HostBudgetVerdict?)?
     /// Reads to skip after acpmux reported no verdict (an older daemon, or
     /// none running): one try every `acpmuxRetryReads` reads, not a process per tick.
     public static let acpmuxRetryReads = 20
     private var acpmuxSkips = 0
 
-    public init(host: String = ProcessInfo.processInfo.hostName, acpmux: @escaping @Sendable () async -> HostBudgetVerdict? = { nil }) {
-        self.host = host
-        formula = HostBudgetFile.loadFormula(host: host)
+    /// `host` defaults to kern.hostname (a sysctl, not a name lookup); `acpmux`
+    /// reads its verdict, and nil means there is no acpmux to ask.
+    public init(host: String? = nil, acpmux: (@Sendable () async -> HostBudgetVerdict?)? = nil) {
+        self.host = host ?? HostSampler().hostName()
         self.acpmux = acpmux
     }
 
     public func acpmuxVerdict() async -> HostBudgetVerdict? {
+        guard let acpmux else { return nil }
         guard acpmuxSkips == 0 else {
             acpmuxSkips -= 1
             return nil
@@ -41,6 +44,7 @@ public actor LocalHostPressureSource: HostPressureSource {
     }
 
     public func localVerdict() -> HostBudgetVerdict {
+        let formula = formula
         let cores = sampler.cores(formula.cores)
         let rate = sampler.swappedOutBytes().map { swap.feed(bytes: $0, seconds: ProcessInfo.processInfo.systemUptime) } ?? 0
         return HostBudgetVerdict(host: host, cores: cores, load1: sampler.load1(), loadLimit: formula.loadLimit(cores: cores),
@@ -105,6 +109,7 @@ public actor HostPressureMonitor {
             Task { await monitor.memoryPressureChanged(pressure) }
         }
         memory.activate()
+        // wakeup-allow: load and swap have no event; one 15 s read with 2 s leeway, cancelled by stop()
         let tick = DispatchSource.makeTimerSource(queue: queue)
         let seconds = Double(interval.components.seconds) + Double(interval.components.attoseconds) / 1e18
         tick.schedule(deadline: .now(), repeating: seconds, leeway: .seconds(2))
