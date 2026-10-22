@@ -9,8 +9,12 @@
 //! belongs to (`_meta.acpmux.env`), so `chat send|read` reach it afterwards.
 //! The app then shows it as a chat tab (`agent.openSessionWorkspace`): in the
 //! given pane, the given workspace's active pane, or a new workspace. Either
-//! way nothing takes focus or switches the shown workspace. A first prompt is
-//! sent as `chat send` sends it: an agent message, never the person's words.
+//! way nothing takes focus or switches the shown workspace. A first prompt goes in as the
+//! chat's own, as a person types it into New Agent Chat and presses Return.
+//!
+//! The chat runs in the app's own acpmux (`agent.acpmux`) when the caller's is another one: a
+//! Chief turn's chats run in its home's acpmux, so without this its "new chat" was a subagent
+//! the app could not attach. Then `send|read|state|interrupt` find it there too (`chat::Chat`).
 //!
 //! `state` reads `_acpmux/info` (status, pending permissions, queued turns,
 //! harness, model, mode). `interrupt` cancels the running turn
@@ -22,7 +26,7 @@ use serde_json::{Map, Value, json};
 use super::super::app::{self, ActionName};
 use super::super::mcp::{self, CallFailure, FailureKind};
 use super::super::{GlobalArgs, UsageError};
-use super::chat::{self, ChatCommand};
+use super::chat;
 
 /// The permission policies an agent may start a chat with.
 pub(in crate::cli) const AGENT_POLICIES: [&str; 3] = ["ask", "approve-reads", "deny-all"];
@@ -162,13 +166,19 @@ fn not_run(code: &str, message: impl Into<String>) -> CallFailure {
 /// `CMUX_WORKSPACE_ID`) and the `agent.openSessionWorkspace` arguments that
 /// name the place.
 struct Place {
-    key: String,
+    /// The workspace's key, for the chat's `CMUX_WORKSPACE_ID`; None for a place only the app
+    /// knows (a Chief naming the person's workspace, which its own session does not hold).
+    key: Option<String>,
     /// The app makes the workspace: a chat it never shows reaches nothing.
     new_workspace: bool,
     arguments: Map<String, Value>,
 }
 
-fn place(global: &GlobalArgs, chat: &NewChat) -> Result<Place, CallFailure> {
+fn place(
+    global: &GlobalArgs,
+    chat: &NewChat,
+    app: Option<&std::path::Path>,
+) -> Result<Place, CallFailure> {
     let mut arguments = Map::new();
     if chat.workspace.is_none() && chat.pane.is_none() {
         // A new workspace whose key the chat knows before the app makes it.
@@ -180,7 +190,7 @@ fn place(global: &GlobalArgs, chat: &NewChat) -> Result<Place, CallFailure> {
         if let Some(cwd) = &chat.cwd {
             arguments.insert("cwd".into(), json!(cwd));
         }
-        return Ok(Place { key, new_workspace: true, arguments });
+        return Ok(Place { key: Some(key), new_workspace: true, arguments });
     }
     let snapshot = mcp::agent_resource(global, super::snapshot_plan())
         .map_err(|error| CallFailure { kind: FailureKind::NotRun, error, idempotency_key: None })?;
@@ -216,6 +226,12 @@ fn place(global: &GlobalArgs, chat: &NewChat) -> Result<Place, CallFailure> {
         Some((workspace["extra"]["key"].as_str()?.to_owned(), id.as_str()?.to_owned()))
     });
     let Some((key, id)) = named else {
+        // Not in this cmux session, but the app's own chats run elsewhere (a Chief turn): the
+        // app resolves the id itself, as it does for a person's pick.
+        if app.is_some() {
+            arguments.insert(scope.into(), json!(format!("{scope}:{target}")));
+            return Ok(Place { key: None, new_workspace: false, arguments });
+        }
         return Err(CallFailure {
             kind: FailureKind::NotRun,
             error: json!({"code": "selector.not_found",
@@ -226,7 +242,7 @@ fn place(global: &GlobalArgs, chat: &NewChat) -> Result<Place, CallFailure> {
         });
     };
     arguments.insert(scope.into(), json!(format!("{scope}:{id}")));
-    Ok(Place { key, new_workspace: false, arguments })
+    Ok(Place { key: Some(key), new_workspace: false, arguments })
 }
 
 /// A workspace key in the dashed UUID form acpmux takes for
@@ -241,7 +257,11 @@ fn uuid_form(key: &str) -> String {
 
 /// `chat new`: the chat, its tab, and its first prompt.
 pub(in crate::cli) fn new(global: &GlobalArgs, chat: &NewChat, origin: &str) -> Result<Value, CallFailure> {
-    let place = place(global, chat)?;
+    // The app's own acpmux when the caller's is another one (a Chief turn): the chat is one
+    // of the app's ordinary chats, as New Agent Chat makes, not a subagent of the caller's.
+    let app_socket = chat::app_acpmux(global);
+    let socket = app_socket.as_deref();
+    let place = place(global, chat, socket)?;
     let cwd = match &chat.cwd {
         Some(cwd) => cwd.clone(),
         None => std::env::current_dir()
@@ -262,8 +282,10 @@ pub(in crate::cli) fn new(global: &GlobalArgs, chat: &NewChat, origin: &str) -> 
             meta.insert(name.into(), json!(value));
         }
     }
-    meta.insert("env".into(), json!({"CMUX_WORKSPACE_ID": uuid_form(&place.key)}));
-    let created = chat::acp::new_session(&cwd, Value::Object(meta))
+    if let Some(key) = &place.key {
+        meta.insert("env".into(), json!({"CMUX_WORKSPACE_ID": uuid_form(key)}));
+    }
+    let created = chat::acp::new_session(&cwd, Value::Object(meta), socket)
         .map_err(|error| not_run("chat.create_failed", format!("cannot start the chat: {error}")))?;
     let session = created["sessionId"].as_str().unwrap_or_default().to_owned();
     if session.is_empty() {
@@ -302,7 +324,7 @@ pub(in crate::cli) fn new(global: &GlobalArgs, chat: &NewChat, origin: &str) -> 
         }
         Err(error) if new_workspace => {
             // No workspace has the chat's key, so no chat verb could ever reach it: it ends.
-            let _ = chat::acp::kill(&session);
+            let _ = chat::acp::kill(&session, socket);
             return Err(CallFailure { kind: FailureKind::NotRun, error, idempotency_key: None });
         }
         Err(error) => {
@@ -313,12 +335,14 @@ pub(in crate::cli) fn new(global: &GlobalArgs, chat: &NewChat, origin: &str) -> 
         }
     }
 
+    // The first prompt goes in as the chat's own, as a person types it into New Agent Chat
+    // and presses Return (a chat this caller just started, as `cmux acp new PROMPT` does).
     if let Some(prompt) = &chat.prompt {
-        let send = ChatCommand::Send { target: session, text: prompt.clone() };
-        match chat::run(global, &send, None, origin) {
-            Ok(receipt) => result["prompt"] = receipt["result"].clone(),
-            Err(failure) => result["prompt"] = json!({"state": "failed", "error": failure.error}),
-        }
+        let id = uuid::Uuid::new_v4().to_string();
+        result["prompt"] = match chat::acp::prompt(&session, prompt, &id, None, socket) {
+            Ok(_) => json!({"state": "accepted", "prompt_id": id}),
+            Err(error) => json!({"state": "failed", "prompt_id": id, "error": error}),
+        };
     }
     Ok(json!({
         "schema_version": 1,
@@ -330,8 +354,9 @@ pub(in crate::cli) fn new(global: &GlobalArgs, chat: &NewChat, origin: &str) -> 
 
 /// `chat state <chat>`: what the chat is doing, from `_acpmux/info`.
 pub(in crate::cli) fn state(global: &GlobalArgs, target: &str) -> Result<Value, CallFailure> {
-    let chat = chat::scoped_chat(global, target)?;
-    let (_, info) = chat::acp::lookup(&chat)
+    let found = chat::scoped_chat(global, target)?;
+    let chat = &found.id;
+    let (_, info) = chat::acp::lookup(chat, found.socket())
         .map_err(|error| not_run("chat.unavailable", format!("cannot read chat {chat}: {error}")))?;
     let mut state = Map::new();
     state.insert("chat".into(), json!(chat));
@@ -363,9 +388,10 @@ pub(in crate::cli) fn interrupt(
     target: &str,
     origin: &str,
 ) -> Result<Value, CallFailure> {
-    let chat = chat::scoped_chat(global, target)?;
-    chat::refuse_own_chat(&chat, target)?;
-    chat::acp::cancel(&chat)
+    let found = chat::scoped_chat(global, target)?;
+    let chat = &found.id;
+    chat::refuse_own_chat(chat, target)?;
+    chat::acp::cancel(chat, found.socket())
         .map_err(|error| not_run("chat.unavailable", format!("cannot interrupt {chat}: {error}")))?;
     Ok(json!({
         "schema_version": 1,

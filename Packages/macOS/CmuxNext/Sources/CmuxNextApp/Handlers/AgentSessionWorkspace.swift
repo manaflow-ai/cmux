@@ -61,9 +61,10 @@ enum AgentSessionWorkspace {
         let found = services.machines.allWorkspaces.first { workspace, _ in
             workspace.id == id || workspace.resourceID?.rawValue == id || workspace.key?.rawValue == id.lowercased()
         }
-        // The workspace's active screen is its first unless a window shows another one of it.
-        guard let (workspace, daemon) = found, let screen = workspace.screens.first,
-              let pane = screen.panes.first(where: { $0.handle == screen.defaultPane }) ?? screen.panes.first else {
+        // The workspace's most recently focused pane, as New Agent Chat's workspace target picks
+        // it (AgentChatPlacement, #23016).
+        guard let (workspace, daemon) = found,
+              let pane = workspace.screens.flatMap(\.panes).max(by: { $0.focusedAt < $1.focusedAt }) else {
             throw ActionFailure(message: RefusalStrings.noWorkspace(id), isNotFound: true)
         }
         return (pane, daemon)
@@ -99,7 +100,10 @@ enum AgentSessionWorkspace {
                     "session": .string(session), "tab": .string(tab?.resourceID?.rawValue ?? created.key),
                     "pane": .string(pane.resourceID?.rawValue ?? pane.id),
                 ]
-                if let workspace { result["workspace"] = .string(workspace.resourceID?.rawValue ?? workspace.id) }
+                if let workspace {
+                    result["workspace"] = .string(workspace.resourceID?.rawValue ?? workspace.id)
+                    if let key = workspace.key { result["workspace_key"] = .string(key.rawValue) }
+                }
                 return .success(result)
             } catch let refusal as AgentTabRefusal {
                 return .failure(ActionWorkFailure("agent.openSessionWorkspace: \(refusal.message)"))

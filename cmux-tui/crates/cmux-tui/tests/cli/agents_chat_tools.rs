@@ -604,7 +604,7 @@ fn a_read_masks_secrets_in_another_chats_text() {
 
 /// `cmux agents chat new` started by another chat's agent (#23026): a chat in
 /// a workspace of this session, with the harness asked for, whose first
-/// prompt goes in as an agent message; then `state`, `continue` and
+/// prompt goes in as the chat's own (typed into New Agent Chat); then `state`, `continue` and
 /// `interrupt` reach it. With no app to show it, the chat still runs and the
 /// receipt says no tab shows it.
 #[test]
@@ -643,7 +643,8 @@ fn an_agent_starts_a_chat_in_a_workspace_and_drives_it_without_the_app() {
     assert_ne!(started, caller, "{created}");
     assert_eq!(result["opened"], false, "no app shows it: {created}");
     assert!(result["open_error"].is_object(), "{created}");
-    assert_eq!(result["prompt"]["state"], "delivered", "{created}");
+    // The first prompt is the chat's own, as a person types it into New Agent Chat.
+    assert_eq!(result["prompt"]["state"], "accepted", "{created}");
 
     // The chat runs in that workspace, so this session's chat verbs reach it.
     let info = Acp::connect(&daemon).call("_acpmux/info", json!({"sessionId": started}));
@@ -656,8 +657,8 @@ fn an_agent_starts_a_chat_in_a_workspace_and_drives_it_without_the_app() {
         items.iter().any(|item| item["role"] == "turn_end")
     });
     let prompts = items_of(page["items"].as_array().unwrap(), "user");
-    assert_eq!(prompts[0]["origin"], "agent_message", "{page}");
-    assert!(prompts[0]["text"].as_str().unwrap().contains("please list the files"), "{page}");
+    assert_eq!(prompts[0]["origin"], Value::Null, "the chat's own prompt: {page}");
+    assert_eq!(prompts[0]["text"], "please list the files", "{page}");
 
     let (code, state) = chat_json(as_caller(), &["state", &started]);
     assert_eq!(code, Some(0), "{state}");
@@ -744,4 +745,95 @@ fn an_agent_starts_a_chat_in_a_workspace_and_drives_it_without_the_app() {
     assert_eq!(tool("agents_chat_state")["annotations"]["readOnlyHint"], true);
     assert_eq!(tool("agents_chat_interrupt")["annotations"]["destructiveHint"], true);
     assert_eq!(tool("agents_chat_new")["inputSchema"]["additionalProperties"], false);
+}
+
+/// A fake cmux app control socket at `socket`: `agent.acpmux` names `acpmux` (the app's own
+/// acpmux), `action.run` answers a run with a tab, anything else is not in this app. Serves
+/// until the test process ends.
+fn fake_app_with_acpmux(socket: &std::path::Path, acpmux: PathBuf) {
+    let listener = UnixListener::bind(socket).unwrap();
+    std::thread::spawn(move || {
+        for stream in listener.incoming().flatten() {
+            let acpmux = acpmux.clone();
+            std::thread::spawn(move || {
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut writer = stream;
+                let mut line = String::new();
+                while reader.read_line(&mut line).unwrap_or(0) > 0 {
+                    let request: Value = serde_json::from_str(&line).unwrap_or(Value::Null);
+                    line.clear();
+                    let response = match request["method"].as_str() {
+                        Some("agent.acpmux") => json!({"id": request["id"], "ok": true,
+                            "result": {"socket_path": acpmux.to_str().unwrap()}}),
+                        Some("action.run") => json!({"id": request["id"], "ok": true,
+                            "result": {"action": request["params"]["action"], "ran": true,
+                                       "result": {"tab": "tab_fake"}}}),
+                        _ => json!({"id": request["id"], "ok": false, "error": {
+                            "code": "unavailable", "message": "not in this fake app", "data": {}}}),
+                    };
+                    if writeln!(writer, "{response}").is_err() {
+                        break;
+                    }
+                }
+            });
+        }
+    });
+}
+
+/// A caller whose own acpmux is another one, as a Chief turn's is (its home's): `chat new`
+/// starts the chat in the app's own acpmux (`agent.acpmux`), an ordinary chat of the app and
+/// not a subagent of the caller's, and `state`, `send`, `read` and `interrupt` find it there
+/// (#23026).
+#[test]
+fn a_caller_with_its_own_acpmux_starts_and_drives_a_chat_of_the_apps_acpmux() {
+    let daemon = machine("chat-app-acpmux");
+    let work = fs::canonicalize(daemon.dir.join("work")).unwrap();
+    let app_socket = daemon.dir.join("app.sock");
+    fake_app_with_acpmux(&app_socket, daemon.dir.join("acpmux/acpmux.sock"));
+    let chief = || {
+        let mut command = cmux(&daemon, None);
+        // The caller's own acpmux: none listens there.
+        command.env("ACPMUX_SOCKET", daemon.dir.join("chief-home/acpmux.sock"));
+        command.arg("--app-socket").arg(&app_socket);
+        command
+    };
+
+    let (code, created) =
+        chat_json(chief(), &["new", "--cwd", work.to_str().unwrap(), "--", "hello from chief"]);
+    assert_eq!(code, Some(0), "{created}");
+    assert_eq!(created["result"]["opened"], true, "{created}");
+    assert_eq!(created["result"]["tab"], "tab_fake", "{created}");
+    assert_eq!(created["result"]["prompt"]["state"], "accepted", "{created}");
+    let started = created["result"]["chat"].as_str().unwrap().to_owned();
+    // The chat runs in the app's acpmux.
+    let info = Acp::connect(&daemon).call("_acpmux/info", json!({"sessionId": started}));
+    assert!(info.get("error").is_none(), "{info}");
+
+    let (code, state) = chat_json(chief(), &["state", &started]);
+    assert_eq!(code, Some(0), "{state}");
+    assert_eq!(state["result"]["chat"], started.as_str(), "{state}");
+
+    let (code, sent) = chat_json(chief(), &["send", &started, "--", "and one more"]);
+    assert_eq!(code, Some(0), "{sent}");
+    assert_eq!(sent["result"]["state"], "delivered", "{sent}");
+
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let items = loop {
+        let (code, page) = chat_json(chief(), &["read", &started]);
+        assert_eq!(code, Some(0), "{page}");
+        let items = page["items"].as_array().cloned().unwrap_or_default();
+        if items.iter().filter(|item| item["role"] == "turn_end").count() >= 2 {
+            break items;
+        }
+        assert!(Instant::now() < deadline, "the chat never answered both: {page}");
+        std::thread::sleep(Duration::from_millis(100));
+    };
+    let prompts = items_of(&items, "user");
+    assert_eq!(prompts[0]["text"], "hello from chief", "the chat's own prompt: {items:?}");
+    assert_eq!(prompts[0]["origin"], Value::Null, "{items:?}");
+    assert_eq!(prompts[1]["origin"], "agent_message", "a send is another agent's: {items:?}");
+    assert!(prompts[1]["text"].as_str().unwrap().contains("and one more"), "{items:?}");
+
+    let (code, stopped) = chat_json(chief(), &["interrupt", &started]);
+    assert_eq!(code, Some(0), "{stopped}");
 }
