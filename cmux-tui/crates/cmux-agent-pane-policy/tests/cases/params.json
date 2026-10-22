@@ -187,6 +187,26 @@
   "breaks": false
  },
  {
+  "name": "acpmux resend (the pane's Retry)",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "s",
+    "prompt": [],
+    "_meta": {
+     "acpmux": {
+      "promptId": "p",
+      "resend": true
+     }
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
   "name": "acpmux steerOnly stays unknown",
   "frame": {
    "jsonrpc": "2.0",

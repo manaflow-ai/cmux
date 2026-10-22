@@ -1,7 +1,8 @@
 // Each prompt the pane sends carries where it is on its way (plans/cmux-next/composer-delivery-DESIGN.md):
 // sending, then delivered once acpmux took it, read once the agent started on it, or failed with the
 // hop it stopped at. A send with no answer says so and then fails, Retry sends the same prompt id
-// again (acpmux runs a prompt id once), and a late acceptance still lands.
+// again with `resend` (acpmux runs a prompt id once, its session log included), and a late
+// acceptance still lands.
 import { afterAll, beforeAll, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import policy from "../../../../cmux-tui/crates/cmux-agent-pane-policy/policy.json";
@@ -107,7 +108,10 @@ test("a send with no answer says it is still sending, fails, and Retry resends t
     const promptId = mine()!.delivery!.promptId;
     void client.retryPrompt(mine()!.id).catch(() => undefined);
     await settle(() => prompts.length === 2);
-    expect(prompts[1]._meta.acpmux).toMatchObject({ promptId });
+    // `resend` makes acpmux look the id up in its session log too, so a copy it took and then let
+    // fall out of its in-memory ledger (64 ids) runs no second turn. A first send has none.
+    expect(prompts[0]._meta.acpmux.resend).toBeUndefined();
+    expect(prompts[1]._meta.acpmux).toMatchObject({ promptId, resend: true });
     // The app relays only the `_meta.acpmux` keys its policy knows (AcpmuxPaneMethods+Params.swift,
     // cmux-agent-pane-policy/policy.json); a Retry with another key was refused as "The pane sent a
     // request the app does not accept" (Leo, 2026-10-21).
