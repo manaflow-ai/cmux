@@ -39,6 +39,7 @@ use crate::config::HarnessKind;
 use crate::user_settings::{self, Settings};
 use std::borrow::Cow;
 use std::collections::BTreeMap;
+use std::ffi::{OsStr, OsString};
 
 /// The cmux setting that turns restricted chats on (`schemas/settings/source/trust.json`).
 pub const SETTING: &str = "agents.trust.restrictedChats";
@@ -214,10 +215,19 @@ pub(crate) fn strip_lasting_allows(request: &mut Value) {
 }
 
 /// Profile, login and daemon env that loads code into Claude Code's process: a restricted chat
-/// starts with it blank (a relative `--require` in `NODE_OPTIONS` would load the folder's;
+/// starts with it blank (a relative `--require` in `NODE_OPTIONS` would load the folder's; the
+/// loader runs a preloaded library's constructors before Claude Code starts;
 /// `CLAUDE_CODE_PLUGIN_DIRS` loads plugins and their hooks, as `--plugin-dir` does).
-const BLANKED_ENV: &[&str] =
-    &["NODE_OPTIONS", "DYLD_INSERT_LIBRARIES", "DYLD_LIBRARY_PATH", "CLAUDE_CODE_PLUGIN_DIRS"];
+const BLANKED_ENV: &[&str] = &[
+    "NODE_OPTIONS",
+    "DYLD_INSERT_LIBRARIES",
+    "DYLD_LIBRARY_PATH",
+    "DYLD_FRAMEWORK_PATH",
+    "LD_PRELOAD",
+    "LD_LIBRARY_PATH",
+    "LD_AUDIT",
+    "CLAUDE_CODE_PLUGIN_DIRS",
+];
 
 /// The env that says where Claude Code reads its user settings, and the folder under it:
 /// `$CLAUDE_CONFIG_DIR`, else `$HOME/.claude`.
@@ -260,6 +270,25 @@ fn resolved(path: &Path) -> PathBuf {
     path.ancestors()
         .find_map(|a| Some(std::fs::canonicalize(a).ok()?.join(path.strip_prefix(a).ok()?)))
         .unwrap_or_else(|| path.to_path_buf())
+}
+
+/// `path` (a PATH) without its relative folders and the ones inside the chat's folder `cwd`,
+/// unless `cwd` holds the person's home (`frozen_program`). Claude Code runs git in the folder
+/// as it starts, and acpmux probes and runs `systemd-run` from it (`session_scope.rs`), both
+/// before anything asks: neither may be a program the folder planted.
+fn restricted_path(path: &OsStr, cwd: &Path) -> String {
+    let cwd = std::fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_path_buf());
+    let home = held_home(&cwd);
+    let kept = std::env::split_paths(path)
+        .filter(|dir| dir.is_absolute() && (home.is_some() || !resolved(dir).starts_with(&cwd)));
+    std::env::join_paths(kept).map(|p| p.to_string_lossy().into_owned()).unwrap_or_default()
+}
+
+/// `argv` without the `--disallowedTools` acpmux appended for the tools the chat turned off
+/// (`spawn.rs`), which only take tools away: the profile's own are still refused.
+fn own_argv<'a>(argv: &'a [String], tools: &crate::store::ToolInventory) -> &'a [String] {
+    let generated = super::tools::disallowed_args(tools);
+    argv.strip_suffix(generated.as_slice()).unwrap_or(argv)
 }
 
 /// Refuses a `key` of `SETTINGS_ROOTS` (each value the spawn could inherit) that is relative or
@@ -522,7 +551,7 @@ impl Hub {
         }
         let refused = |why: String| self.refuse_start(session, why);
         self.refuse_unrestricted_start(session, &profile)?;
-        let mut plan = command_line(&profile.argv, plan).map_err(refused)?;
+        let mut plan = command_line(own_argv(&profile.argv, &meta.tools), plan).map_err(refused)?;
         plan.program = frozen_program(&plan.program, &meta.cwd).map_err(refused)?;
         for &(key, under) in SETTINGS_ROOTS {
             let own = profile.env.get(key).map(|v| env_refs_read(key, v)).transpose();
@@ -532,9 +561,17 @@ impl Hub {
             let values = values.into_iter().flatten().map(String::as_str);
             check_settings_root((key, under), values, &meta.cwd).map_err(refused)?;
         }
+        // The PATH the spawn would give it (`session_scope::runner`'s order).
+        let path = match profile.env.get("PATH") {
+            Some(own) => Some(OsString::from(env_refs_read("PATH", own).map_err(refused)?)),
+            None => crate::login_env::agent_path().or_else(|| std::env::var_os("PATH")),
+        };
         let mut profile = profile.into_owned();
         for key in BLANKED_ENV {
             profile.env.insert((*key).to_owned(), String::new());
+        }
+        if let Some(path) = path {
+            profile.env.insert("PATH".to_owned(), restricted_path(&path, &meta.cwd));
         }
         let inherited = crate::login_env::var("GIT_CONFIG_COUNT")
             .or_else(|| std::env::var("GIT_CONFIG_COUNT").ok());
@@ -670,6 +707,56 @@ mod tests {
             assert!(frozen_program(&program.to_string_lossy(), Path::new("/")).is_ok());
         }
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn path_keeps_no_folder_in_the_chat_and_no_relative_one() {
+        let root = std::env::temp_dir().join(format!("restricted-path-{}", std::process::id()));
+        let (chat, elsewhere) = (root.join("chat"), root.join("elsewhere"));
+        std::fs::create_dir_all(chat.join("bin")).unwrap();
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        std::os::unix::fs::symlink(chat.join("bin"), elsewhere.join("bin")).unwrap();
+        let path = std::env::join_paths([
+            chat.join("bin"),
+            PathBuf::from("bin"),
+            PathBuf::from("/usr/bin"),
+            elsewhere.join("bin"),
+            elsewhere.join("missing"),
+            chat.join("missing"),
+        ])
+        .unwrap();
+        let kept = std::env::join_paths([PathBuf::from("/usr/bin"), elsewhere.join("missing")]);
+        assert_eq!(restricted_path(&path, &chat), kept.unwrap().to_string_lossy());
+        // A folder holding the person's home (here `/`) keeps their own folders.
+        if account_home().is_some() {
+            let all = std::env::join_paths([chat.join("bin"), elsewhere.join("bin")]).unwrap();
+            assert_eq!(restricted_path(&all, Path::new("/")), all.to_string_lossy());
+        }
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn the_tools_a_chat_turned_off_are_not_the_profile_shaping_it() {
+        let tools = crate::store::ToolInventory {
+            off: vec!["tool:WebFetch".into(), "mcp:docs".into()],
+            ..Default::default()
+        };
+        let generated = crate::hub::tools::disallowed_args(&tools);
+        let with = |argv: &[&str]| {
+            let mut argv: Vec<String> = argv.iter().map(|a| (*a).to_owned()).collect();
+            argv.extend(generated.iter().cloned());
+            argv
+        };
+        let argv = with(&["claude"]);
+        assert_eq!(own_argv(&argv, &tools), ["claude".to_owned()]);
+        let plan = SpawnPlan { program: "claude".into(), args: argv[1..].to_vec() };
+        let plan = command_line(own_argv(&argv, &tools), plan).expect("restricted plan");
+        assert_eq!(value_after(&plan.args, "--disallowedTools"), Some("WebFetch"));
+        // The profile's own still shape it.
+        let argv = with(&["claude", "--disallowedTools", "Read"]);
+        let plan = SpawnPlan { program: "claude".into(), args: argv[1..].to_vec() };
+        assert!(command_line(own_argv(&argv, &tools), plan).is_err());
     }
 
     #[test]
