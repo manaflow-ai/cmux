@@ -31,7 +31,7 @@ Fleet (an owned mini with a console; the step builds the app):
 Local, on a built app (never on a laptop that is in use):
   perf-budgets.py --tag T --app "<...>/cmux DEV T.app" --out DIR --json DIR/report.json
 """
-import argparse, json, os, platform, re, statistics, subprocess, sys, time
+import argparse, importlib.util, json, os, platform, re, statistics, subprocess, sys, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 BUDGETS_FILE = os.path.join(HERE, "perf-budgets.json")
@@ -172,6 +172,7 @@ def rows_sidebar(rep, size):
     s = ((rep or {}).get("sizes") or {}).get(str(size)) or {}
     out[f"sidebar.{size}.scroll.frame"] = p50_p95((s.get("scroll") or {}).get("frames"))
     out[f"sidebar.{size}.scroll_while_ticking.frame"] = p50_p95((s.get("scroll_while_ticking") or {}).get("frames"))
+    out[f"sidebar.{size}.drag.frame"] = p50_p95((s.get("drag") or {}).get("frames"))
     out[f"sidebar.{size}.workspace_switch.click_to_idle"] = p50_p95((s.get("switch") or {}).get("click_to_idle_ms"))
     ticks = s.get("ticks") or {}
     cpu = (ticks.get("cpu") or {}).get("cpu_pct") if isinstance(ticks.get("cpu"), dict) else None
@@ -205,6 +206,26 @@ def rows_idle(rep):
     return out
 
 
+def profile_splits(out):
+    """Framework vs our main-thread time for each profile the benches left (perf-profile-split.py)."""
+    import glob
+    spec = importlib.util.spec_from_file_location("perf_profile_split", os.path.join(HERE, "perf-profile-split.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    found = sorted(glob.glob(os.path.join(out, "sidebar", "traces", "*.trace"))) + sorted(glob.glob(os.path.join(out, "panes", "sample-*.txt")))
+    result = {}
+    for path in found:
+        name = os.path.basename(path).rsplit(".", 1)[0]
+        try:
+            result[name] = mod.split(path)
+        except Exception as exc:
+            result[name] = {"error": repr(exc)}
+        r = result[name]
+        print(f"PERF-PROFILE-SPLIT {name} framework {r.get('framework_pct')} % ours {r.get('ours_pct')} % "
+              f"{json.dumps(r.get('busy_pct'))}", flush=True)
+    return result
+
+
 def budget_for(name, budgets):
     for pattern, spec in budgets["rows"].items():
         if re.fullmatch(pattern, name):
@@ -224,6 +245,9 @@ def main():
     ap.add_argument("--baseline", help="baseline JSON (default: perf-budgets-baseline/<host class>.json)")
     ap.add_argument("--write-baseline")
     ap.add_argument("--bench-timeout", type=int, default=900)
+    ap.add_argument("--profile", action="store_true",
+                    help="also profile the sidebar (Time Profiler: scroll, ticks, switch, row drag) and the panes "
+                         "(sample: split, New Column, divider drag) and split main-thread time into framework and our work")
     opts, _ = ap.parse_known_args()
     os.makedirs(opts.out, exist_ok=True)
     budgets = json.load(open(BUDGETS_FILE))
@@ -236,7 +260,9 @@ def main():
         "new_surfaces": ([py, S("instant-new-surfaces-bench.py"), *common, "--runs", "10",
                           "--out", o("new_surfaces"), "--json", o("new_surfaces.json")], "new_surfaces.json", rows_new_surfaces),
         "panes": ([py, S("pane-perf-terminal.py"), *common, "--layouts", "4x2", "--rounds", "2",
-                   "--actions", "split,close,column,zoom", "--out", o("panes"), "--json", o("panes.json")],
+                   "--actions", "split,close,column,zoom" + (",drag" if opts.profile else ""),
+                   *(["--sample", "4x2:split,4x2:column,4x2:drag"] if opts.profile else []),
+                   "--out", o("panes"), "--json", o("panes.json")],
                   "panes.json", rows_panes),
         "tab_switch": ([py, S("tab-switch-matrix.py"), *common, "--kinds", "terminal,chromium", "--counts", "10",
                         "--switches", "30", "--out", o("tab_switch"), "--json", o("tab_switch.json")],
@@ -244,7 +270,7 @@ def main():
         "palette": ([py, S("palette-open-stages.py"), *common, "--rounds", "6", "--no-gate",
                      "--out", o("palette"), "--json", o("palette.json")], "palette.json", rows_palette),
         "sidebar": ([py, S("sidebar-stress-bench.py"), *common, "--sizes", str(opts.sidebar_size), "--stop",
-                     "--no-trace", "--out", o("sidebar")], os.path.join("sidebar", "results.json"),
+                     *([] if opts.profile else ["--no-trace"]), "--out", o("sidebar")], os.path.join("sidebar", "results.json"),
                     lambda r: rows_sidebar(r, opts.sidebar_size)),
         "home": ([py, S("home-perf.py"), "--tag", opts.tag, "--out", o("home.json")], "home.json", rows_home),
         "acp": ([py, S("agent-engine-bench.py"), *common, "--modes", "own,chromium", "--chats", "2", "--flings", "1",
@@ -264,6 +290,8 @@ def main():
             values.update(mapper(load(o(report))))
         except Exception as exc:  # a report from an older build with another shape: its rows stay n/a
             runs[name]["map_error"] = repr(exc)
+
+    profile_split = profile_splits(opts.out) if opts.profile else None
 
     rows = []
     for name, (p50, p95) in sorted(values.items()):
@@ -291,7 +319,8 @@ def main():
         print(f"PERF-BUDGETS-REGRESSION {r['name']} p95 {r['p95']} vs baseline {r['baseline']} (+{r['worse_pct']} %)")
 
     result = {"tag": opts.tag, "host_class": cls, "host": platform.node(), "baseline_file": base_path if baseline else None,
-              "rows": rows, "regressed": regressed, "over_budget": over, "runs": runs}
+              "rows": rows, "regressed": regressed, "over_budget": over, "runs": runs,
+              "profile_split": profile_split}
     if opts.json:
         os.makedirs(os.path.dirname(os.path.abspath(opts.json)), exist_ok=True)
         json.dump(result, open(opts.json, "w"), indent=1)

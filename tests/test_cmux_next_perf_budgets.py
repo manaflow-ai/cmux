@@ -74,5 +74,50 @@ class MappingTests(unittest.TestCase):
             re.compile(pattern)
 
 
+split_spec = importlib.util.spec_from_file_location("perf_profile_split",
+                                                    os.path.join(ROOT, "scripts/cmux-next/perf-profile-split.py"))
+ps = importlib.util.module_from_spec(split_spec)
+split_spec.loader.exec_module(ps)
+
+
+class ProfileSplitTests(unittest.TestCase):
+    """Main-thread samples split into framework diff/layout/draw and our own work (immediate-mode question)."""
+    APP = "cmux DEV.debug.dylib"
+
+    def test_first_owner_from_the_leaf_decides(self):
+        run = [("-[NSApplication run]", "AppKit"), ("main", self.APP), ("start", "dyld")]
+        self.assertEqual(ps.classify([("malloc", "libsystem_malloc.dylib"), ("SidebarLayout.make(rows:)", self.APP)] + run),
+                         "ours.model_rebuild")
+        self.assertEqual(ps.classify([("AG::Graph::update", "AttributeGraph"), ("SidebarHost.body", self.APP)] + run),
+                         "framework.swiftui_diff")
+        self.assertEqual(ps.classify([("-[NSView layoutSubtreeIfNeeded]", "AppKit")] + run), "framework.appkit_layout")
+        self.assertEqual(ps.classify([("CA::Layer::commit_if_needed", "QuartzCore"), ("CA::Transaction::commit()", "QuartzCore")] + run),
+                         "framework.ca_commit")
+        self.assertEqual(ps.classify([("WorkspaceHoverCard.rebuild()", self.APP), ("WorkspaceRowView.configure(_:)", self.APP)] + run),
+                         "ours.hover_card")
+        self.assertEqual(ps.classify([("mach_msg2_trap", "libsystem_kernel.dylib")] + run), "idle")
+
+    def test_sample_report_self_time(self):
+        text = """Call graph:
+    100 Thread_1   DispatchQueue_1: com.apple.main-thread  (serial)
+    + 100 start  (in dyld) + 1  [0x1]
+    +   100 main  (in cmux DEV) + 2  [0x2]
+    +     100 -[NSApplication run]  (in AppKit) + 3  [0x3]
+    +       40 mach_msg2_trap  (in libsystem_kernel.dylib) + 8  [0x4]
+    +       30 -[NSView layoutSubtreeIfNeeded]  (in AppKit) + 1  [0x5]
+    +       ! 20 SidebarLayout.make(rows:)  (in cmux DEV.debug.dylib) + 1  [0x6]
+    +       ! 10 AG::Graph::update  (in AttributeGraph) + 1  [0x8]
+    +       30 CA::Transaction::commit()  (in QuartzCore) + 1  [0x9]
+    50 Thread_2
+"""
+        buckets = {}
+        for count, stack in ps.stacks_from_sample(text):
+            b = ps.classify(stack)
+            buckets[b] = buckets.get(b, 0) + count
+        self.assertEqual(buckets, {"idle": 40, "ours.model_rebuild": 20, "framework.swiftui_diff": 10, "framework.ca_commit": 30})
+        summary = ps.summarize(buckets)
+        self.assertEqual((summary["framework_pct"], summary["ours_pct"]), (66.7, 33.3))
+
+
 if __name__ == "__main__":
     unittest.main()
