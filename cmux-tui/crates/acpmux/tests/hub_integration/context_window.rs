@@ -252,3 +252,67 @@ async fn a_claude_chat_reconnects_an_mcp_server() {
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// The breakdown comes after the turn ended and its meta was saved, so it is saved when it
+/// arrives: a restarted daemon still has it.
+#[tokio::test]
+async fn a_claude_chats_context_breakdown_survives_a_restart() {
+    let root = std::env::temp_dir().join(format!("acpmux-context-{}", uuid::Uuid::now_v7()));
+    let claude = root.join("claude");
+    let store_dir = root.join("store");
+    std::fs::create_dir_all(&claude).unwrap();
+    std::fs::create_dir_all(&store_dir).unwrap();
+    let fake_claude = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude.py");
+    let env = BTreeMap::from([
+        ("CLAUDE_CONFIG_DIR".to_owned(), claude.to_string_lossy().into_owned()),
+        ("FAKE_CLAUDE_CONTEXT".to_owned(), "1".to_owned()),
+    ]);
+    let profile = HarnessProfile {
+        kind: acpmux::config::HarnessKind::ClaudeStdio,
+        argv: vec!["python3".into(), fake_claude.into()],
+        env,
+        description: None,
+        fallback: None,
+        family: None,
+        models: vec![],
+        model: None,
+        effort: None,
+        policy: None,
+    };
+    let mut cfg = Config {
+        harnesses: BTreeMap::from([("claude".to_owned(), profile)]),
+        default_harness: Some("claude".into()),
+        ..Default::default()
+    };
+    cfg.store.mode = StoreMode::Local;
+    cfg.permission_policy = PermissionPolicy::ApproveAll;
+    let connect = |hub: &Arc<Hub>| {
+        let (in_tx, in_rx) = mpsc::channel(64);
+        let (out_tx, out_rx) = mpsc::channel(4096);
+        tokio::spawn(serve_connection(hub.clone(), in_rx, out_tx));
+        TestClient { tx: in_tx, rx: out_rx, next: 0 }
+    };
+    let hub = Hub::new(cfg.clone(), acpmux::store::open(&cfg.store, &store_dir).unwrap());
+    let mut c = connect(&hub);
+    c.request(method::INITIALIZE, json!({"protocolVersion": 1, "clientInfo": {"name": "pane"}}))
+        .await
+        .unwrap();
+    let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let prompt = json!({"sessionId": id, "prompt": [{"type": "text", "text": "hi"}]});
+    c.request(method::SESSION_PROMPT, prompt).await.unwrap();
+    let got = breakdown(&mut c, &id).await;
+    assert!(!got.is_null(), "no breakdown after the turn");
+    hub.shutdown_all().await;
+    drop(hub);
+
+    let hub2 = Hub::new(cfg.clone(), acpmux::store::open(&cfg.store, &store_dir).unwrap());
+    let mut c2 = connect(&hub2);
+    c2.request(method::INITIALIZE, json!({"protocolVersion": 1, "clientInfo": {"name": "pane"}}))
+        .await
+        .unwrap();
+    let info = c2.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(info["contextBreakdown"], got, "{info}");
+    hub2.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}

@@ -106,6 +106,7 @@ impl Hub {
         // A mode or option change goes through the one setter below.
         let mut mode_write = None;
         let mut reported_tools = None;
+        let mut breakdown_changed = false;
         let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
         match kind {
             "agent_message_chunk" => {
@@ -146,9 +147,11 @@ impl Hub {
                         m.title_source = Some(super::titles::HARNESS.to_owned());
                     }
                 }
-                // Claude Code's /context breakdown, sent after each turn (`claude_stdio`).
+                // Claude Code's /context breakdown, sent after each turn (`claude_stdio`). It comes
+                // after the turn's own save, so it is saved here (below), or a restart loses it.
                 if let Some(breakdown) = update.pointer("/_meta/acpmux/contextBreakdown") {
                     m.context_breakdown = Some(breakdown.clone());
+                    breakdown_changed = true;
                 }
                 // Claude Code's system/init: its MCP servers, plugins and skills.
                 reported_tools = update
@@ -159,6 +162,9 @@ impl Hub {
             _ => {}
         }
         drop(m);
+        if breakdown_changed {
+            self.save_meta(session);
+        }
         if let Some(claude) = reported_tools {
             self.absorb_reported_tools(session, &claude);
         }
