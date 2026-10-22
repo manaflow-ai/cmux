@@ -4,9 +4,9 @@
 // "GitHub rate limit · resets 9:11 PM" where the pull request should have been.
 //
 // The card reads: the state pill (draft, open, merged, closed, and conflicts beside it),
-// `owner/repo#N` (its link, in the accent), the title, the author with a monogram, when GitHub last
-// saw it change, `base ← head`, the checks summed, the review decision and labels, and the files
-// with `+/−`.
+// `owner/repo#N` (its link, blue like every link), the title, the author with a monogram, when
+// GitHub last saw it change, `base ← head`, the checks summed, the review decision and labels, and
+// the files with `+/−`.
 // Hovering (or focusing) the `+/−` breaks those lines down by kind — Code, Tests, Mocks, Docs,
 // Evals, Generated — from the one classifier the diff viewer groups by (src/fileKinds.ts), and
 // says so when code changed with no test.
@@ -94,7 +94,7 @@ export function PullRequestCardBody({ url, known, open }: { url: string; known: 
         )}
         {/* The pull request's link, styled as one (Leo 2026-10-20: "the hovers need to be
             styled"); a click takes the host's link-click path, as the bar's and chip's anchors do. */}
-        <a className="acpmux-pr-card__ref" href={plain}>
+        <a className="acpmux-pr-card__ref" href={plain} rel="noreferrer">
           {known.repo}#{known.number}
         </a>
       </div>

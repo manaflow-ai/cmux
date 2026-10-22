@@ -156,8 +156,8 @@ test("the card shows the state, who, the branches, the checks, the review and th
 });
 
 // Leo 2026-10-20: "ones with links ... the hovers need to be styled". The card's owner/repo#N is
-// the pull request's link, in the theme's accent, not grey text: a click on it takes the host's
-// link-click path, as the bar's and the chip's own anchors do.
+// the pull request's link, blue like every link in the pane (.cv-link), not grey text: a click on
+// it takes the host's link-click path, as the bar's and the chip's own anchors do.
 test("the card's owner/repo#N is a styled link to the pull request", async () => {
   const { body } = await card({ pullRequest: pullRequest(), fetchedAt: Date.now() / 1000 - 5 });
   const ref = body.querySelector<HTMLAnchorElement>("a.acpmux-pr-card__ref");
@@ -170,7 +170,8 @@ test("the card's owner/repo#N is a styled link to the pull request", async () =>
   const { join } = await import("node:path");
   const styles = readFileSync(join(import.meta.dir, "../src/agent-session/acpmux/styles.css"), "utf8");
   const rule = styles.match(/\.acpmux-pr-card__ref\{([^}]*)\}/)?.[1] ?? "";
-  expect(rule).toContain("color:var(--agent-accent");
+  expect(rule).toContain("color:var(--agent-link)");
+  expect(rule).toContain("text-decoration:underline");
   expect(rule).toContain("tabular-nums");
 });
 
