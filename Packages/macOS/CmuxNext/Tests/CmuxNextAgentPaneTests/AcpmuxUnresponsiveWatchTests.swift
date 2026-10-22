@@ -4,8 +4,8 @@ import Foundation
 import Testing
 @testable import CmuxNextAgentPane
 
-/// A clock that moves only when the test advances it. Nothing sleeps on it: the watch only
-/// reads `now`.
+/// A clock that moves only when the test advances it. The watch only reads `now`; a sleeper (the
+/// quiet handoff's cap deadline) wakes when an advance reaches its deadline, or throws when cancelled.
 nonisolated final class AcpmuxWatchClock: Clock, Sendable {
     nonisolated struct Instant: InstantProtocol {
         typealias Duration = Swift.Duration
@@ -15,15 +15,61 @@ nonisolated final class AcpmuxWatchClock: Clock, Sendable {
         static func < (lhs: Instant, rhs: Instant) -> Bool { lhs.offset < rhs.offset }
     }
 
-    typealias Duration = Swift.Duration
-    private let current = Mutex(Instant(offset: .zero))
-    var now: Instant { current.withLock { $0 } }
-    var minimumResolution: Swift.Duration { .zero }
+    private struct Sleeper {
+        let id: Int
+        let deadline: Instant
+        let continuation: CheckedContinuation<Void, any Error>
+    }
 
-    func advance(_ duration: Swift.Duration) { current.withLock { $0 = $0.advanced(by: duration) } }
+    private struct State {
+        var now = Instant(offset: .zero)
+        var sleepers: [Sleeper] = []
+        var cancelled: Set<Int> = []
+        var nextID = 0
+    }
+
+    typealias Duration = Swift.Duration
+    private let state = Mutex(State())
+    var now: Instant { state.withLock { $0.now } }
+    var minimumResolution: Swift.Duration { .zero }
+    var sleeperCount: Int { state.withLock { $0.sleepers.count } }
+
+    func advance(_ duration: Swift.Duration) {
+        let due = state.withLock { state -> [Sleeper] in
+            state.now = state.now.advanced(by: duration)
+            let now = state.now
+            let due = state.sleepers.filter { $0.deadline <= now }
+            state.sleepers.removeAll { $0.deadline <= now }
+            return due
+        }
+        for sleeper in due { sleeper.continuation.resume() }
+    }
 
     @concurrent func sleep(until deadline: Instant, tolerance: Duration?) async throws {
-        throw CancellationError()
+        let id = state.withLock { state -> Int in
+            state.nextID += 1
+            return state.nextID
+        }
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+                let outcome = state.withLock { state -> Result<Void, any Error>? in
+                    if state.cancelled.remove(id) != nil { return .failure(CancellationError()) }
+                    if deadline <= state.now { return .success(()) }
+                    state.sleepers.append(Sleeper(id: id, deadline: deadline, continuation: continuation))
+                    return nil
+                }
+                if let outcome { continuation.resume(with: outcome) }
+            }
+        } onCancel: {
+            let sleeper = state.withLock { state -> Sleeper? in
+                guard let index = state.sleepers.firstIndex(where: { $0.id == id }) else {
+                    state.cancelled.insert(id)
+                    return nil
+                }
+                return state.sleepers.remove(at: index)
+            }
+            sleeper?.continuation.resume(throwing: CancellationError())
+        }
     }
 }
 

@@ -134,6 +134,28 @@ struct AcpmuxQuietHandoffTests {
         #expect(await fixture.eventually { !agentPaneProcessIsRunning(fixture.oldPid) })
     }
 
+    /// A stale daemon with agent hosts whose turn sends no event that ends the wait (it only
+    /// streams output) and gets no reconnect: the cap's deadline hands it off.
+    @Test func aBusyDaemonWithAgentHostsIsHandedOffAtTheCapWithNoEvent() async throws {
+        let fixture = try QuietFixture(agentHosts: true)
+        defer { fixture.remove() }
+        fixture.daemon.busy.withLock { $0 = true }
+        let clock = AcpmuxWatchClock()
+        let host = fixture.host(quietClock: clock)
+
+        _ = try? await host.prewarm()
+        #expect(await fixture.eventually { fixture.daemon.watchers.withLock { !$0.isEmpty } }, "the app does not watch the busy daemon")
+        #expect(await fixture.eventually { clock.sleeperCount == 1 }, "no deadline waits for the cap")
+        clock.advance(.seconds(599))
+        try? await Task.sleep(for: .milliseconds(200))  // let a wrongly early handoff show
+        #expect(!fixture.daemon.shutDown.withLock { $0 }, "a busy daemon was handed off before the cap")
+
+        clock.advance(.seconds(1))
+        #expect(await fixture.eventually { fixture.launches == 1 }, "the cap passed and the daemon was not handed off")
+        #expect(fixture.daemon.shutDown.withLock { $0 })
+        #expect(await fixture.eventually { !agentPaneProcessIsRunning(fixture.oldPid) })
+    }
+
     /// An update replaces the bundled acpmux while the app and its daemon run (an in-place
     /// bundle update): the next reconnect hands the daemon off.
     @Test func aReconnectAfterTheBundledBuildChangesHandsOff() async throws {
@@ -222,10 +244,11 @@ struct QuietFixture {
         try Self.writeStandIn(at: environment.executable, build: build, root: root)
     }
 
-    /// A host that hands stale daemons off when quiet and never restarts one for not answering.
-    func host() -> AcpmuxHost {
+    /// A host that hands stale daemons off when quiet (its wait on `quietClock`, cap 600 s) and
+    /// never restarts one for not answering.
+    func host(quietClock: AcpmuxWatchClock = AcpmuxWatchClock()) -> AcpmuxHost {
         AcpmuxHost(environment: environment, unresponsive: AcpmuxUnresponsiveWatch(clock: AcpmuxWatchClock()),
-                   quietHandoff: AcpmuxQuietHandoff(clock: AcpmuxWatchClock()),
+                   quietHandoff: AcpmuxQuietHandoff(clock: quietClock, cap: .seconds(600)),
                    restartsUnresponsive: { false }, handsOffWhenQuiet: { true })
     }
 

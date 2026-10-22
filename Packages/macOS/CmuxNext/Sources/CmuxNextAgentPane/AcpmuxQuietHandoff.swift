@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import CmuxNextWakeups
 import Foundation
 import Network
 import os
@@ -7,10 +8,12 @@ import os
 /// its sessions runs a turn or waits on a permission, the daemon keeps running, and the app
 /// watches its sessions (`_acpmux/watch`). At the first turn end, permission answer, status
 /// change, or the end of that connection, the host looks again (a reconnect's lookup), and
-/// hands it off if it is quiet now, or watches again. No timer and no polling: each look follows
-/// an event from the daemon. A daemon with agent hosts that has waited past `cap` is handed off
-/// at the next look anyway: its agents keep running under their hosts and the new daemon adopts
-/// their turns.
+/// hands it off if it is quiet now, or watches again. No polling: each look follows an event
+/// from the daemon, or the one deadline at `cap` after the wait began. A daemon with agent hosts
+/// that has waited past `cap` is handed off at that look whatever its sessions do: its agents
+/// keep running under their hosts and the new daemon adopts their turns. (A long turn that only
+/// streams output sends no event that ends the wait, so without the deadline it would wait for
+/// the next reconnect.)
 nonisolated final class AcpmuxQuietHandoff: Sendable {
     static let shared = AcpmuxQuietHandoff(clock: ContinuousClock())
 
@@ -21,6 +24,7 @@ nonisolated final class AcpmuxQuietHandoff: Sendable {
     ]
 
     let cap: Duration
+    private let clock: any Clock<Duration>
     private let elapsed: @Sendable () -> Duration
 
     private struct Pending {
@@ -34,6 +38,7 @@ nonisolated final class AcpmuxQuietHandoff: Sendable {
     init<C: Clock>(clock: C, cap: Duration = .seconds(600)) where C.Duration == Duration {
         let start = clock.now
         elapsed = { start.duration(to: clock.now) }
+        self.clock = clock
         self.cap = cap
     }
 
@@ -52,25 +57,51 @@ nonisolated final class AcpmuxQuietHandoff: Sendable {
     }
 
     /// Runs `recheck` after the next session change of daemon `pid` that can end its busy
-    /// moment, or when its connection ends. One watch per daemon at a time.
+    /// moment, when its connection ends, or once it has waited `cap` (when that is still ahead).
+    /// One watch per daemon at a time.
     func waitForQuiet(socketPath: String, home: String, pid: Int32, recheck: @escaping @Sendable () async -> Void) {
         let key = "\(home)|\(pid)"
         let now = elapsed()
-        let starts = pending.withLock { pending -> Bool in
+        let cap = cap
+        let untilCap = pending.withLock { pending -> Duration?? in
             var entry = pending[key] ?? Pending(since: now)
-            guard !entry.watching else { return false }
+            guard !entry.watching else { return nil }
             entry.watching = true
             pending[key] = entry
-            return true
+            let left = cap - (now - entry.since)
+            return .some(left > .zero ? left : nil)
         }
-        guard starts else { return }
+        guard let untilCap else { return }
         Self.logger.info("acpmux \(pid) is stale but busy; handing it off when its sessions are quiet")
-        // task-owner: one per stale busy daemon; it ends at that daemon's next session change or when its connection closes
+        let clock = clock
+        // task-owner: one per stale busy daemon; it ends at that daemon's next session change, when its connection closes, or at the cap
         Task.detached {
-            await Self.nextChange(socketPath: socketPath)
+            await Self.firstOf(change: { await Self.nextChange(socketPath: socketPath) }, orAfter: untilCap, clock: clock)
             self.pending.withLock { $0[key]?.watching = false }
             await recheck()
         }
+    }
+
+    /// Returns when `change` returns or `delay` (nil: never) passes, whichever comes first; the
+    /// deadline cancels `change`.
+    @concurrent static func firstOf(change: @escaping @Sendable () async -> Void, orAfter delay: Duration?,
+                                    clock: any Clock<Duration>) async {
+        guard let delay else { return await change() }
+        let once = AgentPaneResumeOnce()
+        let deadline = DemandTimer(owner: "agent-pane.acpmux.quiet-cap", clock: clock)
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            // task-owner: the watch of this one wait; cancelled at the deadline
+            let watch = Task {
+                await change()
+                once.run { continuation.resume() }
+            }
+            // One deadline per stale busy daemon, at its cap; cancelled when the watch ends first.
+            deadline.schedule(after: delay) {
+                watch.cancel()
+                once.run { continuation.resume() }
+            }
+        }
+        deadline.cancel()
     }
 
     /// Whether no session in a `_acpmux/sessions` reply has a running turn, a waiting
@@ -111,11 +142,22 @@ nonisolated final class AcpmuxQuietHandoff: Sendable {
         return (object["id"] as? NSNumber)?.intValue == id && object["method"] == nil
     }
 
-    /// Returns at the daemon's next session change that can end a busy moment, or when its
-    /// connection ends or fails. `_acpmux/watch` with `limit: 1` keeps its first reply small.
+    /// Returns at the daemon's next session change that can end a busy moment, when its
+    /// connection ends or fails, or when the task is cancelled (the connection is cancelled).
+    /// `_acpmux/watch` with `limit: 1` keeps its first reply small.
     @concurrent static func nextChange(socketPath: String) async {
         let connection = NWConnection(to: .unix(path: socketPath), using: .tcp)
         defer { connection.cancel() }
+        await withTaskCancellationHandler {
+            await watchNextChange(connection, socketPath: socketPath)
+        } onCancel: {
+            connection.cancel()
+        }
+    }
+
+    private static func watchNextChange(_ connection: NWConnection, socketPath: String) async {
+        // Cancelled before it started: a cancelled connection would never become ready.
+        guard !Task.isCancelled else { return }
         let transport = AcpmuxSocketTransport(connection: connection)
         let initialize: [String: Any] = [
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
