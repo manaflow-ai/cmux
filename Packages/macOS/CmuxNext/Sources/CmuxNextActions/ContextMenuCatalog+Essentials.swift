@@ -17,7 +17,12 @@ nonisolated enum ContextMenuEssentials {
 
     /// A choices row that always ends with this action, so its submenu shows with no choices
     /// too: Move to Group lists the groups, then New Group.
-    static let choiceTrailers: [ActionID: ActionID] = ["moveWorkspaceToGroup": "workspace.moveToNewGroup"]
+    static let choiceTrailers: [ActionID: ActionID] = ["moveWorkspaceToGroup": "workspace.moveToNewGroup",
+                                                       "palette.workspaceColor": "palette.resetWorkspaceColor"]
+
+    /// Trailers that take the choice away (u9783: "i can no longer remove the color"): titled Remove
+    /// Color and checked while no choice is current, as Finder's tags offer no tag.
+    static let clearingTrailers: Set<ActionID> = ["palette.resetWorkspaceColor"]
 
     static let menus: [ActionMenuContext: Rows] = [
         // Move ▸ (Up, Down, Top, Bottom of the group, …) stays at the top level (u2418: "I need an
