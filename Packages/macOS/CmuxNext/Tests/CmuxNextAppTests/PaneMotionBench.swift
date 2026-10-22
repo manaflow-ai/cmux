@@ -84,7 +84,8 @@ struct PaneMotionBench {
         var list = (0..<columns).map { column($0, rows: rows, width: width) }
         if extraColumn { list.append(column(columns, rows: 1, width: width)) }
         let layout: ScreenLayout = zoomed ? .splits(.leaf(PaneID("p0-0"))) : .columns(list)
-        return [LayoutScreen(id: "s", name: "s", layout: layout, zoomed: zoomed)]
+        let hidden = zoomed ? list.flatMap(\.root.panes).filter { $0 != PaneID("p0-0") } : []
+        return [LayoutScreen(id: "s", name: "s", layout: layout, zoomed: zoomed, zoomHiddenPanes: hidden)]
     }
 
     /// The same grid with the first pane split right (Cmd-D) or down (Cmd-Shift-D).

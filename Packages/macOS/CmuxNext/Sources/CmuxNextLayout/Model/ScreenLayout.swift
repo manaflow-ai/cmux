@@ -182,12 +182,18 @@ public nonisolated struct LayoutScreen: Hashable, Sendable, Identifiable {
     public var layout: ScreenLayout
     /// The layout is one zoomed pane; the screen's other panes are hidden, not closed.
     public var zoomed: Bool
+    /// The panes a zoom hides (the screen's panes other than the zoomed one): still open, so their
+    /// content stays alive under the zoomed pane for the unzoom. Empty when not zoomed.
+    public var zoomHiddenPanes: [PaneID]
 
-    public init(id: ScreenID, name: String, layout: ScreenLayout, zoomed: Bool = false) {
+    /// Creates a screen.
+    /// - Parameter zoomHiddenPanes: The panes a zoom hides; empty (the default) when `zoomed` is false.
+    public init(id: ScreenID, name: String, layout: ScreenLayout, zoomed: Bool = false, zoomHiddenPanes: [PaneID] = []) {
         self.id = id
         self.name = name
         self.layout = layout
         self.zoomed = zoomed
+        self.zoomHiddenPanes = zoomed ? zoomHiddenPanes : []
     }
 
     /// Every screen is a column strip: a screen stored as one split tree is

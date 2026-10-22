@@ -27,8 +27,11 @@ public struct LayoutMapping {
             let screenID = LayoutScreenID(screen.id)
             handles.screens[screenID] = screen.handle
             guard let layout = layout(of: screen, paneIDs: paneIDs, handles: &handles) else { continue }
-            let zoomed = screen.zoomedPane.flatMap { paneIDs[$0] } != nil
-            screens.append(LayoutScreen(id: screenID, name: screen.name ?? "", layout: layout, zoomed: zoomed))
+            let zoomedPane = screen.zoomedPane.flatMap { paneIDs[$0] }
+            // A zoom hides the screen's other panes; they stay open (their content lives for the unzoom).
+            let hidden = zoomedPane.map { zoomed in screen.panes.compactMap { paneIDs[$0.handle] }.filter { $0 != zoomed } } ?? []
+            screens.append(LayoutScreen(id: screenID, name: screen.name ?? "", layout: layout, zoomed: zoomedPane != nil,
+                                        zoomHiddenPanes: hidden))
         }
         return Result(screens: screens, handles: handles)
     }
