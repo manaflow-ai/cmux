@@ -11,11 +11,12 @@ import type { ComponentProps } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play, PlayContext } from "../../../gallery/play";
 import { WAVE_CLASS, WAVE_KEYFRAMES } from "../../../ui/wave";
-import { activity, chat, CWD, tool } from "../../../gallery/fixtures/acpmux";
+import { activity, assistant, chat, CWD, tool } from "../../../gallery/fixtures/acpmux";
 import type { StartedSession } from "../started/startedSessions";
 import type { Subagent } from "../subagents/subagentFold";
 import { sessionSummary } from "../summary/sessionSummary";
 import { ChatInspector, InspectorPanel, type InspectorPlacement } from "./ChatInspector";
+import { outputArtifacts } from "./OutputsSection";
 import { DEFAULT_SECTIONS } from "./inspectorState";
 
 type Props = ComponentProps<typeof ChatInspector> & { placement?: InspectorPlacement; transcript?: boolean };
@@ -296,6 +297,24 @@ const projectRows = [
   ),
 ];
 
+/// What a chat produced, as Claude Code desktop's Outputs lists it: a ledger page it rendered and a
+/// Markdown plan its reply drew, each opening in the side panel.
+const producedRows = [
+  activity(
+    [
+      tool("mcp__cmux__render", "other", "completed", {
+        inputSummary: JSON.stringify({
+          title: "Leo's Asks Ledger",
+          html: "<!doctype html><title>Leo's Asks Ledger</title><h1>Asks</h1>",
+        }),
+        output: '{"rendered":true}',
+      }),
+    ],
+    3,
+  ),
+  assistant("Here is the plan:\n\n```markdown\n# Inspector rollout\n\n- Context\n- Outputs\n```\n", 2),
+];
+
 const text = (ctx: Parameters<Play>[0]) => ctx.document.querySelector(".acpmux-chat-inspector")?.textContent ?? "";
 
 export default componentEntry<Props>({
@@ -328,10 +347,10 @@ export default componentEntry<Props>({
       props: full,
     },
     "environment-folders": {
-      note: "Environment for a chat in ~/Projects that worked across six projects: the machine with Save, its folder with its parent, each project it touched (each opens in Files), the repository and the branch (each opens on GitHub).",
+      note: "Environment for a chat in ~/Projects/cmux that worked across six projects: the machine with Save, its folder with its parent, each other project it touched (each opens in Files), the repository and the branch (each links to GitHub).",
       props: {
         ...full,
-        summary: { ...summary, cwd: PROJECTS, branch: "leo/next-backgrounds-batch" },
+        summary: { ...summary, cwd: `${PROJECTS}/cmux`, branch: "leo/next-backgrounds-batch" },
         rows: projectRows,
         onOpenFolder: () => undefined,
         remoteControl: undefined,
@@ -440,6 +459,15 @@ export default componentEntry<Props>({
           branch: undefined,
           usage: undefined,
         },
+      },
+    },
+    "outputs-artifacts": {
+      note: "Outputs as Claude Code desktop lists them: each artifact by its title with an Artifact tag (each opens in the side panel), the gallery, the files with their line counts, the links with a Link tag.",
+      props: {
+        ...full,
+        documents: outputArtifacts(producedRows),
+        onOpenDocument: () => undefined,
+        sections: { ...DEFAULT_SECTIONS, changes: false, subagents: false, tasks: false, servers: false },
       },
     },
     push: {
