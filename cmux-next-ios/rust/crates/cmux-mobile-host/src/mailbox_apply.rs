@@ -11,11 +11,17 @@
 //! - chief: `conversation-list` through `ChiefPolicy` shows the conversation
 //!   in the phone's scope, then `conversation-op` `message.send`;
 //! - terminal: the notification is still in the ledger on that surface
-//!   (`list-notifications`), a program other than the shell runs in the
-//!   foreground (`process-info`), then the text is pasted and Return sent,
-//!   each write only while that program is still the foreground
+//!   (`list-notifications`), its poster asked for replies (`reply`), it is at
+//!   most [`TERMINAL_REPLY_AGE`] old, and the program that posted it (its
+//!   process-group leader and executable, which the daemon recorded) still
+//!   holds the terminal (`process-info`); then the text is pasted and Return
+//!   sent, each write only while that program is still the foreground
 //!   (`expect_foreground`), as the Mac's own notification reply does
-//!   (`NotificationCenterService.type(_:into:)`).
+//!   (`NotificationCenterService.type(_:into:)`). A daemon that records no
+//!   poster gets no terminal reply.
+//!
+//! A service this hostd cannot reach (connect fails before anything is sent)
+//! is `Unavailable`: the reply is kept and tried again, not refused.
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -38,6 +44,8 @@ const ROUND_TRIP: Duration = Duration::from_secs(10);
 const PROMPT_ACCEPT: Duration = Duration::from_secs(2);
 /// How long the connection that sent a prompt stays open for its turn.
 const PROMPT_TURN: Duration = Duration::from_secs(3600);
+/// The oldest terminal notification that still takes a reply.
+pub const TERMINAL_REPLY_AGE: Duration = Duration::from_secs(15 * 60);
 
 /// The live services of this hostd.
 pub struct LiveApplier {
@@ -65,18 +73,33 @@ fn refused(why: impl Into<String>) -> Rejection {
     Rejection::Refused(why.into())
 }
 
+fn unavailable(why: impl Into<String>) -> Rejection {
+    Rejection::Unavailable(why.into())
+}
+
 /// `_acpmux/permission_respond` params for a question or permission reply,
 /// given the pending prompt (`_acpmux/info`'s `pending` entry).
 pub fn permission_params(reply: &Reply, pending: &Value) -> Result<Value, Rejection> {
-    let option_id = reply.option_id.as_deref().ok_or_else(|| refused("no option"))?;
-    let kind = pending
-        .pointer("/request/options")
-        .and_then(Value::as_array)
-        .and_then(|options| {
-            options.iter().find(|o| o.get("optionId").and_then(Value::as_str) == Some(option_id))
-        })
-        .and_then(|o| o.get("kind"))
-        .and_then(Value::as_str)
+    let options = pending.pointer("/request/options").and_then(Value::as_array).cloned().unwrap_or_default();
+    let kind_of = |o: &Value| o.get("kind").and_then(Value::as_str).unwrap_or_default().to_owned();
+    let id_of = |o: &Value| o.get("optionId").and_then(Value::as_str).map(str::to_owned);
+    let option_id = match (reply.option_id.clone(), reply.action == ActionKind::Deny) {
+        (Some(id), _) => id,
+        // A deny from a push the Mac trimmed names no option: the prompt's own
+        // reject (reject once first), never an allow.
+        (None, true) => options
+            .iter()
+            .find(|o| kind_of(o) == "reject_once")
+            .or_else(|| options.iter().find(|o| kind_of(o).starts_with("reject")))
+            .and_then(id_of)
+            .ok_or_else(|| refused("this prompt offers no reject"))?,
+        (None, false) => return Err(refused("no option")),
+    };
+    let option_id = option_id.as_str();
+    let kind = options
+        .iter()
+        .find(|o| o.get("optionId").and_then(Value::as_str) == Some(option_id))
+        .map(kind_of)
         .ok_or_else(|| refused("the option is not offered"))?;
     let reject = kind.starts_with("reject");
     let mut params = json!({
@@ -111,7 +134,7 @@ pub fn prompt_params(reply: &Reply) -> Value {
     json!({
         "sessionId": reply.target.session_id,
         "prompt": [{"type": "text", "text": reply.text}],
-        "_meta": {"acpmux": {"promptId": reply.id, "steer": false, "resend": false}},
+        "_meta": {"acpmux": {"promptId": reply.id, "steer": false, "resend": true}},
     })
 }
 
@@ -126,16 +149,47 @@ pub fn chief_line(reply: &Reply) -> Value {
     })
 }
 
-/// The surface of `notification` while `ledger` (`list-notifications`) still
-/// holds it; `None` when it is gone or belongs to no terminal.
-pub fn ledger_surface(ledger: &Value, notification: u64) -> Option<u64> {
+/// The row of `notification` (the `notification` event's number) while
+/// `ledger` (`list-notifications`) still holds it.
+pub fn ledger_row(ledger: &Value, notification: u64) -> Option<&Value> {
     let data = ledger.get("data").unwrap_or(ledger);
     data.get("notifications")?
         .as_array()?
         .iter()
-        .find(|row| row.get("notification").and_then(Value::as_u64) == Some(notification))?
-        .get("surface")
-        .and_then(Value::as_u64)
+        .find(|row| row.get("notification").and_then(Value::as_u64) == Some(notification))
+}
+
+/// The surface of `notification` while `ledger` still holds it; `None` when
+/// it is gone or belongs to no terminal.
+pub fn ledger_surface(ledger: &Value, notification: u64) -> Option<u64> {
+    ledger_row(ledger, notification)?.get("surface").and_then(Value::as_u64)
+}
+
+/// The program a terminal reply may go to: the row's poster, when the poster
+/// asked for replies, the row is at most [`TERMINAL_REPLY_AGE`] old at
+/// `now_ms`, and that same program (pid and executable) holds the terminal now
+/// (`info`, `process-info`'s answer). Else why not.
+pub fn reply_target(row: &Value, info: &Value, now_ms: u64) -> Result<String, Rejection> {
+    if row.get("reply").and_then(Value::as_bool) != Some(true) {
+        return Err(refused("this notification takes no reply"));
+    }
+    let created = row.get("created_at_ms").and_then(Value::as_u64).unwrap_or(0);
+    if now_ms.saturating_sub(created) > TERMINAL_REPLY_AGE.as_millis() as u64 {
+        return Err(Rejection::NotPending);
+    }
+    let (Some(pid), Some(executable)) = (
+        row.get("poster_pid").and_then(Value::as_u64),
+        row.get("poster_executable").and_then(Value::as_str).filter(|e| !e.is_empty()),
+    ) else {
+        return Err(refused("this Mac can't tell which program asked"));
+    };
+    let data = info.get("data").unwrap_or(info);
+    let now_pid = data.get("foreground_pid").and_then(Value::as_u64);
+    let now_executable = data.get("foreground_executable").and_then(Value::as_str);
+    if now_pid != Some(pid) || now_executable != Some(executable) {
+        return Err(Rejection::NotPending);
+    }
+    foreground_program(info).filter(|p| p == executable).ok_or_else(|| refused("only a shell runs in that terminal"))
 }
 
 /// Whether `ledger` still holds `notification` on `surface`.
@@ -144,9 +198,9 @@ pub fn in_ledger(ledger: &Value, notification: u64, surface: u64) -> bool {
 }
 
 /// A reply to a terminal notification, over the link (`notification-reply`)
-/// or from the mailbox: the text goes only to the terminal that posted
-/// `notification` (`surface`, when the caller names one, must be it), and
-/// only while a program other than its shell runs there.
+/// or from the mailbox: the text goes only to the program that posted
+/// `notification`, in its terminal (`surface`, when the caller names one,
+/// must be it), while it still holds that terminal ([`reply_target`]).
 pub async fn reply_to_notification(
     daemon_socket: &std::path::Path,
     phone: &str,
@@ -158,14 +212,16 @@ pub async fn reply_to_notification(
     let mut lines = Lines::connect(daemon_socket).await?;
     let ledger =
         lines.call_daemon(&policy, &json!({"id": "mailbox-ledger", "cmd": "list-notifications"})).await?;
-    let found = ledger_surface(&ledger, notification).ok_or(Rejection::NotPending)?;
+    let row = ledger_row(&ledger, notification).ok_or(Rejection::NotPending)?;
+    let found = row.get("surface").and_then(Value::as_u64).ok_or(Rejection::NotPending)?;
     if surface.is_some_and(|s| s != found) {
         return Err(Rejection::NotPending);
     }
     let info = lines
         .call_daemon(&policy, &json!({"id": "mailbox-process", "cmd": "process-info", "surface": found}))
         .await?;
-    let program = foreground_program(&info).ok_or_else(|| refused("only a shell runs in that terminal"))?;
+    let now_ms = crate::mailbox::now().saturating_mul(1000);
+    let program = reply_target(row, &info, now_ms)?;
     for line in terminal_lines(found, text, &program) {
         let answer = lines.call_daemon(&policy, &line).await?;
         if let Some(why) = failed(&answer) {
@@ -191,15 +247,35 @@ pub async fn answer_notification_reply(
     let id = request.get("id");
     let notification = request.get("notification").and_then(Value::as_u64).unwrap_or_default();
     let text = request.get("text").and_then(Value::as_str).unwrap_or_default();
-    if let (Some(spent), Some(reply)) = (spent, request.get("reply_id").and_then(Value::as_str))
-        && !spent.spend_link_reply(reply, crate::mailbox::now())
-    {
-        return json!({"id": id.cloned().unwrap_or(Value::Null), "ok": true, "data": {"duplicate": true}})
-            .to_string();
+    let reply_id = request.get("reply_id").and_then(Value::as_str);
+    if let (Some(spent), Some(reply)) = (spent, reply_id) {
+        match spent.claim_link_reply(reply, crate::mailbox::now()) {
+            crate::mailbox::Claim::Fresh => {}
+            // Settled before (the mailbox copy came first): its first outcome again.
+            crate::mailbox::Claim::Settled(outcome) if outcome == "applied" => {
+                return json!({"id": id.cloned().unwrap_or(Value::Null), "ok": true, "data": {"duplicate": true}})
+                    .to_string();
+            }
+            crate::mailbox::Claim::Settled(outcome) => {
+                return crate::policy::error_line(id, "refused", &outcome);
+            }
+            crate::mailbox::Claim::Seen { .. } | crate::mailbox::Claim::Unreadable => {
+                return crate::policy::error_line(id, "unavailable", "that reply is not settled yet; try again");
+            }
+        }
     }
-    match reply_to_notification(daemon_socket, phone, notification, None, text).await {
+    let outcome = reply_to_notification(daemon_socket, phone, notification, None, text).await;
+    if let (Some(spent), Some(reply)) = (spent, reply_id) {
+        match &outcome {
+            Err(Rejection::Unavailable(_)) => spent.release_link_reply(reply),
+            Ok(()) => spent.settle(reply, None),
+            Err(rejection) => spent.settle(reply, Some(rejection.code())),
+        }
+    }
+    match outcome {
         Ok(()) => json!({"id": id.cloned().unwrap_or(Value::Null), "ok": true, "data": {}}).to_string(),
         Err(Rejection::NotPending) => crate::policy::error_line(id, "not_found", "that notification is gone"),
+        Err(Rejection::Unavailable(why)) => crate::policy::error_line(id, "unavailable", &why),
         Err(rejection) => {
             let why = match &rejection {
                 Rejection::Refused(why) => why.clone(),
@@ -310,7 +386,7 @@ struct Acpmux {
 
 impl Acpmux {
     async fn connect(target: &AcpmuxTarget) -> Result<Self, Rejection> {
-        let socket = crate::services::connect_acpmux(target).await.map_err(|r| refused(r.reason))?;
+        let socket = crate::services::connect_acpmux(target).await.map_err(|r| unavailable(r.reason))?;
         let mut this = Self { socket, next: 0 };
         this.call(
             "initialize",
@@ -380,7 +456,7 @@ struct Lines {
 
 impl Lines {
     async fn connect(path: &std::path::Path) -> Result<Self, Rejection> {
-        let socket = UnixStream::connect(path).await.map_err(|e| refused(e.to_string()))?;
+        let socket = UnixStream::connect(path).await.map_err(|e| unavailable(e.to_string()))?;
         let (read, writer) = socket.into_split();
         Ok(Self { reader: BufReader::new(read), writer })
     }
@@ -461,6 +537,7 @@ mod tests {
                 json!({"acpmux": {"decisionNonce": "n", "approverDecision": {"approver": "phone-1",
                                   "expiresAt": 1, "signature": "ab"}}}),
             ),
+            nonce: "n".repeat(16),
             expires_at: 1,
         }
     }
@@ -498,6 +575,57 @@ mod tests {
         let mut unknown = reply("permission", ActionKind::Allow);
         unknown.option_id = Some("other".into());
         assert!(permission_params(&unknown, &pending()).is_err());
+    }
+
+    #[test]
+    fn a_deny_with_no_option_takes_the_prompts_own_reject() {
+        let mut deny = reply("permission", ActionKind::Deny);
+        deny.option_id = None;
+        assert_eq!(permission_params(&deny, &pending()).unwrap()["optionId"], "no");
+        let only_always = json!({"permissionId": "p1", "request": {"options": [
+            {"optionId": "allow", "kind": "allow_once"}, {"optionId": "never", "kind": "reject_always"}]}});
+        assert_eq!(permission_params(&deny, &only_always).unwrap()["optionId"], "never");
+        let none = json!({"permissionId": "p1", "request": {"options": [{"optionId": "allow", "kind": "allow_once"}]}});
+        assert!(permission_params(&deny, &none).is_err());
+        // An allow never picks an option for itself.
+        let mut allow = reply("permission", ActionKind::Allow);
+        allow.option_id = None;
+        assert!(permission_params(&allow, &pending()).is_err());
+    }
+
+    #[test]
+    fn a_prompt_is_run_once_whichever_way_it_came() {
+        // The link sends `resend: true` too: acpmux finds the id in its log even after a restart.
+        let params = prompt_params(&reply("completed", ActionKind::Text));
+        assert_eq!(params["_meta"]["acpmux"], json!({"promptId": "r1", "steer": false, "resend": true}));
+    }
+
+    #[test]
+    fn a_terminal_reply_goes_only_to_the_program_that_asked() {
+        const NOW_MS: u64 = 1_792_540_900_000;
+        let row = json!({"notification": 12, "surface": 7, "reply": true, "created_at_ms": NOW_MS - 60_000,
+                         "poster_pid": 4242, "poster_executable": "/usr/bin/vim"});
+        let info = json!({"data": {"foreground_pid": 4242, "foreground_executable": "/usr/bin/vim"}});
+        assert_eq!(reply_target(&row, &info, NOW_MS).unwrap(), "/usr/bin/vim");
+        // Another program holds the terminal now (ssh, sudo, psql...), or the same name in a new process.
+        let other = json!({"data": {"foreground_pid": 5000, "foreground_executable": "/usr/bin/ssh"}});
+        assert_eq!(reply_target(&row, &other, NOW_MS), Err(Rejection::NotPending));
+        let restarted = json!({"data": {"foreground_pid": 5001, "foreground_executable": "/usr/bin/vim"}});
+        assert_eq!(reply_target(&row, &restarted, NOW_MS), Err(Rejection::NotPending));
+        // A poster that never asked for replies, a row too old, a daemon that records no poster.
+        let mut no_reply = row.clone();
+        no_reply["reply"] = json!(false);
+        assert!(matches!(reply_target(&no_reply, &info, NOW_MS), Err(Rejection::Refused(_))));
+        let old = NOW_MS + TERMINAL_REPLY_AGE.as_millis() as u64;
+        assert_eq!(reply_target(&row, &info, old), Err(Rejection::NotPending));
+        let mut anonymous = row.clone();
+        anonymous.as_object_mut().unwrap().remove("poster_pid");
+        assert!(matches!(reply_target(&anonymous, &info, NOW_MS), Err(Rejection::Refused(_))));
+        // The shell that posted it (`cmux notify --reply` typed at a prompt) gets nothing.
+        let shell_row = json!({"notification": 12, "surface": 7, "reply": true, "created_at_ms": NOW_MS,
+                               "poster_pid": 10, "poster_executable": "/bin/zsh"});
+        let shell = json!({"data": {"foreground_pid": 10, "foreground_executable": "/bin/zsh"}});
+        assert!(matches!(reply_target(&shell_row, &shell, NOW_MS), Err(Rejection::Refused(_))));
     }
 
     #[test]

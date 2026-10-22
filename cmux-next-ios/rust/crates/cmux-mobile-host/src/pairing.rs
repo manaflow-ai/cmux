@@ -612,7 +612,12 @@ async fn authenticate(
         send(sender, json!({"ok": true})).await;
         return Ok(());
     };
-    let push_key = push_key_arg(args, &pairing.mac_device_id, phone, identity_key)?;
+    // A push key that does not check out costs only the sealed pushes, never
+    // the pairing (PR B review 7): that phone gets the plain content as before.
+    let push_key = push_key_arg(args, &pairing.mac_device_id, phone, identity_key).unwrap_or_else(|(_, why)| {
+        tracing::warn!(phone, why, "ignoring a push key");
+        None
+    });
     let nonce = new_nonce()?;
     let mut challenge = json!({"challenge": nonce, "mac": pairing.mac_device_id});
     // A phone that pins Macs sends its own nonce: the Mac signs it with its
@@ -831,6 +836,16 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn a_bad_push_key_is_refused_by_itself() {
+        // `auth` ignores it (`unwrap_or_else`): the pairing goes on without sealed pushes.
+        let v: Value = serde_json::from_str(include_str!("../tests/fixtures/seal-vectors.json")).unwrap();
+        let t = |k: &str| v[k].as_str().unwrap().to_owned();
+        let bad = json!({"pushKey": "04", "pushKeySignature": t("pushKeySignature")});
+        let kept = push_key_arg(&bad, &t("mac"), &t("phone"), &t("phoneIdentityKey")).unwrap_or(None);
+        assert_eq!(kept, None);
     }
 
     #[test]

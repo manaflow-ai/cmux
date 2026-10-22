@@ -8,8 +8,12 @@
 //! When every paired phone has a push key, the body carries only the ids the
 //! backend needs to route and coalesce (`eventId`, `kind`, and the session,
 //! workspace, tab, permission, conversation and notification ids), never the
-//! text. A phone without a push key (an older app) still needs the plain
-//! content, so then the body keeps it beside `sealed`.
+//! text: also when a box could not be made for one of them (that phone gets
+//! the backend's fixed banner from the ids alone), and when this Mac's
+//! identity key has not arrived yet (every phone gets the fixed banner).
+//! A phone without a push key (an older app) still needs the plain content,
+//! so then the body keeps it beside `sealed`, readable by the backend and
+//! APNs (`verify/notifications-trust.md`, residual risks).
 //!
 //! For a question or permission the box also carries the prompt's acpmux
 //! `decisionNonce` and `personInstance`, so the phone can sign an answer
@@ -107,6 +111,8 @@ pub fn sealed_body(
     let mut content = fields.clone();
     content.insert("v".into(), json!(2));
     content.insert("mac".into(), json!(mac));
+    // When it was posted: the phone drops the buttons of an old push replayed later.
+    content.insert("postedAt".into(), json!(crate::mailbox::now()));
     if let Some((nonce, instance)) = ask {
         content.insert("decisionNonce".into(), json!(nonce));
         content.insert("personInstance".into(), json!(instance));
@@ -121,13 +127,20 @@ pub fn sealed_body(
         else {
             continue;
         };
+        // The backend refuses a box over its limit, and with it the whole push.
+        if boxed.len() > MAX_BOX_CHARS {
+            tracing::warn!(phone, len = boxed.len(), "a sealed push is over the box limit; that phone gets the fixed banner");
+            continue;
+        }
         let Some(sig) = identity.sign(&crate::seal::push_signature_message(mac, phone, event_id, &boxed))
         else {
             continue;
         };
         sealed.insert(phone.clone(), json!({"box": boxed, "sig": sig}));
     }
-    let mut body: Map<String, Value> = if all_sealed && sealed.len() == phones.len() {
+    // Every paired phone has a key: the content never leaves in clear, even
+    // when one box failed (that phone gets the fixed banner from the ids).
+    let mut body: Map<String, Value> = if all_sealed {
         fields
             .iter()
             .filter(|(k, _)| ROUTING_FIELDS.contains(&k.as_str()))
@@ -140,6 +153,18 @@ pub fn sealed_body(
         body.insert("sealed".into(), Value::Object(sealed));
     }
     Value::Object(body)
+}
+
+/// Only the fields that route and coalesce `event`.
+pub fn routing_only(event: &Value) -> Value {
+    let Some(fields) = event.as_object() else { return event.clone() };
+    Value::Object(
+        fields
+            .iter()
+            .filter(|(k, _)| ROUTING_FIELDS.contains(&k.as_str()))
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect(),
+    )
 }
 
 /// What the notifier needs to seal.
@@ -157,12 +182,16 @@ impl Sealer {
     pub async fn body(&self, event: Value) -> Value {
         let identity = self.identity.borrow().clone();
         let trust = self.trust.borrow().clone();
-        let (Some(identity), Some(trust)) = (identity, trust) else { return event };
+        let Some(trust) = trust else { return event };
         let phones = self.push_keys.for_paired(&trust);
         if phones.is_empty() {
             return event;
         }
         let all_sealed = phones.len() == trust.devices.len();
+        let Some(identity) = identity else {
+            // No key to seal with yet: never the content in clear for phones that expect boxes.
+            return if all_sealed { routing_only(&event) } else { event };
+        };
         let ask = match event.get("kind").and_then(Value::as_str) {
             Some("question" | "permission") => self.ask_secrets(&event).await,
             _ => None,
@@ -176,6 +205,11 @@ impl Sealer {
         let permission = event.get("permissionId").and_then(Value::as_str)?;
         let ask = async {
             let mut socket = crate::services::connect_acpmux(&self.acpmux).await.ok()?;
+            // acpmux answers nothing before `initialize` (PR B review, low).
+            let initialize = json!({"jsonrpc": "2.0", "id": "cmux-mobile-seal-init", "method": "initialize",
+                                    "params": {"protocolVersion": 1, "clientInfo": {"name": "cmux-mobile-host-seal", "version": "1"},
+                                               "clientCapabilities": {}}});
+            socket.send(Message::Text(initialize.to_string().into())).await.ok()?;
             let request = json!({"jsonrpc": "2.0", "id": "cmux-mobile-seal", "method": "_acpmux/info",
                                  "params": {"sessionId": session}});
             socket.send(Message::Text(request.to_string().into())).await.ok()?;
@@ -258,6 +292,8 @@ mod tests {
         assert_eq!(opened["mac"], mac);
         assert_eq!(opened["decisionNonce"], "n1");
         assert_eq!(opened["personInstance"], "run1");
+        // When it was posted, so the phone can drop an old one's buttons.
+        assert!(opened["postedAt"].as_u64().is_some_and(|t| t > 1_700_000_000));
     }
 
     #[test]
@@ -270,6 +306,24 @@ mod tests {
         assert!(body["sealed"]["p1"]["box"].is_string());
         // No push keys at all: exactly the event.
         assert_eq!(sealed_body(&event(), "m", &identity, &[], true, None), event());
+    }
+
+    #[test]
+    fn a_failed_box_never_puts_the_content_in_clear() {
+        let identity = MacIdentity::generate().unwrap();
+        let push = crate::seal::random_secret().unwrap();
+        // The second phone's key is not a point: its box fails.
+        let phones = vec![
+            ("p1".to_owned(), crate::seal::point_hex(&push.public_key())),
+            ("p2".to_owned(), "04zz".to_owned()),
+        ];
+        let body = sealed_body(&event(), "m", &identity, &phones, true, None);
+        let text = body.to_string();
+        assert!(!text.contains("Deploy to prod") && !text.contains("sk-123"), "{text}");
+        assert!(body["sealed"]["p1"]["box"].is_string());
+        assert!(body["sealed"].get("p2").is_none());
+        // No identity key yet, every phone with a push key: routing ids only.
+        assert_eq!(routing_only(&event()), json!({"eventId": "p-perm1", "kind": "question", "sessionId": "s1", "permissionId": "perm/1"}));
     }
 
     #[test]

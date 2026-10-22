@@ -14,10 +14,18 @@
 //! 4. `expired`: `expiresAt` is ahead of now and at most 600 s past both
 //!    `issuedAt` and now;
 //! 5. `replayed`: its id and its nonce were never seen (kept on disk until
-//!    they expire, so a restart forgets nothing that still counts);
+//!    they expire, so a restart forgets nothing that still counts). A repeat
+//!    of a reply this Mac already settled answers that first outcome again
+//!    (its ack was lost, or the link delivered it first), never a new one;
 //! 6. `not_pending`: its question or permission still waits, its session or
 //!    Chief conversation exists, its terminal notification is still in the
 //!    ledger ([`Applier`]).
+//!
+//! A reply that could not be settled yet (the app has not handed hostd its
+//! keys or paired list, a service is not reachable) is `unavailable`: it is
+//! not spent and not acknowledged, so it stays queued and is tried again.
+//! Every ack is signed by this Mac's identity key ([`ack_message`]), so the
+//! backend cannot tell the phone a reply was applied when it was not.
 //!
 //! It is then applied as the same request a phone sends over its link,
 //! through the same policies (`acpmux_policy`, `DaemonPolicy`, `ChiefPolicy`).
@@ -39,10 +47,16 @@ use crate::pairing::{DeviceTrust, MacIdentity};
 pub const DOMAIN: &str = "cmux-mobile-reply-v1";
 /// The longest a reply stays valid, in seconds.
 pub const MAX_LIFETIME: u64 = 600;
+/// How far ahead of this Mac's clock a phone's clock may run (`expiresAt`).
+pub const CLOCK_SKEW: u64 = 60;
+/// The domain of an ack signature.
+pub const ACK_DOMAIN: &str = "cmux-mobile-mailbox-ack-v1";
 /// The longest text a reply carries, in bytes.
 pub const MAX_TEXT_BYTES: usize = 4096;
-/// The largest sealed box accepted (base64url characters).
-pub const MAX_SEALED: usize = 8192;
+/// The largest sealed box accepted (base64url characters), as the backend
+/// (`MAX_MAILBOX_SEALED`): 32 of them stay under one WebSocket frame. A text
+/// whose escaped form is larger is refused on the phone before it is posted.
+pub const MAX_SEALED: usize = 16_384;
 /// At most this many items are handled from one frame.
 pub const MAX_ITEMS: usize = 32;
 
@@ -57,6 +71,12 @@ pub enum Rejection {
     NotPending,
     /// Malformed after it verified, or refused when applied (the detail is logged, not sent).
     Refused(String),
+    /// Not settled yet (no keys or paired list from the app, a service out of
+    /// reach): neither spent nor acknowledged, so it is tried again.
+    Unavailable(String),
+    /// A repeat of a reply already settled: its first outcome (`None` applied,
+    /// else the first reason's code).
+    Repeat(Option<String>),
 }
 
 impl Rejection {
@@ -69,8 +89,16 @@ impl Rejection {
             Self::Replayed => "replayed",
             Self::NotPending => "not_pending",
             Self::Refused(_) => "refused",
+            Self::Unavailable(_) => "unavailable",
+            Self::Repeat(_) => "replayed",
         }
     }
+}
+
+/// What an ack's signature covers: the domain, this Mac, the reply's id,
+/// `1` (applied) or `0`, and the reason's code (empty when applied).
+pub fn ack_message(mac: &str, id: &str, applied: bool, reason: Option<&str>) -> Vec<u8> {
+    crate::seal::joined(ACK_DOMAIN, &[mac, id, if applied { "1" } else { "0" }, reason.unwrap_or("")])
 }
 
 /// What a reply asks for.
@@ -113,6 +141,7 @@ pub struct Reply {
     pub text: Option<String>,
     /// The acpmux `_meta` the phone signed after Face ID (an Allow or answers).
     pub approval: Option<Value>,
+    pub nonce: String,
     pub expires_at: u64,
 }
 
@@ -124,12 +153,43 @@ pub fn signed_message(mac: &str, phone: &str, unsigned: &Value) -> Vec<u8> {
     crate::seal::joined(DOMAIN, &[mac, phone, &crate::seal::sha256_hex(canonical.as_bytes())])
 }
 
-/// Replies and nonces already seen, until they expire. Shared by every
-/// signaling socket of this hostd, and kept on disk.
+/// A spent key: until when it counts, and the reply's outcome once settled
+/// (`Some("applied")` or a reason's code; `None` while it is being applied).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+struct Spent {
+    until: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    outcome: Option<String>,
+    /// Claimed and not settled yet (being applied). Not kept on disk: after a
+    /// restart such a reply counts as seen with no outcome.
+    #[serde(skip)]
+    pending: bool,
+}
+
+/// What [`SpentReplies::claim`] found.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Claim {
+    /// Never seen: claimed now; settle or release it.
+    Fresh,
+    /// Seen and settled: its outcome (`applied` or a reason's code).
+    Settled(String),
+    /// Seen, with no outcome to repeat: another copy is being applied now, or
+    /// another reply already used the nonce, or the record predates outcomes.
+    Seen { in_progress: bool },
+    /// The store on disk could not be read: nothing is applied (fail closed).
+    Unreadable,
+}
+
+/// Replies and nonces already seen, until they expire, with each reply's
+/// outcome. Shared by every signaling socket of this hostd, and kept on disk.
+/// A store that exists but cannot be read refuses every reply until hostd
+/// restarts with a readable one (a reply applied twice is worse than one not
+/// applied).
 #[derive(Debug, Default)]
 pub struct SpentReplies {
     path: Option<PathBuf>,
-    spent: Mutex<HashMap<String, u64>>,
+    unreadable: bool,
+    spent: Mutex<HashMap<String, Spent>>,
 }
 
 impl SpentReplies {
@@ -138,47 +198,108 @@ impl SpentReplies {
     }
 
     pub fn load(path: PathBuf) -> Self {
-        let spent = std::fs::read(&path)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice::<HashMap<String, u64>>(&bytes).ok())
-            .unwrap_or_default();
-        Self { path: Some(path), spent: Mutex::new(spent) }
+        let (spent, unreadable) = match std::fs::read(&path) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => (HashMap::new(), false),
+            Err(error) => {
+                tracing::error!(%error, "the spent mailbox replies cannot be read: no reply is applied");
+                (HashMap::new(), true)
+            }
+            Ok(bytes) => match Self::parse(&bytes) {
+                Some(spent) => (spent, false),
+                None => {
+                    tracing::error!("the spent mailbox replies are unreadable: no reply is applied");
+                    (HashMap::new(), true)
+                }
+            },
+        };
+        Self { path: Some(path), unreadable, spent: Mutex::new(spent) }
     }
 
-    /// Spends the reply's id and nonce until `expires`; false when either
-    /// was spent already (nothing changes then).
-    pub fn spend(&self, id: &str, phone: &str, nonce: &str, expires: u64, now: u64) -> bool {
-        self.spend_keys(vec![format!("id:{id}"), format!("nonce:{phone}:{nonce}")], expires, now)
+    /// The file: `{key: {until, outcome?}}`, or the older `{key: until}`.
+    fn parse(bytes: &[u8]) -> Option<HashMap<String, Spent>> {
+        if let Ok(spent) = serde_json::from_slice::<HashMap<String, Spent>>(bytes) {
+            return Some(spent);
+        }
+        let old = serde_json::from_slice::<HashMap<String, u64>>(bytes).ok()?;
+        Some(old.into_iter().map(|(k, until)| (k, Spent { until, outcome: None, pending: false })).collect())
     }
 
-    /// Spends a reply that came over a link (`notification-reply` with
+    fn keys(id: &str, phone: &str, nonce: &str) -> Vec<String> {
+        vec![format!("id:{id}"), format!("nonce:{phone}:{nonce}")]
+    }
+
+    /// Claims a mailbox reply's id and nonce until `expires`.
+    pub fn claim(&self, id: &str, phone: &str, nonce: &str, expires: u64, now: u64) -> Claim {
+        self.claim_keys(Self::keys(id, phone, nonce), expires, now)
+    }
+
+    /// Claims a reply that came over a link (`notification-reply` with
     /// `reply_id`): the same id the mailbox copy carries, so whichever comes
     /// second is not applied again.
-    pub fn spend_link_reply(&self, id: &str, now: u64) -> bool {
-        self.spend_keys(vec![format!("id:{id}")], now + MAX_LIFETIME, now)
+    pub fn claim_link_reply(&self, id: &str, now: u64) -> Claim {
+        self.claim_keys(vec![format!("id:{id}")], now + MAX_LIFETIME + CLOCK_SKEW, now)
     }
 
-    fn spend_keys(&self, keys: Vec<String>, expires: u64, now: u64) -> bool {
+    /// Records the outcome of a claimed reply (`None`: applied).
+    pub fn settle(&self, id: &str, outcome: Option<&str>) {
         let mut spent = self.spent.lock().unwrap_or_else(PoisonError::into_inner);
-        spent.retain(|_, until| *until >= now);
+        if let Some(entry) = spent.get_mut(&format!("id:{id}")) {
+            entry.outcome = Some(outcome.unwrap_or("applied").to_owned());
+            entry.pending = false;
+        }
+        self.save(&spent);
+    }
+
+    /// Gives a claimed reply back (it could not be settled): a later copy is applied.
+    pub fn release(&self, id: &str, phone: &str, nonce: &str) {
+        let mut spent = self.spent.lock().unwrap_or_else(PoisonError::into_inner);
+        for key in Self::keys(id, phone, nonce) {
+            spent.remove(&key);
+        }
+        self.save(&spent);
+    }
+
+    /// Gives a claimed link reply back.
+    pub fn release_link_reply(&self, id: &str) {
+        let mut spent = self.spent.lock().unwrap_or_else(PoisonError::into_inner);
+        spent.remove(&format!("id:{id}"));
+        self.save(&spent);
+    }
+
+    fn claim_keys(&self, keys: Vec<String>, expires: u64, now: u64) -> Claim {
+        if self.unreadable {
+            return Claim::Unreadable;
+        }
+        let mut spent = self.spent.lock().unwrap_or_else(PoisonError::into_inner);
+        spent.retain(|_, entry| entry.until >= now);
         if keys.iter().any(|k| spent.contains_key(k)) {
-            return false;
+            // The id's record holds its outcome; a nonce another reply already
+            // used is a replay with no outcome of its own.
+            return match spent.get(&keys[0]) {
+                Some(Spent { outcome: Some(outcome), .. }) => Claim::Settled(outcome.clone()),
+                Some(Spent { outcome: None, pending, .. }) => Claim::Seen { in_progress: *pending },
+                None => Claim::Seen { in_progress: false },
+            };
         }
         for key in keys {
-            spent.insert(key, expires);
+            spent.insert(key, Spent { until: expires, outcome: None, pending: true });
         }
+        self.save(&spent);
+        Claim::Fresh
+    }
+
+    fn save(&self, spent: &HashMap<String, Spent>) {
         if let Some(path) = &self.path
-            && let Err(error) =
-                crate::push_keys::write_private(path, &serde_json::to_vec(&*spent).unwrap_or_default())
+            && let Err(error) = crate::push_keys::write_private(path, &serde_json::to_vec(spent).unwrap_or_default())
         {
             // Memory still holds it: a replay before a restart is refused anyway.
             tracing::warn!(%error, "could not save spent mailbox replies");
         }
-        true
     }
 }
 
-/// Checks 1 to 5 for one item.
+/// Checks 1 to 4 for one item, then claims it (check 5): a fresh reply
+/// comes back claimed, to be settled or released by the caller.
 pub fn check(
     item: &MailboxItem,
     mac: &str,
@@ -220,16 +341,21 @@ pub fn check(
     // 4. Not expired, and never valid for long.
     let issued = object.get("issuedAt").and_then(Value::as_u64).ok_or(Rejection::Expired)?;
     let expires = object.get("expiresAt").and_then(Value::as_u64).ok_or(Rejection::Expired)?;
-    if expires <= now || expires > issued.saturating_add(MAX_LIFETIME) || expires > now + MAX_LIFETIME {
+    if expires <= now
+        || expires > issued.saturating_add(MAX_LIFETIME)
+        || expires > now + MAX_LIFETIME + CLOCK_SKEW
+    {
         return Err(Rejection::Expired);
     }
     let reply = parse(&object, item, expires).map_err(Rejection::Refused)?;
-    // 5. Never seen.
-    let nonce = text(&object, "nonce").unwrap_or_default();
-    if !spent.spend(&reply.id, phone, &nonce, expires, now) {
-        return Err(Rejection::Replayed);
+    // 5. Never seen, or its first outcome again.
+    match spent.claim(&reply.id, phone, &reply.nonce, expires, now) {
+        Claim::Fresh => Ok(reply),
+        Claim::Settled(outcome) => Err(Rejection::Repeat((outcome != "applied").then_some(outcome))),
+        Claim::Seen { in_progress: true } => Err(Rejection::Unavailable("another copy is being applied".into())),
+        Claim::Seen { in_progress: false } => Err(Rejection::Replayed),
+        Claim::Unreadable => Err(Rejection::Unavailable("the spent replies cannot be read".into())),
     }
-    Ok(reply)
 }
 
 /// The reply's fields, checked for its kind.
@@ -279,7 +405,8 @@ fn parse(object: &Map<String, Value>, item: &MailboxItem, expires: u64) -> Resul
                 "a session and a permission",
             )?;
             needs(action != ActionKind::Text, "an option")?;
-            needs(option_id.is_some(), "an option id")?;
+            // A deny with no option takes the prompt's own reject (a trimmed push carries none).
+            needs(option_id.is_some() || action == ActionKind::Deny, "an option id")?;
             needs(action != ActionKind::Answers || answers.is_some(), "answers")?;
         }
         "completed" | "failed" => {
@@ -316,6 +443,7 @@ fn parse(object: &Map<String, Value>, item: &MailboxItem, expires: u64) -> Resul
         answers,
         text,
         approval,
+        nonce: nonce.to_owned(),
         expires_at: expires,
     })
 }
@@ -342,31 +470,65 @@ pub struct Mailbox {
 }
 
 impl Mailbox {
-    /// Checks and applies each item, in order; one result per item.
-    pub async fn handle(&self, items: Vec<MailboxItem>, now: u64) -> Vec<MailboxResult> {
-        let mut results = Vec::new();
+    /// Checks and applies each item, in order. Settled items get a signed
+    /// result; the rest (`unavailable`) are returned to try again.
+    pub async fn handle(&self, items: Vec<MailboxItem>, now: u64) -> Handled {
+        let mut handled = Handled::default();
         for item in items.into_iter().take(MAX_ITEMS) {
             let outcome = self.handle_one(&item, now).await;
-            if let Err(rejection) = &outcome {
-                tracing::info!(id = item.id, reason = ?rejection, "mailbox reply rejected");
-            } else {
+            let (applied, reason) = match &outcome {
+                Ok(()) => (true, None),
+                Err(Rejection::Unavailable(why)) => {
+                    tracing::info!(id = item.id, why, "mailbox reply not settled yet");
+                    handled.later.push(item);
+                    continue;
+                }
+                Err(Rejection::Repeat(first)) => (first.is_none(), first.clone()),
+                Err(rejection) => (false, Some(rejection.code().to_owned())),
+            };
+            if applied {
                 tracing::info!(id = item.id, "mailbox reply applied");
+            } else {
+                tracing::info!(id = item.id, reason = ?outcome, "mailbox reply rejected");
             }
-            results.push(MailboxResult {
-                id: item.id,
-                applied: outcome.is_ok(),
-                reason: outcome.err().map(|r| r.code().to_owned()),
-            });
+            let identity = self.identity.borrow().clone();
+            let sig = identity.and_then(|i| i.sign(&ack_message(&self.mac, &item.id, applied, reason.as_deref())));
+            handled.results.push(MailboxResult { id: item.id, applied, reason, sig });
         }
-        results
+        handled
     }
 
     async fn handle_one(&self, item: &MailboxItem, now: u64) -> Result<(), Rejection> {
-        let identity = self.identity.borrow().clone().ok_or(Rejection::Unsealed)?;
-        let trust = self.trust.borrow().clone().ok_or(Rejection::NotPaired)?;
+        // A hostd that just started waits for the app's keys and paired list, as `auth` does.
+        let identity = Self::loaded(self.identity.clone()).await.ok_or_else(|| {
+            Rejection::Unavailable("the Mac app has not sent its identity key".into())
+        })?;
+        let trust = Self::loaded(self.trust.clone())
+            .await
+            .ok_or_else(|| Rejection::Unavailable("the Mac app has not sent its paired iPhones".into()))?;
         let reply = check(item, &self.mac, &identity, &trust, &self.spent, now)?;
-        self.applier.apply(&reply).await
+        let outcome = self.applier.apply(&reply).await;
+        match &outcome {
+            Err(Rejection::Unavailable(_)) => self.spent.release(&reply.id, &reply.phone, &reply.nonce),
+            Ok(()) => self.spent.settle(&reply.id, None),
+            Err(rejection) => self.spent.settle(&reply.id, Some(rejection.code())),
+        }
+        outcome
     }
+
+    async fn loaded<T: Clone>(mut receiver: watch::Receiver<Option<T>>) -> Option<T> {
+        let wait = async { receiver.wait_for(Option::is_some).await.ok().and_then(|v| v.clone()) };
+        tokio::time::timeout(crate::pairing::TRUST_WAIT, wait).await.ok().flatten()
+    }
+}
+
+/// What one mailbox frame came to.
+#[derive(Debug, Default, PartialEq)]
+pub struct Handled {
+    /// One signed result per settled item, in order.
+    pub results: Vec<MailboxResult>,
+    /// Items that could not be settled yet: tried again, never acknowledged until settled.
+    pub later: Vec<MailboxItem>,
 }
 
 /// Now, in Unix seconds.
@@ -464,15 +626,60 @@ mod tests {
     }
 
     #[test]
-    fn a_signed_sealed_reply_passes_once() {
+    fn a_signed_sealed_reply_passes_once_and_a_repeat_answers_its_first_outcome() {
         let spent = SpentReplies::memory();
         let item = sealed(text_reply("r-1"), &phone_signer());
         assert!(checked(&item, &spent).is_ok());
-        assert_eq!(checked(&item, &spent), Err(Rejection::Replayed));
-        // A new id with the same nonce is a replay too.
+        // Another copy while the first is still being applied: not settled, tried again.
+        assert!(matches!(checked(&item, &spent), Err(Rejection::Unavailable(_))));
+        spent.settle("r-1", None);
+        assert_eq!(checked(&item, &spent), Err(Rejection::Repeat(None)));
+        // A new id with the same nonce is a replay with no outcome of its own.
         let mut again = text_reply("r-2");
         again["nonce"] = text_reply("r-1")["nonce"].clone();
         assert_eq!(checked(&sealed(again, &phone_signer()), &spent), Err(Rejection::Replayed));
+        // A refused reply repeats its refusal, never an "applied".
+        let refused = sealed(text_reply("r-3"), &phone_signer());
+        assert!(checked(&refused, &spent).is_ok());
+        spent.settle("r-3", Some("not_pending"));
+        assert_eq!(checked(&refused, &spent), Err(Rejection::Repeat(Some("not_pending".into()))));
+        // A released claim (it could not be applied yet) passes again.
+        let later = sealed(text_reply("r-4"), &phone_signer());
+        let reply = checked(&later, &spent).unwrap();
+        spent.release(&reply.id, &reply.phone, &reply.nonce);
+        assert!(checked(&later, &spent).is_ok());
+    }
+
+    #[test]
+    fn a_phone_clock_a_little_ahead_is_allowed() {
+        let spent = SpentReplies::memory();
+        let mut ahead = text_reply("skew-1");
+        ahead["issuedAt"] = json!(NOW + 30);
+        ahead["expiresAt"] = json!(NOW + 30 + MAX_LIFETIME);
+        assert!(checked(&sealed(ahead, &phone_signer()), &spent).is_ok());
+        let mut far = text_reply("skew-2");
+        far["issuedAt"] = json!(NOW + CLOCK_SKEW + 1);
+        far["expiresAt"] = json!(NOW + CLOCK_SKEW + 1 + MAX_LIFETIME);
+        assert_eq!(checked(&sealed(far, &phone_signer()), &spent), Err(Rejection::Expired));
+    }
+
+    #[test]
+    fn a_deny_may_leave_the_option_to_the_mac() {
+        let mut deny = text_reply("deny-1");
+        deny["kind"] = json!("permission");
+        deny["target"] = json!({"sessionId": "s1", "permissionId": "p1"});
+        deny["action"] = json!({"type": "deny"});
+        let reply = checked(&sealed(deny, &phone_signer()), &SpentReplies::memory()).unwrap();
+        assert_eq!((reply.action, reply.option_id), (ActionKind::Deny, None));
+    }
+
+    #[test]
+    fn an_ack_is_signed_by_the_mac_identity_key() {
+        let message = ack_message(MAC, "r-1", false, Some("not_pending"));
+        assert_eq!(message, crate::seal::joined(ACK_DOMAIN, &[MAC, "r-1", "0", "not_pending"]));
+        let signature = mac_identity().sign(&message).unwrap();
+        assert!(crate::pairing::verify(mac_identity().public_key(), &message, &signature));
+        assert!(!crate::pairing::verify(mac_identity().public_key(), &ack_message(MAC, "r-1", true, None), &signature));
     }
 
     #[test]
@@ -583,77 +790,159 @@ mod tests {
     }
 
     #[test]
-    fn spent_replies_survive_a_restart_until_they_expire() {
+    fn spent_replies_and_outcomes_survive_a_restart_until_they_expire() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("mailbox-spent.json");
-        assert!(SpentReplies::load(path.clone()).spend("r", PHONE, "n", NOW + 60, NOW));
+        let first = SpentReplies::load(path.clone());
+        assert_eq!(first.claim("r", PHONE, "n", NOW + 60, NOW), Claim::Fresh);
+        first.settle("r", None);
         let again = SpentReplies::load(path.clone());
-        assert!(!again.spend("r", PHONE, "other", NOW + 60, NOW));
-        assert!(!again.spend("other", PHONE, "n", NOW + 60, NOW));
+        assert_eq!(again.claim("r", PHONE, "other", NOW + 60, NOW), Claim::Settled("applied".into()));
+        assert_eq!(again.claim("other", PHONE, "n", NOW + 60, NOW), Claim::Seen { in_progress: false });
         // After its expiry the record is dropped (an expired reply fails check 4 anyway).
-        assert!(SpentReplies::load(path).spend("r", PHONE, "n", NOW + 600, NOW + 61));
+        assert_eq!(SpentReplies::load(path).claim("r", PHONE, "n", NOW + 600, NOW + 61), Claim::Fresh);
+    }
+
+    #[test]
+    fn an_unreadable_spent_store_applies_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mailbox-spent.json");
+        std::fs::write(&path, b"{not json").unwrap();
+        let spent = SpentReplies::load(path);
+        assert_eq!(spent.claim("r", PHONE, "n", NOW + 60, NOW), Claim::Unreadable);
+        assert_eq!(spent.claim_link_reply("r", NOW), Claim::Unreadable);
+        assert!(matches!(
+            checked(&sealed(text_reply("u-1"), &phone_signer()), &spent),
+            Err(Rejection::Unavailable(_))
+        ));
+        // The file of an older hostd (`{key: until}`) still reads.
+        let old = dir.path().join("old.json");
+        std::fs::write(&old, serde_json::to_vec(&json!({"id:r": NOW + 60})).unwrap()).unwrap();
+        assert_eq!(SpentReplies::load(old).claim("r", PHONE, "n", NOW + 60, NOW), Claim::Seen { in_progress: false });
     }
 
     #[test]
     fn a_reply_that_came_over_a_link_is_not_applied_again_from_the_mailbox() {
         // The phone's link failed mid-send and it posted the same reply to the mailbox.
         let spent = SpentReplies::memory();
-        assert!(spent.spend_link_reply("r-link", NOW));
+        assert_eq!(spent.claim_link_reply("r-link", NOW), Claim::Fresh);
+        spent.settle("r-link", None);
         let item = sealed(text_reply("r-link"), &phone_signer());
-        assert_eq!(checked(&item, &spent), Err(Rejection::Replayed));
+        assert_eq!(checked(&item, &spent), Err(Rejection::Repeat(None)));
         // The other way round: the mailbox applied it, then the link copy arrives.
         let spent = SpentReplies::memory();
         assert!(checked(&sealed(text_reply("r-box"), &phone_signer()), &spent).is_ok());
-        assert!(!spent.spend_link_reply("r-box", NOW));
-        // And a link copy twice.
-        assert!(spent.spend_link_reply("r-twice", NOW));
-        assert!(!spent.spend_link_reply("r-twice", NOW + 1));
+        spent.settle("r-box", None);
+        assert_eq!(spent.claim_link_reply("r-box", NOW), Claim::Settled("applied".into()));
+        // And a link copy twice; a released one passes again.
+        assert_eq!(spent.claim_link_reply("r-twice", NOW), Claim::Fresh);
+        assert_eq!(spent.claim_link_reply("r-twice", NOW + 1), Claim::Seen { in_progress: true });
+        spent.release_link_reply("r-twice");
+        assert_eq!(spent.claim_link_reply("r-twice", NOW + 2), Claim::Fresh);
     }
 
-    struct Recorder(Mutex<Vec<String>>, Result<(), Rejection>);
+    struct Recorder(Mutex<Vec<String>>, Mutex<Vec<Result<(), Rejection>>>);
+
+    impl Recorder {
+        fn new(results: Vec<Result<(), Rejection>>) -> Arc<Self> {
+            Arc::new(Self(Mutex::default(), Mutex::new(results)))
+        }
+    }
 
     impl Applier for Recorder {
         fn apply<'a>(&'a self, reply: &'a Reply) -> BoxFuture<'a, Result<(), Rejection>> {
             self.0.lock().unwrap().push(reply.id.clone());
-            let result = self.1.clone();
+            let mut results = self.1.lock().unwrap();
+            let result = if results.len() > 1 { results.remove(0) } else { results[0].clone() };
             Box::pin(async move { result })
         }
     }
 
-    #[tokio::test]
-    async fn the_mailbox_acks_every_item_and_applies_only_checked_ones() {
-        let recorder = Arc::new(Recorder(Mutex::default(), Ok(())));
-        let mailbox = Mailbox {
+    fn mailbox(applier: Arc<Recorder>) -> Mailbox {
+        Mailbox {
             mac: MAC.into(),
             trust: watch::channel(Some(trust())).1,
             identity: watch::channel(Some(mac_identity())).1,
             spent: Arc::new(SpentReplies::memory()),
-            applier: recorder.clone(),
-        };
+            applier,
+        }
+    }
+
+    /// The fields an ack's signature covers (ECDSA signatures differ each time).
+    fn verified(results: &[MailboxResult]) -> Vec<(String, bool, Option<String>)> {
+        results
+            .iter()
+            .map(|r| {
+                let message = ack_message(MAC, &r.id, r.applied, r.reason.as_deref());
+                assert!(
+                    crate::pairing::verify(mac_identity().public_key(), &message, r.sig.as_deref().unwrap()),
+                    "{r:?}"
+                );
+                (r.id.clone(), r.applied, r.reason.clone())
+            })
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn the_mailbox_acks_every_settled_item_signed_and_applies_only_checked_ones() {
+        let recorder = Recorder::new(vec![Ok(())]);
+        let mailbox = mailbox(recorder.clone());
         let good = sealed(text_reply("m-1"), &phone_signer());
         let forged = sealed(text_reply("m-2"), &MacIdentity::generate().unwrap());
-        let results = mailbox.handle(vec![good.clone(), forged, good], NOW).await;
+        let handled = mailbox.handle(vec![good.clone(), forged, good], NOW).await;
+        assert!(handled.later.is_empty());
         assert_eq!(
-            results,
+            verified(&handled.results),
             vec![
-                MailboxResult { id: "m-1".into(), applied: true, reason: None },
-                MailboxResult { id: "m-2".into(), applied: false, reason: Some("bad_signature".into()) },
-                MailboxResult { id: "m-1".into(), applied: false, reason: Some("replayed".into()) },
+                ("m-1".into(), true, None),
+                ("m-2".into(), false, Some("bad_signature".into())),
+                // The repeat answers the first outcome again.
+                ("m-1".into(), true, None),
             ]
         );
         assert_eq!(*recorder.0.lock().unwrap(), vec!["m-1".to_owned()]);
-        // A target that no longer waits.
-        let stale = Mailbox {
-            applier: Arc::new(Recorder(Mutex::default(), Err(Rejection::NotPending))),
-            spent: Arc::new(SpentReplies::memory()),
-            ..mailbox
+        // A target that no longer waits: settled, and its repeat says so too.
+        let stale = super::Mailbox { applier: Recorder::new(vec![Err(Rejection::NotPending)]), ..mailbox };
+        let item = sealed(text_reply("m-3"), &phone_signer());
+        let handled = stale.handle(vec![item.clone(), item], NOW).await;
+        assert_eq!(
+            verified(&handled.results),
+            vec![("m-3".into(), false, Some("not_pending".into())), ("m-3".into(), false, Some("not_pending".into()))]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_reply_that_cannot_be_applied_yet_is_kept_and_applied_later() {
+        let recorder = Recorder::new(vec![Err(Rejection::Unavailable("acpmux is down".into())), Ok(())]);
+        let mailbox = mailbox(recorder.clone());
+        let item = sealed(text_reply("m-5"), &phone_signer());
+        let handled = mailbox.handle(vec![item.clone()], NOW).await;
+        assert_eq!((handled.results.len(), handled.later.clone()), (0, vec![item.clone()]));
+        // Not spent: the next try applies it.
+        let handled = mailbox.handle(vec![item], NOW).await;
+        assert_eq!(verified(&handled.results), vec![("m-5".into(), true, None)]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_hostd_that_just_started_waits_for_the_apps_keys() {
+        let recorder = Recorder::new(vec![Ok(())]);
+        let (identity_tx, identity) = watch::channel(None);
+        let mailbox = Mailbox { identity, ..mailbox(recorder.clone()) };
+        let item = sealed(text_reply("m-6"), &phone_signer());
+        // The key arrives while the item waits: it is applied, not refused "unsealed".
+        let handled = {
+            let handle = mailbox.handle(vec![item.clone()], NOW);
+            let send = async {
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                identity_tx.send(Some(mac_identity())).unwrap();
+            };
+            tokio::join!(handle, send).0
         };
-        let results = stale.handle(vec![sealed(text_reply("m-3"), &phone_signer())], NOW).await;
-        assert_eq!(results[0].reason.as_deref(), Some("not_pending"));
-        // No identity key from the app yet: nothing opens.
-        let blind =
-            Mailbox { identity: watch::channel(None).1, spent: Arc::new(SpentReplies::memory()), ..stale };
-        let results = blind.handle(vec![sealed(text_reply("m-4"), &phone_signer())], NOW).await;
-        assert_eq!(results[0].reason.as_deref(), Some("unsealed"));
+        assert_eq!(verified(&handled.results), vec![("m-6".into(), true, None)]);
+        // No key at all within the wait: kept for later, not acknowledged.
+        let (_none_tx, none) = watch::channel(None);
+        let blind = Mailbox { identity: none, spent: Arc::new(SpentReplies::memory()), ..mailbox };
+        let handled = blind.handle(vec![sealed(text_reply("m-7"), &phone_signer())], NOW).await;
+        assert_eq!((handled.results.len(), handled.later.len()), (0, 1));
     }
 }

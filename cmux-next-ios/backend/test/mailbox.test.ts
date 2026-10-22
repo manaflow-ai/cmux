@@ -59,7 +59,10 @@ describe("sealed notify", () => {
     expect(p.aps["mutable-content"]).toBe(1)
     expect(p.aps["interruption-level"]).toBe("time-sensitive")
     expect(p.aps["thread-id"]).toMatch(/^[0-9a-f]{16}$/)
-    expect(p.cmuxMobile).toEqual({ v: 3, mac: MAC, kind: "question", eventId: "p-1", box: BOX, sig: SIG })
+    // The Mac's name and the phone's Show previews travel with it (PR B review 5); no buttons until opened (H1).
+    expect(p.cmuxMobile).toEqual({ v: 3, mac: MAC, macName: "Mac mini", kind: "question", eventId: "p-1", previews: true, box: BOX, sig: SIG })
+    expect(p.aps.category).toBe("CMUX_MOBILE_SEALED")
+    expect(sealedPayload(e, { box: BOX, sig: SIG }, { previews: false }).cmuxMobile.previews).toBe(false)
     const text = JSON.stringify(p)
     for (const secret of ["sk-123", "private output", "secret-session"]) expect(text).not.toContain(secret)
   })
@@ -68,6 +71,8 @@ describe("sealed notify", () => {
     const e: NotifyEvent = { eventId: "t-1", kind: "completed", macId: MAC, macName: "Mac", sessionId: "s1", sealed: { [PHONE]: { box: BOX, sig: SIG } } }
     const sealedBody = JSON.parse(await apnsRequest(reg(), e, "tok", 0).text())
     expect(sealedBody.cmuxMobile.v).toBe(3)
+    const hidden = JSON.parse(await apnsRequest(reg({ previews: false }), e, "tok", 0).text())
+    expect(hidden.cmuxMobile.previews).toBe(false)
     const plainBody = JSON.parse(await apnsRequest(reg({ deviceId: crypto.randomUUID() }), e, "tok", 0).text())
     expect(plainBody.cmuxMobile.v).toBe(2)
     expect(plainBody.cmuxMobile.sealed).toBeUndefined()
@@ -75,6 +80,16 @@ describe("sealed notify", () => {
 })
 
 const post = (t: string, mac: string, body: Record<string, unknown>) => call("POST", `/v1/devices/${mac}/mailbox`, t, body)
+
+describe("reply mailbox limits", () => {
+  it("takes a sealed reply up to 16384 characters: a 4096-byte text that escapes long still fits", async () => {
+    const t = await token("sizer")
+    const mac = await register(t, "mac", "personal-sizer")
+    const phone = await register(t, "phone", "personal-sizer")
+    expect((await post(t, mac, { id: crypto.randomUUID(), from: phone, sealed: "A".repeat(16_384) })).status).toBe(200)
+    expect((await post(t, mac, { id: crypto.randomUUID(), from: phone, sealed: "A".repeat(16_385) })).status).toBe(400)
+  })
+})
 
 describe("reply mailbox (HTTP)", () => {
   it("queues a sealed reply from the owner's phone to the owner's Mac and reports its state", async () => {
@@ -133,10 +148,11 @@ describe("reply mailbox (HTTP)", () => {
     const live = crypto.randomUUID()
     expect((await post(t, mac, { id: live, from: phone, sealed: sealedBox() })).json).toMatchObject({ delivered: true })
     await s.until((x) => x.frames.filter((f) => f.type === "mailbox").length === 2)
-    s.send({ type: "mailbox_ack", results: [{ id: early, applied: true }, { id: live, applied: false, reason: "not_pending" }] })
+    // The Mac signs each outcome; the hub keeps the signature as sent so the phone can check it.
+    s.send({ type: "mailbox_ack", results: [{ id: early, applied: true, sig: SIG }, { id: live, applied: false, reason: "not_pending", sig: "not hex" }] })
     const state = async (id: string) => (await call("GET", `/v1/devices/${mac}/mailbox/${id}`, t)).json
     for (let i = 0; i < 40 && (await state(live)).state === "queued"; i++) await new Promise((r) => setTimeout(r, 25))
-    expect(await state(early)).toEqual({ state: "applied" })
+    expect(await state(early)).toEqual({ state: "applied", sig: SIG })
     expect(await state(live)).toEqual({ state: "rejected", reason: "not_pending" })
     // A settled item is not delivered again on the next connection.
     s.ws.close()

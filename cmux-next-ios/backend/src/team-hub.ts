@@ -30,10 +30,12 @@ export interface MailboxItem {
 }
 
 export type MailboxPost = { queued: true; delivered: boolean } | { error: "conflict" | "full" }
-export type MailboxState = { state: "queued" | "applied" | "expired" } | { state: "rejected"; reason: string }
+/** `sig`: the Mac's identity signature over the outcome (PROTOCOL.md), which the phone checks; absent from an older Mac. */
+export type MailboxState = { state: "queued" | "expired" } | { state: "applied"; sig?: string } | { state: "rejected"; reason: string; sig?: string }
 
 const MAX_ACK_RESULTS = 64
 const ACK_REASON = /^[a-z_]{1,32}$/
+const ACK_SIG = /^[0-9a-f]{128}$/
 
 export interface MacPresence {
   deviceId: string
@@ -153,6 +155,7 @@ export class TeamHub extends DurableObject<Env> {
       `CREATE TABLE IF NOT EXISTS mailbox (id TEXT PRIMARY KEY, mac TEXT NOT NULL, from_device TEXT NOT NULL, sealed TEXT NOT NULL,
         at INTEGER NOT NULL, expires_at INTEGER NOT NULL, keep_until INTEGER NOT NULL, state TEXT NOT NULL, reason TEXT)`
     )
+    addColumn("mailbox", "sig")
   }
 
   // ---- RPC from the Worker -------------------------------------------------------------------
@@ -403,10 +406,15 @@ export class TeamHub extends DurableObject<Env> {
     this.bind(ownerKey)
     const now = Date.now()
     this.mailboxSweep(now)
-    const row = this.sql.exec<{ state: string; reason: string | null; expires_at: number }>(`SELECT state, reason, expires_at FROM mailbox WHERE id = ? AND mac = ?`, id, mac).toArray()[0]
+    const row = this.sql.exec<{ state: string; reason: string | null; expires_at: number; sig: string | null }>(
+      `SELECT state, reason, expires_at, sig FROM mailbox WHERE id = ? AND mac = ?`,
+      id,
+      mac
+    ).toArray()[0]
     if (!row) return null
-    if (row.state === "applied") return { state: "applied" }
-    if (row.state === "rejected") return { state: "rejected", reason: row.reason ?? "refused" }
+    const sig = row.sig ? { sig: row.sig } : {}
+    if (row.state === "applied") return { state: "applied", ...sig }
+    if (row.state === "rejected") return { state: "rejected", reason: row.reason ?? "refused", ...sig }
     return row.expires_at <= now ? { state: "expired" } : { state: "queued" }
   }
 
@@ -431,13 +439,16 @@ export class TeamHub extends DurableObject<Env> {
     if (!Array.isArray(results) || results.length > MAX_ACK_RESULTS) return this.error(ws, "bad_request", "results must be a list of at most 64 {id, applied, reason?}")
     for (const r of results) {
       if (typeof r !== "object" || r === null) continue
-      const { id, applied, reason } = r as { id?: unknown; applied?: unknown; reason?: unknown }
+      const { id, applied, reason, sig } = r as { id?: unknown; applied?: unknown; reason?: unknown; sig?: unknown }
       if (typeof id !== "string" || !UUID.test(id) || typeof applied !== "boolean") continue
       const why = applied ? null : typeof reason === "string" && ACK_REASON.test(reason) ? reason : "refused"
+      // Kept as sent: the phone checks it against the Mac's pinned key (the hub can't make one up).
+      const signature = typeof sig === "string" && ACK_SIG.test(sig) ? sig : null
       this.sql.exec(
-        `UPDATE mailbox SET state = ?, reason = ?, sealed = '' WHERE id = ? AND mac = ? AND state = 'queued'`,
+        `UPDATE mailbox SET state = ?, reason = ?, sig = ?, sealed = '' WHERE id = ? AND mac = ? AND state = 'queued'`,
         applied ? "applied" : "rejected",
         why,
+        signature,
         id,
         att.deviceId
       )

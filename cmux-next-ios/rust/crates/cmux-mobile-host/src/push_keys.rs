@@ -24,6 +24,9 @@ const LIMIT: usize = 64;
 struct Entry {
     identity_key: String,
     push_key: String,
+    /// The order it was last set in: the one set longest ago goes first past the limit.
+    #[serde(default)]
+    updated: u64,
 }
 
 /// Paired phones' push keys, by phone device id.
@@ -52,14 +55,15 @@ impl PushKeys {
     /// Records `push_key` for `phone`, which proved `identity_key`.
     pub fn set(&self, phone: &str, identity_key: &str, push_key: &str) {
         let mut keys = self.keys.lock().unwrap_or_else(PoisonError::into_inner);
-        let entry = Entry { identity_key: identity_key.to_owned(), push_key: push_key.to_owned() };
-        if keys.get(phone) == Some(&entry) {
+        if keys.get(phone).is_some_and(|e| e.identity_key == identity_key && e.push_key == push_key) {
             return;
         }
+        let next = keys.values().map(|e| e.updated).max().unwrap_or(0) + 1;
+        let entry = Entry { identity_key: identity_key.to_owned(), push_key: push_key.to_owned(), updated: next };
         if keys.len() >= LIMIT && !keys.contains_key(phone) {
-            // Drop an arbitrary old one; it comes back on that phone's next link.
-            if let Some(first) = keys.keys().next().cloned() {
-                keys.remove(&first);
+            // Drop the one set longest ago; it comes back on that phone's next link.
+            if let Some(oldest) = keys.iter().min_by_key(|(id, e)| (e.updated, (*id).clone())).map(|(id, _)| id.clone()) {
+                keys.remove(&oldest);
             }
         }
         keys.insert(phone.to_owned(), entry);
@@ -142,6 +146,22 @@ mod tests {
         assert_eq!(paired, vec![("p1".to_owned(), "push1".to_owned())]);
         keys.remove("p1");
         assert!(keys.for_paired(&trust(&[("p1", "id1")])).is_empty());
+    }
+
+    #[test]
+    fn past_the_limit_the_key_set_longest_ago_goes() {
+        let keys = PushKeys::memory();
+        // "p00" sorts first but was set again last: "p01" is the oldest now.
+        for i in 0..LIMIT {
+            keys.set(&format!("p{i:02}"), "id", "push");
+        }
+        keys.set("p00", "id", "push-new");
+        keys.set("zz", "id", "push");
+        let paired = keys.for_paired(&trust(&[("p00", "id"), ("p01", "id"), ("zz", "id")]));
+        assert_eq!(
+            paired,
+            vec![("p00".to_owned(), "push-new".to_owned()), ("zz".to_owned(), "push".to_owned())]
+        );
     }
 
     #[test]

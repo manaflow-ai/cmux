@@ -291,8 +291,14 @@ fn mailbox_for(services: &ServiceConfig) -> Option<Arc<crate::mailbox::Mailbox>>
     }))
 }
 
+/// How long hostd waits before it tries an item it could not settle again.
+const MAILBOX_RETRY: std::time::Duration = std::time::Duration::from_secs(30);
+
 /// Checks and applies a `mailbox` frame in the background, then acks every
-/// item. Without pairing (unsupervised) nothing is applied.
+/// settled item (signed). An item it could not settle yet (the app has not
+/// sent its keys, a service is out of reach) is not acknowledged: it stays
+/// queued at the backend and is tried again here while the socket lives.
+/// Without pairing (unsupervised) nothing is applied.
 pub fn answer_mailbox(
     signaling: &SignalingClient,
     mailbox: Option<Arc<crate::mailbox::Mailbox>>,
@@ -300,20 +306,35 @@ pub fn answer_mailbox(
 ) {
     let signaling = signaling.clone();
     tokio::spawn(async move {
-        let results = match mailbox {
-            Some(mailbox) => mailbox.handle(items, crate::mailbox::now()).await,
-            None => items
+        let Some(mailbox) = mailbox else {
+            let results = items
                 .into_iter()
                 .take(crate::mailbox::MAX_ITEMS)
                 .map(|item| cmux_mobile_link::signaling::MailboxResult {
                     id: item.id,
                     applied: false,
                     reason: Some("not_paired".into()),
+                    sig: None,
                 })
-                .collect(),
+                .collect();
+            if let Err(error) = signaling.send_mailbox_ack(results) {
+                tracing::warn!(%error, "mailbox ack not sent");
+            }
+            return;
         };
-        if let Err(error) = signaling.send_mailbox_ack(results) {
-            tracing::warn!(%error, "mailbox ack not sent");
+        let mut items = items;
+        while !items.is_empty() && signaling.closed_reason().is_none() {
+            let handled = mailbox.handle(items, crate::mailbox::now()).await;
+            if !handled.results.is_empty()
+                && let Err(error) = signaling.send_mailbox_ack(handled.results)
+            {
+                tracing::warn!(%error, "mailbox ack not sent");
+                return;
+            }
+            items = handled.later;
+            if !items.is_empty() {
+                tokio::time::sleep(MAILBOX_RETRY).await;
+            }
         }
     });
 }
@@ -328,12 +349,13 @@ pub async fn serve_signaling(signaling: SignalingClient, context: AnswerContext)
                 Some(session) => session,
                 None => return signaling.closed_reason().unwrap_or_else(|| "signaling closed".into()),
             },
+            // A queue, not an event: frames sent right after `hello` wait for this loop.
+            Some(items) = signaling.next_mailbox() => {
+                answer_mailbox(&signaling, context.mailbox.clone(), items);
+                continue;
+            }
             event = events.recv() => match event {
                 Ok(cmux_mobile_link::signaling::SignalingEvent::Disconnected(reason)) => return reason,
-                Ok(cmux_mobile_link::signaling::SignalingEvent::Mailbox(items)) => {
-                    answer_mailbox(&signaling, context.mailbox.clone(), items);
-                    continue;
-                }
                 Ok(cmux_mobile_link::signaling::SignalingEvent::Error { code, message, session_id }) => {
                     tracing::debug!(code, message, ?session_id, "backend error");
                     continue;

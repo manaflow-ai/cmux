@@ -97,8 +97,8 @@ const PHONE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$
 
 /** How long a reply waits in the mailbox for its Mac (PROTOCOL.md). */
 export const MAILBOX_TTL_MS = 10 * 60_000
-/** The largest sealed reply, in base64url characters. */
-export const MAX_MAILBOX_SEALED = 8192
+/** The largest sealed reply, in base64url characters (32 of them stay under one WebSocket frame to the Mac). */
+export const MAX_MAILBOX_SEALED = 16_384
 /** Pending replies one Mac may have. */
 export const MAILBOX_PENDING_LIMIT = 32
 /** Whether `text` is a sealed blob as clients send it: non-empty base64url of at most `max` characters. */
@@ -462,7 +462,9 @@ export const apnsRequest = (target: PushRegistration, e: NotifyEvent, token: str
       "apns-collapse-id": collapseId(e),
       "content-type": "application/json"
     },
-    body: JSON.stringify(sealedFor(e, target) ? sealedPayload(e, sealedFor(e, target)!) : apnsPayload(e, { previews: target.previews }))
+    body: JSON.stringify(
+      sealedFor(e, target) ? sealedPayload(e, sealedFor(e, target)!, { previews: target.previews }) : apnsPayload(e, { previews: target.previews })
+    )
   })
 }
 
@@ -473,7 +475,7 @@ const sealedFor = (e: NotifyEvent, target: PushRegistration): SealedBox | undefi
  * the box its Notification Service Extension opens. No content field and no readable id leaves here: the
  * thread is a hash, the category the kind's (the extension sets the exact one).
  */
-export const sealedPayload = (e: NotifyEvent, sealed: SealedBox) => {
+export const sealedPayload = (e: NotifyEvent, sealed: SealedBox, opts: { previews?: boolean } = {}) => {
   const ask = e.kind === "question" || e.kind === "permission"
   const thread = fnv(threadId(e))
   return {
@@ -482,10 +484,20 @@ export const sealedPayload = (e: NotifyEvent, sealed: SealedBox) => {
       sound: "default",
       "mutable-content": 1 as const,
       "thread-id": thread,
-      category: e.kind === "question" ? "CMUX_MOBILE_QUESTION_FORM" : `CMUX_MOBILE_${e.kind.toUpperCase()}`,
+      // No buttons until the extension opened it and set the real category (security review H1).
+      category: "CMUX_MOBILE_SEALED",
       ...(ask ? { "interruption-level": "time-sensitive" } : {})
     },
-    cmuxMobile: { v: 3 as const, mac: e.macId, kind: e.kind, eventId: e.eventId, box: sealed.box, sig: sealed.sig }
+    cmuxMobile: {
+      v: 3 as const,
+      mac: e.macId,
+      macName: clean(e.macName, 40),
+      kind: e.kind,
+      eventId: e.eventId,
+      previews: opts.previews ?? true,
+      box: sealed.box,
+      sig: sealed.sig
+    }
   }
 }
 
