@@ -2,16 +2,22 @@
 // footer). The model and its effort are one button, "Opus 5.5  Medium" (Leo 2026-10-20), with no
 // effort chip and no speed button beside it: Fast mode is a row of that button's menu. A narrower
 // composer swaps whole units, never letters, and shortens labels before it drops a control
-// (cg-ui-coord 2026-10-15: "collapse faster and keep more visible"):
-//   - always: +, the model button with its effort, the access glyph, Send (with a draft typed) and
-//     the access chevron; no label under 3 characters; no two controls overlap;
-//   - first the button's effort shows the level's short name ("Med"), then the model its family
-//     ("Opus"), then its harness mark alone (its name in its tooltip), the effort still beside it;
-//   - only then the access label goes; the mic never leaves (Leo 2026-10-19: the prompt shrinks
-//     instead).
-// The controls sit in two rows (Leo 2026-10-19, as Claude Code's): +, the mic and Send in the box,
-// the access mode and the model button in the quiet row under it. Both rows are measured.
-// At every width each label is whole, never clipped or ellipsized, and the row stays in the bar.
+// (cg-ui-coord 2026-10-15: "collapse faster and keep more visible"). At every width, in either
+// look: +, the model button with its effort, the access glyph, Send (with a draft typed) and the
+// access chevron show; no label is under 3 characters; no two controls overlap; the mic never
+// leaves (Leo 2026-10-19: the prompt shrinks instead); each label is whole, never clipped or
+// ellipsized, and the row stays in its bar.
+//
+// Two looks, two tables:
+//   - The quiet row (the default plain footer, #22285; Leo 2026-10-19, as Claude Code's): +, the
+//     mic and Send in the box, the mode and the model button in a row of their own under it. That
+//     row takes no composer-width step (composerRowFit.ts paneWidth): it holds only the mode, the
+//     model button and the ring, so it keeps "Opus 5.5  Medium" and "Auto" while they fit (live-qa
+//     2026-10-21 read "Opus Med" with about 250 px of the row free).
+//   - The in-box row (Debug Settings' plain footer off): every control in the box's one row, where
+//     the width steps still apply. First the button's effort shows the level's short name ("Med"),
+//     then the model its family ("Opus"), the access label goes, then the model its harness mark
+//     alone (its name in its tooltip), the effort still beside it.
 //
 // The gallery's `agent-pane.composer-row` entry (`leo-report`) is the real pane in Chromium.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -100,9 +106,19 @@ await requireBrowserLane("composer-row-steps.test.ts", async () => {
     };
   }
 
-  /** What each pane width shows (the composer is the pane less 36 px): the model button's name,
-   *  its effort (Fast on never adds a word to it), the access label, the mic (always). */
-  const EXPECTED: Record<number, { model: string; effort: string; access: string; mic: boolean }> = {
+  type Expected = { model: string; effort: string; access: string; mic: boolean };
+  /** The quiet row under the box (the default look): no width takes a step, so every pane down to
+   *  280 px keeps the whole labels. */
+  const QUIET: Record<number, Expected> = Object.fromEntries(
+    [760, 520, 500, 460, 440, 400, 360, 300, 280].map((width) => [
+      width,
+      { model: "Opus 5.5", effort: "Medium", access: "Auto", mic: true },
+    ]),
+  );
+  /** The in-box row (plain footer off): what each pane width shows (the composer is the pane less
+   *  36 px): the model button's name, its effort (Fast on never adds a word to it), the access
+   *  label, the mic (always). */
+  const IN_BOX: Record<number, Expected> = {
     760: { model: "Opus 5.5", effort: "Medium", access: "Auto", mic: true },
     520: { model: "Opus 5.5", effort: "Medium", access: "Auto", mic: true },
     500: { model: "Opus 5.5", effort: "Med", access: "Auto", mic: true },
@@ -145,12 +161,18 @@ await requireBrowserLane("composer-row-steps.test.ts", async () => {
     await vite?.close();
   });
 
-  const at = async (width: number) => {
+  const at = async (width: number, look: "quiet" | "in-box") => {
     const page = await browser!.newPage({ viewport: { width, height: 300 } });
     await page.goto(stageURL());
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
     await page.locator(".acpmux-model .acpmux-picker-button").waitFor();
     await page.evaluate(() => document.fonts.ready);
+    // The plain footer is the default (DEFAULT_COMPOSER.plainFooter); the host's `composer` event
+    // turns it off, as Debug Settings does, and the chips move into the box's row.
+    if (look === "in-box") {
+      await page.evaluate(() => window.cmuxAcpmuxComposer?.({ plainFooter: false }));
+      await page.locator(".acpmux-composer-box .acpmux-model .acpmux-picker-button").waitFor();
+    } else await page.locator(".acpmux-composer-foot .acpmux-model .acpmux-picker-button").waitFor();
     // Claude desktop's box: no Send until there is a draft (Leo 2026-10-20). A typed prompt brings
     // Send in, so the row is measured with every control it can hold.
     await page.locator(".acpmux-composer-prompt [contenteditable]").click();
@@ -163,9 +185,13 @@ await requireBrowserLane("composer-row-steps.test.ts", async () => {
     return measured;
   };
 
-  for (const [width, expected] of Object.entries(EXPECTED).map(([w, e]) => [Number(w), e] as const))
-    test(`at ${width} px the row swaps whole units: model "${expected.model}", effort "${expected.effort}"`, async () => {
-      const { controls, overflow } = await at(width);
+  const cases = [
+    ...Object.entries(QUIET).map(([w, e]) => ["quiet", Number(w), e] as const),
+    ...Object.entries(IN_BOX).map(([w, e]) => ["in-box", Number(w), e] as const),
+  ];
+  for (const [look, width, expected] of cases)
+    test(`${look} row at ${width} px swaps whole units: model "${expected.model}", effort "${expected.effort}", access "${expected.access}"`, async () => {
+      const { controls, overflow } = await at(width, look);
       const problems = [...overflow];
       for (const [name, control] of Object.entries(controls)) {
         if (!control) continue;
