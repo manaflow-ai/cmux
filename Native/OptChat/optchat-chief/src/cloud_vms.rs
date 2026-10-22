@@ -6,6 +6,11 @@ use std::path::PathBuf;
 
 /// Starts and pauses the VM behind an acpmux peer.
 pub trait CloudVms: Send + Sync {
+    /// Whether the pool tool is set up (it can make VMs). False: cloud is
+    /// not the default placement (cloud-subagents-DESIGN.md, v2).
+    fn available(&self) -> bool {
+        true
+    }
     /// Makes sure peer `peer`'s VM runs (a no-op when it does); it blocks
     /// until the VM is up.
     fn resume(&self, peer: &str) -> Result<(), String>;
@@ -105,6 +110,10 @@ impl CommandVms {
 }
 
 impl CloudVms for CommandVms {
+    fn available(&self) -> bool {
+        std::fs::read_to_string(&self.file).is_ok_and(|c| !c.trim().is_empty())
+    }
+
     fn resume(&self, peer: &str) -> Result<(), String> {
         self.run("resume", peer)
     }

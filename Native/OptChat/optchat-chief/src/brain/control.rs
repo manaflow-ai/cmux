@@ -865,9 +865,12 @@ impl Brain {
         }
         };
         let current = self.state.cloud_peer.clone();
+        // Nothing saved: cloud by default when a pool tool is set up (v2).
+        let pool = self.cloud_vms.as_ref().is_some_and(|v| v.available());
         let effective = |saved: &Option<String>| match saved.as_deref() {
             Some("") => None,
             Some(p) => Some(p.to_owned()),
+            None if pool => Some(crate::subagents::PER_AGENT.to_owned()),
             None => None,
         };
         let Some(peer) = peer.map(str::trim).filter(|p| !p.is_empty()) else {

@@ -120,8 +120,9 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
     expect(running.some((loop) => loop.startsWith("cv-plan__mark") && loop.endsWith("cmux-spin"))).toBe(true);
     // The running rows' spinner (compaction, tool runs) too: it once had no rule and never turned.
     expect(running.some((loop) => loop.startsWith("cv-spinner") && loop.endsWith("cmux-spin"))).toBe(true);
-    // Agent work breathes by default (WORKING-LOOK).
-    expect(running.some((loop) => loop.startsWith("cv-spinner__dot") && loop.endsWith("cmux-breathe"))).toBe(true);
+    // Agent work breathes by default (WORKING-LOOK), as its whole mark (SPINNERS-OFF-MAIN: the svg box
+    // gets a compositor layer, the dot inside it does not).
+    expect(running.some((loop) => loop.startsWith("cv-spinner ") && loop.endsWith("cmux-breathe"))).toBe(true);
   });
 
   test("each working look runs its own loop on agent work, and loading keeps the spinner", async () => {
@@ -135,7 +136,7 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
       looks[look] = (await loops(p)).map((loop) => loop.replace(/\s+/g, " ")).sort();
       await p.close();
     }
-    expect(looks.breathe).toEqual(["cv-spinner cmux-spin", "cv-spinner__dot cmux-breathe"]);
+    expect(looks.breathe).toEqual(["cv-spinner cmux-breathe", "cv-spinner cmux-spin"]);
     expect(looks.shimmer).toEqual(["cv-spinner cmux-spin", "cv-tool__text cmux-shimmer"]);
     expect(looks.spinner).toEqual(["cv-spinner cmux-spin", "cv-spinner cmux-spin"]);
   });

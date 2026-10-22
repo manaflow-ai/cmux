@@ -94,6 +94,7 @@ pub use new_request::{
 pub use paging::{EventFilter, EventPage, MAX_PAGE_BYTES, page_bytes};
 pub use spawn::expand_env_value;
 pub mod approvers;
+mod own_host;
 mod peer_cache;
 mod peer_lease;
 pub use peer_lease::PeerLease;
@@ -782,8 +783,7 @@ impl Hub {
         newest_first(v)
     }
 
-    /// Resolve by id, exact name, or unique prefix of either.
-    pub fn resolve(&self, key: &str) -> Result<Arc<Session>, RpcError> {
+    fn resolve_here(&self, key: &str) -> Result<Arc<Session>, RpcError> {
         let sessions = self.sessions.lock().unwrap();
         // A qualified id is authoritative for new routing. The old bare id,
         // name and prefix forms below remain compatible.

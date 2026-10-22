@@ -33,6 +33,8 @@ optchat-chief move --to local:/path|ssh:HOST[:/path] [--stop-host] [--dry-run] |
 optchat-chief agent-memory search|get|remember|mcp|sync|sources|config ...  long-term memory shared by Codex and Claude Code sessions (see `optchat-chief agent-memory`)
 optchat-chief host --conversation-source cloud --cloud-install FILE --daemon-socket PATH [--mux-home DIR]
                                                              answer the chief's cloud conversation (an always-on brain host)
+optchat-chief peer-chiefs list | tell chief:NAME TEXT [--key K] | read [--after N] [--wait S] [--config FILE]
+                                                           Chief-to-Chief messages through the agent hub ($MUX_HOME/optchat/peer-chiefs.json)
 optchat-chief cloud pair|enroll|register|chief|status --install FILE   the brain host's cloud identity (see `cloud help`)
 Env: CMUX_DAEMON_SOCKET, MUX_HOME (~/.cmux/mux), MUX_AGENT_TOKEN_FILE,
      OPTCHAT_CHIEF_HARNESS / MUX_HARNESS (claude-cr when acpmux has a configured CodeRouter route, else claude), OPTCHAT_COMPACTOR_HARNESS (the Chief's),
@@ -64,6 +66,19 @@ fn main() -> std::process::ExitCode {
     if args.first().is_some_and(|a| a == "move") {
         let code = optchat_chief::migrate::cli(&args[1..]);
         return std::process::ExitCode::from(u8::try_from(code).unwrap_or(1));
+    }
+    // `peer-chiefs` parses its own switches (`--config`, `--key`, ...).
+    if args.first().is_some_and(|a| a == "peer-chiefs") {
+        return match optchat_chief::peer_chiefs::cli(&args[1..]) {
+            Ok(out) => {
+                println!("{out}");
+                std::process::ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("optchat-chief peer-chiefs: {e}");
+                std::process::ExitCode::from(1)
+            }
+        };
     }
     // A boolean flag: taken out before parsing, which would read the next
     // argument as its value.
@@ -99,8 +114,8 @@ fn main() -> std::process::ExitCode {
         }
         Some(
             tool @ ("zoom" | "date" | "spawn" | "tell" | "peers" | "react" | "reply" | "send"
-            | "stop" | "sleep" | "control" | "profile" | "chiefs" | "escalate-auth"
-            | "escalate_auth"),
+            | "stop" | "sleep" | "transcript" | "control" | "profile" | "chiefs"
+            | "escalate-auth" | "escalate_auth"),
         ) => {
             let socket = flags
                 .value("socket")

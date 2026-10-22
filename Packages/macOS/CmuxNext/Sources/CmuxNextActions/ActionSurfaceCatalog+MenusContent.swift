@@ -129,8 +129,9 @@ nonisolated extension ActionSurfaceCatalog {
         // A Files row: open it, make an item beside it, rename it, copy where it is, trash it.
         // Open With becomes the row's apps submenu (FileExplorerOpenWithMenu).
         "fileExplorerOpenInCmux": [p(.fileExplorerRow, .navigate, 0)],
-        "fileExplorerOpenWith": [p(.fileExplorerRow, .navigate, 1)],
-        "fileExplorerReveal": [p(.fileExplorerRow, .navigate, 2)],
+        "fileExplorerOpenAsText": [p(.fileExplorerRow, .navigate, 1)],
+        "fileExplorerOpenWith": [p(.fileExplorerRow, .navigate, 2)],
+        "fileExplorerReveal": [p(.fileExplorerRow, .navigate, 3)],
         "fileExplorerNewFile": [p(.fileExplorerRow, .create, 0)],
         "fileExplorerNewFolder": [p(.fileExplorerRow, .create, 1)],
         "fileExplorerRename": [p(.fileExplorerRow, .identity, 0)],
@@ -203,6 +204,7 @@ nonisolated extension ActionSurfaceCatalog {
         "machine.clearIcon": [p(.machineSection, .identity, 1, folder: .appearance, label: IconMenuLabels.removeIcon)],
         "hibernateTab": [p(.tab, .connection, 0, folder: .options)],
         "wakeTab": [p(.tab, .connection, 1, folder: .options)],
+        "neverHibernateSite": [p(.tab, .connection, 2, folder: .options)],
         "tab.moveToNewSplit": [p(.tab, .move, 404, folder: .move)],
         "tab.moveToNewColumn": [p(.tab, .move, 405, folder: .move)],
         "tab.moveToNewDockColumn": [p(.tab, .move, 408, folder: .move)],

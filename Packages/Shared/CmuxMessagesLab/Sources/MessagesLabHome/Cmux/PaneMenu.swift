@@ -21,7 +21,8 @@ extension ChatController {
         // MessagesLab 267d218: a 1-line text ends in half circles; 7924f00: my text balloon's soft edge (soft-copies).
         let hl = MenuHighlight(host: host, shape: BubblePath.balloon(drawn: hit.outline, frameSize: hit.body.size, row: hit.row).cgPath,
                                outgoing: hit.row.outgoing, soft: demo?.softMask(hit),
-                               scale: demo?.renderScale ?? Fixture.renderScale, softOwner: demo?.softMaskOwner(hit))
+                               scale: demo?.renderScale ?? Fixture.renderScale, softOwner: demo?.softMaskOwner(hit),
+                               anchor: demo?.highlightAnchor(hit), space: demo?.layer)
         menu.delegate = hl
         menuHighlight = hl
         hl.start()
@@ -205,8 +206,14 @@ final class EmojiBubbleButton: NSView {
 /// The context menu's target highlight: a bubble-shaped layer over the row, white (incoming)
 /// or a multiply tint (outgoing), faded in when the menu opens and out when it closes.
 final class MenuHighlight: NSObject, NSMenuDelegate {
-    private let layer: CALayer
+    /// The highlight (tests read where it is drawn).
+    let layer: CALayer
     private weak var host: NSView?
+    /// cmux (u9489): the row's layer the highlight lives in, so it follows the row (scroll, a sent
+    /// message, a reflow) instead of staying where the row was when the menu opened; nil: the host's layer.
+    private weak var anchor: CALayer?
+    /// The layer `shape` and `soft` are given in: the transcript view's, where the hit was measured.
+    private weak var space: CALayer?
     /// The cell layer the same soft mask masks: the highlight's mask image is drawn the same way up (`start`).
     private weak var softOwner: CALayer?
     /// MessagesLab 7924f00 (cx-3cb soft-copies): `soft`, my text balloon's soft mask in the host's coordinates
@@ -214,9 +221,12 @@ final class MenuHighlight: NSObject, NSMenuDelegate {
     /// `scale`: the view's renderScale.
     /// `shape`: the bubble's shared outline (`BubblePath.balloon`) in the host's coordinates.
     init(host: NSView, shape: CGPath, outgoing: Bool,
-         soft: SoftBalloon.Mask? = nil, scale: CGFloat = Fixture.renderScale, softOwner: CALayer? = nil) {
+         soft: SoftBalloon.Mask? = nil, scale: CGFloat = Fixture.renderScale, softOwner: CALayer? = nil,
+         anchor: CALayer? = nil, space: CALayer? = nil) {
         self.host = host
         self.softOwner = softOwner
+        self.anchor = space == nil ? nil : anchor
+        self.space = space
         // MessagesLab ced183d: incoming 59 -> 98.
         let tint = outgoing ? NSColor(srgbRed: 159 / 255, green: 154 / 255, blue: 198 / 255, alpha: 1).cgColor : NSColor(white: 1, alpha: 0.2).cgColor
         if outgoing, let m = soft {
@@ -246,7 +256,8 @@ final class MenuHighlight: NSObject, NSMenuDelegate {
     /// and is committed at once, before AppKit's synchronous menu layout (30-75 ms per open), so
     /// the render server runs its fade during that work as Messages shows it.
     func start() {
-        guard let root = host?.layer, layer.superlayer == nil else { return }
+        guard let root = anchor ?? host?.layer, layer.superlayer == nil else { return }
+        if let anchor, let space { place(in: anchor, from: space) }
         root.addSublayer(layer)
         layer.zPosition = 10
         // MessagesLab 7924f00: the mask image upright as in the cell (its tail at the bottom right): a layer under an
@@ -258,6 +269,20 @@ final class MenuHighlight: NSObject, NSMenuDelegate {
         }
         fade(to: 1, at: CACurrentMediaTime(), duration: 0.2)
         CATransaction.flush()
+    }
+    /// Moves the highlight from `space`'s coordinates into `anchor`'s (the row's), once, before it is
+    /// added: from then on the row's own position carries it.
+    private func place(in anchor: CALayer, from space: CALayer) {
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        if let shape = layer as? CAShapeLayer, let path = shape.path {
+            let box = path.boundingBoxOfPath
+            let to = anchor.convert(box, from: space)
+            var t = CGAffineTransform(translationX: to.minX - box.minX, y: to.minY - box.minY)
+            shape.path = path.copy(using: &t)
+        } else {
+            layer.frame = anchor.convert(layer.frame, from: space)
+        }
     }
     /// MessagesLab 7518134: media time of menuWillOpen (an input before it did not choose an item).
     private(set) var openedAt: CFTimeInterval?
