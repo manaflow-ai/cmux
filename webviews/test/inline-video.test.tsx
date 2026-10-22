@@ -240,6 +240,25 @@ describe("the inline player", () => {
     expect(media).toContain("var(--cmux-motion-micro");
   });
 
+  test("a local video keeps its path for the file menu and drag-out (data-path)", async () => {
+    const container = installDom();
+    await act(async () => {
+      root = createRoot(container);
+      root.render(
+        <MediaPlayer
+          src="data:video/mp4;base64,AAAA"
+          source={SOURCE}
+          path={SOURCE}
+          kind="video"
+          name="login-tests.mp4"
+          onError={() => {}}
+        />,
+      );
+    });
+    expect(container.querySelector(".cv-media.is-video")?.getAttribute("data-path")).toBe(SOURCE);
+    expect(container.querySelector("button.cv-media__poster")?.closest("[data-path]")).not.toBeNull();
+  });
+
   test("every control a click lands on shows the pointing hand", () => {
     const css = readFileSync(new URL("../src/agent-session/acpmux/chips/chips.css", import.meta.url), "utf8");
     const rule = (selector: string) => {
