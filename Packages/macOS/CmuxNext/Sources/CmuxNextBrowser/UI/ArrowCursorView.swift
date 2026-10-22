@@ -40,8 +40,9 @@ public class ArrowCursorView: NSView, ClickableCursorHost {
     private(set) var pointerPoint: NSPoint?
     /// Where the pointer is now, in the row's window coordinates, when the row's window is the
     /// top window under it; nil otherwise. Tests replace it (no real pointer on a test host).
-    var currentPointer: (ArrowCursorView) -> NSPoint? = { row in
-        row.window.flatMap(ClickableButton.currentPointer(in:))
+    var currentPointer: @MainActor (ArrowCursorView) -> NSPoint? = { row in
+        guard let window = row.window else { return nil }
+        return ClickableButton.currentPointer(in: window)
     }
 
     public override func resetCursorRects() {

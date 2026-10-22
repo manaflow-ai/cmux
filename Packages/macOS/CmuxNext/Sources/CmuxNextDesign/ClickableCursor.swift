@@ -61,7 +61,7 @@ open class ClickableButton: NSButton {
     /// Where the pointer at `screenPoint` is in `window`'s coordinates, while `window` is the top
     /// window under it (`topWindowNumber`, `NSWindow.windowNumber(at:belowWindowWithWindowNumber:)`
     /// outside tests); nil while another window covers that point.
-    public static func pointer(in window: NSWindow, screenPoint: NSPoint, topWindowNumber: (NSPoint) -> Int) -> NSPoint? {
+    public static func pointer(in window: NSWindow, screenPoint: NSPoint, topWindowNumber: @MainActor (NSPoint) -> Int) -> NSPoint? {
         guard topWindowNumber(screenPoint) == window.windowNumber else { return nil }
         return window.convertPoint(fromScreen: screenPoint)
     }
@@ -93,7 +93,7 @@ open class ClickableButton: NSButton {
 @MainActor
 public final class ClickableCursorTracker: NSResponder {
     private weak var view: NSView?
-    private let isClickable: () -> Bool
+    private let isClickable: @MainActor () -> Bool
     private var area: NSTrackingArea?
     /// The pointer entered the view and has not left it (no exit, hide or window change since).
     private(set) var inside = false
@@ -101,13 +101,13 @@ public final class ClickableCursorTracker: NSResponder {
     private(set) var showsHand = false
 
     // Tests replace these (a test host has no real pointer, key window or window list).
-    var isKey: (NSWindow) -> Bool = { $0.isKeyWindow }
-    var mouseLocation: () -> NSPoint = { NSEvent.mouseLocation }
-    var topWindowNumber: (NSPoint) -> Int = { NSWindow.windowNumber(at: $0, belowWindowWithWindowNumber: 0) }
-    var setCursor: (NSCursor) -> Void = { $0.set() }
-    var currentCursor: () -> NSCursor? = { NSCursor.current }
+    var isKey: @MainActor (NSWindow) -> Bool = { $0.isKeyWindow }
+    var mouseLocation: @MainActor () -> NSPoint = { NSEvent.mouseLocation }
+    var topWindowNumber: @MainActor (NSPoint) -> Int = { NSWindow.windowNumber(at: $0, belowWindowWithWindowNumber: 0) }
+    var setCursor: @MainActor (NSCursor) -> Void = { $0.set() }
+    var currentCursor: @MainActor () -> NSCursor? = { NSCursor.current }
 
-    public init(_ view: NSView, isClickable: @escaping () -> Bool) {
+    public init(_ view: NSView, isClickable: @escaping @MainActor () -> Bool) {
         self.view = view
         self.isClickable = isClickable
         super.init()
