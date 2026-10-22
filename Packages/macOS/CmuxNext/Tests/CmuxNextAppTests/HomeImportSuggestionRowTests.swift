@@ -22,11 +22,21 @@ import Testing
         card("codex", kind: .codex, title: "Codex", facts: "1,118 threads"),
     ])
 
-    static func row(pressed: @escaping (String, ImportCardAction) -> Void = { _, _ in },
+    /// Reduce Transparency off, whatever this Mac's setting is.
+    static let glass = ReduceTransparency(system: { false }, changes: NotificationCenter())
+
+    static func row(width: CGFloat = HomeFirstRunView.maxWidth,
+                    pressed: @escaping (String, ImportCardAction) -> Void = { _, _ in },
                     showAll: @escaping () -> Void = {}) -> ImportSuggestionRowView {
-        let row = ImportSuggestionRowView(press: pressed, showAll: showAll)
-        row.frame = NSRect(x: 0, y: 0, width: HomeFirstRunView.maxWidth, height: ImportSuggestionRowView.height)
+        let row = ImportSuggestionRowView(press: pressed, showAll: showAll, reduceTransparency: glass)
+        row.frame = NSRect(x: 0, y: 0, width: width, height: ImportSuggestionRowView.height)
         return row
+    }
+
+    /// The row's controls a person can see: the buttons not hidden, with their frames in the row.
+    static func visibleButtons(_ row: ImportSuggestionRowView) -> [(NSButton, NSRect)] {
+        (row.actions + [row.showAll]).filter { !$0.isHiddenOrHasHiddenAncestor && $0.superview != nil }
+            .map { ($0, row.convert($0.bounds, from: $0)) }
     }
 
     /// Two suggestions are one row: the first one's name and facts, its button and Not Now, and
@@ -76,10 +86,88 @@ import Testing
         #expect(changes == 2)
     }
 
-    /// The row is the sidebar cards' glass veil, never an opaque card.
-    @Test func theRowIsGlass() {
+    /// The row is the sidebar cards' glass veil, never an opaque card: with Reduce Transparency
+    /// off it paints a see-through veil with the glass rim and no opaque fill or hairline.
+    @Test func theRowIsGlass() throws {
         let row = Self.row()
-        #expect(row.surface is CardSurfaceView)
+        row.surface.updateLayer()
+        let fill = try #require(row.surface.layer?.backgroundColor)
+        #expect(fill.alpha > 0)
+        #expect(fill.alpha < 0.6)
+        #expect(row.surface.rimView != nil)
+        #expect(row.surface.layer?.borderWidth == 0)
+    }
+
+    /// At the front page's full width the name and what was found show whole, on two lines, with
+    /// the button, Not Now and Show All beside them.
+    @Test func atFullWidthNothingTruncates() {
+        let row = Self.row()
+        row.show(Self.two)
+        row.layoutSubtreeIfNeeded()
+        for label in [row.titleLabel, row.factsLabel] {
+            #expect(label.frame.width >= ceil(label.intrinsicContentSize.width) - 0.5, "\(label.stringValue) truncates")
+        }
+        let title = row.convert(row.titleLabel.bounds, from: row.titleLabel)
+        let facts = row.convert(row.factsLabel.bounds, from: row.factsLabel)
+        #expect(!title.intersects(facts))
+        #expect(abs(title.minX - facts.minX) < 1)
+        #expect(!row.showAll.isHidden)
+        #expect(row.actions.map(\.title) == ["Show Chats", "Not Now"])
+    }
+
+    /// Down to the narrowest Home pane (and past it) every control the row shows stays inside its
+    /// glass: Show All goes first, then Not Now becomes an ✕ (still Not Now to VoiceOver), then the
+    /// app icon. At every interface scale.
+    @Test(arguments: [1.0, 1.25, 1.5] as [CGFloat])
+    func narrowRowsKeepTheirControlsInsideTheGlass(scale: CGFloat) {
+        for width in stride(from: CGFloat(360), through: 150, by: -10) {
+            let row = Self.row(width: width)
+            row.applyScale(scale)
+            row.show(Self.two)
+            row.setFrameSize(NSSize(width: width, height: row.intrinsicContentSize.height))
+            row.layoutSubtreeIfNeeded()
+            let shown = Self.visibleButtons(row)
+            #expect(shown.contains { $0.0 === row.actions[0] }, "width \(width): the card's button shows")
+            for (button, frame) in shown {
+                #expect(frame.minX >= 0 && frame.maxX <= row.bounds.width + 0.5,
+                        "width \(width) scale \(scale): \(button.accessibilityLabel() ?? button.title) at \(frame) spills past \(row.bounds.width)")
+            }
+        }
+        let narrow = Self.row(width: 200)
+        narrow.show(Self.two)
+        narrow.layoutSubtreeIfNeeded()
+        #expect(narrow.showAll.isHidden)
+        let dismiss = narrow.actions[1]
+        #expect(dismiss.imagePosition == .imageOnly)
+        #expect(dismiss.accessibilityLabel() == "Not Now")
+        // Not Now still dismisses in its compact form.
+        var pressed: [ImportCardAction] = []
+        let compact = Self.row(width: 200, pressed: { pressed.append($1) })
+        compact.show(Self.two)
+        compact.actions[1].performClick(nil)
+        #expect(pressed == [.dismiss])
+    }
+
+    /// The row follows the interface scale like the front page's other rows: taller, larger type
+    /// and icon; the front page hands its scale to the row, also to a row added after a change.
+    @Test func theRowFollowsTheInterfaceScale() {
+        let row = Self.row()
+        row.show(Self.two)
+        let title = row.titleLabel.font?.pointSize ?? 0
+        row.applyScale(1.5)
+        #expect(abs(row.intrinsicContentSize.height - ImportSuggestionRowView.height * 1.5) < 0.5)
+        #expect(abs((row.titleLabel.font?.pointSize ?? 0) - title * 1.5) < 0.1)
+        row.setFrameSize(NSSize(width: 420, height: row.intrinsicContentSize.height))
+        row.layoutSubtreeIfNeeded()
+        #expect(abs(row.icon.frame.width - ImportSuggestionRowView.iconSide * 1.5) < 0.5)
+        let panel = HomeFirstRunView(frame: NSRect(x: 0, y: 0, width: 600, height: 700))
+        panel.applyScale(1.25)
+        let late = Self.row()
+        late.show(Self.two)
+        panel.setAccessory(late, applyScale: { [weak late] in late?.applyScale($0) })
+        #expect(late.scale == 1.25)
+        panel.applyScale(1.5)
+        #expect(late.scale == 1.5)
     }
 
     /// The Chief's front page holds the row in its own column, under the action rows and inside
@@ -88,7 +176,7 @@ import Testing
         let panel = HomeFirstRunView(frame: NSRect(x: 0, y: 0, width: 600, height: 700))
         let row = Self.row()
         row.show(Self.two)
-        panel.accessory = row
+        panel.setAccessory(row)
         panel.layoutSubtreeIfNeeded()
         #expect(row.superview != nil)
         #expect(row.isDescendant(of: panel))
@@ -107,7 +195,7 @@ import Testing
         let panel = HomeFirstRunView(frame: NSRect(x: 0, y: 0, width: 600, height: 700))
         let row = Self.row()
         row.show(.empty)
-        panel.accessory = row
+        panel.setAccessory(row)
         panel.layoutSubtreeIfNeeded()
         let top = { (view: HomeFirstRunView) in view.convert(view.agent.bounds, from: view.agent).minY }
         #expect(abs(top(plain) - top(panel)) < 1)
@@ -118,8 +206,8 @@ import Testing
         let panel = HomeFirstRunView(frame: NSRect(x: 0, y: 0, width: 600, height: 700))
         let row = Self.row()
         row.show(Self.two)
-        panel.accessory = row
-        panel.accessory = nil
+        panel.setAccessory(row)
+        panel.setAccessory(nil)
         #expect(row.superview == nil)
     }
 }
