@@ -681,7 +681,7 @@ impl Brain {
                 model: engine.model.clone(),
                 effort: engine.effort.clone(),
                 preset,
-                tags: crate::acpmux::chief_tags(&self.settings.chief_id, "turn"),
+                tags: crate::acpmux::turn_tags(&self.settings.chief_id, &self.settings.parent),
                 // Only the Chief's own turn gets the seal its `chiefs`
                 // tool needs (chief_profile.rs TURN_KEY_ENV).
                 env: [(

@@ -3,6 +3,9 @@
 use super::person::ANSWERED_BY_SLOT;
 use super::*;
 
+/// The person-readable line on a request (`toolCall._meta.acpmux.display`).
+mod display;
+
 impl Hub {
     // ------------------------------------------------------------- inbound
 
@@ -414,6 +417,9 @@ impl Hub {
         // One harness-neutral copy of any questions, before rules and the
         // record see the request (questions.rs).
         super::questions::normalize(&mut request);
+        // A person-readable line for a tool whose name and JSON mean nothing
+        // to a person (permissions/display.rs), before anything shows the request.
+        self.stamp_permission_display(session, &mut request);
         let needs_person = super::questions::needs_person(&request);
         let (rx, prev, grouping, permission_id) = {
             let cfg = self.config.read().await;
