@@ -95,16 +95,16 @@ import Testing
         }
     }
 
-    /// Leo 2026-10-21 ("MOUSE DOWN DRAGGING ON A WORKSPACE SHOULDN'T BE IMMEDIATELY FOCUSING"): navigate on release is
-    /// the default now, with the toggle off too (`SidebarPressDoesNotFocusTests`).
-    @Test func withTheToggleOffAPressAlsoSelectsNothingUntilItsRelease() throws {
+    /// Lawrence 2026-10-21 ("on mousedown, instantly switch"): with the toggle off (the default) the press switches;
+    /// a drag puts the shown workspace back (`SidebarPressSwitchesTests`). Navigate on release stays multi-view's.
+    @Test func withTheToggleOffThePressSwitches() throws {
         try Self.withMultiView(false) {
             let (list, window) = G.list()
             defer { window.close() }
             list.mouseDown(with: try G.event(list, .leftMouseDown, at: try G.point(list, .workspace(WorkspaceID("y")))))
-            #expect(list.model.activeWorkspaceID == WorkspaceID("x"), "the press switched: \(Self.shown(list))")
+            #expect(list.model.activeWorkspaceID == WorkspaceID("y"), "the press did not switch: \(Self.shown(list))")
             list.mouseUp(with: try G.event(list, .leftMouseUp, at: try G.point(list, .workspace(WorkspaceID("y")))))
-            #expect(list.model.activeWorkspaceID == WorkspaceID("y"), "the release did not switch: \(Self.shown(list))")
+            #expect(list.model.activeWorkspaceID == WorkspaceID("y"), "the release switched away: \(Self.shown(list))")
         }
     }
 

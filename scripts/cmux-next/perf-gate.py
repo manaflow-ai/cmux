@@ -58,6 +58,18 @@ warnings only.
                  ACTIVATION_MAX_RESYNCS status indicators re-checked (the ones a window shows, never every
                  row and tab of the session; host-independent, blocks); the main-thread time of the
                  become notices over ACTIVATION_BUDGET_MS p95 is a warning.
+  workspace_switch
+                 Lawrence 2026-10-21 ("switching workspaces is very slow ... on mousedown, instantly switch"):
+                 at each of --switch-scales workspace counts (default 10,150; the fleet run adds 500), every
+                 workspace with 2 terminals, every 5th a Chromium tab, every 7th an agent chat, the window's
+                 recent workspaces pressed in the sidebar (debug.mouse down, then up) and the rest picked by id:
+                 a press switches on the mouse-down (the shown workspace is the pressed one before the up),
+                 the release sends nothing more, and per switch the workspace budget. The app's own time per
+                 switch (debug.workspace_switch): input to swapped content (apply, a warning over
+                 SWITCH_APPLY_BUDGET_MS), to its Core Animation commit, the frames it missed (blocks: a warm
+                 switch commits in the first frame after it), and a stage split (park, content, swap, theme,
+                 did_show, focus, side) for the report. The apply must not grow with the workspace count:
+                 the largest scale's warm apply p50 over twice the smallest's (and over 1 ms) blocks (O(visible)).
   status         4 background workspaces print OSC 7501 progress 4 times a second for 5 s:
                  0 applies, 0 topology sends, 0 pane snapshots, 0 sidebar list reloads (I1-I3).
 
@@ -126,12 +138,14 @@ TAB_APPLY_BUDGET_MS = 4
 PANE_FOCUS_BUDGET_MS = 2
 # New workspace rows: press to drawn (main-thread work and hops), one 60 Hz frame.
 NEW_ROW_BUDGET_MS = FRAME_BUDGET_MS
+# Main-thread work of one warm workspace switch (input to swapped content): a quarter frame, as a tab switch.
+SWITCH_APPLY_BUDGET_MS = 4
 # App activation (Cmd-Tab back) in the heavy session: indicators re-checked per activation (blocks)
 # and the become notices' main-thread time p95 (warning). Before the fix: every indicator of the
 # session per activation (user 2026-10-21, msg 9674/9682).
 ACTIVATION_MAX_RESYNCS = 64
 ACTIVATION_BUDGET_MS = 8
-SCENARIOS = ["workspaces", "theme", "drag", "tabs", "pane_focus", "split", "relaunch", "new_workspaces", "activation", "status"]
+SCENARIOS = ["workspaces", "theme", "drag", "tabs", "pane_focus", "split", "relaunch", "new_workspaces", "workspace_switch", "activation", "status"]
 
 ROOT = os.path.abspath(os.path.join(HERE, "../.."))
 # The source guard's rule lives in check-perf-source-guard.py, which CI and the pre-push gate run alone.
@@ -901,6 +915,125 @@ class Gate:
                   + (f": {[(r['workspaces_before'], round(r['apply_ms'], 1), int(r['late_vsyncs'])) for r in late][:6]} "
                      "(workspaces before, apply ms, frames missed)" if late else "") + ")", scenario)
 
+    # -- workspace_switch --
+
+    def sidebar_row(self, workspace):
+        """The window-local center of `workspace`'s sidebar row when it is drawn in the list's viewport, else None."""
+        for window in (self.app.rpc("debug.sidebar_rows") or {}).get("windows") or []:
+            for row in window.get("rows") or []:
+                key = str(row.get("key", ""))
+                if not key.startswith("workspace(") or workspace not in key or not row.get("in_list") or row.get("clips"):
+                    continue
+                frame = row.get("window_frame") or {}
+                if frame.get("height", 0) <= 0:
+                    continue
+                return frame["x"] + frame["width"] / 2, frame["y"] + frame["height"] / 2
+        return None
+
+    def fill_workspaces(self, want, made):
+        """Grows the window to `want` workspaces, each with 2 terminals, every 5th with a Chromium tab, every 7th
+        with an agent chat (counted in `made`, across scales)."""
+        app = self.app
+        have = app.workspace_ids()
+        for _ in range(max(0, want - len(have))):
+            app.rpc("action.run", {"action": "newTab", "args": {}, "focus": True, "origin": "script"}, timeout=120)
+            made["n"] += 1
+            n = made["n"]
+            app.action("splitRight")
+            if n % 5 == 0:
+                app.action("openBrowser.chromium", {"url": "about:blank"})
+            if n % 7 == 0:
+                app.action("palette.newAgentChat")
+        return wait(lambda: (lambda w: w if len(w) >= want else None)(app.workspace_ids()), 120) or app.workspace_ids()
+
+    def workspace_switch(self, scenario="workspace_switch"):
+        app = self.app
+        scales = sorted({int(v) for v in (self.opts.switch_scales or "10,150").split(",") if v.strip()})
+        made, by_scale = {"n": 0}, {}
+        report["phases"][scenario] = {"scales": by_scale}
+        for scale in scales:
+            ids = self.fill_workspaces(scale, made)
+            if not check(len(ids) >= scale, f"{len(ids)} workspaces open (want {scale})", scenario):
+                continue
+            # The recent set a person moves between: the last 8 shown (warm), then 8 never shown since they were
+            # made at an earlier scale (their content is built on the switch: cold).
+            recent = ids[-8:]
+            for target in recent:
+                app.action("goToWorkspace", {"workspace": target})
+            wait(lambda: app.shown_workspace() == recent[-1], 10)
+            cold = [w for w in ids[:-8] if w not in recent][: 8]
+            app.quiet_counters()
+            app.rpc("debug.frames", {"action": "start"})
+            app.rpc("debug.workspace_switch", {"action": "start"})
+            presses, wrong, sends, worst = 0, [], [], {}
+            plan = [(t, "press") for t in recent * 3] + [(t, "action") for t in cold]
+            for target, how in plan:
+                point = self.sidebar_row(target) if how == "press" else None
+                if point:
+                    presses += 1
+                    app.rpc("debug.mouse", {"action": "down", "x": point[0], "y": point[1]})
+                    shown = app.shown_workspace()
+                    if shown != target:
+                        wrong.append((target, shown))
+                    app.rpc("debug.mouse", {"action": "up", "x": point[0], "y": point[1]})
+                else:
+                    app.action("goToWorkspace", {"workspace": target})
+                measured = app.quiet_counters()
+                breaches = self.unknown(over(measured, BUDGET["switch"]), scenario)
+                if breaches:
+                    sends.append(f"to {target} ({how}): {breach_text(breaches, measured['sources'])}")
+                for k in BUDGET["switch"]:
+                    worst[k] = max(worst.get(k, 0), measured.get(k, 0))
+            own = app.rpc("debug.workspace_switch", {"action": "stop"}) or {}
+            frames = app.rpc("debug.frames", {"action": "stop"}) or {}
+            rows = own.get("switches") or []
+            by_scale[str(scale)] = {"presses": presses, "worst": worst, "frames": frames,
+                                    "switches": [{k: (round(v, 2) if isinstance(v, (int, float)) else v) for k, v in r.items()} for r in rows]}
+            check(presses > 0, f"{scale} workspaces: {presses} of {len(recent) * 3} warm switches pressed in the sidebar", scenario)
+            check(not wrong, f"{scale} workspaces: every press switched on its mouse-down ({len(wrong)} did not"
+                             + (f": {wrong[:4]} (pressed, shown before the up)" if wrong else "") + ")", scenario)
+            check(not sends, f"{scale} workspaces: every switch fits the workspace budget {BUDGET['switch']}"
+                             + (f" ({len(sends)} over: {sends[:3]})" if sends else ""), scenario)
+            if not self.timed_count(rows, len(plan), f"{scale} workspaces: debug.workspace_switch timed {{n}} of {len(plan)} switches",
+                                    scenario):
+                continue
+            warm = [r for r in rows if r.get("kind") == "warm"]
+            coldrows = [r for r in rows if r.get("kind") == "cold"]
+            pct = lambda values, q: sorted(values)[min(len(values) - 1, int(len(values) * q))] if values else 0
+            summary = {}
+            for name, group in (("warm", warm), ("cold", coldrows)):
+                for col in ("input_ms", "apply_ms", "commit_ms"):
+                    values = [r[col] for r in group if col in r]
+                    if values:
+                        summary[f"{name}_{col[:-3]}_p50_ms"] = round(pct(values, 0.5), 2)
+                        summary[f"{name}_{col[:-3]}_p95_ms"] = round(pct(values, 0.95), 2)
+                summary[f"{name}_late"] = sum(1 for r in group if r.get("late_vsyncs", 0) > 0)
+                summary[f"{name}_count"] = len(group)
+                stages = {}
+                previous = 0.0
+                for stage in ("park", "content", "swap", "theme", "did_show", "focus", "side"):
+                    values = [r.get(stage + "_ms") for r in group if r.get(stage + "_ms") is not None]
+                    if values:
+                        p50 = pct(values, 0.5)
+                        stages[stage] = round(p50 - previous, 3)
+                        previous = p50
+                summary[f"{name}_stage_p50_ms"] = stages
+            by_scale[str(scale)]["summary"] = summary
+            print(f"  {scale} workspaces: warm apply p50 {summary.get('warm_apply_p50_ms')} / p95 {summary.get('warm_apply_p95_ms')} ms, "
+                  f"commit p50 {summary.get('warm_commit_p50_ms')} / p95 {summary.get('warm_commit_p95_ms')} ms, late {summary.get('warm_late')}"
+                  f"; cold apply p50 {summary.get('cold_apply_p50_ms')} / p95 {summary.get('cold_apply_p95_ms')} ms, late {summary.get('cold_late')}"
+                  f"; warm stages {summary.get('warm_stage_p50_ms')}; dropped frames {frames.get('missed')} of {frames.get('frames')}", flush=True)
+            if summary.get("warm_apply_p95_ms", 0) > SWITCH_APPLY_BUDGET_MS:
+                warn(f"{scale} workspaces: warm switch apply p95 {summary['warm_apply_p95_ms']} ms (over {SWITCH_APPLY_BUDGET_MS} ms)", scenario)
+            if self.frames_ok(scenario):
+                check(summary["warm_late"] == 0, f"{scale} workspaces: every warm switch commits in the first frame after it shows "
+                                                 f"({summary['warm_late']} of {summary['warm_count']} later)", scenario)
+        timed = [(int(k), v["summary"]["warm_apply_p50_ms"]) for k, v in by_scale.items() if "warm_apply_p50_ms" in v.get("summary", {})]
+        if len(timed) >= 2:
+            (small, a), (large, b) = min(timed), max(timed)
+            check(b <= max(2 * a, 1.0), f"a warm switch's apply does not grow with the workspace count: p50 {a} ms at {small}, "
+                                        f"{b} ms at {large} (O(visible): at most twice, or 1 ms)", scenario)
+
     def split(self, scenario="split"):
         app = self.app
         panes, _ = getattr(self, "grid", None) or self.build_grid()
@@ -1062,6 +1195,7 @@ def main():
     parser.add_argument("--lag", type=int, default=3, help="drag steps the rendered grid may trail the fitted grid")
     parser.add_argument("--source-guard-only", action="store_true")
     parser.add_argument("--hang-ms", type=int, help="sample main-thread stalls over N ms (debug.hangs) and print them")
+    parser.add_argument("--switch-scales", help="workspace counts the workspace_switch scenario measures at (default 10,150)")
     opts = parser.parse_args()
     os.makedirs(opts.out, exist_ok=True)
     out = os.path.join(opts.out, "perf-gate.json")
