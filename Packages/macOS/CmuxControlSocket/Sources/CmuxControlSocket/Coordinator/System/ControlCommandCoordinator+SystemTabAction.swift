@@ -6,7 +6,7 @@ internal import Foundation
 extension ControlCommandCoordinator {
     /// The supported `tab.action` keys (the legacy `supportedActions`).
     private static let tabActionSupportedActions = [
-        "rename", "clear_name",
+        "rename", "rename_tab", "clear_name",
         "close_left", "close_right", "close_others",
         "new_terminal_right", "new_browser_right",
         "reload", "duplicate", "move_to_new_workspace", "detach_to_workspace", "detach_to_new_workspace",

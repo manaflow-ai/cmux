@@ -11055,10 +11055,14 @@ struct ContentView: View {
             } else if let workspace = tabManager.tabs.first(where: {
                 $0.id == workspaceId
             }) {
-                workspace.setPanelCustomTitle(
+                let changed = workspace.setPanelCustomTitle(
                     panelId: panelId,
                     title: normalizedName
                 )
+                if !changed, normalizedName != nil {
+                    NSSound.beep()
+                    return
+                }
             } else {
                 NSSound.beep()
                 return

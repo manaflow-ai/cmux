@@ -97,6 +97,46 @@ struct RemoteTmuxPaneTitleMetadataTests {
         ))
     }
 
+    @Test func rejectsExtraOctalSeparatorsInPaneRectMetadata() {
+        let parsed = RemoteTmuxPaneTitleMetadata.paneRectLabel(
+            from: #"headercmux_title_metadata_v1\037build\037unexpected\037haven\037haven"#
+        )
+        #expect(parsed == nil)
+    }
+
+    @Test func rejectsMarkerAndSeparatorInsideOctalEncodedTitle() {
+        let parsed = RemoteTmuxPaneTitleMetadata.paneRectLabel(
+            from: #"headercmux_title_metadata_v1\037prefixcmux_title_metadata_v1\037suffix\037haven\037haven"#
+        )
+        #expect(parsed == nil)
+        #expect(RemoteTmuxPaneTitleMetadata.paneRectLabel(
+            from: "headercmux_title_metadata_v1\u{1f}prefixcmux_title_metadata_v1\u{1f}suffix\u{1f}haven\u{1f}haven"
+        ) == nil)
+    }
+
+    @Test func ambiguousOctalMarkerInHeaderFailsClosed() {
+        let parsed = RemoteTmuxPaneTitleMetadata.paneRectLabel(
+            from: #"0 "suffix cmux_title_metadata_v1\037"cmux_title_metadata_v1\037build\037haven\037haven"#
+        )
+        #expect(parsed == nil)
+    }
+
+    @Test func parsesUnicodeFromTmux35CommandReplies() {
+        let parsed = RemoteTmuxPaneTitleMetadata.paneRectLabel(
+            from: #"headercmux_title_metadata_v1\037café\ 漢\ 😀\ a\ b\037haven\037haven"#
+        )
+        #expect(parsed?.metadata.title == "café 漢 😀 a b")
+    }
+
+    @Test func rejectsMixedSeparatorEncodings() {
+        #expect(RemoteTmuxPaneTitleMetadata.paneRectLabel(
+            from: #"headercmux_title_metadata_v1\037title\037haven"# + "\u{1f}haven"
+        ) == nil)
+        #expect(RemoteTmuxPaneTitleMetadata.paneRectLabel(
+            from: "headercmux_title_metadata_v1\u{1f}title\u{1f}haven" + #"\037haven"#
+        ) == nil)
+    }
+
     @Test func rejectsExtraRawSeparatorsInPaneRectMetadata() {
         let parsed = RemoteTmuxPaneTitleMetadata.paneRectLabel(
             from: "headercmux_title_metadata_v1\u{1f}build\u{1f}unexpected\u{1f}host.example\u{1f}host"

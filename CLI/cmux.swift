@@ -12313,10 +12313,24 @@ struct CMUXCLI {
 
         let action = actionRaw.lowercased().replacingOccurrences(of: "-", with: "_")
         let windowRaw = windowOpt ?? windowOverride
+        let defaultRename = action == "rename" && tabOpt == nil && surfaceOpt == nil
+        let environment = ProcessInfo.processInfo.environment
+        var inheritedTab = environment["CMUX_TAB_ID"] ?? environment["CMUX_SURFACE_ID"]
+        if defaultRename, workspaceOpt == nil, windowRaw == nil,
+           let tab = environment["CMUX_TAB_ID"],
+           let workspace = environment["CMUX_WORKSPACE_ID"],
+           let tabID = UUID(uuidString: tab), tabID == UUID(uuidString: workspace) {
+            // Remote tmux mirrors publish the workspace UUID as the legacy
+            // CMUX_TAB_ID alias. It cannot identify the caller's tmux window.
+            guard let surface = environment["CMUX_SURFACE_ID"], !surface.isEmpty else {
+                throw CLIError(message: "Cannot determine the caller's tab from the workspace ID; specify --tab or --surface")
+            }
+            inheritedTab = surface
+        }
         let tabArg = tabOpt
             ?? surfaceOpt
             ?? (workspaceOpt == nil && windowRaw == nil
-                ? (ProcessInfo.processInfo.environment["CMUX_TAB_ID"] ?? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"])
+                ? inheritedTab
                 : nil)
         let workspaceArg = workspaceOpt
             ?? callerWorkspace(
@@ -12350,7 +12364,9 @@ struct CMUXCLI {
             throw CLIError(message: "tab-action rename requires --title <text> (or a trailing title)")
         }
 
-        var params: [String: Any] = ["action": action]
+        // A distinct action makes an older server reject the request rather
+        // than silently treating the inferred surface as a pane rename.
+        var params: [String: Any] = ["action": defaultRename ? "rename_tab" : action]
         if let windowHandle {
             params["window_id"] = windowHandle
         }
@@ -12368,7 +12384,10 @@ struct CMUXCLI {
         }
         params["force"] = commandArgs.contains("--force")
         try applyTabActionFocusOption(focusOpt, to: &params)
-        let payload = try client.sendV2(method: "tab.action", params: params)
+        var payload = try client.sendV2(method: "tab.action", params: params)
+        if defaultRename, payload["action"] as? String == "rename_tab" {
+            payload["action"] = "rename"
+        }
         var summaryParts = ["OK", "action=\(action)"]
         if let tabHandle = formatTabHandle(payload, idFormat: idFormat) { summaryParts.append("tab=\(tabHandle)") }
         if let workspaceHandle = formatHandle(payload, kind: "workspace", idFormat: idFormat) { summaryParts.append("workspace=\(workspaceHandle)") }

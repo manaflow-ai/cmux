@@ -12,6 +12,148 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct RemoteTmuxMirrorRenameTests {
+    @Test func inferredSurfaceRenamesItsOwningWindow() throws {
+        let harness = try RemoteTmuxMirrorRenameHarness()
+        defer { harness.tearDown() }
+        let surface = try #require(harness.surfaces().first)
+        let resolution = TerminalController.shared.controlTabAction(
+            routing: ControlRoutingSelectors(
+                hasWindowIDParam: false, windowID: nil, groupID: nil,
+                workspaceID: harness.workspace.id, surfaceID: surface.surfaceID, paneID: nil
+            ),
+            actionKey: "rename_tab", title: "owning window", rawURL: nil,
+            surfaceID: surface.surfaceID, requestedFocus: false, moveParams: [:]
+        )
+        guard case .completed = resolution else {
+            Issue.record("Expected a completed window rename, got \(resolution)")
+            return
+        }
+        let commands = try harness.finishCommands()
+        #expect(commands.filter { $0.hasPrefix("rename-window ") } == ["rename-window -t @2 'owning window'"])
+        #expect(commands.filter { $0.hasPrefix("select-pane ") }.isEmpty)
+    }
+
+    @Test func inferredSurfaceInAnotherWindowDoesNotRenameFocusedWindow() throws {
+        let harness = try RemoteTmuxMirrorRenameHarness(includeSecondWindow: true)
+        defer { harness.tearDown() }
+        let focusedContainer = try #require(
+            harness.workspace.remoteTmuxWindowMirrors.first(where: { $0.value.windowId == 2 })?.key
+        )
+        harness.workspace.focusPanel(focusedContainer)
+        let surface = try #require(harness.surfaces().first {
+            harness.workspace.remoteTmuxControlPane(surfaceID: $0.surfaceID)?.pane.tmuxPaneID == 6
+        })
+        #expect(harness.workspace.focusedPanelId == focusedContainer)
+        let resolution = TerminalController.shared.controlTabAction(
+            routing: ControlRoutingSelectors(
+                hasWindowIDParam: false, windowID: nil, groupID: nil,
+                workspaceID: harness.workspace.id, surfaceID: surface.surfaceID, paneID: nil
+            ),
+            actionKey: "rename_tab", title: "other window", rawURL: nil,
+            surfaceID: surface.surfaceID, requestedFocus: false, moveParams: [:]
+        )
+        guard case .completed = resolution else {
+            Issue.record("Expected a completed window rename, got \(resolution)")
+            return
+        }
+        let commands = try harness.finishCommands()
+        #expect(commands.filter { $0.hasPrefix("rename-window ") } == ["rename-window -t @3 'other window'"])
+        #expect(commands.filter { $0.hasPrefix("select-pane ") }.isEmpty)
+    }
+
+    @Test func unsafeWindowTitleDoesNotSucceedOrChangeLocalTitle() throws {
+        let harness = try RemoteTmuxMirrorRenameHarness()
+        defer { harness.tearDown() }
+        let surface = try #require(harness.surfaces().first)
+        let containerID = try #require(harness.workspace.controlTabTarget(for: surface.surfaceID)?.panelID)
+        let resolution = TerminalController.shared.controlTabAction(
+            routing: ControlRoutingSelectors(
+                hasWindowIDParam: false, windowID: nil, groupID: nil,
+                workspaceID: harness.workspace.id, surfaceID: surface.surfaceID, paneID: nil
+            ),
+            actionKey: "rename_tab", title: "bad\nname", rawURL: nil,
+            surfaceID: surface.surfaceID, requestedFocus: false, moveParams: [:]
+        )
+        guard case .renameFailed = resolution else {
+            Issue.record("Expected rejected window rename, got \(resolution)")
+            return
+        }
+        #expect(harness.workspace.panelCustomTitles[containerID] == nil)
+        #expect(try harness.finishCommands().filter { $0.hasPrefix("rename-window ") }.isEmpty)
+    }
+
+    @Test func rejectedWindowRenameRollsBackOptimisticTitle() throws {
+        let harness = try RemoteTmuxMirrorRenameHarness()
+        defer { harness.tearDown() }
+        let surface = try #require(harness.surfaces().first)
+        let containerID = try #require(harness.workspace.controlTabTarget(for: surface.surfaceID)?.panelID)
+        #expect(harness.workspace.setPanelCustomTitle(panelId: containerID, title: "build", propagateToCloud: false))
+        #expect(harness.workspace.panelCustomTitles[containerID] == "build")
+        harness.connection.handleMessageForTesting(.commandResult(
+            commandNumber: 99, lines: ["can't find window"], isError: true
+        ))
+        #expect(harness.workspace.panelCustomTitles[containerID] == nil)
+    }
+
+    @Test func rejectedOlderWindowRenameCannotRollBackNewerRename() throws {
+        let harness = try RemoteTmuxMirrorRenameHarness()
+        defer { harness.tearDown() }
+        let surface = try #require(harness.surfaces().first)
+        let containerID = try #require(harness.workspace.controlTabTarget(for: surface.surfaceID)?.panelID)
+        #expect(harness.workspace.setPanelCustomTitle(panelId: containerID, title: "build", propagateToCloud: false))
+        #expect(harness.workspace.setPanelCustomTitle(panelId: containerID, title: "build", propagateToCloud: false))
+        harness.connection.handleMessageForTesting(.commandResult(
+            commandNumber: 99, lines: ["can't find window"], isError: true
+        ))
+        #expect(harness.workspace.panelCustomTitles[containerID] == "build")
+        harness.connection.handleMessageForTesting(.commandResult(
+            commandNumber: 100, lines: ["can't find window"], isError: true
+        ))
+        #expect(harness.workspace.panelCustomTitles[containerID] == nil)
+    }
+
+    @Test func rejectedWindowRenameRevealsNewerAuthoritativeTitle() throws {
+        let harness = try RemoteTmuxMirrorRenameHarness()
+        defer { harness.tearDown() }
+        let surface = try #require(harness.surfaces().first)
+        let containerID = try #require(harness.workspace.controlTabTarget(for: surface.surfaceID)?.panelID)
+        #expect(harness.workspace.setPanelCustomTitle(panelId: containerID, title: "first", propagateToCloud: false))
+        #expect(harness.workspace.setPanelCustomTitle(panelId: containerID, title: "second", propagateToCloud: false))
+        harness.connection.handleMessageForTesting(.commandResult(commandNumber: 99, lines: [], isError: false))
+        harness.connection.handleMessageForTesting(.windowRenamed(windowId: 2, name: "first"))
+        harness.connection.handleMessageForTesting(.commandResult(
+            commandNumber: 100, lines: ["can't find window"], isError: true
+        ))
+        #expect(harness.workspace.panelCustomTitles[containerID] == nil)
+        #expect(harness.workspace.panelTitles[containerID] == "first")
+    }
+
+    @Test func streamResetRollsBackPendingWindowRename() throws {
+        let harness = try RemoteTmuxMirrorRenameHarness()
+        defer { harness.tearDown() }
+        let surface = try #require(harness.surfaces().first)
+        let containerID = try #require(harness.workspace.controlTabTarget(for: surface.surfaceID)?.panelID)
+        #expect(harness.workspace.setPanelCustomTitle(panelId: containerID, title: "pending", propagateToCloud: false))
+        harness.connection.failPendingTrackedSends()
+        #expect(harness.workspace.panelCustomTitles[containerID] == nil)
+    }
+
+    @Test func rejectedWindowRenameDoesNotRestoreStaleCustomTitle() throws {
+        let harness = try RemoteTmuxMirrorRenameHarness()
+        defer { harness.tearDown() }
+        let surface = try #require(harness.surfaces().first)
+        let containerID = try #require(harness.workspace.controlTabTarget(for: surface.surfaceID)?.panelID)
+        #expect(harness.workspace.setPanelCustomTitle(panelId: containerID, title: "first", propagateToCloud: false))
+        harness.connection.handleMessageForTesting(.commandResult(commandNumber: 99, lines: [], isError: false))
+        harness.connection.handleMessageForTesting(.windowRenamed(windowId: 2, name: "external"))
+        #expect(harness.workspace.setPanelCustomTitle(panelId: containerID, title: "second", propagateToCloud: false))
+        harness.connection.handleMessageForTesting(.commandResult(
+            commandNumber: 100, lines: ["can't find window"], isError: true
+        ))
+        #expect(harness.workspace.panelCustomTitles[containerID] == nil)
+        #expect(harness.workspace.panelTitles[containerID] == "external")
+    }
+
     @Test func everyMultiPaneSurfaceRenamesOnlyItsTmuxPane() throws {
         let harness = try RemoteTmuxMirrorRenameHarness()
         defer { harness.tearDown() }

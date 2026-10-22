@@ -861,14 +861,17 @@ final class RemoteTmuxController {
     }
 
     /// A mirrored window's tab was renamed → `rename-window` on the remote.
-    func handleMirrorWindowRenamed(workspaceId: UUID, panelId: UUID, title: String?) {
+    @discardableResult
+    func handleMirrorWindowRenamed(
+        workspaceId: UUID, panelId: UUID, title: String?, completion: ((Bool) -> Void)? = nil
+    ) -> Bool {
         guard let name = RemoteTmuxHost.controlModeCommandName(title),
               let mirror = sessionMirrors.values.first(where: { $0.mirroredWorkspaceId == workspaceId }),
               mirror.connection.connectionState == .connected,
-              let windowId = mirror.windowId(forPanel: panelId) else { return }
-        _ = mirror.connection.send(
-            "rename-window -t @\(windowId) \(RemoteTmuxHost.shellSingleQuoted(RemoteTmuxHost.tmuxFormatLiteral(name)))"
-        )
+              let windowId = mirror.windowId(forPanel: panelId) else { return false }
+        let command = "rename-window -t @\(windowId) \(RemoteTmuxHost.shellSingleQuoted(RemoteTmuxHost.tmuxFormatLiteral(name)))"
+        if let completion { return mirror.connection.sendTracked(command, completion: completion) }
+        return mirror.connection.send(command)
     }
 
     /// The live session mirror + tmux window id behind a mirrored window-tab, or

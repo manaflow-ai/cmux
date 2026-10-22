@@ -3,7 +3,7 @@ import Foundation
 
 extension RemoteTmuxControlConnection {
     /// The fields appended to pane-rect replies.
-    // `q:` quotes field contents; separators remain raw bytes in UTF-8 clients.
+    // `q:` quotes fields; control replies carry separators raw or as `\037`.
     nonisolated static let paneTitleMetadataFormat = "#{q:pane_title}\(RemoteTmuxPaneTitleMetadata.fieldSeparator)"
         + "#{q:host}\(RemoteTmuxPaneTitleMetadata.fieldSeparator)#{q:host_short}"
 

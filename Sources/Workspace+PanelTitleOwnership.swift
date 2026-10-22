@@ -73,6 +73,40 @@ extension Workspace {
             remoteTmuxRenameGenerationByPanelID[panelId] = requestGeneration
         }
 
+        // Reject unsafe or unavailable remote-window renames before making a
+        // local title change. A successful send means queued, not confirmed by tmux.
+        let sendsRemoteWindowRename = propagateToRemoteTmux && source != .remote
+            && !trimmed.isEmpty && isRemoteTmuxControlContainer(panelId)
+        if sendsRemoteWindowRename {
+            let requestGeneration = UUID()
+            let authoritativeTitle = panelTitles[panelId]
+            // A previous custom title may be an in-flight value or may predate
+            // an external tmux rename. Restore it only if it still matches tmux.
+            let rollbackTitle = remoteTmuxRenameGenerationByPanelID[panelId] == nil && previous == authoritativeTitle
+                ? previous : nil
+            let rollbackSource = panelCustomTitleSources[panelId] ?? .user
+            guard AppDelegate.shared?.remoteTmuxController.handleMirrorWindowRenamed(
+                workspaceId: id, panelId: panelId, title: trimmed, completion: { [weak self] accepted in
+                    guard let self,
+                          self.remoteTmuxRenameGenerationByPanelID[panelId] == requestGeneration else { return }
+                    self.remoteTmuxRenameGenerationByPanelID.removeValue(forKey: panelId)
+                    guard !accepted,
+                          self.panels[panelId] != nil,
+                          self.panelCustomTitles[panelId] == trimmed,
+                          self.panelCustomTitleSources[panelId] == source else { return }
+                    // A newer tmux observation wins over the older rollback
+                    // snapshot. Clearing the optimistic override reveals it.
+                    let restoredTitle = self.panelTitles[panelId] == authoritativeTitle ? rollbackTitle : nil
+                    self.setPanelCustomTitle(
+                        panelId: panelId, title: restoredTitle, source: .user,
+                        propagateToRemoteTmux: false, propagateToCloud: false
+                    )
+                    if restoredTitle != nil { self.panelCustomTitleSources[panelId] = rollbackSource }
+                }
+            ) == true else { return false }
+            remoteTmuxRenameGenerationByPanelID[panelId] = requestGeneration
+        }
+
         if trimmed.isEmpty {
             // `select-pane -T ''` is meaningful even when cmux has no local
             // custom-title record: tmux may still hold a title set outside cmux.
@@ -115,7 +149,7 @@ extension Workspace {
             if remoteTmuxPane != nil {
                 // The projected pane command was accepted before local state
                 // changed above, so this path intentionally does not resend.
-            } else if isRemoteTmuxMirror {
+            } else if isRemoteTmuxMirror && !sendsRemoteWindowRename {
                 AppDelegate.shared?.remoteTmuxController.handleMirrorWindowRenamed(
                     workspaceId: id, panelId: panelId, title: trimmed
                 )
