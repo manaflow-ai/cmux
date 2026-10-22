@@ -70,7 +70,7 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
     }
 
     func webView(_ webView: WKWebView, start task: any WKURLSchemeTask) {
-        WebDevOverrideWatcher.shared.served(webView) // a web-dev.json change reloads it
+        WebDevOverrideWatcher.shared.served() // a web-dev.json change reloads every served view
         let request = task.request
         guard request.httpMethod.map({ $0 == "GET" }) ?? true,
               let url = request.url, let served = served(url),

@@ -1,15 +1,13 @@
 import CmuxNextSettings
 public import Foundation
-public import WebKit
 
 /// Watches `web-dev.json` and the overlay's `manifest.json` (``WebDevOverride``), keeps
 /// ``WebDevOverride/current`` and reloads every web view the page and agent pane scheme handlers
-/// served on a change. Does nothing unless ``WebDevOverride/isEnabled``.
+/// served on a change (``WebBundleServedViews``, the one list a web UI update also reloads). Does
+/// nothing unless ``WebDevOverride/isEnabled``.
 public final class WebDevOverrideWatcher {
     public static let shared = WebDevOverrideWatcher()
 
-    /// The web views to reload, held weakly.
-    private let webViews = NSHashTable<WKWebView>.weakObjects()
     private var fileWatcher: ConfigFileWatcher?
     private var manifestWatcher: ConfigFileWatcher?
     private var file: URL?
@@ -17,12 +15,11 @@ public final class WebDevOverrideWatcher {
     private var readTask: Task<Void, Never>?
     private var readRequested = false
 
-    /// Adds `webView`, which a bundled page scheme handler just served, to the reloads. The first
-    /// one starts the watch, so a launch that shows no page reads nothing (the first page loads
-    /// bundled and reloads once the file is read).
-    public func served(_ webView: WKWebView) {
+    /// A page or agent pane scheme handler is serving a view: the first one starts the watch, so a
+    /// launch that shows no page reads nothing (the first page loads bundled and reloads once the
+    /// file is read).
+    public func served() {
         guard WebDevOverride.isEnabled else { return }
-        webViews.add(webView)
         start()
     }
 
@@ -68,7 +65,7 @@ public final class WebDevOverrideWatcher {
         watchManifest(of: value.overlay)
         guard WebDevOverride.update(value) else { return }
         // The same URL again: the scheme handler answers it from where the override now says.
-        for webView in webViews.allObjects where webView.url != nil { webView.reload() }
+        WebBundleServedViews.shared.reloadServed()
     }
 
     /// Follows the overlay's `manifest.json`, which an install writes after its files.
