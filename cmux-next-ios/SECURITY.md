@@ -225,12 +225,36 @@ A phone browser tab streams from a CEF remote browser host the Mac app runs,
   its own random secret (32 bytes, `SecRandomCopyBytes`), passed to hostd on
   stdin and never logged; the host admits only a hello that carries it. The
   host's stdin is its lifeline: it exits when the app quits or stops it.
-- **What it loads.** hostd checks every address before the host sees it: the
-  first page and every `rb.navigate` must be `http://`, `https://` or
-  `about:blank` (`allowed_url`); `file:`, `javascript:`, `data:`, `chrome:` and
-  every other scheme are refused, and the other `rb.*` messages are an
-  allowlist (`browser.rs`). Inside a page, CEF's own rules apply: a web page
-  cannot open `file:` URLs.
+- **What it loads** (`browser_policy.rs`, PROTOCOL.md `browser` "Addresses",
+  2026-10-21). hostd checks the first page, every `rb.navigate` and every page
+  the host reports (`rb.page`) against one policy, the same trust boundary as
+  the `file` previews (#22555, full verify D9):
+  - A page one of the Mac's own browser tabs shows, as the daemon lists it,
+    loads whatever its scheme, `file:` anywhere included: the phone sees what
+    is already on the owner's Mac screen. The check reads the daemon at open
+    time; the phone's claim alone is not enough.
+  - Anything else must be `http(s)`, `about:blank`, `data:`, `blob:`,
+    `view-source:` of `http(s)`, or a `file:` URL whose resolved path (symlinks
+    followed) is inside the folders the `file` service shares: the Chat Folders
+    and the open workspace folders, never home, its parents, or `~/.ssh`,
+    `~/.gnupg`, `~/.aws`, `~/.azure`, `~/.kube`, `~/.docker`, `~/.config`,
+    `~/.password-store`, `~/Library` (`SENSITIVE_HOME_TREES`). A missing file is
+    reported as missing only inside a shared folder, so the answer is no
+    existence oracle for the rest of the disk.
+  - `javascript:` and app schemes (anything that would hand the address to
+    another Mac app) never load, even when the daemon lists one. `chrome:`,
+    `devtools:`, `chrome-extension:` and other internal pages load only when the
+    Mac shows them.
+  - A link clicked inside the page follows the phone's rules: hostd does not
+    forward an `rb.page` the rules refuse and sends the host back. Chromium
+    already refuses a web page's navigation to `file:`, so this matters for a
+    `file:` page linking to another file. Limit: the host has committed the
+    page when hostd sees it, so frames painted before the host goes back can
+    reach the phone; a navigation check inside the host (CEF `OnBeforeBrowse`)
+    would close that gap and needs a new pinned host binary.
+  - The other `rb.*` messages are an allowlist (`browser.rs`). The daemon's
+    `new-browser-tab` and `browser-navigate` (which drive the person's own Mac
+    browser, with its profile) still take only `http(s)` and `about:blank`.
 - **What it can touch.** Its CEF cache lives in a fresh work folder that is
   removed when it exits (`<state>/browser`), separate from the person's own
   cmux browser profiles. It runs as the person, like the app's own CEF.
@@ -250,9 +274,9 @@ A phone browser tab streams from a CEF remote browser host the Mac app runs,
 
 | Rule 2 question | Answer |
 | --- | --- |
-| Executes commands or opens content on local objects? | It renders web pages the phone opens, as the Mac's own browser would. No local file, script URL or app scheme is opened. |
+| Executes commands or opens content on local objects? | It renders pages in an isolated host, as the Mac's own browser would: web pages, and local files only inside the folders the Mac shares with the phone or a page the Mac's own browser already shows. No script URL or app scheme is opened. |
 | Mutates or destroys objects the session does not own? | No: a fresh cache per host, removed on exit; the person's browser profiles are not used. |
-| Reads local state the remote should not see? | Only what a web page sees in a fresh profile: no cookies, history or saved logins of the person. |
+| Reads local state the remote should not see? | Only what a web page sees in a fresh profile (no cookies, history or saved logins of the person), files in the shared folders (the same files the `file` previews read), and pages the Mac already shows. Never home itself, `~/.ssh`, `~/Library` or the other credential trees unless the Mac's own browser has that page open. |
 
 ## Link transport: TURN over TLS, and no backend relay (`feat-cnx-ios-turntls`)
 

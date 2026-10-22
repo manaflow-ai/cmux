@@ -56,7 +56,8 @@ fn fake_daemon(dir: &std::path::Path, browser_url: String) {
                 let mut lines = BufReader::new(read).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
                     let request: serde_json::Value = serde_json::from_str(&line).unwrap();
-                    let mut data = serde_json::json!({"cmd": request["cmd"], "host": request["agent_session"]["host"]});
+                    let mut data =
+                        serde_json::json!({"cmd": request["cmd"], "host": request["agent_session"]["host"]});
                     if request["cmd"] == "list-workspaces" {
                         data["workspaces"] = serde_json::json!([{"screens": [{"panes": [{"tabs": [
                             {"surface": 9, "kind": "browser", "url": browser_url}]}]}]}]);
@@ -261,8 +262,12 @@ async fn close_reason(channel: &mut Channel) -> (String, String) {
 fn phone_rb(body: serde_json::Value) -> Bytes {
     let control = serde_json::json!({"t": "service", "service": "rb/1", "body": body});
     let mut out = Vec::new();
-    cmux_rd_proto::encode_stream_frame(cmux_rd_proto::STREAM_CONTROL, &serde_json::to_vec(&control).unwrap(), &mut out)
-        .unwrap();
+    cmux_rd_proto::encode_stream_frame(
+        cmux_rd_proto::STREAM_CONTROL,
+        &serde_json::to_vec(&control).unwrap(),
+        &mut out,
+    )
+    .unwrap();
     Bytes::from(out)
 }
 
@@ -521,7 +526,10 @@ async fn exercise_services_with(fixture: &Fixture, kind: TransportKind, options:
         ("file:///etc/passwd", Some("This file isn't in a folder this Mac shares with your iPhone.")),
         ("javascript:alert(1)", Some("Scripts can't run from your iPhone's address bar.")),
         ("chrome://settings", Some("Browser settings and internal pages can't open from your iPhone.")),
-        ("zoommtg://zoom.us/join", Some("Links that open other apps on your Mac can't open from your iPhone.")),
+        (
+            "zoommtg://zoom.us/join",
+            Some("Links that open other apps on your Mac can't open from your iPhone."),
+        ),
         ("data:text/html,<h1>hi</h1>", None),
         (shared.as_str(), None),
         ("https://example.org/", None),
@@ -542,8 +550,11 @@ async fn exercise_services_with(fixture: &Fixture, kind: TransportKind, options:
     }
     // A link inside the page follows the same rules: the host's page to an
     // unshared file never reaches the phone, and the host goes back.
-    first.send(phone_rb(serde_json::json!({"t": "rb.find", "query": format!("goto:{not_shared}"),
-        "forward": true, "match_case": false, "next": false}))).await.unwrap();
+    first
+        .send(phone_rb(serde_json::json!({"t": "rb.find", "query": format!("goto:{not_shared}"),
+        "forward": true, "match_case": false, "next": false})))
+        .await
+        .unwrap();
     let body = rd.control(&mut first).await["body"].clone();
     assert_eq!(body["t"], "rb.navigate.refused");
     assert_eq!(body["url"], not_shared.as_str());

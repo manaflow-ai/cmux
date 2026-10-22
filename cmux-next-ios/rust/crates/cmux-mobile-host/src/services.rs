@@ -80,7 +80,7 @@ pub async fn serve(
         "file" => file(&config, &args, &sender).await,
         "upload" => upload(&config, &peer, &args, &sender, receiver).await,
         "version" => version(&config, &sender).await,
-        "browser" => crate::browser::serve(&config.browser, &peer, &args, &sender, receiver).await,
+        "browser" => crate::browser::serve(&config.browser, &*config, &peer, &args, &sender, receiver).await,
         _ => Err(Refusal::new("unknown_service", format!("no service {service}"))),
     };
     match result {
@@ -812,6 +812,56 @@ async fn daemon_folders(config: &ServiceConfig) -> Result<Vec<PathBuf>, Refusal>
     Ok(folders)
 }
 
+/// The address of every browser tab in a `list-workspaces` reply.
+pub fn browser_urls_in(reply: &Value) -> Vec<String> {
+    let data = reply.get("data").unwrap_or(reply);
+    let empty = Vec::new();
+    let list = |value: &Value, key: &str| value.get(key).and_then(Value::as_array).unwrap_or(&empty).clone();
+    let mut urls = Vec::new();
+    for workspace in list(data, "workspaces") {
+        for screen in list(&workspace, "screens") {
+            for pane in list(&screen, "panes") {
+                for tab in list(&pane, "tabs") {
+                    if tab.get("kind").and_then(Value::as_str) == Some("browser")
+                        && let Some(url) = tab.get("url").and_then(Value::as_str)
+                        && !url.is_empty()
+                        && !urls.iter().any(|u| u == url)
+                    {
+                        urls.push(url.to_owned());
+                    }
+                }
+            }
+        }
+    }
+    urls
+}
+
+/// What the Mac shares with phones and what its browser tabs show, for the
+/// `browser` service's address checks (`browser_policy.rs`).
+impl crate::browser_policy::MacPages for ServiceConfig {
+    /// The `file` service's roots: the Chat Folders and the shareable
+    /// workspace folders (none without a home folder or a daemon answer).
+    fn shared_roots(&self) -> futures_util::future::BoxFuture<'_, Vec<PathBuf>> {
+        Box::pin(async move {
+            let Some(home) = std::env::var_os("HOME").filter(|h| !h.is_empty()).map(PathBuf::from) else {
+                return self.file_roots.clone();
+            };
+            let folders = daemon_folders(self).await.unwrap_or_default();
+            shared_file_roots(&self.file_roots, folders, &home)
+        })
+    }
+
+    fn browser_urls(&self) -> futures_util::future::BoxFuture<'_, Vec<String>> {
+        Box::pin(async move {
+            let path = self
+                .default_socket
+                .clone()
+                .unwrap_or_else(|| self.tui_socket_dir.join(format!("{}.sock", self.default_session)));
+            list_workspaces(&path).await.map(|reply| browser_urls_in(&reply)).unwrap_or_default()
+        })
+    }
+}
+
 /// The daemon at `path`'s `list-workspaces` reply (at most 5 s).
 async fn list_workspaces(path: &Path) -> Result<Value, Refusal> {
     daemon_query(path, b"{\"cmd\":\"list-workspaces\",\"id\":\"cmux-mobile-upload\"}\n", "cmux-mobile-upload")
@@ -1108,6 +1158,21 @@ async fn receive_upload(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_macs_browser_tabs_are_listed() {
+        let reply = serde_json::json!({"ok": true, "data": {"workspaces": [{"screens": [{"panes": [
+            {"tabs": [{"surface": 9, "kind": "browser", "url": "file:///Users/me/a%20b.html"},
+                      {"surface": 10, "kind": "pty", "url": "https://not-a-browser.example/", "cwd": "/Users/me"},
+                      {"surface": 11, "kind": "browser", "url": ""}]},
+            {"tabs": [{"surface": 12, "kind": "browser", "url": "https://cmux.com/"},
+                      {"surface": 13, "kind": "browser", "url": "https://cmux.com/"}]}]}]}]}});
+        assert_eq!(
+            browser_urls_in(&reply),
+            vec!["file:///Users/me/a%20b.html".to_owned(), "https://cmux.com/".into()]
+        );
+        assert!(browser_urls_in(&serde_json::json!({"ok": false})).is_empty());
+    }
 
     /// End to end through a fake daemon: the phone's `new-tab` leaves with the pane's
     /// folder; a line that names one, or another command, is untouched.

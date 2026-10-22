@@ -546,7 +546,7 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   per-launch secret. The phone sends only datagrams (input, feedback, clock
   probes), `stop`, and rd `service` messages for `rb/1` whose body `t` is a
   viewer message (`rb.open`, `rb.close`, `rb.visibility`, `rb.screen`,
-  `rb.vsync`, `rb.history`, `rb.navigate` to http, https or `about:blank`,
+  `rb.vsync`, `rb.history`, `rb.navigate` to an allowed address (below),
   `rb.menu.result`, `rb.dialog.result`, `rb.open_tab.result`, `rb.find`,
   `rb.find.stop`); hostd drops anything else. One host per `tab` outlives
   its channel; a new channel for the same tab closes the older with
@@ -556,8 +556,39 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   (2026-10-20; before, `replaced`). The phone opens an evicted tab again when
   it is shown (at its current address), and on a new link it opens only the
   tab on screen, never every tab it holds (transport-verify-20261019.md
-  defect 7). `url` must be http, https or `about:blank` (`forbidden`), and
-  a Mac with no browser host refuses with `unavailable`. Under
+  defect 7). `url` must be an allowed address (below; otherwise the channel
+  closes `forbidden`, `not_found` or `bad_request` with the sentence the phone
+  shows as its reason), and a Mac with no browser host refuses with `unavailable`.
+  **Addresses** (2026-10-21, `browser_policy.rs`):
+  - A page one of the Mac's own browser tabs shows (the daemon's
+    `list-workspaces`), and the address a tab was opened at after that check,
+    always loads, whatever its scheme (`file:` anywhere, `chrome:` pages): the
+    phone views what is already on the Mac's screen. `javascript:` and app
+    schemes never load, even then.
+  - Any other address, typed or followed inside the page: `http(s)`,
+    `about:blank`, `data:`, `blob:`, `view-source:` of `http(s)`, and `file:`
+    (`file:///p`, `file://localhost/p`, percent-decoded) inside the folders the
+    Mac shares with the phone, which are the `file` service's roots (Chat
+    Folders and the shareable workspace folders: never home, its parents or
+    `~/.ssh`, `~/Library` and the other credential trees; symlinks resolved).
+    `javascript:`, `chrome:`, `chrome-extension:`, `devtools:`, other `about:`
+    pages, `file:` elsewhere and every other scheme are refused.
+  - A refused `rb.navigate` never reaches the host: hostd answers the phone
+    with the rb message `{"t":"rb.navigate.refused","url","code","reason"}`
+    (`code`: `file_not_shared`, `file_missing`, `script`, `browser_page`,
+    `app_scheme`, `malformed`; `reason` an English sentence such as "This file
+    isn't in a folder this Mac shares with your iPhone."). The phone shows the
+    reason over the page, in its own words for a known `code`, and the address
+    bar goes back to the page.
+  - hostd checks the host's `rb.page` too: a page the host went to by itself
+    (a link, a redirect, script) that the rules refuse is not forwarded; hostd
+    sends the host `rb.history back` (or `rb.navigate` to the last shown page
+    when there is no history) and the phone gets `rb.navigate.refused`. The
+    frames painted before the host goes back can still reach the phone.
+  - An older hostd refuses every address but http, https and `about:blank`
+    ("only http, https and about:blank load") and drops other `rb.navigate`
+    without an answer. The phone's address bar sends `file:` URLs, Mac paths
+    (`/Users/...` becomes a `file:` URL) and the other schemes as typed. Under
   `CMUX_MOBILE_CONTROL=stdio` the app starts the hosts: hostd writes
   `{"type":"need_browser","request","tab","url"}` and the app answers
   `{"type":"browser","request","addr":"127.0.0.1:PORT","secret"}` or

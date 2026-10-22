@@ -10,8 +10,14 @@
 //! - host to phone: the carrier's bytes, unchanged (video shards, control).
 //! - phone to host: whole stream frames, each checked by [`filter_frame`]:
 //!   datagrams (input, feedback, clock probes) pass, control passes only for
-//!   the rb messages a viewer sends, `rb.navigate` only to web addresses, and
-//!   a second `hello` or bulk bytes never reach the host.
+//!   the rb messages a viewer sends, `rb.navigate` only to an address
+//!   [`crate::browser_policy`] allows (otherwise the phone gets
+//!   `rb.navigate.refused {url, reason}`), and a second `hello` or bulk bytes
+//!   never reach the host.
+//! - The host's `rb.page` is checked the same way, so a link clicked inside
+//!   the page follows the phone's rules: a page that is not allowed is
+//!   taken back (`rb.history back`, or the last allowed page) and the phone
+//!   gets `rb.navigate.refused` instead of its `rb.page`.
 //!
 //! A host outlives its channel, so a phone that comes back (link drop,
 //! transport switch, tab switch) finds the page as it left it. A new channel
@@ -239,14 +245,6 @@ pub fn valid_tab(tab: &str) -> bool {
         && tab.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
 }
 
-/// Addresses a phone may load in a Mac browser tab: the web, and the blank
-/// page. Never `file:`, `chrome:`, `javascript:` or `data:`.
-pub fn allowed_url(url: &str) -> bool {
-    let lower = url.trim().to_ascii_lowercase();
-    (lower.starts_with("https://") || lower.starts_with("http://")) && url.len() <= 8192
-        || lower == "about:blank"
-}
-
 /// The shown state in a phone-to-host control frame (`rb.visibility`), if
 /// it is one.
 pub fn visibility(payload: &[u8]) -> Option<bool> {
@@ -283,6 +281,9 @@ const VIEWER_MESSAGES: &[&str] = &[
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FrameVerdict {
     Forward,
+    /// `rb.navigate` to this address: forwarded only when
+    /// [`crate::browser_policy::check`] allows it.
+    Navigate(String),
     Drop(&'static str),
 }
 
@@ -307,9 +308,11 @@ pub fn filter_frame(kind: u8, payload: &[u8]) -> FrameVerdict {
                     if !VIEWER_MESSAGES.contains(&t) {
                         return FrameVerdict::Drop("rb message a viewer may not send");
                     }
-                    if t == "rb.navigate" && !body.get("url").and_then(Value::as_str).is_some_and(allowed_url)
-                    {
-                        return FrameVerdict::Drop("rb.navigate to an address that is not on the web");
+                    if t == "rb.navigate" {
+                        return match body.get("url").and_then(Value::as_str) {
+                            Some(url) => FrameVerdict::Navigate(url.to_owned()),
+                            None => FrameVerdict::Drop("rb.navigate without an address"),
+                        };
                     }
                     FrameVerdict::Forward
                 }
@@ -342,9 +345,124 @@ pub fn hello_frame(secret: &str, peer: &Peer) -> Vec<u8> {
     out
 }
 
-/// `browser {tab, url?}`: see the module docs.
+/// An rb message hostd itself sends, as one rd stream frame.
+fn rb_frame(body: Value) -> Vec<u8> {
+    let control = serde_json::json!({"t": "service", "service": SERVICE_REMOTE_BROWSER, "body": body});
+    let mut out = Vec::new();
+    let _ = encode_stream_frame(STREAM_CONTROL, &serde_json::to_vec(&control).unwrap_or_default(), &mut out);
+    out
+}
+
+/// `rb.navigate.refused {url, reason}`: what the phone shows for an address
+/// it may not load (PROTOCOL.md `browser`).
+pub fn refused_frame(url: &str, blocked: crate::browser_policy::Blocked) -> Vec<u8> {
+    rb_frame(serde_json::json!({
+        "t": "rb.navigate.refused", "url": url, "code": blocked.wire_code(), "reason": blocked.message(),
+    }))
+}
+
+/// The address and `can_go_back` of a host's `rb.page` control frame.
+pub fn page_url(payload: &[u8]) -> Option<(String, bool)> {
+    let control = serde_json::from_slice::<Value>(payload).ok()?;
+    if control.get("t").and_then(Value::as_str) != Some("service") {
+        return None;
+    }
+    let body = control.get("body")?;
+    if body.get("t").and_then(Value::as_str) != Some("rb.page") {
+        return None;
+    }
+    let url = body.get("url").and_then(Value::as_str)?.to_owned();
+    Some((url, body.get("can_go_back").and_then(Value::as_bool).unwrap_or(false)))
+}
+
+/// Addresses of a tab's own pages kept as approved (its open address, the
+/// phone's allowed navigations), so a page already checked is not checked again.
+const MAX_APPROVED: usize = 32;
+
+/// What a viewer's tab may show, and which page it shows (the guard of
+/// the host's `rb.page`).
+struct PageGuard<'a> {
+    mac: &'a dyn crate::browser_policy::MacPages,
+    /// Pages this tab was allowed to load because the Mac showed them, or
+    /// that passed the phone's rules here.
+    approved: Vec<String>,
+    /// The last page the phone was shown.
+    shown: Option<String>,
+    /// A page the host committed that is not allowed (being taken back).
+    blocked: Option<String>,
+}
+
+impl PageGuard<'_> {
+    fn approve(&mut self, url: &str) {
+        if !self.approved.iter().any(|a| a == url) {
+            if self.approved.len() >= MAX_APPROVED {
+                self.approved.remove(1.min(self.approved.len() - 1));
+            }
+            self.approved.push(url.to_owned());
+        }
+    }
+
+    async fn check(&self, url: &str) -> Result<(), crate::browser_policy::Blocked> {
+        if self.approved.iter().any(|a| a == url) {
+            return Ok(());
+        }
+        crate::browser_policy::check(url, self.mac, &self.approved).await
+    }
+}
+
+/// What the guard does with one host `rb.page`.
+enum PageVerdict {
+    Forward,
+    Swallow,
+    /// Swallow, tell the phone, and send the host these bytes.
+    TakeBack {
+        to_phone: Vec<u8>,
+        to_host: Vec<u8>,
+    },
+}
+
+impl PageGuard<'_> {
+    async fn page(&mut self, url: &str, can_go_back: bool) -> PageVerdict {
+        if url.is_empty() {
+            return PageVerdict::Forward;
+        }
+        // The blocked page's later facts (title, loading) while the host goes back.
+        if self.blocked.as_deref() == Some(url) {
+            return PageVerdict::Swallow;
+        }
+        // The host left it: the same link followed again is taken back again.
+        self.blocked = None;
+        if self.shown.as_deref() == Some(url) {
+            return PageVerdict::Forward;
+        }
+        match self.check(url).await {
+            Ok(()) => {
+                self.shown = Some(url.to_owned());
+                PageVerdict::Forward
+            }
+            Err(blocked) => {
+                tracing::info!(
+                    ?blocked,
+                    "browser: the page went somewhere the phone may not load; taking it back"
+                );
+                self.blocked = Some(url.to_owned());
+                let back = if can_go_back {
+                    serde_json::json!({"t": "rb.history", "op": "back"})
+                } else {
+                    let to = self.shown.clone().unwrap_or_else(|| "about:blank".into());
+                    serde_json::json!({"t": "rb.navigate", "url": to})
+                };
+                PageVerdict::TakeBack { to_phone: refused_frame(url, blocked), to_host: rb_frame(back) }
+            }
+        }
+    }
+}
+
+/// `browser {tab, url?}`: see the module docs. `mac` answers what the Mac
+/// shares and shows ([`crate::browser_policy`]).
 pub async fn serve(
     config: &BrowserConfig,
+    mac: &dyn crate::browser_policy::MacPages,
     peer: &Peer,
     args: &Value,
     sender: &ChannelSender,
@@ -355,10 +473,16 @@ pub async fn serve(
         return Err(Refusal::new("bad_request", "invalid tab"));
     }
     let url = match args.get("url").and_then(Value::as_str).filter(|u| !u.trim().is_empty()) {
-        Some(url) if allowed_url(url) => url.trim().to_owned(),
-        Some(_) => return Err(Refusal::new("forbidden", "only http, https and about:blank load")),
+        Some(url) => {
+            let url = url.trim().to_owned();
+            if let Err(blocked) = crate::browser_policy::check(&url, mac, &[]).await {
+                return Err(Refusal::new(blocked.code(), blocked.message()));
+            }
+            url
+        }
         None => "about:blank".to_owned(),
     };
+    let guard = PageGuard { mac, approved: vec![url.clone()], shown: None, blocked: None };
     let claim = config.claim(tab, &url).await?;
     let viewer = claim.viewer;
     // `video: "track"`: the page's video on the link's media lane (a WebRTC
@@ -371,13 +495,14 @@ pub async fn serve(
     // The phone's tag for this tab's lane frames (cmux_mobile_link::media::tag).
     let video_tag = args.get("video_tag").and_then(Value::as_u64).and_then(|tag| u32::try_from(tag).ok());
     let track = track.map(|video| (video, video_tag));
-    let result = splice(claim, peer, sender, receiver, track).await;
+    let result = splice(claim, guard, peer, sender, receiver, track).await;
     config.release(tab, viewer).await;
     result
 }
 
 async fn splice(
     claim_of_host: Claim,
+    mut guard: PageGuard<'_>,
     peer: &Peer,
     sender: &ChannelSender,
     mut receiver: ChannelReceiver,
@@ -415,7 +540,9 @@ async fn splice(
     // same link takes the lane over; this one then carries its video on
     // the channel again (the host deframer stays, so frames stay whole).
     let mut claim = track.map(|(video, _)| video.claim());
-    let mut host_deframer = claim.as_ref().map(|_| StreamDeframer::default());
+    // Every host frame is read whole: the guard reads the host's `rb.page`,
+    // and track mode takes the video datagrams out.
+    let mut host_deframer = StreamDeframer::default();
     let mut bridge = crate::browser_track::TrackBridge::new();
     let epoch = Instant::now();
     let now_us = || u64::try_from(epoch.elapsed().as_micros()).unwrap_or(u64::MAX);
@@ -463,12 +590,6 @@ async fn splice(
             read = host_read.read(&mut buffer) => match read {
                 Ok(0) | Err(_) => return Ok(()),
                 Ok(n) => {
-                    let Some(host_deframer) = host_deframer.as_mut() else {
-                        if sender.send(Bytes::copy_from_slice(&buffer[..n])).await.is_err() {
-                            return Ok(());
-                        }
-                        continue;
-                    };
                     host_deframer.extend(&buffer[..n]);
                     let mut to_phone = Vec::new();
                     let mut frames = Vec::new();
@@ -482,6 +603,24 @@ async fn splice(
                                     }
                                     _ => {
                                         let _ = encode_stream_frame(STREAM_DATAGRAM, &payload, &mut to_phone);
+                                    }
+                                }
+                            }
+                            Ok(Some((STREAM_CONTROL, payload))) => {
+                                let verdict = match page_url(&payload) {
+                                    Some((url, can_go_back)) => guard.page(&url, can_go_back).await,
+                                    None => PageVerdict::Forward,
+                                };
+                                match verdict {
+                                    PageVerdict::Forward => {
+                                        let _ = encode_stream_frame(STREAM_CONTROL, &payload, &mut to_phone);
+                                    }
+                                    PageVerdict::Swallow => {}
+                                    PageVerdict::TakeBack { to_phone: notice, to_host } => {
+                                        to_phone.extend(notice);
+                                        if host_write.write_all(&to_host).await.is_err() {
+                                            return Ok(());
+                                        }
                                     }
                                 }
                             }
@@ -535,6 +674,20 @@ async fn splice(
                                         }
                                     }
                                 }
+                                FrameVerdict::Navigate(url) => match guard.check(url.trim()).await {
+                                    Ok(()) => {
+                                        // The address as checked (trimmed), not as sent.
+                                        let url = url.trim();
+                                        guard.approve(url);
+                                        out.extend(rb_frame(serde_json::json!({"t": "rb.navigate", "url": url})));
+                                    }
+                                    Err(blocked) => {
+                                        tracing::info!(?blocked, "browser: refused a phone navigation");
+                                        if sender.send(Bytes::from(refused_frame(&url, blocked))).await.is_err() {
+                                            return Ok(());
+                                        }
+                                    }
+                                },
                                 FrameVerdict::Drop(reason) => {
                                     dropped += 1;
                                     if dropped <= 8 {
@@ -799,19 +952,22 @@ mod tests {
         for body in [
             serde_json::json!({"t": "rb.screen", "seq": 1, "screen": {}}),
             serde_json::json!({"t": "rb.history", "op": "back"}),
-            serde_json::json!({"t": "rb.navigate", "url": "https://example.com/a"}),
-            serde_json::json!({"t": "rb.navigate", "url": "about:blank"}),
         ] {
             assert_eq!(filter_frame(STREAM_CONTROL, &rb(body)), FrameVerdict::Forward);
+        }
+        // Every rb.navigate waits for the address check (browser_policy), whatever its scheme.
+        for url in ["https://example.com/a", "about:blank", "file:///etc/passwd", "javascript:alert(1)"] {
+            assert_eq!(
+                filter_frame(STREAM_CONTROL, &rb(serde_json::json!({"t": "rb.navigate", "url": url}))),
+                FrameVerdict::Navigate(url.into())
+            );
         }
         assert_eq!(
             filter_frame(STREAM_CONTROL, &control(serde_json::json!({"t": "stop"}))),
             FrameVerdict::Forward
         );
         for (frame, kind) in [
-            (rb(serde_json::json!({"t": "rb.navigate", "url": "file:///etc/passwd"})), STREAM_CONTROL),
-            (rb(serde_json::json!({"t": "rb.navigate", "url": "javascript:alert(1)"})), STREAM_CONTROL),
-            (rb(serde_json::json!({"t": "rb.navigate", "url": "chrome://settings"})), STREAM_CONTROL),
+            (rb(serde_json::json!({"t": "rb.navigate"})), STREAM_CONTROL),
             (rb(serde_json::json!({"t": "rb.page", "url": "x"})), STREAM_CONTROL),
             (rb(serde_json::json!({"t": "rb.clipboard.push", "seq": 1, "items": []})), STREAM_CONTROL),
             (
@@ -936,12 +1092,79 @@ mod tests {
         assert!(!valid_tab(".x"));
         assert!(!valid_tab(""));
         assert!(!valid_tab("a/b"));
-        assert!(allowed_url("https://example.com"));
-        assert!(allowed_url("HTTP://example.com"));
-        assert!(allowed_url("about:blank"));
-        assert!(!allowed_url("about:config"));
-        assert!(!allowed_url("data:text/html,x"));
-        assert!(!allowed_url("file:///"));
+    }
+
+    struct NoMac;
+    impl crate::browser_policy::MacPages for NoMac {
+        fn shared_roots(&self) -> BoxFuture<'_, Vec<PathBuf>> {
+            Box::pin(async { Vec::new() })
+        }
+        fn browser_urls(&self) -> BoxFuture<'_, Vec<String>> {
+            Box::pin(async { Vec::new() })
+        }
+    }
+
+    fn rb_body(frame: &[u8]) -> Value {
+        let mut deframer = StreamDeframer::default();
+        deframer.extend(frame);
+        let (kind, payload) = deframer.next_frame().unwrap().unwrap();
+        assert_eq!(kind, STREAM_CONTROL);
+        let control: Value = serde_json::from_slice(&payload).unwrap();
+        assert_eq!(control["service"], "rb/1");
+        control["body"].clone()
+    }
+
+    #[tokio::test]
+    async fn a_page_the_phone_may_not_load_is_taken_back() {
+        let mac = NoMac;
+        let mut guard = PageGuard {
+            mac: &mac,
+            approved: vec!["file:///Users/me/opened-by-mac.html".into()],
+            shown: None,
+            blocked: None,
+        };
+        // The page the Mac opened, then the web: shown.
+        assert!(matches!(
+            guard.page("file:///Users/me/opened-by-mac.html", false).await,
+            PageVerdict::Forward
+        ));
+        assert!(matches!(guard.page("https://example.com/", true).await, PageVerdict::Forward));
+        // A link out to a file that is not shared: swallowed, the phone told, the host sent back.
+        let PageVerdict::TakeBack { to_phone, to_host } =
+            guard.page("file:///Users/me/.ssh/id_ed25519", true).await
+        else {
+            panic!("not taken back")
+        };
+        let notice = rb_body(&to_phone);
+        assert_eq!(notice["t"], "rb.navigate.refused");
+        assert_eq!(notice["url"], "file:///Users/me/.ssh/id_ed25519");
+        assert_eq!(notice["reason"], "This file isn't in a folder this Mac shares with your iPhone.");
+        assert_eq!(notice["code"], "file_not_shared");
+        assert_eq!(rb_body(&to_host), serde_json::json!({"t": "rb.history", "op": "back"}));
+        // Its later facts (title, loading) are swallowed too, then the page it went back to shows.
+        assert!(matches!(guard.page("file:///Users/me/.ssh/id_ed25519", true).await, PageVerdict::Swallow));
+        assert!(matches!(guard.page("https://example.com/", true).await, PageVerdict::Forward));
+        // The same link followed again is taken back again, not swallowed.
+        assert!(matches!(
+            guard.page("file:///Users/me/.ssh/id_ed25519", true).await,
+            PageVerdict::TakeBack { .. }
+        ));
+        assert!(matches!(guard.page("https://example.com/", true).await, PageVerdict::Forward));
+        // With no history (the page replaced itself), the host goes to the last shown page.
+        let PageVerdict::TakeBack { to_host, .. } = guard.page("chrome://settings", false).await else {
+            panic!("not taken back")
+        };
+        assert_eq!(rb_body(&to_host), serde_json::json!({"t": "rb.navigate", "url": "https://example.com/"}));
+    }
+
+    #[test]
+    fn host_pages_are_read() {
+        let page =
+            rb(serde_json::json!({"t": "rb.page", "url": "https://a.b/", "title": "", "loading": false,
+                                          "can_go_back": true, "can_go_forward": false}));
+        assert_eq!(page_url(&page), Some(("https://a.b/".into(), true)));
+        assert_eq!(page_url(&rb(serde_json::json!({"t": "rb.title", "url": "x"}))), None);
+        assert_eq!(page_url(b"nope"), None);
     }
 
     #[test]

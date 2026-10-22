@@ -133,6 +133,23 @@ final class SinkBox: @unchecked Sendable {
         #expect(model.phase == .waiting("browser host: exited"))
     }
 
+    /// The Mac's reason for an address it does not open is shown as it is; an older
+    /// Mac's bare scheme list becomes what to do about it.
+    @Test func aForbiddenOpenShowsTheMacsSentence() async {
+        for (message, shown) in [
+            ("This file isn't in a folder this Mac shares with your iPhone.", "This file isn't in a folder this Mac shares with your iPhone."),
+            ("only http, https and about:blank load", "Update cmux on your Mac to open this page on your iPhone."),
+        ] {
+            let model = StreamedBrowserModel(tab: "s4", url: URL(string: "file:///Users/me/x.html")) { _ in
+                throw LinkError(code: "forbidden", message: message)
+            }
+            model.setVisible(true)
+            model.layout(points: CGSize(width: 300, height: 600), screenScale: 2)
+            for _ in 0..<200 where model.phase == .connecting { try? await Task.sleep(for: .milliseconds(5)) }
+            #expect(model.phase == .waiting(shown))
+        }
+    }
+
     /// A Mac with no browser host (this build's code, or an older Mac's words) is an
     /// honest state, never the raw reason.
     @Test func aMacWithoutABrowserHostIsUnavailable() async {

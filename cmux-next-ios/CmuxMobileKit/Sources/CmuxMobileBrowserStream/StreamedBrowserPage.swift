@@ -36,6 +36,8 @@ public struct StreamedBrowserPage: View {
                 }
             } else if model.phase == .connecting {
                 status("Opening on your Mac…")
+            } else if let notice = model.notice {
+                refusal(notice)
             }
             Button {
                 keyboard.toggle()
@@ -97,6 +99,23 @@ public struct StreamedBrowserPage: View {
         .padding(.horizontal, 16).padding(.vertical, 12)
         .glassEffect(.regular, in: .rect(cornerRadius: 18))
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// The Mac did not load an address: why, over the live page, until the next
+    /// navigation or a tap.
+    private func refusal(_ text: String) -> some View {
+        Button { model.dismissNotice() } label: {
+            Label(text, systemImage: "lock")
+                .font(.footnote)
+                .multilineTextAlignment(.leading)
+                .padding(.horizontal, 14).padding(.vertical, 10)
+        }
+        .buttonStyle(.plain)
+        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 16))
+        .padding(.horizontal, 16).padding(.top, 12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .accessibilityIdentifier("browser.refused")
+        .accessibilityHint(Text("Dismisses this message"))
     }
 
     private func status(_ text: String) -> some View {
