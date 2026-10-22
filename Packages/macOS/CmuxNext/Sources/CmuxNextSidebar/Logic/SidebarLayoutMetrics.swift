@@ -99,6 +99,9 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// show no header and no gap between them, and a row of a computer other
     /// than this Mac names it (and a failed connection) on its second line.
     public var flattensMachines = false
+    /// `sidebar.showRemoteGroups`: a remote group keeps its header in one list. Off, its rows join
+    /// the list like any other computer's (remote-groups-per-machine-DESIGN.md R2).
+    public var showsRemoteGroups = true
     /// In one list, the status a computer's rows name after its name when it
     /// cannot connect until the person acts ("Failed to start"; cx-mdo0).
     /// Localized by the model, so the layout stays nonisolated.
