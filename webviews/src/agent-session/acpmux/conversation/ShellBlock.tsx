@@ -86,7 +86,10 @@ export function ShellBlock({
       <PreviewMore preview={preview} />
       {!preview.long && <OutputMore output={shown} />}
       {exitCode !== undefined && exitCode !== 0 && (
-        <div className="cv-shell__exit">{t("shell.exit", { code: exitCode })}</div>
+        // The block's own words, not the output: Find in Chat does not count them (chatFind.ts).
+        <div className="cv-shell__exit" data-find-skip>
+          {t("shell.exit", { code: exitCode })}
+        </div>
       )}
       {footer}
     </div>

@@ -108,7 +108,12 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
       <span className="cv-tool__icon">{toolIcon(tool.kind)}</span>
       <span className="cv-tool__text" data-find-skip={(shell && (open || !drawsCommand)) || undefined}>
         {write ? <WriteLabel tool={tool} write={write} t={t} /> : label}
-        {failure && <span className="cv-tool__failed"> {failureWord(t, failure)}</span>}
+        {failure && (
+          <span className="cv-tool__failed" data-find-skip>
+            {" "}
+            {failureWord(t, failure)}
+          </span>
+        )}
         <InlineFailureCause failure={failure} />
       </span>
       {background ? (

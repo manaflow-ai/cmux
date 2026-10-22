@@ -7,6 +7,7 @@
 // call. Only a failed call is read, and only its first and last few thousand characters.
 import { stripAnsi } from "./toolOutput";
 import { isFailed } from "./toolGroups";
+import { cleanText } from "./mcpCalls";
 import type { AcpmuxActivity } from "../model";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
@@ -38,16 +39,25 @@ const MAX_JSON = 64_000;
 const EXIT_LINE = /^Exit code (-?\d+)[ \t]*(?:\r?\n|$)/;
 /// Claude Code: `PreToolUse:Bash hook error: <reason>`; also `Hook PreToolUse:Bash denied …: <reason>`.
 const HOOK = /^(?:(\w+)(?::[\w.-]+)? hook error|hook (\w+)(?::[\w.-]+)? (?:denied|blocked)[^:\n]*)\s*:\s*/i;
-/// The person declined the call: Claude Code's refusal text, its permission denial, Codex's words.
+/// The person declined the call: Claude Code's refusal text or its permission denial, which is the
+/// whole result of a call that never ran. Anchored, and read only from a result with no exit code,
+/// so a command whose output quotes a denial ("Expected: user declined") still reads as its exit.
 const DENIED =
-  /the user doesn't want to proceed with this tool use|the tool use was rejected|permission to use \S+ (?:has been|was) denied|(?:rejected|declined|denied) by (?:the )?user|user (?:rejected|declined|denied)/i;
+  /^(?:the user doesn't want to proceed with this tool use|the tool use was rejected|permission to use \S+ (?:has been|was) denied|(?:the )?user (?:rejected|declined|denied)\b)/i;
 /// What the person told the agent when they declined (Claude Code: "… the user said:\n<words>").
 const DENIED_SAID = /the user said:\s*([\s\S]+)$/i;
-const TIMED_OUT = /^(?:command )?timed out after .+$/im;
+/// The harness's own timeout line, the result's first or last line (never one in the middle of a log).
+const TIMED_OUT = /^(?:command )?timed out after \S/i;
 const TOOL_USE_ERROR = /<tool_use_error>([\s\S]*?)<\/tool_use_error>/;
 /// A line that names the failure, in a shell's output: the last one is the cause.
 const ERROR_LINE =
-  /\b(?:error|errors|fatal|failed|failure|exception|panic(?:ked)?|denied|not found|no such|cannot|can't|couldn't|could not|unable|refused|invalid|missing|timed out)\b|^E[A-Z]{3,}\b/i;
+  /\b(?:error|errors|fatal|failed|failure|exception|panic(?:ked)?|denied|not found|no such|cannot|can't|couldn't|could not|unable|refused|invalid|missing|timed out)\b/i;
+/// An errno code that starts a line (`ENOENT: …`), in capitals only: "Expected: 3" is not one.
+const ERRNO_LINE = /^E[A-Z]{3,}\b/;
+const namesError = (line: string) => ERROR_LINE.test(line) || ERRNO_LINE.test(line.trim());
+
+/// A line with words in any script (`\w` is ASCII only: "访问被拒绝" has none).
+const WORDS = /[\p{L}\p{N}]/u;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -58,17 +68,16 @@ function oneLine(text: string | undefined): string | undefined {
   const line = text
     .split("\n")
     .map((part) => part.trim())
-    .find((part) => /\w/.test(part));
+    .find((part) => WORDS.test(part));
   if (!line) return undefined;
   const bare = line.replace(/^(?:error|err|fatal)\s*:\s*/i, "").trim() || line;
   return bare.length > MAX_CAUSE ? `${bare.slice(0, MAX_CAUSE - 1)}…` : bare;
 }
 
-/// A shell's cause: its last line that names an error, else its last line with words.
-function shellCause(text: string): string | undefined {
-  const lines = text.split("\n").filter((line) => /\w/.test(line));
-  for (let at = lines.length - 1; at >= 0; at--) if (ERROR_LINE.test(lines[at]!)) return oneLine(lines[at]);
-  return oneLine(lines.at(-1));
+/// A shell's cause: its last line that names an error, else (`fallback`) its last line with words.
+function shellCause(lines: readonly string[], fallback: boolean): string | undefined {
+  for (let at = lines.length - 1; at >= 0; at--) if (namesError(lines[at]!)) return oneLine(lines[at]);
+  return fallback ? oneLine(lines.at(-1)) : undefined;
 }
 
 /// An error a JSON result names: `{"error":"…"}`, `{"error":{"message":"…","code":"…"}}`, an MCP
@@ -96,49 +105,66 @@ function parseJson(text: string): unknown {
   }
 }
 
+/// A result's text as its opened call draws it: no fence around it and no colour codes. A call
+/// that is not a shell also loses the context a host injects into it (`<system-reminder>`), as
+/// ToolRow.tsx's output does.
+function drawn(raw: string, shell: boolean): string {
+  let text = stripAnsi(raw).replace(/\r\n?/g, "\n");
+  // Claude Code's ACP results may put a tool's text in a fence.
+  const fenced = /^\s*```[\w-]*\n([\s\S]*?)\n```\s*$/.exec(text);
+  if (fenced) text = fenced[1]!;
+  return (shell ? text : cleanText(text)).replace(/^(?:[ \t]*\n)+/, "");
+}
+
 /// Why `tool` failed, or undefined when it did not.
 export function toolFailure(tool: Tool): ToolFailure | undefined {
   if (!isFailed(tool)) return undefined;
-  const raw = tool.output ?? "";
-  // A long result is read at its ends only; the cause is in one of them.
-  const clipped = raw.length > HEAD_CHARS + TAIL_CHARS ? `${raw.slice(0, HEAD_CHARS)}\n${raw.slice(-TAIL_CHARS)}` : raw;
-  let text = stripAnsi(clipped).replace(/\r\n?/g, "\n").trim();
-  // Claude Code's ACP results put a tool's text in a fence.
-  const fenced = /^```\w*\n([\s\S]*?)\n```$/.exec(text);
-  if (fenced) text = fenced[1]!.trim();
-
+  const shell = tool.kind === "execute" && Boolean(tool.command);
+  const full = drawn(tool.output ?? "", shell);
   let exitCode = tool.exitCode;
-  let output: string | undefined;
-  const exit = EXIT_LINE.exec(text);
-  if (exit) {
-    exitCode ??= Number(exit[1]);
-    text = text.slice(exit[0].length).trim();
-    // The Shell block says the exit code itself; it draws the output without that line.
-    const whole = EXIT_LINE.exec(raw.replace(/^\s+/, ""));
-    if (whole) output = raw.replace(/^\s+/, "").slice(whole[0].length);
-  }
+  // Claude Code's first line: the Shell block says the exit code itself, so it draws the output
+  // without that line.
+  const exit = EXIT_LINE.exec(full);
+  if (exit) exitCode ??= Number(exit[1]);
+  const body = exit ? full.slice(exit[0].length) : full;
+  const output = exit ? body : undefined;
+  // A JSON result is read whole while small; a long result is read at its ends only, where its
+  // cause is.
+  const json = body.length <= MAX_JSON ? parseJson(body) : undefined;
+  const text = (
+    body.length > HEAD_CHARS + TAIL_CHARS ? `${body.slice(0, HEAD_CHARS)}\n${body.slice(-TAIL_CHARS)}` : body
+  ).trim();
 
-  const json = parseJson(text);
   if (isRecord(json) && json.status === "declined") return { kind: "denied", exitCode, output };
-
   const hook = HOOK.exec(text);
   if (hook) {
     const reason = text.slice(hook[0].length).replace(/^blocked\s*:\s*/i, "");
     return { kind: "hook", hook: hook[1] ?? hook[2], cause: oneLine(reason), exitCode, output };
   }
-  if (DENIED.test(text)) return { kind: "denied", cause: oneLine(DENIED_SAID.exec(text)?.[1]), exitCode, output };
+  if (exitCode === undefined && DENIED.test(text))
+    return { kind: "denied", cause: oneLine(DENIED_SAID.exec(text)?.[1]), exitCode, output };
 
+  const lines = text.split("\n").filter((line) => WORDS.test(line));
   // "timed out" says it all; the row's time (on hover) says how long it ran.
-  if (TIMED_OUT.test(text) || exitCode === 124) return { kind: "timeout", exitCode, output };
+  const timedOut = [lines[0], lines.at(-1)].some((line) => line !== undefined && TIMED_OUT.test(line.trim()));
+  if (timedOut || exitCode === 124) return { kind: "timeout", exitCode, output };
 
   const tagged = TOOL_USE_ERROR.exec(text)?.[1];
+  const said = json === undefined ? undefined : jsonCause(json);
   const cause = tagged
     ? oneLine(tagged)
     : json !== undefined
-      ? oneLine(jsonCause(json))
+      ? oneLine(said && cleanText(said))
       : exitCode !== undefined
-        ? shellCause(text)
+        ? // A call that exited 0 yet failed has no last line to blame: only a line that names an error.
+          shellCause(lines, exitCode !== 0)
         : oneLine(text);
   if (exitCode !== undefined && exitCode !== 0) return { kind: "exit", exitCode, cause, output };
   return { kind: "error", cause, exitCode, output };
+}
+
+/// A shell call's output as its Shell block draws it: without Claude Code's leading "Exit code N"
+/// line, which the block says once at its end. Find in Chat counts this text (chatFind.ts).
+export function shellOutput(tool: Tool): string | undefined {
+  return toolFailure(tool)?.output ?? tool.output;
 }

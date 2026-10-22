@@ -8,6 +8,7 @@ import { ChevronRight, Globe, Magnifier, Pencil, TerminalSquare, ToolGroup } fro
 import { toolRunCategories, toolRunSummary, type ToolRunCategory } from "./toolRunSummary";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { useFold } from "./fold";
+import { isFailed } from "./toolGroups";
 
 /// The summary's glyph: its leading category's, with searches and reads both as the magnifier.
 function runIcon(category: ToolRunCategory | undefined): ReactNode {
@@ -40,6 +41,8 @@ export function ToolRun({
   useFindReveal(items, () => setOpen(true));
   const fold = useFold(open);
   const list = useId();
+  // A folded run says how many of its calls failed, so a failure is never hidden behind its summary.
+  const failures = items.filter((item) => item.tool && isFailed(item.tool)).length;
   return (
     <>
       <button
@@ -52,6 +55,7 @@ export function ToolRun({
         <span className="cv-tool__icon">{runIcon(toolRunCategories(items)[0])}</span>
         <span className="cv-tool__text" data-find-skip>
           {toolRunSummary(t, items)}
+          {failures > 0 && <span className="cv-tool__failed"> {t("tools.failedCount", { n: failures })}</span>}
         </span>
         <ChevronRight
           size={14}

@@ -88,7 +88,9 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
           ) : tool.background ? (
             <BackgroundMark background={tool.background} />
           ) : failure ? (
-            <span className="cv-command__failed">{failureWord(t, failure)}</span>
+            <span className="cv-command__failed" data-find-skip>
+              {failureWord(t, failure)}
+            </span>
           ) : (
             <Check size={14} className="cv-command__ok" />
           )}

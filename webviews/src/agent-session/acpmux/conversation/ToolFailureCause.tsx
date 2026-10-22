@@ -1,11 +1,10 @@
 // A failed tool call's word and cause (toolFailure.ts): the word on the row in the theme's error
 // tone, the cause in the transcript's quiet text where the `tool-error-look` experiment puts it.
 // The cause repeats words of the call's result, so Find in Chat skips it and counts the result.
-import { useState } from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import type { Translate } from "../i18n";
 import { useT } from "../i18n";
-import { copyText } from "./clipboard";
+import { CopyButton } from "./CopyButton";
 import { toolErrorLook } from "./toolError.experiment";
 import type { ToolFailure } from "./toolFailure";
 
@@ -32,7 +31,8 @@ function HookName({ failure }: { failure: ToolFailure }) {
 
 /// The cause on the row itself (the `inline` arm): after the call's words, cut with them.
 export function InlineFailureCause({ failure }: { failure: ToolFailure | undefined }) {
-  if (!failure?.cause || experimentArm(toolErrorLook) !== "inline") return null;
+  if (!failure?.cause) return null;
+  if (experimentArm(toolErrorLook) !== "inline") return null;
   return (
     <span className="cv-tool-error__inline" data-find-skip>
       {" · "}
@@ -44,8 +44,10 @@ export function InlineFailureCause({ failure }: { failure: ToolFailure | undefin
 
 /// The cause under the row: one dim line (`line`), or a small card with Copy error (`card`).
 export function ToolFailureCause({ failure, raw }: { failure: ToolFailure | undefined; raw?: string }) {
+  // A call that did not fail reads no experiment (a localStorage read) on each render.
+  if (!failure?.cause) return null;
   const arm = experimentArm(toolErrorLook);
-  if (!failure?.cause || arm === "inline") return null;
+  if (arm === "inline") return null;
   if (arm === "card") return <FailureCard failure={failure} raw={raw} />;
   return (
     <div className="cv-tool-error" data-failure-kind={failure.kind} data-find-skip>
@@ -57,7 +59,6 @@ export function ToolFailureCause({ failure, raw }: { failure: ToolFailure | unde
 
 function FailureCard({ failure, raw }: { failure: ToolFailure; raw?: string }) {
   const t = useT();
-  const [copied, setCopied] = useState(false);
   return (
     <div className="cv-tool-error-card" data-failure-kind={failure.kind} data-find-skip>
       <span className="cv-tool-error-card__cause">
@@ -65,18 +66,7 @@ function FailureCard({ failure, raw }: { failure: ToolFailure; raw?: string }) {
         {failure.cause}
       </span>
       {raw && (
-        <button
-          type="button"
-          className="cv-tool-error-card__copy"
-          onClick={() =>
-            void copyText(raw).then(
-              () => setCopied(true),
-              () => setCopied(false),
-            )
-          }
-        >
-          {copied ? t("turn.copied") : t("turn.failure.copyError")}
-        </button>
+        <CopyButton text={raw} label={t("turn.failure.copyError")} className="cv-tool-error-card__copy" size={13} />
       )}
     </div>
   );

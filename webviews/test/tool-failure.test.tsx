@@ -6,6 +6,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxActivity } from "../src/agent-session/acpmux/model";
 import { CommandRow } from "../src/agent-session/acpmux/conversation/CommandRow";
 import { ToolRow } from "../src/agent-session/acpmux/conversation/ToolRow";
+import { ToolRun } from "../src/agent-session/acpmux/conversation/ToolRun";
 import { toolFailure } from "../src/agent-session/acpmux/conversation/toolFailure";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
@@ -120,12 +121,12 @@ test("a command row says the word in the error tone and the cause on a quiet lin
   const html = renderToStaticMarkup(
     <CommandRow item={item(call("PreToolUse:Bash hook error: Blocked: needs a review.", { description: "Merge" }))} />,
   );
-  expect(html).toMatch(/class="cv-command__failed">blocked</);
+  expect(html).toMatch(/class="cv-command__failed"[^>]*>blocked</);
   expect(html).toContain('class="cv-tool-error"');
   expect(words(html)).toContain("PreToolUse needs a review.");
   // Claude Code's exit line reads as the row's "Exit 1".
   const exited = renderToStaticMarkup(<CommandRow item={item(call("Exit code 1\nmake: *** [all] Error 2"))} />);
-  expect(exited).toMatch(/class="cv-command__failed">Exit 1</);
+  expect(exited).toMatch(/class="cv-command__failed"[^>]*>Exit 1</);
   expect(words(exited)).toContain("make: *** [all] Error 2");
 });
 
@@ -141,7 +142,7 @@ test("a lone call says denied in red, and a declined call with no words adds no 
       )}
     />,
   );
-  expect(html).toMatch(/class="cv-tool__failed"> denied</);
+  expect(html).toMatch(/class="cv-tool__failed"[^>]*> denied</);
   expect(html).not.toContain("cv-tool-error");
 });
 
@@ -158,5 +159,73 @@ test("the arms put the cause on the row, or in a card with Copy error", () => {
   globalThis.cmuxExperiments = { "tool-error-look": "card" };
   const card = renderToStaticMarkup(<ToolRow item={item(tool)} />);
   expect(card).toContain("cv-tool-error-card");
-  expect(words(card)).toContain("File has not been read yet. Copy error");
+  expect(words(card)).toContain("File has not been read yet.");
+  expect(card).toContain('aria-label="Copy error"');
+});
+
+test("output that only mentions a denial or a timeout still reads as its exit", () => {
+  expect(toolFailure(call("Exit code 1\nOAuth: user denied access\nerror: login failed"))?.kind).toBe("exit");
+  expect(
+    toolFailure(call("Exit code 2\nstep 1\nCommand timed out after 5s (retrying)\nstep 2 ok\nFAIL 1 test")),
+  ).toMatchObject({ kind: "exit", exitCode: 2 });
+});
+
+test("a capitalised word is not an errno code, and a failed call that exited 0 blames no plain line", () => {
+  expect(toolFailure(call("Exit code 1\nerror: 2 tests failed\nExpected: 3\nElapsed 1.2s"))?.cause).toBe(
+    "2 tests failed",
+  );
+  expect(toolFailure(call("ENOENT: no such file\nDone.", { exitCode: 1 }))?.cause).toBe("ENOENT: no such file");
+  expect(toolFailure(call("Done.", { exitCode: 0 }))).toMatchObject({ kind: "error", cause: undefined });
+});
+
+test("a large JSON error is read whole", () => {
+  const big = JSON.stringify({ error: { message: "quota exceeded", data: "x".repeat(20_000) } });
+  expect(toolFailure(call(big))?.cause).toBe("quota exceeded");
+});
+
+test("a folded run says how many of its calls failed", () => {
+  const html = renderToStaticMarkup(
+    <ToolRun items={[item(call("Exit code 1\nboom")), item(call("ok", { status: "completed" }))]} disclosureKey="r">
+      {null}
+    </ToolRun>,
+  );
+  expect(words(html)).toContain("1 failed");
+});
+
+test("a failed test run that quotes a denial is its exit, not a denial", () => {
+  const output = [
+    "Exit code 1",
+    "FAIL permissions.test.ts",
+    'Expected: "user declined"',
+    "AssertionError: expected 403, received 500",
+  ].join("\n");
+  expect(toolFailure(call(output))).toMatchObject({
+    kind: "exit",
+    exitCode: 1,
+    cause: "AssertionError: expected 403, received 500",
+  });
+  expect(toolFailure(call("user denied access to the keychain", { exitCode: 1 }))?.kind).toBe("exit");
+});
+
+test("the cause leaves out the context a host injects, as the opened call does", () => {
+  const injected = "<system-reminder>ambient UI state</system-reminder>\nError: server unavailable";
+  expect(toolFailure(call(injected, { kind: "fetch", command: undefined }))?.cause).toBe("server unavailable");
+  const mcp = JSON.stringify({ content: [{ type: "text", text: injected }], isError: true });
+  expect(toolFailure(call(mcp, { title: "mcp__mail__read", kind: "other", command: undefined }))?.cause).toBe(
+    "server unavailable",
+  );
+});
+
+test("a cause in any script keeps its words", () => {
+  expect(toolFailure(call('{"error":"访问被拒绝"}', { command: undefined, kind: "other" }))?.cause).toBe("访问被拒绝");
+  expect(toolFailure(call("PreToolUse:Bash hook error: Blocked: 请先运行测试"))).toMatchObject({
+    kind: "hook",
+    cause: "请先运行测试",
+  });
+  expect(toolFailure(call("Exit code 1\nОшибка: файл не найден"))?.cause).toBe("Ошибка: файл не найден");
+});
+
+test("a fenced result loses its exit line too, so the Shell block says it once", () => {
+  const failure = toolFailure(call("```\nExit code 1\nbuild failed\n```"));
+  expect(failure).toMatchObject({ kind: "exit", exitCode: 1, output: "build failed" });
 });
