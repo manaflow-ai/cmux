@@ -44865,6 +44865,25 @@ export default {
             request["id"] = UUID().uuidString
         }
 
+        let sendsAttention = classification.notifiesNativeApprovalPrompt
+            || classification.clearsNativeApprovalPrompt
+        if isOrderedCodexProgress && sendsAttention {
+            // A Codex PostToolUse rides the ordered lane below, but it is
+            // still the exact-request clear for a native approval prompt.
+            // Deliver that awaited, live-identity resolution first, as the
+            // one-way branch does, so the ordered frame never replaces it.
+            deliverNativeApprovalPromptAttention(
+                classification: classification,
+                source: source,
+                toolName: toolName,
+                eventDict: eventDict,
+                env: env,
+                client: client,
+                socketPath: socketPath,
+                socketPassword: socketPassword
+            )
+        }
+
         if waitTimeout == 0 && !shouldAwaitTelemetryIngestion && !isOrderedCodexProgress {
             let line = try ControlRequestLine.encode(request)
             // Codex-style agents block in their own approval UI while this
@@ -44885,8 +44904,6 @@ export default {
             // (`hooks codex notification`) has always had. Fencing clears by
             // origin time is a cross-layer protocol change deliberately out
             // of scope here.
-            let sendsAttention = classification.notifiesNativeApprovalPrompt
-                || classification.clearsNativeApprovalPrompt
             if sendsAttention {
                 deliverNativeApprovalPromptAttention(
                     classification: classification,
