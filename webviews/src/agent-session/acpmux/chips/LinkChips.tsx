@@ -13,6 +13,7 @@
 import { useState, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { callChipHost } from "./host";
+import { useImageShown } from "./imageShown";
 import { useMessageScope } from "./messageScope";
 import { FileDoc, Folder, GitHubMark, Globe, Lock } from "../conversation/icons";
 import { usePathInfo, useSiteInfo } from "./linkStore";
@@ -29,9 +30,22 @@ export function PathChip({ path, label, written: text }: { path: string; label?:
   // In another agent's message, a name the card wrote out in full draws as the agent wrote it; a
   // link keeps its own label.
   const written = (text === undefined ? undefined : scope?.written?.get(text)) ?? text;
+  // An image whose thumbnail shows under the message: its mention is a quiet link, not a second chip.
+  const pictured = useImageShown(scope?.pictured?.has(path) ? path : undefined);
   if (isDeniedPath(path)) return <span className="cv-chip-plain">{written ?? label ?? path}</span>;
   // Another machine's file: never asked about or opened here (chips/messageScope.ts).
   if (scope?.host !== undefined) return <ElsewhereChip path={path} host={scope.host} label={label} />;
+  if (pictured)
+    return (
+      <button
+        type="button"
+        className="cv-link is-image-mention"
+        data-path={path}
+        onClick={() => void callChipHost("link.openPath", { path })}
+      >
+        {label ?? pathName(path)}
+      </button>
+    );
   return <HostPathChip path={path} label={label} written={written} message={scope !== null} />;
 }
 

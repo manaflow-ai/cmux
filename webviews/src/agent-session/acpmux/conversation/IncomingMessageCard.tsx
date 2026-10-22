@@ -107,13 +107,16 @@ export function IncomingMessageLine({
   const repository = githubRepository ?? mentionedRepository(text);
   const files = useMemo(() => messageFiles(text, place?.cwd), [text, place?.cwd]);
   const body = useMemo(() => dedupeReferences(files.text, repository), [files.text, repository]);
-  const scope = useMemo<MessageScope>(
-    () => (host === undefined ? { written: files.written } : { host, written: files.written }),
-    [host, files.written],
-  );
   // Its screenshots, under the text where the six-line cut never hides them; none for another
   // machine's files, which this Mac cannot read.
   const pictures = useMemo(() => (host === undefined ? messageImages(body) : []), [body, host]);
+  const scope = useMemo<MessageScope>(
+    () =>
+      host === undefined
+        ? { written: files.written, pictured: new Set(pictures.map((item) => item.src)) }
+        : { host, written: files.written },
+    [host, files.written, pictures],
+  );
   // Whether the text runs past `RECEIVED_LINES`, measured as drawn (its width and font decide).
   const textBox = useRef<HTMLDivElement>(null);
   const [long, setLong] = useState(false);

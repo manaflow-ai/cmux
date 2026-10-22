@@ -2161,6 +2161,16 @@ button.cv-received__name:focus-visible {
   height: 100px;
   margin: 0;
 }
+/* A screenshot's mention in a message whose thumbnail shows under it: a quiet link that opens the
+   file, so the picture is the one card (chips/imageShown.ts). */
+.cv-link.is-image-mention {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--cv-text);
+  cursor: pointer;
+}
 /* A commit SHA in a message: quiet monospace, a link to its commit when its repository is known. */
 .cv-sha {
   font-family: var(--cv-code-font, var(--cv-mono));

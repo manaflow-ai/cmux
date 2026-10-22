@@ -14,6 +14,9 @@ export type MessageScope = {
   /// What the agent wrote for each file name the card wrote out in full (messageFiles.ts), keyed by
   /// the full path as written out: a chip that draws as text shows the agent's own spelling.
   written?: ReadonlyMap<string, string>;
+  /// The images drawn as thumbnails under the message's text: a mention of one in the text is a
+  /// quiet link once its thumbnail shows (chips/imageShown.ts).
+  pictured?: ReadonlySet<string>;
 };
 
 export const MessageScopeContext = createContext<MessageScope | null>(null);

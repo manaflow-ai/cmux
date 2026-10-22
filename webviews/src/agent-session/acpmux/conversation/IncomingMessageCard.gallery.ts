@@ -45,6 +45,32 @@ const FILES_HOST: ChipHostFixture = {
   },
   policy: { outsideRoots: "open", remoteImages: "click" },
 };
+// Leo's case (2026-10-21: "will things properly render yet?" ... "why is there those 2 cards???"):
+// a lane names two screenshots in /tmp on the Mac the app runs on, by their full paths, between
+// its own words. Each draws once, as a thumbnail under the text; its mention is a quiet link.
+const MENU_SHOTS = "/tmp/composer-look/model-menu";
+const menuShots = [
+  "[composer-look] Model-menu after-shots (the PR opens next), on studio-mac:",
+  `${MENU_SHOTS}/after-claude-model-menu.png (4 models, Opus 5.5 listed once, "Effort Medium ›", "Fast mode Off") and`,
+  `${MENU_SHOTS}/after-claude-effort-up.png (the Effort submenu opens upward). I asked for the Account row back and`,
+  'checked the glass is legible. Also open in review: #24151 (model button fix-forward) and #24182 (the queue fold\'s "shoots back up" scroll).',
+].join(" ");
+const MENU_HOST: ChipHostFixture = {
+  paths: {
+    [`${MENU_SHOTS}/after-claude-model-menu.png`]: { place: "outside", folder: false },
+    [`${MENU_SHOTS}/after-claude-effort-up.png`]: { place: "outside", folder: false },
+  },
+  images: {
+    [`${MENU_SHOTS}/after-claude-model-menu.png`]: svg(sampleDiagram()),
+    [`${MENU_SHOTS}/after-claude-effort-up.png`]: svg(sampleChart()),
+  },
+  policy: { outsideRoots: "open", remoteImages: "click" },
+};
+const openShots: Play = async (ctx) => {
+  for (const toggle of ctx.document.querySelectorAll<HTMLButtonElement>(".cv-received__toggle")) toggle.click();
+  await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-received__pics img").length >= 2);
+  await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-received__body .is-image-mention").length >= 2);
+};
 const openAll: Play = async (ctx) => {
   for (const toggle of ctx.document.querySelectorAll<HTMLButtonElement>(".cv-received__toggle")) toggle.click();
   await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-received__body").length >= 2);
@@ -248,7 +274,7 @@ export default agentPaneEntry({
       ]),
     },
     files: {
-      note: "A lane's report, opened: its \"[name]\" signature is out, #23825 written twice is one chip, the SHAs are quiet monospace, and every screenshot it names (a full path, then bare names in its folder) is a chip that opens it and a thumbnail; outside the chat's folders, with no lock.",
+      note: "A lane's report, opened: its \"[name]\" signature is out, #23825 written twice is one chip, the SHAs are quiet monospace, and every screenshot it names (a full path, then bare names in its folder) is a thumbnail under the text and a quiet link that opens it; outside the chat's folders, with no lock.",
       chipHost: FILES_HOST,
       snapshot: chat([
         user("Ask the lanes for their reports", 9),
@@ -258,6 +284,17 @@ export default agentPaneEntry({
         user(adopted, 5, { incoming: message("coord-deputy", adopted, undefined, "deputy-1"), untyped: true }),
       ]),
       play: openAll,
+    },
+    screenshots: {
+      note: "A lane names two screenshots on this Mac by their full paths: each draws once, as a thumbnail under the text, and its mention in the text is a quiet link that opens the file. Neither is a second card.",
+      chipHost: MENU_HOST,
+      snapshot: chat([
+        user("Show me the model menu after the fix", 9),
+        assistant("Asked composer-look.", 8.5),
+        summary(8.5, { status: "completed" }),
+        user(menuShots, 6, { incoming: message("composer-look", menuShots, undefined, "lane-2"), untyped: true }),
+      ]),
+      play: openShots,
     },
     "files-elsewhere": {
       note: "The same report relayed from another machine: its files are that machine's, so each is a chip with a lock and no thumbnail, never this Mac's file of the same path.",

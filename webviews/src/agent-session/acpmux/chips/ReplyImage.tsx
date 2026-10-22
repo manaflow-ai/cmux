@@ -16,6 +16,7 @@ import { ImageIcon, Lock } from "../conversation/icons";
 import { ImageViewerContext } from "../conversation/imageViewerContext";
 import { callChipHost } from "./host";
 import { DataUrlCache, IMAGE_CACHE_MAX_CHARS, IMAGE_CACHE_MAX_ENTRIES } from "./imageCache";
+import { markImageShown } from "./imageShown";
 import { ElsewhereChip } from "./LinkChips";
 import { useMessageScope } from "./messageScope";
 import { usePathInfo, useReplyPolicy } from "./linkStore";
@@ -65,6 +66,7 @@ function useImageLoad(src: string, auto: boolean) {
         if (byClick) clicked.set(src, data);
         else loaded.set(src, data);
         setState({ kind: "shown", src: data });
+        markImageShown(src);
       } else {
         started.delete(src);
         setState({ kind: "failed" });
