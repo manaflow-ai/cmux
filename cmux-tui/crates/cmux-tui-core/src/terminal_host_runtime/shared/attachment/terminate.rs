@@ -3,6 +3,7 @@
 //! for the durable exit receipt.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 impl HostAttachment {
     /// Ask the host to end without a receipt: a Terminate with request
@@ -20,7 +21,7 @@ impl HostAttachment {
             // The connection is no longer used for commands. A write-half
             // shutdown orders EOF after the complete frame, preventing an
             // immediate Surface drop from discarding a legacy request.
-            self.writer.lock().unwrap().shutdown(std::net::Shutdown::Write)?;
+            self.writer.lock().recover_poison().shutdown(std::net::Shutdown::Write)?;
             return Ok(());
         }
 
@@ -45,7 +46,7 @@ impl HostAttachment {
         request.version = self.protocol_version;
         request.request_id = request_id;
         {
-            let mut writer = self.writer.lock().unwrap();
+            let mut writer = self.writer.lock().recover_poison();
             write_frame(&mut *writer, &request).map_err(protocol_io_error)?;
         }
 
