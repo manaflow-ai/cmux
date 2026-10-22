@@ -69,6 +69,32 @@ fn invalid() -> Error {
 }
 
 impl super::Transport for Network {
+    fn native_post(&self, origin: &str, path: &str, body: &Value) -> Result<Option<Value>> {
+        let response = self
+            .http
+            .post(format!("{origin}{path}"))
+            .json(body)
+            .send()
+            .map_err(|_| unavailable())?;
+        if response.status() == reqwest::StatusCode::NOT_FOUND {
+            return Ok(None);
+        }
+        if !response.status().is_success() {
+            return Err(if response.status().is_client_error() {
+                Error::rejected("server.pair.network_refused")
+            } else {
+                unavailable()
+            });
+        }
+        // Policy may contain the full bounded peer map. Enrollment frames keep
+        // their smaller independent limit; no account header is attached here.
+        let mut bytes = Vec::new();
+        response.take(65_537).read_to_end(&mut bytes).map_err(|_| unavailable())?;
+        if bytes.len() > 65_536 {
+            return Err(invalid());
+        }
+        serde_json::from_slice(&bytes).map(Some).map_err(|_| invalid())
+    }
     fn health(&self, api: &str) -> Result<Value> {
         self.json(self.http.get(format!("{api}/v1/health")))
     }

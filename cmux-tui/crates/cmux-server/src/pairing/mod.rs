@@ -5,6 +5,7 @@ mod credentials;
 mod identity;
 pub(crate) mod info;
 pub(crate) mod messages;
+mod native;
 mod network;
 mod protect;
 
@@ -29,6 +30,13 @@ pub trait Transport {
     fn health(&self, api: &str) -> Result<Value>;
     fn begin(&self, api: &str, body: &Value) -> Result<Value>;
     fn wait(&self, api: &str, begun: &Begun) -> Result<Waited>;
+    fn now_ms(&self) -> u64 {
+        crate::host::now_ms()
+    }
+    /// None means HTTP 404 only. Other refusals and operational failures stay distinct.
+    fn native_post(&self, _origin: &str, _path: &str, _body: &Value) -> Result<Option<Value>> {
+        Err(Error::unreachable("server.pair.network_unavailable"))
+    }
 }
 
 /// Canonical HTTPS origin only: no path, userinfo, query or fragment.
@@ -50,6 +58,12 @@ pub fn api_origin(input: &str) -> Result<String> {
 /// Read-only, including when there is no server install or identity file.
 pub fn status(path: &Path) -> Result<Value> {
     let record = identity::read(path)?;
+    if let Some(record) = &record
+        && record.paired.is_some()
+        && record.native.is_some()
+    {
+        return native::public_result(record);
+    }
     let state = match record {
         Some(record) => match (record.paired, record.attempt) {
             (Some(paired), _) => EnrollmentStatus::Paired(paired),
@@ -102,8 +116,8 @@ pub fn enroll(
     let key = identity.signing_key()?;
     let thumbprint = enrollment::jwk_thumbprint(&identity.public_jwk)
         .map_err(|_| Error::verification("server.pair.invalid_identity"))?;
-    if let Some(paired) = &identity.paired {
-        return public_result(paired);
+    if identity.paired.is_some() {
+        return native::finish(&mut identity, &store, transport);
     }
     if let Some(attempt) = &identity.attempt {
         let active = if attempt.response.is_some() {
@@ -188,6 +202,20 @@ pub fn enroll(
     }
     progress(&public_progress)?;
     match transport.wait(&api, &begun)? {
+        Waited::NetworkPaired { paired, grant } => {
+            paired.validate().map_err(|_| Error::verification("server.pair.invalid_result"))?;
+            if api_origin(grant.origin())? != grant.origin()
+                || !grant.matches_keys(&identity.public_jwk, &identity.wg_public()?)
+            {
+                return Err(Error::verification("server.pair.invalid_network_identity"));
+            }
+            identity.paired = Some(paired);
+            identity.attempt = None;
+            identity.save_native(&grant, transport.now_ms())?;
+            native::validate(&identity)?;
+            store.save(&identity)?;
+            native::finish(&mut identity, &store, transport)
+        }
         Waited::Paired(paired) => {
             paired.validate().map_err(|_| Error::verification("server.pair.invalid_result"))?;
             identity.paired = Some(paired.clone());
