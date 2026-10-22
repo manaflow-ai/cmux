@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 extension AcpmuxEnvironment {
     /// This daemon's host budget verdict (`host_pressure` of `_acpmux/status`,
