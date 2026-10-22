@@ -9,10 +9,30 @@ import Testing
 /// the signed `notes/flags.json` next to the feed lists `pr-N` switches to turn off; nothing else
 /// does. A missing, unsigned or mis-signed document turns nothing off, so a PR's change ships.
 @MainActor @Suite(.serialized) struct KillSwitchesTests {
-    /// A notes server that answers the files it holds; `offline` answers nothing.
+    /// Holds requests until released.
+    actor Gate {
+        private var isOpen = false
+        private var waiters: [CheckedContinuation<Void, Never>] = []
+
+        func wait() async {
+            guard !isOpen else { return }
+            await withCheckedContinuation { waiters.append($0) }
+        }
+
+        func release() {
+            isOpen = true
+            waiters.forEach { $0.resume() }
+            waiters = []
+        }
+    }
+
+    /// A notes server that answers the files it holds; `offline` answers nothing; `gate` holds requests.
     actor Network: AppcastFetching {
         var files: [String: Data]
         var offline = false
+        var gate: Gate?
+
+        func hold(_ gate: Gate) { self.gate = gate }
 
         init(files: [String: Data]) { self.files = files }
 
@@ -22,6 +42,7 @@ import Testing
         }
 
         func fetch(_ url: URL) async throws -> Data {
+            await gate?.wait()
             guard !offline, let data = files[url.lastPathComponent] else { throw URLError(.fileDoesNotExist) }
             return data
         }
@@ -138,6 +159,30 @@ import Testing
         fixture.tearDown()
         await reader.read()?.value
         #expect(switches.off.isEmpty)
+    }
+
+    @Test func aReadForAnotherRingRunsAfterTheOneInFlightAndOnlyItsListApplies() async throws {
+        let fixture = Fixture()
+        defer { fixture.tearDown() }
+        let network = Network(files: try fixture.served(#"""
+        {"version":1,"default":{"DisabledFeatures":["pr-1"]},"cohorts":{"dev":{"DisabledFeatures":["pr-2"]}}}
+        """#))
+        let gate = Gate()
+        await network.hold(gate)
+        let switches = KillSwitches()
+        let (updater, reader) = try Self.reader(store: try fixture.store(network), switches: switches)
+        defer { withExtendedLifetime(updater) {} }
+        let nightly = try #require(reader.read())
+        updater.follow(ring: "dev")
+        // The dev read waits for the nightly one instead of fetching beside it.
+        let joined = try #require(reader.read())
+        #expect(joined == nightly)
+        await gate.release()
+        await nightly.value
+        // The nightly list is not the ring's any more: nothing of it applies.
+        #expect(!switches.isOff("pr-1"))
+        await reader.read()?.value
+        #expect(switches.off == ["pr-2"])
     }
 
     @Test func killSwitchReadsTheSharedSwitches() {

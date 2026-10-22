@@ -41,12 +41,42 @@ SURFACES = {
 }
 NOT_CALL_SITES = re.compile(r"(\.test\.tsx?|/test/|/tests/|Tests/)")
 KEY = re.compile(r"^pr-([1-9][0-9]*)$")
-CALL = re.compile(r"(?<![\w.])killSwitch\s*\(([^)]*)\)")
+CALL = re.compile(r"(?<![\w$])killSwitch\s*\(([^)]*)\)")
 LITERAL = re.compile(r'^"(pr-[1-9][0-9]*)"$')
 DEFINITION = re.compile(r"\b(func|function|const|let|export)\s+killSwitch\b")
-COMMENT = re.compile(r"^\s*(//|/\*|\*)")
 DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 MAX_DAYS = 90
+
+
+def masked(text: str) -> str:
+    """`text` with comments blanked and string contents replaced by `x`, at the same offsets, so a
+    call is found only in code and its literal argument is read back from `text`."""
+    out = list(text)
+    i, n = 0, len(text)
+    while i < n:
+        if text.startswith("//", i):
+            end = text.find("\n", i)
+            end = n if end < 0 else end
+            out[i:end] = " " * (end - i)
+            i = end
+        elif text.startswith("/*", i):
+            end = text.find("*/", i + 2)
+            end = n if end < 0 else end + 2
+            out[i:end] = ["\n" if c == "\n" else " " for c in text[i:end]]
+            i = end
+        elif text[i] in "\"'`":
+            quote = '"""' if text.startswith('"""', i) else text[i]
+            j = i + len(quote)
+            # Only `"""` and template strings span lines: a stray apostrophe (JSX text) masks one line at most.
+            single_line = quote in ('"', "'")
+            while j < n and not text.startswith(quote, j) and not (single_line and text[j] == "\n"):
+                j += 2 if text[j] == "\\" else 1
+            end = min(j, n)
+            out[i + len(quote):end] = ["\n" if c == "\n" else "x" for c in text[i + len(quote):end]]
+            i = end + (len(quote) if text.startswith(quote, end) else 0)
+        else:
+            i += 1
+    return "".join(out)
 
 
 def check_registry(switches: object, today: datetime.date, errors: list[str]) -> dict:
@@ -99,12 +129,12 @@ def call_sites(root: Path, errors: list[str]) -> dict[str, dict[str, list[str]]]
                 continue
             if "killSwitch" not in text:
                 continue
-            # Comments and the definition are not call sites; blank them, keeping line numbers.
-            code = "\n".join("" if COMMENT.match(line) or DEFINITION.search(line) else line
-                              for line in text.split("\n"))
+            # Comments, strings and the definition are not call sites.
+            code = "\n".join("" if DEFINITION.search(line) else line for line in masked(text).split("\n"))
             for call in CALL.finditer(code):
                 number = code.count("\n", 0, call.start()) + 1
-                literal = LITERAL.match(call.group(1).strip())
+                argument = text[call.start(1):call.end(1)]
+                literal = LITERAL.match(argument.strip())
                 if not literal:
                     errors.append(f"{rel}:{number}: not a literal: killSwitch takes \"pr-<N>\"")
                     continue

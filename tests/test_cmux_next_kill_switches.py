@@ -118,6 +118,18 @@ class KillSwitchLintTest(unittest.TestCase):
         done = self.run_lint({"pr-23456": entry()}, files)
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
 
+    def test_comments_and_strings_are_not_call_sites_and_qualified_calls_are(self):
+        files = {SWIFT: 'let a = killSwitch("pr-23456") // killSwitch("pr-23456") again\n'
+                        'let s = "killSwitch(\\"pr-23456\\")" /* killSwitch(x) */\n'}
+        done = self.run_lint({"pr-23456": entry()}, files)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        # A comment alone does not keep an entry alive.
+        files = {SWIFT: 'let a = 1 // killSwitch("pr-23456")\n'}
+        self.assert_fails(self.run_lint({"pr-23456": entry()}, files), "pr-23456: no killSwitch")
+        # A module-qualified call is a call site.
+        files = {SWIFT: 'if CmuxNextCompat.killSwitch("pr-23456") { old() }\n'}
+        self.assert_fails(self.run_lint({}, files), f"{SWIFT}:1: pr-23456 is not in")
+
     def test_the_definition_comments_and_tests_are_not_call_sites(self):
         files = {
             "Packages/macOS/CmuxNext/Sources/CmuxNextCompat/KillSwitches.swift":

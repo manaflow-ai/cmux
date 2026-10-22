@@ -10,8 +10,9 @@ public import Foundation
 /// ``follow()`` reads at once, then whenever the ring moves or a check leaves the checking phase:
 /// one observation of the updater (no timer, no poll). The app's reader is owned by ``app``
 /// (``start(updater:)``); ``stop()``, or starting a new one, cancels its observation, which also
-/// ends at its next wake after the reader or the updater is gone. A read already in flight for the
-/// same ring is joined; a newer read wins over an older one.
+/// ends at its next wake after the reader or the updater is gone. One read runs at a time, so
+/// fetches and cache writes never overlap: a read asked for the same ring joins it, one for
+/// another ring runs after it, and a read whose ring moved meanwhile applies nothing.
 @MainActor
 public final class KillSwitchReader {
     private weak var updater: UpdaterService?
@@ -19,8 +20,8 @@ public final class KillSwitchReader {
     private let store: @MainActor (UpdaterService) -> ReleaseNotesStore?
     private var observation: Task<Void, Never>?
     private var reading: (cohort: String, task: Task<Void, Never>)?
-    /// Counts reads: only the newest one applies its list or clears ``reading``.
-    private var generation = 0
+    /// A read for another ring was asked while ``reading`` ran: it runs next.
+    private var readsAgain = false
 
     /// The app's reader, set by ``start(updater:)``.
     public private(set) static var app: KillSwitchReader?
@@ -73,19 +74,24 @@ public final class KillSwitchReader {
     func read() -> Task<Void, Never>? {
         guard let updater else { return nil }
         let cohort = updater.ring.rawValue
-        if let reading, reading.cohort == cohort { return reading.task }
-        generation += 1
-        let mine = generation
+        if let reading {
+            if reading.cohort != cohort { readsAgain = true }
+            return reading.task
+        }
         let store = store(updater)
         let switches = switches
         let task = Task { [weak self] in
             let off = await store?.flags()?.off(cohort: cohort) ?? []
-            // A newer read (the ring moved meanwhile, even back again) owns the result.
-            guard let self, generation == mine else { return }
+            guard let self else { return }
             reading = nil
-            guard off != switches.off else { return }
-            switches.replace(off: off)
-            self.updater?.log.append("kill switches off: \(off.isEmpty ? "none" : off.sorted().joined(separator: ", "))")
+            if self.updater?.ring.rawValue == cohort, off != switches.off {
+                switches.replace(off: off)
+                self.updater?.log.append("kill switches off: \(off.isEmpty ? "none" : off.sorted().joined(separator: ", "))")
+            }
+            if readsAgain {
+                readsAgain = false
+                read()
+            }
         }
         reading = (cohort, task)
         return task
