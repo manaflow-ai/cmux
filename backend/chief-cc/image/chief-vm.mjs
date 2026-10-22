@@ -14,13 +14,22 @@
 //   chief-vm pause ID | start ID | stop ID          (pause keeps memory; stop powers off, the disk stays)
 //   chief-vm exec ID [--timeout S] [--user root|chief] [--env K=V]... [--stdin FILE|-] -- COMMAND...
 //                                                   (bash -lc; prints stdout and stderr, exits with its code)
+//   chief-vm fs ls|stat|exists|mkdir|rm ID PATH     (reads work while paused, without waking it)
+//   chief-vm fs cat ID PATH                         (prints the file)
+//   chief-vm fs put ID LOCAL REMOTE                 (any size: chunked, resumable upload, sha256-checked)
+//   chief-vm fs get ID REMOTE LOCAL                 (any size: ranged reads)
+//   chief-vm snapshot ID [--name TEXT] [--ttl-seconds N]   (memory and disk; kept 7 days by default)
+//   chief-vm snapshots | snapshot-get SNAP | snapshot-rename SNAP NAME | snapshot-delete SNAP
+//   chief-vm fork ID [SIZE] [SETTINGS]              (a snapshot, then a new sandbox from it)
+//   chief-vm create --snapshot SNAP                 (start from one of your snapshots)
 //   chief-vm delete ID
 //
 //   SIZE: --cpu N --memory-gb N --disk-gb N (grow only; the disk starts at the image's size)
 //   SETTINGS: --name TEXT --meta K=V (repeatable) --idle-seconds N --ttl-seconds N
-import { readFileSync } from "node:fs"
+import { createHash } from "node:crypto"
+import { closeSync, openSync, readFileSync, readSync, statSync, writeSync } from "node:fs"
 
-const USAGE = `usage: chief-vm list | get ID | cap | create [SIZE] [SETTINGS] [--image ubuntu|chief] [--snapshot freestyle/NAME] | update ID SETTINGS | resize ID SIZE | pause ID | start ID | stop ID | exec ID [--timeout S] [--user root|chief] [--env K=V]... [--stdin FILE|-] -- COMMAND... | delete ID
+const USAGE = `usage: chief-vm list | get ID | cap | create [SIZE] [SETTINGS] [--image ubuntu|chief] [--snapshot freestyle/NAME] | update ID SETTINGS | resize ID SIZE | pause ID | start ID | stop ID | exec ID [--timeout S] [--user root|chief] [--env K=V]... [--stdin FILE|-] -- COMMAND... | fs ls|stat|exists|mkdir|rm|cat ID PATH | fs put ID LOCAL REMOTE | fs get ID REMOTE LOCAL | snapshot ID [--name T] [--ttl-seconds N] | snapshots | snapshot-get SNAP | snapshot-rename SNAP NAME | snapshot-delete SNAP | fork ID [SIZE] [SETTINGS] | delete ID
   SIZE: --cpu N --memory-gb N --disk-gb N    SETTINGS: --name TEXT --meta K=V --idle-seconds N --ttl-seconds N`
 const fail = (msg, code = 1) => [console.error(`chief-vm: ${msg}`), process.exit(code)]
 const call = async (body) => {
@@ -90,7 +99,9 @@ if (verb === "list" || verb === undefined) {
   const want = flags(rest.slice(1), { size: true })
   if (Object.keys(want).length === 0) fail(USAGE, 2)
   const j = await call({ action: "resize", id: idOf(rest), ...want })
-  console.log(`${j.id}\t${size(j.resources)}\t${cost(j.cost)}${j.df ? `\ndf: ${j.df}` : ""}`)
+  console.log(`${j.id}\t${size(j.resources)}\t${cost(j.cost)}`)
+  if (j.guest) console.log(`guest sees: ${j.guest.nproc} CPUs, ${j.guest.memory_mb} MiB memory; ${j.guest.df}`)
+  else if (j.df) console.log(`df: ${j.df}`)
 } else if (verb === "pause" || verb === "start" || verb === "stop") {
   const j = await call({ action: verb, id: idOf(rest) })
   console.log(`${j.id}\t${j.state}\t${cost(j.cost)}`)
@@ -120,4 +131,62 @@ if (verb === "list" || verb === undefined) {
   process.stdout.write(j.stdout ?? "")
   process.stderr.write(j.stderr ?? "")
   process.exit(typeof j.exit === "number" ? j.exit : 1)
+} else if (verb === "fs") {
+  const [op, id, a, b2] = rest
+  if (!op || !id || !a) fail(USAGE, 2)
+  const fsc = (o, more) => call({ action: "fs", id, op: o, ...more })
+  if (["ls", "stat", "exists", "mkdir", "rm"].includes(op)) {
+    const j = await fsc(op, { path: a })
+    if (op === "ls") for (const e of j.entries ?? []) console.log(`${e.kind === "directory" ? `${e.name}/` : e.name}`)
+    else if (op === "exists") [console.log(j.exists ? "yes" : "no"), process.exit(j.exists ? 0 : 1)]
+    else if (op === "stat") console.log(JSON.stringify(j))
+    else console.log(`${op === "rm" ? "removed" : "made"} ${a}`)
+  } else if (op === "cat" || op === "get") {
+    if (op === "get" && !b2) fail(USAGE, 2)
+    const fd = op === "get" ? openSync(b2, "w") : 1
+    let offset = 0
+    for (;;) {
+      const j = await fsc("read", { path: a, offset })
+      const bytes = Buffer.from(j.data ?? "", "base64")
+      if (bytes.length) writeSync(fd, bytes)
+      offset += bytes.length
+      if (j.eof || bytes.length === 0) break
+    }
+    if (op === "get") [closeSync(fd), console.log(`${a} -> ${b2} (${offset} bytes)`)]
+  } else if (op === "put") {
+    if (!b2) fail(USAGE, 2)
+    const size = statSync(a).size
+    const sha256 = createHash("sha256").update(readFileSync(a)).digest("hex")
+    const begun = await fsc("upload_begin", { path: b2, size, sha256 })
+    const upload_id = begun.upload?.uploadId ?? begun.upload?.id
+    const chunk = begun.chunk ?? 131072
+    const fd = openSync(a, "r")
+    const buf = Buffer.alloc(chunk)
+    for (let offset = 0; offset < size; ) {
+      const n = readSync(fd, buf, 0, chunk, offset)
+      await fsc("upload_chunk", { upload_id, offset, data: buf.subarray(0, n).toString("base64") })
+      offset += n
+    }
+    closeSync(fd)
+    await fsc("upload_commit", { upload_id })
+    console.log(`${a} -> ${b2} (${size} bytes, sha256 ${sha256.slice(0, 12)})`)
+  } else fail(USAGE, 2)
+} else if (verb === "snapshot") {
+  const want = flags(rest.slice(1), { settings: true })
+  const j = await call({ action: "snapshot", id: idOf(rest), ...(want.name ? { name: want.name } : {}), ...(want.ttl_seconds ? { ttl_seconds: want.ttl_seconds } : {}) })
+  console.log(`${j.snapshot.id}\t${j.snapshot.name ?? ""}\tof ${j.snapshot.source}, kept ${Math.round(j.snapshot.ttl_seconds / 86400)} d`)
+} else if (verb === "snapshots") {
+  const j = await call({ action: "snapshots" })
+  if (j.snapshots.length === 0) console.log("no snapshots (chief-vm snapshot ID)")
+  for (const x of j.snapshots) console.log(`${x.id}\t${x.display_name ?? ""}\tof ${x.source}\tmade ${new Date(x.created_at).toISOString()}`)
+} else if (verb === "snapshot-get" || verb === "snapshot-delete") {
+  const j = await call({ action: verb.replace("-", "_"), snapshot: idOf(rest) })
+  console.log(verb === "snapshot-get" ? JSON.stringify(j.snapshot) : `deleted ${j.deleted}`)
+} else if (verb === "snapshot-rename") {
+  if (!rest[1]) fail(USAGE, 2)
+  console.log(JSON.stringify((await call({ action: "snapshot_rename", snapshot: idOf(rest), name: rest[1] })).snapshot))
+} else if (verb === "fork") {
+  const j = await call({ action: "fork", id: idOf(rest), ...flags(rest.slice(1), { size: true, settings: true }) })
+  console.log(`${j.vm.id}\t${j.vm.name}\tforked from ${j.forked_from} (snapshot ${j.snapshot})`)
+  console.log(`size: ${size(j.resources)}; ${cost(j.cost)}`)
 } else fail(USAGE, 2)
