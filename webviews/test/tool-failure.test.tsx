@@ -71,11 +71,15 @@ test("Codex's own exit code wins, with the error line of its output", () => {
 test("a declined call is denied, with what the person said when they said something", () => {
   expect(
     toolFailure(
-      call("The user doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit…"),
+      call(
+        "The user doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit…",
+      ),
     ),
   ).toMatchObject({ kind: "denied", cause: undefined });
   expect(
-    toolFailure(call("The user doesn't want to proceed with this tool use. the user said:\nuse the staging db instead")),
+    toolFailure(
+      call("The user doesn't want to proceed with this tool use. the user said:\nuse the staging db instead"),
+    ),
   ).toMatchObject({ kind: "denied", cause: "use the staging db instead" });
   expect(toolFailure(call('{"duration_ms": null, "exit_code": null, "status": "declined"}'))?.kind).toBe("denied");
   // A shell's own "Permission denied" is not the person declining.
@@ -83,11 +87,9 @@ test("a declined call is denied, with what the person said when they said someth
 });
 
 test("a timeout says so in its word alone", () => {
-  expect(toolFailure(call("Exit code 143\nCommand timed out after 2m 0s"))).toMatchObject({
-    kind: "timeout",
-    exitCode: 143,
-    cause: undefined,
-  });
+  const failure = toolFailure(call("Exit code 143\nCommand timed out after 2m 0s"));
+  expect(failure).toMatchObject({ kind: "timeout", exitCode: 143 });
+  expect(failure?.cause).toBeUndefined();
 });
 
 test("envelopes give their message: tool_use_error tags, JSON errors, MCP isError results", () => {
@@ -131,7 +133,11 @@ test("a lone call says denied in red, and a declined call with no words adds no 
   const html = renderToStaticMarkup(
     <ToolRow
       item={item(
-        call("The user doesn't want to proceed with this tool use.", { title: "Edit a.ts", kind: "edit", command: undefined }),
+        call("The user doesn't want to proceed with this tool use.", {
+          title: "Edit a.ts",
+          kind: "edit",
+          command: undefined,
+        }),
       )}
     />,
   );

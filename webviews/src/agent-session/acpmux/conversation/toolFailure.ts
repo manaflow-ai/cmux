@@ -101,8 +101,7 @@ export function toolFailure(tool: Tool): ToolFailure | undefined {
   if (!isFailed(tool)) return undefined;
   const raw = tool.output ?? "";
   // A long result is read at its ends only; the cause is in one of them.
-  const clipped =
-    raw.length > HEAD_CHARS + TAIL_CHARS ? `${raw.slice(0, HEAD_CHARS)}\n${raw.slice(-TAIL_CHARS)}` : raw;
+  const clipped = raw.length > HEAD_CHARS + TAIL_CHARS ? `${raw.slice(0, HEAD_CHARS)}\n${raw.slice(-TAIL_CHARS)}` : raw;
   let text = stripAnsi(clipped).replace(/\r\n?/g, "\n").trim();
   // Claude Code's ACP results put a tool's text in a fence.
   const fenced = /^```\w*\n([\s\S]*?)\n```$/.exec(text);

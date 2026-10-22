@@ -1916,7 +1916,8 @@ pre.cv-math-source {
 }
 .cv-tool-error__hook {
   margin-right: 6px;
-  font: 11.5px/18px var(--cv-mono);
+  font-family: var(--cv-mono);
+  font-size: var(--text-caption);
   color: var(--cv-text-muted);
 }
 .cv-tool-error__inline {

@@ -191,5 +191,5 @@ export default agentPaneEntry({
       play: openTraceback,
     },
   },
-  experiment: { definition: toolErrorLook },
+  experiment: { definition: toolErrorLook, script: [{ name: "open the traceback", run: openTraceback }] },
 });
