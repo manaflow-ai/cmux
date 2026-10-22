@@ -94,6 +94,11 @@ final class SidebarGroupLineViews {
         leavingViews.removeAll()
     }
 
+    /// Puts each shown line exactly on its frame (`RowMotion.land`: the spring stops near it, not on it).
+    func land() {
+        for line in lines { views[line.group]?.frame = line.frame }
+    }
+
     /// A line's zero-height start: its top edge, under the header bar.
     private static func top(of frame: CGRect) -> CGRect {
         CGRect(x: frame.minX, y: frame.minY, width: frame.width, height: 0)

@@ -3,7 +3,7 @@
 // the prompt's text (an adopted Claude session's history, `client: "adopt"`). incomingMessage.ts
 // reads them.
 import { expect, test } from "bun:test";
-import { incomingPrompt, messagePreview, renderedReply } from "./incomingMessage";
+import { incomingPrompt, messagePreview, renderedReply, unsigned } from "./incomingMessage";
 
 const adopted = { client: "adopt" };
 
@@ -47,6 +47,11 @@ test("agent_message provenance names the sending chat", () => {
   // Without a name the address stands in.
   const unnamed = incomingPrompt("hi", { _meta: { provenance: { ...provenance, fromName: undefined } } });
   expect(unnamed?.kind === "message" && unnamed.message.name).toBe("acp:child-3");
+  // Relayed from another machine: its files are that machine's, whatever provenance it carries.
+  for (const kind of ["agent_message", "session_message"]) {
+    const relayed = incomingPrompt("hi", { _meta: { provenance: { ...provenance, kind } }, client: "acpmux-peer#air" });
+    expect(relayed?.kind === "message" && relayed.message.remote).toBe(true);
+  }
 });
 
 test("only a chat's address opens; a terminal agent or a person at a shell does not", () => {
@@ -305,9 +310,11 @@ test("another session's prompt to this one is that session's message, and opens 
 test("`acpmux send` from a shell is the message of the agent named first in brackets", () => {
   const sent = "[coord-deputy] Merged #1";
   for (const client of ["acpmux-cli#a1b2c3", "acpmux-peer#huge-blue"]) {
+    // One relayed from another machine says so: the files it names are that machine's.
+    const remote = client.startsWith("acpmux-peer#") ? { remote: true as const } : {};
     expect(incomingPrompt(sent, { client })).toEqual({
       kind: "message",
-      message: { name: "coord-deputy", text: "Merged #1", raw: sent },
+      message: { name: "coord-deputy", ...remote, text: "Merged #1", raw: sent },
     });
   }
   // The body may start on the next line and run over several.
@@ -330,12 +337,79 @@ test("`acpmux send` from a shell is the message of the agent named first in brac
     "[coord-deputy]",
   ])
     expect(incomingPrompt(text, { client: "acpmux-cli#a1b2c3" })).toBeUndefined();
-  // Provenance, when the record has it, names the sender instead.
+  // Provenance, when the record has it, gives the sending chat to open; the agent's own name first
+  // still names it.
   const provenance = { kind: "session_message", from: "lane-7", fromName: "app-store-features", to: "coordinator-1" };
   expect(incomingPrompt(sent, { _meta: { provenance }, client: "acpmux-cli#a1b2c3" })).toEqual({
     kind: "message",
-    message: { name: "app-store-features", sessionId: "lane-7", text: sent, raw: sent },
+    message: { name: "coord-deputy", sessionId: "lane-7", text: "Merged #1", raw: sent },
   });
+});
+
+// Each way another agent's message reaches a chat, signed by the agent first in brackets or after
+// "From": the signature names the chip and leaves the message's text, on every path.
+test("an agent's signature names its message on every path, and leaves the text", () => {
+  // `acpmux send` run in the sending chat: session_message provenance keeps that chat to open.
+  const session = { kind: "session_message", from: "acp:deputy-2", fromName: "deputy-2", to: "acp:parent" };
+  const laned = "[land-and-ci-c9] Not idle. #22674 is in the merge queue.";
+  expect(incomingPrompt(laned, { _meta: { provenance: session }, client: "acpmux-cli#a1b2c3" })).toEqual({
+    kind: "message",
+    message: {
+      name: "land-and-ci-c9",
+      sessionId: "deputy-2",
+      text: "Not idle. #22674 is in the merge queue.",
+      raw: laned,
+    },
+  });
+  // A sub-session family's message keeps who it is to this chat.
+  const family = { ...session, kind: "subsession_message", fromRole: "parent" };
+  const fromCoord = "From claude-sr2: still live in the nightly.";
+  expect(incomingPrompt(fromCoord, { _meta: { provenance: family } })).toEqual({
+    kind: "message",
+    message: {
+      name: "claude-sr2",
+      sessionId: "deputy-2",
+      relation: "parent",
+      text: "still live in the nightly.",
+      raw: fromCoord,
+    },
+  });
+  // SendMessage from another Claude session: Claude Code's envelope after its line about it.
+  const envelope = `Another Claude session sent a message:\n<cross-session-message from="uds:/tmp/a.sock" from-name="Leo's chat">\nFrom claude-sr2: merge it.\n</cross-session-message>${NOTE}`;
+  expect(incomingPrompt(envelope, adopted)).toEqual({
+    kind: "message",
+    message: { name: "claude-sr2", text: "merge it.", raw: envelope },
+  });
+  // A relay from a peer machine: no provenance, the signature is all that names the sender.
+  for (const [relayed, name, text] of [
+    ["[lane-x] Rebased on #23838.", "lane-x", "Rebased on #23838."],
+    ["From claude-sr2. Leo, furious, on nightly 3a63d6d.", "claude-sr2", "Leo, furious, on nightly 3a63d6d."],
+  ] as const)
+    expect(incomingPrompt(relayed, { client: "acpmux-peer#huge-blue" })).toEqual({
+      kind: "message",
+      message: { name, remote: true, text, raw: relayed },
+    });
+  // `cmux agent message`: the rendered body's signature.
+  const delivered = rendered("[coord-deputy] Merged #23727.");
+  expect(incomingPrompt(delivered, { _meta: { provenance } })).toEqual({
+    kind: "message",
+    message: {
+      name: "coord-deputy",
+      sessionId: "child-3",
+      msgId: "m-1",
+      threadId: "t-1",
+      text: "Merged #23727.",
+      raw: delivered,
+    },
+  });
+  // Not a signature: "From" before words that are no agent's name, and a tag in brackets.
+  for (const text of ["From now on: run the tests first.", "From Monday: the queue is frozen."])
+    expect(incomingPrompt(text, { client: "acpmux-cli#a1b2c3" })).toBeUndefined();
+  for (const text of ["[WIP] stuff", "[1/3] part one", "[P1] fix it", "From now on: keep going."])
+    expect(incomingPrompt(text, { _meta: { provenance: session } })).toEqual({
+      kind: "message",
+      message: { name: "deputy-2", sessionId: "deputy-2", text, raw: text },
+    });
 });
 
 // Agent messages that waited for a busy chat go in as one turn (acpmux hub/digest.rs): the card
@@ -345,9 +419,10 @@ test("an agent_digest is one card from its senders", () => {
   const digest = (...from: string[]) => ({
     _meta: { provenance: { kind: "agent_digest", messages: from.map((f, i) => ({ promptId: `p${i}`, from: f })) } },
   });
+  // One message in it is just its text, without acpmux's lines around it.
   expect(incomingPrompt(text, digest("lane-a", "lane-b", "lane-a"))).toEqual({
     kind: "message",
-    message: { name: "lane-a, lane-b", text, raw: text },
+    message: { name: "lane-a, lane-b", text: "hi", raw: text },
   });
   expect(incomingPrompt(text, digest("a", "b", "c", "d", "e"))).toMatchObject({ message: { name: "a, b, c +2" } });
   // No sender named: the person's prompt, as before.
@@ -425,4 +500,63 @@ test("a message's closed line previews its first line of text, its spaces collap
   expect(messagePreview("## **Merged** `#23727`")).toBe("Merged #23727");
   expect(messagePreview("- [x] landed")).toBe("landed");
   expect(messagePreview("x".repeat(400))).toHaveLength(240);
+});
+
+// Leo 2026-10-21: "[agent-message-style] MERGED #23825 …" still showed its signature. The build he
+// ran (nightly, 17:41) predates #23950, which takes the signature out on every path; these keep
+// every path doing so, and cover the ones #23950 left: a turn of several agents' messages, a
+// signature that names the sending chat in capitals or with spaces, and a record read as it was.
+test("the lane's own signature leaves its message on every path, history included", () => {
+  const sent = "[agent-message-style] MERGED #23825 (4c656ea8) manaflow-ai/cmux#23825";
+  const body = "MERGED #23825 (4c656ea8) manaflow-ai/cmux#23825";
+  const session = { kind: "session_message", from: "acp:lane-1", fromName: "agent-message-style", to: "acp:sr2" };
+  for (const msg of [
+    { _meta: { provenance: session }, client: "acpmux-cli#a1" },
+    { _meta: { provenance: { ...session, kind: "subsession_message", fromRole: "subsession" } } },
+    { client: "acpmux-cli#a1" },
+    { client: "acpmux-peer#air-blue" },
+  ]) {
+    const read = incomingPrompt(sent, msg);
+    expect(read?.kind === "message" && [read.message.name, read.message.text]).toEqual(["agent-message-style", body]);
+  }
+  const delivered = rendered(sent);
+  const read = incomingPrompt(delivered, { _meta: { provenance: { ...provenance, fromName: "agent-message-style" } } });
+  expect(read?.kind === "message" && read.message.text).toBe(body);
+});
+
+test("a signature that names the sending chat is one in any case or spacing", () => {
+  const session = { kind: "session_message", from: "acp:c-3", fromName: "Grid fix", to: "acp:p" };
+  expect(incomingPrompt("[Grid Fix] Tests pass.", { _meta: { provenance: session } })).toEqual({
+    kind: "message",
+    message: { name: "Grid Fix", sessionId: "c-3", text: "Tests pass.", raw: "[Grid Fix] Tests pass." },
+  });
+  // A tag that is not the chat's name stays text.
+  expect(incomingPrompt("[WIP] Tests pass.", { _meta: { provenance: session } })).toMatchObject({
+    message: { name: "Grid fix", text: "[WIP] Tests pass." },
+  });
+});
+
+test("a turn of several agents' messages shows each under its sender, signatures out", () => {
+  const text = [
+    "2 messages from other agents arrived while you were busy. Each follows as it was sent, oldest first.",
+    "",
+    "[agent message 1 of 2] from lane-a",
+    "[lane-a] Merged #1",
+    "",
+    "",
+    "[agent message 2 of 2] from lane-b",
+    "From lane-b: tests pass",
+  ].join("\n");
+  const msg = { _meta: { provenance: { kind: "agent_digest", messages: [{ from: "lane-a" }, { from: "lane-b" }] } } };
+  expect(incomingPrompt(text, msg)).toMatchObject({
+    message: { name: "lane-a, lane-b", text: "**lane-a**\nMerged #1\n\n**lane-b**\ntests pass" },
+  });
+});
+
+test("a card drops a signature naming its sender that a record still has", () => {
+  expect(unsigned("[agent-message-style] MERGED", "agent-message-style")).toBe("MERGED");
+  expect(unsigned("[huge-blue/agent-message-style] MERGED", "agent-message-style")).toBe("MERGED");
+  expect(unsigned("From claude-sr2: hi", "claude-sr2")).toBe("hi");
+  expect(unsigned("[WIP] MERGED", "agent-message-style")).toBe("[WIP] MERGED");
+  expect(unsigned("[lane-b] MERGED", "lane-a")).toBe("[lane-b] MERGED");
 });

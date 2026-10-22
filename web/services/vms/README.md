@@ -29,6 +29,8 @@ db/
 - `/api/vm/:id`, authenticated `DELETE` destroy.
 - `/api/vm/:id/exec`, authenticated `POST` command execution.
 - `/api/vm/:id/attach-endpoint`, authenticated `POST` PTY/RPC attach lease minting.
+- `/api/vm/:id/idle-pause`, authenticated `PUT {minutes}`: the machine's idle auto-pause
+  (15, 30, 60 or 120 minutes, or `0`/`"off"`; see [Idle auto-pause](#idle-auto-pause)).
 - `/api/vm/:id/huge-blue-inspection`, authenticated read-only `GET` (see
   [Huge Blue inspection](#huge-blue-inspection)).
 - `/api/vm/tunnel`, authenticated `POST` WireGuard tunnel enrollment for the calling
@@ -509,16 +511,23 @@ The dev Postgres port is `CMUX_PORT + 10000`, so `CMUX_PORT=10180` maps to `loca
 | `cmux vm new --detach` | yes |
 | `cmux vm attach <id>` | yes |
 | `cmux vm ssh <id>` | yes (cmux-remote alias) |
-| `cmux vm ssh-info <id>` | no (managed API has no SSH credential endpoint) |
+| `cmux vm ssh-info <id>` | no (no web route; agents use the cmux-vm Worker's client sessions) |
 | `cmux vm exec <id> -- ...` | yes |
 | `cmux vm ls / rm` | yes |
 | snapshot / restore | yes |
 
 `cmux vm ssh <id>` is the user-facing interactive alias and opens the same managed workspace path
 as `cmux vm attach <id>`. Freestyle's provider SSH proxy is available outside cmux's managed
-session protocol, but the managed API does not mint or expose its scoped identities. This keeps
-workspace, tab, terminal, and revision state on one authoritative cmux-tui path. Therefore
-`cmux vm ssh-info <id>` and `POST /api/vm/:id/ssh-endpoint` stay unsupported.
+session protocol. The Freestyle driver can mint a scoped identity for it (`openSSH`): a new
+Freestyle identity granted only that VM as the work user `cmux`, with one access token
+(freestyle.sh/docs/vms/client-sessions), never the team key. The identity id is the opaque
+`identityHandle`; destroy, lease revocation and sign-out delete it through
+`revokeSSHIdentity`. SSH is still not an advertised transport (`attachTransports` is
+`cmux-remote` only), so workspace, tab, terminal, and revision state stay on one authoritative
+cmux-tui path, and `cmux vm ssh-info <id>` / `POST /api/vm/:id/ssh-endpoint` have no web route.
+Cloud agents get per-VM provider tokens from the cmux-vm Worker instead
+(`POST /v1/vms/{vmId}/client-session`, workers/cmux-vm/README.md "Agent keys and client
+sessions").
 
 ## Capabilities: the client-visible provider contract
 
@@ -562,6 +571,14 @@ one Rust facade (`cmux-tui/crates/cmux-cloud-cli`). The facade forwards the comp
 CodeRouter argument list to the official Rust core and local/peer commands to the
 guest adapter, which uses the machine's cmux-tui daemon. `cmux coderouter` and
 `cmux cr` use the same CodeRouter implementation as the top-level aliases.
+
+`cmux sandbox create|list|exec|token|delete|whoami` (`guestSandboxCli.ts`) runs a cloud
+agent's own throwaway VMs through the cmux VM API with the agent key it was given
+(`CMUX_AGENT_KEY`, else `CMUX_AGENT_CONFIG` or `~/.config/cmux/agent.json`, which must be
+mode 0600). The key reaches only the VMs it created, within its VM count and USD/h
+budget; the service deletes them when the key expires or is revoked. The same verbs ship
+as the standalone `cmux-sandbox` script (`GUEST_SANDBOX_STANDALONE`) for agent hosts
+without this adapter; the hq cloud-subagents pool tool installs it with each key.
 
 The facade and CodeRouter core are one checksum-pinned archive described by
 `guestCliDistribution.json`. Create and attach heal this distribution separately
@@ -613,6 +630,52 @@ persistent boxes rather than provider-idle workers. A user-open operation probes
 provider state even when the control-plane row still says `running`, resumes a paused/stopped
 machine, and only then mints its attach or port endpoint. Machines created before this policy
 are migrated when they are resumed: any finite legacy idle timeout is cleared best-effort.
+
+### Idle auto-pause
+
+Freestyle's idle timer stays off (it counts only network and exec traffic, so it would pause
+a machine whose agent is mid-turn and quiet). The server pauses idle machines instead
+(`services/vms/idlePause.ts`, `idlePauseJob.ts`):
+
+- The `vm-idle-pause` cron runs every 5 minutes. On each running Freestyle machine it runs one
+  read-only probe as root through the provider exec: the session daemon's `subscribe-activity`
+  snapshot, acpmux's session list (read as the daemon user, only when its daemon already runs),
+  and `/proc` (each pseudo-terminal's foreground process group, sshd session processes,
+  established TCP connections into the machine's private address or into sshd, and the busy CPU
+  time in `/proc/stat`). A run checks at most 500 machines, least recently checked first
+  (`cmuxIdleProbedAt`), so a large fleet rotates. With more running machines than about two
+  runs can check, a machine is checked less often than every 12 minutes, its idle stretch never
+  carries and it never pauses; the cron logs a warning when a run hits the 500 cap or runs long.
+- A machine whose row has no private address (`networkIpv4`/`networkIpv6`) is not probed: the
+  app's link into it would be invisible, so it is unknown.
+- A machine is idle only when there is no attached client, no live agent or acpmux session with
+  a turn or a pending permission, no terminal running a command (anything but a shell at its
+  prompt is a command: a build, a hand-started server, vim, an agent CLI), no ssh session, no
+  inbound connection on its private address, and CPU use since the previous probe below
+  `VM_IDLE_CPU_BUSY_CORES` (0.05 cores; a `nohup make`, a container or a systemd unit doing work
+  is over it). A CPU counter that went back (a reboot) restarts the idle stretch; a probe or a
+  stored observation without a CPU sample gives no CPU verdict. Anything the probe cannot read
+  is unknown, and unknown never pauses.
+- Work that is quiet on CPU, has no terminal and only talks outbound counts as idle and gets
+  paused: a `nohup` bot holding a websocket open, a long `curl` download, or `claude -p` started
+  through exec outside acpmux. Run such work in a terminal (a foreground command keeps the
+  machine awake) or set the machine's idle pause to Off.
+- A person's exec, files or attach call (`execVm`, the file workflows, `openAttachEndpoint`,
+  `openVmCmuxRemote`) records its time on the row (`cmuxLastApiActivityAt`, at most once a minute,
+  without touching `updated_at`). The cron's own probe and the resource sampler call the provider
+  directly and record nothing.
+- It pauses once every probe for the whole timeout said idle and the activity times (a person's
+  input, an agent action, an acpmux session change, the last API call) are as old, through the
+  same `pauseVm` path as the Pause Machine action, with `pauseReason: "idle"`. Just before the
+  pause the cron re-reads the row and skips the pause if it changed (an attach, a resume, an
+  exec) since it was read.
+- Every pause, resume or other status write drops the stored idle observation, so a resumed
+  machine starts a new stretch and gets the whole timeout again.
+- The timeout is per machine (`PUT /api/vm/:id/idle-pause`; `idlePauseMinutes` in the list and
+  detail): 15, 30, 60 or 120 minutes, or 0 for Off. A machine that never chose one gets
+  `VM_IDLE_PAUSE_DEFAULT_MINUTES` (30; 0 turns the default off).
+- `pauseReason` is `"idle"` or `"user"` on a paused machine the control plane paused, else
+  null. Opening a paused machine resumes it, as above.
 
 There is no HTTP ingress proxy to arbitrary VM ports on the public platform (a TLS edge rule
 needs a customer-verified domain), so the daemon is reached directly at a VM address.

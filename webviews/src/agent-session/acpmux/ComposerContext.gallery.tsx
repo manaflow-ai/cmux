@@ -135,6 +135,40 @@ const repoProjects: Project[] = [
   { cwd: "/Users/you/src/notes", label: "notes" },
 ];
 
+// Leo's New Tab list on nightly 331e2e9 (2026-10-21): the main clone and the lane mirror's worktrees
+// (one GitHub repository, two Git folders), chat folders the host read nothing for, `.noindex` scratch
+// and the home folder. It shows cmux once, its clones and lanes as branches, and no scratch.
+const leoMirror = (branch: string) => ({
+  root: "/Users/you/Projects/.wt-mirrors/manaflow-ai/cmux.git",
+  top: `/Users/you/Projects/checkouts/cmux/${branch}`,
+  name: "cmux",
+  branch,
+  github: "manaflow-ai/cmux",
+});
+const laneCheckouts: Project[] = [
+  { cwd: "/Users/you/Projects", label: "Projects" },
+  { cwd: "/Users/you/Projects/cmux", label: "cmux", repo: { ...cmuxRepo("main"), root: "/Users/you/Projects/cmux" } },
+  {
+    cwd: "/Users/you/Projects/checkouts/cmux/lane-host-fg",
+    label: "lane-host-fg",
+    repo: leoMirror("lane-host-fg"),
+  },
+  {
+    cwd: "/Users/you/Projects/leo-workspace",
+    label: "leo-workspace",
+    repo: { root: "/Users/you/Projects/leo-workspace", name: "leo-workspace", branch: "main" },
+  },
+  { cwd: "/Users/you/Projects/checkouts/cmux/queued-agent-from", label: "queued-agent-from" },
+  { cwd: "/Users/you/Projects/cmux-live-block.noindex", label: "cmux-live-block.noindex" },
+  { cwd: "/Users/you/Projects/cmux-steer-folds.noindex", label: "cmux-steer-folds.noindex" },
+  {
+    cwd: "/Users/you/Projects/checkouts/cmux/cg-queue--collapsed-queue",
+    label: "cg-queue--collapsed-queue",
+    repo: leoMirror("cg-queue/collapsed-queue"),
+  },
+  { cwd: "/Users/you", label: "~" },
+];
+
 const repoProps = {
   ...baseProps,
   projectChoices: repoProjects,
@@ -257,6 +291,31 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-location-row[data-worktree]"));
       },
     },
+    "lane-checkouts": {
+      note: "Leo's New Tab list: the main clone and the lane mirror's worktrees are one cmux row; chat folders join it by their lane path; .noindex scratch and the home folder are left out.",
+      props: {
+        ...repoProps,
+        projectChoices: laneCheckouts,
+        summary: { ...repoProps.summary, cwd: "/Users/you/Projects" },
+      },
+      play: openFolder,
+    },
+    "lane-checkouts-open": {
+      note: "The cmux row's clones and lane checkouts open under it by their branch.",
+      props: {
+        ...repoProps,
+        projectChoices: laneCheckouts,
+        summary: { ...repoProps.summary, cwd: "/Users/you/Projects" },
+      },
+      play: async (ctx) => {
+        await openFolder(ctx);
+        // Projects (current) is the first row, cmux the second.
+        await ctx.press("ArrowDown");
+        await ctx.press("ArrowDown");
+        await ctx.press("ArrowRight");
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-location-row[data-worktree]"));
+      },
+    },
     "repo-worktrees-guessed": {
       note: "An older host sends no repositories: worktrees under ~/.cmux/worktrees/<repo>/ still fold under that repository by their path.",
       props: {
@@ -278,6 +337,20 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         peers: ["gpu-box", "Cloud machine"],
         peerKinds: { "gpu-box": "ssh", "Cloud machine": "cloud" },
         peerConnected: { "gpu-box": true, "Cloud machine": false },
+      },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
+      },
+    },
+    "machine-colors": {
+      note: "Another machine keeps one color from its name (machineColor) in the list, so two SSH machines and a Cloud machine tell apart at a glance; this Mac stays quiet.",
+      props: {
+        ...baseProps,
+        environments: true,
+        localName: "office-mac",
+        peers: ["gpu-box", "build-mini", "Cloud machine"],
+        peerKinds: { "gpu-box": "ssh", "build-mini": "ssh", "Cloud machine": "cloud" },
       },
       play: async (ctx) => {
         await ctx.click({ role: "button", name: /^Environment/ });

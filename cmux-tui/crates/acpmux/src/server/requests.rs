@@ -1,6 +1,8 @@
 //! Request and notification handlers for one client connection.
 
 use super::*;
+use crate::no_panic::JsonExt;
+use crate::no_panic::LockExt;
 
 mod composer;
 mod events;
@@ -169,7 +171,7 @@ async fn dispatch_request(
     match m {
         method::INITIALIZE => {
             if let Some(name) = params.pointer("/clientInfo/name").and_then(Value::as_str) {
-                *conn.name.lock().unwrap() = name.to_owned();
+                *conn.name.lock_or_recover() = name.to_owned();
             }
             Ok(json!({
                 "protocolVersion": 1,
@@ -180,7 +182,7 @@ async fn dispatch_request(
                     "sessionCapabilities": {"list": {}, "fork": {}, "close": {}, "delete": {}},
                 },
                 "authMethods": [],
-                "_meta": {"acpmux": {"version": VERSION, "build": crate::hub::BUILD,
+                "_meta": {"acpmux": {"version": VERSION, "build": crate::hub::BUILD, "capabilities": crate::capabilities::ids(),
                 // `local`: the unix socket or the proven local app
                 // (`local_app.rs`), which the session pool serves.
                 "origin": match conn.origin { Origin::Web => "remote", Origin::Peer => "peer", _ => "local" },
@@ -453,7 +455,7 @@ async fn dispatch_request(
             let meta = s.meta();
             let mut summary = hub.session_summary(&s);
             if let Some(w) = worktree {
-                summary["worktree"] = w;
+                summary.set("worktree", w);
             }
             Ok(json!({
                 "sessionId": s.id,
@@ -481,7 +483,7 @@ async fn dispatch_request(
                     && rec.msg.get("method").and_then(Value::as_str) == Some(method::SESSION_UPDATE)
                 {
                     let mut p = rec.msg.get("params").cloned().unwrap_or(json!({}));
-                    p["sessionId"] = Value::String(s.id.clone());
+                    p.set("sessionId", Value::String(s.id.clone()));
                     crate::hub::merge_mux_meta(
                         &mut p,
                         json!({"seq": rec.seq, "at": rec.at, "kind": rec.kind, "replay": true}),
@@ -569,6 +571,7 @@ async fn dispatch_request(
                 provenance,
                 agent,
                 after_turn: None,
+                supersede: crate::hub::supersede_key(&params)?,
             };
             let agent_message = opts.provenance.is_some();
             super::agent_messages::person_prompt(hub, conn, &s, agent_message).await;
@@ -795,8 +798,11 @@ async fn dispatch_request(
                         .map_err(|e| RpcError::invalid_params(format!("defaults: {e}")))?;
                     let entry = cfg.defaults.entry(family.clone()).or_default();
                     let mut merged = entry.clone();
+                    let Some(fields) = set.as_object() else {
+                        return Err(RpcError::invalid_params("defaults: set must be an object"));
+                    };
                     // A JSON null clears one field.
-                    for (k, v) in set.as_object().unwrap() {
+                    for (k, v) in fields {
                         if v.is_null() {
                             match k.as_str() {
                                 "model" => merged.model = None,
@@ -969,6 +975,10 @@ async fn dispatch_request(
         | method::MUX_ROUTE_DEFAULT_SET
         | method::MUX_CHAT_ROUTE_SET => super::routes::handle(hub, conn.origin, m, &params).await,
         method::ACP_TRUST_GET | method::ACP_TRUST_SET => {
+            // Recorded here, not on a peer: only a folder that exists here (`remote_guard.rs`).
+            if m == method::ACP_TRUST_SET && conn.origin != Origin::Local {
+                super::remote_guard::local_trust_folder(hub, conn.origin, &params).await?;
+            }
             super::trust_gate::answer(hub, m, &params).await
         }
         method::MUX_SET_RULES => {
@@ -1063,6 +1073,9 @@ async fn dispatch_request(
                 .ok_or_else(|| RpcError::invalid_params("promptId is required"))?;
             let removed = hub.withdraw_queued(&s, prompt_id)?;
             Ok(json!({"sessionId": s.id, "promptId": prompt_id, "removed": removed}))
+        }
+        method::MUX_SEND_QUEUE | method::MUX_SEND_STATUS => {
+            super::outbox::handle(hub, conn, m, &params).await
         }
         method::MUX_PROMPT_WITHDRAW | method::MUX_AGENT_PAIR_RESUME => {
             super::agent_messages::handle(hub, conn, m, &params).await
