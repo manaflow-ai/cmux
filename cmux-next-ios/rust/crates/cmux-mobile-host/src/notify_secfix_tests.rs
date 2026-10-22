@@ -15,11 +15,17 @@ fn secrets_are_redacted() {
     for (input, secret) in [
         ("export OPENAI_API_KEY=sk-proj-abcdefghijklmnopqrstuvwx", "sk-proj-abcdefghijklmnopqrstuvwx"),
         ("token ghp_abcdefghijklmnopqrstuvwxyz0123456789 in use", "ghp_abcdefghijklmnopqrstuvwxyz0123456789"),
-        ("github_pat_11ABCDEFG0123456789_abcdefghijklmnop", "github_pat_11ABCDEFG0123456789_abcdefghijklmnop"),
+        (
+            "github_pat_11ABCDEFG0123456789_abcdefghijklmnop",
+            "github_pat_11ABCDEFG0123456789_abcdefghijklmnop",
+        ),
         ("slack xoxb-1234-5678-abcdefghijkl", "xoxb-1234-5678-abcdefghijkl"),
         ("aws AKIAIOSFODNN7EXAMPLE key", "AKIAIOSFODNN7EXAMPLE"),
         ("maps AIzaSyA-abcdefghijklmnopqrstuvwxyz12345", "AIzaSyA-abcdefghijklmnopqrstuvwxyz12345"),
-        ("jwt eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl", "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl"),
+        (
+            "jwt eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl",
+            "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl",
+        ),
         ("curl -H \"Authorization: Bearer abc.def-123\" x", "abc.def-123"),
         ("mysql --password=hunter2 db", "hunter2"),
         ("SECRET=topsecretvalue ./run", "topsecretvalue"),
@@ -74,8 +80,10 @@ fn titles_bodies_tails_and_questions_are_redacted() {
             "options":[{"optionId":"allow","name":"Allow once","kind":"allow_once"}]}}}))
         .unwrap();
     assert!(!permission.title.unwrap().contains("tok_abc123"));
-    let q = questions(&json!({"toolCall":{"_meta":{"claude":{"tool":"AskUserQuestion"}},"rawInput":{"questions":[
-        {"question":"Use key sk-live-0123456789abcdefghijkl?","options":[{"label":"Yes"},{"label":"No"}]}]}}}));
+    let q = questions(
+        &json!({"toolCall":{"_meta":{"claude":{"tool":"AskUserQuestion"}},"rawInput":{"questions":[
+        {"question":"Use key sk-live-0123456789abcdefghijkl?","options":[{"label":"Yes"},{"label":"No"}]}]}}}),
+    );
     assert!(!q[0].question.contains("sk-live-0123456789abcdefghijkl"));
     let failed = c
         .handle(&json!({"method":"_acpmux/session_changed","params":{"recordKind":"turn_result","session":{
@@ -113,7 +121,9 @@ fn terminal_notifications_are_throttled_per_tab_and_in_all() {
     assert!(c.handle_at(&note(1, 7), &places, t0).is_some());
     // The same tab again within the gap: dropped.
     assert!(c.handle_at(&note(2, 7), &places, t0 + Duration::from_secs(1)).is_none());
-    assert!(c.handle_at(&note(3, 7), &places, t0 + TERMINAL_SURFACE_GAP + Duration::from_millis(1)).is_some());
+    assert!(
+        c.handle_at(&note(3, 7), &places, t0 + TERMINAL_SURFACE_GAP + Duration::from_millis(1)).is_some()
+    );
     // Many tabs: at most TERMINAL_PER_MINUTE a minute in all.
     let mut sent = 2;
     for i in 0..30u64 {
