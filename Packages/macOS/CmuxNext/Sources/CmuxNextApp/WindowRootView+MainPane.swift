@@ -100,6 +100,7 @@ extension WindowRootView {
             default: break
             }
         }
+        applySidebarRail()
         needsLayout = true
         updateMainPaneShade()
     }

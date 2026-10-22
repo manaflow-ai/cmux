@@ -519,3 +519,63 @@ fn stash_refuses_the_pinned_page() {
     refused(&resource(&wire.mux, "stash.create", stash, Some("stash-home")));
     assert_eq!(wire.tabs(panes[0]), vec![home], "the pinned page stays");
 }
+
+/// The `layout.bulk` presets (Close Other Panes, Close All Tabs and the
+/// like) skip the pinned column, as they skip pinned tabs and the home
+/// workspace: they close the rest and keep Home. An explicit selection that
+/// names Home is still refused (above).
+#[test]
+fn layout_bulk_presets_skip_the_pinned_column() {
+    let (wire, panes) = Wire::home();
+    let home = wire.tabs(panes[0])[0];
+    let third = wire.mux.new_pane_right(panes[1], 0.5, Some((18, 22))).unwrap();
+    let third_pane = wire.mux.with_state(|state| state.pane_of(third.id).unwrap());
+    let others = json!({
+        "machine": "current", "session": "current", "verb": "close", "level": "pane",
+        "selector": "others", "anchor": wire.pane_id(panes[1]),
+    });
+    let response = resource(&wire.mux, "layout.bulk", others, Some("bulk-other-panes"));
+    resource_ok(&response);
+    assert_eq!(wire.tabs(panes[0]), vec![home], "Close Other Panes kept Home: {response}");
+    assert!(
+        wire.mux.with_state(|state| !state.panes.contains_key(&third_pane)),
+        "Close Other Panes closed the other pane: {response}"
+    );
+
+    let all = json!({
+        "machine": "current", "session": "current", "verb": "close", "level": "tab",
+        "selector": "all", "anchor": wire.tab_id(home),
+    });
+    let response = resource(&wire.mux, "layout.bulk", all, Some("bulk-all-home-tabs"));
+    resource_ok(&response);
+    assert_eq!(wire.tabs(panes[0]), vec![home], "Close All Tabs kept Home: {response}");
+}
+
+/// A Workspace-form stash skips Home's pinned page, as it skips pinned tabs,
+/// and stashes the other pages. A Tabs-form stash that names it is still
+/// refused (above).
+#[test]
+fn workspace_stash_skips_the_pinned_page() {
+    let (wire, panes) = Wire::home_page();
+    let home = wire.tabs(panes[0])[0];
+    let record = crate::workspace_registry::FrontendBrowserRecord {
+        engine: "cef".into(),
+        url: "https://example.com/other".into(),
+        title: None,
+        favicon_url: None,
+        profile_id: None,
+        owner: None,
+    };
+    let page = wire.mux.new_frontend_browser_tab(Some(panes[1]), record, None).unwrap().id;
+    let (home_id, page_id) = (wire.tab_id(home), wire.tab_id(page));
+    let workspace = wire.mux.with_state(|state| state.workspaces[0].public_id.to_string());
+    let stash = json!({"machine": "current", "session": "current", "workspace": workspace});
+    let response = resource(&wire.mux, "stash.create", stash, Some("stash-home-workspace"));
+    resource_ok(&response);
+    let value = &response["result"]["value"];
+    assert_eq!(value["tab_ids"], json!([page_id]), "{response}");
+    // The right pane's terminal is skipped too (not a page).
+    let skipped = value["skipped"].as_array().unwrap();
+    assert!(skipped.contains(&json!(home_id)), "the pinned page is skipped: {response}");
+    assert_eq!(wire.tabs(panes[0]), vec![home], "the pinned page stays");
+}

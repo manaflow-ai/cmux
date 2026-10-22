@@ -6,7 +6,7 @@
 // - Environment: the machine, the folder, the repository, the branch or worktree (EnvironmentSection).
 // - Context: how much of the context window the chat used, with a bar; open, the token counts.
 // - Connectors: the MCP servers its harness loaded, with how many need reconnecting.
-// - Changes: the pull requests it opened or touched (ChangesSection).
+// - Changes: the pull requests it opened, touched or named, in any repository (ChangesSection).
 // - Servers: the dev servers it runs in the background (ServersSection).
 // - Subagents: an avatar row with live counts that opens into the list: the harness's subagents and
 //   the chats its agent started, a Cloud VM's or another machine's included (SubagentsSection).
@@ -32,12 +32,14 @@ import {
 } from "react";
 import { usePresence, type Presence } from "../../../ui/presence";
 import { useChatDisplay } from "../chatDisplay";
+import { PanelToggle } from "../header/PanelToggle";
 import { useHeaderState, type HeaderPullRequest } from "../header/headerState";
 import { useTabRow } from "../header/tabRow";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
 import { registerPicker } from "../pickerOpeners";
+import { tooltipProps } from "../shortcuts";
 import { subagentsIn } from "../subagents/subagentRows";
 import { chatGallery } from "../summary/chatGallery";
 import { GalleryDialog } from "../summary/GalleryDialog";
@@ -45,7 +47,8 @@ import { sessionSummary, type SessionSummary, type SummaryBackgroundTask } from 
 import { waitingSubagents } from "../summary/SubagentStatusList";
 import type { TurnFile } from "../diff";
 import type { StartedSession } from "../started/startedSessions";
-import { ChangesSection, headerStatus, type InspectorPullRequestStatus } from "./ChangesSection";
+import { ChangesSection, headerStatus, visibleChanges, type InspectorPullRequestStatus } from "./ChangesSection";
+import { ContextSection } from "./ContextSection";
 import { EnvironmentSection } from "./EnvironmentSection";
 import { InspectorSection } from "./InspectorSection";
 import {
@@ -94,6 +97,9 @@ function usePaneWidth(shell: HTMLElement | null | undefined, live: boolean): num
   return width;
 }
 
+/// How long a revealed section stays lit.
+const REVEAL_LIT_MS = 1200;
+
 /// The header's toggle and the Inspector for the chat's pane. `on` is Debug Settings
 /// `agent.inspector`: off, there is neither, and the App shows its summary card instead.
 export function useChatInspector({
@@ -108,6 +114,8 @@ export function useChatInspector({
   onStopProcess,
   subagents,
   sessions,
+  onOpenFolder,
+  onSaveEnvironment,
 }: {
   snapshot: AcpmuxSnapshot;
   /// This Mac's name from the handshake, for a local chat.
@@ -134,6 +142,10 @@ export function useChatInspector({
   };
   /// The chats the chat's agent started (App.tsx `childSessions`), and how one opens.
   sessions?: { list: readonly StartedSession[]; onOpen: (sessionId: string) => void };
+  /// Opens one of the chat's folders in the Files tree beside the chat (a chat on this Mac).
+  onOpenFolder?: (path: string) => void;
+  /// Saves the chat's machine and folder as an environment (`environment.save`).
+  onSaveEnvironment?: () => Promise<unknown>;
 }): {
   on: boolean;
   button?: ReactNode;
@@ -162,6 +174,31 @@ export function useChatInspector({
       setInspectorOpen(true);
     });
   }, [on, label]);
+  // Esc closes it from anywhere but a text field (the composer keeps its own Esc), before a diff in
+  // place takes it (DiffPanel listens on the window, after the document). An open popover, menu or
+  // dialog takes Esc first (as WidgetEditing.tsx): they listen on the document too, but after this.
+  useEffect(() => {
+    if (!shown) return;
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented || event.isComposing) return;
+      const focus = document.activeElement;
+      if (
+        focus instanceof HTMLElement &&
+        focus.closest("input, textarea, select, [contenteditable]:not([contenteditable=false])")
+      )
+        return;
+      if (
+        document.querySelector(
+          'dialog[open], [role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"], .ui-popup',
+        )
+      )
+        return;
+      event.preventDefault();
+      setInspectorOpen(false);
+    };
+    document.addEventListener("keydown", escape);
+    return () => document.removeEventListener("keydown", escape);
+  }, [shown]);
   if (!on) return { on: false };
   const toggle = () => {
     if (shown) setInspectorOpen(false);
@@ -185,18 +222,7 @@ export function useChatInspector({
   return {
     on: true,
     reveal,
-    button: (
-      <button
-        type="button"
-        className="acpmux-header-tool acpmux-chat-inspector-toggle"
-        aria-label={label}
-        aria-pressed={shown}
-        title={label}
-        onClick={toggle}
-      >
-        <Icon name="pane.split.right" size={15} />
-      </button>
-    ),
+    button: <PanelToggle className="acpmux-chat-inspector-toggle" label={label} shown={shown} onToggle={toggle} />,
     panel: (
       <InspectorPresence
         shown={shown}
@@ -207,6 +233,7 @@ export function useChatInspector({
         shell={shell}
         openedOutputAt={openedOutputAt}
         onSuppress={suppress}
+        onClose={closeInspector}
         registry={registry}
         subagents={subagents}
         sessions={sessions}
@@ -216,10 +243,14 @@ export function useChatInspector({
         onOpenOutput={openOutput}
         onOpenUrl={onOpenUrl}
         onOpenImage={onOpenImage}
+        onOpenFolder={onOpenFolder}
+        onSaveEnvironment={onSaveEnvironment}
       />
     ),
   };
 }
+
+const closeInspector = () => setInspectorOpen(false);
 
 /// The Inspector while it is drawn: its presence, its width and folds, its push or overlay and what
 /// it lists. Its own component, so its enter and exit phases, a drag step and a fold draw the panel
@@ -234,6 +265,7 @@ function InspectorPresence({
   shell,
   openedOutputAt,
   onSuppress,
+  onClose,
   registry,
   subagents,
   sessions,
@@ -243,6 +275,8 @@ function InspectorPresence({
   onOpenOutput,
   onOpenUrl,
   onOpenImage,
+  onOpenFolder,
+  onSaveEnvironment,
 }: {
   shown: boolean;
   snapshot: AcpmuxSnapshot;
@@ -255,6 +289,7 @@ function InspectorPresence({
   openedOutputAt: { readonly current: number };
   /// That diff's split left no room to push the chat: the Inspector steps aside.
   onSuppress: () => void;
+  onClose: () => void;
   registry?: ProcessRegistry;
   subagents?: {
     views: Record<string, AcpmuxRow[]> | undefined;
@@ -268,6 +303,8 @@ function InspectorPresence({
   onOpenOutput?: (path: string) => void;
   onOpenUrl?: (url: string) => void;
   onOpenImage?: (src: string, alt: string) => void;
+  onOpenFolder?: (path: string) => void;
+  onSaveEnvironment?: () => Promise<unknown>;
 }) {
   const { width, sections } = useInspectorState();
   const placement = useChatDisplay().inspector;
@@ -279,7 +316,7 @@ function InspectorPresence({
   const push = pushes(placement, paneWidth, width);
   const tabRowHeight = useTabRow().height;
   const rows = snapshot.rows;
-  const made = useMemo(() => (drawn ? sessionSummary(rows) : undefined), [drawn, rows]);
+  const made = useMemo(() => (drawn ? sessionSummary(rows, repository ?? null) : undefined), [drawn, rows, repository]);
   const links = useMemo(() => (drawn ? outputLinks(rows) : []), [drawn, rows]);
   const artifacts = useMemo(() => (drawn ? chatGallery(rows).length : 0), [drawn, rows]);
   const views = subagents?.views;
@@ -307,6 +344,7 @@ function InspectorPresence({
       // pane's tab row, the row's height), so the header's tools, its own toggle among them, stay in reach.
       under={tabRowHeight > 0 ? `${tabRowHeight}px` : "var(--acpmux-header-height, 44px)"}
       presence={presence}
+      onClose={onClose}
     >
       {/* Another chat's sections start drawn with what that chat has: none of its rows drops in. */}
       <ChatInspector
@@ -336,6 +374,8 @@ function InspectorPresence({
         onOpenOutput={onOpenOutput}
         onOpenUrl={onOpenUrl}
         onOpenImage={onOpenImage}
+        onOpenFolder={onOpenFolder}
+        onSaveEnvironment={onSaveEnvironment}
       />
     </InspectorPanel>
   );
@@ -350,12 +390,16 @@ export function InspectorPanel({
   placement,
   under,
   presence,
+  onClose,
   children,
 }: {
   width: number;
   placement: InspectorPlacement;
   under?: string;
   presence?: Presence;
+  /// Its own close button, at its top right: over a diff in place the chat header, with the toggle,
+  /// is out of reach.
+  onClose?: () => void;
   children: ReactNode;
 }) {
   const t = useT();
@@ -369,7 +413,7 @@ export function InspectorPanel({
         presence?.props.ref(node);
       }}
       inert={presence?.leaving}
-      className="acpmux-chat-inspector"
+      className="ui-glass acpmux-chat-inspector"
       data-placement={placement}
       style={under ? ({ width, "--acpmux-inspector-top": under } as CSSProperties) : { width }}
       aria-label={t("chatInspector.title")}
@@ -399,6 +443,20 @@ export function InspectorPanel({
         }}
         onDoubleClick={() => setInspectorWidth(INSPECTOR_WIDTH.fallback)}
       />
+      {onClose && (
+        <div className="acpmux-chat-inspector__head">
+          <span className="acpmux-chat-inspector__title">{t("chatInspector.title")}</span>
+          <button
+            type="button"
+            className="acpmux-chat-inspector-icon-button acpmux-chat-inspector__close"
+            aria-label={t("chatInspector.close")}
+            {...tooltipProps(t("chatInspector.close"), undefined)}
+            onClick={onClose}
+          >
+            <Icon name="action.close" size={12} />
+          </button>
+        </div>
+      )}
       {children}
     </aside>
   );
@@ -433,6 +491,7 @@ export function ChatInspector({
   onOpenImage,
   remoteControl,
   onSaveEnvironment,
+  onOpenFolder,
 }: {
   summary?: Summary;
   machineName?: string;
@@ -472,7 +531,9 @@ export function ChatInspector({
   onOpenUrl?: (url: string) => void;
   onOpenImage?: (src: string, alt: string) => void;
   remoteControl?: { on: boolean; set: (on: boolean) => void };
-  onSaveEnvironment?: () => void;
+  onSaveEnvironment?: () => Promise<unknown> | void;
+  /// Opens one of the chat's folders in the Files tree beside the chat.
+  onOpenFolder?: (path: string) => void;
 }) {
   const t = useT();
   const stored = useInspectorState().sections;
@@ -483,20 +544,33 @@ export function ChatInspector({
   const known = usage !== undefined && usage.size > 0;
   // As the composer's context ring reads it (ComposerPickers ContextRing).
   const percent = known ? Math.round(Math.min(1, Math.max(0, usage.used / usage.size)) * 100) : 0;
-  const tokens = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
   const { servers, tasks: commands } = inspectorLists(processes, transcriptTasks, listed);
   const body = useRef<HTMLDivElement>(null);
   // Once: then it is done, so the palette or another pane opening the Inspector again does not jump
   // back to this section.
+  // The section lights for a moment (inspector.css `[data-revealed]`), so a reveal of a section already
+  // in view still shows it answered (the header's Environment line, Leo 2026-10-21: no dead clicks).
+  // Not the reveal effect's cleanup: `onRevealed` clears the reveal at once, which would put it out.
+  const lit = useRef<{ section: HTMLElement; timer: number }>(undefined);
+  const unlight = () => {
+    if (!lit.current) return;
+    window.clearTimeout(lit.current.timer);
+    delete lit.current.section.dataset.revealed;
+    lit.current = undefined;
+  };
+  useEffect(() => unlight, []);
   useEffect(() => {
     if (!revealed) return;
-    body.current
-      ?.querySelector<HTMLElement>(`[data-section="${revealed.section}"]`)
-      ?.scrollIntoView?.({ block: "nearest" });
+    const section = body.current?.querySelector<HTMLElement>(`[data-section="${revealed.section}"]`);
+    section?.scrollIntoView?.({ block: "nearest" });
     onRevealed?.();
+    if (!section) return;
+    unlight();
+    section.dataset.revealed = "";
+    lit.current = { section, timer: window.setTimeout(unlight, REVEAL_LIT_MS) };
   }, [revealed, onRevealed]);
   const scheduled = made?.scheduled ?? [];
-  const pullRequests = made?.pullRequests ?? [];
+  const pullRequests = visibleChanges(made?.pullRequests ?? [], statuses);
   const outputs = (made?.outputs ?? []) as readonly TurnFile[];
   const mcp = summary?.mcpServers ?? [];
   const reconnect = mcp.filter((server) => server.status === "failed").length;
@@ -515,8 +589,10 @@ export function ChatInspector({
           machineName={machineName}
           peerKinds={peerKinds}
           repository={repository}
+          rows={rows}
           remoteControl={remoteControl}
           onSave={onSaveEnvironment}
+          onOpenFolder={onOpenFolder}
         />
       </InspectorSection>
       {known && (
@@ -534,20 +610,7 @@ export function ChatInspector({
             </>
           }
         >
-          <ul className="acpmux-chat-inspector-list">
-            <li className="acpmux-chat-inspector-row">
-              <span className="acpmux-chat-inspector-row__name">{t("chatInspector.context.used")}</span>
-              <span className="acpmux-chat-inspector-row__end">
-                {t("context.tokens", { used: tokens.format(usage.used), size: tokens.format(usage.size) })}
-              </span>
-            </li>
-            <li className="acpmux-chat-inspector-row">
-              <span className="acpmux-chat-inspector-row__name">{t("chatInspector.context.left")}</span>
-              <span className="acpmux-chat-inspector-row__end">
-                {tokens.format(Math.max(0, usage.size - usage.used))}
-              </span>
-            </li>
-          </ul>
+          <ContextSection usage={usage} percent={percent} />
         </InspectorSection>
       )}
       {mcp.length > 0 && (
@@ -556,13 +619,11 @@ export function ChatInspector({
           title={t("rail.connectors")}
           open={state.connectors}
           onOpenChange={fold("connectors")}
+          // As Claude Code desktop's: the servers to reconnect when any failed, else the connected ones.
           meta={value(
-            [
-              t("rail.connected", { count: mcp.filter((server) => server.status === "connected").length }),
-              reconnect > 0 && t("chatInspector.connectors.reconnect", { count: reconnect }),
-            ]
-              .filter(Boolean)
-              .join(" · "),
+            reconnect > 0
+              ? t("chatInspector.connectors.reconnect", { count: reconnect })
+              : t("rail.connected", { count: mcp.filter((server) => server.status === "connected").length }),
           )}
         >
           <ul className="acpmux-chat-inspector-list">
@@ -570,13 +631,15 @@ export function ChatInspector({
               <li key={server.name} className="acpmux-chat-inspector-row">
                 <Icon name="extension" size={12} row />
                 <span className="acpmux-chat-inspector-row__name">{server.name}</span>
-                {server.status !== "connected" && (
-                  <span className="acpmux-chat-inspector-row__end" data-state={server.status}>
-                    {t(
-                      server.status === "failed" ? "chatInspector.connectors.needsReconnect" : "rail.connectorPending",
-                    )}
-                  </span>
-                )}
+                <span className="acpmux-chat-inspector-row__end" data-state={server.status}>
+                  {t(
+                    server.status === "failed"
+                      ? "chatInspector.connectors.needsReconnect"
+                      : server.status === "pending"
+                        ? "rail.connectorPending"
+                        : "composer.envConnected",
+                  )}
+                </span>
               </li>
             ))}
           </ul>

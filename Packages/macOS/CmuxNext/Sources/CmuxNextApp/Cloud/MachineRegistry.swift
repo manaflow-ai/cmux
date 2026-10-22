@@ -19,6 +19,9 @@ final class MachineRegistry {
     let local: DaemonService
     /// Cloud machines in sidebar order (newest last).
     private(set) var cloud: [CloudMachineSession] = []
+    /// The account's Cloud machine cap from the last `/api/vm` list (nil
+    /// before one, or when the list carried none). Never inferred from `cloud`.
+    var cloudLimits: CloudMachineLimits?
     /// SSH machines in the order they were added.
     private(set) var ssh: [SSHMachineSession] = []
     /// Paired servers whose Chief brain session the app shows (`ServerReachService`).

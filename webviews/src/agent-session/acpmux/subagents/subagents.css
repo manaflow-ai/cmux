@@ -241,13 +241,22 @@ button.cv-subagent > :last-child {
   font-weight: 600;
   color: var(--cv-text);
 }
-.cv-subagent-of__parent {
+.cv-subagent-of__parent,
+.cv-subagent-of__task {
+  min-width: 0;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-.cv-subagent-of__parent::before {
-  content: "· ";
+.cv-subagent-of__parent {
+  flex: 0 1 auto;
+  color: var(--cv-text);
+}
+.cv-subagent-of__dot {
+  flex: none;
+}
+.cv-subagent-of__task {
+  flex: 1 1 auto;
 }
 /* Each subagent's color (agentTones.ts): its dot in the agents list and its name in the
    transcript. The theme's terminal colors, so a theme recolors them. Red stays for failure and
@@ -325,8 +334,6 @@ button.cv-subagent > :last-child {
   overflow-y: auto;
   border: 0;
   border-radius: var(--ui-popup-radius);
-  background: var(--surface-popup);
-  box-shadow: var(--acpmux-popup-elevation);
   color: var(--agent-text);
   font-family: var(--cv-font);
   font-size: var(--text-control);
@@ -451,8 +458,17 @@ button.cv-subagent > :last-child {
   flex: none;
   color: var(--agent-muted);
 }
+/* Under the header's divider the first line keeps the tray's 2px gap, as the last keeps its rim's. */
 .acpmux-running-tray__head + .acpmux-running-tray__list {
+  padding-top: 2px;
   border-top: var(--cmux-hairline, 0.5px) solid var(--acpmux-composer-edge, transparent);
+}
+/* The one folded line of what ended ("3 subagents done"), dim beside what runs. */
+.acpmux-running-tray__finished {
+  color: var(--agent-muted);
+}
+.acpmux-running-tray__finished > svg {
+  flex: none;
 }
 /* A line (AgentLine.tsx) is its button and, for a running subagent or a registry command, its
    stop button (SubagentGroup.tsx, inspector/TasksSection.tsx). */

@@ -53,8 +53,9 @@ POLICY_SCRIPT = "scripts/ci/runner_label_policy.py"
 # pr_runner_pool.py's label prefixes; their common prefix is the owned literal.
 LABEL_PREFIX_NAMES = ("ROOT_PREFIX", "SIDE_PREFIX", "GUI_PREFIX", "RUNNER_LABEL_PREFIX")
 # Pool variables no policy check holds to a label shape yet (docs/ci-runners.md
-# on feat-cmux-next: the trusted promote mini and the daemon tests' slot).
-EXTRA_OWNED_VARIABLES = frozenset({"CI_NEXT_PROMOTE_POOL", "CI_NEXT_DAEMON_POOL"})
+# on feat-cmux-next: the trusted promote mini, the daemon tests' slot and the
+# cmux-tui-pin-* pushes' daemon pool).
+EXTRA_OWNED_VARIABLES = frozenset({"CI_NEXT_PROMOTE_POOL", "CI_NEXT_DAEMON_POOL", "CI_PIN_DAEMON_POOL"})
 # (caller, reusable workflow) calls whose picker never places the call on an
 # owned pool, so the caller does not inherit the reusable workflow's owned job.
 OFF_POOL_CALLS = {
