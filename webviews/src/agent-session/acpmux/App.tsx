@@ -4206,8 +4206,12 @@ function AcpmuxPane() {
       cold: opened.shown !== undefined && shownSessionId !== undefined && snapshot.drewKeptTail !== true,
     });
   // A chat read with nothing in it (a new chat: its first prompt enters as a live row) has nothing
-  // to fade in.
-  else if (opened.cold && snapshot.chatRead === true && (freshView || transcriptRows.length === 0))
+  // to fade in, and a chat whose kept tail drew after the switch's hold gave up (a slow host read
+  // under load, a reconnect) is cached all the same: it shows at once.
+  else if (
+    opened.cold &&
+    ((snapshot.chatRead === true && (freshView || transcriptRows.length === 0)) || snapshot.drewKeptTail === true)
+  )
     setOpened({ ...opened, cold: false });
   const coldOpenShown = useCallback(
     (open: number) => setOpened((current) => (current.open === open ? { ...current, cold: false } : current)),
