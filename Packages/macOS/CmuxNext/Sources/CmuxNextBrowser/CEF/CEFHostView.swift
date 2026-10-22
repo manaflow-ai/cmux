@@ -96,13 +96,15 @@ final class CEFHostView: NSView {
     /// on every geometry update, so window rects convert at the current
     /// position.
     @objc func cmuxOcclusionRects() -> NSArray {
-        allOcclusionRects.map { NSValue(rect: $0) } as NSArray
+        geometryReads += 1
+        return allOcclusionRects.map { NSValue(rect: $0) } as NSArray
     }
 
     /// Read by the fork (`-cmuxClipPath`) on every geometry update: the
     /// pane's rounded clip and the window's rounded corners, so no square
     /// page corner shows past either. Nil when the page is a plain rect.
     @objc func cmuxClipPath() -> NSBezierPath? {
+        geometryReads += 1
         let shape = pageClip
         // A page clipped away entirely is hidden by an occlusion hole over all of it
         // (`allOcclusionRects`), the fork's documented way to keep a page from showing.
@@ -110,9 +112,17 @@ final class CEFHostView: NSView {
         return shape.map { NSBezierPath(cgPath: $0) }
     }
 
+    /// Times the clip shape was built (`debug.cef` `geometry`, tests).
+    private(set) var clipShapeBuilds = 0
+    /// Times the fork read the clip or the occlusion rects (`debug.cef` `geometry`).
+    private(set) var geometryReads = 0
+    /// Geometry updates asked of the fork, and those skipped (a hidden host).
+    private(set) var geometryPosts = 0
+    private(set) var skippedGeometryPosts = 0
     /// The pane's rounded clip, the column strip's clip and the window's corners, in this view.
     var pageClip: CGPath? {
-        CEFClipShape.path(bounds: bounds, clips: CEFClipShape.clips(around: self), cutouts: CEFClipShape.cutouts(around: self))
+        clipShapeBuilds += 1
+        return CEFClipShape.path(bounds: bounds, clips: CEFClipShape.clips(around: self), cutouts: CEFClipShape.cutouts(around: self))
     }
 
     /// The chrome's rects plus the window's interactive overlays over this
@@ -153,6 +163,7 @@ final class CEFHostView: NSView {
     /// Tells the tracker about moves AppKit does not report (layer
     /// transforms, manual frame animation in an ancestor).
     func postGeometryChange() {
+        geometryPosts += 1
         NotificationCenter.default.post(name: CEFHostView.geometryDidChange, object: self)
     }
 
