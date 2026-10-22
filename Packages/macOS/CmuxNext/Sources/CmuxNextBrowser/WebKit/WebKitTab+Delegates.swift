@@ -67,7 +67,12 @@ extension WebKitTab: WKNavigationDelegate {
             .flatMap { $0.value(forHTTPHeaderField: "Content-Disposition") }?
             .lowercased()
             .hasPrefix("attachment") ?? false
-        if navigationResponse.isForMainFrame, isAttachment || !navigationResponse.canShowMIMEType {
+        if navigationResponse.isForMainFrame, !isAttachment, !navigationResponse.canShowMIMEType,
+           let url = navigationResponse.response.url, RemoteVideoPage.plays(url) {
+            // A video sent as a generic file plays in the tab, at its own address.
+            decisionHandler(.cancel)
+            webView.loadHTMLString(RemoteVideoPage.html(for: url), baseURL: url)
+        } else if navigationResponse.isForMainFrame, isAttachment || !navigationResponse.canShowMIMEType {
             // The page that started the navigation counts the download.
             admitDownload(navigationResponse.response.url, site: navigationSourceSite) { decisionHandler($0 ? .download : .cancel) }
         } else {

@@ -37,6 +37,15 @@ import Testing
         #expect(!intents.downloaded, "the video downloaded")
     }
 
+    @Test func onlyWebVideosPlayInTheTab() throws {
+        func plays(_ text: String) throws -> Bool { RemoteVideoPage.plays(try #require(URL(string: text))) }
+        #expect(try plays("https://raw.githubusercontent.com/o/r/b/reel.mp4"))
+        #expect(try plays("http://example.com/a/clip.WEBM?x=1"))
+        #expect(try !plays("https://example.com/archive.zip"))
+        #expect(try !plays("file:///tmp/clip.mp4"))
+        #expect(RemoteVideoPage.html(for: try #require(URL(string: "https://e.com/a.mp4?a=1&b=2"))).contains("a.mp4?a=1&amp;b=2"))
+    }
+
     /// One second of a 64-pixel H.264 video, as an .mp4.
     private static func makeVideo() async throws -> Data {
         let file = FileManager.default.temporaryDirectory
