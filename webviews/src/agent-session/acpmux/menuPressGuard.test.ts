@@ -61,7 +61,10 @@ test("a chip left saying its menu is open, with no menu on screen, lets the queu
 });
 
 test("a chip whose named menu is gone lets the press through, though another chip's menu is open", () => {
-  const press = composer(`<div class="ui-positioner"><div class="ui-popup">elsewhere</div></div>`, ` aria-controls="gone"`);
+  const press = composer(
+    `<div class="ui-positioner"><div class="ui-popup">elsewhere</div></div>`,
+    ` aria-controls="gone"`,
+  );
   expect(press("delete")).toEqual(TAKEN);
 });
 

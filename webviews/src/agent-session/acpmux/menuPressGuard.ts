@@ -67,8 +67,7 @@ function install(doc: Document): () => void {
   const decide = (event: PointerEvent) => {
     if (!event.isPrimary) return;
     const target = event.target instanceof Element ? event.target : null;
-    swallowing =
-      event.button === 0 && menuOnScreen(doc) && !target?.closest(PASSES) ? event.pointerId : null;
+    swallowing = event.button === 0 && menuOnScreen(doc) && !target?.closest(PASSES) ? event.pointerId : null;
   };
   const cancel = (event: PointerEvent) => {
     if (event.pointerId === swallowing) swallowing = null;
