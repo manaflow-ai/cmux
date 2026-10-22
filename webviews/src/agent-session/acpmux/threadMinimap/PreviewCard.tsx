@@ -1,5 +1,5 @@
 // The minimap's preview card beside the hovered or focused mark: the prompt on one line with its
-// bookmark, then the start of the reply. Both rails (ThreadMinimap.tsx, ScrollMap.tsx) draw it.
+// bookmark, then the start of the reply. The rail (ThreadMinimap.tsx) draws it.
 import React from "react";
 import { useT } from "../i18n";
 import { BookmarkIcon } from "./BookmarkIcon";

@@ -110,12 +110,31 @@
     transition: none;
   }
 }
-/* Prompts on screen: the text at 60%; back to rest while the pointer is on the rail. */
+/* The band moving with the scroll: a row coming on screen brightens, and one leaving dims, over
+   the micro step, so the lit band glides down the rail as a wave instead of flicking row by row
+   (Leo 2026-10-21: "the wave didn't look good enough"). Only at rest: a hovered, scrubbed or focused
+   row still switches at once, and Reduce Motion switches every row at once. */
+.acpmux-minimap__rail:not([data-hovering]):not([data-scrubbing]):not([data-reduce]) .acpmux-minimap__tick {
+  transition: color var(--cmux-motion-micro) ease-out;
+}
+.acpmux-minimap__rail:not([data-hovering]):not([data-scrubbing]):not([data-reduce]) .acpmux-minimap__bar {
+  transition:
+    transform var(--cmux-motion-micro) var(--acpmux-minimap-spring),
+    opacity var(--cmux-motion-micro) ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .acpmux-minimap__rail .acpmux-minimap__tick,
+  .acpmux-minimap__rail .acpmux-minimap__bar {
+    transition: none;
+  }
+}
+/* Prompts on screen: the text at 75%, a clear step over the resting 40%; back to rest while the
+   pointer is on the rail. */
 .acpmux-minimap__tick[data-tone="current"] {
   color: var(--acpmux-minimap-text);
 }
 .acpmux-minimap__tick[data-tone="current"] .acpmux-minimap__bar {
-  opacity: 0.6;
+  opacity: 0.75;
 }
 .acpmux-minimap__rail[data-hovering] .acpmux-minimap__tick[data-tone="current"] {
   color: var(--acpmux-minimap-rest);
@@ -248,65 +267,4 @@
    step brighter (#2d2d2d over #1e1e1e in the dark reference theme). */
 .acpmux-row .cv-user__bubble {
   --acpmux-landing-highlight: color-mix(in srgb, var(--agent-text) 22%, var(--acpmux-base, var(--agent-page-bg)));
-}
-/* The full-height map (ScrollMap.tsx): marks sit where their messages are in the chat. A prompt's
-   tick starts at the rail's edge; a reply's is shorter, dimmer and set in 4 px. The bar behind
-   them is the view; it moves by transform on the scroll's frame. */
-.acpmux-scrollmap {
-  cursor: pointer;
-  touch-action: none;
-}
-.acpmux-scrollmap__view {
-  position: absolute;
-  top: 0;
-  left: -4px;
-  width: 34px;
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--acpmux-minimap-text) 6%, transparent);
-  pointer-events: none;
-  will-change: transform;
-}
-.acpmux-minimap__rail[data-hovering] .acpmux-scrollmap__view,
-.acpmux-minimap__rail[data-scrubbing] .acpmux-scrollmap__view {
-  background: color-mix(in srgb, var(--acpmux-minimap-text) 9%, transparent);
-}
-.acpmux-scrollmap__mark.acpmux-minimap__tick {
-  position: absolute;
-  top: 0;
-  left: 0;
-}
-.acpmux-scrollmap__mark[data-kind="user"] .acpmux-minimap__bar {
-  opacity: 0.55;
-}
-.acpmux-scrollmap__mark[data-kind="agent"] {
-  left: 4px;
-  width: 32px;
-  pointer-events: none;
-}
-.acpmux-scrollmap__mark[data-kind="agent"] .acpmux-minimap__bar {
-  top: 4.5px;
-  height: 1px;
-  opacity: 0.35;
-}
-/* Marks under the view bar: where the reader is, brighter than the rest, and still while the
-   pointer is on the rail (unlike the compact rail). The hovered or previewed mark is the text. */
-.acpmux-scrollmap__mark[data-tone="current"],
-.acpmux-minimap__rail[data-hovering] .acpmux-scrollmap__mark[data-tone="current"] {
-  color: var(--acpmux-minimap-text);
-}
-.acpmux-scrollmap__mark[data-tone="current"] .acpmux-minimap__bar,
-.acpmux-minimap__rail[data-hovering] .acpmux-scrollmap__mark[data-tone="current"] .acpmux-minimap__bar {
-  opacity: 0.8;
-}
-.acpmux-scrollmap__mark[data-kind="agent"][data-tone="current"] .acpmux-minimap__bar,
-.acpmux-minimap__rail[data-hovering] .acpmux-scrollmap__mark[data-kind="agent"][data-tone="current"] .acpmux-minimap__bar {
-  opacity: 0.55;
-}
-.acpmux-scrollmap__mark[data-tone="active"] .acpmux-minimap__bar {
-  opacity: 1;
-}
-/* A bookmarked prompt's tick stays at full opacity on the full map too. */
-.acpmux-scrollmap__mark[data-bookmarked] .acpmux-minimap__bar,
-.acpmux-minimap__rail[data-hovering] .acpmux-scrollmap__mark[data-bookmarked] .acpmux-minimap__bar {
-  opacity: 1;
 }

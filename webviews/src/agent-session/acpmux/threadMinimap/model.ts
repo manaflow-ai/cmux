@@ -36,6 +36,8 @@ export const TICK_BOX = 26;
 /// Rows past this many, or past 70% of the window's height, scroll inside the rail.
 export const RAIL_MAX_ROWS = 64;
 export const RAIL_MAX_SHARE = 0.7;
+/// A rail that scrolls fades this far at an edge with more rows past it (2.5rem, threadMinimap.css).
+export const RAIL_FADE = 40;
 /// The fisheye by row distance from the hovered (or scrubbed) row: 26, 20, 14, 10, then 6 px.
 const PROGRESS = [1, 0.7, 0.4, 0.2] as const;
 /// Space kept free above and below the card inside the transcript's viewport.
@@ -86,6 +88,28 @@ export function railHeight(count: number, windowHeight: number, viewportHeight =
       viewportHeight > 0 ? Math.floor(viewportHeight - 2 * EDGE_MARGIN) : Infinity,
     ),
   );
+}
+
+/// Where a rail of `count` rows in `height` px scrolls its list (now at `current`) so the band of
+/// lit rows `first`..`last` shows whole and clear of the edge fades. The band holding the chat's
+/// last prompt scrolls the list to its end, where no fade covers it, and the band holding the first
+/// scrolls it to its start. Otherwise the list moves as little as it can (as `scrollIntoView` with
+/// `block: "nearest"`), so a steady scroll carries the rail along with the band.
+export function railListTop(first: number, last: number, count: number, height: number, current: number): number {
+  const room = Math.max(0, count * ROW_PITCH - height);
+  if (room === 0 || first <= 0) return 0;
+  if (last >= count - 1) return room;
+  const fade = Math.min(RAIL_FADE, Math.floor(height / 4));
+  const top = first * ROW_PITCH;
+  const bottom = (last + 1) * ROW_PITCH;
+  const at = Math.max(0, Math.min(room, current));
+  const clearTop = at + (at > 0 ? fade : 0);
+  const clearBottom = at + height - (at < room ? fade : 0);
+  let next = at;
+  // A band taller than the clear room keeps its first row in view.
+  if (top < clearTop || bottom - top > height - 2 * fade) next = top - fade;
+  else if (bottom > clearBottom) next = bottom - height + fade;
+  return Math.max(0, Math.min(room, Math.round(next)));
 }
 
 /// The card's top for a row centered at `center`: centered on it, kept inside the viewport.

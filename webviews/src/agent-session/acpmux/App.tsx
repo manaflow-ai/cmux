@@ -3189,7 +3189,6 @@ export function VirtualTranscript({
           // Above the room under the last row, so a composer that grows while the reader is scrolled
           // up leaves the map as it was, as it does the scrollbar.
           viewportHeight={height - room}
-          scrolls={layout.totalHeight - height > 0.5}
           width={width}
           placed={minimapPlaced}
         />

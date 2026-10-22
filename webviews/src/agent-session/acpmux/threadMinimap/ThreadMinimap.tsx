@@ -17,7 +17,6 @@ import { useHoverIntent } from "../../../ui/hoverIntent";
 import { useEscapeCloses } from "../../../ui/escapeDismiss";
 import { animateScroll, highlightBubble, reducedMotion, settleScroll, stopScroll } from "./scrollMotion";
 import { PreviewCard } from "./PreviewCard";
-import { ScrollMap } from "./ScrollMap";
 import { threadMinimapLayout } from "./layout.experiment";
 import { experimentArm } from "../../../experiments/experiment";
 import {
@@ -29,6 +28,7 @@ import {
   MIN_GUTTER,
   MIN_PROMPTS,
   minimapTurns,
+  railListTop,
   RAIL_LEFT,
   railHeight,
   ROW_PITCH,
@@ -86,7 +86,6 @@ export function ThreadMinimap({
   scroller,
   scrollTop,
   viewportHeight,
-  scrolls,
   width,
   placed,
 }: {
@@ -96,18 +95,15 @@ export function ThreadMinimap({
   scroller: React.RefObject<HTMLElement | null>;
   scrollTop: number;
   viewportHeight: number;
-  /// Whether the transcript scrolls at all (its layout, dock space included, is taller than it).
-  scrolls: boolean;
   width: number;
   /// The transcript calls what the rail puts here once each commit's placement pass has set its
   /// offset (VirtualTranscript), so the band reads where the transcript put the reader.
   placed?: React.MutableRefObject<(() => void) | undefined>;
 }) {
   const t = useT();
-  /// The full-height map (ScrollMap.tsx), the compact Codex rail below, or none (`off`, the
-  /// default: the turn steps below still run), read once per pane.
+  /// The compact Codex rail (the default) or none (`off`: the turn steps below still run), read
+  /// once per pane.
   const [arm] = useState(() => experimentArm(threadMinimapLayout));
-  const full = arm === "full";
   const marks = usePromptMarks(sessionId);
   const lastTurns = useRef<MinimapTurns | undefined>(undefined);
   const turns = useMemo(() => {
@@ -198,7 +194,6 @@ export function ThreadMinimap({
       const { turns: all, tops, total, viewportHeight: height, onScreen: drawn, sessionId: session } = live.current;
       domTop.current = { sessionId: session, top: node.scrollTop };
       restoring.current = undefined;
-      // The full-height map moves its own bar; no band to draw here.
       if (!live.current.shown) return;
       const next = visibleTurns(all, tops, total, node.scrollTop, height);
       if (next.first !== drawn.first || next.last !== drawn.last) flushSync(() => setBandMoves((count) => count + 1));
@@ -414,16 +409,20 @@ export function ThreadMinimap({
       };
   });
 
-  // A rail longer than its room keeps the first prompt on screen in view while the reader scrolls.
+  // A rail longer than its room keeps the whole band in view, clear of its edge fades, while the
+  // reader scrolls: at the end of the chat the last rows show lit with no fade over them, at the
+  // start the first rows do (railListTop). Keeping only the band's first row in view left the last
+  // prompts under the bottom fade or past the rail's end (Leo, 2026-10-21: "it didn't show the
+  // bottom bits being highlighted").
   useLayoutEffect(() => {
     const node = list.current;
     // The commit that added older turns placed the list itself, around the band.
     if (!node || !overflow || hovered !== undefined || focused !== undefined || holding.current) return;
-    const rowTop = onScreen.first * ROW_PITCH;
-    if (rowTop >= node.scrollTop && rowTop + ROW_PITCH <= node.scrollTop + height) return;
-    node.scrollTop = Math.max(0, rowTop - height / 3);
+    const next = railListTop(onScreen.first, onScreen.last, turns.length, height, node.scrollTop);
+    if (next === node.scrollTop) return;
+    node.scrollTop = next;
     setListTop(node.scrollTop);
-  }, [onScreen.first, overflow, height, hovered, focused]);
+  }, [onScreen.first, onScreen.last, turns.length, overflow, height, hovered, focused]);
 
   /// The rows' actions: stable for the memoized rows, reading the latest state through `live`.
   const actions = useMemo<TickActions>(
@@ -476,20 +475,6 @@ export function ThreadMinimap({
     [intend, dismiss, jump],
   );
 
-  if (full)
-    return (
-      <ScrollMap
-        rows={rows}
-        turns={turns}
-        layout={layout}
-        scroller={scroller}
-        viewportHeight={viewportHeight}
-        scrolls={scrolls}
-        width={width}
-        marks={marks}
-        jump={jump}
-      />
-    );
   if (!shown) return null;
   const indexAt = (clientY: number) => {
     const node = list.current;
