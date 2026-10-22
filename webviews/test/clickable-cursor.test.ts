@@ -123,7 +123,11 @@ function clickableClasses(): Set<string> {
     // A literal, a template, or an expression (`cx("ui-menu-item", …)`), whose string parts count.
     for (const match of text.matchAll(/className=(?:"([^"]*)"|\{`([^`]*)`\}|\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\})/g)) {
       const value =
-        match[1] ?? match[2] ?? [...(match[3] ?? "").matchAll(/"([^"]*)"|'([^']*)'|`([^`]*)`/g)].map((part) => part.slice(1).join(" ")).join(" ");
+        match[1] ??
+        match[2] ??
+        [...(match[3] ?? "").matchAll(/"([^"]*)"|'([^']*)'|`([^`]*)`/g)]
+          .map((part) => part.slice(1).join(" "))
+          .join(" ");
       const before = text.slice(Math.max(0, match.index! - 1500), match.index!);
       const open = [...before.matchAll(/(?:^|[\s(>{,=?:&|])<([A-Za-z][\w.]*)/g)].at(-1);
       if (!open) continue;
