@@ -46,6 +46,8 @@ jobs:
           # The CI run is located by workflow file, never by display name.
           CI_RUNS: repos/${{ github.repository }}/actions/workflows/ci.yml/runs
           REPOSITORY: ${{ github.repository }}
+          POLL_SECONDS: "30"
+          RUN_STATUS_EVERY: "10"
         run: |
           set -euo pipefail
 
@@ -88,21 +90,37 @@ jobs:
 
           RUN="repos/$REPOSITORY/actions/runs/$RUN_ID"
           errors=0
+          polls=0
           echo "Watching merge-group CI run $RUN_ID: $RUN_URL"
+          # Every Actions workflow in this repository shares one GITHUB_TOKEN
+          # budget per hour. A watcher that read the run and every page of its
+          # jobs each 20 seconds cost 6 to 9 requests a minute for the whole
+          # run, and a per-run copy of it for pull requests (ci-fail-fast.yml,
+          # 2026-09-30) exhausted the budget for every workflow. One jobs page
+          # per poll answers both questions: a failed job, and whether
+          # ci-status, the run's last job, has finished. The run itself is read
+          # only every RUN_STATUS_EVERY polls, for a run cancelled or finished
+          # some other way.
           while :; do
-            if status="$(gh api "$RUN" --jq .status)" \
-              && failed="$(gh api "$RUN/jobs?filter=latest" --paginate \
-                --jq '[.jobs[] | select(.conclusion != null and .conclusion != "success" and .conclusion != "skipped")] | length' \
-                | awk '{ total += $1 } END { print total + 0 }')"; then
+            polls=$((polls + 1))
+            if jobs="$(gh api "$RUN/jobs?filter=latest&per_page=100" --paginate \
+                --jq '.jobs[] | [.name, .status, (.conclusion // "")] | @tsv')"; then
               errors=0
-              if [ "$status" = "completed" ]; then
-                echo "The CI run finished."
-                exit 0
-              fi
+              failed="$(awk -F '\t' '$3 != "" && $3 != "success" && $3 != "skipped" { n++ } END { print n + 0 }' <<< "$jobs")"
               if [ "$failed" -gt 0 ]; then
                 echo "$failed completed job(s) cannot satisfy ci-status; cancelling the CI run so the queue can move on."
                 gh api -X POST "$RUN/cancel"
                 exit 0
+              fi
+              if awk -F '\t' '$1 == "ci-status" && $2 == "completed" { found = 1 } END { exit !found }' <<< "$jobs"; then
+                echo "ci-status finished; the CI run is decided."
+                exit 0
+              fi
+              if [ $((polls % RUN_STATUS_EVERY)) -eq 0 ]; then
+                if status="$(gh api "$RUN" --jq .status)" && [ "$status" = "completed" ]; then
+                  echo "The CI run finished."
+                  exit 0
+                fi
               fi
             else
               errors=$((errors + 1))
@@ -111,5 +129,5 @@ jobs:
                 exit 1
               fi
             fi
-            sleep 20
+            sleep "$POLL_SECONDS"
           done
