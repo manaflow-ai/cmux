@@ -275,13 +275,17 @@ fn resolved(path: &Path) -> PathBuf {
 /// `path` (a PATH) without its relative folders and the ones inside the chat's folder `cwd`,
 /// unless `cwd` holds the person's home (`frozen_program`). Claude Code runs git in the folder
 /// as it starts, and acpmux probes and runs `systemd-run` from it (`session_scope.rs`), both
-/// before anything asks: neither may be a program the folder planted.
-fn restricted_path(path: &OsStr, cwd: &Path) -> String {
+/// before anything asks: neither may be a program the folder planted. None kept is refused: an
+/// empty PATH makes a Unix exec look in the current folder.
+fn restricted_path(path: &OsStr, cwd: &Path) -> Result<String, String> {
     let cwd = std::fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_path_buf());
     let home = held_home(&cwd);
     let kept = std::env::split_paths(path)
         .filter(|dir| dir.is_absolute() && (home.is_some() || !resolved(dir).starts_with(&cwd)));
-    std::env::join_paths(kept).map(|p| p.to_string_lossy().into_owned()).unwrap_or_default()
+    let kept = std::env::join_paths(kept).map(|p| p.to_string_lossy().into_owned());
+    kept.ok()
+        .filter(|p| !p.is_empty())
+        .ok_or_else(|| "a PATH with no folder outside the chat's folder".to_owned())
 }
 
 /// `argv` without the `--disallowedTools` acpmux appended for the tools the chat turned off
@@ -571,7 +575,8 @@ impl Hub {
             profile.env.insert((*key).to_owned(), String::new());
         }
         if let Some(path) = path {
-            profile.env.insert("PATH".to_owned(), restricted_path(&path, &meta.cwd));
+            let path = restricted_path(&path, &meta.cwd).map_err(refused)?;
+            profile.env.insert("PATH".to_owned(), path);
         }
         let inherited = crate::login_env::var("GIT_CONFIG_COUNT")
             .or_else(|| std::env::var("GIT_CONFIG_COUNT").ok());
@@ -727,11 +732,14 @@ mod tests {
         ])
         .unwrap();
         let kept = std::env::join_paths([PathBuf::from("/usr/bin"), elsewhere.join("missing")]);
-        assert_eq!(restricted_path(&path, &chat), kept.unwrap().to_string_lossy());
+        assert_eq!(restricted_path(&path, &chat).unwrap(), kept.unwrap().to_string_lossy());
+        // Nothing left: refused, since an empty PATH looks in the current folder.
+        let inside = std::env::join_paths([chat.join("bin"), PathBuf::from("bin")]).unwrap();
+        assert!(restricted_path(&inside, &chat).is_err());
         // A folder holding the person's home (here `/`) keeps their own folders.
         if account_home().is_some() {
             let all = std::env::join_paths([chat.join("bin"), elsewhere.join("bin")]).unwrap();
-            assert_eq!(restricted_path(&all, Path::new("/")), all.to_string_lossy());
+            assert_eq!(restricted_path(&all, Path::new("/")).unwrap(), all.to_string_lossy());
         }
         let _ = std::fs::remove_dir_all(&root);
     }
