@@ -57,7 +57,7 @@ extension TabDragSession {
     /// Auto-scrolls the columns screen under the pointer. Strips and the
     /// sidebar auto-scroll themselves while they hold a drag.
     func autoscroll(_ drag: Drag, dt: Double) -> Bool {
-        guard let controller = window(at: drag.point), let layout = controller.content?.layoutView, let window = layout.window else {
+        guard let controller = window(at: drag.point), let layout = controller.content(atScreen: drag.point)?.layoutView, let window = layout.window else {
             return false
         }
         return layout.autoscrollTabDrag(locationInWindow: window.convertPoint(fromScreen: drag.point), dt: dt)
@@ -73,7 +73,7 @@ extension TabDragSession {
         removeMonitors(drag)
         if case .workspaces = drag.source.item { return finishWorkspaces(drag, commit: commit) }
         let outcome = commit ? drag.outcome : .cancel
-        if commit { reportRefusal(drag) }
+        if commit { noteCommit(drag) }
         focusDragEnded(drag, outcome: outcome)
         let winner = drag.winner
         for provider in drag.touched.values where provider !== winner?.provider || outcome == .cancel {
@@ -112,11 +112,11 @@ extension TabDragSession {
         }
     }
 
-    /// A drop where nothing answered inside a window is a resolver defect
-    /// and says so instead of springing back silently (tab-dnd). A refused
-    /// zone springs back without a word (Lawrence 2026-10-05).
-    func reportRefusal(_ drag: Drag) {
-        guard case .none = drag.resolution.preview else { return }
+    /// A drop where nothing answered inside a window is a resolver defect and says so instead of springing back
+    /// silently (tab-dnd); a refused zone springs back without a word (Lawrence 2026-10-05). A drop into a workspace
+    /// shown beside the focused one (`sidebar.multiView`) focuses it first, unless Option files the tabs away.
+    func noteCommit(_ drag: Drag) {
+        guard case .none = drag.resolution.preview else { return drag.filesAway ? () : drag.winner?.window?.focusDropTarget(drag.outcome, atScreen: drag.point) ?? () }
         services.registry.refuse(drag.noTargetReason ?? TabDropStrings.noTarget)
     }
 

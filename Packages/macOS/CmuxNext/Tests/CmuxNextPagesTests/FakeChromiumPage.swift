@@ -10,11 +10,16 @@ final class FakeChromiumPage: PageChromiumPage {
     let contentView = NSView()
     var onEvent: ((PageChromiumEvent) -> Void)?
     var resources: (@MainActor (URL) async -> PageChromiumResponse)?
+    var occlusionRects: [CGRect] = []
     /// Every DevTools call, in order.
     private(set) var calls: [(method: String, params: [String: any Sendable])] = []
     private(set) var loaded: [URL] = []
     private(set) var zoom: Double?
     private(set) var closed = false
+    /// The last ``setSeeThrough(_:)``; nil before any.
+    private(set) var seeThrough: Bool?
+    /// ``seeThrough`` when the first document loaded.
+    private(set) var seeThroughAtFirstLoad: Bool??
     var senderURL = "cmux-page://test.plain/index.html"
     var senderIsTop = true
     /// Runs after each call (tests wait on it).
@@ -34,7 +39,11 @@ final class FakeChromiumPage: PageChromiumPage {
         return #"{"result":{}}"#
     }
 
-    func load(_ url: URL) { loaded.append(url) }
+    func load(_ url: URL) {
+        if loaded.isEmpty { seeThroughAtFirstLoad = .some(seeThrough) }
+        loaded.append(url)
+    }
+    func setSeeThrough(_ seeThrough: Bool) { self.seeThrough = seeThrough }
     func reload() {}
     func setZoom(_ zoom: Double) { self.zoom = zoom }
     func setFocused(_ focused: Bool) {}
