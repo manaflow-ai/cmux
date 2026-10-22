@@ -46,6 +46,7 @@ fn serve_recording(home: &Path, chief: Arc<ChiefTools>, asked: Asked) -> PathBuf
                 subagent_prefix: "optchat-sub-home-".to_owned(),
                 agent_parent: std::fs::canonicalize("/bin/bash").ok(),
             }),
+            peers: None,
         },
     )
     .unwrap();
