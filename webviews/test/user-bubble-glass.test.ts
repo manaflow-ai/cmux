@@ -30,7 +30,11 @@ function sources(dir: string): string[] {
 // `.cv-user__bubble--collapsed`), not something inside it.
 function stylesBubble(selector: string): boolean {
   return selector.split(",").some((part) => {
-    const subject = part.trim().split(/[\s>+~]+/).at(-1) ?? "";
+    const subject =
+      part
+        .trim()
+        .split(/[\s>+~]+/)
+        .at(-1) ?? "";
     return new RegExp(`\\.${BUBBLE}(?![\\w])`).test(subject);
   });
 }
@@ -56,7 +60,11 @@ test("the user bubble's fills are translucent outside Reduce Transparency", () =
     .flatMap((rule) =>
       rule.decls
         .filter((d) => FILLS.has(d.prop))
-        .map((d) => ({ at: `${rule.file}:${d.line}: ${rule.selector} { ${d.prop}: ${d.value} }`, prop: d.prop, value: d.value })),
+        .map((d) => ({
+          at: `${rule.file}:${d.line}: ${rule.selector} { ${d.prop}: ${d.value} }`,
+          prop: d.prop,
+          value: d.value,
+        })),
     );
   // Not vacuous: the bubble's tint and its landing highlight are both here.
   expect(fills.map((f) => f.prop)).toContain("--glass-tint");
