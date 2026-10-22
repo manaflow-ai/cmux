@@ -662,8 +662,11 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             // request is held comes with it instead, in order (on the turn it belongs to).
             // An ask whose record comes later still (it raced the reply) is sent again with
             // that record, and the chat moves it to its turn (`AgentChatStore`).
+            // Only held records that will be applied (newer than the page) count.
             let heldAsks = Set(held.compactMap { record -> String? in
-                record["kind"]?.stringValue == "permission_request" ? record["msg"]?["permissionId"]?.stringValue : nil
+                let seq = Int(record["seq"]?.numberValue ?? 0)
+                guard seq == 0 || seq > lastSeq, record["kind"]?.stringValue == "permission_request" else { return nil }
+                return record["msg"]?["permissionId"]?.stringValue
             })
             for entry in result["session"]?["pending"]?.arrayValue ?? [] {
                 if let id = entry["permissionId"]?.stringValue, !heldAsks.contains(id), let request = entry["request"],

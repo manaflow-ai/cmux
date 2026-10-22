@@ -214,6 +214,11 @@ public final class AgentChatStore {
     /// What the chat's first batch (its history on open) held: an ask in it was already
     /// waiting and does not buzz; one a later batch (a reattach) brings is news.
     @ObservationIgnored private var openingIDs: Set<String>?
+    /// Asks a decision or an answer resolved (not a turn that ended under them).
+    @ObservationIgnored private var decidedAsks: Set<String> = []
+    /// The newest change was a replayed batch: views that animate on a value change
+    /// (the permission bar, the queue) draw it in place.
+    @ObservationIgnored public private(set) var lastChangeWasReplay = false
     private var currentMessageID: String?
     private var task: Task<Void, Never>?
 
@@ -338,6 +343,7 @@ public final class AgentChatStore {
 
     func apply(_ event: AgentSessionEvent) {
         revision &+= 1
+        lastChangeWasReplay = false
         switch event {
         case .userMessage(let text, let promptId, let turnId, let attachments, let at):
             currentMessageID = nil
@@ -408,6 +414,7 @@ public final class AgentChatStore {
             summary.status = .waiting
         case .permissionDecision(let permissionId, let optionId):
             approvingOptionID = nil
+            decidedAsks.insert(permissionId)
             updateItems { item in
                 // A question resolves through the same decision: its answer option, or a decline.
                 if case .question(var question) = item, question.id == permissionId, question.isPending {
@@ -425,6 +432,7 @@ public final class AgentChatStore {
             }
             summary.status = isRunning ? .running : .idle
         case .questionAnswered(let questionId, let answer):
+            decidedAsks.insert(questionId)
             updateItems { item in
                 guard case .question(var question) = item, question.id == questionId else { return nil }
                 question.state = .answered(answer)
@@ -454,6 +462,7 @@ public final class AgentChatStore {
         case .batch(let events):
             for event in events { apply(event) }
             markReplayed()
+            lastChangeWasReplay = true
         case .subagentUpdate(let id, let update):
             guard let index = subagents.firstIndex(where: { $0.id == id }) else { return }
             subagents[index].items.apply(update)
@@ -477,7 +486,8 @@ public final class AgentChatStore {
             replayedIDs.insert(turn.id)
             for row in turn.rows { replayedIDs.insert(row.id) }
         }
-        if openingIDs == nil { openingIDs = replayedIDs }
+        // The opening set is the first batch that brought the transcript.
+        if openingIDs == nil, !turns.isEmpty { openingIDs = replayedIDs }
     }
 
     private func applySubagent(_ change: AgentSubagentChange) {
@@ -578,9 +588,11 @@ public final class AgentChatStore {
     }
 
     /// An ask seen again (shown from an attach reply's pending list, then its own record
-    /// came with its turn): still open, it leaves its old place for the newest turn;
-    /// answered, the repeat is dropped. False: drop the repeat.
+    /// came with its turn): not decided, it leaves its old place for the newest turn (a
+    /// turn that ended under it only cancelled it here); decided, the repeat is dropped.
+    /// False: drop the repeat.
     private func takeOpenAsk(_ id: String) -> Bool {
+        guard !decidedAsks.contains(id) else { return false }
         for turnIndex in turns.indices {
             guard let itemIndex = turns[turnIndex].items.firstIndex(where: { item in
                 switch item {
@@ -589,12 +601,6 @@ public final class AgentChatStore {
                 default: false
                 }
             }) else { continue }
-            let open: Bool = switch turns[turnIndex].items[itemIndex] {
-            case .permission(let record): record.resolution == nil
-            case .question(let question): question.isPending
-            default: false
-            }
-            guard open else { return false }
             turns[turnIndex].items.remove(at: itemIndex)
             return true
         }

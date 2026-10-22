@@ -561,8 +561,9 @@ public struct AgentChatBottomStack: View {
             })
         }
         .padding(.bottom, bottomPadding)
-        .animation(.cmuxMobileSmooth, value: store.pendingPermission?.request.id)
-        .animation(.cmuxMobileSmooth, value: store.queue)
+        // History (the chat opening, a reattach) brings its open ask and queue in place.
+        .animation(store.lastChangeWasReplay ? nil : .cmuxMobileSmooth, value: store.pendingPermission?.request.id)
+        .animation(store.lastChangeWasReplay ? nil : .cmuxMobileSmooth, value: store.queue)
         .onChange(of: store.pendingPermission?.request.id) { _, new in
             surface.replyInsteadOfPermission = false
             // Never pull the composer out from under someone typing.
@@ -679,7 +680,8 @@ struct TurnView: View {
     private func rowView(_ row: TurnRow, isLastRow: Bool) -> some View {
         switch row {
         case .message(_, let markdown):
-            // A replayed message's blocks are drawn in place too, not faded in one by one.
+            // A replayed message's blocks are drawn in place too, not faded in one by one
+            // (one still streaming when the chat opened streams on without the block fade).
             StreamingMarkdown(markdown: markdown, isStreaming: turn.status == .running && isLastRow,
                               animatesBlocks: !store.isReplayed(row.id))
         case .thought(_, let text):

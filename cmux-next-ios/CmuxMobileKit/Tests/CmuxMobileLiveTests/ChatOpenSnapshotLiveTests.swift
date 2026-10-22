@@ -197,4 +197,45 @@ import Testing
         let asks = store.turns.flatMap(\.items).filter { if case .permission = $0 { true } else { false } }
         #expect(asks.count == 1)
     }
+
+    /// The reply lists an ask whose records come strictly after it (sent with a later
+    /// reply): the ask is shown at once, then moves to its turn when its record comes.
+    @Test func listedAskWhoseRecordComesAfterTheReplyMovesToItsTurn() async throws {
+        let link = MockMacLink { _, data in
+            guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let method = object["method"] as? String else { return [] }
+            let id = object["id"].map { "\($0)" } ?? "null"
+            func reply(_ result: String) -> Data { Data(#"{"jsonrpc":"2.0","id":\#(id),"result":\#(result)}"#.utf8) }
+            let request = #"{"toolCall":{"toolCallId":"c","title":"rm","kind":"execute"},"options":[{"optionId":"allow","name":"Allow","kind":"allow_once"},{"optionId":"deny","name":"Deny","kind":"reject_once"}]}"#
+            func event(_ record: String) -> Data { Data(#"{"jsonrpc":"2.0","method":"_acpmux/event","params":\#(record)}"#.utf8) }
+            switch method {
+            case "initialize": return [reply(#"{"protocolVersion":1}"#)]
+            case "_acpmux/watch": return [reply(#"{"sessions":[{"sessionId":"s1","name":"Fix","harness":"codex","cwd":"/tmp/w","status":"idle"}]}"#)]
+            case "_acpmux/attach":
+                let history = Self.turnRecords(0).joined(separator: ",")
+                return [reply(#"{"session":{"sessionId":"s1","status":"waiting","pending":[{"permissionId":"perm","request":\#(request)}]},"hasMore":false,"events":[\#(history)]}"#)]
+            case "_test/later":
+                return [
+                    reply("{}"),
+                    event(#"{"sessionId":"s1","seq":6,"at":5,"dir":"mux","kind":"user_message","msg":{"text":"next","promptId":"p1","turnId":"t1"}}"#),
+                    event(#"{"sessionId":"s1","seq":7,"at":5,"dir":"mux","kind":"turn_started","msg":{"turnId":"t1"}}"#),
+                    event(#"{"sessionId":"s1","seq":8,"at":5,"dir":"mux","kind":"permission_request","msg":{"permissionId":"perm","request":\#(request)}}"#),
+                ]
+            default:
+                return [reply("{}")]
+            }
+        }
+        let hub = AcpmuxHub()
+        await hub.bind(try await link.openChannel(service: "acpmux", args: [:]))
+        let store = AgentChatStore(source: hub.source(sessionID: "s1", summary: Self.summary))
+        // Shown from the reply's pending list, on the page's last turn for now.
+        for _ in 0..<2000 where store.pendingPermission == nil { await Task.yield() }
+        #expect(store.turns.map(\.id) == ["t0"])
+        _ = try await hub.request("_test/later", .object([:]))
+        for _ in 0..<2000 where store.turns.count < 2 || store.pendingPermission == nil { await Task.yield() }
+        #expect(store.turns.map(\.id) == ["t0", "t1"])
+        #expect(store.pendingPermission?.request.id == "perm")
+        let asks = store.turns.map { $0.items.filter { if case .permission = $0 { true } else { false } }.count }
+        #expect(asks == [0, 1])
+    }
 }

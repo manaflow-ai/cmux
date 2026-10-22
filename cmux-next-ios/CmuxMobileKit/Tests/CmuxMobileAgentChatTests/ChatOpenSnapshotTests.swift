@@ -100,4 +100,34 @@ import Testing
         store.apply(.permissionRequest(ask))
         #expect(store.turns.flatMap(\.items).filter { if case .permission = $0 { true } else { false } }.count == 1)
     }
+
+    /// A chat with no history: its first live ask is news.
+    @Test func firstLiveAskAfterEmptyHistoryIsNews() throws {
+        let store = AgentChatStore(source: Silent())
+        store.apply(.batch([.status(.idle)]))
+        for event in Self.turn(0).dropLast() { store.apply(event) }
+        let ask = ACPPermissionRequest(id: "perm", toolCall: ACPToolCall(id: "c", title: "rm", kind: .execute),
+                                       options: [ACPPermissionOption(id: "allow", name: "Allow", kind: .allowOnce)])
+        store.apply(.permissionRequest(ask))
+        let pending = try #require(store.pendingPermission)
+        #expect(!store.isReplayed(TurnRow.permission(pending).id))
+        #expect(!store.wasOpenOnArrival(TurnRow.permission(pending).id))
+    }
+
+    /// A listed ask that a turn's end cancelled here (not a decision) opens again on the
+    /// turn its own record lands in.
+    @Test func askCancelledByTurnEndOpensAgainOnItsTurn() throws {
+        let store = AgentChatStore(source: Silent())
+        let ask = ACPPermissionRequest(id: "perm", toolCall: ACPToolCall(id: "c", title: "rm", kind: .execute),
+                                       options: [ACPPermissionOption(id: "allow", name: "Allow", kind: .allowOnce)])
+        store.apply(.batch(Array(Self.turn(0).dropLast()) + [.permissionRequest(ask)]))
+        store.apply(.turnResult(turnId: "t0", status: .completed, errorText: nil, at: Date()))
+        #expect(store.pendingPermission == nil)
+        store.apply(.userMessage(text: "next", promptId: "p1", turnId: "t1", attachments: [], at: Date()))
+        store.apply(.turnStarted(turnId: "t1", at: Date()))
+        store.apply(.permissionRequest(ask))
+        #expect(store.pendingPermission?.request.id == "perm")
+        let asks = store.turns.map { $0.items.filter { if case .permission = $0 { true } else { false } }.count }
+        #expect(asks == [0, 1])
+    }
 }
