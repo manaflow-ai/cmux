@@ -196,9 +196,24 @@ import Testing
         #expect(run(["\u{1B}[5G\u{1B}[2A\u{1B}[K"]) == "\u{1B}[5G\u{1B}[2A\u{1B}[K")
     }
 
-    /// Entering the alternate screen limits the scroll margins to the Mac's
-    /// rows (the alternate screen is drawn from the mirror's top).
-    private let altEnter = "\u{1B}[?1049h\u{1B}7\u{1B}[1;42r\u{1B}8"
+    /// Entering the alternate screen moves the copied cursor up to the Mac's
+    /// row (margins reset first so nothing stops it), then limits the scroll
+    /// margins to the Mac's rows (the alternate screen is drawn from the
+    /// mirror's top).
+    private let toTUIRows = "\u{1B}7\u{1B}[r\u{1B}8\u{1B}[109A"
+    private let tuiMargins = "\u{1B}7\u{1B}[1;42r\u{1B}8"
+    private var altEnter: String { "\u{1B}[?1049h" + toTUIRows + tuiMargins }
+
+    /// User report 2026-10-21 (Claude Code over 5G): the attach replay of a TUI
+    /// draws its rows from the cursor, so the copied cursor must be on the Mac's
+    /// row in the alternate screen; 47/1047 copy it back on the way out.
+    @Test func theCopiedCursorMovesBetweenTheMirrorsRowNumberings() {
+        #expect(run(["\u{1B}[?1047h", "\u{1B}[?1047l"]) == "\u{1B}[?1047h" + toTUIRows + tuiMargins + "\u{1B}[?1047l\u{1B}7\u{1B}[r\u{1B}8\u{1B}[109B")
+        // 1049 restores the cursor it saved on the primary screen: no move.
+        #expect(run(["\u{1B}[?1049h", "\u{1B}[?1049l"]) == altEnter + "\u{1B}[?1049l\u{1B}7\u{1B}[r\u{1B}8")
+        // A reset puts the mirror back on the primary screen.
+        #expect(run(["\u{1B}[?1049h", "\u{1B}c", "\u{1B}[?1049h"]).hasSuffix(altEnter))
+    }
 
     @Test func alternateScreenIsNotShifted() {
         let out = run(["\u{1B}[?1049h\u{1B}[1;1Hvim\u{1B}[42;1H", "\u{1B}[?1049l\u{1B}[42;1H"])
@@ -221,10 +236,10 @@ import Testing
         #expect(run(["\u{1B}[?1049h", "\u{1B}[;r\u{1B}[0;0r\u{1B}[1;0r\u{1B}[5r\u{1B}[2;99r"])
             == altEnter + "\u{1B}[1;42r\u{1B}[1;42r\u{1B}[1;42r\u{1B}[5;42r\u{1B}[2;42r")
         // Mode 47 and 1047 too; no mirror offset, nothing to add.
-        #expect(run(["\u{1B}[?47h"]) == "\u{1B}[?47h\u{1B}7\u{1B}[1;42r\u{1B}8")
+        #expect(run(["\u{1B}[?47h"]) == "\u{1B}[?47h" + toTUIRows + tuiMargins)
         #expect(run(["\u{1B}[?1049h\u{1B}[r"], offset: 0) == "\u{1B}[?1049h\u{1B}[r")
         // Already on the alternate screen (a repeated switch): set again, harmless.
-        #expect(run(["\u{1B}[?1049h", "\u{1B}[?1049h"]) == altEnter + altEnter)
+        #expect(run(["\u{1B}[?1049h", "\u{1B}[?1049h"]) == altEnter + "\u{1B}[?1049h" + tuiMargins)
     }
 
     @Test func fullScreenRegionKeepsTheScrollback() {

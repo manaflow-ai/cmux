@@ -42,6 +42,14 @@ import UIKit
             }
         }
 
+        /// Every row of the active area, padded to the grid (Ghostty's text
+        /// read drops blank rows at its ends).
+        var allRows: [String] {
+            let text = surface.activeAreaText() ?? ""
+            let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map { String($0).trimmingCharacters(in: .whitespaces) }
+            return lines + Array(repeating: "", count: max(0, surface.grid.rows - lines.count))
+        }
+
         /// The TUI's rows (the top `remoteRows` of the mirror), trailing blanks trimmed.
         var tuiRows: [String] {
             let text = surface.activeAreaText() ?? ""
@@ -54,11 +62,11 @@ import UIKit
     /// `data`): modes, the alternate screen, tab stops on the cursor's row,
     /// then the rows from the cursor, then the cursor's place.
     static let replay = "\u{1B}[?1000h\u{1B}[?1006h\u{1B}[?1049h\u{1B}[?2004h\u{1B}[3g\u{1B}[9G\u{1B}H\r\r\n"
-        + " Claude Code v2\r\n\r\n> Write an essay\r\n\r\n* Phosphor, Paper, and Pixels\r\n  Introduction\r\n\r\n"
+        + " Claude Code v2\r\n\r\n> Write an essay\r\n\r\n* Phosphor, Paper, and Pixels\r\n  Introduction\r\n"
         + "* Levitating (49s)\r\n----\r\n> \r\n----\r\n  bypass permissions on"
-        + "\u{1B}[11;3H"
+        + "\u{1B}[10;3H"
     /// A live update after the replay: Claude's spinner line, positioned absolutely.
-    static let spinner = "\u{1B}[?2026h\u{1B}[?25l\u{1B}[9;1H\u{1B}[K* Levitating (50s)\u{1B}[11;3H\u{1B}[?25h\u{1B}[?2026l"
+    static let spinner = "\u{1B}[?2026h\u{1B}[?25l\u{1B}[8;1H\u{1B}[K* Levitating (50s)\u{1B}[10;3H\u{1B}[?25h\u{1B}[?2026l"
 
     @Test func aTUIReplayFillsTheRowsTheTUIShows() async throws {
         let rig = Rig()
@@ -69,18 +77,20 @@ import UIKit
         // The attach: the session's reset, the replay, then live output.
         await rig.feed("\u{1B}c")
         await rig.feed(Self.replay)
+        // Row 0 marked (Ghostty's text read drops leading blank rows).
+        await rig.feed("\u{1B}7\u{1B}[1;1HTOP\u{1B}8")
         let rows = rig.tuiRows
+        #expect(rows[0] == "TOP", "\(rows)")
         #expect(rows[1] == "Claude Code v2", "\(rows)")
         #expect(rows[5] == "* Phosphor, Paper, and Pixels", "\(rows)")
-        #expect(rows[8] == "* Levitating (49s)", "\(rows)")
+        #expect(rows[7] == "* Levitating (49s)", "\(rows)")
         #expect(rows[11] == "bypass permissions on", "\(rows)")
         await rig.feed(Self.spinner)
         let live = rig.tuiRows
         #expect(live[1] == "Claude Code v2", "\(live)")
-        #expect(live[8] == "* Levitating (50s)", "\(live)")
+        #expect(live[7] == "* Levitating (50s)", "\(live)")
         // Nothing of the replay below the TUI's rows.
-        let text = rig.surface.activeAreaText() ?? ""
-        let below = text.split(separator: "\n", omittingEmptySubsequences: false).dropFirst(Self.remoteRows)
+        let below = rig.allRows.dropFirst(Self.remoteRows)
         #expect(below.allSatisfy { $0.trimmingCharacters(in: .whitespaces).isEmpty }, "\(Array(below))")
     }
 
@@ -93,8 +103,7 @@ import UIKit
         await rig.feed("$ claude")
         await rig.feed(Self.replay)
         await rig.feed("\u{1B}[?1049l\r\n$ ")
-        let text = rig.surface.activeAreaText() ?? ""
-        let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map { $0.trimmingCharacters(in: .whitespaces) }
+        let lines = rig.allRows
         // The shell's first row is the mirror's row `offset` (the Mac's row 0).
         #expect(lines.count > rig.offset + 1)
         #expect(lines[rig.offset] == "$ claude", "\(lines.suffix(Self.remoteRows + 2))")
@@ -113,8 +122,7 @@ import UIKit
         let tui = rig.tuiRows
         #expect(tui[2] == "page", "\(tui)")
         await rig.feed("\u{1B}[?1047l\r\n$ ")
-        let text = rig.surface.activeAreaText() ?? ""
-        let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map { $0.trimmingCharacters(in: .whitespaces) }
+        let lines = rig.allRows
         #expect(lines[rig.offset] == "$ less", "\(lines.suffix(Self.remoteRows + 2))")
         // The cursor came back on the Mac's row 2 (+ offset), then a new line.
         #expect(lines[rig.offset + 3] == "$", "\(lines.suffix(Self.remoteRows + 2))")
