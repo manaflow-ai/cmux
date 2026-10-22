@@ -110,9 +110,11 @@ extension UpdaterService {
             keepRunningBuildForRollback()
         case .note where wasInstalling && automaticInstallInFlight:
             // An install nobody clicked failed: nothing opens over the person's work; the
-            // log keeps it and the next check offers the update again.
+            // log keeps it and the next check offers the update again. The windows come back
+            // if the relaunch had already hidden them (`willRelaunch`); a no-op otherwise.
             automaticInstallInFlight = false
             log.append("automatic install ended without a relaunch (not shown)")
+            installAbandoned?()
         case .note where wasInstalling || (wasReady && clickedInstall):
             // The install failed: no relaunch comes. The windows come back and the failure's
             // sheet opens with Retry and Download Manually, so the click never ends in silence.
