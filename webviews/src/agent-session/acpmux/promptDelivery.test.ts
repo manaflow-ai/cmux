@@ -1,9 +1,12 @@
 // Each prompt the pane sends carries where it is on its way (plans/cmux-next/composer-delivery-DESIGN.md):
 // sending, then delivered once acpmux took it, read once the agent started on it, or failed with the
 // hop it stopped at. A send with no answer says so and then fails, Retry sends the same prompt id
-// again with `resend` (acpmux runs a prompt id once), and a late acceptance still lands.
+// again (acpmux runs a prompt id once), and a late acceptance still lands.
 import { afterAll, beforeAll, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import policy from "../../../../cmux-tui/crates/cmux-agent-pane-policy/policy.json";
+
+const promptMetaKeys: string[] = (policy as any).known_params?.["session/prompt"]?.acpmux ?? [];
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -104,7 +107,14 @@ test("a send with no answer says it is still sending, fails, and Retry resends t
     const promptId = mine()!.delivery!.promptId;
     void client.retryPrompt(mine()!.id).catch(() => undefined);
     await settle(() => prompts.length === 2);
-    expect(prompts[1]._meta.acpmux).toMatchObject({ promptId, resend: true });
+    expect(prompts[1]._meta.acpmux).toMatchObject({ promptId });
+    // The app relays only the `_meta.acpmux` keys its policy knows (AcpmuxPaneMethods+Params.swift,
+    // cmux-agent-pane-policy/policy.json); a Retry with another key was refused as "The pane sent a
+    // request the app does not accept" (Leo, 2026-10-21).
+    expect(promptMetaKeys).toContain("promptId");
+    for (const frame of prompts) {
+      expect(Object.keys(frame._meta.acpmux).filter((key) => !promptMetaKeys.includes(key))).toEqual([]);
+    }
     // acpmux takes it late: the row is delivered, not failed.
     hooks!.deliver({
       jsonrpc: "2.0",
