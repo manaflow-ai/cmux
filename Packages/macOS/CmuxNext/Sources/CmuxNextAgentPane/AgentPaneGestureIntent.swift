@@ -97,10 +97,11 @@ public nonisolated struct AgentPaneGesturePick: Equatable, Sendable {
             self.params = (acpmux?["promptId"] as? String).map { ["promptId": .string($0)] }
             return
         }
-        // A permission answer's pick names its session too (the ticket binds the prompt).
+        // A permission answer's pick names its session too (the ticket binds the prompt). A
+        // question's `answers` are no pick: the answers rule bounds them and the proof covers them.
         if method == "_acpmux/permission_respond" {
             guard let session = params["sessionId"] as? String, let permission = params["permissionId"] as? String,
-                  let option = params["optionId"] as? String, params["answers"] == nil else {
+                  let option = params["optionId"] as? String else {
                 self.params = nil
                 return
             }
