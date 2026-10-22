@@ -20,13 +20,15 @@ import type { DiffViewerOptions } from "./pierre-options";
  * `cmux.diff.prefs.set {key, value}` (diff/pageStore.ts), and web storage is never touched (the
  * page host pool clears it). The host seeds first paint through `payload.viewerOptions`.
  *
- * `groupByKind` is persisted like the rest since it got its `diff.groupByKind` schema row: it
- * shipped as a toolbar toggle that reset itself on every reopen, because the host refuses a
- * `diff.*` key it has no row for (`DiffPrefKey.booleans`) and `saveViewerPrefs` swallows that
- * refusal. `test/viewer-prefs-host-keys.test.ts` fails if the two lists drift apart again. It
- * stays off by default (state.ts): a reorder of the file column is the reader's to ask for.
+ * `groupByKind` is session-local for now, like `collapsed`: the host only accepts the `diff.*`
+ * keys it has schema rows for (`DiffPrefKey.booleans`), so sending it would be refused and
+ * dropped without a word. Giving it a row is the new-setting checklist (schema row, agent policy,
+ * 21 locales, regenerated settings exports) and lands on its own, once the defaults snapshot is
+ * green on base; `test/viewer-prefs-host-keys.test.ts` fails if the two lists drift apart again.
+ * Until then the grouping is off by default (state.ts) and turned on from the toolbar for the
+ * session: a reorder nobody can durably turn off has no business being the default.
  */
-export type ViewerPrefs = Partial<Omit<DiffViewerOptions, "collapsed">> & {
+export type ViewerPrefs = Partial<Omit<DiffViewerOptions, "collapsed" | "groupByKind">> & {
   collapsedFiles?: string[];
 };
 
@@ -49,14 +51,7 @@ export function sanitizeViewerPrefs(raw: unknown): ViewerPrefs {
   if (source.colors === "theme" || source.colors === "muted" || source.colors === "standard") {
     prefs.colors = source.colors;
   }
-  for (const key of [
-    "wordWrap",
-    "wordDiffs",
-    "lineNumbers",
-    "showBackgrounds",
-    "expandUnchanged",
-    "groupByKind",
-  ] as const) {
+  for (const key of ["wordWrap", "wordDiffs", "lineNumbers", "showBackgrounds", "expandUnchanged"] as const) {
     if (typeof source[key] === "boolean") {
       prefs[key] = source[key];
     }
