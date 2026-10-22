@@ -48,10 +48,11 @@ public final class KillSwitchReader {
     /// Follows the updater while it lives (see the type's note).
     public func follow() {
         observation?.cancel()
+        let changes = ObservationStream({ [weak updater] in (updater?.ring, updater?.flow.phase == .checking) })
         observation = Task { [weak self] in
             var lastRing: UpdateRing?
             var wasChecking = false
-            for await (ring, checking) in ObservationStream({ [weak updater] in (updater?.ring, updater?.flow.phase == .checking) }) {
+            for await (ring, checking) in changes {
                 guard let self, let ring, !Task.isCancelled else { return }
                 if ring != lastRing || (wasChecking && !checking) { read() }
                 lastRing = ring
