@@ -1084,6 +1084,10 @@ fn start(
     // The turns' cache TTL, which the brain decides per turn; the compactor's
     // Claude Code nodes take it too (one TTL per route).
     let shared_ttl = crate::prompt::SharedTtl::default();
+    // The reaction classifier (brain/reaction_wake.rs) is the same deny-all
+    // acpmux model on its own nodes; the Messages API route has none, so a
+    // reaction there is a quiet note.
+    let mut judge: Option<Arc<dyn crate::brain::ReactionJudge>> = None;
     let (model, fallback, route_text, describer): Route = match route {
         CompactRoute::Api => (
             Arc::new(AnthropicModel::new(&config)),
@@ -1160,6 +1164,7 @@ fn start(
                 .with_warm(crate::compactor::WARM_SESSIONS)
                 .shared();
             let describer = main.clone() as Arc<dyn crate::brain::images::Describe>;
+            judge = Some(main.clone() as Arc<dyn crate::brain::ReactionJudge>);
             (
                 main as Arc<dyn CompactModel>,
                 fallback,
@@ -1593,6 +1598,14 @@ fn start(
     brain.set_sub_starter(sub_starter);
     let idle = brain.cloud_auto_pause_idle();
     brain.set_cloud_vms(cloud_vms, idle);
+    if let Some(home) = env("HOME") {
+        brain.set_fleet_jobs(
+            Some(std::sync::Arc::new(
+                crate::fleet_wait::CommandFleet::in_home(std::path::Path::new(&home)),
+            )),
+            std::time::Duration::from_secs(30),
+        );
+    }
     brain.set_agent_keys(agent_keys, crate::agent_keys::REVOKE_AFTER_DONE);
     // No cap on subagents at work unless OPTCHAT_MAX_LIVE_SUBAGENTS sets one.
     brain.set_max_live(crate::subagents::live_limit(
@@ -1613,6 +1626,9 @@ fn start(
     brain.set_auto_resume(crate::auto_resume::ResumePolicy::from_env(env), None);
     if let Some(describer) = describer {
         brain.set_describer(describer);
+    }
+    if let Some(judge) = judge {
+        brain.set_reaction_judge(judge);
     }
     // Link cards on the Chief's replies (link_preview.rs); `0` turns them off.
     if env("OPTCHAT_CHIEF_LINK_PREVIEWS").as_deref() != Some("0") {

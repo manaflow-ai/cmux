@@ -61,6 +61,7 @@ const { trayItems, finishedTrayItems, withSubagentLines, configureSubagentTray }
 const { SubagentTray, TRAY_OPEN_MAX } = await import("../src/agent-session/acpmux/subagents/SubagentTray");
 const { SubagentStatusList } = await import("../src/agent-session/acpmux/summary/SubagentStatusList");
 const { SubagentNavContext } = await import("../src/agent-session/acpmux/subagents/SubagentGroup");
+const { TurnActionsContext } = await import("../src/agent-session/acpmux/conversation/turnActions");
 const { backgroundCommands, commandLabel } = await import("../src/agent-session/acpmux/inspector/processes");
 const { runningBackgroundTasks } = await import("../src/agent-session/acpmux/summary/sessionSummary");
 const { SubagentFold } = await import("../src/agent-session/acpmux/subagents/subagentFold");
@@ -183,6 +184,74 @@ describe("the transcript keeps no running card", () => {
       expect(root.querySelector(".cv-subagents")).toBeNull();
       await act(async () => lines[1]!.click());
       expect(opened).toEqual(["Reviewer"]);
+    } finally {
+      await done();
+    }
+  });
+});
+
+describe("a stopped subagent's line says why, and offers Restart", () => {
+  const lineOf = (agents: Subagent[]) =>
+    withSubagentLines([
+      row("u1", "user", 0, { text: "Review it" }),
+      row(`${SUBAGENTS}-3`, SUBAGENTS, 10, { subagents: agents }),
+      row("a2", "assistant", 100, { text: "Done." }),
+    ]) as Row[];
+  const draw = (rows: Row[], restartSubagent?: (agent: Subagent) => void) =>
+    render(
+      createElement(
+        TurnActionsContext.Provider,
+        { value: restartSubagent ? { restartSubagent } : {} },
+        createElement(VirtualTranscript, { rows, onToggleActivity: () => {}, expanded: new Set<string>() }),
+      ),
+    );
+
+  test("the reason follows the name: stopped by you, interrupted by Send now; unknown shows none", async () => {
+    const stopped = (id: string, stopReason?: Subagent["stopReason"]) =>
+      agent(id, { state: "cancelled", endedAt: at(40), ...(stopReason && { stopReason }) });
+    const { root, done } = await draw(
+      lineOf([stopped("Reviewer", "user"), stopped("Tester", "sendNow"), stopped("Linter")]),
+    );
+    try {
+      const lines = [...root.querySelectorAll<HTMLButtonElement>(".cv-subagent-done")];
+      expect(lines.map((line) => line.textContent)).toEqual([
+        "Subagent stopped: Linter · 30s",
+        "Subagent stopped: Reviewer · stopped by you · 30s",
+        "Subagent stopped: Tester · interrupted by Send now · 30s",
+      ]);
+    } finally {
+      await done();
+    }
+  });
+
+  test("Restart sends the subagent to the chat's restart; a finished one or one without its prompt has none", async () => {
+    const restarted: Subagent[] = [];
+    const { root, done } = await draw(
+      lineOf([
+        agent("Reviewer", { state: "cancelled", endedAt: at(40), prompt: "Review src/app.ts", kind: "Explore" }),
+        agent("Tester", { state: "completed", endedAt: at(41), prompt: "Run the tests" }),
+        agent("Linter", { state: "failed", endedAt: at(42) }),
+      ]),
+      (each) => void restarted.push(each),
+    );
+    try {
+      const buttons = [...root.querySelectorAll<HTMLButtonElement>(".cv-subagent-restart")];
+      expect(buttons).toHaveLength(1);
+      expect(buttons[0]!.getAttribute("aria-label")).toBe("Restart");
+      expect(buttons[0]!.closest(".cv-subagent-done-row")?.textContent).toContain("Reviewer");
+      await act(async () => buttons[0]!.click());
+      expect(restarted.map((each) => each.id)).toEqual(["Reviewer"]);
+    } finally {
+      await done();
+    }
+  });
+
+  test("without a restart (a disconnected chat) no line offers it", async () => {
+    const { root, done } = await draw(
+      lineOf([agent("Reviewer", { state: "cancelled", endedAt: at(40), prompt: "Review src/app.ts" })]),
+    );
+    try {
+      expect(root.querySelector(".cv-subagent-restart")).toBeNull();
     } finally {
       await done();
     }

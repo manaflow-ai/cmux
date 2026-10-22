@@ -8,8 +8,9 @@ public enum HoverCardPlacement: Sendable {
     case above
     /// Right of the target, top-aligned (the update card).
     case beside
-    /// Beside a sidebar row, `rowGap` off it, its top on the row's top as Chrome's and Arc's tab
-    /// cards (or on the row's middle, below an escape slot, under a Debug switch:
+    /// Beside a sidebar row, one device pixel off the sidebar's edge (the anchor is the row's band
+    /// across the sidebar, `HoverCardEscapeGeometry.rowBand`), its top on the row's top as Chrome's
+    /// and Arc's tab cards (or on the row's middle, below an escape slot, under a Debug switch:
     /// `HoverCardEscapeGeometry`).
     case besideRow
 }
@@ -76,6 +77,8 @@ final class HoverCardPanel: NSPanel {
     var bodyLines: [String] { (body as? any HoverCardTextReporting)?.reportedLines ?? [] }
     private weak var parentWindowRef: NSWindow?
     private var anchor: CGRect = .zero
+    /// The target's frame on screen the card is placed against (`debug.hover_cards`).
+    var anchorFrame: CGRect { anchor }
     private(set) var placement: HoverCardPlacement = .below
     /// The side the card rests on now: `placement`, or the other side when the screen has no room.
     private(set) var restingPlacement: HoverCardPlacement = .below
@@ -417,12 +420,13 @@ extension HoverCardPanel {
     /// The room between a card and its tab: none. The card touches its tab, so the pointer never
     /// crosses empty space between them (Lawrence 2026-10-19: "there is a gap in between ... such
     /// that there is no gap in between"). A card beside a sidebar row stands
-    /// `HoverCardEscapeGeometry.rowGap` off it instead (Leo 2026-10-20).
+    /// `HoverCardEscapeGeometry.edgeGap(scale:)` off the sidebar's edge instead.
     static let targetGap: CGFloat = 0
 
     /// The card's origin (screen coordinates, y up) for `placement` next to `anchor`, before
     /// the screen clamp. The touching edge is snapped to a device pixel of `scale` toward the
-    /// target, so a fractional anchor overlaps it by under a pixel and never leaves a seam.
+    /// target, so a fractional anchor overlaps it by under a pixel and never leaves a seam. A
+    /// `.besideRow` card's place is `HoverCardEscapeGeometry`'s, the one rule for sidebar cards.
     static func origin(for placement: HoverCardPlacement, anchor: CGRect, size: CGSize, scale: CGFloat = 2,
                        rowAlignment: HoverCardEscapeGeometry.RowAlignment = .top) -> CGPoint {
         let scale = max(scale, 1)

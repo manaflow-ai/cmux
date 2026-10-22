@@ -25,6 +25,11 @@ files), the checks run in a temporary worktree of it, reusing the checkout's
 node_modules where the commit's bun.lock is the same. Linting the working tree
 let a commit with an error through when its fix sat uncommitted (0b115ab).
 
+--new-only (the fast gates, on a pull request merged with its base): a package
+check that fails runs again on BASE, and only findings BASE does not have fail,
+per error (scripts/ci/fast_gate_webviews_checks.py compares them); the rest
+are the base's red and print as warnings. A red base hid #23763's TS2339.
+
 Usage:
     scripts/web-lint.sh                 # lint what differs from origin/feat-cmux-next
     scripts/web-lint.sh --fix           # autofix (Oxfmt, Oxlint --fix, ESLint --fix), then re-check
@@ -479,6 +484,45 @@ def shares_deps(repo: Path, sha: str, directory: str) -> bool:
     return True
 
 
+def load_compare():
+    import importlib.util  # noqa: PLC0415  (only --new-only needs it; the hook's trusted copy never does)
+    path = Path(__file__).resolve().parent / "ci" / "fast_gate_webviews_checks.py"
+    spec = importlib.util.spec_from_file_location("fast_gate_webviews_checks", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def charge_new_only(repo: Path, base: str, plan: Plan, tree: Path, results: list[Result]) -> None:
+    """--new-only: each failed package check runs again on BASE. A red whose every finding BASE has too passes
+    with a warning; otherwise the result keeps only the findings it adds."""
+    packages = {p.directory: p for p in plan.script_packages}
+    failed = [r for r in results if r.returncode != 0 and r.label in packages]
+    if not failed:
+        return
+    compare = load_compare()
+    with tree_of(repo, base, sorted({r.label for r in failed})) as base_tree:
+        for result in failed:
+            if ensure_deps(base_tree, result.label):
+                continue  # no base to compare with: the red stays this change's
+            compare.generate_strings(base_tree / result.label)
+            again = run(result.label, result.command, base_tree / result.label, package_env(base_tree, result.label))
+            if again.returncode == 0:
+                continue
+            new, old = compare.compare(result.output, again.output, str(tree), str(base_tree))
+            if old:
+                print(f"::warning title=web lint (base)::{result.label}: {result.command}: {len(old)} finding(s) "
+                      f"the base {base[:12]} has too", file=sys.stderr)
+            if not new and not old:  # both red with no finding to compare: unexplained, so the change's
+                new = [f"{result.command} failed (exit {result.returncode}) and printed no finding to compare "
+                       "with the base"]
+            if not new:
+                result.returncode = 0
+                continue
+            result.output = f"{len(new)} finding(s) this change adds over the base {base[:12]}:\n" + "\n".join(
+                f"  {line}" for line in new)
+
+
 def report(results: list[Result], seconds: float, mode: str, timings: bool = False) -> int:
     failed = [r for r in results if r.returncode != 0]
     if timings:
@@ -513,6 +557,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--timings", action="store_true", help="print each check's time")
     parser.add_argument("--all", action="store_true",
                         help="run every package check, whatever changed (CI, when the push base is unknown)")
+    parser.add_argument("--new-only", action="store_true",
+                        help="fail only on findings --base does not have (a pull request merged with its base)")
     args = parser.parse_args(argv)
 
     mode = "pre-push" if args.pre_push else "web-lint"
@@ -527,6 +573,8 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
     repo = (args.repo or Path(git(Path.cwd(), "rev-parse", "--show-toplevel").strip())).resolve()
+    if args.new_only and (not args.base or args.pre_push or args.fix):
+        parser.error("--new-only needs --base and no --pre-push or --fix")
     if args.pre_push:
         ranges = pushed_ranges(repo, sys.stdin.read().splitlines())
     else:
@@ -566,7 +614,10 @@ def main(argv: list[str] | None = None) -> int:
         # into node_modules, so the checkout's copy holds the checkout's build, not this commit's.
         directories = [p.directory for p in plan.script_packages if not p.builds] + list(plan.eslint_files)
         with tree_of(repo, head, directories) as tree:
-            results += run_plan(tree, plan, args.fix, cache=tree == repo)
+            found = run_plan(tree, plan, args.fix, cache=tree == repo)
+            if args.new_only:
+                charge_new_only(repo, args.base, plan, tree, found)
+            results += found
     if not results:
         return 0
     return report(results, time.monotonic() - started, mode, args.timings)

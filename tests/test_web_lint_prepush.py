@@ -115,6 +115,7 @@ class WebLintPrePushTests(unittest.TestCase):
             "scripts/git-hooks",
             INSTALLER,
             "scripts/web_lint_prepush.py",
+            "scripts/ci/fast_gate_webviews_checks.py",
             "scripts/cmux-next/prepush-gate.py",
             "scripts/ci/base_merge_warning.py",
             "scripts/web-lint.sh",
@@ -359,6 +360,56 @@ class WebLintPrePushTests(unittest.TestCase):
         skipped = self.push(CMUX_WEB_LINT_SKIP_REASON="check-lanes is red on base abc1234 too")
         self.assertEqual(skipped.returncode, 0, skipped.stderr)
         self.assertIn("web lint skipped: check-lanes is red on base abc1234 too", skipped.stderr)
+
+    def lint_range(self, *extra):
+        """web_lint_prepush.py on HEAD~1..HEAD, as the fast gates run it on a pull request merged with its base."""
+        head = self.git("rev-parse", "HEAD").stdout.strip()
+        return subprocess.run([sys.executable, "scripts/web_lint_prepush.py", "--base", "HEAD~1", "--head", head,
+                               *extra], cwd=self.repo, env=self.env, text=True, capture_output=True)
+
+    def test_new_only_fails_on_a_new_error_over_a_base_that_is_red_with_another(self):
+        # The base is red with one finding; the change adds a second. Per job both runs are just "red"; per error
+        # the second is the change's (Leo, 2026-10-21: why should web lint and type check hide errors?).
+        self.write("webviews/src/old.ts", "export const old = BAD_LANE;\n")
+        self.commit("a red base")
+        self.write("webviews/test/new.test.ts", "export const t = BAD_LANE;\n")
+        self.commit("adds a second red")
+
+        result = self.lint_range("--new-only")
+
+        self.assertEqual(result.returncode, 1, result.stderr)
+        added = result.stderr.split("adds over the base", 1)[1]
+        self.assertIn("test/new.test.ts", added)
+        self.assertNotIn("src/old.ts", added)
+
+    def test_new_only_charges_a_red_with_nothing_to_compare(self):
+        # A check that fails on the base and here but prints no finding (nothing, or only a run's totals) explains
+        # nothing; matching two empty lists must not pass it off as the base's red.
+        for name, prints in (("empty", ""), ("only noise", "echo 'Found 0 errors and 0 warnings in 1 files'")):
+            with self.subTest(output=name):
+                self.write("webviews/check-lanes.sh",
+                           f"#!/bin/sh\nif grep -rl 'SILENT_RED' src >/dev/null 2>&1; then {prints}\nexit 1; fi\n")
+                self.write("webviews/src/old.ts", "export const old = SILENT_RED;\n")
+                self.commit(f"a silent red base ({name})")
+                self.write("webviews/src/app.ts", f"export const app = '{name}';\n")
+                self.commit(f"a change on the silent red base ({name})")
+
+                result = self.lint_range("--new-only")
+
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertIn("printed no finding to compare with the base", result.stderr)
+
+    def test_new_only_keeps_a_red_the_base_has_as_a_warning(self):
+        self.write("webviews/src/old.ts", "export const old = BAD_LANE;\n")
+        self.commit("a red base")
+        self.write("webviews/src/app.ts", "export const app = 3;\n")
+        self.commit("a clean change on the red base")
+
+        self.assertEqual(self.lint_range().returncode, 1, "without --new-only every red is the push's")
+        result = self.lint_range("--new-only")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("::warning title=web lint (base)::webviews: sh check-lanes.sh", result.stderr)
 
     def test_hook_does_not_run_check_code_the_push_changes(self):
         # A pushed branch could carry any check script; the hook must not run it.

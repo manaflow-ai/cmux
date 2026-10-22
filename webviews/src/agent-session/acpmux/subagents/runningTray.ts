@@ -112,7 +112,7 @@ function versionOf(key: string): number {
 
 function doneLine(agent: Subagent, endedAt: number, cache: DoneLineCache, made: Set<string>): AcpmuxRow {
   const id = `${SUBAGENT_DONE}:${agent.id}`;
-  const key = [agent.state, agent.name, agent.startedAt, endedAt].join("\u0000");
+  const key = [agent.state, agent.name, agent.startedAt, endedAt, agent.stopReason ?? ""].join("\u0000");
   made.add(id);
   const kept = cache.get(id);
   if (kept?.key === key) return kept.row;

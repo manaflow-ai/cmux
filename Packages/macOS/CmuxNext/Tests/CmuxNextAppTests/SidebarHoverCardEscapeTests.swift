@@ -5,7 +5,7 @@ import Testing
 
 /// A sidebar workspace's hover card in the real list. Leo 2026-10-21 ("WHY HAS IT NOT BEEN
 /// ALIGNED"): the card's top lines up with its row's top, as Chrome's and Arc's tab cards, and
-/// follows the row from row to row; it stands `rowGap` off the row. The escape slot beside the
+/// follows the row from row to row; it stands one device pixel off the sidebar's edge. The escape slot beside the
 /// row's upper half (#22473, Leo 2026-10-20 "trapped by the preview") is a Debug Settings layout
 /// now, covered by `HoverCardEscapeGeometryTests`. A pointer heading into the card keeps it, one
 /// going down past the row lets it go, and leaving both the row and the card dismisses it.
@@ -83,14 +83,18 @@ import Testing
         try await WorkspaceHoverCardScrollTests.tearDown(window, coordinator)
     }
 
-    /// Leo 2026-10-20: the card opened against the row's top-right corner, where the row's x
-    /// sits, so the next row down ran into it. It stands off the row by a clear gap.
-    @Test func theCardStandsOffItsRow() async throws {
+    /// Lawrence 2026-10-21: "horizontally only 1 pixel gap". The card's near edge is one device
+    /// pixel past the sidebar's edge (here the list fills its window), not a gap off the row's
+    /// pill, which the row's inset and trim moved.
+    @Test func theCardIsOnePixelOffTheSidebarsEdge() async throws {
         let clock = ManualClock()
         let (list, window, coordinator, rows) = Self.sidebar(clock: clock)
         let (row, card) = try await Self.showSecondRowCard(list, coordinator, clock, rows)
-        let gap = card.minX - row.maxX
-        #expect(gap >= 8 && gap <= 12, "the card sits \(gap) pt from its row")
+        let edge = window.convertToScreen(list.convert(list.bounds, to: nil)).maxX
+        let pixel = 1 / max(window.backingScaleFactor, 1)
+        #expect(abs(card.minX - (edge + pixel)) < 0.01,
+                "the card's left edge is \(card.minX - edge) pt from the sidebar's edge, not one pixel (\(pixel) pt); row ends at \(row.maxX)")
+        #expect(card.maxX > edge)
         try await WorkspaceHoverCardScrollTests.tearDown(window, coordinator)
     }
 

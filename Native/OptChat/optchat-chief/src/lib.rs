@@ -31,6 +31,7 @@ pub mod daemon;
 pub mod draft;
 pub mod effort;
 pub mod engine;
+pub mod fleet_wait;
 pub mod fold;
 pub mod harness_gate;
 pub mod home_view;

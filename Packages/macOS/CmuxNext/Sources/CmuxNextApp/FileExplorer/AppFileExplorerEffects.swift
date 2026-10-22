@@ -17,6 +17,11 @@ final class AppFileExplorerEffects: FileExplorerEffects {
         return services.linkOpener.openFile(file, from: services.windows.active?.focusedPane, at: position)
     }
 
+    func openAsText(_ file: URL) -> Bool {
+        guard let services else { return false }
+        return services.linkOpener.openFile(file, from: services.windows.active?.focusedPane, asText: true)
+    }
+
     func openInDefaultApp(_ item: URL) {
         NSWorkspace.shared.openInBackground(item)
     }
