@@ -85,12 +85,8 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
         superview?.needsLayout = true
     }
 
-    /// Resyncs that reached an indicator (`debug.layout_counters` `indicator_resyncs`): an app
-    /// activation should touch the indicators on screen only, not every row and tab of the session.
-    public static var resyncs: UInt64 = 0
-
     public func statusIndicatorResync() {
-        Self.resyncs &+= 1
+        StatusIndicatorAppearance.resyncs &+= 1
         if let window { isWindowVisible = window.occlusionState.contains(.visible) }
         refresh()
     }
