@@ -18,6 +18,7 @@ import type { Project } from "./ProjectChooser";
 import { ComposerContext } from "./ComposerContext";
 import { showsLocationRow } from "./locationRow";
 import { ComposerQueue } from "./ComposerQueue";
+import type { Subsessions } from "./subagents/subsessions";
 import {
   ArrowUpIcon,
   AtIcon,
@@ -78,6 +79,7 @@ import { isPasteAsPlainTextKey, usePastedChips } from "./composer/pastedChips";
 import type { SendBlock } from "./useFolderTrustAsk";
 import { folder, promptSuggestion, type LivePullRequest, type PromptSuggestion } from "./promptSuggestion";
 import { useHeaderState } from "./header/headerState";
+import { queuePauseReason } from "./queuePause";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 /// How long after a send the Stop button that replaces Send ignores clicks.
@@ -185,6 +187,8 @@ type Props = {
   /// Reads an image a queued prompt sends by its acpmux id, as a data URL (`_acpmux/attachment`).
   /// Stable: each queued thumbnail reads once.
   queueImage?(id: string): Promise<string | undefined>;
+  /// The listed chats, among which a queued agent's message finds its sender's (ComposerQueue.tsx).
+  queueSubsessions?: Subsessions;
   /// Asks a queued prompt in a new side chat and withdraws it (the queued row's Open in side chat);
   /// absent where the chat opens no side chat.
   onQueueSideChat?(promptId: string, prompt: string): Promise<boolean>;
@@ -297,6 +301,7 @@ export function Composer({
   onQueueLost,
   onQueueSideChat,
   queueImage,
+  queueSubsessions,
   draft,
   leading,
   permissionAccess,
@@ -1380,6 +1385,8 @@ export function Composer({
       {escapeStop.armed ? <span className="acpmux-escape-key">{t(COMPOSER_LABELS.escapeKey)}</span> : <StopIcon />}
     </button>
   ) : null;
+  // Why a failed turn paused the queue: the paused note names it (queuePause.ts).
+  const pauseReason = snapshot.summary?.queuePaused === true ? queuePauseReason(snapshot.rows) : undefined;
   return (
     <form
       ref={form}
@@ -1427,12 +1434,14 @@ export function Composer({
         chat={snapshot.summary?.sessionId || sessionId}
         queue={snapshot.queue}
         paused={snapshot.summary?.queuePaused === true}
+        {...(pauseReason ? { pauseReason } : {})}
         t={t}
         onRemove={onQueueRemove}
         onChange={onQueueChange}
         onLost={onQueueLost}
         onSideChat={onQueueSideChat}
         readImage={queueImage}
+        subsessions={queueSubsessions}
         onLeave={() => field.current?.focus()}
       />
       {context}
