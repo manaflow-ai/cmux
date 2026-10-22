@@ -120,8 +120,10 @@ function clickableClasses(): Set<string> {
   for (const file of new Glob("**/*.{ts,tsx}").scanSync(src)) {
     if (/\.test\.tsx?$/.test(file)) continue;
     const text = readFileSync(join(src, file), "utf8");
-    for (const match of text.matchAll(/className=(?:"([^"]*)"|\{`([^`]*)`\}|\{"([^"]*)"\})/g)) {
-      const value = match[1] ?? match[2] ?? match[3] ?? "";
+    // A literal, a template, or an expression (`cx("ui-menu-item", …)`), whose string parts count.
+    for (const match of text.matchAll(/className=(?:"([^"]*)"|\{`([^`]*)`\}|\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\})/g)) {
+      const value =
+        match[1] ?? match[2] ?? [...(match[3] ?? "").matchAll(/"([^"]*)"|'([^']*)'|`([^`]*)`/g)].map((part) => part.slice(1).join(" ")).join(" ");
       const before = text.slice(Math.max(0, match.index! - 1500), match.index!);
       const open = [...before.matchAll(/(?:^|[\s(>{,=?:&|])<([A-Za-z][\w.]*)/g)].at(-1);
       if (!open) continue;
@@ -157,8 +159,8 @@ const DISABLED = /:disabled|\[disabled|aria-disabled|data-disabled|\[inert/;
 test("no stylesheet sets the arrow or auto on a clickable element", () => {
   const classes = clickableClasses();
   // Sanity: the classes of the bars and buttons Leo pointed at are known clickable.
-  for (const name of ["acpmux-pr-dock__bar", "acpmux-send", "acpmux-mic", "cv-chip", "ui-menu-item"])
-    expect(classes.has(name)).toBe(true);
+  const known = ["acpmux-pr-dock__bar", "acpmux-send", "acpmux-mic", "cv-chip", "ui-menu-item"];
+  expect(known.filter((name) => !classes.has(name))).toEqual([]);
   const offenders: string[] = [];
   for (const file of new Glob("**/*.css").scanSync(src)) {
     const text = readFileSync(join(src, file), "utf8").replace(/\/\*[\s\S]*?\*\//g, (comment) =>
