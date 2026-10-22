@@ -18,6 +18,8 @@ mod build_homes;
 #[cfg(unix)]
 #[path = "chief_chat_kind.rs"]
 mod chat_kind;
+#[path = "chief_fork.rs"]
+mod fork;
 #[path = "conversation_link_preview.rs"]
 mod link_preview;
 #[path = "participant_avatars.rs"]
