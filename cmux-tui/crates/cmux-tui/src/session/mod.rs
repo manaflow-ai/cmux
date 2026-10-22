@@ -16,7 +16,9 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
+use crate::json_field::JsonFieldExt;
 use crate::local_actor::me;
+use crate::lock_recover::MutexRecover;
 use cmux_tui_core::resource::ResourceOperation;
 use cmux_tui_core::server::{
     CLIENT_FOCUS_CAPABILITY, CREATION_RECEIPTS_CAPABILITY, CREATION_SELECTOR_FALLBACKS_CAPABILITY,
@@ -386,8 +388,9 @@ fn initial_bootstrap(tree: &TreeView) -> InitialBootstrap {
 /// Attach optional cols/rows fields to a remote command.
 fn with_size(mut cmd: Value, size: Option<(u16, u16)>) -> Value {
     if let Some((cols, rows)) = size {
-        cmd["cols"] = json!(cols);
-        cmd["rows"] = json!(rows);
+        // Every caller passes a JSON object literal, so both fields are set.
+        cmd.set_field("cols", json!(cols));
+        cmd.set_field("rows", json!(rows));
     }
     cmd
 }
@@ -831,12 +834,17 @@ impl Session {
                         mux.new_workspace_as(me(), None, size)?;
                     }
                     InitialBootstrap::ShellInActiveWorkspace => {
-                        let workspace = tree
+                        let Some(workspace) = tree
                             .workspaces()
                             .get(tree.active_workspace)
                             .or_else(|| tree.workspaces().first())
-                            .expect("bare-session bootstrap requires at least one workspace")
-                            .id;
+                            .map(|workspace| workspace.id)
+                        else {
+                            // `initial_bootstrap` saw at least one workspace in
+                            // this snapshot; bootstrap a first one if it did not.
+                            mux.new_workspace_as(me(), None, size)?;
+                            return Ok(());
+                        };
                         mux.create_terminal_in_workspace_as(
                             me(),
                             workspace,
@@ -869,7 +877,7 @@ impl Session {
                         // moved, and the postcondition accepts the shell
                         // whichever client created it.
                         let snapshot = remote.request(json!({"cmd": "list-workspaces"}))?;
-                        let workspaces = snapshot["workspaces"].as_array();
+                        let workspaces = snapshot.get("workspaces").and_then(Value::as_array);
                         let bare = workspaces.is_some_and(|workspaces| {
                             !workspaces.is_empty()
                                 // An explicit empty screen array is the only
@@ -887,19 +895,24 @@ impl Session {
                         // shells. A daemon old enough to omit the metadata
                         // keeps its old behavior (the session stays bare).
                         let guard = match (
-                            snapshot["generation"].as_str(),
-                            snapshot["terminal_revision"].as_u64(),
+                            snapshot.get("generation").and_then(Value::as_str),
+                            snapshot.get("terminal_revision").and_then(Value::as_u64),
                         ) {
                             (Some(generation), Some(revision)) => Some((generation, revision)),
                             _ => None,
                         };
-                        let create_result = match (bare, guard) {
-                            (true, Some((generation, revision))) => {
-                                let workspaces = workspaces.expect("bareness implies an array");
-                                let target = workspaces
-                                    .iter()
-                                    .find(|workspace| workspace["active"].as_bool() == Some(true))
-                                    .unwrap_or(&workspaces[0]);
+                        // Bareness implies a non-empty array, so a bare
+                        // snapshot always has a target.
+                        let target = workspaces.and_then(|workspaces| {
+                            workspaces
+                                .iter()
+                                .find(|workspace| {
+                                    workspace.get("active").and_then(Value::as_bool) == Some(true)
+                                })
+                                .or_else(|| workspaces.first())
+                        });
+                        let create_result = match (bare, guard, target) {
+                            (true, Some((generation, revision)), Some(target)) => {
                                 let mut request = json!({
                                     "cmd": "create-terminal",
                                     "origin": "attach-bare-session-bootstrap",
@@ -907,9 +920,14 @@ impl Session {
                                     "expected_generation": generation,
                                     "expected_revision": revision,
                                 });
-                                match target["key"].as_str() {
-                                    Some(key) if !key.is_empty() => request["key"] = json!(key),
-                                    _ => request["workspace"] = target["id"].clone(),
+                                match target.get("key").and_then(Value::as_str) {
+                                    Some(key) if !key.is_empty() => {
+                                        request.set_field("key", json!(key));
+                                    }
+                                    _ => {
+                                        let id = target.get("id").cloned().unwrap_or(Value::Null);
+                                        request.set_field("workspace", id);
+                                    }
                                 }
                                 Some(remote.request(with_size(request, size)).map(|_| ()))
                             }
@@ -2433,7 +2451,7 @@ impl SurfaceHandle {
         match self {
             SurfaceHandle::Local(surface, _) => surface.render_view_frame(rs),
             SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Pty => {
-                let mut term = surface.term.lock().unwrap();
+                let mut term = surface.term.lock_or_recover();
                 rs.update(&mut term)?;
                 let palette_colors = std::array::from_fn(|idx| rs.palette_color(idx as u8));
                 let palette_overridden =
@@ -2460,7 +2478,7 @@ impl SurfaceHandle {
         match self {
             SurfaceHandle::Local(surface, _) => surface.with_terminal(f),
             SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Pty => {
-                let mut terminal = surface.term.lock().unwrap();
+                let mut terminal = surface.term.lock_or_recover();
                 let result = f(&mut terminal);
                 surface.sync_mouse_encoders(&terminal);
                 Some(result)
@@ -2616,7 +2634,7 @@ impl SurfaceHandle {
                 Some(before != after)
             }
             SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Pty => {
-                let mut term = surface.term.lock().unwrap();
+                let mut term = surface.term.lock_or_recover();
                 let before = term.scrollbar().map(|sb| sb.offset).unwrap_or(0);
                 term.scroll_delta(delta);
                 let after = term.scrollbar().map(|sb| sb.offset).unwrap_or(0);
@@ -2639,7 +2657,7 @@ impl SurfaceHandle {
                 surface.view_scroll_delta_if_scrollbar(expected, delta).ok().flatten()
             }
             SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Pty => {
-                let mut term = surface.term.lock().unwrap();
+                let mut term = surface.term.lock_or_recover();
                 let before = term.scrollbar();
                 if before != Some(expected) {
                     return None;
@@ -2659,7 +2677,7 @@ impl SurfaceHandle {
         match self {
             SurfaceHandle::Local(surface, _) => surface.view_scroll_to_bottom().ok(),
             SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Pty => {
-                let mut term = surface.term.lock().unwrap();
+                let mut term = surface.term.lock_or_recover();
                 let before = term.scrollbar().map(|sb| sb.offset).unwrap_or(0);
                 term.scroll_to_bottom();
                 let after = term.scrollbar().map(|sb| sb.offset).unwrap_or(0);
@@ -2676,7 +2694,7 @@ impl SurfaceHandle {
         match self {
             SurfaceHandle::Local(surface, _) => surface.view_scrollbar(),
             SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Pty => {
-                surface.term.lock().unwrap().scrollbar()
+                surface.term.lock_or_recover().scrollbar()
             }
             SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => None,
         }
@@ -3028,7 +3046,7 @@ impl SurfaceHandle {
                 "browser-forward" => surface.browser_forward(),
                 "browser-reload" => surface.browser_reload(),
                 "browser-activate" => surface.browser_activate(),
-                _ => unreachable!(),
+                _ => anyhow::bail!("unknown browser navigation command: {cmd}"),
             },
             SurfaceHandle::Remote(surface, session) if surface.kind == SurfaceKind::Browser => {
                 session.request(json!({"cmd": cmd, "surface": surface.id})).map(|_| ())

@@ -44,6 +44,7 @@ use std::time::{Duration, Instant};
 
 use cmux_tui_core::SurfaceId;
 
+use crate::lock_recover::{CondvarRecover, MutexRecover};
 use crate::session::SurfaceHandle;
 
 /// Bounded queue depth. Input events are tiny; this is sized so bursts
@@ -421,9 +422,11 @@ impl BrowserInputDispatcher {
         let surface_id = event.surface_id;
         let is_release = event.kind.closes_pointer_interaction();
         let retained_bytes = event.retained_bytes();
-        let scheduler = self.scheduler.as_ref().expect("production browser input has a scheduler");
+        // Production input always has a scheduler; without one the event is
+        // refused as backpressure instead of dropped silently.
+        let Some(scheduler) = self.scheduler.as_ref() else { return false };
         let (lane, outcome) = {
-            let mut lanes = self.lanes.lock().unwrap();
+            let mut lanes = self.lanes.lock_or_recover();
             if is_release && !lanes.contains_key(&surface_id) {
                 return false;
             }
@@ -456,8 +459,7 @@ impl BrowserInputDispatcher {
 
     pub fn resize_failed(&self, surface_id: SurfaceId, desired: (u16, u16)) -> bool {
         self.failed_resizes
-            .lock()
-            .unwrap()
+            .lock_or_recover()
             .get(&surface_id)
             .copied()
             .is_some_and(|failure| failed_browser_resize_blocks(failure, desired))
@@ -468,8 +470,7 @@ impl BrowserInputDispatcher {
     pub fn resize_retry_due(&self) -> bool {
         let now = Instant::now();
         self.failed_resizes
-            .lock()
-            .unwrap()
+            .lock_or_recover()
             .values()
             .any(|failure| failure.retry_after.is_some_and(|retry_after| retry_after <= now))
     }
@@ -478,7 +479,7 @@ impl BrowserInputDispatcher {
     /// will enqueue the current geometry if that surface becomes visible again.
     pub fn visible_resize_retry_due(&self, visible_surfaces: &HashSet<SurfaceId>) -> bool {
         let now = Instant::now();
-        let mut failures = self.failed_resizes.lock().unwrap();
+        let mut failures = self.failed_resizes.lock_or_recover();
         failures.retain(|surface, failure| {
             failure.retry_after.is_some_and(|retry_after| retry_after > now)
                 || visible_surfaces.contains(surface)
@@ -497,18 +498,16 @@ impl BrowserInputDispatcher {
             self.failed_resizes.lock().unwrap().remove(&surface_id);
             return;
         }
-        let lane = self.lanes.lock().unwrap().remove(&surface_id);
-        if let Some(lane) = lane {
-            lane.retire(
-                self.scheduler.as_ref().expect("production browser input has a scheduler"),
-                surface_id,
-            );
+        let lane = self.lanes.lock_or_recover().remove(&surface_id);
+        // A lane exists only when `enqueue` had a scheduler to create it with.
+        if let (Some(lane), Some(scheduler)) = (lane, self.scheduler.as_ref()) {
+            lane.retire(scheduler, surface_id);
         }
-        self.failed_resizes.lock().unwrap().remove(&surface_id);
+        self.failed_resizes.lock_or_recover().remove(&surface_id);
     }
 
     pub fn clear_resize_failures(&self) {
-        self.failed_resizes.lock().unwrap().clear();
+        self.failed_resizes.lock_or_recover().clear();
     }
 
     #[cfg(test)]
@@ -579,7 +578,7 @@ impl BrowserInputScheduler {
     }
 
     fn next_lane(&self) -> Option<Arc<ScheduledSurfaceInputLane>> {
-        let mut ready = self.ready.lock().unwrap();
+        let mut ready = self.ready.lock_or_recover();
         loop {
             if ready.shutdown {
                 return None;
@@ -587,7 +586,7 @@ impl BrowserInputScheduler {
             if let Some(lane) = ready.lanes.pop_front() {
                 return Some(lane);
             }
-            ready = self.available.wait(ready).unwrap();
+            ready = self.available.wait_or_recover(ready);
         }
     }
 
@@ -602,7 +601,7 @@ impl BrowserInputScheduler {
         {
             return;
         }
-        let mut ready = self.ready.lock().unwrap();
+        let mut ready = self.ready.lock_or_recover();
         if ready.shutdown {
             lane.scheduled.store(false, Ordering::Release);
             return;
@@ -613,7 +612,7 @@ impl BrowserInputScheduler {
     }
 
     fn remove_ready(&self, lane: &Arc<ScheduledSurfaceInputLane>) -> bool {
-        let mut ready = self.ready.lock().unwrap();
+        let mut ready = self.ready.lock_or_recover();
         let previous_len = ready.lanes.len();
         ready.lanes.retain(|queued| !Arc::ptr_eq(queued, lane));
         let removed = ready.lanes.len() != previous_len;
@@ -628,7 +627,7 @@ impl BrowserInputScheduler {
             GLOBAL_QUEUE_CAPACITY + usize::from(is_release) * GLOBAL_RELEASE_RESERVE_CAPACITY;
         let byte_limit =
             GLOBAL_QUEUE_MAX_BYTES + usize::from(is_release) * GLOBAL_RELEASE_RESERVE_MAX_BYTES;
-        let mut admission = self.admission.lock().unwrap();
+        let mut admission = self.admission.lock_or_recover();
         let next_events = admission.queued_events.saturating_add(1);
         let next_bytes = admission.retained_bytes.saturating_add(retained_bytes);
         if next_events > event_limit || next_bytes > byte_limit {
@@ -644,7 +643,7 @@ impl BrowserInputScheduler {
     }
 
     fn release_admission(&self, retained_bytes: usize) {
-        let mut admission = self.admission.lock().unwrap();
+        let mut admission = self.admission.lock_or_recover();
         debug_assert!(admission.queued_events > 0);
         debug_assert!(admission.retained_bytes >= retained_bytes);
         admission.queued_events = admission.queued_events.saturating_sub(1);
@@ -652,7 +651,7 @@ impl BrowserInputScheduler {
     }
 
     fn shutdown(&self) {
-        let mut ready = self.ready.lock().unwrap();
+        let mut ready = self.ready.lock_or_recover();
         ready.shutdown = true;
         drop(ready);
         self.available.notify_all();
@@ -701,7 +700,7 @@ impl ScheduledSurfaceInputLane {
         if self.scheduled.load(Ordering::Acquire) || self.has_pending() {
             return false;
         }
-        self.lane.order.lock().unwrap().accepted_pointer_presses.is_empty()
+        self.lane.order.lock_or_recover().accepted_pointer_presses.is_empty()
     }
 
     fn retire(self: &Arc<Self>, scheduler: &BrowserInputScheduler, surface_id: SurfaceId) {
@@ -721,15 +720,15 @@ impl ScheduledSurfaceInputLane {
     }
 
     fn take_next(&self) -> (Option<SequencedBrowserInputEvent>, Vec<SequencedBrowserInputEvent>) {
-        let order = self.lane.order.lock().unwrap();
-        let mut pending = self.pending.lock().unwrap();
-        let rx = self.rx.lock().unwrap();
+        let order = self.lane.order.lock_or_recover();
+        let mut pending = self.pending.lock_or_recover();
+        let rx = self.rx.lock_or_recover();
         let mut incoming = Vec::new();
         while let Ok(event) = rx.try_recv() {
             incoming.push(event);
         }
-        let latest = std::mem::take(&mut *self.lane.latest_resizes.lock().unwrap());
-        let releases = std::mem::take(&mut *self.lane.retained_releases.lock().unwrap());
+        let latest = std::mem::take(&mut *self.lane.latest_resizes.lock_or_recover());
+        let releases = std::mem::take(&mut *self.lane.retained_releases.lock_or_recover());
         merge_fallback_events(&mut incoming, latest, releases);
         #[cfg(test)]
         self.examined_events.fetch_add(incoming.len(), Ordering::Relaxed);
@@ -745,15 +744,15 @@ impl ScheduledSurfaceInputLane {
 
     fn purge_canceled(&self) -> Vec<SequencedBrowserInputEvent> {
         debug_assert!(self.retired.load(Ordering::Acquire));
-        let order = self.lane.order.lock().unwrap();
-        let mut pending = self.pending.lock().unwrap();
-        let rx = self.rx.lock().unwrap();
+        let order = self.lane.order.lock_or_recover();
+        let mut pending = self.pending.lock_or_recover();
+        let rx = self.rx.lock_or_recover();
         let mut batch = pending.drain(..).collect::<Vec<_>>();
         while let Ok(event) = rx.try_recv() {
             batch.push(event);
         }
-        let latest = std::mem::take(&mut *self.lane.latest_resizes.lock().unwrap());
-        let releases = std::mem::take(&mut *self.lane.retained_releases.lock().unwrap());
+        let latest = std::mem::take(&mut *self.lane.latest_resizes.lock_or_recover());
+        let releases = std::mem::take(&mut *self.lane.retained_releases.lock_or_recover());
         merge_fallback_events(&mut batch, latest, releases);
         let mut discarded = Vec::new();
         for event in batch {
@@ -830,7 +829,7 @@ impl SurfaceInputLane {
         let is_release = event.kind.closes_pointer_interaction();
         let press = event.kind.pointer_press_button().map(|button| (event.surface_id, button));
         let release = event.kind.pointer_release_button().map(|button| (event.surface_id, button));
-        let mut order = self.order.lock().unwrap();
+        let mut order = self.order.lock_or_recover();
         if is_release {
             let Some(release) = release else {
                 return SurfaceEnqueueOutcome { accepted: false, superseded: None };
@@ -849,8 +848,7 @@ impl SurfaceInputLane {
             Arc::new(AtomicBool::new(false))
         } else {
             self.surface_lifetimes
-                .lock()
-                .unwrap()
+                .lock_or_recover()
                 .entry(event.surface_id)
                 .or_insert_with(|| Arc::new(AtomicBool::new(false)))
                 .clone()
@@ -869,13 +867,12 @@ impl SurfaceInputLane {
             Err(TrySendError::Full(event)) if is_resize => {
                 let superseded = self
                     .latest_resizes
-                    .lock()
-                    .unwrap()
+                    .lock_or_recover()
                     .insert((event.event.surface_id, order.barrier_epoch), event);
                 (true, superseded)
             }
             Err(TrySendError::Full(event)) if is_release => {
-                let mut releases = self.retained_releases.lock().unwrap();
+                let mut releases = self.retained_releases.lock_or_recover();
                 if releases.len() >= RETAINED_RELEASE_CAPACITY {
                     return SurfaceEnqueueOutcome { accepted: false, superseded: None };
                 }
@@ -896,12 +893,12 @@ impl SurfaceInputLane {
     }
 
     fn cancel_surface(&self, surface_id: SurfaceId) -> Vec<SequencedBrowserInputEvent> {
-        let mut order = self.order.lock().unwrap();
+        let mut order = self.order.lock_or_recover();
         order.accepted_pointer_presses.retain(|(surface, _)| *surface != surface_id);
-        if let Some(lifetime) = self.surface_lifetimes.lock().unwrap().remove(&surface_id) {
+        if let Some(lifetime) = self.surface_lifetimes.lock_or_recover().remove(&surface_id) {
             lifetime.store(true, Ordering::Release);
         }
-        let mut latest_resizes = self.latest_resizes.lock().unwrap();
+        let mut latest_resizes = self.latest_resizes.lock_or_recover();
         let keys = latest_resizes
             .keys()
             .filter(|(surface, _)| *surface == surface_id)
@@ -939,8 +936,7 @@ fn dispatch_surface_event(
     let desired = event.event.kind.resize_dimensions();
     if desired.is_some_and(|desired| {
         failed_resizes
-            .lock()
-            .unwrap()
+            .lock_or_recover()
             .get(&event.event.surface_id)
             .copied()
             .is_some_and(|failure| failed_browser_resize_blocks(failure, desired))
@@ -967,11 +963,11 @@ fn dispatch_surface_event(
     }
     match result {
         Ok(_) => {
-            failed_resizes.lock().unwrap().remove(&event.event.surface_id);
+            failed_resizes.lock_or_recover().remove(&event.event.surface_id);
         }
         Err(error) => {
             let desired = (cols, rows);
-            let mut failures = failed_resizes.lock().unwrap();
+            let mut failures = failed_resizes.lock_or_recover();
             let failure =
                 next_failed_browser_resize(failures.get(&event.event.surface_id).copied(), desired);
             failures.insert(event.event.surface_id, failure);
@@ -1063,8 +1059,8 @@ fn append_sequenced_browser_events(
                 || (current.kind.is_resize() && next.kind.is_resize());
             same_coalescing_kind && current.surface_id == next.surface_id
         });
-        if coalesces_with_previous {
-            discarded.push(pending.pop_back().expect("pending event exists"));
+        if coalesces_with_previous && let Some(previous) = pending.pop_back() {
+            discarded.push(previous);
         }
         pending.push_back(event);
     }

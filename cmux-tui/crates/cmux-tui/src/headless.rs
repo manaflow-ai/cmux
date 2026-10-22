@@ -3,6 +3,7 @@
 //! the session shutdown start from the signal thread (`session-shutdown`).
 
 use super::*;
+use crate::lock_recover::{CondvarRecover, MutexRecover};
 
 #[cfg(unix)]
 mod dev_orphan_exit;
@@ -64,9 +65,9 @@ where
     #[cfg(unix)]
     let orphan_exit = dev_orphan_exit::start_for_owner(mux);
     let (lock, wake) = &HEADLESS_WAKE;
-    let mut generation = lock.lock().unwrap();
+    let mut generation = lock.lock_or_recover();
     while !(shutdown_requested() || mux.daemon_shutdown_requested() || remote_runtime_finished()) {
-        generation = wake.wait(generation).unwrap();
+        generation = wake.wait_or_recover(generation);
     }
     drop(generation);
     // Another waiter (the remote runtime) can wake the loop on the same
@@ -148,7 +149,7 @@ static HEADLESS_WAKE: (std::sync::Mutex<u64>, std::sync::Condvar) =
 
 pub(crate) fn wake_headless() {
     let (lock, wake) = &HEADLESS_WAKE;
-    let mut generation = lock.lock().unwrap();
+    let mut generation = lock.lock_or_recover();
     *generation = generation.wrapping_add(1);
     wake.notify_all();
 }

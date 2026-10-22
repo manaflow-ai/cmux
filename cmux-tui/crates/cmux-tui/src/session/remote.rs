@@ -43,6 +43,7 @@ use super::parse_identity_capabilities;
 use super::tree::parse_tree;
 use super::tree::{TreeCapabilities, TreeView, parse_tree_with_capabilities};
 use super::{AgentInfo, CLEAR_HISTORY_UNSUPPORTED_ERROR};
+use crate::lock_recover::MutexRecover;
 
 const SUPPORTED_PROTOCOL_VERSION: u64 = 12;
 const SURFACE_OVERFLOW_RETRY_DELAYS: [Duration; 3] =
@@ -491,11 +492,11 @@ impl RemoteSurface {
     /// Whether the inner application authored the cursor style (DECSCUSR)
     /// through the raw output stream since the last daemon replay.
     pub(super) fn cursor_style_authored(&self) -> bool {
-        self.cursor_provenance.lock().unwrap().authored()
+        self.cursor_provenance.lock_or_recover().authored()
     }
 
     fn scan_cursor_provenance(&self, bytes: &[u8]) {
-        self.cursor_provenance.lock().unwrap().scan(bytes);
+        self.cursor_provenance.lock_or_recover().scan(bytes);
     }
 
     #[cfg(test)]
@@ -504,7 +505,7 @@ impl RemoteSurface {
     }
 
     pub(super) fn sync_mouse_encoders(&self, terminal: &Terminal) {
-        self.mouse_encoders.lock().unwrap().sync_from_terminal(terminal);
+        self.mouse_encoders.lock_or_recover().sync_from_terminal(terminal);
     }
 
     pub(super) fn encode_mouse(
@@ -648,7 +649,7 @@ impl RemoteSurface {
     }
 
     pub(super) fn reset_mouse_motion_dedupe(&self) {
-        self.mouse_encoders.lock().unwrap().reset_motion_dedupe();
+        self.mouse_encoders.lock_or_recover().reset_motion_dedupe();
     }
 
     pub(super) fn try_pointer_semantics(&self) -> PointerSemanticProbe {
@@ -713,13 +714,13 @@ impl RemoteSurface {
     ) -> ghostty_vt::Result<()> {
         #[cfg(test)]
         self.run_geometry_test_hook(RemoteGeometryTestStep::StreamResizeStarted);
-        let _geometry_lifecycle = self.geometry_lifecycle.lock().unwrap();
+        let _geometry_lifecycle = self.geometry_lifecycle.lock_or_recover();
         let daemon_replay = replay.is_some();
         let (cols, rows) = (cols.max(1), rows.max(1));
-        let cell_pixels = *self.cell_pixels.lock().unwrap();
+        let cell_pixels = *self.cell_pixels.lock_or_recover();
         #[cfg(test)]
         self.run_geometry_test_hook(RemoteGeometryTestStep::StreamResizeCommitBoundary);
-        let mut term = self.term.lock().unwrap();
+        let mut term = self.term.lock_or_recover();
         let owned_replay;
         let (replay, replay_aliases, replay_state, pending_sequence) = match replay {
             Some(replay) => (
@@ -755,7 +756,7 @@ impl RemoteSurface {
         if daemon_replay {
             // Daemon-built replays carry resolved state, not application
             // intent; cursor-style provenance restarts from "not authored".
-            self.cursor_provenance.lock().unwrap().reset_for_replay();
+            self.cursor_provenance.lock_or_recover().reset_for_replay();
         }
         self.sync_mouse_encoders(&term);
         self.content_generation.fetch_add(1, Ordering::AcqRel);
@@ -765,18 +766,18 @@ impl RemoteSurface {
     fn set_cell_pixel_size(&self, width_px: u16, height_px: u16) -> ghostty_vt::Result<bool> {
         #[cfg(test)]
         self.run_geometry_test_hook(RemoteGeometryTestStep::CellPixelStarted);
-        let _geometry_lifecycle = self.geometry_lifecycle.lock().unwrap();
+        let _geometry_lifecycle = self.geometry_lifecycle.lock_or_recover();
         let next = (width_px.max(1), height_px.max(1));
-        if *self.cell_pixels.lock().unwrap() == next {
+        if *self.cell_pixels.lock_or_recover() == next {
             return Ok(false);
         }
         if self.kind == SurfaceKind::Pty {
-            let mut term = self.term.lock().unwrap();
+            let mut term = self.term.lock_or_recover();
             let size = (term.cols(), term.rows());
             term.resize(size.0, size.1, u32::from(next.0), u32::from(next.1))?;
-            *self.cell_pixels.lock().unwrap() = next;
+            *self.cell_pixels.lock_or_recover() = next;
         } else {
-            *self.cell_pixels.lock().unwrap() = next;
+            *self.cell_pixels.lock_or_recover() = next;
         }
         #[cfg(test)]
         self.run_geometry_test_hook(RemoteGeometryTestStep::CellPixelCommitBoundary);
@@ -785,27 +786,27 @@ impl RemoteSurface {
     }
 
     fn cell_pixel_size(&self) -> (u16, u16) {
-        let _geometry_lifecycle = self.geometry_lifecycle.lock().unwrap();
-        *self.cell_pixels.lock().unwrap()
+        let _geometry_lifecycle = self.geometry_lifecycle.lock_or_recover();
+        *self.cell_pixels.lock_or_recover()
     }
 
     pub(super) fn reported_size(&self) -> Option<(u16, u16)> {
-        *self.reported_size.lock().unwrap()
+        *self.reported_size.lock_or_recover()
     }
 
     pub(super) fn set_reported_size(&self, size: (u16, u16)) {
-        *self.reported_size.lock().unwrap() = Some(size);
+        *self.reported_size.lock_or_recover() = Some(size);
     }
 
     pub(super) fn clear_reported_size_if(&self, size: (u16, u16)) {
-        let mut reported = self.reported_size.lock().unwrap();
+        let mut reported = self.reported_size.lock_or_recover();
         if *reported == Some(size) {
             *reported = None;
         }
     }
 
     pub(super) fn clear_reported_size(&self) {
-        *self.reported_size.lock().unwrap() = None;
+        *self.reported_size.lock_or_recover() = None;
     }
 
     #[cfg(test)]
@@ -819,7 +820,7 @@ impl RemoteSurface {
     }
 
     pub fn browser_frame_metadata(&self) -> Option<(u64, u32, u32, Option<u64>)> {
-        let browser = self.browser.lock().unwrap();
+        let browser = self.browser.lock_or_recover();
         if matches!(browser.status, BrowserStatus::Failed(_)) {
             None
         } else {
@@ -835,7 +836,7 @@ impl RemoteSurface {
     }
 
     pub fn browser_frame_update(&self) -> Option<BrowserFrameUpdate> {
-        let browser = self.browser.lock().unwrap();
+        let browser = self.browser.lock_or_recover();
         if matches!(browser.status, BrowserStatus::Failed(_)) {
             return None;
         }
@@ -858,20 +859,20 @@ impl RemoteSurface {
     }
 
     pub fn browser_accepts_pointer_frame(&self, frame_seq: u64) -> bool {
-        let browser = self.browser.lock().unwrap();
+        let browser = self.browser.lock_or_recover();
         matches!(browser.status, BrowserStatus::Live)
             && browser.presented_pointer_frame_seq == Some(frame_seq)
             && pointer_frame_is_in_range(&browser, frame_seq)
     }
 
     pub fn browser_pointer_frame_is_in_current_route(&self, frame_seq: u64) -> bool {
-        let browser = self.browser.lock().unwrap();
+        let browser = self.browser.lock_or_recover();
         matches!(browser.status, BrowserStatus::Live)
             && pointer_frame_is_in_range(&browser, frame_seq)
     }
 
     pub fn acknowledge_browser_pointer_frame(&self, frame_seq: u64) -> bool {
-        let mut browser = self.browser.lock().unwrap();
+        let mut browser = self.browser.lock_or_recover();
         if !matches!(browser.status, BrowserStatus::Live)
             || !pointer_frame_is_in_range(&browser, frame_seq)
             || browser.presented_pointer_frame_seq == Some(frame_seq)
@@ -884,20 +885,20 @@ impl RemoteSurface {
     }
 
     pub fn has_browser_frame(&self) -> bool {
-        let browser = self.browser.lock().unwrap();
+        let browser = self.browser.lock_or_recover();
         !matches!(browser.status, BrowserStatus::Failed(_)) && browser.frame.is_some()
     }
 
     pub fn browser_url(&self) -> Option<String> {
-        self.browser.lock().unwrap().url.clone()
+        self.browser.lock_or_recover().url.clone()
     }
 
     pub fn browser_status(&self) -> BrowserStatus {
-        self.browser.lock().unwrap().status.clone()
+        self.browser.lock_or_recover().status.clone()
     }
 
     pub fn browser_frames_stalled(&self) -> bool {
-        let browser = self.browser.lock().unwrap();
+        let browser = self.browser.lock_or_recover();
         if !matches!(browser.status, BrowserStatus::Live) {
             return false;
         }
@@ -914,11 +915,11 @@ impl RemoteSurface {
     }
 
     fn update_browser_source(&self, source: Option<BrowserSource>) {
-        self.browser.lock().unwrap().source = source;
+        self.browser.lock_or_recover().source = source;
     }
 
     fn update_browser_state(&self, value: &Value) {
-        let mut browser = self.browser.lock().unwrap();
+        let mut browser = self.browser.lock_or_recover();
         let previous_status = browser.status.clone();
         browser.url = value.get("url").and_then(|v| v.as_str()).map(str::to_string);
         browser.title = value.get("title").and_then(|v| v.as_str()).map(str::to_string);
@@ -953,7 +954,7 @@ impl RemoteSurface {
 
     fn update_browser_frame(&self, value: &Value) {
         if let Some(frame) = parse_browser_frame(value) {
-            let mut browser = self.browser.lock().unwrap();
+            let mut browser = self.browser.lock_or_recover();
             let previous_status = browser.status.clone();
             let status = parse_browser_status(value);
             if let Some(status) = status.clone() {
@@ -1241,9 +1242,13 @@ impl InteractiveWriteMetrics {
     fn record_latency(&self, latency: Duration) {
         let micros = u64::try_from(latency.as_micros()).unwrap_or(u64::MAX);
         let bucket = INTERACTIVE_LATENCY_BUCKET_UPPER_US
-            .partition_point(|upper_bound| *upper_bound < micros)
-            .min(self.latency_buckets.len() - 1);
-        self.latency_buckets[bucket].fetch_add(1, Ordering::Relaxed);
+            .partition_point(|upper_bound| *upper_bound < micros);
+        // A latency above the last bound counts in the last bucket.
+        if let Some(counter) =
+            self.latency_buckets.get(bucket).or_else(|| self.latency_buckets.last())
+        {
+            counter.fetch_add(1, Ordering::Relaxed);
+        }
     }
 
     fn snapshot(&self) -> InteractiveWriteMetricsSnapshot {
@@ -1716,7 +1721,7 @@ fn decimal_after_prefix(bytes: &[u8], prefix: &[u8]) -> Option<u64> {
     if digits == 0 || !matches!(tail.get(digits), Some(b',') | Some(b'}')) {
         return None;
     }
-    std::str::from_utf8(&tail[..digits]).ok()?.parse().ok()
+    std::str::from_utf8(tail.get(..digits)?).ok()?.parse().ok()
 }
 
 fn remote_progress_target(partial: &[u8]) -> Option<RemoteProgressTarget> {
@@ -1817,7 +1822,7 @@ fn read_json_line_with_progress_bounded<R: BufRead>(
                 ));
             }
             let consumed = complete_at.map_or(available.len(), |index| index + 1);
-            bytes.extend_from_slice(&available[..payload_bytes]);
+            bytes.extend_from_slice(available.get(..payload_bytes).unwrap_or(available));
             (consumed, complete_at.is_some())
         };
         reader.consume(consumed);
@@ -1933,20 +1938,20 @@ impl RemoteMessageWriter for JsonLineWriter {
 
 impl RemoteSession {
     pub(super) fn has_surface(&self, id: SurfaceId) -> bool {
-        self.surfaces.lock().unwrap().contains_key(&id)
+        self.surfaces.lock_or_recover().contains_key(&id)
     }
 
     pub(super) fn surface(&self, id: SurfaceId) -> Option<Arc<RemoteSurface>> {
-        self.surfaces.lock().unwrap().get(&id).cloned()
+        self.surfaces.lock_or_recover().get(&id).cloned()
     }
 
     pub(super) fn attachment_lease(&self, id: SurfaceId) -> Option<String> {
-        self.surface_leases.lock().unwrap().get(&id).cloned()
+        self.surface_leases.lock_or_recover().get(&id).cloned()
     }
 
     /// The latest `size-state` for `surface`.
     pub(super) fn size_state(&self, surface: SurfaceId) -> Option<super::SurfaceSizeState> {
-        self.size_states.lock().unwrap().get(&surface).cloned()
+        self.size_states.lock_or_recover().get(&surface).cloned()
     }
 
     /// Keeps the newest state per terminal; an older generation is ignored.
@@ -1957,7 +1962,7 @@ impl RemoteSession {
         state: TerminalSizingState,
         self_participant: Option<String>,
     ) -> bool {
-        let mut states = self.size_states.lock().unwrap();
+        let mut states = self.size_states.lock_or_recover();
         if let Some(current) = states.get(&surface)
             && (current.state.generation > state.generation
                 || (current.state == state && current.self_participant == self_participant))
@@ -1991,7 +1996,7 @@ impl RemoteSession {
     }
 
     pub(super) fn supports_capability(&self, capability: &str) -> bool {
-        self.capabilities.lock().unwrap().contains(capability)
+        self.capabilities.lock_or_recover().contains(capability)
     }
 
     pub fn supports_surface_subscription_filter(&self) -> bool {
@@ -2019,11 +2024,11 @@ impl RemoteSession {
     }
 
     pub fn cached_tree(&self) -> TreeView {
-        self.tree.lock().unwrap().view.clone()
+        self.tree.lock_or_recover().view.clone()
     }
 
     pub fn cached_agents(&self) -> Vec<AgentInfo> {
-        self.tree.lock().unwrap().agents.clone()
+        self.tree.lock_or_recover().agents.clone()
     }
 
     pub fn refresh_tree(&self) -> anyhow::Result<TreeView> {
@@ -2035,12 +2040,12 @@ impl RemoteSession {
     }
 
     fn refresh_tree_inner(&self, identity_refresh: bool) -> anyhow::Result<TreeView> {
-        let _refresh = self.tree_refresh.lock().unwrap();
+        let _refresh = self.tree_refresh.lock_or_recover();
         if identity_refresh {
             self.tree_stale.store(false, Ordering::Release);
         }
         let (title_refresh_generation, agent_refresh_generation) = {
-            let cache = self.tree.lock().unwrap();
+            let cache = self.tree.lock_or_recover();
             (cache.title_generation(), cache.agent_generation())
         };
         let data = match self.request(json!({"cmd": "list-workspaces"})) {
@@ -2062,7 +2067,7 @@ impl RemoteSession {
                     .and_then(|agents| serde_json::from_value::<Vec<AgentInfo>>(agents).ok())
             })
             .unwrap_or_default();
-        let capabilities = self.capabilities.lock().unwrap();
+        let capabilities = self.capabilities.lock_or_recover();
         let tree = parse_tree_with_capabilities(
             &data,
             TreeCapabilities {
@@ -2083,7 +2088,7 @@ impl RemoteSession {
         // lazy mirror and may be empty during startup or reconnect, so it
         // cannot be used as a negative filter. Remove only explicit retire
         // evidence captured at the detach boundary.
-        let retired_surface_ids = self.retired_surfaces.lock().unwrap().clone();
+        let retired_surface_ids = self.retired_surfaces.lock_or_recover().clone();
         let mut tree = tree;
         tree.retain_not_retired(&retired_surface_ids);
         self.order_tree_by_sidebar_doc(&mut tree);
@@ -2096,17 +2101,15 @@ impl RemoteSession {
             .map(|tab| tab.surface)
             .collect::<HashSet<_>>();
         self.retired_surfaces
-            .lock()
-            .unwrap()
+            .lock_or_recover()
             .retain(|surface_id| raw_surface_ids.contains(surface_id));
         self.prune_exited_surfaces(&live_surface_ids);
         self.surface_overflow_recovery
-            .lock()
-            .unwrap()
+            .lock_or_recover()
             .retain(|surface_id, _| live_surface_ids.contains(surface_id));
-        let retired_surfaces = self.retired_surfaces.lock().unwrap();
+        let retired_surfaces = self.retired_surfaces.lock_or_recover();
         let tree = {
-            let mut cache = self.tree.lock().unwrap();
+            let mut cache = self.tree.lock_or_recover();
             tree.retain_not_retired(&retired_surfaces);
             cache.replace(tree, title_refresh_generation);
             cache.replace_agents(agents, agent_refresh_generation, &retired_surfaces);
@@ -2114,8 +2117,8 @@ impl RemoteSession {
         };
         drop(retired_surfaces);
         let browser_sources = browser_sources_from_tree(&tree);
-        *self.browser_sources.lock().unwrap() = browser_sources.clone();
-        let surfaces = self.surfaces.lock().unwrap().clone();
+        *self.browser_sources.lock_or_recover() = browser_sources.clone();
+        let surfaces = self.surfaces.lock_or_recover().clone();
         for (id, surface) in surfaces {
             surface.update_browser_source(browser_sources.get(&id).copied());
         }
@@ -2123,7 +2126,7 @@ impl RemoteSession {
     }
 
     fn prune_exited_surfaces(&self, live_surface_ids: &HashSet<SurfaceId>) {
-        let mut exited = self.exited_surfaces.lock().unwrap();
+        let mut exited = self.exited_surfaces.lock_or_recover();
         let retained_handles = exited
             .handles
             .iter()
@@ -2181,12 +2184,12 @@ impl Drop for RemoteSession {
             return;
         };
         let _ = fs::create_dir_all(dir);
-        let logs = self.frame_logs.lock().unwrap();
+        let logs = self.frame_logs.lock_or_recover();
         let mut entries_by_surface: HashMap<SurfaceId, Vec<&str>> = HashMap::new();
         for entry in &logs.entries {
             entries_by_surface.entry(entry.surface).or_default().push(&entry.line);
         }
-        for surface in self.surfaces.lock().unwrap().values() {
+        for surface in self.surfaces.lock_or_recover().values() {
             let path = dir.join(format!("mirror-{}.txt", surface.id));
             let _ = fs::write(path, dump_mirror(surface));
             let frames = dir.join(format!("frames-{}.log", surface.id));
@@ -2285,7 +2288,7 @@ fn parse_kitty_replay_state(value: &Value) -> Result<KittyReplayState, &'static 
 
 fn dump_mirror(surface: &RemoteSurface) -> String {
     let mut out = String::new();
-    let mut term = surface.term.lock().unwrap();
+    let mut term = surface.term.lock_or_recover();
     let cols = term.cols();
     let rows = term.rows();
     let scrollbar = term.scrollbar();
@@ -2361,7 +2364,9 @@ fn parse_terminal_colors(value: &Value) -> Option<RemoteTerminalColors> {
         for (index, color) in entries {
             let Some(index) = index.parse::<u8>().ok() else { continue };
             let Some(color) = color.as_str().and_then(parse_color) else { continue };
-            palette[index as usize] = Some(color);
+            if let Some(slot) = palette.get_mut(usize::from(index)) {
+                *slot = Some(color);
+            }
         }
     }
     Some(RemoteTerminalColors {
@@ -2414,11 +2419,13 @@ fn terminal_palette_override_delta(
     next: &TerminalColorOverrides,
 ) -> Vec<u8> {
     let mut output = Vec::new();
-    for index in 0..256 {
-        if previous.palette[index] == next.palette[index] {
+    for (index, (previous_color, next_color)) in
+        previous.palette.iter().zip(next.palette.iter()).enumerate()
+    {
+        if previous_color == next_color {
             continue;
         }
-        match next.palette[index] {
+        match *next_color {
             Some(color) => output.extend_from_slice(
                 format!("\x1b]4;{index};rgb:{:02x}/{:02x}/{:02x}\x1b\\", color.r, color.g, color.b)
                     .as_bytes(),

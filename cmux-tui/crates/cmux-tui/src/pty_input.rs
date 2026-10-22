@@ -15,6 +15,7 @@ use std::time::{Duration, Instant};
 use cmux_tui_core::{SurfaceId, SurfaceKind};
 use smallvec::SmallVec;
 
+use crate::lock_recover::{CondvarRecover, MutexRecover};
 use crate::session::{SurfaceHandle, is_remote_timeout, is_remote_transport_failure};
 
 pub(crate) const PTY_OPERATION_QUEUE_CAPACITY: usize = 512;
@@ -398,7 +399,7 @@ impl PtyInputDispatcher {
 
     pub fn activate_session_generation(&mut self, session_generation: u64) {
         self.sender.session_generation = session_generation;
-        let mut state = self.sender.queue.state.lock().unwrap();
+        let mut state = self.sender.queue.state.lock_or_recover();
         state.active_session_generation = session_generation;
         state.failed_lanes.retain(|lane| lane.session_generation == session_generation);
         state.retired_in_flight_lanes.retain(|lane| lane.session_generation == session_generation);
@@ -415,7 +416,7 @@ impl PtyInputDispatcher {
     /// half-open remote session cannot hang terminal restoration forever.
     pub fn shutdown(&mut self, timeout: Duration) -> bool {
         let deadline = Instant::now() + timeout;
-        let mut state = self.sender.queue.state.lock().unwrap();
+        let mut state = self.sender.queue.state.lock_or_recover();
         state.closed = true;
         self.sender.queue.changed.notify_all();
         while (!state.events.is_empty()
@@ -424,7 +425,7 @@ impl PtyInputDispatcher {
             && Instant::now() < deadline
         {
             let remaining = deadline.saturating_duration_since(Instant::now());
-            let (next, _) = self.sender.queue.changed.wait_timeout(state, remaining).unwrap();
+            let (next, _) = self.sender.queue.changed.wait_timeout_or_recover(state, remaining);
             state = next;
         }
         let drained = state.events.is_empty()
@@ -486,7 +487,7 @@ impl PtyInputSender {
         mut event: PtyInputEvent,
     ) -> (PtyInputEnqueueResult, Option<u64>) {
         event.session_generation = self.session_generation;
-        let mut state = self.queue.state.lock().unwrap();
+        let mut state = self.queue.state.lock_or_recover();
         if state.closed {
             return (PtyInputEnqueueResult::Saturated, None);
         }
@@ -548,14 +549,14 @@ impl PtyInputSender {
     }
 
     pub fn cancel_release_reservation(&self, reservation_id: u64) {
-        let mut state = self.queue.state.lock().unwrap();
+        let mut state = self.queue.state.lock_or_recover();
         state.release_reservations.cancel(reservation_id);
         self.queue.changed.notify_all();
     }
 
     pub fn retire_surface(&self, surface_id: SurfaceId) {
         let lane = PtyInputLane { session_generation: self.session_generation, surface_id };
-        let mut state = self.queue.state.lock().unwrap();
+        let mut state = self.queue.state.lock_or_recover();
         state.failed_lanes.remove(&lane);
         let is_in_flight = state.in_flight.is_some_and(|input| input.lane == Some(lane))
             || state.in_flight_surface_operations.contains_key(&lane);
@@ -709,7 +710,7 @@ impl PtyInputSender {
 
 impl Drop for PtyInputDispatcher {
     fn drop(&mut self) {
-        let mut state = self.sender.queue.state.lock().unwrap();
+        let mut state = self.sender.queue.state.lock_or_recover();
         state.closed = true;
         if !state.shutdown_release_drain {
             state.events.clear();
@@ -761,27 +762,31 @@ fn enqueue_bounded_with_evictions(
     let mut replaced = None;
     if let Some(key) = event.coalesce_key {
         for index in (0..events.len()).rev() {
-            if events[index].session_generation == event.session_generation
-                && events[index].coalesce_key == Some(key)
+            let Some(queued) = events.get(index) else { continue };
+            if queued.session_generation == event.session_generation
+                && queued.coalesce_key == Some(key)
             {
-                let previous = events.remove(index).unwrap();
-                *queued_bytes = queued_bytes.saturating_sub(previous.queued_byte_len());
-                replaced = Some((index, previous));
+                if let Some(previous) = events.remove(index) {
+                    *queued_bytes = queued_bytes.saturating_sub(previous.queued_byte_len());
+                    replaced = Some((index, previous));
+                }
                 break;
             }
-            if events[index].coalesce_key.is_none() {
+            if queued.coalesce_key.is_none() {
                 break;
             }
         }
     }
     if event.kind == PtyInputKind::Motion
-        && events.back().is_some_and(|previous| {
-            previous.session_generation == event.session_generation
-                && previous.kind == PtyInputKind::Motion
-                && previous.surface_id == event.surface_id
-        })
+        && let Some(previous_len) = events
+            .back()
+            .filter(|previous| {
+                previous.session_generation == event.session_generation
+                    && previous.kind == PtyInputKind::Motion
+                    && previous.surface_id == event.surface_id
+            })
+            .map(PtyInputEvent::queued_byte_len)
     {
-        let previous_len = events.back().unwrap().queued_byte_len();
         let projected_bytes = queued_bytes.saturating_sub(previous_len)
             + event.queued_byte_len()
             + release_reservations.len() * RESERVED_RELEASE_BYTES;
@@ -793,7 +798,10 @@ fn enqueue_bounded_with_evictions(
             return BoundedEnqueueOutcome { accepted: false, evicted, superseded: None };
         }
         *queued_bytes = queued_bytes.saturating_sub(previous_len) + event.queued_byte_len();
-        *events.back_mut().unwrap() = event;
+        match events.back_mut() {
+            Some(previous) => *previous = event,
+            None => events.push_back(event),
+        }
         let superseded = replaced.as_mut().and_then(|(_, previous)| previous.on_superseded.take());
         return BoundedEnqueueOutcome { accepted: true, evicted, superseded };
     }
@@ -829,15 +837,19 @@ fn enqueue_bounded_with_evictions(
         projected_bytes = projected_bytes.saturating_sub(RESERVED_RELEASE_BYTES);
     }
     while projected > capacity || projected_bytes > max_bytes {
-        let Some(index) = events.iter().position(|queued| queued.kind == PtyInputKind::Motion)
+        let Some(removed) = events
+            .iter()
+            .position(|queued| queued.kind == PtyInputKind::Motion)
+            .and_then(|index| events.remove(index))
         else {
             if let Some((index, previous)) = replaced.take() {
                 *queued_bytes += previous.queued_byte_len();
-                events.insert(index, previous);
+                // Evictions above may have shortened the queue below the
+                // replaced event's old index; `insert` panics past the end.
+                events.insert(index.min(events.len()), previous);
             }
             return BoundedEnqueueOutcome { accepted: false, evicted, superseded: None };
         };
-        let removed = events.remove(index).unwrap();
         *queued_bytes = queued_bytes.saturating_sub(removed.queued_byte_len());
         projected -= 1;
         projected_bytes = projected_bytes.saturating_sub(removed.queued_byte_len());
@@ -853,13 +865,12 @@ fn enqueue_bounded_with_evictions(
         });
     }
 
-    if event.kind == PtyInputKind::Press {
-        event.reservation_id = Some(
-            release_reservations
-                .reserve(lane.expect("terminal press has a generation-scoped surface lane")),
-        );
-    } else if consumes_reservation {
-        let lane = lane.expect("terminal release has a generation-scoped surface lane");
+    // Every non-mutation event has a generation-scoped surface lane.
+    if event.kind == PtyInputKind::Press
+        && let Some(lane) = lane
+    {
+        event.reservation_id = Some(release_reservations.reserve(lane));
+    } else if consumes_reservation && let Some(lane) = lane {
         if let Some(reservation_id) = event.reservation_id {
             release_reservations.consume_id(reservation_id, lane);
         } else {
@@ -867,12 +878,10 @@ fn enqueue_bounded_with_evictions(
         }
     }
 
-    if merge_stream {
-        *queued_bytes += event.queued_byte_len();
-        events.back_mut().unwrap().bytes.extend_from_slice(&event.bytes);
-    } else {
-        *queued_bytes += event.queued_byte_len();
-        events.push_back(event);
+    *queued_bytes += event.queued_byte_len();
+    match events.back_mut() {
+        Some(previous) if merge_stream => previous.bytes.extend_from_slice(&event.bytes),
+        _ => events.push_back(event),
     }
     let superseded = replaced.as_mut().and_then(|(_, previous)| previous.on_superseded.take());
     BoundedEnqueueOutcome { accepted: true, evicted, superseded }
@@ -881,7 +890,7 @@ fn enqueue_bounded_with_evictions(
 fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) + Send + Sync>) {
     loop {
         let event = {
-            let mut state = queue.state.lock().unwrap();
+            let mut state = queue.state.lock_or_recover();
             loop {
                 if let Some(event) = dequeue_ready_event(&mut state) {
                     break event;
@@ -892,7 +901,7 @@ fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) +
                 {
                     return;
                 }
-                state = queue.changed.wait(state).unwrap();
+                state = queue.changed.wait_or_recover(state);
             }
         };
 
@@ -916,9 +925,15 @@ fn dequeue_ready_event(state: &mut QueueState) -> Option<PtyInputEvent> {
             // surface work keeps it from running, later input must wait too.
             break;
         }
-        let lane = event
-            .ordering_lane()
-            .expect("surface input and concurrent operations have an ordering lane");
+        // Surface input and concurrent surface operations have an ordering
+        // lane; an operation without one is a global barrier like a session
+        // mutation.
+        let Some(lane) = event.ordering_lane() else {
+            if index == 0 && state.in_flight_surface_operations.is_empty() {
+                ready_index = Some(index);
+            }
+            break;
+        };
         if blocked_queued_lanes.contains(&lane) {
             continue;
         }
@@ -937,15 +952,19 @@ fn dequeue_ready_event(state: &mut QueueState) -> Option<PtyInputEvent> {
         ready_index = Some(index);
         break;
     }
-    let index = ready_index?;
-    let event = state.events.remove(index).unwrap();
+    let mut event = state.events.remove(ready_index?)?;
     state.queued_bytes = state.queued_bytes.saturating_sub(event.queued_byte_len());
-    if event.concurrent_surface_operation {
-        let lane =
-            event.ordering_lane().expect("concurrent surface operation has an ordering lane");
-        assert!(state.in_flight_surface_operations.insert(lane, event.queued_byte_len()).is_none());
-    } else {
-        state.in_flight = Some(InFlightInput { lane: event.ordering_lane(), kind: event.kind });
+    match event.ordering_lane().filter(|_| event.concurrent_surface_operation) {
+        Some(lane) => {
+            assert!(
+                state.in_flight_surface_operations.insert(lane, event.queued_byte_len()).is_none()
+            );
+        }
+        None => {
+            // A concurrent operation without a lane runs on the serial worker.
+            event.concurrent_surface_operation = false;
+            state.in_flight = Some(InFlightInput { lane: event.ordering_lane(), kind: event.kind });
+        }
     }
     Some(event)
 }
@@ -960,11 +979,13 @@ fn spawn_surface_operation(
     let worker_queue = queue.clone();
     let worker_failure = on_failure.clone();
     let spawn = std::thread::Builder::new().name("mux-surface-operation".into()).spawn(move || {
-        let event = worker_pending.lock().unwrap().take().unwrap();
-        process_event(worker_queue, worker_failure, event);
+        if let Some(event) = worker_pending.lock_or_recover().take() {
+            process_event(worker_queue, worker_failure, event);
+        }
     });
-    if let Err(error) = spawn {
-        let event = pending.lock().unwrap().take().unwrap();
+    if let Err(error) = spawn
+        && let Some(event) = pending.lock_or_recover().take()
+    {
         fail_surface_operation_spawn(queue, on_failure, event, error);
     }
 }
@@ -975,11 +996,13 @@ fn fail_surface_operation_spawn(
     mut event: PtyInputEvent,
     error: std::io::Error,
 ) {
-    let lane = event.ordering_lane().expect("concurrent surface operation has an ordering lane");
+    // `dequeue_ready_event` sends only operations with a lane here; one
+    // without would own the serial in-flight slot instead.
+    let lane = event.ordering_lane();
     let after_operation = event.after_operation.take();
     on_failure(PtyOperationFailure {
         session_generation: event.session_generation,
-        surface_id: Some(lane.surface_id),
+        surface_id: lane.map(|lane| lane.surface_id),
         kind: None,
         reservation_id: None,
         label: event.label,
@@ -987,9 +1010,14 @@ fn fail_surface_operation_spawn(
         lane_failed: false,
         delivery: PtyOperationDelivery::KnownNotDelivered,
     });
-    let mut state = queue.state.lock().unwrap();
-    state.in_flight_surface_operations.remove(&lane);
-    state.retired_in_flight_lanes.remove(&lane);
+    let mut state = queue.state.lock_or_recover();
+    match lane {
+        Some(lane) => {
+            state.in_flight_surface_operations.remove(&lane);
+            state.retired_in_flight_lanes.remove(&lane);
+        }
+        None => state.in_flight = None,
+    }
     queue.changed.notify_all();
     drop(state);
     if let Some(after_operation) = after_operation {
@@ -1097,7 +1125,7 @@ fn process_event(
             },
         })
     });
-    let mut state = queue.state.lock().unwrap();
+    let mut state = queue.state.lock_or_recover();
     let retired_lane =
         ordering_lane.is_some_and(|lane| state.retired_in_flight_lanes.remove(&lane));
     let mut canceled = Vec::new();
@@ -1153,19 +1181,19 @@ fn process_event(
                 "canceled after a remote request timed out",
             ));
         }
-    } else if ambiguous_surface_failure {
-        let lane = ordering_lane.expect("ambiguous surface failure has an ordering lane");
-        if !retired_lane {
-            if state.active_session_generation == session_generation {
-                state.failed_lanes.insert(lane);
-            }
-            canceled.extend(prune_failed_lane(
-                &mut state,
-                lane,
-                reservation_id.filter(|_| kind == Some(PtyInputKind::Press)),
-                "canceled after ambiguous surface delivery; detach and reconnect",
-            ));
+    } else if ambiguous_surface_failure
+        && let Some(lane) = ordering_lane
+        && !retired_lane
+    {
+        if state.active_session_generation == session_generation {
+            state.failed_lanes.insert(lane);
         }
+        canceled.extend(prune_failed_lane(
+            &mut state,
+            lane,
+            reservation_id.filter(|_| kind == Some(PtyInputKind::Press)),
+            "canceled after ambiguous surface delivery; detach and reconnect",
+        ));
     }
     drop(state);
     if let Some(failure) = failure {
@@ -1174,7 +1202,7 @@ fn process_event(
     for failure in canceled {
         on_failure(failure);
     }
-    let mut state = queue.state.lock().unwrap();
+    let mut state = queue.state.lock_or_recover();
     if let Some(lane) = concurrent_surface.then_some(ordering_lane).flatten() {
         state.in_flight_surface_operations.remove(&lane);
     } else {

@@ -47,12 +47,14 @@ mod feature_flags;
 #[path = "bin/cmux-tui-hook.rs"]
 mod hook_helper;
 mod host_colors;
+mod json_field;
 mod keys;
 mod layout_undo;
 #[cfg(unix)]
 mod link;
 mod local_owner;
 mod localization;
+mod lock_recover;
 mod loopback_policy;
 mod machine;
 #[cfg(unix)]

@@ -1,6 +1,6 @@
 //! The remote session's disconnect state and the wait on it.
 
-use std::sync::{Condvar, LockResult, Mutex, MutexGuard};
+use std::sync::{Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use super::DisconnectState;
@@ -41,8 +41,9 @@ pub(super) struct DisconnectCell {
 }
 
 impl DisconnectCell {
-    pub(super) fn lock(&self) -> LockResult<MutexGuard<'_, DisconnectState>> {
-        self.state.lock()
+    /// The state, also after a panic poisoned its lock.
+    pub(super) fn lock_or_recover(&self) -> MutexGuard<'_, DisconnectState> {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// Wake waiters after the state changed.

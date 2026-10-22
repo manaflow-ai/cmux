@@ -28,6 +28,8 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
+use crate::json_field::JsonFieldExt;
+use crate::lock_recover::MutexRecover;
 use cmux_tui_core::platform::{self, transport};
 use serde_json::Value;
 
@@ -522,7 +524,7 @@ fn attempt(
         Err(IdentifyError::Timeout) => return Ok(Attempt::Starting(None)),
         Err(IdentifyError::Failed) => return Ok(Attempt::Unanswered),
     };
-    if identity["app"] != "cmux-tui" {
+    if *identity.field("app") != "cmux-tui" {
         return Err(EnsureError::WrongOwner);
     }
     if identity.get("protocol").and_then(Value::as_u64)
@@ -539,7 +541,7 @@ fn attempt(
         Some(Value::Bool(true)) => {}
         _ => return Err(EnsureError::InvalidIdentity),
     }
-    let session = identity["session"].as_str().unwrap_or_default();
+    let session = identity.field("session").as_str().unwrap_or_default();
     if session.is_empty() {
         return Err(EnsureError::InvalidIdentity);
     }
@@ -549,10 +551,11 @@ fn attempt(
     if !serves_requested_state(spec, session, &identity) {
         return Err(EnsureError::DifferentState);
     }
-    let Some(pid) = identity["pid"].as_u64() else {
+    let Some(pid) = identity.field("pid").as_u64() else {
         return Err(EnsureError::InvalidIdentity);
     };
-    let Some(generation) = identity["generation"].as_str().filter(|value| !value.is_empty()) else {
+    let Some(generation) = identity.field("generation").as_str().filter(|value| !value.is_empty())
+    else {
         return Err(EnsureError::InvalidIdentity);
     };
     Ok(Attempt::Ready(ReadyOwner {
@@ -621,10 +624,10 @@ fn identify(stream: Box<dyn transport::Stream>, deadline: Instant) -> Result<Val
         let Ok(response) = serde_json::from_slice::<Value>(&bytes) else {
             return Err(IdentifyError::Failed);
         };
-        if response.get("event").is_some() || response["id"] != 1 {
+        if response.get("event").is_some() || *response.field("id") != 1 {
             continue;
         }
-        if response["ok"] == true {
+        if *response.field("ok") == true {
             return Ok(response.get("data").cloned().unwrap_or(Value::Null));
         }
         return Err(IdentifyError::Failed);
@@ -677,7 +680,7 @@ impl SpawnedOwner {
         // must terminate the owner even when that thread could not be
         // created. The owner is still unreaped here (the reaper takes the
         // child out of the slot before reaping), so its pid is still its own.
-        let mut child = self.state.child.lock().expect("owner mutex poisoned");
+        let mut child = self.state.child.lock_or_recover();
         if let Some(mut process) = child.take() {
             let _ = process.kill();
             let _ = process.wait();
@@ -850,14 +853,14 @@ fn reap_on_exit(state: &OwnerProcessState, pid: u32) {
             break;
         }
     }
-    if let Some(mut process) = state.child.lock().expect("owner mutex poisoned").take() {
+    if let Some(mut process) = state.child.lock_or_recover().take() {
         let _ = process.wait();
     }
 }
 
 #[cfg(not(unix))]
 fn reap_on_tick(state: &OwnerProcessState) {
-    let mut child = state.child.lock().expect("owner mutex poisoned");
+    let mut child = state.child.lock_or_recover();
     while let Some(process) = child.as_mut() {
         if state.terminate.load(std::sync::atomic::Ordering::Acquire) {
             let _ = process.kill();

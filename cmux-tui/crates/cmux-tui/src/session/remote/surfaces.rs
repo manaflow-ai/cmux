@@ -1,6 +1,7 @@
 //! Surface attach, cell pixel geometry, overflow recovery, and retirement.
 
 use super::*;
+use crate::json_field::JsonFieldExt;
 
 impl RemoteSession {
     pub fn set_cell_pixel_size(
@@ -8,17 +9,21 @@ impl RemoteSession {
         width_px: u16,
         height_px: u16,
     ) -> anyhow::Result<RemoteCellPixelUpdate> {
-        let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
+        let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock_or_recover();
         let next = (width_px.max(1), height_px.max(1));
-        let previous_global = *self.cell_pixels.lock().unwrap();
-        let surfaces = self.surfaces.lock().unwrap().values().cloned().collect::<Vec<_>>();
+        let previous_global = *self.cell_pixels.lock_or_recover();
+        let surfaces = self.surfaces.lock_or_recover().values().cloned().collect::<Vec<_>>();
         let snapshots = surfaces
             .iter()
             .map(|surface| (surface.clone(), surface.cell_pixel_size()))
             .collect::<Vec<_>>();
         for (index, surface) in surfaces.iter().enumerate() {
             if let Err(error) = surface.set_cell_pixel_size(next.0, next.1) {
-                let rollback = Self::restore_cell_pixels(&snapshots[..index]);
+                // Restore the mirrors already changed (all of them if the
+                // index were ever out of range: restoring is idempotent).
+                let rollback = Self::restore_cell_pixels(
+                    snapshots.get(..index).unwrap_or(snapshots.as_slice()),
+                );
                 return match rollback {
                     Ok(()) => Err(anyhow::anyhow!(
                         "could not update cell pixels for remote mirror {}: {error}",
@@ -44,7 +49,7 @@ impl RemoteSession {
                     Some(RemoteRequestError::Encode(_) | RemoteRequestError::Rejected { .. })
                 );
                 if known_not_applied {
-                    *self.cell_pixels.lock().unwrap() = previous_global;
+                    *self.cell_pixels.lock_or_recover() = previous_global;
                     return match Self::restore_cell_pixels(&snapshots) {
                         Ok(()) => Err(error),
                         Err(rollback_error) => Err(anyhow::anyhow!(
@@ -52,7 +57,7 @@ impl RemoteSession {
                         )),
                     };
                 }
-                *self.cell_pixels.lock().unwrap() = next;
+                *self.cell_pixels.lock_or_recover() = next;
                 let _ = self.reconcile_cell_pixels_from_remote();
                 return Err(error);
             }
@@ -99,7 +104,7 @@ impl RemoteSession {
             .collect::<Vec<_>>();
         Self::restore_cell_pixels(&failed_snapshots)?;
         if use_target_for_creation {
-            *self.cell_pixels.lock().unwrap() = next;
+            *self.cell_pixels.lock_or_recover() = next;
         }
         let failures =
             failures.into_iter().map(|(surface, error, _)| (surface, error)).collect::<Vec<_>>();
@@ -149,13 +154,13 @@ impl RemoteSession {
                 Ok((id, (width_px, height_px)))
             })
             .collect::<anyhow::Result<HashMap<_, _>>>()?;
-        let surfaces = self.surfaces.lock().unwrap().values().cloned().collect::<Vec<_>>();
+        let surfaces = self.surfaces.lock_or_recover().values().cloned().collect::<Vec<_>>();
         for surface in surfaces {
             if let Some(metric) = surface_metrics.get(&surface.id) {
                 surface.set_cell_pixel_size(metric.0, metric.1)?;
             }
         }
-        *self.cell_pixels.lock().unwrap() = (width_px, height_px);
+        *self.cell_pixels.lock_or_recover() = (width_px, height_px);
         Ok(())
     }
 
@@ -175,7 +180,7 @@ impl RemoteSession {
 
     pub(super) fn record_surface_overflow(&self, id: SurfaceId) -> (Option<Duration>, bool) {
         let now = Instant::now();
-        let mut recoveries = self.surface_overflow_recovery.lock().unwrap();
+        let mut recoveries = self.surface_overflow_recovery.lock_or_recover();
         recoveries.retain(|_, recovery| {
             !recovery.attached_at.is_some_and(|attached| {
                 now.saturating_duration_since(attached) >= SURFACE_OVERFLOW_STABLE
@@ -212,7 +217,7 @@ impl RemoteSession {
         if self.surface_overflow_reconnect_required.load(Ordering::Acquire) {
             return false;
         }
-        self.surface_overflow_recovery.lock().unwrap().get(&id).is_none_or(|recovery| {
+        self.surface_overflow_recovery.lock_or_recover().get(&id).is_none_or(|recovery| {
             !recovery.stopped
                 && recovery.retry_after.is_none_or(|retry_after| Instant::now() >= retry_after)
         })
@@ -222,7 +227,7 @@ impl RemoteSession {
         if self.surface_overflow_reconnect_required.load(Ordering::Acquire) {
             return false;
         }
-        self.surface_overflow_recovery.lock().unwrap().values().any(|recovery| {
+        self.surface_overflow_recovery.lock_or_recover().values().any(|recovery| {
             !recovery.stopped
                 && recovery.retry_after.is_some_and(|retry_after| Instant::now() >= retry_after)
         })
@@ -237,7 +242,7 @@ impl RemoteSession {
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<RemoteSurfaceAttach> {
         let kind = {
-            let tree = self.tree.lock().unwrap();
+            let tree = self.tree.lock_or_recover();
             tree.view.surface_kind(id)
         };
         self.try_ensure_surface_with_kind(id, kind, size)
@@ -249,21 +254,21 @@ impl RemoteSession {
         kind: SurfaceKind,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<RemoteSurfaceAttach> {
-        if self.retired_surfaces.lock().unwrap().contains(&id) {
+        if self.retired_surfaces.lock_or_recover().contains(&id) {
             return Ok(RemoteSurfaceAttach::Retired);
         }
         if !self.can_attach_after_overflow(id) {
             return Ok(RemoteSurfaceAttach::Deferred);
         }
-        if let Some(surface) = self.surfaces.lock().unwrap().get(&id) {
+        if let Some(surface) = self.surfaces.lock_or_recover().get(&id) {
             return Ok(RemoteSurfaceAttach::Attached(surface.clone()));
         }
-        let source = self.browser_sources.lock().unwrap().get(&id).copied().or_else(|| {
+        let source = self.browser_sources.lock_or_recover().get(&id).copied().or_else(|| {
             (kind == SurfaceKind::Browser)
                 .then(|| {
                     // Before the first tree refresh, preserve the historical lookup
                     // against the current cache rather than losing browser metadata.
-                    let tree = self.tree.lock().unwrap();
+                    let tree = self.tree.lock_or_recover();
                     browser_source_from_tree(&tree.view, id)
                 })
                 .flatten()
@@ -276,17 +281,17 @@ impl RemoteSession {
             // Coordinate only the local mirror commit with cell-metric
             // updates. The remote attach can stream for minutes and must not
             // retain this lifecycle lock while it waits.
-            let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
-            if self.retired_surfaces.lock().unwrap().contains(&id) {
+            let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock_or_recover();
+            if self.retired_surfaces.lock_or_recover().contains(&id) {
                 return Ok(RemoteSurfaceAttach::Retired);
             }
             if !self.can_attach_after_overflow(id) {
                 return Ok(RemoteSurfaceAttach::Deferred);
             }
-            if let Some(surface) = self.surfaces.lock().unwrap().get(&id) {
+            if let Some(surface) = self.surfaces.lock_or_recover().get(&id) {
                 return Ok(RemoteSurfaceAttach::Attached(surface.clone()));
             }
-            let cell_pixels = *self.cell_pixels.lock().unwrap();
+            let cell_pixels = *self.cell_pixels.lock_or_recover();
             let mut term = Terminal::new(cols, rows, 10_000, Callbacks::default())?;
             term.resize(cols, rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1))?;
             let surface = Arc::new(RemoteSurface {
@@ -305,21 +310,21 @@ impl RemoteSession {
                 browser: Mutex::new(RemoteBrowserState::default()),
             });
             surface.update_browser_source(source);
-            self.surfaces.lock().unwrap().insert(id, surface.clone());
+            self.surfaces.lock_or_recover().insert(id, surface.clone());
             surface
         };
         let mut request = json!({"cmd": "attach-surface", "surface": id});
         if let Some((cols, rows)) = initial_size {
-            request["cols"] = json!(cols);
-            request["rows"] = json!(rows);
+            request.set_field("cols", json!(cols));
+            request.set_field("rows", json!(rows));
         }
         // The vt-state event that follows fills the mirror.
         let response = match self.request_with_deadline(request, RequestDeadline::Attach) {
             Ok(response) => response,
             Err(error) => {
                 {
-                    let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
-                    let mut surfaces = self.surfaces.lock().unwrap();
+                    let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock_or_recover();
+                    let mut surfaces = self.surfaces.lock_or_recover();
                     if surfaces.get(&id).is_some_and(|current| Arc::ptr_eq(current, &surface)) {
                         surfaces.remove(&id);
                     }
@@ -338,8 +343,8 @@ impl RemoteSession {
         };
         let attachment_lease = if self.supports_capability(VIEW_ATTACHMENT_LEASE_CAPABILITY) {
             let Some(lease) = response.get("lease").and_then(Value::as_str) else {
-                let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
-                self.surfaces.lock().unwrap().remove(&id);
+                let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock_or_recover();
+                self.surfaces.lock_or_recover().remove(&id);
                 self.disconnect_transport();
                 anyhow::bail!(
                     "server advertised {VIEW_ATTACHMENT_LEASE_CAPABILITY} but attach returned no lease"
@@ -352,17 +357,16 @@ impl RemoteSession {
         let superseded = {
             // Retirement can race the remote response. Commit the completed
             // attach only while this exact mirror is still the live entry.
-            let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
+            let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock_or_recover();
             let current = self
                 .surfaces
-                .lock()
-                .unwrap()
+                .lock_or_recover()
                 .get(&id)
                 .is_some_and(|candidate| Arc::ptr_eq(candidate, &surface));
-            if self.retired_surfaces.lock().unwrap().contains(&id) {
+            if self.retired_surfaces.lock_or_recover().contains(&id) {
                 Some(RemoteSurfaceAttach::Retired)
             } else if !current {
-                let overflowed = self.surface_overflow_recovery.lock().unwrap().contains_key(&id)
+                let overflowed = self.surface_overflow_recovery.lock_or_recover().contains_key(&id)
                     || self.surface_overflow_reconnect_required.load(Ordering::Acquire);
                 Some(if overflowed {
                     RemoteSurfaceAttach::Deferred
@@ -371,12 +375,13 @@ impl RemoteSession {
                 })
             } else {
                 if let Some(lease) = &attachment_lease {
-                    self.surface_leases.lock().unwrap().insert(id, lease.clone());
+                    self.surface_leases.lock_or_recover().insert(id, lease.clone());
                 }
                 if let Some(size) = initial_size {
                     surface.set_reported_size(size);
                 }
-                if let Some(recovery) = self.surface_overflow_recovery.lock().unwrap().get_mut(&id)
+                if let Some(recovery) =
+                    self.surface_overflow_recovery.lock_or_recover().get_mut(&id)
                 {
                     recovery.attached_at = Some(Instant::now());
                     recovery.retry_after = None;
@@ -414,23 +419,23 @@ impl RemoteSession {
     }
 
     pub fn retire_surface(&self, id: SurfaceId) {
-        let mut retired_surfaces = self.retired_surfaces.lock().unwrap();
+        let mut retired_surfaces = self.retired_surfaces.lock_or_recover();
         retired_surfaces.insert(id);
         #[cfg(test)]
         if let Some(sender) = self.retire_surface_test_marker.lock().unwrap().clone() {
             let _ = sender.send(id);
         }
-        self.tree.lock().unwrap().remove_agent(id);
+        self.tree.lock_or_recover().remove_agent(id);
         drop(retired_surfaces);
-        let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
-        let surface = self.surfaces.lock().unwrap().remove(&id);
-        let mut exited = self.exited_surfaces.lock().unwrap();
+        let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock_or_recover();
+        let surface = self.surfaces.lock_or_recover().remove(&id);
+        let mut exited = self.exited_surfaces.lock_or_recover();
         exited.ids.insert(id);
         if let Some(surface) = surface {
             exited.handles.insert(id, Arc::downgrade(&surface));
         }
-        self.surface_leases.lock().unwrap().remove(&id);
-        self.surface_overflow_recovery.lock().unwrap().remove(&id);
+        self.surface_leases.lock_or_recover().remove(&id);
+        self.surface_overflow_recovery.lock_or_recover().remove(&id);
     }
 
     pub fn drop_surface(&self, id: SurfaceId) {
@@ -438,10 +443,10 @@ impl RemoteSession {
     }
 
     pub fn surface_is_exited(&self, id: SurfaceId) -> bool {
-        self.exited_surfaces.lock().unwrap().ids.contains(&id)
+        self.exited_surfaces.lock_or_recover().ids.contains(&id)
     }
 
     pub fn surface_kind(&self, id: SurfaceId) -> SurfaceKind {
-        self.tree.lock().unwrap().view.surface_kind(id)
+        self.tree.lock_or_recover().view.surface_kind(id)
     }
 }

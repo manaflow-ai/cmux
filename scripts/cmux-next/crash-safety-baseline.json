@@ -17,7 +17,7 @@
    "cmux-mux2": 42,
    "cmux-remote": 57,
    "cmux-terminal-client": 1,
-   "cmux-tui": 76,
+   "cmux-tui": 61,
    "cmux-tui-core": 283,
    "cmux-tui-hooks": 11,
    "cmux-tui-platform": 1,
@@ -29,7 +29,7 @@
    "acpmux": 2,
    "chatmux-relay": 1,
    "cmux-remote": 11,
-   "cmux-tui": 33,
+   "cmux-tui": 30,
    "cmux-tui-core": 36
   },
   "unwrap": {
@@ -37,7 +37,7 @@
    "chatmux-relay": 7,
    "cmux-remote": 25,
    "cmux-terminal-client": 30,
-   "cmux-tui": 435,
+   "cmux-tui": 233,
    "cmux-tui-core": 1584,
    "cmux-tui-image-paste": 22,
    "cmux-tui-platform": 17,
