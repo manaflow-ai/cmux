@@ -38,7 +38,7 @@ fn open_files_under(root: &Path) -> Vec<std::path::PathBuf> {
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 #[tokio::test]
 async fn a_stopped_session_does_not_keep_its_event_log_open() {
-    let (hub, mut c, dir) = setup_segmented(64 * 1024).await;
+    let (hub, mut c, dir) = super::transcript_events::setup_segmented(64 * 1024).await;
     let id = new_session(&mut c, "fd-stop").await;
     c.request(method::SESSION_PROMPT, prompt(&id, "hello", None)).await.unwrap();
     let events = dir.join("sessions").join(&hub.resolve("fd-stop").unwrap().id).join("events");
