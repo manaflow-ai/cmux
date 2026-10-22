@@ -7,8 +7,8 @@
 //   prompt shows there from the send on, never first as a transcript bubble.
 // - Nothing sent stops the turn (Leo 2026-10-20): to an agent that cannot steer, ⌘Enter queues the
 //   prompt too, with no steer control and no `_meta.acpmux.interrupt`.
-// - Esc stops the turn on a second press (escapeStop.ts): the first turns Stop into an Esc hint,
-//   and typing, a click, focus moving or the window ending puts Stop back. An Esc nothing else took
+// - Esc stops the turn on a second press (escapeStop.ts): the first arms Stop (same glyph, no text,
+//   named "Press Esc again to stop"), and typing, a click, focus moving or the window ending puts Stop back. An Esc nothing else took
 //   (focus outside the composer, as in a question card) counts too; with no turn, Esc does nothing.
 // - Stop always frees the chat: acpmux's forced end of a turn whose agent ignored the cancel says
 //   so, and a turn still open a few seconds after Stop stops showing as working (cosmic-gray,
@@ -505,17 +505,20 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
 
     const escHint = (page: Page) => page.getByRole("button", { name: "Press Esc again to stop" });
     const stopButton = (page: Page) => page.getByRole("button", { name: "Stop", exact: true });
-    /// Arms the stop from the composer and waits for Stop to turn into the Esc hint.
+    /// Arms the stop from the composer and waits for Stop to be named "Press Esc again to stop".
     async function arm(page: Page): Promise<void> {
       await page.locator(".acpmux-composer-prompt").click();
       await page.keyboard.press("Escape");
       await escHint(page).waitFor({ timeout: 1_000 });
     }
 
-    test("the first Esc turns Stop into an Esc hint, and the window ending puts Stop back", async () => {
+    test("the first Esc arms Stop (renamed, its glyph kept, no text), and the window ending puts Stop back", async () => {
       const page = await openChat();
       await arm(page);
-      expect(await escHint(page).innerText()).toBe("Esc");
+      // The armed Stop is the same plain glyph, named "Press Esc again to stop" and cued by its color.
+      expect(await escHint(page).getAttribute("data-escape-armed")).toBe("");
+      expect(await escHint(page).locator("svg").count()).toBe(1);
+      expect((await escHint(page).innerText()).trim()).toBe("");
       expect(await stopButton(page).count()).toBe(0);
       await stopButton(page).waitFor({ timeout: 3_000 });
       expect(await escHint(page).count()).toBe(0);
