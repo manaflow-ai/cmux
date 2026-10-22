@@ -33,10 +33,15 @@ Fleet (alone on an owned mini's console; the allowlisted entry builds the tagged
     --ref <sha> --key <key> --arg=--suite=app-perf --artifact artifacts/split-spring/report.json \
     [--arg=--workspaces=10,50] [--arg=--rounds=5] [--arg=--scenarios=split-right,switch]
 
+On a capture mini over ssh (outside the console's GUI session), --open starts the app through LaunchServices.
+
 Usage: app-perf.py --tag <tag> --app PATH [--workspaces 10,50] [--scenarios ...] [--rounds 5] [--settle 1.0]
-       [--scrollback 2000] [--input key|action] [--json PATH] [--markdown PATH] [--out DIR]
+       [--scrollback 2000] [--input key|action] [--open] [--sha SHA] [--json PATH] [--markdown PATH] [--out DIR]
 """
 import argparse, glob, json, math, os, signal, socket, subprocess, sys, tempfile, time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import bench_memory  # noqa: E402  (process lookups for --open)
 
 SCENARIOS = ["split-right", "split-down", "right-sidebar", "sidebar", "new-top", "switch"]
 parser = argparse.ArgumentParser()
@@ -48,11 +53,15 @@ parser.add_argument("--rounds", type=int, default=5)
 parser.add_argument("--settle", type=float, default=1.0, help="seconds timed after each press")
 parser.add_argument("--scrollback", type=int, default=2000)
 parser.add_argument("--input", choices=["key", "action"], default="key")
+parser.add_argument("--open", action="store_true",
+                    help="launch through LaunchServices (`open -n -g`), for a shell outside the console's GUI session (ssh)")
+parser.add_argument("--sha", default="", help="the measured commit, for the table header (default: git rev-parse HEAD here)")
 parser.add_argument("--json")
 parser.add_argument("--markdown")
 parser.add_argument("--out", default="/tmp")
 opts, _unknown = parser.parse_known_args()
-TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
+# LaunchServices reports the real path (/private/tmp for /tmp), so match processes by it.
+TAG, APP = opts.tag, os.path.realpath(opts.app.rstrip("/"))
 SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
 CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
 BINARY = next((p for p in sorted(glob.glob(os.path.join(APP, "Contents/MacOS/*"))) if not p.endswith(".dylib")), None)
@@ -90,7 +99,8 @@ def error_of(reply):
 
 
 def action(name, args=None, settle=0.0):
-    reply = rpc("action.run", {"action": name, "args": args or {}, "focus": True, "origin": "user"}, timeout=60)
+    # A socket caller may name only a headless origin (ControlOrigin: `user` is in-process only).
+    reply = rpc("action.run", {"action": name, "args": args or {}, "focus": True, "origin": "script"}, timeout=60)
     if settle:
         time.sleep(settle)  # test harness: the app settles before the next step
     return reply
@@ -276,12 +286,19 @@ def switch(count, bench):
 
 
 def fill(count, bench):
-    """The app holds `count` workspaces; the bench workspace shows."""
-    while len(workspace_ids()) < count:
-        before = len(workspace_ids())
-        action("workspace.newAtBottom")
-        wait(lambda: len(workspace_ids()) > before, 10)
+    """The app holds `count` workspaces and the bench workspace shows; False when the app stops making them."""
+    for _ in range(count * 2):  # bounded: a create that never lands must not hang the step
+        have = len(workspace_ids())
+        if have >= count:
+            break
+        reply = action("workspace.newAtBottom")
+        if not wait(lambda: len(workspace_ids()) > have, 10):
+            print(f"workspace {have + 1} of {count} never showed ({error_of(reply)})", flush=True)
+            return False
+    if len(workspace_ids()) < count:
+        return False
     go(bench, settle=3.0)
+    return True
 
 
 def pct(values, p):
@@ -360,6 +377,29 @@ def markdown(rows):
     return "\n".join(lines)
 
 
+class Launched:
+    """An app LaunchServices started (`--open`): its pid, and a wait for it to exit."""
+
+    def __init__(self, pid):
+        self.pid = pid
+
+    def wait(self, timeout):
+        if not bench_memory.wait_gone(self.pid, timeout):
+            raise subprocess.TimeoutExpired("open", timeout)
+
+
+def launch(env, log_path):
+    if not opts.open:
+        log = open(log_path, "a")
+        return subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
+    # LaunchServices starts the app in the console user's GUI session, which a process started over ssh is not
+    # in; the app gets this environment on top of the session's.
+    pairs = [arg for key, value in env.items() if key not in ("HOME", "USER", "TMPDIR", "PATH") for arg in ("--env", f"{key}={value}")]
+    subprocess.run(["open", "-n", "-g", "--stdout", log_path, "--stderr", log_path, *pairs, APP], check=True, timeout=60)
+    pid = wait(lambda: next((p for p, _, cmd in bench_memory.process_table() if bench_memory.is_binary(cmd, BINARY)), None), 60)
+    return Launched(pid) if pid else None
+
+
 def cleanup():
     if os.environ.get("APP_PERF_KEEP") or not app:
         return
@@ -370,6 +410,8 @@ def cleanup():
         os.kill(app.pid, signal.SIGKILL)
     subprocess.run([CLI, "server", "stop", "--session", f"cmux-app-{TAG}", "--end-terminals"],
                    env={k: v for k, v in os.environ.items() if not k.startswith("CMUX_")}, capture_output=True, timeout=30)
+    if opts.open:
+        bench_memory.end_bundle(APP)
     if os.path.exists(SOCKET):
         os.remove(SOCKET)
 
@@ -381,19 +423,20 @@ def main():
     env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_CONFIG_FILE": CONFIG,
            "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(SCRATCH, "ghostty"), "CMUX_NEXT_CHIEF_ISOLATED": "1",
-           "CMUX_NEXT_CHIEF_HOME": os.path.join(SCRATCH, "chief"),
-           "CMUX_NEXT_TEST_WINDOW_FRAME": ",".join(str(v) for v in WINDOW)}
+           "CMUX_NEXT_CHIEF_HOME": os.path.join(SCRATCH, "chief"), "CMUX_NEXT_NO_ACTIVATE": "1",
+           "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_TEST_WINDOW_FRAME": ",".join(str(v) for v in WINDOW)}
     os.makedirs(opts.out, exist_ok=True)
     log_path = os.path.join(opts.out, f"app-{TAG}.log")
-    log = open(log_path, "a")
-    app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
+    app = launch(env, log_path)
+    if app is None:
+        print("the tagged app did not start (open -n found no process)", flush=True)
+        return False
     REPORT["macos"] = subprocess.run(["sw_vers", "-productVersion"], capture_output=True, text=True).stdout.strip()
     REPORT["host"] = subprocess.run(["hostname", "-s"], capture_output=True, text=True).stdout.strip()
-    REPORT["sha"] = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()[:12] or "?"
+    REPORT["sha"] = (opts.sha or subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip())[:12] or "?"
     print(f"launched pid {app.pid} macOS {REPORT['macos']} host {REPORT['host']} at {REPORT['sha']}", flush=True)
     if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.windows") or {}).get("windows"), 120):
-        log.flush()
-        print(f"the tagged app did not come up (socket {os.path.exists(SOCKET)}, alive {app.poll() is None})\n"
+        print(f"the tagged app did not come up (socket {os.path.exists(SOCKET)})\n"
               + open(log_path, errors="replace").read()[-6000:], flush=True)
         return False
     time.sleep(5)  # test harness: launch work settles
@@ -402,7 +445,9 @@ def main():
         action("terminal.sendText", {"text": f"seq 1 {opts.scrollback}\r"}, settle=1.5)
     wanted = [s for s in opts.scenarios.split(",") if s]
     for count in sorted(int(v) for v in opts.workspaces.split(",") if v):
-        fill(count, bench)
+        if not fill(count, bench):
+            print(f"stopped: the app holds {len(workspace_ids())} workspaces, not {count}", flush=True)
+            break
         print(f"\n== {len(workspace_ids())} workspaces", flush=True)
         for scenario in wanted:
             if scenario == "split-right":
