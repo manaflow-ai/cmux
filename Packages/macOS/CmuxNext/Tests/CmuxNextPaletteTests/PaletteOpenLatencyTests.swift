@@ -65,6 +65,20 @@ struct PaletteOpenLatencyTests {
         return Double(seconds) * 1_000 + Double(attoseconds) / 1e15
     }
 
+    /// The main thread's CPU time for `body`: work elsewhere on the host (another app, the next job on a shared
+    /// fleet runner) delays the main thread without adding to this. The wall clock counted those delays: under
+    /// threads at the highest QoS taking every core, a 1 ms sidebar toggle read 70-90 ms (aws-m4pro-1, 2026-10-21).
+    private static func mainThreadCPU(_ body: () -> Void) -> Duration {
+        func now() -> Duration {
+            var spent = timespec()
+            clock_gettime(CLOCK_THREAD_CPUTIME_ID, &spent)
+            return .seconds(spent.tv_sec) + .nanoseconds(spent.tv_nsec)
+        }
+        let started = now()
+        body()
+        return now() - started
+    }
+
     /// The open itself reads no workspace or tab list: the empty query shows
     /// none of them. A typed query finds them once they land.
     @Test func firstFrameReadsNoWorkspaceOrTabList() async {
@@ -92,9 +106,7 @@ struct PaletteOpenLatencyTests {
             defer { palette.hide() }
             var samples: [Double] = []
             for _ in 0..<7 {
-                let started = ContinuousClock.now
-                palette.show(.commands)
-                samples.append(Self.milliseconds(started.duration(to: .now)))
+                samples.append(Self.milliseconds(Self.mainThreadCPU { palette.show(.commands) }))
                 await palette.model.settleDeferredLoads()
                 await palette.model.settle()
                 palette.hide()
@@ -106,9 +118,7 @@ struct PaletteOpenLatencyTests {
             let palette = Self.palette(store)
             var samples: [Double] = []
             for _ in 0..<7 {
-                let started = ContinuousClock.now
-                palette.model.reset(to: palette.commandsPage())
-                samples.append(Self.milliseconds(started.duration(to: .now)))
+                samples.append(Self.milliseconds(Self.mainThreadCPU { palette.model.reset(to: palette.commandsPage()) }))
                 await palette.model.settle()
             }
             return samples.sorted()[samples.count / 2]
@@ -119,9 +129,9 @@ struct PaletteOpenLatencyTests {
         let largeModel = await modelCost(Store(workspaces: 600, tabsPerWorkspace: 10))
         print("palette open (median ms, debug build): 10 workspaces/10 tabs \(small) (model \(smallModel)), "
               + "600 workspaces/6000 tabs \(large) (model \(largeModel))")
-        // The page's rows (what this fix owns) cost the same: within 3 ms (a scheduling blip).
+        // The page's rows (what this fix owns) cost the same: within 3 ms.
         #expect(largeModel - smallModel < 3, "the open's rows grow with the workspaces and tabs: \(smallModel) ms -> \(largeModel) ms")
-        // The whole open (panel order-in and layout on a shared fleet host vary by a few ms) stays
+        // The whole open (panel order-in and layout vary by a few ms) stays
         // within 8 ms; before the fix it grew by about 70 ms.
         #expect(large - small < 8, "the open's cost grows with the workspaces and tabs: \(small) ms -> \(large) ms")
     }

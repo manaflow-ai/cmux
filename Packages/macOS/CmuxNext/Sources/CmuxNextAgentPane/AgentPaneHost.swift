@@ -86,7 +86,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     /// read at each daemon start, since Computer Use turns on and off while the app runs.
     private let computerUse: @Sendable () -> [String: String]
     /// Whether the daemon gets the session offer tools now (`AcpmuxEnvironment.offersSessionTools`:
-    /// `sessions.promptSuggestions` or the `agent.suggestedTasks` Debug Settings toggle), read at each
+    /// ``AgentPaneSuggestedTasks/forNextDaemon``: `sessions.promptSuggestions` or the forcing tunable), read at each
     /// daemon start: a change applies to the next daemon this app starts, never to the one running.
     private let offersSessionTools: @Sendable () -> Bool
     /// Whether the daemon keeps the agent message runaway guard on now (`AcpmuxEnvironment.agentPairGuard`,
@@ -129,9 +129,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     /// off the main thread, at the first handshake that needs it.
     public init(resolve: @escaping @Sendable () -> AcpmuxEnvironment?,
                 computerUse: @escaping @Sendable () -> [String: String] = { [:] },
-                offersSessionTools: @escaping @Sendable () -> Bool = {
-                    AgentPaneSuggestedTasks.forNextDaemon.isOn || AgentPaneTunables.suggestedTasks.value
-                },
+                offersSessionTools: @escaping @Sendable () -> Bool = { AgentPaneSuggestedTasks.forNextDaemon.isOn },
                 agentPairGuard: @escaping @Sendable () -> Bool = { AgentPaneTunables.agentPairGuard.value },
                 agentPairCap: @escaping @Sendable () -> (messages: Int, windowSeconds: Int) = {
                     (Int(AgentPaneTunables.agentPairCap.value), Int(AgentPaneTunables.agentPairWindow.value))
@@ -300,8 +298,10 @@ public actor AcpmuxHost: AgentPaneHostProviding {
                 }
             }
             // After an update, or for this launch's person key (`AcpmuxPersonKey`): a daemon
-            // that cannot take the key is handed off and ours starts with it.
-            let stale = await AcpmuxVersionHandoff.handOffIfStale(status, environment: environment)
+            // that cannot take the key is handed off and ours starts with it. A daemon no cmux
+            // install runs (`~/.local/bin/acpmux`) is taken over first (`AcpmuxStrayDaemon`).
+            let stray = await AcpmuxStrayDaemon.handOffIfStray(status, environment: environment)
+            let stale = stray ? true : await AcpmuxVersionHandoff.handOffIfStale(status, environment: environment)
             let stopped = stale ? true : await AcpmuxPersonKey.enroll(status, environment: environment)
             guard stopped else {
                 await AcpmuxComputerUse.enroll(environment)

@@ -10,7 +10,7 @@ import CmuxNextPages
 /// background and covered windows too), then Chromium's own image of each
 /// shown page painted over its page area (without the grant the window
 /// server leaves out what Chromium's GPU process draws), then the overlay
-/// panels and open menus above the content. Nothing is focused, raised or
+/// panels, open menus and the app's other windows above the content. Nothing is focused, raised or
 /// activated.
 @MainActor
 struct AppWindowImage {

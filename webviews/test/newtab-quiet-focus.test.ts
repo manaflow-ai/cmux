@@ -283,12 +283,18 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
     await page.close();
   });
 
-  test("the New Tab suggestions popover is the popup surface, as every pane popup", async () => {
+  // Every pane popup is liquid glass (ui/popupSurface.css): frosted glass under the lens and under
+  // plain glass alike (Leo: glass, never opaque); only Reduce Transparency makes it solid.
+  test("the New Tab suggestions popover is glass, as every pane popup", async () => {
     const page = await open(2, "light");
     await page.evaluate(() => document.documentElement.style.setProperty("--cmux-popup-surface", "rgb(201, 202, 203)"));
+    const glass = await fill(page, "popover");
+    expect(glass.image, "no composer tint over it").toBe("none");
+    expect(glass.rgba?.[3], "the lens's popup is glass, never opaque").toBeLessThan(1);
+    await page.evaluate(() => document.documentElement.setAttribute("data-glass", "plain"));
     const { rgba, image } = await fill(page, "popover");
     expect(image, "no composer tint over it").toBe("none");
-    expect(rgba, "the popup surface").toEqual([201 / 255, 202 / 255, 203 / 255, 1]);
+    expect(rgba?.[3], "plain glass is glass too, never opaque").toBeLessThan(1);
     await page.close();
   });
 

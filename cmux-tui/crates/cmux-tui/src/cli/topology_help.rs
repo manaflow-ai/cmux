@@ -62,8 +62,10 @@ its id or exact name. list --order session gives the session's workspace
 order: creation order unless a workspace was moved. list --order personal
 gives the cmux app's sidebar order: loose workspaces, and each group's
 workspaces where the group shows. Without --order, list gives the sidebar
-order in the app's context (an app terminal or Chief addressing the app's
-own daemon), else the session order. The app's
+order to every caller when the session has the sidebar document; without
+the document it gives the sidebar order in the app's context (an app
+terminal or Chief addressing the app's own daemon), else the session
+order. The app's
 snapshot.get windows[].workspaces lists the order each window shows. --top-index
 puts a group right before the workspace at that placement index;
 --clear-top-index puts it after every loose workspace. --icon sets a group's

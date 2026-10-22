@@ -78,35 +78,35 @@ fn answers_status(dir: &Path, session: &str, socket: &Path) -> bool {
         .is_ok_and(|output| output.status.success())
 }
 
-/// Stops a serving owner and waits for it to exit, bounded. The socket file
-/// appears when the owner binds, which can be before it accepts: a stop sent in
-/// that window is refused, and an unbounded `wait` then hung until the harness
-/// timeout (120 s) on a loaded box. So the stop is repeated until the owner
-/// exits; after 30 s the owner is killed and the test fails with that reason.
+/// Stops a serving owner and waits for it to exit, bounded. The owner
+/// answered `server status`, so it serves; the stop must succeed (it waits
+/// for an owner that still restores). After 30 s the owner is killed and the
+/// test fails with that reason.
 fn stop_and_reap(dir: &Path, session: &str, child: &mut Child) {
+    let stopped = stop_owner(dir, session);
+    assert!(
+        stopped.status.success(),
+        "`server stop` of {session} failed: {}",
+        String::from_utf8_lossy(&stopped.stderr)
+    );
     let deadline = Instant::now() + Duration::from_secs(30);
-    loop {
-        stop_owner(dir, session);
-        let retry = Instant::now() + Duration::from_secs(1);
-        while Instant::now() < retry {
-            if child.try_wait().unwrap().is_some() {
-                return;
-            }
-            std::thread::sleep(Duration::from_millis(50));
-        }
+    while child.try_wait().unwrap().is_none() {
         if Instant::now() >= deadline {
             let _ = child.kill();
             let _ = child.wait();
-            panic!("the owner of {session} did not stop within 30 s of `server stop`");
+            panic!("the owner of {session} did not exit within 30 s of `server stop`");
         }
+        std::thread::sleep(Duration::from_millis(50));
     }
 }
 
-fn stop_owner(dir: &Path, session: &str) {
-    let _ = command(dir)
+fn stop_owner(dir: &Path, session: &str) -> Output {
+    command(dir)
         .args(["server", "stop", "--session", session, "--end-terminals", "--socket"])
         .arg(dir.join("mux.sock"))
-        .output();
+        .stdin(Stdio::null())
+        .output()
+        .unwrap()
 }
 
 /// The session directory a first, healthy start created.

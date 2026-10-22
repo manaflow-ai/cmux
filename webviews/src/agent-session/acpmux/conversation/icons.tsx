@@ -422,6 +422,19 @@ export const Envelope = (p: CvIconProps) => (
   </Svg>
 );
 
+/** A small bot: another agent's message to this chat when its harness has no mark (IncomingMessageCard.tsx). */
+export const Bot = (p: CvIconProps) => (
+  <Svg strokeWidth={1.1} {...p}>
+    <rect x="2.75" y="5.25" width="10.5" height="7.5" rx="2.5" />
+    <path d="M8 5.25V3.5" />
+    <circle cx="8" cy="2.9" r="0.6" />
+    <path d="M1.75 8.25v1.5M14.25 8.25v1.5" />
+    <circle cx="6" cy="8.75" r="0.5" fill="currentColor" />
+    <circle cx="10" cy="8.75" r="0.5" fill="currentColor" />
+    <path d="M6.75 10.75c.75.4 1.75.4 2.5 0" />
+  </Svg>
+);
+
 /** A paused agent pair's note (AgentPairNote.tsx). */
 export const PauseCircle = (p: CvIconProps) => (
   <Svg {...p}>

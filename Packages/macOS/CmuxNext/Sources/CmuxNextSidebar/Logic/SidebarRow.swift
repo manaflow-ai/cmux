@@ -13,11 +13,17 @@ public nonisolated enum SidebarRowKey: Hashable, Sendable {
     case emptySection(SectionID)
     /// Group by Folder's header over one folder's loose rows ("" = none).
     case folder(SectionID, String)
+    /// Group by Status's header over one status section's rows (`SidebarLayout+Status`).
+    case status(SidebarStatusSection)
     /// A document item listed as a row (`SidebarNode.item`): its item id.
     case item(String)
     /// A document section's items in its own arrangement (tiles, a grid, a
     /// line, item rows), drawn by one region: the section id.
     case block(String)
+    /// The "Done (N)" row that holds a list's workspaces marked Done (`SidebarLayout+DoneFold`).
+    case doneFold(SidebarDoneFoldID)
+    /// The "Show N more" row past a long list's first rows (`sidebar.groupRowLimit`), "Show fewer" once opened.
+    case showMore(SidebarDoneFoldID)
 }
 
 /// A workspace row's control for its inline tabs (`sidebar.showWorkspaceTabs`).

@@ -89,10 +89,12 @@ function pullRequest(extra: Record<string, unknown> = {}) {
 }
 
 let teardown: (() => Promise<void>) | undefined;
-afterEach(async () => {
+/** Unmounts the card a test drew, so the test can draw another. */
+async function unmount() {
   await teardown?.();
   teardown = undefined;
-});
+}
+afterEach(unmount);
 
 /** Renders the card body against a host that answers `pr.inspect` with `answer`. */
 async function card(answer: Record<string, unknown>) {
@@ -129,12 +131,20 @@ async function card(answer: Record<string, unknown>) {
   return { element, body: element.querySelector<HTMLElement>(".acpmux-pr-card__body")!, calls, act };
 }
 
+/** The card's text as it shows: no svg titles and no screen-reader-only words. */
+function shownText(element: Element): string {
+  const copy = element.cloneNode(true) as Element;
+  for (const hidden of copy.querySelectorAll("title, .acpmux-pr-card__sr")) hidden.remove();
+  return copy.textContent ?? "";
+}
+
 test("the card shows the state, who, the branches, the checks, the review and the labels", async () => {
   const { body } = await card({ pullRequest: pullRequest(), fetchedAt: Date.now() / 1000 - 5 });
   const text = body.textContent ?? "";
-  expect(text).toContain("Open");
-  // Conflicts sit beside the state, as its own pill.
-  expect(body.querySelector('.acpmux-pr-card__state[data-state="conflicts"]')?.textContent).toBe("Has conflicts");
+  // The state is the glyph's colour, named for screen readers only: no state word on the card.
+  expect(body.querySelector(".acpmux-pr-card__glyph svg")?.getAttribute("aria-label")).toBe("Open");
+  expect(body.querySelector(".acpmux-pr-card__glyph")?.getAttribute("data-state")).toBe("open");
+  expect(body.querySelector(".acpmux-pr-card__conflicts")?.textContent).toBe("Has conflicts");
   expect(text).toContain("manaflow-ai/cmux#22777");
   expect(text).toContain("One pull request card for every pull request cmux mentions");
   expect(text).toContain("teamleaderleo");
@@ -144,7 +154,9 @@ test("the card shows the state, who, the branches, the checks, the review and th
     "feat-cmux-next",
     "cmux/pr-cards",
   ]);
-  expect(text).toContain("89 of 100 checks passed, 1 failing");
+  expect(body.querySelector(".acpmux-pr-card__checks .acpmux-pr-card__sr")?.textContent).toBe(
+    "89 of 100 checks passed, 1 failing",
+  );
   expect(text).toContain("Changes requested");
   expect([...body.querySelectorAll(".acpmux-pr-card__label")].map((part) => part.textContent)).toEqual([
     "risk:normal",
@@ -228,4 +240,162 @@ test("no answer yet: the card says it is reading and keeps asking the app, not G
   // What the chat already knows is still there.
   expect(body.textContent).toContain("manaflow-ai/cmux#22777");
   expect(calls.every((method) => method === "pr.inspect")).toBe(true);
+});
+
+// Leo 2026-10-21, on a #22826 card: no "Merged" word and no pill. The state is the pull request
+// glyph's colour alone, as Claude draws it: open green, merged purple, closed red, draft grey.
+test("the state is the glyph's colour, with no pill and no state word", async () => {
+  for (const [state, label] of [
+    ["open", "Open"],
+    ["merged", "Merged"],
+    ["closed", "Closed"],
+    ["draft", "Draft"],
+  ] as const) {
+    const { body } = await card({ pullRequest: pullRequest({ state, mergeable: "" }), fetchedAt: Date.now() / 1000 });
+    const glyph = body.querySelector(".acpmux-pr-card__glyph")!;
+    expect(glyph.getAttribute("data-state")).toBe(state);
+    expect(glyph.querySelector("svg")?.getAttribute("aria-label")).toBe(label);
+    expect(glyph.querySelector("svg")).not.toBeNull();
+    expect(body.querySelector(".acpmux-pr-card__state")).toBeNull();
+    expect(shownText(body)).not.toContain(label);
+    await unmount();
+  }
+  const { readFileSync } = await import("node:fs");
+  const path = await import("node:path");
+  const styles = readFileSync(path.join(import.meta.dir, "../src/agent-session/acpmux/styles.css"), "utf8");
+  const colour = (state: string) =>
+    new RegExp(`\\.acpmux-pr-card__glyph\\[data-state=${state}\\]\\{color:([^}]*)\\}`).exec(styles)?.[1];
+  expect(colour("open")).toContain("--agent-success");
+  expect(colour("merged")).toContain("--agent-ansi-5");
+  expect(colour("closed")).toContain("--agent-danger");
+  expect(styles).not.toContain(".acpmux-pr-card__state");
+});
+
+test("an open pull request's checks are a compact ✓/✗ count; a merged or closed one's are gone", async () => {
+  const open = await card({
+    pullRequest: pullRequest({ checks: { state: "failing", passed: 90, total: 100 }, checkList: [] }),
+    fetchedAt: Date.now() / 1000,
+  });
+  const checks = open.body.querySelector<HTMLElement>(".acpmux-pr-card__checks")!;
+  expect(checks.querySelector(".acpmux-pr-card__passed")?.textContent).toBe("✓ 90");
+  expect(checks.querySelector(".acpmux-pr-card__failed")?.textContent).toBe("✗ 10");
+  expect(checks.querySelector(".acpmux-pr-card__sr")?.textContent).toBe("90 of 100 checks passed, 10 failing");
+  await unmount();
+  const running = await card({
+    pullRequest: pullRequest({ checks: { state: "pending", passed: 12, total: 40 }, checkList: [] }),
+    fetchedAt: Date.now() / 1000,
+  });
+  const pending = running.body.querySelector<HTMLElement>(".acpmux-pr-card__checks")!;
+  expect(pending.querySelector(".acpmux-pr-card__passed")?.textContent).toBe("✓ 12");
+  expect(pending.querySelector(".acpmux-pr-card__failed")).toBeNull();
+  expect(pending.querySelector(".acpmux-pr-card__pending")?.textContent).toBe("◷ 28");
+  await unmount();
+  for (const state of ["merged", "closed"]) {
+    const ended = await card({
+      pullRequest: pullRequest({
+        state,
+        mergeable: "conflicting",
+        checks: { state: "failing", passed: 90, total: 100 },
+      }),
+      fetchedAt: Date.now() / 1000,
+    });
+    expect(ended.body.querySelector(".acpmux-pr-card__checks")).toBeNull();
+    // Nor does a finished pull request still "have conflicts".
+    expect(ended.body.querySelector(".acpmux-pr-card__conflicts")).toBeNull();
+    await unmount();
+  }
+});
+
+// A red the base branch's tip has too is not this pull request's: the merge rules say so, and the
+// card says which of its reds those are, so nobody opens a log that was already red before the
+// branch existed. The host decides (AgentPanePullRequest `failingOnBase`, which compares only each
+// workflow's newest run so a cancelled, superseded run can never excuse a red); the card reads it.
+test("the card says how many of the failing checks are also red on the base", async () => {
+  const { body } = await card({
+    pullRequest: pullRequest({
+      checks: { state: "failing", passed: 98, total: 100, failingOnBase: 1 },
+      checkList: [
+        { name: "cmux-next generated files", state: "failed", onBase: true },
+        { name: "web lint (fast)", state: "failed" },
+      ],
+    }),
+    fetchedAt: Date.now() / 1000 - 5,
+  });
+  const checks = body.querySelector<HTMLElement>(".acpmux-pr-card__checks")!;
+  expect(checks.querySelector(".acpmux-pr-card__sr")?.textContent).toBe(
+    "98 of 100 checks passed, 2 failing, 1 also red on base",
+  );
+  expect(checks.querySelector(".acpmux-pr-card__failed")?.textContent).toBe("✗ 2");
+  expect(checks.querySelector(".acpmux-pr-card__onBase")?.textContent).toBe("(1 already on base)");
+  // One red is still this pull request's, so its ✗ stays danger.
+  expect(checks.dataset.onBase).toBeUndefined();
+});
+
+test("every red being the base's reads the ✗ muted", async () => {
+  const { body } = await card({
+    pullRequest: pullRequest({
+      checks: { state: "failing", passed: 98, total: 100, failingOnBase: 2 },
+      checkList: [
+        { name: "cmux-next generated files", state: "failed", onBase: true },
+        { name: "web lint (fast)", state: "failed", onBase: true },
+      ],
+    }),
+    fetchedAt: Date.now() / 1000 - 5,
+  });
+  const checks = body.querySelector<HTMLElement>(".acpmux-pr-card__checks")!;
+  expect(checks.querySelector(".acpmux-pr-card__sr")?.textContent).toBe(
+    "98 of 100 checks passed, 2 failing, 2 also red on base",
+  );
+  expect(checks.querySelector(".acpmux-pr-card__onBase")?.textContent).toBe("(2 already on base)");
+  expect(checks.dataset.onBase).toBe("all");
+  // Nothing here is this pull request's to fix (Leo 2026-10-21): the line reads in the muted text
+  // colour, neither danger pink nor the warning colour.
+  const { readFileSync } = await import("node:fs");
+  const path = await import("node:path");
+  const styles = readFileSync(path.join(import.meta.dir, "../src/agent-session/acpmux/styles.css"), "utf8");
+  const rule = (selector: string) =>
+    new RegExp(`${selector.replace(/[[\]().]/g, "\\$&")}\\{([^}]*)\\}`).exec(styles)?.[1] ?? "";
+  const failed = rule(".acpmux-pr-card__checks[data-state=failing][data-on-base=all] .acpmux-pr-card__failed");
+  expect(failed).toContain("color:var(--agent-muted)");
+  expect(failed).not.toContain("danger");
+  expect(failed).not.toContain("warning");
+});
+
+test("a host that claims nothing about the base draws the card it always did", async () => {
+  // The single-link path reads one `gh pr view`, which cannot see the base branch's checks at all.
+  // Saying nothing there is the only safe reading: "not marked" must never render as "not yours".
+  const quiet = await card({ pullRequest: pullRequest(), fetchedAt: Date.now() / 1000 - 5 });
+  const checks = quiet.body.querySelector<HTMLElement>(".acpmux-pr-card__checks")!;
+  expect(checks.querySelector(".acpmux-pr-card__sr")?.textContent).toBe("89 of 100 checks passed, 1 failing");
+  expect(checks.querySelector(".acpmux-pr-card__onBase")).toBeNull();
+  expect(checks.dataset.onBase).toBeUndefined();
+  await teardown?.();
+  teardown = undefined;
+  // And a count that outruns the reds it claims to explain is clamped to them, rather than drawing
+  // "1 failing, 7 also red on base".
+  const loud = await card({
+    pullRequest: pullRequest({ checks: { state: "failing", passed: 99, total: 100, failingOnBase: 7 } }),
+    fetchedAt: Date.now() / 1000 - 5,
+  });
+  expect(loud.body.querySelector(".acpmux-pr-card__checks .acpmux-pr-card__sr")?.textContent).toBe(
+    "99 of 100 checks passed, 1 failing, 1 also red on base",
+  );
+});
+
+test("a host that marks rows without counting them is still read", async () => {
+  // The count is the host's own and covers the whole rollup, which is why it wins; the rows are
+  // what a host that only marks them leaves, and the card reads those rather than nothing.
+  const { body } = await card({
+    pullRequest: pullRequest({
+      checks: { state: "failing", passed: 98, total: 100 },
+      checkList: [
+        { name: "cmux-next generated files", state: "failed", onBase: true },
+        { name: "web lint (fast)", state: "failed" },
+      ],
+    }),
+    fetchedAt: Date.now() / 1000 - 5,
+  });
+  expect(body.querySelector(".acpmux-pr-card__checks .acpmux-pr-card__sr")?.textContent).toBe(
+    "98 of 100 checks passed, 2 failing, 1 also red on base",
+  );
 });
