@@ -2,7 +2,6 @@ import AppKit
 import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextServer
-import SwiftUI
 
 /// Hosts the Machines section: follows the machine registry and each machine's last check, opens a
 /// workspace on a machine through `workspace.newOnMachine` and Add Device through `device.add`.
@@ -10,29 +9,30 @@ final class MachineSectionHostView: NSView, RightSidebarRefreshing {
     let model = MachineSectionModel()
     private let machines: MachineRegistry
     private let health: MachineHealthStore
+    private let list: MachineSectionListView
     private var observation: Task<Void, Never>?
 
     init(services: AppServices) {
         machines = services.machines
         health = services.machineHealth
-        super.init(frame: NSRect(x: 0, y: 0, width: RightSidebarModel.width, height: 400))
         let registry = services.registry
-        let hosting = NSHostingView(rootView: MachineSectionListView(model: model, newWorkspace: { id in
+        list = MachineSectionListView(newWorkspace: { id in
             registry.perform("workspace.newOnMachine", invocation: ActionInvocation(arguments: ["machine": .string(id)]))
-        }, addMachine: { registry.perform("device.add") }))
-        hosting.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(hosting)
+        }, addMachine: { registry.perform("device.add") })
+        super.init(frame: NSRect(x: 0, y: 0, width: RightSidebarModel.width, height: 400))
+        list.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(list)
         NSLayoutConstraint.activate([
-            hosting.leadingAnchor.constraint(equalTo: leadingAnchor),
-            hosting.trailingAnchor.constraint(equalTo: trailingAnchor),
-            hosting.topAnchor.constraint(equalTo: topAnchor),
-            hosting.bottomAnchor.constraint(equalTo: bottomAnchor),
+            list.leadingAnchor.constraint(equalTo: leadingAnchor),
+            list.trailingAnchor.constraint(equalTo: trailingAnchor),
+            list.topAnchor.constraint(equalTo: topAnchor),
+            list.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
         refresh()
         let machines = self.machines, health = self.health
         observation = Task { [weak self] in
             for await rows in ObservationStream({ MachineSectionModel.rows(machines, health: health) }) {
-                self?.model.update(rows)
+                self?.apply(rows)
             }
         }
     }
@@ -47,6 +47,11 @@ final class MachineSectionHostView: NSView, RightSidebarRefreshing {
     }
 
     func refresh() {
-        model.update(MachineSectionModel.rows(machines, health: health))
+        apply(MachineSectionModel.rows(machines, health: health))
+    }
+
+    private func apply(_ rows: [MachineSectionRow]) {
+        model.update(rows)
+        list.show(model.rows)
     }
 }

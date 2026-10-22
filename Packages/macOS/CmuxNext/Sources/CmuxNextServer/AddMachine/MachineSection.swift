@@ -1,8 +1,5 @@
 import Foundation
 public import Observation
-public import SwiftUI
-import CmuxNextDesign
-import CmuxNextIcons
 
 /// The last enroll or doctor report of each machine, by app machine id, for this run of the app
 /// (the Machines section's status dot). Kept in memory: a relaunch shows no status until the next
@@ -60,79 +57,5 @@ public final class MachineSectionModel {
 
     public func update(_ next: [MachineSectionRow]) {
         if next != rows { rows = next }
-    }
-}
-
-/// The Machines section: every machine with its link state and last check; New Workspace opens a
-/// workspace on it (`workspace.newOnMachine`), Add Machine… opens the Add Machine card.
-public struct MachineSectionListView: View {
-    let model: MachineSectionModel
-    let newWorkspace: @MainActor (String) -> Void
-    let addMachine: @MainActor () -> Void
-
-    public init(model: MachineSectionModel, newWorkspace: @escaping @MainActor (String) -> Void,
-                addMachine: @escaping @MainActor () -> Void) {
-        self.model = model
-        self.newWorkspace = newWorkspace
-        self.addMachine = addMachine
-    }
-
-    public var body: some View {
-        let rows = model.rows
-        VStack(alignment: .leading, spacing: 2) {
-            ForEach(rows) { row in
-                HStack(spacing: Metrics.panelInset) {
-                    Image(systemName: row.isLocal ? "laptopcomputer" : "cloud").foregroundStyle(.secondary)
-                    VStack(alignment: .leading, spacing: 1) {
-                        HStack(spacing: Metrics.space2) {
-                            Text(verbatim: row.name).font(Font(Typography.body)).lineLimit(1)
-                            MachineHealthDot(health: row.health)
-                        }
-                        Text(verbatim: row.isConnected ? AddMachineStrings.connected : AddMachineStrings.offline)
-                            .font(Font(Typography.caption)).foregroundStyle(.secondary)
-                    }
-                    .themedHelp(row.healthHelp ?? "")
-                    .accessibilityElement(children: .combine)
-                    .accessibilityLabel(Text(verbatim: [row.name, row.isConnected ? AddMachineStrings.connected : AddMachineStrings.offline,
-                                                        row.healthHelp ?? ""].filter { !$0.isEmpty }.joined(separator: ", ")))
-                    Spacer(minLength: Metrics.panelInset)
-                    Button {
-                        newWorkspace(row.id)
-                    } label: {
-                        Image(systemName: "plus")
-                    }
-                    .buttonStyle(.borderless)
-                    .accessibilityLabel(Text(AddMachineStrings.newWorkspace))
-                    .disabled(!row.isConnected)
-                }
-                .padding(.vertical, 3).padding(.horizontal, Metrics.panelInset)
-            }
-            Button(action: addMachine) {
-                Label(AddMachineStrings.addMachine, systemImage: "plus.circle").font(Font(Typography.body))
-            }
-            .buttonStyle(.borderless)
-            .padding(.vertical, 3).padding(.horizontal, Metrics.panelInset)
-            Spacer()
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-/// The last check of a machine as a small mark after its name: a check when every step passed, a
-/// dot in the warning or danger color otherwise, nothing before a check ran.
-struct MachineHealthDot: View {
-    let health: HostHealth?
-
-    var body: some View {
-        switch health {
-        case .ok:
-            Icon(.statusComplete, size: AddMachineMetrics.dotSize * 2).foregroundStyle(Color(nsColor: Palette.success))
-        case .warning:
-            Circle().fill(Color(nsColor: Palette.attention)).frame(width: AddMachineMetrics.dotSize, height: AddMachineMetrics.dotSize)
-        case .failing:
-            Circle().fill(Color(nsColor: Palette.danger)).frame(width: AddMachineMetrics.dotSize, height: AddMachineMetrics.dotSize)
-        case nil:
-            EmptyView()
-        }
     }
 }

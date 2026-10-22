@@ -2,7 +2,6 @@ import AppKit
 import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextLayout
-import SwiftUI
 
 /// Hosts the Dock section for one window: follows the shown workspace's
 /// layout (its `LayoutModel` is observable) and runs the column actions
@@ -10,24 +9,25 @@ import SwiftUI
 final class DockSectionHostView: NSView, RightSidebarRefreshing {
     let model = DockSectionModel()
     private weak var controller: WindowController?
+    private let list: DockSectionListView
     private var observation: Task<Void, Never>?
 
     init(controller: WindowController) {
         self.controller = controller
-        super.init(frame: NSRect(x: 0, y: 0, width: RightSidebarModel.width, height: 400))
         let registry = controller.services.registry
         let actions = DockSectionActions(
             focus: { [weak controller] pane in controller?.focus.send(.focusPane(pane, source: .intent)) },
             undock: { id in registry.perform("column.undock", invocation: ActionInvocation(target: ActionTargetRef(kind: .column, id: id))) },
             dockFocused: { registry.perform("column.dock", invocation: ActionInvocation()) })
-        let hosting = NSHostingView(rootView: DockSectionListView(model: model, actions: actions))
-        hosting.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(hosting)
+        list = DockSectionListView(actions: actions)
+        super.init(frame: NSRect(x: 0, y: 0, width: RightSidebarModel.width, height: 400))
+        list.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(list)
         NSLayoutConstraint.activate([
-            hosting.leadingAnchor.constraint(equalTo: leadingAnchor),
-            hosting.trailingAnchor.constraint(equalTo: trailingAnchor),
-            hosting.topAnchor.constraint(equalTo: topAnchor),
-            hosting.bottomAnchor.constraint(equalTo: bottomAnchor),
+            list.leadingAnchor.constraint(equalTo: leadingAnchor),
+            list.trailingAnchor.constraint(equalTo: trailingAnchor),
+            list.topAnchor.constraint(equalTo: topAnchor),
+            list.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
         refresh()
     }
@@ -44,7 +44,10 @@ final class DockSectionHostView: NSView, RightSidebarRefreshing {
     /// Reads the shown workspace now and follows its layout until the next refresh.
     func refresh() {
         observation?.cancel()
-        guard let content = controller?.content else { return model.update(columns: [], title: { _ in nil }) }
+        guard let content = controller?.content else {
+            model.update(columns: [], title: { _ in nil })
+            return list.show(model.rows)
+        }
         update(from: content)
         let layout = content.layoutModel
         observation = Task { [weak self, weak content] in
@@ -59,5 +62,6 @@ final class DockSectionHostView: NSView, RightSidebarRefreshing {
         model.update(columns: content.layoutModel.activeScreen?.layout.columns ?? []) {
             content.paneController(key: $0.rawValue)?.selectedTab?.title
         }
+        list.show(model.rows)
     }
 }
