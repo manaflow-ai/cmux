@@ -177,3 +177,41 @@ fn code_mode_instructions_name_every_folded_servers_prefix() {
     }
     assert!(text.contains("has no key and may have run"), "{text}");
 }
+
+/// Both modes' instructions end with the rule on asking the person (Leo 2026-10-21: an agent in
+/// Full access asked a question that read "Waiting for you: allow this?"; decide, say why,
+/// continue), and the bundled acpmux skill says the same.
+#[test]
+fn instructions_in_both_modes_tell_the_agent_never_to_ask_for_permission() {
+    let rule = acpmux::agent_tools::ASKING_RULE;
+    for phrase in [
+        "Full access",
+        "never ask them to allow",
+        "decide, say why",
+        "never widens",
+        "product taste",
+    ] {
+        assert!(rule.contains(phrase), "{phrase}: {rule}");
+    }
+    for code_mode in [false, true] {
+        let init = initialize(&json!({}), false, code_mode);
+        let text = init["instructions"].as_str().unwrap();
+        assert!(text.ends_with(rule), "code mode {code_mode}: {text}");
+        // Claude Code may cut server instructions past 2048 characters, which would drop the rule.
+        assert!(
+            text.chars().count() <= 2048,
+            "code mode {code_mode}: {} chars",
+            text.chars().count()
+        );
+    }
+    let skill = include_str!("../../../../acpmux/skills/acpmux/SKILL.md").replace('\n', " ");
+    for phrase in [
+        "Full access",
+        "Never ask the user to allow",
+        "decide, say",
+        "never widens",
+        "product taste",
+    ] {
+        assert!(skill.contains(phrase), "acpmux skill lacks {phrase}");
+    }
+}

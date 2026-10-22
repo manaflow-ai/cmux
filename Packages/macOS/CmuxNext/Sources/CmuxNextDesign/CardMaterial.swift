@@ -1,8 +1,10 @@
 public import CmuxTheme
 public import Foundation
 
-/// The one material of every floating card that carries text (hover cards,
-/// the update card, popovers, the palette, dialogs, find and prompt bars):
+/// The one material of every floating card that carries text (popovers, the
+/// palette, dialogs, find and prompt bars; the hover card window, which shows
+/// the workspace and tab cards and the Update Ready highlights, stays bare
+/// glass, Leo 2026-10-21):
 /// the opaque popup surface laid on the glass or blur at `opacity`, with a
 /// visible rim.
 ///

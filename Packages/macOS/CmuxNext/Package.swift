@@ -183,7 +183,7 @@ let package = Package(
         .package(url: "https://github.com/getsentry/sentry-cocoa.git", "9.3.0"..<"9.29.0"),
         // Sparkle driver shared with the legacy app (no bonsplit, no legacy deps).
         .package(path: "../CmuxUpdater"),
-        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.9.0"),
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.9.6"),
         // Lock-free atomics on macOS 14 for CmuxNextCompat.Atomic (already resolved through
         // other dependencies; Apache-2.0).
         .package(url: "https://github.com/apple/swift-atomics.git", from: "1.3.0"),
@@ -262,6 +262,7 @@ let package = Package(
                 "CmuxNextMobile",
                 "CmuxNextMobileHost",
                 "CmuxNextUpdater",
+                "CmuxNextWebUpdates",
                 "CmuxNextResources",
                 "CmuxNextBrowserImport",
                 "CmuxNextOnboarding",
@@ -452,7 +453,7 @@ let package = Package(
             swiftSettings: daemonSwiftSettings
         ),
         // The cards' center and surfaces: the scan schedule, the job runner, the `import.*`
-        // actions, the agent pages' push and the Home strip. The App supplies `ImportCardsHost`.
+        // actions, the agent pages' push and the Chief front page's row. The App supplies `ImportCardsHost`.
         .target(
             name: "CmuxNextImportCards",
             dependencies: ["CmuxNextActions", "CmuxNextAgentPane", "CmuxNextBrowserImport", "CmuxNextCompat", "CmuxNextDesign",
@@ -568,8 +569,9 @@ let package = Package(
         .target(
             name: "CmuxNextDaemonService",
             dependencies: [
-                "CmuxNextActions", "CmuxNextAgentPane", "CmuxNextApps", "CmuxNextCompat", "CmuxNextControl",
+                "CmuxNextActions", "CmuxNextAgentPane", "CmuxNextApps", "CmuxNextBridge", "CmuxNextCompat", "CmuxNextControl",
                 "CmuxNextDaemon", "CmuxNextLayout", "CmuxNextWakeups",
+                .product(name: "CmuxUpdater", package: "CmuxUpdater"),
             ],
             resources: [
                 .process("Resources"),
@@ -1054,7 +1056,16 @@ let package = Package(
             resources: [
                 .process("Resources/Localizable.xcstrings"),
                 .copy("Resources/WhatsNew"),
+                // The keys a web update pointer may be signed with (plans/cmux-next/web-ota.md).
+                .copy("Resources/web-update-keys.json"),
             ],
+            swiftSettings: uiSwiftSettings
+        ),
+        // Web updates in the app (plans/cmux-next/web-ota.md): serves a signed web update from
+        // a safe point and answers `updates.web.*`.
+        .target(
+            name: "CmuxNextWebUpdates",
+            dependencies: ["CmuxNextAgentPane", "CmuxNextControl", "CmuxNextPages", "CmuxNextSettings", "CmuxNextUpdater", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         // Cloud machines: auth, REST client, tunnel and link processes. The
@@ -1425,6 +1436,8 @@ let package = Package(
                 "CmuxNextHome",
                 "CmuxNextHomeEngine",
                 "CmuxNextHostedChief",
+                "CmuxNextImportCards",
+                "CmuxNextImportSuggestions",
                 "CmuxNextLayout",
                 "CmuxNextNowPlaying",
                 "CmuxNextProcessEnvironment",

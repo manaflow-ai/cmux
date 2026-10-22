@@ -58,6 +58,8 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     /// label with `progress` on. Nil when none of those is reported, so a
     /// quiet workspace keeps its one-line row.
     public var status: SidebarWorkspaceStatus?
+    /// The computer the workspace runs on, while the sidebar lists more than one (SidebarMachineMark).
+    public var machine: SidebarMachineMark?
     /// The session tree (`sidebar.sessionTree`): 1 under the workspace whose agent started this one's.
     public var treeDepth = 0
     /// The session tree: the Command-number that goes to the row (1 to 9), drawn as a keycap.

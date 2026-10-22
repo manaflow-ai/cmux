@@ -18,7 +18,7 @@ import { isFoldedRun } from "./toolRunSummary";
 import { TurnActionsContext } from "./turnActions";
 import { workedLabel } from "./turns";
 import { ChevronRight, Retry } from "./icons";
-import { ForkButton, MessageCopy, MessageTime, PinButton, ReadAloudButton } from "./MessageActions";
+import { ForkButton, MessageCopy, MessageTime, PinButton, ReadAloudButton, ROW_ICON } from "./MessageActions";
 import { RetryModelMenu } from "./RetryModelMenu";
 import { useT } from "../i18n";
 import { failureCopy, failureKind, type FailureRoute } from "../failureCopy";
@@ -184,7 +184,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
               title={t("turn.retryLabel")}
               onClick={() => retry(row.retryRowId ?? "", prompt)}
             >
-              <Retry size={14} />
+              <Retry size={ROW_ICON} />
             </button>
           )}
           {failed && retry && prompt && retryWith && retryWith.models.length > 1 && (

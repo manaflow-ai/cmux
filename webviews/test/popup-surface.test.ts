@@ -83,13 +83,14 @@ ${tooltips}
 <div class="page-menu" id="page-menu">Sort</div>
 <div class="ui-glass icon-bar-pill" id="icon-bar-pill">Icons</div>
 <div class="md-link-bubble" id="md-link-bubble">https://example.com</div>
-<div class="md-link-popover" id="md-link-popover">Edit link</div>
+<div class="ui-popup ui-glass ui-popover md-link-popover" id="md-link-popover">Edit link</div>
 <div class="hc-msg-toolbar" id="hc-msg-toolbar">React</div>
 <div class="lg-palette" id="lg-palette">Search conversations</div>
 <div class="lg-form" id="lg-form">New message</div>
 <div id="editor-widget" style="background: var(--cmux-editor-widget-background)">Suggest</div>`,
     // Tooltips are frosted glass (tooltip-surface.test.ts).
-    glass: ["menu", "icon-bar-pill"],
+    // The markdown link editor is a ui/Popover: glass, like the menus.
+    glass: ["menu", "icon-bar-pill", "md-link-popover"],
     surfaces: [
       "menu",
       "page-menu",
@@ -117,6 +118,9 @@ ${tooltips}
       "agent-session/acpmux/summary/summary.css",
       "agent-session/acpmux/header/header.css",
       "agent-session/acpmux/newtab/screen.css",
+      "agent-session/acpmux/needsYou/needsYou.css",
+      "agent-session/acpmux/subagents/subagents.css",
+      "agent-session/acpmux/addProject.css",
     ),
     body: `<div class="acpmux-shell">
 <div class="ui-popup ui-glass acpmux-menu" id="cascade">Model</div>
@@ -134,6 +138,9 @@ ${tooltips}
 <div class="ui-positioner"><div class="ui-popup ui-glass ui-popover acpmux-pr-status" id="pr-status">Checks</div></div>
 <div class="acpmux-shell"><div class="acpmux-summary-card" data-placement="popover" id="summary">Summary</div></div>
 <div class="ui-positioner"><div class="ui-popup ui-glass ui-popover nt-popover" id="new-tab-suggestions">reddit.com</div></div>
+<div class="ui-positioner"><div class="ui-popup ui-glass ui-popover acpmux-needs-you" id="needs-you">Needs you</div></div>
+<div class="acpmux-shell"><dialog open class="ui-popup ui-glass acpmux-agents-list" id="agents-list">Agents</dialog></div>
+<dialog open class="ui-glass acpmux-add-project-dialog" id="add-project">Add project</dialog>
 ${tooltips}`,
     glass: [
       "cascade",
@@ -150,6 +157,10 @@ ${tooltips}`,
       "chat-menu",
       "pr-status",
       "new-tab-suggestions",
+      "needs-you",
+      "agents-list",
+      // A dialog, not a popup (no popup elevation), but glass all the same.
+      "add-project",
     ],
     surfaces: [
       "cascade",
@@ -167,6 +178,8 @@ ${tooltips}`,
       "summary",
       // Leo 10-13: the New Tab suggestions showed the page's rows through them on a wallpaper theme.
       "new-tab-suggestions",
+      "needs-you",
+      "agents-list",
     ],
   };
 
@@ -231,11 +244,13 @@ ${tooltips}`,
         });
 
         // Only Reduce Transparency asks for opaque: Plain glass is still glass (Leo: never opaque).
-        test(`under Reduce Transparency every menu, popover and tooltip in ${where} is the opaque popup surface, unblurred`, async () => {
+        // Every glass surface takes its documented fallback there (--glass-opaque, ui/glass/glass.css).
+        test(`under Reduce Transparency every menu, popover, dialog and tooltip in ${where} is the opaque popup surface, unblurred`, async () => {
           const page = await open(browser, fixture, "data-reduce-transparency");
+          const ids = [...new Set([...fixture.surfaces, ...fixture.glass])];
           const seen: Record<string, { background: string; blurred: boolean }> = {};
-          for (const id of fixture.surfaces) seen[id] = await material(page, id);
-          const want = Object.fromEntries(fixture.surfaces.map((id) => [id, { background: POPUP, blurred: false }]));
+          for (const id of ids) seen[id] = await material(page, id);
+          const want = Object.fromEntries(ids.map((id) => [id, { background: POPUP, blurred: false }]));
           expect(seen).toEqual(want);
           await page.close();
         });

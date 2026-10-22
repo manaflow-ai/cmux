@@ -680,6 +680,34 @@ Nothing here changes the wire; it is how a phone keeps a dial short.
 - `cmux-mobile-host` reconnects a socket that was up for 20 s or more 150 ms after
   it drops (a Worker deploy resets every socket), instead of 1 s.
 
+## One link per Mac (phone)
+
+Nothing here changes the wire. A phone holds one link per Mac at once, so the
+workspaces, terminals, chats and Feed of two Macs on the account work side by
+side (2026-10-21; before, one link served the account and choosing a second
+Mac closed the first Mac's link).
+
+- Every link rides the phone's one signaling socket (the link device's, in
+  the team the phone registered in): the hub keeps one socket per device and
+  routes each signal by `to` and `sessionId`, so links to several Macs never
+  share a session. A dial that opens a new socket moves every live session of
+  the device onto it at once (`bye`, `wg-endpoints`).
+- Each link has its own state: its dial, retry and backoff, heartbeat, path
+  (direct or TURN, its own TURN allocation and WireGuard keys), transport and
+  pairing (`auth`). A refusal, a drop or a redial of one Mac's link does not
+  touch another's. Each Mac's channels (`daemon`, `acpmux`, `file`, `upload`,
+  the input lane) open only on that Mac's link; terminal tab ids (`s<surface>`)
+  repeat across Macs, so a tab is always named with its Mac.
+- Bounded: the phone targets the focused Mac (the one chosen last, else the
+  first online one) and each other Mac whose data is on screen (the
+  Workspaces list and the Feed show every Mac; a workspace page shows its
+  Mac), or was within the last 5 minutes. A Mac nothing showed is not dialed
+  (lazy); one left alone is closed after 5 minutes (its list stays, marked
+  last-known). At most 4 Macs at once: the focused Mac, then those on screen,
+  then the most recently used. A Mac presence calls offline is not dialed.
+- Chief and the connection banner follow the focused Mac; each other Mac's
+  link state shows in its own section header.
+
 ## Transport switch
 
 The app exposes Settings → Connection → Transport: "WireGuard (recommended)"

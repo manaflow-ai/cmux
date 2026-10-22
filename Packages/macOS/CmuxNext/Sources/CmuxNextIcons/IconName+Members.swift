@@ -117,6 +117,7 @@ extension IconName {
     nonisolated public static let composerCommand = IconName("composer.command")
     nonisolated public static let composerMention = IconName("composer.mention")
     nonisolated public static let composerSend = IconName("composer.send")
+    nonisolated public static let composerSteer = IconName("composer.steer")
     nonisolated public static let computeruseClick = IconName("computeruse.click")
     nonisolated public static let computeruseDrag = IconName("computeruse.drag")
     nonisolated public static let computeruseObserve = IconName("computeruse.observe")
