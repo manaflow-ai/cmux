@@ -120,13 +120,21 @@ struct AppFeatureButton: View {
                 .themedHelp(failure)
         }
         Button { set(!on) } label: {
-            Text(on ? AppsStrings.remove : AppsStrings.get)
-                .font(Font(on ? Typography.body : Typography.bodyEmphasized))
-                .foregroundStyle(on ? colors.danger : colors.primary)
-                .padding(.horizontal, Metrics.space3)
-                .frame(height: AppStoreColumn.actionHeight)
-                .background(RoundedRectangle(cornerRadius: Metrics.itemCornerRadius, style: .continuous).fill(on ? .clear : colors.selection))
-                .contentShape(Rectangle())
+            ZStack {
+                // Reserve both localized labels so toggling keeps the same button bounds.
+                Text(AppsStrings.get).hidden().accessibilityHidden(true)
+                Text(AppsStrings.remove).hidden().accessibilityHidden(true)
+                Text(on ? AppsStrings.remove : AppsStrings.get)
+            }
+            .font(Font(Typography.bodyEmphasized))
+            .foregroundStyle(on ? colors.secondary : colors.primary)
+            .lineLimit(1)
+            .padding(.horizontal, Metrics.space3)
+            .frame(height: AppStoreColumn.actionHeight)
+            .background(RoundedRectangle(cornerRadius: Metrics.itemCornerRadius, style: .continuous).fill(on ? colors.hover : colors.selection))
+            .overlay(RoundedRectangle(cornerRadius: Metrics.itemCornerRadius, style: .continuous)
+                .strokeBorder(colors.separator, lineWidth: on ? Borders.width(1) : 0))
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(busy || managed)
