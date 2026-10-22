@@ -217,58 +217,6 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     await page.close();
   });
 
-  test("mid-transcript, Worked for and a call inside it open and close with each header on its pixel", async () => {
-    const page = await open("no-preference");
-    await show(page, done);
-    await settle(page);
-    // Up the transcript, with turn 3's line about a third of the way down the view.
-    await page.evaluate(() => {
-      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-      for (let step = 0; step < 40 && !document.querySelector('[data-row-id="worked-t3-user"]'); step += 1) {
-        scroller.scrollTop = Math.max(0, scroller.scrollTop - scroller.clientHeight / 2);
-        scroller.dispatchEvent(new Event("scroll"));
-      }
-    });
-    await settle(page);
-    await page.evaluate(() => {
-      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-      const line = document.querySelector<HTMLElement>('[data-row-id="worked-t3-user"] button.cv-worked')!;
-      scroller.scrollTop += line.getBoundingClientRect().top - scroller.getBoundingClientRect().top - 200;
-    });
-    await settle(page);
-    expect(await atLatest(page)).toBe(false);
-    await probe(page, `[data-row-id="worked-t3-user"] button.cv-worked`);
-    const worked = await clickAndWatch(page);
-    expect(await page.locator("[data-probe]").getAttribute("aria-expanded")).toBe("true");
-    expect(worked.moved).toBeLessThanOrEqual(1);
-    // The rows it shows faded in and the rows below slid down: the thread carried the fold's state.
-    await settle(page);
-    await page.evaluate(() => document.querySelector("[data-probe]")?.removeAttribute("data-probe"));
-
-    await probe(page, `[data-row-id="t3-run"] button.cv-tool.is-toggle[aria-expanded="false"]`);
-    const call = await clickAndWatch(page);
-    expect(await page.locator("[data-probe]").getAttribute("aria-expanded")).toBe("true");
-    expect(call.folded).toBe(true);
-    expect(call.moved).toBeLessThanOrEqual(1);
-    await settle(page);
-    const callClosed = await clickAndWatch(page);
-    expect(await page.locator("[data-probe]").getAttribute("aria-expanded")).toBe("false");
-    expect(callClosed.folded).toBe(true);
-    expect(callClosed.moved).toBeLessThanOrEqual(1);
-    await settle(page);
-    await page.evaluate(() => document.querySelector("[data-probe]")?.removeAttribute("data-probe"));
-
-    await probe(page, `[data-row-id="worked-t3-user"] button.cv-worked`);
-    const workedClosed = await clickAndWatch(page);
-    expect(await page.locator("[data-probe]").getAttribute("aria-expanded")).toBe("false");
-    expect(workedClosed.moved).toBeLessThanOrEqual(1);
-    await settle(page);
-    // No copy of a hidden row is left behind, and the closed turn is one line again.
-    expect(await page.locator(".acpmux-row--fold-ghost").count()).toBe(0);
-    expect(await page.locator('[data-row-id="t3-run"]').count()).toBe(0);
-    await page.close();
-  });
-
   // Every kind of collapsible, opened and closed mid-transcript: the line the reader clicked stays on
   // its pixel (Show more holds the bubble's top: the text grows below it), and no element ever runs
   // two animations at once (Leo 2026-10-22: "a few animations that didnt quite work for collapsing
@@ -294,7 +242,8 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
         execute("k-cmd-b", "bun test src/net --watch"),
       ],
     }),
-    row("k-answer", "assistant", paragraphs(4)),
+    // Enough below the prompt that Show less, held at its button, never meets the end of the transcript.
+    row("k-answer", "assistant", paragraphs(12)),
   ];
   /// Each kind: the text on its toggle, and for Show more what holds still while it opens.
   const cases: { name: string; text: string; held?: string }[] = [
