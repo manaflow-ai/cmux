@@ -535,3 +535,37 @@ test("two compactions are two rows, and only one spins at a time", async () => {
   ]);
   expect(spinners(rows())).toBe(0);
 });
+
+// Review of #24296 (Codex): an account switch's compaction runs between turns and can say how it
+// ended more than 90s after its one running note. Read whole it is one row; read a page at a time,
+// the older page's running row stayed beside the newer page's end as a second row.
+test("a compaction whose end alone is on the newer page is one row, however late it came", async () => {
+  const steps: Step[] = [
+    ["mux", "user_message", { text: "go on" }],
+    ["mux", "turn_started", {}],
+    ["mux", "turn_result", { status: "completed" }],
+    ["in", "compaction", update({ sessionUpdate: "compaction", state: "running", reason: "account_switch" })],
+    ["mux", "user_message", { text: "next" }],
+    ["mux", "turn_started", {}],
+    [
+      "in",
+      "compaction",
+      update({
+        sessionUpdate: "compaction",
+        state: "completed",
+        reason: "account_switch",
+        preTokens: 58163,
+        postTokens: 20129,
+      }),
+    ],
+  ];
+  const events = record(steps);
+  events[6]!.at = events[3]!.at + 91_000;
+  const compactions = (rows: AcpmuxRow[]) =>
+    rows.filter((row) => row.kind === "compaction").map((row) => row.compaction?.state);
+  const whole = await connect(fakeDaemon(events));
+  expect(compactions(whole.rows())).toEqual(["completed"]);
+  const { client, rows } = await connect(fakeDaemon(events, 3));
+  await client.loadOlder();
+  expect(compactions(rows())).toEqual(["completed"]);
+});
