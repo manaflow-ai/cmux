@@ -4017,8 +4017,9 @@ export class AcpmuxDirectClient {
   }
   /// Answers a permission: `optionId` picks an option (absent cancels the request), and
   /// `answers` carries a question's harness-shaped answers (question/model.ts `reply`). An option
-  /// pick first takes a gesture ticket for this prompt and option (`transport.gesture`): the host
-  /// signs an allow for another machine's agent daemon only for that exact pick (cx-0q7o).
+  /// pick, a question's answer too, first takes a gesture ticket for this prompt and option
+  /// (`transport.gesture`): the host signs an allow or an answer for another machine's agent
+  /// daemon only for that exact pick (cx-0q7o).
   async permission(
     permissionId: string,
     optionId?: string,
@@ -4029,7 +4030,7 @@ export class AcpmuxDirectClient {
     const sessionId = session ?? this.actingSessionId;
     if (!sessionId) return;
     const ticket =
-      optionId === undefined || answers !== undefined
+      optionId === undefined
         ? undefined
         : await postNative<{ ticket?: string }>("transport.gesture", {
             intent: {
