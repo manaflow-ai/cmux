@@ -323,7 +323,12 @@ def main():
         name = f"S{index}"
         known = window().get("space")
         action("space.new", {"name": name})
-        entered = wait(lambda: window().get("space") not in (None, known) and window().get("space"), 30)
+        # A script's space.new files its first workspace without showing the space: enter it by name.
+        def entered_space():
+            action("space.switch", {"space": name})
+            current = window().get("space")
+            return current not in (None, known) and current not in dict(SPACES).values() and current
+        entered = wait(entered_space, 30, step=0.5)
         if not entered:
             row(f"setup {name}", "a new space", json.dumps(window())[:200], False)
             return
