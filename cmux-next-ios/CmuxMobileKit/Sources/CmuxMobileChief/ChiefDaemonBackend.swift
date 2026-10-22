@@ -18,9 +18,12 @@ import Foundation
 public final class ChiefDaemonBackend: ConversationFileBackend, @unchecked Sendable {
     let core: Core
 
+    /// - Parameter transcriber: Turns an audio message without a transcript
+    ///   into text before it is sent (``setTranscriber(_:)`` sets it later).
     public init(client: DaemonClient, identity: ChiefIdentity = .standard, conversationID: String? = nil,
-                preferences: ChiefPreferences = ChiefPreferences()) {
-        core = Core(client: client, identity: identity, conversationID: conversationID, preferences: preferences)
+                preferences: ChiefPreferences = ChiefPreferences(), transcriber: ChiefAudioTranscriber? = nil) {
+        core = Core(client: client, identity: identity, conversationID: conversationID, preferences: preferences,
+                    transcriber: transcriber)
         control = ChiefControl(client: client)
     }
 
@@ -120,6 +123,12 @@ public final class ChiefDaemonBackend: ConversationFileBackend, @unchecked Senda
         try await core.upload(data, mimeType: info.mimeType, name: info.name, width: nil, height: nil, file: info)
     }
 
+    /// Sets how audio messages without a transcript become text (the
+    /// phone's on-device recognizer); nil sends them as audio only.
+    public func setTranscriber(_ transcriber: ChiefAudioTranscriber?) async {
+        await core.setTranscriber(transcriber)
+    }
+
     public func close() {
         Task { await core.close() }
     }
@@ -151,11 +160,18 @@ public final class ChiefDaemonBackend: ConversationFileBackend, @unchecked Senda
         private var uploadedParts: [String: [String: Any]] = [:]
         /// Attachment bytes by hash: uploaded here or read once with `conversation-attachment-read`.
         private var attachmentBytes: [String: Data] = [:]
+        /// Audio attachments' length and levels by hash, read once from their bytes.
+        private var audioFacts: [String: ChiefVoiceClip.Facts] = [:]
+        /// The transcript an uploaded audio message sends as its text, by attachment id.
+        private var audioTranscripts: [String: String] = [:]
+        private var transcriber: ChiefAudioTranscriber?
         /// 2 MiB: base64 keeps each line under the link's 4 MiB line cap.
         static let chunkBytes = 2 * 1024 * 1024
 
-        init(client: DaemonClient, identity: ChiefIdentity, conversationID: String?, preferences: ChiefPreferences) {
+        init(client: DaemonClient, identity: ChiefIdentity, conversationID: String?, preferences: ChiefPreferences,
+             transcriber: ChiefAudioTranscriber?) {
             self.client = client
+            self.transcriber = transcriber
             self.identity = identity
             self.conversationID = conversationID
             self.preferences = preferences
@@ -210,13 +226,21 @@ public final class ChiefDaemonBackend: ConversationFileBackend, @unchecked Senda
 
         func send(_ draft: ConversationOutgoingDraft) async throws -> ConversationMessage {
             var parts: [[String: Any]] = draft.attachmentIDs.compactMap { uploadedParts[$0] }
-            if !draft.text.isEmpty || parts.isEmpty { parts.append(wire.textPart(draft.text, mentions: draft.mentions)) }
+            // An audio message goes alone; its transcript is its text, so the
+            // Mac shows it and the Chief reads it.
+            let transcript = draft.attachmentIDs.compactMap { audioTranscripts[$0] }.first
+            if draft.text.isEmpty, let transcript {
+                parts.append(wire.textPart(transcript, mentions: []))
+            } else if !draft.text.isEmpty || parts.isEmpty {
+                parts.append(wire.textPart(draft.text, mentions: draft.mentions))
+            }
             var op: [String: Any] = ["kind": "message.send", "client_msg_id": draft.clientMessageID, "parts": parts]
             if let reply = draft.replyToID { op["reply_to"] = ["message_id": reply, "part_index": 0] }
             return try await self.op(op, idempotencyKey: draft.clientMessageID)
         }
 
-        func upload(_ data: Data, mimeType: String, name: String, width: Int?, height: Int?, file: ConversationFileInfo?) async throws -> ConversationAttachment {
+        func upload(_ data: Data, mimeType: String, name: String, width: Int?, height: Int?, file: ConversationFileInfo?,
+                    durationMS: Int? = nil) async throws -> ConversationAttachment {
             let id = try await resolve()
             let hash = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
             var begin: [String: Any] = [
@@ -225,6 +249,7 @@ public final class ChiefDaemonBackend: ConversationFileBackend, @unchecked Senda
             ]
             if let width, width > 0 { begin["width"] = width }
             if let height, height > 0 { begin["height"] = height }
+            if let durationMS, durationMS > 0 { begin["duration_ms"] = durationMS }
             let started = try await call("conversation-attachment-upload", begin)
             if let upload = started["upload"] as? String {
                 var offset = 0
@@ -244,6 +269,7 @@ public final class ChiefDaemonBackend: ConversationFileBackend, @unchecked Senda
             ]
             if let width, width > 0 { part["width"] = width }
             if let height, height > 0 { part["height"] = height }
+            if let durationMS, durationMS > 0 { part["duration_ms"] = durationMS }
             let attachment = wire.attachment(part, bytes: data) ?? ConversationAttachment(
                 id: "att:\(hash)", kind: .file, width: 0, height: 0, url: nil, localData: data, file: file
             )
@@ -267,6 +293,43 @@ public final class ChiefDaemonBackend: ConversationFileBackend, @unchecked Senda
                 }
                 if !data.isEmpty { attachmentBytes[hash] = data }
             }
+            for part in object["parts"] as? [[String: Any]] ?? [] where part["type"] as? String == "attachment" {
+                guard let hash = part["hash"] as? String, audioFacts[hash] == nil,
+                      let mime = part["mime_type"] as? String, ChiefWire.isAudio(mime),
+                      let data = attachmentBytes[hash] else { continue }
+                audioFacts[hash] = ChiefVoiceClip(data: data, mimeType: mime).facts()
+            }
+        }
+
+        func setTranscriber(_ transcriber: ChiefAudioTranscriber?) {
+            self.transcriber = transcriber
+        }
+
+        /// Uploads a recording as AAC with its length; the transcript (the
+        /// recorder's, else this phone's recognizer, run during the upload)
+        /// waits for ``send(_:)``, which sends it as the message's text.
+        func uploadAudio(_ data: Data, mimeType: String, info: ConversationAudioInfo) async throws -> ConversationAttachment {
+            let recorded = ChiefVoiceClip(data: data, mimeType: mimeType)
+            let given = info.transcript?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let recognizer = given?.isEmpty == false ? nil : transcriber
+            async let heard = recorded.transcript(using: recognizer)
+            let clip = recorded.forUpload()
+            let facts = clip.facts()
+            let duration = info.duration > 0 ? info.duration : facts?.duration ?? 0
+            var attachment = try await upload(
+                clip.data, mimeType: clip.mimeType, name: clip.fileName(at: Date()), width: nil, height: nil, file: nil,
+                durationMS: Int((duration * 1000).rounded())
+            )
+            let transcript: String?
+            if let given, !given.isEmpty { transcript = given } else { transcript = await heard }
+            let waveform = info.waveform.isEmpty ? facts?.waveform ?? [] : info.waveform
+            if let hash = uploadedParts[attachment.id]?["hash"] as? String {
+                // The bubble keeps the levels it drew while recording.
+                audioFacts[hash] = ChiefVoiceClip.Facts(duration: duration, waveform: waveform)
+            }
+            if let transcript { audioTranscripts[attachment.id] = transcript }
+            attachment.audio = ConversationAudioInfo(duration: duration, waveform: waveform, transcript: transcript)
+            return attachment
         }
 
         /// A wire message, its attachments' bytes read first.
@@ -275,7 +338,7 @@ public final class ChiefDaemonBackend: ConversationFileBackend, @unchecked Senda
             let asked = ChiefQuestionFeed.questions(in: object)
             questionFeed.update(asked.questions, seq: asked.seq)
             if let id = object["id"] as? String { failureLog.record(wire.failure(object), messageID: id) }
-            return wire.message(object, peerReadSeq: peerReadSeq, bytes: attachmentBytes)
+            return wire.message(object, peerReadSeq: peerReadSeq, bytes: attachmentBytes, audio: audioFacts)
         }
 
         func op(_ op: sending [String: Any], idempotencyKey: String = UUID().uuidString) async throws -> ConversationMessage {

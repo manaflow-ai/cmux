@@ -64,9 +64,9 @@ protocol ChatIntents: AnyObject {
     /// The attachment's local copy, named like the attachment (fetched when needed); nil when it
     /// cannot be read here. The host's menu rows (Open With, Reveal) run on it.
     func attachmentFile(_ message: ID, _ attachment: ID) async -> URL?
-    /// A click on a video bubble: play or pause it in place.
+    /// A click on a video or audio message bubble: play or pause it in place.
     func toggleVideo(_ ref: PartRef, _ attachment: ID)
-    /// The inline playback state of a video part (the menu's Play or Pause).
+    /// The inline playback state of a video or audio part (the menu's Play or Pause).
     func videoState(_ ref: PartRef) -> HomeVideoState
     /// The transcript moved (user scroll, pin): paging and read cursor.
     func scrolled()

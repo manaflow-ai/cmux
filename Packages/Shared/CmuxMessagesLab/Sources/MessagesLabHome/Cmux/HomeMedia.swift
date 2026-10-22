@@ -7,7 +7,8 @@ import UniformTypeIdentifiers
 /// Bubble pictures for HomeStore attachment parts, in the form MessagesLab's
 /// row drawing reads them (`Images.load` of a `file:` asset): one small,
 /// oriented image file per content hash. A photo's picture is its
-/// thumbnail, a video's its poster frame; a file part has none. Local files
+/// thumbnail, a video's its poster frame, an audio message's its waveform
+/// levels (``VoiceMemoLevels``, no file); a file part has none. Local files
 /// win (my sends: the prepared copy and poster); otherwise the bytes come
 /// from the store (`HomeStoreBinding.fetchAttachment`, lane 16's variants:
 /// `.thumbnail` for images, `.poster` for video, never the video itself).
@@ -55,10 +56,21 @@ final class HomeMedia {
         let hash = ref.hash
         guard !ready.keys.contains(hash), !jobs.keys.contains(hash), !failed.contains(hash) else { return } // // crash program: dictionary reads
         let kind = HomeMapping.kind(of: ref)
-        guard kind == "image" || kind == "video" else { return }
+        guard kind == "image" || kind == "video" || kind == "voiceMemo" else { return }
         let local = locals[hash]
         let fetch = self.fetch
         guard local != nil || fetch != nil else { return }
+        if kind == "voiceMemo" {
+            jobs[hash] = Task { [weak self] in
+                let levels = await Self.levels(ref, local: local, fetch: fetch)
+                guard let self else { return }
+                self.jobs[hash] = nil
+                guard let levels else { self.failed.insert(hash); return }
+                self.ready.updateValue(VoiceMemoLevels.asset(levels), forKey: hash) // // crash program: dictionary write
+                self.onReady(hash)
+            }
+            return
+        }
         let maxPixel = Self.maxPixel(ref)
         let target = Self.directory.appendingPathComponent(hash.replacingOccurrences(of: "/", with: "_"))
         jobs[hash] = Task { [weak self] in
@@ -76,6 +88,17 @@ final class HomeMedia {
         if let local = locals[ref.hash], FileManager.default.fileExists(atPath: local.fileURL.path) { return local.fileURL }
         guard let fetch else { throw CancellationError() }
         return try await fetch(ref, .original)
+    }
+
+    /// An audio message's waveform: the recording's levels (its local copy,
+    /// else the original bytes from the store), measured off the main actor.
+    private nonisolated static func levels(_ ref: AttachmentRef, local: LocalAttachmentFiles?, fetch: Fetch?) async -> [Float]? {
+        var file = local?.fileURL
+        if file.map({ !FileManager.default.fileExists(atPath: $0.path) }) ?? true {
+            file = try? await fetch?(ref, .original)
+        }
+        guard let file else { return nil }
+        return await Task.detached(priority: .utility) { VoiceMemoLevels.measure(file) }.value
     }
 
     /// Returns when no picture is loading (tests).

@@ -22,6 +22,8 @@ pub struct TurnFile {
     pub name: String,
     pub mime_type: String,
     pub byte_count: u64,
+    /// Playback length of an audio or video file, when the part has one.
+    pub duration_ms: Option<u64>,
     /// Where the bytes are on this Mac; None when they could not be read
     /// or written (`note` says why).
     pub path: Option<PathBuf>,
@@ -31,12 +33,30 @@ pub struct TurnFile {
 impl TurnFile {
     /// The log's (and the turn's) reference:
     /// `[file sha256:<12 hex> "name" 1234 bytes type at /path]`.
+    ///
+    /// An audio message (a recording from the phone's composer, or any audio
+    /// file) reads `[audio message ... 12.3s ...]`: its spoken words are the
+    /// message's text when the phone transcribed them, and the turn may open
+    /// the recording itself.
     pub fn reference(&self) -> String {
         let place = match (&self.path, &self.note) {
             (Some(path), _) => format!(" at {}", path.display()),
             (None, Some(note)) => format!(", not saved: {note}"),
             (None, None) => ", not saved".to_owned(),
         };
+        if self.mime_type.starts_with("audio/") {
+            let length = self
+                .duration_ms
+                .map(|ms| format!(" {:.1}s", ms as f64 / 1000.0))
+                .unwrap_or_default();
+            return format!(
+                "[audio message sha256:{} \"{}\"{length} {} bytes {}{place}; the message text, if any, is its transcript]",
+                super::images::short(&self.hash),
+                self.name,
+                self.byte_count,
+                self.mime_type
+            );
+        }
         format!(
             "[file sha256:{} \"{}\" {} bytes {}{place}]",
             super::images::short(&self.hash),
@@ -82,6 +102,7 @@ pub fn read_file(
         name,
         mime_type,
         byte_count,
+        duration_ms,
         ..
     } = part
     else {
@@ -95,6 +116,7 @@ pub fn read_file(
         name: name.clone(),
         mime_type: mime_type.clone(),
         byte_count: *byte_count,
+        duration_ms: *duration_ms,
         path: None,
         note: None,
     };
@@ -361,6 +383,7 @@ mod tests {
             name: "Makefile".into(),
             mime_type: "text/plain".into(),
             byte_count: 3,
+            duration_ms: None,
             path: Some(PathBuf::from("/tmp/x/Makefile")),
             note: None,
         };
@@ -371,6 +394,41 @@ mod tests {
         assert_eq!(
             logged_text("  ", &[file]),
             "[file sha256:ffffffffffff \"Makefile\" 3 bytes text/plain at /tmp/x/Makefile]"
+        );
+    }
+
+    /// User 2026-10-21: an iPhone audio message reaches the Chief. Its
+    /// transcript is the message text; the line names the recording, its
+    /// length and where it is saved, so the turn can listen to it too.
+    #[test]
+    fn an_audio_message_reads_as_one_with_its_transcript() {
+        let root = temp_root();
+        let bytes = vec![7u8; 40];
+        let mut owner = Owner::default();
+        owner.files.insert("b".repeat(64), bytes.clone());
+        let mut voice = part(
+            'b',
+            "Audio Message 2026-10-21 at 09.41.07.m4a",
+            "audio/mp4",
+            40,
+        );
+        if let Part::Attachment { duration_ms, .. } = &mut voice {
+            *duration_ms = Some(4_300);
+        }
+        let file = read_file(&mut owner, "c1", &voice, &root).unwrap();
+        assert_eq!(
+            std::fs::read(file.path.clone().expect("saved")).unwrap(),
+            bytes
+        );
+        let line = logged_text("ship the fix", std::slice::from_ref(&file));
+        assert!(
+            line.starts_with("ship the fix\n[audio message sha256:bbbbbbbbbbbb "),
+            "{line}"
+        );
+        assert!(line.contains(" 4.3s 40 bytes audio/mp4 at /"), "{line}");
+        assert!(
+            line.ends_with("; the message text, if any, is its transcript]"),
+            "{line}"
         );
     }
 }

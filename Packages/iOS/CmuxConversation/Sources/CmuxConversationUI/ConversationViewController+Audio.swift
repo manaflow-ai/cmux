@@ -55,6 +55,8 @@ final class ConversationAudioComposer {
     private var displayLink: CADisplayLink?
     private var reviewPlayer: AVAudioPlayer?
     private var startTask: Task<Void, Never>?
+    /// Follows session interruptions while the field is up (a call stops the recording for review).
+    private var interruptionTask: Task<Void, Never>?
     /// Messages shows the Record Audio button in the field once audio was
     /// used in the conversation.
     private(set) var showsRecordButton = false
@@ -126,6 +128,10 @@ final class ConversationAudioComposer {
             return
         }
         self.holding = holding
+        interruptionTask?.cancel()
+        interruptionTask = Task { [weak self] in
+            for await _ in ConversationAudioRecorder.interruptions() { self?.interrupted() }
+        }
         let recorder = ConversationAudioRecorder()
         recorder.syntheticTranscript = Self.syntheticPhrases.randomElement()
         self.recorder = recorder
@@ -165,6 +171,18 @@ final class ConversationAudioComposer {
         field.mode = .review
         field.update(levels: recorder.levels, time: recorder.duration)
         field.setReview(playing: false, progress: 0, time: recorder.duration)
+    }
+
+    /// A call or Siri took the microphone: what was recorded stays, ready
+    /// to play, send or continue, as Messages does.
+    private func interrupted() {
+        guard let recorder else { return }
+        holding = false
+        switch recorder.state {
+        case .recording: stopToReview()
+        case .paused: stopReviewPlayer()
+        case .idle: break
+        }
     }
 
     func continueRecording() {
@@ -279,8 +297,15 @@ final class ConversationAudioComposer {
         stopDisplayLink()
         startTask?.cancel()
         startTask = nil
+        interruptionTask?.cancel()
+        interruptionTask = nil
+        let usedMicrophone = recorder?.input == .microphone
         recorder = nil
         holding = false
+        if usedMicrophone {
+            // Music or a podcast the recording paused resumes.
+            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        }
         guard let composer = controller?.composer else { return }
         setPlusGlyph("plus", in: composer)
         composer.plusButton.accessibilityLabel = String(localized: "conversation.composer.plus", defaultValue: "Apps", bundle: .module)

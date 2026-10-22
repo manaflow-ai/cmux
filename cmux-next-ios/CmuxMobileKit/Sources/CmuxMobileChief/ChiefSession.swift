@@ -105,6 +105,12 @@ public final class ChiefSession {
     public var answerSigner: (@MainActor () -> (any ChiefAnswerSigning)?)?
     /// The newest message the user has seen with the conversation open.
     private var seenMessageID: String?
+    /// Turns an audio message into text on this phone before it goes to the
+    /// Mac's Chief. The app sets the on-device recognizer at launch; each
+    /// Mac backend this session uses gets it.
+    @ObservationIgnored public var audioTranscriber: ChiefAudioTranscriber? {
+        didSet { applyAudioTranscriber() }
+    }
     /// Messages waiting for Chief to connect (``ChiefOutbox``).
     public private(set) var outbox: [ConversationComposeMessage] = []
     private let outboxStore: ChiefOutbox
@@ -138,6 +144,12 @@ public final class ChiefSession {
 
     @ObservationIgnored private var foregroundObserver: (any NSObjectProtocol)?
 
+    private func applyAudioTranscriber() {
+        guard let mac = backend as? ChiefDaemonBackend else { return }
+        let transcriber = audioTranscriber
+        Task { await mac.setTranscriber(transcriber) }
+    }
+
     /// Swaps the backend (offline to `ChiefDaemonBackend` once a Mac link is
     /// up, or to ``ChiefCloudBackend`` with the Cloud Chief's `identity`).
     public func use(_ backend: any ConversationBackend, identity: ChiefIdentity? = nil) {
@@ -151,6 +163,7 @@ public final class ChiefSession {
         self.backend = backend
         store = ConversationStore(backend: backend)
         control = (backend as? ChiefDaemonBackend)?.control
+        applyAudioTranscriber()
         // The kept report stays on screen until this connection reads one.
         engineReport = macID.flatMap { preferences.engineReport(macID: $0) }
         engineReportIsCurrent = false

@@ -63,13 +63,29 @@ struct ChiefWire {
 
     /// An `attachment` part as the model's attachment, rendered from `bytes`
     /// (the owner serves bytes by hash, not by URL).
-    func attachment(_ part: [String: Any], bytes: Data?) -> ConversationAttachment? {
+    /// An audio part (the owner's `audio/*` types) is an audio message: its
+    /// length from `duration_ms` (else `facts`), its waveform from `facts`
+    /// (the levels of its samples), and `transcript`, the message's text.
+    func attachment(_ part: [String: Any], bytes: Data?, facts: ChiefVoiceClip.Facts? = nil,
+                    transcript: String? = nil) -> ConversationAttachment? {
         guard part["type"] as? String == "attachment", let hash = part["hash"] as? String else { return nil }
         let mime = part["mime_type"] as? String ?? "application/octet-stream"
         let name = part["name"] as? String ?? "Attachment"
         let byteCount = (part["byte_count"] as? NSNumber)?.int64Value ?? Int64(bytes?.count ?? 0)
         let width = (part["width"] as? NSNumber)?.intValue ?? 0
         let height = (part["height"] as? NSNumber)?.intValue ?? 0
+        if Self.isAudio(mime) {
+            let declared = (part["duration_ms"] as? NSNumber).map { $0.doubleValue / 1000 }
+            let info = ConversationAudioInfo(
+                duration: declared ?? facts?.duration ?? 0,
+                waveform: facts?.waveform ?? [],
+                transcript: transcript?.isEmpty == false ? transcript : nil
+            )
+            return ConversationAttachment(
+                id: "att:\(hash)", kind: .audio, width: 0, height: 0, url: nil, localData: bytes, audio: info,
+                file: ConversationFileInfo(name: name, mimeType: mime, byteCount: byteCount)
+            )
+        }
         let isImage = mime.hasPrefix("image/")
         return ConversationAttachment(
             id: "att:\(hash)", kind: isImage ? .image : .file, width: width, height: height, url: nil, localData: bytes,
@@ -78,7 +94,16 @@ struct ChiefWire {
     }
 
     /// `peerReadSeq`: Chief's read cursor; my messages at or below it read as Read.
-    func message(_ object: [String: Any], peerReadSeq: Int, bytes: [String: Data] = [:]) -> ConversationMessage? {
+    /// The owner's audio types (cmux-conversation `attachment_class`).
+    static func isAudio(_ mimeType: String) -> Bool {
+        ["audio/mp4", "audio/mpeg", "audio/aac", "audio/wav"].contains(mimeType)
+    }
+
+    /// `audio`: the length and levels of audio attachments, by hash. A
+    /// message with an audio part shows its text as that recording's
+    /// transcript, inside the audio bubble.
+    func message(_ object: [String: Any], peerReadSeq: Int, bytes: [String: Data] = [:],
+                 audio: [String: ChiefVoiceClip.Facts] = [:]) -> ConversationMessage? {
         guard let id = object["id"] as? String, let seq = (object["seq"] as? NSNumber)?.intValue,
               let author = object["author"] as? String else { return nil }
         let parts = object["parts"] as? [[String: Any]] ?? []
@@ -93,6 +118,13 @@ struct ChiefWire {
         // diagnostics by the backend (``failure(_:)``).
         var shown = retracted == nil ? text(parts: parts) : ""
         if author == identity.chiefID, let failure = ChiefTurnFailure(text: shown) { shown = failure.displayText }
+        let hasAudio = parts.contains { $0["type"] as? String == "attachment" && Self.isAudio($0["mime_type"] as? String ?? "") }
+        let transcript = hasAudio ? shown : nil
+        if hasAudio { shown = "" }
+        let attachments = retracted == nil ? parts.compactMap { part -> ConversationAttachment? in
+            let hash = part["hash"] as? String
+            return attachment(part, bytes: hash.flatMap { bytes[$0] }, facts: hash.flatMap { audio[$0] }, transcript: transcript)
+        } : []
         return ConversationMessage(
             id: id, seq: seq, clientMessageID: object["client_msg_id"] as? String, senderID: author,
             sentAt: date(object["created_at"]) ?? Date(),
@@ -101,9 +133,9 @@ struct ChiefWire {
             editedAt: date(object["edited_at"]),
             unsentAt: retracted,
             reactions: reactions,
-            attachments: retracted == nil ? parts.compactMap { attachment($0, bytes: ($0["hash"] as? String).flatMap { bytes[$0] }) } : [],
+            attachments: attachments,
             delivery: mine ? (seq <= peerReadSeq ? .read(nil) : .delivered) : nil,
-            mentions: retracted == nil ? mentions(parts: parts) : []
+            mentions: retracted == nil && !hasAudio ? mentions(parts: parts) : []
         )
     }
 

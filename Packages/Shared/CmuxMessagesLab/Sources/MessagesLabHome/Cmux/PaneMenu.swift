@@ -72,9 +72,11 @@ extension ChatController {
         if menu.items.last.map({ !$0.isSeparatorItem }) == true { menu.addItem(.separator()) }
         // cmux: a video plays in place; opening it in an app is only here.
         if case let .attachment(a) = hit.row.part {
-            if a.kind == "video", let intents {
+            if a.kind == "video" || a.kind == "voiceMemo", let intents {
                 let playing = intents.videoState(ref) == .playing
-                menu.addItem(MenuAction(title: playing ? CmuxStrings.pauseVideo : CmuxStrings.playVideo,
+                let audio = a.kind == "voiceMemo"
+                menu.addItem(MenuAction(title: playing ? (audio ? CmuxStrings.pauseAudio : CmuxStrings.pauseVideo)
+                                                        : (audio ? CmuxStrings.playAudio : CmuxStrings.playVideo),
                                         symbol: playing ? "pause.fill" : "play.fill") { [weak self] in self?.intents?.toggleVideo(ref, a.id) })
             }
             let resolve: @MainActor @Sendable () async -> URL? = { [weak self] in await self?.intents?.attachmentFile(ref.messageId, a.id) }

@@ -78,6 +78,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
     let media = HomeMedia()
     /// Inline video playback in the bubbles.
     let video = HomeVideo()
+    let audio = HomeAudio()
     /// Prepared attachments in the field by content hash (the chips are
     /// MessagesLab's draft; a removed chip's entry is ignored).
     private var drafts: [String: LocalAttachment] = [:]
@@ -136,6 +137,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
         liveLine.onTick = { [weak self] in self?.turnPopover?.refresh() }
         liveLine.onClose = { [weak self] in self?.turnPopover?.close() }
         video.controller = controller
+        audio.controller = controller
+        audio.source = media
         // A finished picture redraws only the rows that show it (not every attachment row shown).
         media.onReady = { [weak self] hash in self?.refreshAttachments(only: hash) }
     }
@@ -242,6 +245,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         // A token moves rows (the inline videos follow) and changes nothing else this side tracks:
         // no attachment, title, summary, read cursor or older page work per token.
         video.place()
+        audio.place()
         if streamOnly { return }
         if titleChanged { applyHeader() }
         refreshAttachments()
@@ -672,12 +676,20 @@ final class HomeProjection: @preconcurrency ChatIntents {
         _ = onCancelSend(item.key)
     }
 
+    /// A video plays in its bubble; so does an audio message (``HomeAudio``).
     func toggleVideo(_ ref: PartRef, _ attachment: ID) {
         guard let attachmentRef = attachmentRef(ref.messageId, attachment) else { return }
+        if HomeMapping.kind(of: attachmentRef) == "voiceMemo" {
+            audio.toggle(ref, attachment: attachmentRef)
+            return
+        }
         video.toggle(ref, attachment: attachmentRef, source: media)
     }
 
-    func videoState(_ ref: PartRef) -> HomeVideoState { video.state(ref) }
+    func videoState(_ ref: PartRef) -> HomeVideoState {
+        let audioState = audio.state(ref)
+        return audioState != .poster ? audioState : video.state(ref)
+    }
 
     private func attachmentRef(_ message: ID, _ attachment: ID) -> AttachmentRef? {
         item(message)?.parts.lazy.compactMap { p -> AttachmentRef? in
@@ -738,10 +750,12 @@ final class HomeProjection: @preconcurrency ChatIntents {
 
     func rowsPlaced() {
         video.place()
+        audio.place()
     }
 
     func scrolled() {
         video.place()
+        audio.place()
         if let previews = linkPreviews?.previews {
             // My link cards that scrolled in with no title (also from HomeStore): a cached title,
             // else the guarded parser.

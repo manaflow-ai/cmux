@@ -457,12 +457,11 @@ enum PartRenderer {
             tri.close()
             (p.outgoing ? Fixture.outgoing : Fixture.incoming).setFill()
             tri.fill()
-            fg.withAlphaComponent(0.85).setFill()
-            for i in 0..<30 {
-                let v = 0.25 + 0.75 * abs(sin(Double(i) * 1.7) * cos(Double(i) * 0.45))
-                let h = CGFloat(v) * 18
-                UIBezierPath(roundedRect: CGRect(x: body.minX + 38 + CGFloat(i) * 3.6, y: body.midY - h / 2, width: 2, height: max(2, h)),
-                             cornerRadius: 1).fill()
+            // cmux: the recording's own levels (VoiceMemoLevels, flat until they load); the
+            // played part is drawn over them by HomeAudio while it plays.
+            fg.withAlphaComponent(VoiceMemoLevels.restAlpha).setFill()
+            for bar in VoiceMemoLevels.barRects(VoiceMemoLevels.load(a.asset), body: body) {
+                UIBezierPath(roundedRect: bar, cornerRadius: 1).fill()
             }
             let d = Format.duration(a.durationSeconds ?? 0)
             TextDraw.line(d, font: HomeFonts.monospacedDigit(ofSize: 11, weight: .regular), color: fg, x: body.maxX - 36, // HomeFonts (cx-qpqs)
