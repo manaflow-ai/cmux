@@ -192,7 +192,8 @@ button.cv-subagent > :last-child {
   opacity: 0.5;
   cursor: default;
 }
-.cv-subagent__stop[data-state="failed"] {
+.cv-subagent__stop[data-state="failed"],
+.cv-subagent__stop[data-state="failed"]:hover:not(:disabled) {
   color: var(--agent-danger);
 }
 /* The child view's first line (model.ts: 44px): a 28px "Subagent of" chip centred on a rule,

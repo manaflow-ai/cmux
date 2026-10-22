@@ -9,7 +9,7 @@
 // - a chevron (`disclosure.*`) is drawn only inside something that clicks;
 // - a disabled button never takes a hover background (a rule's `:hover` that would match it), so
 //   what cannot be clicked never looks as if it could.
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, expect, setSystemTime, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { JSDOM, VirtualConsole } from "jsdom";
@@ -50,6 +50,10 @@ for (const key of Object.getOwnPropertyNames(dom.window))
 const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
 Object.assign(scope, replacements);
 
+// One fixed clock: a running row's time then never ticks, so a click that changes nothing never
+// passes for one that redrew the page.
+setSystemTime(new Date("2026-10-21T12:00:00Z"));
+
 const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { setPaneLanguage } = await import("../src/agent-session/acpmux/i18n");
@@ -62,6 +66,7 @@ type TrayItem = import("../src/agent-session/acpmux/subagents/runningTray").Tray
 type Subagent = import("../src/agent-session/acpmux/subagents/subagentFold").Subagent;
 
 afterAll(() => {
+  setSystemTime();
   setPaneLanguage("en");
   dom.window.close();
   for (const [key, had, value] of saved) {
@@ -148,7 +153,8 @@ async function deadClicks(container: HTMLElement, calls: string[]): Promise<{ de
       if (tried.has(name) || !element.isConnected) continue;
       tried.add(name);
       if (element instanceof dom.window.HTMLAnchorElement) {
-        if (!/^https?:\/\//.test(element.href)) dead.push(`${name} (href ${element.getAttribute("href")})`);
+        const href = element.getAttribute("href") ?? "";
+        if (!/^https?:\/\//.test(href)) dead.push(`${name} (href ${href})`);
         continue;
       }
       const before = calls.length + native.length;

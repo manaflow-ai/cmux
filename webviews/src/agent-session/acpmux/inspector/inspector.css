@@ -333,7 +333,8 @@ button.acpmux-chat-inspector-port:hover,
 .acpmux-chat-inspector-icon-button:disabled {
   opacity: 0.4;
 }
-.acpmux-chat-inspector-stop[data-state="failed"] {
+.acpmux-chat-inspector-stop[data-state="failed"],
+.acpmux-chat-inspector-stop[data-state="failed"]:hover:not(:disabled) {
   color: var(--agent-danger);
 }
 .acpmux-chat-inspector-sr-only {
