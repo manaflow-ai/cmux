@@ -81,7 +81,7 @@ extension AgentPaneImageCopies {
         case .openImageInPane(let src, let name): return await openInPane(src, name: name, in: model)
         case .copyImage(let src, let name):
             return await withCopy(src, name: name, in: model) { file in
-                AgentPaneImageCopies.write(file, data: await AgentPaneImageCopies.imageBytes(file), to: model.replyLinks.pasteboard)
+                _ = model.replyLinks.copyItem(AgentPaneImageCopies.pasteboardItem(file, data: await AgentPaneImageCopies.imageBytes(file)))
             }
         case .saveImage(let src, let name):
             return await withCopy(src, name: name, in: model) { file in

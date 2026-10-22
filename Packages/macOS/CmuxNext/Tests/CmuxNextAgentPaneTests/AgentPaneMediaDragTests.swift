@@ -97,15 +97,17 @@ struct AgentPaneMediaDragTests {
         defer { try? FileManager.default.removeItem(at: folder) }
         let clip = folder.appendingPathComponent("demo.mp4")
         try Data("movie".utf8).write(to: clip)
-        let board = NSPasteboard(name: .init("media-drag-\(UUID().uuidString)"))
-        defer { board.releaseGlobally() }
+        // Copy's item is recorded, not written (the CI Macs' pasteboard server, HomePasteAnywhereTests).
+        var copied: [NSPasteboardItem] = []
         var saved: [(URL, String)] = []
-        let rows = AgentPaneFileRows(pasteboard: board, save: { saved.append(($0, $1)) })
+        let rows = AgentPaneFileRows(copyItem: { copied.append($0); return true }, save: { saved.append(($0, $1)) })
         let items = rows.items(for: clip)
         #expect(items.map(\.title) == [AgentPaneMenuStrings.copyFile, AgentPaneMenuStrings.saveAs])
         #expect(await rows.copy(clip))
-        let files = (board.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL]) ?? []
-        #expect(files.map(\.standardizedFileURL) == [clip.standardizedFileURL])
+        let item = try #require(copied.first)
+        #expect(item.string(forType: .fileURL).flatMap(URL.init(string:))?.standardizedFileURL == clip.standardizedFileURL)
+        // A video is offered as its file only, no picture bytes.
+        #expect(item.data(forType: .tiff) == nil)
         _ = (items[1].target as? NSObject)?.perform(items[1].action, with: items[1])
         #expect(saved.map(\.1) == ["demo.mp4"])
     }

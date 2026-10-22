@@ -6,8 +6,9 @@ import AppKit
 /// not only images; Reveal in Finder is the path menu's own row.
 @MainActor
 struct AgentPaneFileRows {
-    /// Where Copy writes.
-    var pasteboard: NSPasteboard = .general
+    /// Copy: writes the item to the general pasteboard (``AgentPaneImageCopies/writeGeneral(_:)``);
+    /// tests record it instead.
+    var copyItem: @MainActor (NSPasteboardItem) -> Bool = { AgentPaneImageCopies.writeGeneral($0) }
     /// Save As…: asks where to save the file under the name.
     var save: @MainActor (_ file: URL, _ name: String) -> Void = { AgentPaneImageCopies.askToSave($0, name: $1) }
 
@@ -27,6 +28,6 @@ struct AgentPaneFileRows {
 
     /// Copy: `file` (and an image's bytes) on the pasteboard.
     func copy(_ file: URL) async -> Bool {
-        AgentPaneImageCopies.write(file, data: await AgentPaneImageCopies.imageBytes(file), to: pasteboard)
+        copyItem(AgentPaneImageCopies.pasteboardItem(file, data: await AgentPaneImageCopies.imageBytes(file)))
     }
 }

@@ -19,14 +19,13 @@ extension AgentPaneImageCopies {
         }
     }
 
-    /// Copy Image: replaces `pasteboard`'s contents with `file` as Finder's Copy does (its file URL,
-    /// so Finder, Messages, Mail and Slack paste the file) plus the image's own bytes under its type
-    /// and as TIFF (so Preview and apps that read only image data paste the picture).
-    /// `data` is the file's bytes (``imageBytes(_:)``), nil for a file that is not an image.
-    @MainActor @discardableResult
-    static func write(_ file: URL, data: Data?, to pasteboard: NSPasteboard) -> Bool {
-        pasteboard.clearContents()
-        return pasteboard.writeObjects([pasteboardItem(file, data: data)])
+    /// Copy: replaces the general pasteboard's contents with `item`, as Finder's Copy does (the
+    /// file URL, so Finder, Messages, Mail and Slack paste the file; an image's bytes too, so
+    /// Preview and apps that read only image data paste the picture).
+    @discardableResult
+    static func writeGeneral(_ item: NSPasteboardItem) -> Bool {
+        NSPasteboard.general.clearContents()
+        return NSPasteboard.general.writeObjects([item])
     }
 
     /// The pasteboard item for `file` (Copy, a drag out): its file URL, its name, and an image's

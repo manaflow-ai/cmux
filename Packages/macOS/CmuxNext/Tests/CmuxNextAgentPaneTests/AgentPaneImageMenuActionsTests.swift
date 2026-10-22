@@ -8,7 +8,8 @@ import Testing
 /// Image, Save Image As…, Quick Look and Show in Finder. The page sends the image it shows (a
 /// `data:` URL) and the host keeps a named copy: Copy puts that file and the image's bytes on the
 /// pasteboard, Save As… offers it under the image's own name, Quick Look previews it. Each spends
-/// the person's click.
+/// the person's click. Copy's item is recorded, not written: the CI Macs' pasteboard server answers
+/// inconsistently (HomePasteAnywhereTests), and the user's clipboard is never touched.
 @MainActor @Suite(.serialized)
 struct AgentPaneImageMenuActionsTests {
     private actor NoHost: AgentPaneHostProviding {
@@ -41,13 +42,14 @@ struct AgentPaneImageMenuActionsTests {
     private final class Effects {
         var saved: [(URL, String)] = []
         var looked: [URL] = []
+        var copied: [NSPasteboardItem] = []
     }
 
-    private static func model(_ folder: URL, pasteboard: NSPasteboard) -> (AgentPaneModel, Effects) {
+    private static func model(_ folder: URL) -> (AgentPaneModel, Effects) {
         let model = AgentPaneModel(host: NoHost())
         let effects = Effects()
         model.replyLinks.imageFolder = folder.appendingPathComponent("copies", isDirectory: true)
-        model.replyLinks.pasteboard = pasteboard
+        model.replyLinks.copyItem = { effects.copied.append($0); return true }
         model.replyLinks.saveFile = { effects.saved.append(($0, $1)) }
         model.replyLinks.quickLookFile = { effects.looked.append($0) }
         return (model, effects)
@@ -56,30 +58,29 @@ struct AgentPaneImageMenuActionsTests {
     @Test func copyImagePutsTheFileAndItsBytesOnThePasteboard() async throws {
         let folder = try Self.folder()
         defer { try? FileManager.default.removeItem(at: folder) }
-        let board = NSPasteboard(name: .init("image-menu-\(UUID().uuidString)"))
-        defer { board.releaseGlobally() }
-        let (model, _) = Self.model(folder, pasteboard: board)
+        let (model, effects) = Self.model(folder)
 
         let reply = await Self.ask(model, "image.copy", ["src": Self.pngSource, "name": "chart.png"])
         #expect(Self.errorCode(reply) == nil, "\(reply)")
-        let files = (board.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL]) ?? []
-        let file = try #require(files.first)
+        let item = try #require(effects.copied.first)
+        let file = try #require(item.string(forType: .fileURL).flatMap(URL.init(string:)))
+        #expect(file.isFileURL)
         #expect(file.pathExtension == "png")
         #expect(try Data(contentsOf: file) == Self.png)
-        #expect(board.data(forType: .png) == Self.png)
-        #expect(NSImage(pasteboard: board) != nil)
+        #expect(item.data(forType: .png) == Self.png)
+        // Apps that read only TIFF get the picture too.
+        #expect(item.data(forType: .tiff).flatMap(NSImage.init(data:)) != nil)
 
         // No click, no copy.
-        board.clearContents()
         let unclicked = await Self.ask(model, "image.copy", ["src": Self.pngSource, "name": "chart.png"], click: false)
         #expect(Self.errorCode(unclicked) == AgentPaneReplyError.gestureRequired.rawValue)
-        #expect(board.data(forType: .png) == nil)
+        #expect(effects.copied.count == 1)
     }
 
     @Test func saveImageAsOffersTheCopyUnderTheImagesOwnName() async throws {
         let folder = try Self.folder()
         defer { try? FileManager.default.removeItem(at: folder) }
-        let (model, effects) = Self.model(folder, pasteboard: NSPasteboard(name: .init("image-menu-\(UUID().uuidString)")))
+        let (model, effects) = Self.model(folder)
 
         let reply = await Self.ask(model, "image.save", ["src": Self.pngSource, "name": "build log"])
         #expect(Self.errorCode(reply) == nil, "\(reply)")
@@ -91,7 +92,7 @@ struct AgentPaneImageMenuActionsTests {
     @Test func quickLookPreviewsTheCopy() async throws {
         let folder = try Self.folder()
         defer { try? FileManager.default.removeItem(at: folder) }
-        let (model, effects) = Self.model(folder, pasteboard: NSPasteboard(name: .init("image-menu-\(UUID().uuidString)")))
+        let (model, effects) = Self.model(folder)
 
         let reply = await Self.ask(model, "image.quickLook", ["src": Self.pngSource, "name": "chart"])
         #expect(Self.errorCode(reply) == nil, "\(reply)")
