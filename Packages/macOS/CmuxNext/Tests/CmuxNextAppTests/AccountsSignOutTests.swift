@@ -49,6 +49,25 @@ import Testing
         #expect(!services.calls.contains("signOut:claude"))
     }
 
+    @Test func withNoLocalPaneTheRowIsFreedAndSaysWhy() async {
+        let services = MockAccountsServices()
+        services.opensTabs = false
+        let model = await refreshed(services)
+
+        let refusal = await model.perform(.signOut(.codex))
+        #expect(services.calls.contains("signOut:codex"))
+        #expect(refusal?.hasPrefix("Open a workspace on this Mac") == true)
+        #expect(model.row(.codex).phase == .idle)
+        #expect(model.row(.codex).outcome == .failed(refusal ?? ""))
+
+        #expect(model.reauthenticate(.claude) == refusal)
+        #expect(model.row(.claude).phase == .idle)
+        // Nothing is pending, so coming back to Settings does not re-detect.
+        let detections = services.calls.filter { $0 == "detect" }.count
+        await model.perform(.windowFocused)
+        #expect(services.calls.filter { $0 == "detect" }.count == detections)
+    }
+
     @Test func aPlanTypesItsLineOrOpensItsPage() throws {
         var lines: [String] = [], pages: [URL] = []
         let page = try #require(URL(string: "https://console.anthropic.com/settings/keys"))

@@ -101,6 +101,9 @@ enum AccountsStrings {
     static func errorProviderSignInFirst(_ provider: String) -> String {
         String(format: text("accounts.error.providerSignInFirst", "Sign in to %@ first, then try again."), provider)
     }
+    static var errorNoLocalPane: String {
+        text("accounts.error.noLocalPane", "Open a workspace on this Mac first, then try again.")
+    }
     static var errorNeedsPaste: String { text("accounts.error.needsPaste", "Paste a key or token first.") }
     static var errorInvalidFormat: String { text("accounts.error.invalidFormat", "That is not a valid key or token for this provider.") }
     static var errorIncomplete: String { text("accounts.error.incomplete", "This sign-in is incomplete. Re-authenticate, then try again.") }

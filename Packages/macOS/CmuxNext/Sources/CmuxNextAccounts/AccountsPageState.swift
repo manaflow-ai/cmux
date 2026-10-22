@@ -143,7 +143,7 @@ extension AccountsModel {
         case .signInToCmux: services.runCmuxAccount(.signIn)
         case .cmux(let gesture): services.runCmuxAccount(gesture)
         case .reauthenticate(let provider): return await performReauthenticate(provider)
-        case .signOut(let provider): signOut(provider)
+        case .signOut(let provider): return signOut(provider)
         case .addKey(let provider): pasteTarget = provider
         case .deleteSavedKey(let provider): deleteSavedKey(for: provider)
         case .connect(let provider): connect(provider)

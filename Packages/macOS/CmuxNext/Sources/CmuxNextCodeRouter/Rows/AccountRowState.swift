@@ -43,6 +43,8 @@ public struct AccountRowState: Sendable, Equatable {
         case linkedFailed(String)
         case reauthStarted
         case reauthEnded
+        /// The login or logout never opened (no local pane): free the row.
+        case reauthFailed(String)
         case connectStarted
         case connectSucceeded([LinkedAccount])
         case connectFailed(String)
@@ -75,6 +77,10 @@ public struct AccountRowState: Sendable, Equatable {
             outcome = nil
         case .reauthEnded:
             if phase == .reauthenticating { phase = .detecting }
+        case .reauthFailed(let message):
+            guard phase == .reauthenticating else { return }
+            phase = .idle
+            outcome = .failed(message)
         case .connectStarted:
             guard phase == .idle, canConnect else { return }
             phase = .connecting

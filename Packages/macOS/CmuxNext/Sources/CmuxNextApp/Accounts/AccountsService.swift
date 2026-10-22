@@ -124,16 +124,19 @@ final class AccountsService: AccountsServices {
         logger.info("removed a \(account.provider.rawValue, privacy: .public) account from CodeRouter")
     }
 
-    func reauthenticate(_ provider: AIProvider, plan: ReauthPlan) {
-        if let showcaseMock { showcaseMock.reauthenticate(provider, plan: plan); return }
-        plan.run(line: { runInTerminal($0) }, page: { openConsole($0) })
+    @discardableResult
+    func reauthenticate(_ provider: AIProvider, plan: ReauthPlan) -> Bool {
+        if let showcaseMock { return showcaseMock.reauthenticate(provider, plan: plan) }
+        var opened = false
+        plan.run(line: { opened = runInTerminal($0) }, page: { opened = openPage($0) })
+        return opened
     }
 
     func runClaudeSetupToken() { if let showcaseMock { showcaseMock.runClaudeSetupToken() } else { runInTerminal("claude setup-token") } }
 
     func openConsole(_ url: URL) {
         if let showcaseMock { showcaseMock.openConsole(url); return }
-        if !services.inFrontPane({ $0.newBrowserTab(url: url) }) { logger.info("no window for a browser tab") }
+        openPage(url)
     }
 
     func saveKey(_ key: String, for provider: AIProvider) throws {
@@ -146,8 +149,19 @@ final class AccountsService: AccountsServices {
 
     /// Types `line` and Return into a new terminal tab of the focused pane,
     /// so the provider's own login runs where the user can see and answer it.
-    private func runInTerminal(_ line: String) {
-        if !services.inFrontPane({ $0.newTerminalTab(typing: line + "\r") }) { logger.info("no window for a terminal tab") }
+    @discardableResult
+    private func runInTerminal(_ line: String) -> Bool {
+        let opened = services.inFrontPane { $0.newTerminalTab(typing: line + "\r") }
+        if !opened { logger.info("no local pane for a terminal tab") }
+        return opened
+    }
+
+    /// Opens `url` in a new browser tab of the main window's local pane.
+    @discardableResult
+    private func openPage(_ url: URL) -> Bool {
+        let opened = services.inFrontPane { $0.newBrowserTab(url: url) }
+        if !opened { logger.info("no local pane for a browser tab") }
+        return opened
     }
 }
 
