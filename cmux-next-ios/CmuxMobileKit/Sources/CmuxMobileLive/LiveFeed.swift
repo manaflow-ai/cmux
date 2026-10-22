@@ -37,6 +37,9 @@ public final class LiveFeed: FeedActions {
     /// Every open ask's kind, by Feed item id.
     private var askKinds: [String: WorkspaceTab.WaitingFor] = [:]
 
+    /// Whether `itemID` is an ask this feed put in the Feed (its Mac answers it).
+    func owns(_ itemID: String) -> Bool { askSessions[itemID] != nil }
+
     /// What each session with open asks waits for: a question wins over a permission.
     public var waitingFor: [String: WorkspaceTab.WaitingFor] {
         openAsks.compactMapValues { asks in

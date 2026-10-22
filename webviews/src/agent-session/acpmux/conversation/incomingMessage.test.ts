@@ -3,7 +3,7 @@
 // the prompt's text (an adopted Claude session's history, `client: "adopt"`). incomingMessage.ts
 // reads them.
 import { expect, test } from "bun:test";
-import { incomingPrompt, renderedReply } from "./incomingMessage";
+import { incomingPrompt, messagePreview, renderedReply } from "./incomingMessage";
 
 const adopted = { client: "adopt" };
 
@@ -121,6 +121,79 @@ test("a Claude Code cross-session message: sender, body, and the harness's note 
   expect(incomingPrompt('<cross-session-message from="x">hi', adopted)).toBeUndefined();
 });
 
+// As Claude Code delivers another session's message, or one from an agent of its own: a line
+// about it, the envelope, then its note to the agent.
+const NOTE = "\n\nThis came from another Claude session — not typed by your user.";
+
+test("Claude Code's line before an envelope is no part of the message", () => {
+  for (const preface of [
+    "Another Claude session sent a message:\n",
+    "Another Claude session sent a message while you were working:\n",
+  ]) {
+    const raw = `${preface}<cross-session-message from="uds:/tmp/a.sock" from-name="leoli-fb" from-mode="bypass">\nhi\n</cross-session-message>${NOTE}`;
+    expect(incomingPrompt(raw, adopted)).toEqual({ kind: "message", message: { name: "leoli-fb", text: "hi", raw } });
+  }
+  // The line by itself, or before anything but an envelope, is the person's prompt as it was.
+  expect(incomingPrompt("Another Claude session sent a message:\nhi", adopted)).toBeUndefined();
+  // A live prompt's envelope stays the person's text.
+  expect(
+    incomingPrompt('Another Claude session sent a message:\n<agent-message from="a1">hi</agent-message>', undefined),
+  ).toBeUndefined();
+});
+
+test("an agent of the session's own sends an <agent-message>, named by its id", () => {
+  const raw = `Another Claude session sent a message:\n<agent-message from="a3bf3d79ee22d1739">\n#23740 head moved.\n</agent-message>${NOTE}`;
+  expect(incomingPrompt(raw, adopted)).toEqual({
+    kind: "message",
+    message: { name: "a3bf3d79ee22d1739", text: "#23740 head moved.", raw },
+  });
+  // A subagent's hand-back is not an agent named "Subagent hand-back".
+  const handBack = '<agent-message from="a1">\n[Subagent hand-back] The text below is its report.\n</agent-message>';
+  expect(incomingPrompt(handBack, adopted)).toEqual({
+    kind: "message",
+    message: { name: "a1", text: "[Subagent hand-back] The text below is its report.", raw: handBack },
+  });
+  // Unclosed, it is not read as one.
+  expect(incomingPrompt('<agent-message from="a1">hi', adopted)).toBeUndefined();
+});
+
+test("an envelope's sender is the agent named first in brackets, else its name, else its address", () => {
+  const raw = `<cross-session-message from="uds:/tmp/a.sock" from-name="2026-10-20-gui-push-be">\n[coord-deputy] projects-ee: #23290 fixes a flake.\n</cross-session-message>`;
+  expect(incomingPrompt(raw, adopted)).toEqual({
+    kind: "message",
+    message: { name: "coord-deputy", text: "projects-ee: #23290 fixes a flake.", raw },
+  });
+  // Claude Desktop names the session with `name`; `from-name` comes first when both are there.
+  const desktop = (attributes: string) => {
+    const result = incomingPrompt(`<cross-session-message ${attributes}>hi</cross-session-message>`, adopted);
+    return result?.kind === "message" ? result.message.name : undefined;
+  };
+  expect(desktop('from="uds:/tmp/a.sock" name="Grid fix"')).toBe("Grid fix");
+  expect(desktop('name="Grid fix" from-name="leoli-fb"')).toBe("leoli-fb");
+  // A sentence or a tag in brackets is no agent: the envelope's sender stays, and so does the text.
+  for (const body of ["[see the failing test in the log] then fix it", "[WIP] grid fix pushed", "[1/3] part one"]) {
+    const result = incomingPrompt(
+      `<cross-session-message from-name="leoli-fb">${body}</cross-session-message>`,
+      adopted,
+    );
+    expect(result).toEqual({
+      kind: "message",
+      message: {
+        name: "leoli-fb",
+        text: body,
+        raw: `<cross-session-message from-name="leoli-fb">${body}</cross-session-message>`,
+      },
+    });
+  }
+  // Bookkeeping between Claude Code's line and the envelope is skipped too.
+  const reminded =
+    'Another Claude session sent a message:\n<system-reminder>r</system-reminder>\n<agent-message from="a1">hi</agent-message>';
+  expect(incomingPrompt(reminded, adopted)).toEqual({
+    kind: "message",
+    message: { name: "a1", text: "hi", raw: reminded },
+  });
+});
+
 test("a task notification is its summary; a reminder or caveat draws nothing", () => {
   const notification =
     "<task-notification>\n<task-id>b1</task-id>\n<status>completed</status>\n<summary>Build finished</summary>\n</task-notification>";
@@ -224,8 +297,45 @@ test("another session's prompt to this one is that session's message, and opens 
     kind: "message",
     message: { name: "app-store-features", sessionId: "lane-7", text: "PR #22761 merged.", raw: "PR #22761 merged." },
   });
-  // The same client with no provenance is the person (the acpmux TUI, or `acpmux send` at a shell).
+  // The same client with no provenance and no name first is the person (the acpmux TUI, or
+  // `acpmux send` at a shell).
   expect(incomingPrompt("PR #22761 merged.", { client: "acpmux-cli#a1b2c3" })).toBeUndefined();
+});
+
+test("`acpmux send` from a shell is the message of the agent named first in brackets", () => {
+  const sent = "[coord-deputy] Merged #1";
+  for (const client of ["acpmux-cli#a1b2c3", "acpmux-peer#huge-blue"]) {
+    expect(incomingPrompt(sent, { client })).toEqual({
+      kind: "message",
+      message: { name: "coord-deputy", text: "Merged #1", raw: sent },
+    });
+  }
+  // The body may start on the next line and run over several.
+  const long = "[claude-sr2/coordinator]\nTwo merged:\n- #1\n- #2\n";
+  expect(incomingPrompt(long, { client: "acpmux-cli#a1b2c3" })).toEqual({
+    kind: "message",
+    message: { name: "claude-sr2/coordinator", text: "Two merged:\n- #1\n- #2", raw: long },
+  });
+  // Another client's bracketed prompt is the person's.
+  expect(incomingPrompt(sent, undefined)).toBeUndefined();
+  expect(incomingPrompt(sent, { client: "web" })).toBeUndefined();
+  expect(incomingPrompt(sent, adopted)).toBeUndefined();
+  // Brackets that are no sender: Claude Code's interruption note, a sentence, cmux's own header,
+  // a name with nothing after it.
+  for (const text of [
+    "[Request interrupted by user for tool use]",
+    "[Request interrupted by user] carry on",
+    "[see the failing test in the log] then fix it",
+    "[cmux agent message] from lane-a\nhi",
+    "[coord-deputy]",
+  ])
+    expect(incomingPrompt(text, { client: "acpmux-cli#a1b2c3" })).toBeUndefined();
+  // Provenance, when the record has it, names the sender instead.
+  const provenance = { kind: "session_message", from: "lane-7", fromName: "app-store-features", to: "coordinator-1" };
+  expect(incomingPrompt(sent, { _meta: { provenance }, client: "acpmux-cli#a1b2c3" })).toEqual({
+    kind: "message",
+    message: { name: "app-store-features", sessionId: "lane-7", text: sent, raw: sent },
+  });
 });
 
 // Agent messages that waited for a busy chat go in as one turn (acpmux hub/digest.rs): the card
@@ -307,4 +417,12 @@ test("a reply in place reaches the sender's chat as the replying chat's message,
   expect(renderedReply({ from: "acp:parent", msgId: "m-2", replyTo: "m-1", text: "hi" }).split("\n")[0]).toBe(
     "[cmux agent message] from acp:parent",
   );
+});
+
+test("a message's closed line previews its first line of text, its spaces collapsed", () => {
+  expect(messagePreview("\n\n  More ready   risk:high heads\n- #23599 at f6f9432c")).toBe("More ready risk:high heads");
+  expect(messagePreview("")).toBe("");
+  expect(messagePreview("## **Merged** `#23727`")).toBe("Merged #23727");
+  expect(messagePreview("- [x] landed")).toBe("landed");
+  expect(messagePreview("x".repeat(400))).toHaveLength(240);
 });
