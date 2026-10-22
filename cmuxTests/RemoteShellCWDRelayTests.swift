@@ -89,6 +89,63 @@ struct GhosttyShellIntegrationTestResourcesTests {
 @Suite(.serialized)
 struct RemoteShellCWDRelayTests {
     @Test
+    func zshChpwdReportsLocalPWDImmediately() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-zsh-local-cwd-\(UUID().uuidString)")
+        let target = root.appendingPathComponent("project", isDirectory: true)
+        try fileManager.createDirectory(at: target, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let integration = repositoryRoot
+            .appendingPathComponent("Resources/shell-integration/cmux-zsh-integration.zsh")
+
+        let process = Process()
+        let standardOutput = Pipe()
+        let standardError = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = [
+            "-f",
+            "-c",
+            """
+            source '\(integration.path)'
+            _cmux_socket_is_unix() { return 0 }
+            _cmux_send_bg() { print -r -- "$@" }
+            cd '\(target.path)'
+            """,
+        ]
+        process.environment = [
+            "CMUX_PANEL_ID": "22222222-2222-2222-2222-222222222222",
+            "CMUX_SOCKET_PATH": "/tmp/cmux-local-cwd-test.sock",
+            "CMUX_TAB_ID": "11111111-1111-1111-1111-111111111111",
+            "HOME": root.path,
+            "PATH": "/usr/bin:/bin",
+        ]
+        process.standardOutput = standardOutput
+        process.standardError = standardError
+        try process.run()
+        process.waitUntilExit()
+
+        let output = String(
+            decoding: standardOutput.fileHandleForReading.readDataToEndOfFile(),
+            as: UTF8.self
+        )
+        let error = String(
+            decoding: standardError.fileHandleForReading.readDataToEndOfFile(),
+            as: UTF8.self
+        )
+        #expect(process.terminationStatus == 0, "\(error)\n\(output)")
+        #expect(output.contains(
+            "report_pwd \"\(target.path)\" "
+                + "--tab=11111111-1111-1111-1111-111111111111 "
+                + "--panel=22222222-2222-2222-2222-222222222222"
+        ), Comment(rawValue: output))
+    }
+
+    @Test
     func zshRelayPromptReportsRemotePWD() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
