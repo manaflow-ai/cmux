@@ -365,6 +365,17 @@ impl JournalPluginRuntime {
         lock.lock().unwrap_or_else(|error| error.into_inner()).exit_handler = handler;
     }
 
+    /// The running child's process group (the child leads its own), or
+    /// `None` while no child runs. The supervisor holds its lock from the
+    /// spawn until the child is recorded, so a connection the child makes
+    /// can never be checked before its group is known here.
+    #[cfg(unix)]
+    pub(crate) fn process_group(&self) -> Option<libc::pid_t> {
+        let (lock, _) = &*self.state;
+        let state = lock.lock().unwrap_or_else(|error| error.into_inner());
+        state.child.as_ref().map(|child| child.process_group_id).filter(|group| *group > 0)
+    }
+
     /// Starts supervision after the local socket has been bound. This ordering
     /// gives the plugin an authoritative socket path and avoids a startup race.
     pub fn start(&self, socket: PathBuf, session: String) {
