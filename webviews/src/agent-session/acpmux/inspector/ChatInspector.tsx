@@ -676,7 +676,7 @@ export function ChatInspector({
             </>
           }
         >
-          <ContextSection usage={usage} percent={percent} />
+          <ContextSection usage={usage} percent={percent} breakdown={summary?.contextBreakdown} />
         </InspectorSection>
       )}
       {mcp.length > 0 && (

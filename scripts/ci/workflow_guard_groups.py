@@ -159,6 +159,8 @@ PATH_OWNERS = {
     "scripts/ci/product_input_identity.py": frozenset(("preflight",)),
     "scripts/ci/ci_health_report.py": frozenset(("ci",)),
     "scripts/ci/queue_janitor.py": frozenset(("ci",)),
+    # test_ci_starved_labels.py (ci) loads it by path; queue_janitor.py imports it.
+    "scripts/ci/starved_labels.py": frozenset(("ci",)),
     "scripts/ci/required_status_checks.py": frozenset(("ci",)),
     "scripts/ci/relocate_package_framework_rpaths.py": frozenset(("preflight",)),
     "scripts/ci/restore-app-host-test-product.sh": frozenset(("preflight",)),
