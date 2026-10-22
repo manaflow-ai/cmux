@@ -268,6 +268,7 @@ import {
   openReportedImage,
   setMessageMenuSource,
 } from "./conversation/messageMenu";
+import { actOnReportedImage } from "./conversation/imageMenuActions";
 import { callChipHost } from "./chips/host";
 import { pullRequestRef } from "./chips/PullRequestCard";
 import { RenderToolCard, canRender } from "./conversation/RenderCard";
@@ -6148,6 +6149,11 @@ function AcpmuxPane() {
           },
           // The native context menu's Open Image: the image the page reported under the pointer.
           "chat.menu.openImage": async () => openReportedImage(),
+          // Its Copy Image, Save Image As…, Quick Look and Show in Finder: the reported image to the host.
+          "chat.menu.copyImage": () => actOnReportedImage("image.copy"),
+          "chat.menu.saveImage": () => actOnReportedImage("image.save"),
+          "chat.menu.quickLookImage": () => actOnReportedImage("image.quickLook"),
+          "chat.menu.revealImage": () => actOnReportedImage("image.reveal"),
           // Its Open on a path: the path chip's open, which the host checks again (link.openPath).
           "chat.menu.openPath": ({ path }) => callChipHost("link.openPath", { path: String(path ?? "") }),
           // A fork and a started Continue In… open in a tab of their own, so the chat keeps its tab
