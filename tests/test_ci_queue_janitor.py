@@ -1320,18 +1320,22 @@ class StarvedLabelSnapshotTests(unittest.TestCase):
         self.assertEqual(snapshot["starved"], [])
         self.assertEqual(snapshot["unserved"], [])
 
-    def test_an_older_completed_run_that_started_the_label_recently_serves_it(self):
+    def test_an_older_completed_run_that_started_the_label_recently_serves_it(self, conclusion="success"):
         run = make_run(path=".github/workflows/cmux-next.yml", name="cmux-next", branch="lane/x")
         run["pull_requests"] = [{"number": 7, "base": {"ref": self.NEXT}}]
         done = make_run(path=".github/workflows/cmux-next.yml", name="cmux-next", branch="lane/y",
                         status="completed", age=90)
-        done.update(conclusion="success", updated_at=iso(1))
-        started = {"status": "completed", "conclusion": "success", "name": "cmux-next app compile (build fleet)",
+        done.update(conclusion=conclusion, updated_at=iso(1))
+        started = {"status": "completed", "conclusion": conclusion, "name": "cmux-next app compile (build fleet)",
                    "labels": [self.FLEET], "created_at": iso(90), "started_at": iso(5), "completed_at": iso(1),
                    "runner_name": "mini-3"}
         snapshot, _ = self.snapshot([run], {run["id"]: [self.compile_job()], done["id"]: [started]},
                                     completed={"cmux-next.yml": [done]})
         self.assertEqual(snapshot["starved"], [])
+
+    def test_a_cancelled_run_that_started_the_label_recently_serves_it(self):
+        # A run cancelled after its fleet job started still proves a listener took the job.
+        self.test_an_older_completed_run_that_started_the_label_recently_serves_it(conclusion="cancelled")
 
     def test_a_main_run_of_a_linux_only_workflow_is_still_not_listed(self):
         into_main = make_run(path=".github/workflows/cmux-next.yml", name="cmux-next", branch="lane/x")
