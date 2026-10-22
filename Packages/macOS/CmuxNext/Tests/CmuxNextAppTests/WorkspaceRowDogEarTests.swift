@@ -6,11 +6,12 @@ import Testing
 /// Leo 2026-10-21 (nightly 3a63d6d): the row's x sat in its own rounded box that dented the row's
 /// corner, and the pills stopped short of the sidebar's edge. "Bring back the length (so we can
 /// have more content per sidebar row) and just do it like dog ears on a book on the top right."
-/// A workspace row runs to the list's inset again, and its hover action is a dog-ear folded over
-/// its top-right corner: the close on a row that can close, the menu on one that cannot (Home).
-/// The title keeps the row's full width with or without hover, and the row keeps its one corner
-/// radius with no mask or box cut into it.
-@MainActor
+/// A workspace row runs to the list's inset again, and its hover action sits on its top-right corner:
+/// the close on a row that can close, the menu on one that cannot (Home). The title keeps the row's
+/// full width with or without hover. Leo 2026-10-22 on the folded dog-ear that drew there: "i wanted
+/// the hoverable area to just... not have it on the top right corner"; the row's fill now leaves the
+/// close's small corner out, with no mask on the row.
+@MainActor @Suite(.serialized)
 struct WorkspaceRowDogEarTests {
     private static let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
     private static let longName = "a workspace whose name runs all the way to the end of its row and past it"
@@ -59,87 +60,102 @@ struct WorkspaceRowDogEarTests {
         #expect(row.title.trailingOcclusion == 0, "a hover control covers \(row.title.trailingOcclusion) pt of the title's end")
     }
 
-    @Test func aClosableRowsDogEarClosesFromTheTopRightCorner() throws {
+    @Test func aClosableRowsCloseSitsInTheTopRightCornerAndCloses() throws {
         let ws = SidebarWorkspace(id: WorkspaceID("ws-close"), title: Self.longName)
         let (list, row) = try Self.row(ws)
-        #expect(row.closeButton.isHidden || row.closeButton.alphaValue == 0, "the dog-ear shows before hover")
+        #expect(row.closeButton.isHidden || row.closeButton.alphaValue == 0, "the close shows before hover")
 
         Self.hover(list, row, ws.id)
         let ear = row.closeButton
-        #expect(!ear.isHidden && ear.alphaValue == 1, "hover shows no dog-ear")
-        #expect(row.moreButton.isHidden, "a closable row shows the menu too; its dog-ear is the close")
-        #expect(abs(ear.frame.maxX - row.bounds.maxX) < 0.5 && abs(ear.frame.minY - row.bounds.minY) < 0.5,
-                "the dog-ear \(ear.frame) is not on the row's top-right corner \(row.bounds)")
-        #expect(abs(ear.frame.width - SidebarStyle.dogEarSide) < 0.5 && abs(ear.frame.height - SidebarStyle.dogEarSide) < 0.5)
+        #expect(!ear.isHidden && ear.alphaValue == 1, "hover shows no close")
+        #expect(row.moreButton.isHidden, "a closable row shows the menu too")
+        let side = SidebarCloseNotch.snug.side(dogEar: SidebarStyle.dogEarSide)
+        #expect(ear.frame == NSRect(x: row.bounds.maxX - side, y: row.bounds.minY, width: side, height: side),
+                "the close \(ear.frame) is not the row's top-right \(side) pt corner \(row.bounds)")
+        #expect(side < SidebarStyle.dogEarSide, "the cut is no smaller than the old dog-ear")
         #expect(ear.accessibilityIdentifier() == "cmux.sidebar.workspace.ws-close.close")
         #expect(ear.accessibilityLabel() == Strings.closeButton)
         #expect(ear.isAccessibilityElement())
 
-        // The fold takes the click; the rest of its square is the row's, so a click on the
-        // title's end never closes the workspace.
-        let side = SidebarStyle.dogEarSide
-        #expect(Self.hit(row, at: NSPoint(x: ear.frame.maxX - side * 0.2, y: ear.frame.minY + side * 0.2)) === ear,
-                "a click inside the fold misses it")
-        #expect(Self.hit(row, at: NSPoint(x: ear.frame.minX + side * 0.2, y: ear.frame.maxY - side * 0.2)) !== ear,
-                "a click below the fold's crease closes the workspace")
+        // The corner takes the click; next to it (left of it or below it) the click is the row's.
+        #expect(Self.hit(row, at: NSPoint(x: ear.frame.midX, y: ear.frame.midY)) === ear, "a click in the corner misses the close")
+        #expect(Self.hit(row, at: NSPoint(x: ear.frame.minX - 2, y: ear.frame.midY)) !== ear, "a click left of the corner closes")
+        #expect(Self.hit(row, at: NSPoint(x: ear.frame.midX, y: ear.frame.maxY + 2)) !== ear, "a click below the corner closes")
 
         var closed = false
         row.onClose = { closed = true }
         #expect(ear.accessibilityPerformPress())
-        #expect(closed, "pressing the dog-ear did not close the workspace")
+        #expect(closed, "pressing the close did not close the workspace")
     }
 
-    /// A press on the fold fires only when it is released on the fold: dragged below the crease (still
-    /// inside the dog-ear's square) and released there, it does nothing. NSButton's own tracking fired
-    /// on a release anywhere in its square.
-    @Test func aPressDraggedOffTheFoldDoesNotClose() throws {
-        let ws = SidebarWorkspace(id: WorkspaceID("ws-drag-off"), title: Self.longName)
+    /// Leo 2026-10-22: "a smaller top right corner not higlighitng bc the button itself chopped off that
+    /// top right". The hover fill covers the row but the close's corner; at rest the row fills whole.
+    @Test func theHoverFillLeavesTheClosesCornerOut() throws {
+        let ws = SidebarWorkspace(id: WorkspaceID("ws-cut"), title: Self.longName)
         let (list, row) = try Self.row(ws)
         Self.hover(list, row, ws.id)
-        let ear = row.closeButton
-        var closes = 0
-        row.onClose = { closes += 1 }
-        let side = ear.bounds.width
-        let onFold = NSPoint(x: side * 0.8, y: side * 0.2), offFold = NSPoint(x: side * 0.2, y: side * 0.8)
-        #expect(ear.foldContains(onFold) && !ear.foldContains(offFold))
-        func event(_ type: NSEvent.EventType, _ point: NSPoint) throws -> NSEvent {
-            try #require(NSEvent.mouseEvent(with: type, location: ear.convert(point, to: nil), modifierFlags: [],
-                                            timestamp: 0, windowNumber: 0, context: nil, eventNumber: 0,
-                                            clickCount: 1, pressure: 1))
-        }
+        row.updateLayer()
+        let layer = try #require(row.layer)
+        #expect(layer.mask == nil, "something masks the row, and so its close")
+        #expect(layer.backgroundColor == nil || layer.backgroundColor?.alpha == 0, "the backing layer still fills the whole row")
+        let fill = try #require(Self.shapedFill(row), "the hovered row draws no shaped fill")
+        let path = try #require(fill.path)
+        let ear = row.closeButton.frame
+        #expect(!path.contains(CGPoint(x: ear.midX, y: ear.midY)), "the fill covers the close's corner")
+        #expect(!path.contains(CGPoint(x: ear.minX + 1, y: ear.maxY - 1)), "the fill covers the cut's inner corner")
+        #expect(path.contains(CGPoint(x: ear.minX - 3, y: 1)), "the fill stops short of the cut along the top")
+        #expect(path.contains(CGPoint(x: ear.maxX - 1, y: ear.maxY + 3)), "the fill stops short of the cut on the right")
+        #expect(path.contains(CGPoint(x: row.bounds.midX, y: row.bounds.midY)))
+        #expect(fill.cornerRadius == layer.cornerRadius && fill.masksToBounds, "the fill loses the row's corners")
+        #expect(fill.fillColor != nil && (fill.fillColor?.alpha ?? 1) < 1, "the hover fill is opaque")
 
-        ear.mouseDown(with: try event(.leftMouseDown, onFold))
-        ear.mouseDragged(with: try event(.leftMouseDragged, offFold))
-        ear.mouseUp(with: try event(.leftMouseUp, offFold))
-        #expect(closes == 0, "a press on the fold released below its crease closed the workspace")
-
-        ear.mouseDown(with: try event(.leftMouseDown, onFold))
-        ear.mouseDragged(with: try event(.leftMouseDragged, offFold))
-        ear.mouseDragged(with: try event(.leftMouseDragged, onFold))
-        ear.mouseUp(with: try event(.leftMouseUp, onFold))
-        #expect(closes == 1, "a click on the fold did not close the workspace")
-
-        ear.mouseDown(with: try event(.leftMouseDown, onFold))
-        ear.isEnabled = false
-        ear.mouseUp(with: try event(.leftMouseUp, onFold))
-        ear.isEnabled = true
-        #expect(closes == 1, "a dog-ear disabled while pressed closed the workspace on release")
-        ear.mouseDown(with: try event(.leftMouseDown, onFold))
-        ear.mouseUp(with: try event(.leftMouseUp, onFold))
-        #expect(closes == 2, "a press disabled mid-click stuck: the next click on the fold did not close")
+        list.setHovered(nil)
+        row.layoutSubtreeIfNeeded()
+        row.updateLayer()
+        #expect(Self.shapedFill(row) == nil, "the cut stays after hover")
     }
 
-    /// A control the row shows under the dog-ear's square (on a 24 pt row the tabs chevron, the
-    /// session tree's fold or the audio button at the row's end sits partly under the fold) keeps its
-    /// clicks and draws over the fold, so a click on it never closes the workspace.
+    /// Every Debug Settings look (`sidebar.closeNotch`, the gallery's versions) cuts its own corner and
+    /// keeps the x where it is.
+    @Test(arguments: SidebarCloseNotch.allCases)
+    func everyCutLookKeepsTheGlyphInPlace(_ look: SidebarCloseNotch) throws {
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register(SidebarTunables.all)
+        defer { TunableStore.shared.set(SidebarCloseNotch.tunable.key, nil) }
+        try #require(TunableStore.shared.set(SidebarCloseNotch.tunable.key, look.tunableValue) == look.tunableValue)
+        let ws = SidebarWorkspace(id: WorkspaceID("ws-\(look.rawValue)"), title: Self.longName)
+        let (list, row) = try Self.row(ws)
+        Self.hover(list, row, ws.id)
+        row.updateLayer()
+        let ear = row.closeButton
+        let side = look.side(dogEar: SidebarStyle.dogEarSide)
+        #expect(ear.frame.size == NSSize(width: side, height: side))
+        let glyph = ear.convert(ear.glyphRect, to: row)
+        let at = SidebarStyle.dogEarSide * 0.3
+        #expect(abs(glyph.midX - (row.bounds.maxX - at)) < 0.5 && abs(glyph.midY - at) < 0.5, "\(look): the x moved to \(glyph)")
+        let fill = try #require(Self.shapedFill(row))
+        let edge = (fill.sublayers?.first as? CAShapeLayer)?.path
+        #expect((edge != nil) == (look == .hairline), "\(look): hairline \(edge != nil)")
+        let path = try #require(fill.path)
+        // A square cut fills up to its corner; a rounded one leaves the corner's curve clear.
+        #expect(path.contains(CGPoint(x: ear.frame.minX - 0.5, y: 0.5)) == (look == .square))
+    }
+
+    /// The row's shaped fill while it shows.
+    private static func shapedFill(_ row: WorkspaceRowView) -> CAShapeLayer? {
+        row.layer?.sublayers?.compactMap { $0 as? CAShapeLayer }.first { !$0.isHidden }
+    }
+
+    /// A control the row shows under the close's corner (on a 24 pt row the tabs chevron, the session
+    /// tree's fold or the audio button at the row's end sits partly under it) keeps its clicks and
+    /// draws over the close, so a click on it never closes the workspace.
     @Test func aControlUnderTheDogEarKeepsItsClicksAndDrawsOverIt() throws {
         let ws = SidebarWorkspace(id: WorkspaceID("ws-under"), title: Self.longName)
         let (list, row) = try Self.row(ws)
         Self.hover(list, row, ws.id)
         let ear = row.closeButton
-        let side = SidebarStyle.dogEarSide
-        let point = NSPoint(x: ear.frame.maxX - side * 0.3, y: ear.frame.minY + side * 0.4)
-        #expect(Self.hit(row, at: point) === ear, "a click on the fold misses it")
+        let point = NSPoint(x: ear.frame.midX, y: ear.frame.midY)
+        #expect(Self.hit(row, at: point) === ear, "a click on the close misses it")
         for control in [row.disclosureButton, row.treeFoldButton, row.audioButton] {
             control.isHidden = false
             control.alphaValue = 1
@@ -194,33 +210,5 @@ struct WorkspaceRowDogEarTests {
                 "the pin \(row.pinButton.frame) covers the unread badge \(row.badge.frame)")
         #expect(!row.pinButton.frame.intersects(row.closeButton.frame),
                 "the pin \(row.pinButton.frame) runs under the dog-ear \(row.closeButton.frame)")
-    }
-
-    @Test func theRowKeepsOneCornerRadiusAndTheDogEarFollowsIt() throws {
-        let ws = SidebarWorkspace(id: WorkspaceID("ws-corner"), title: Self.longName)
-        let (list, row) = try Self.row(ws)
-        Self.hover(list, row, ws.id)
-        let layer = try #require(row.layer)
-        #expect(layer.mask == nil, "something masks the row's shape")
-        #expect(layer.cornerRadius == SidebarStyle.rowCornerRadius)
-        #expect(layer.maskedCorners == [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner])
-        let ear = row.closeButton
-        // No box of its own: the old x painted a rounded hover fill that dented the row's corner.
-        #expect(ear.layer?.backgroundColor == nil && (ear.layer?.cornerRadius ?? 0) == 0)
-        #expect(ear.cornerRadius == SidebarStyle.rowCornerRadius)
-
-        // Drawn: the fold fills the triangle, leaves the row's rounded corner and the square's
-        // lower-left half clear.
-        ear.isPointerOnFold = true
-        let rep = try #require(ear.bitmapImageRepForCachingDisplay(in: ear.bounds))
-        ear.cacheDisplay(in: ear.bounds, to: rep)
-        let scale = CGFloat(rep.pixelsWide) / ear.bounds.width
-        func alpha(_ x: CGFloat, _ y: CGFloat) -> CGFloat {
-            rep.colorAt(x: Int(x * scale), y: Int(y * scale))?.alphaComponent ?? 0
-        }
-        let side = ear.bounds.width
-        #expect(alpha(side * 0.55, side * 0.08) > 0, "the fold draws nothing along the row's top edge")
-        #expect(alpha(side * 0.1, side * 0.9) == 0, "the fold fills its square's lower-left half")
-        #expect(alpha(side - 0.5, 0.5) == 0, "the fold squares off the row's rounded corner")
     }
 }

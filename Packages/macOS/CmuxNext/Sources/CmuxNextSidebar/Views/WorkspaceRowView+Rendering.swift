@@ -39,7 +39,7 @@ extension WorkspaceRowView {
             title.stopMarquee()
             return
         }
-        // The dog-ear draws over the row's corner, not the title, so the
+        // The close draws in the row's corner, not over the title, so the
         // title keeps its width; a clipped title scrolls. Under Reduce
         // Motion no marquee runs: the workspace hover card shows the whole
         // name (wrapped), so no second popover (a tooltip) shows with it.
@@ -72,7 +72,8 @@ extension WorkspaceRowView {
             // Fills only, no borders: drop target, selection, multi-selection or on screen, hover.
             let fill = isDropTarget || isSelected ? Palette.selectionFill : isSecondarySelected || isOnScreen ? Palette.secondarySelectionFill
                 : isHovered && !isPlaceholderRow && DesignSettings.shared.showsHoverFills ? Palette.hoverFill : nil
-            paintFill(fill)
+            let notched = fill == nil ? nil : notchedFill
+            paintFill(fill, shape: notched?.shape, edge: notched?.edge)
             (rowBadge.ringColor, rowBadge.chipColor) = (Self.badgeBackdrop(fill), Palette.sidebarStep.cgColor)
             // The sidebar's own tonal step, once more: a bar a step apart.
             placeholderBar.layer?.backgroundColor = Palette.sidebarStep.cgColor
@@ -136,10 +137,10 @@ extension WorkspaceRowView {
         trailing = layoutTreeFold(trailing: trailing, cy: cy, control: control, fades: fades)
         trailing = layoutRollUp(trailing: trailing, cy: cy)
         trailing = layoutPullRequests(trailing: trailing, cy: cy)
-        // Leo 2026-10-21: the hover action is a dog-ear folded over the row's top-right corner, the
-        // close on a row that can close, else the menu. It reshapes nothing and takes nothing from
-        // the text: the title keeps the row's full width at rest and on hover, and the unread
-        // badge and keycap keep their slots (`layoutDogEar`).
+        // Leo 2026-10-21: the hover action sits on the row's top-right corner, the close on a row
+        // that can close, else the menu; the row's fill leaves that corner out (Leo 2026-10-22). It
+        // takes nothing from the text: the title keeps the row's full width at rest and on hover,
+        // and the unread badge and keycap keep their slots (`layoutDogEar`).
         let showClose = isHovered && !isShowingPlaceholder && isClosable
         let showMore = !isPlaceholderRow && onMore != nil && isHovered && !renaming
         layoutDogEar(full: full, showClose: showClose, showMenu: showMore && !showClose, fades: fades)

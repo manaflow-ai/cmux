@@ -11,8 +11,8 @@ enum SidebarStyle {
     /// the length, so we can have more content per sidebar row"). Pinned rows and list blocks
     /// read it too, so every row still ends at one x.
     static var rowTrailingTrim: CGFloat { 0 }
-    /// A workspace row's hover dog-ear (`SidebarDogEarButton`): the square its fold fills half of,
-    /// on the row's top-right corner.
+    /// A workspace row's hover close (`SidebarDogEarButton`): the square on the row's top-right
+    /// corner its glyph is placed in; the cut in the row's fill is this or smaller (`SidebarCloseNotch`).
     static var dogEarSide: CGFloat { controlSize + Metrics.space1 }
     static var rowCornerRadius: CGFloat { SidebarDensityTokens.rowCornerRadius }
     /// A listed tab's icon, sized to its caption-size title.

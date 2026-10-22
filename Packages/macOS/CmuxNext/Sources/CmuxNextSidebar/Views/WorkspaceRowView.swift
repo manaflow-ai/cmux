@@ -38,13 +38,15 @@ final class WorkspaceRowView: SidebarRowView {
     /// are muted. A click mutes or unmutes them (`onToggleAudio`).
     let audioButton = SidebarIconButton(icon: .browserTabAudio, pointSize: { Metrics.smallIconSize - Metrics.space2 }, label: Strings.muteTabs)
     internal(set) var audio: SidebarWorkspaceAudio?
-    /// The hover close: a dog-ear on the row's top-right corner (Leo 2026-10-21), over the corner,
-    /// taking nothing from the text.
+    /// The hover close: on the row's top-right corner (Leo 2026-10-21), in the cut its fill leaves
+    /// out there (Leo 2026-10-22), taking nothing from the text.
     let closeButton = SidebarDogEarButton(icon: .actionClose, label: Strings.closeButton)
     /// The row's menu (cx-a9h6, ChatGPT project style): the right-click menu, opened under the
     /// corner. On hover, the dog-ear of a row that cannot close (Home); a closable row's dog-ear
     /// is its close, and its menu stays on right-click and VoiceOver's custom action.
     let moreButton = SidebarDogEarButton(icon: OverflowButton.glyph, label: Strings.workspaceMenu)
+    /// The corner cut out of the row's fill while the close or the menu shows there; nil otherwise.
+    var closeNotch: SidebarCloseNotch?
     /// An expanded row's Pin or Unpin (cx-13w3), on hover at the end of the name's line.
     let pinButton = SidebarIconButton(icon: .actionPin, pointSize: { Metrics.smallIconSize - Metrics.space2 }, label: Strings.pinWorkspace)
     /// `sidebar.showWorkspaceTabs`: hides or lists the workspace's tabs. Always drawn
@@ -192,6 +194,7 @@ final class WorkspaceRowView: SidebarRowView {
         isSecondarySelected = false
         isOnScreen = false
         isDropTarget = false
+        closeNotch = nil
         onClose = nil
         onMore = nil
         (onPin, isPinned) = (nil, nil)
