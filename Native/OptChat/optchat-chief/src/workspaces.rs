@@ -1158,3 +1158,9 @@ fn rename_by_key(daemon: &Path, key: &str, name: &str) -> Result<(), String> {
     client.close();
     result
 }
+
+/// Moves every workspace on the Chief's owner daemon `owner` into the user's session, the
+/// app's daemon `app`; answers how many moved. Not yet implemented.
+pub fn adopt_owner_workspaces(_owner: &Path, _app: &Path) -> Result<usize, String> {
+    Ok(0)
+}
