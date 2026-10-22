@@ -3,6 +3,7 @@
 //! read shape is `Screen.columns[].rows` (screen_json.rs).
 
 use super::*;
+use crate::panic_free::JsonFields;
 
 /// `new-row`: one new terminal in a new pane, in a new row of
 /// `height_permille` below the row of `pane`.
@@ -60,9 +61,9 @@ pub(super) fn new_row(mux: &Arc<Mux>, client: u64, params: NewRowParams) -> anyh
         transaction.clone(),
     )?;
     let mut result = placed_terminal_result(mux, &surface, keep)?;
-    result["pane"] = json!(mux.with_state(|state| state.pane_of(surface.id)));
+    result.insert("pane", json!(mux.with_state(|state| state.pane_of(surface.id))));
     if let Some(transaction) = transaction {
-        result["transaction"] = json!(transaction);
+        result.insert("transaction", json!(transaction));
     }
     Ok(result)
 }
@@ -97,7 +98,7 @@ pub(super) fn set_row_heights(
     let mut data =
         json!({"screen": outcome.screen, "column": outcome.column, "changed": outcome.changed});
     if let Some(transaction) = transaction {
-        data["transaction"] = json!(transaction);
+        data.insert("transaction", json!(transaction));
     }
     Ok(data)
 }
@@ -108,7 +109,7 @@ pub(super) fn set_row_heights(
 pub(super) fn viewport_width_result(mux: &Arc<Mux>, pane: PaneId) -> anyhow::Result<Value> {
     let width = mux.with_state(|state| {
         let (workspace, screen) = state.screen_of(pane)?;
-        let screen = &state.workspaces[workspace].screens[screen];
+        let screen = state.workspaces.get(workspace)?.screens.get(screen)?;
         let column = screen.layout_columns.iter().find(|column| column.root.contains(pane))?;
         Some(column.width)
     });
