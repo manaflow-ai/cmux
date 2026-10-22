@@ -33,7 +33,7 @@ public final class HomeSubagentLinks: @unchecked Sendable {
         let kept = new.reduce(into: [String: String]()) { out, entry in
             let id = entry.key.lowercased()
             guard Self.isID(id), let url = URL(string: entry.value), url.isChiefSubagentLink else { return }
-            out[id] = entry.value
+            out.updateValue(entry.value, forKey: id)
         }
         let changed: Bool = lock.withLock {
             guard kept != links else { return false }
