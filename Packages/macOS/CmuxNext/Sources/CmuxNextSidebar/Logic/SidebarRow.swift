@@ -11,6 +11,8 @@ public nonisolated enum SidebarRowKey: Hashable, Sendable {
     case tab(WorkspaceID, TabID)
     /// Drop zone shown for an empty section while dragging (pinned area).
     case emptySection(SectionID)
+    /// The quiet row under an open group with no members (`SidebarLayout+EmptyGroup`): a drop over it goes into the group.
+    case emptyGroup(GroupID)
     /// Group by Folder's header over one folder's loose rows ("" = none).
     case folder(SectionID, String)
     /// Group by Status's header over one status section's rows (`SidebarLayout+Status`).
