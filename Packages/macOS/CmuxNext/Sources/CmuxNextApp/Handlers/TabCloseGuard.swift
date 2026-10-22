@@ -69,17 +69,9 @@ enum TabCloseGuard {
     /// pane has tabs (``LinkOpener/returnPane(closing:in:emptiesPane:)``); only the close of a
     /// pane's last tab moves it to another pane. The presses that follow that one quickly are
     /// the same burst of closing, not a close in the pane the focus landed in: they close
-    /// nothing (``EmptiedPaneCloseRun``).
-    static var emptiedPaneRun = EmptiedPaneCloseRun()
-
-    /// How close a press must follow the one before it to belong to ``emptiedPaneRun``: the
-    /// system's double-click interval, the person's own setting for quick repeats (a test
-    /// lengthens it so its waits on a loaded host still fit).
-    static var quickPressWindow: () -> TimeInterval = { NSEvent.doubleClickInterval }
-
-    /// Whether a person's Cmd-W at `now` (seconds of uptime) belongs to the run of ``emptiedPaneRun``.
-    static func swallowsCmdW(at now: TimeInterval) -> Bool {
-        emptiedPaneRun.swallows(at: now, window: quickPressWindow())
+    /// nothing (``EmptiedPaneCloseRun``, kept per app in ``AppServices/emptiedPaneCloseRun``).
+    static func swallowsCmdW(_ services: AppServices, at now: TimeInterval) -> Bool {
+        services.emptiedPaneCloseRun.swallows(at: now, window: services.quickPressWindow())
     }
 
     /// Whether closing `closing` leaves `pane` with no tab (tabs whose close is still asking count as closed).
@@ -154,10 +146,10 @@ enum TabCloseGuard {
 }
 
 /// Pure: the rule for a person's Cmd-W right after one that closed its pane's last tab
-/// (``TabCloseGuard/emptiedPaneRun``). That close removes the pane and the focus lands in
+/// (``TabCloseGuard/swallowsCmdW(_:at:)``). That close removes the pane and the focus lands in
 /// another one, so the next quick press would close a tab the person never looked at (Leo's
 /// agent chat). The run starts at that close; each press that comes within `window` of the
-/// press before it (the system's double-click interval: quick presses and held-key repeats
+/// press before it (``AppServices/quickPressWindow``: quick presses and held-key repeats
 /// both fit) closes nothing and keeps the run going. The first press after a longer pause
 /// ends the run and closes as usual.
 struct EmptiedPaneCloseRun: Equatable {

@@ -25,9 +25,7 @@ struct CloseTabKeepsPaneTests {
     @Test func cmdWClosesTheBrowserPanesTabsAndNeverTheAgentChat() async throws {
         try await PinnedPageTests.withApp { services, connection in
             // The presses wait on the daemon between them; a loaded host must not end the run early.
-            let window = TabCloseGuard.quickPressWindow
-            TabCloseGuard.quickPressWindow = { 60 }
-            defer { TabCloseGuard.quickPressWindow = window }
+            services.quickPressWindow = { 60 }
             let store = services.daemon.store
             let content = try #require(services.windows.active?.workspaceContent)
             let model = try #require(store.workspaces.first?.screens.first?.panes.first)
