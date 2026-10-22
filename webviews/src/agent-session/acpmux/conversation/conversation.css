@@ -3464,7 +3464,7 @@ button.cv-received__name:focus-visible {
 }
 .cv-received__replied {
   display: block;
-  margin: 0 0 6px 13px;
+  margin: 0 0 6px 22px;
 }
 /* Its Reply sits after the chevron, inside the line's padding, and shows while the line is hovered or holds the focus, so the
    line reads as before. */

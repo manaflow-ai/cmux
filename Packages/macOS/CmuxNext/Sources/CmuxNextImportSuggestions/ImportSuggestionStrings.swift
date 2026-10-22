@@ -132,7 +132,7 @@ public nonisolated struct ImportSuggestionStrings: Sendable {
         String(localized: "importSuggestions.count.cookies", defaultValue: "\(count) cookies", table: "ImportSuggestions", bundle: .module)
     }
 
-    // MARK: Refusals and the Home strip
+    // MARK: Refusals and the Home row
 
     public static func noSuchCard(_ id: String) -> String {
         String(localized: "importSuggestions.refusal.noSuchCard", defaultValue: "No import card \(id).", table: "ImportSuggestions", bundle: .module)
