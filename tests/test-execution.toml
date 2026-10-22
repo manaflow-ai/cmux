@@ -313,6 +313,10 @@ path = "tests/test_ci_queue_janitor.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_starved_labels.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_repo_variable_defaults.py"
 lane = "linux-guard"
 
@@ -1442,6 +1446,10 @@ path = "tests/test_defaults_guard.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_generated_files_guard.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_signed_unnotarized_artifact.py"
 lane = "linux-guard"
 
@@ -1607,6 +1615,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_next_canary_mode.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_visual_smoke.py"
 lane = "linux-guard"
 
 [[test]]
