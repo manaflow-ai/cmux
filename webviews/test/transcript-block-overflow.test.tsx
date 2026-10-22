@@ -386,7 +386,9 @@ test("a token streamed into one block of a long transcript measures that block o
     transcript.append(body);
     bodies.push(body);
   }
-  const diff = document.createElement("diffs-container");
+  // A custom element of its own: the earlier tests' Pierre defines `diffs-container`, which makes
+  // its own shadow root.
+  const diff = document.createElement("cmux-test-diff");
   bodies[3]!.append(diff);
   const code = document.createElement("div");
   code.setAttribute("data-code", "");
