@@ -148,8 +148,7 @@ async fn a_steer_sent_now_never_stops_a_running_subagent_or_background_shell() {
         let t = Translator::new("acp-1".into(), "default", "haiku", "default");
         turn_with(&t, work.clone()).await;
         let meta = json!({"steer": true, "steerNow": true});
-        let Outbound::Lines(written) = t.outbound(&prompt(2, "reply PINEAPPLE", meta)).await
-        else {
+        let Outbound::Lines(written) = t.outbound(&prompt(2, "reply PINEAPPLE", meta)).await else {
             panic!()
         };
         assert!(!written.iter().any(is_interrupt), "{work}: {written:?}");
