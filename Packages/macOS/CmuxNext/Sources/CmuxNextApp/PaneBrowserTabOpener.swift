@@ -106,7 +106,13 @@ struct PaneBrowserTabOpener {
             let pageRequests = services.cache.pageRequests
             let newTabAddress = services.newTabAddress(for: choice)
             let controller = controller, model = controller.pane
-            let intent = background ? nil : controller.workspace?.beginFocusIntent()
+            // Home's pinned dock takes dragged tabs (`allow_tabs`, Leo 2026-10-21) but opens nothing in
+            // itself: a new browser tab aimed at it (History, Bookmarks, a URL from another app, Split
+            // Browser) is made there and moves to a column on its right, as the daemon reroutes it for
+            // a dock closed to tabs. A caller that waits for the tab (`then`) places it itself.
+            let beside = child == nil && then == nil && controller.isOpenPinnedDockPane
+            let linkOpener = services.linkOpener
+            let intent = background || beside ? nil : controller.workspace?.beginFocusIntent()
             services.registry.track(Task {
                 do {
                     // A new tab the user asked for opens the New Tab page; an
@@ -117,6 +123,10 @@ struct PaneBrowserTabOpener {
                         try await browserTabs.open(choice, in: model, url: address, profile: profile, notice: notice, after: after)
                     }
                     if let child { pageRequests.adopt(child, surface: surface) }
+                    if beside {
+                        linkOpener.moveBeside(surface, from: controller, focus: !background, target: url == nil ? .addressBar : .content)
+                        return nil
+                    }
                     then?(surface)
                     guard !background else { return nil }
                     controller.selectWhenReported(surface: surface)

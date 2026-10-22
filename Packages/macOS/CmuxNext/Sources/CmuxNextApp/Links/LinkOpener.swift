@@ -4,6 +4,7 @@ import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextFocus
 import CmuxNextLayout
 import CmuxNextSettings
 import CmuxNextWakeups
@@ -253,16 +254,17 @@ final class LinkOpener {
         }
     }
 
+    /// Moves new tab `surface`, made in `source`, to a new column right of it, focusing `target` in
+    /// it when `focus` (Home's dock, which takes tabs, opens its tools beside itself this way).
+    func moveBeside(_ surface: SurfaceID, from source: PaneController, focus: Bool, target: FocusState.Target = .content) {
+        move(surface, from: source, to: .besideColumn, focus: focus, target: target)
+    }
+
     /// Moves the new tab on `surface` out of `source` to `destination` (a new split, column or dock)
     /// once the store lists it, then focuses it unless not `focus`. A failed move selects it where
     /// it is, so it never stays hidden.
-    /// Moves new tab `surface`, made in `source`, to a new column right of it (Home's dock, which
-    /// takes tabs, opens its tools beside itself this way).
-    func moveBeside(_ surface: SurfaceID, from source: PaneController, focus: Bool) {
-        move(surface, from: source, to: .besideColumn, focus: focus)
-    }
-
-    private func move(_ surface: SurfaceID, from source: PaneController, to destination: Destination, focus: Bool) {
+    private func move(_ surface: SurfaceID, from source: PaneController, to destination: Destination, focus: Bool,
+                      target: FocusState.Target = .content) {
         let services = source.services, store = source.daemon.store
         let intent = focus ? source.workspace?.beginFocusIntent() : nil
         services.registry.track(Task { @MainActor [weak source] () -> ActionWorkFailure? in
@@ -294,7 +296,7 @@ final class LinkOpener {
             }
             let column = if case .besideColumn = destination { true } else { false }
             if moved {
-                if let intent { source.workspace?.expectFocus(on: surface, awayFrom: source.paneKey, generation: intent) }
+                if let intent { source.workspace?.expectFocus(on: surface, target: target, awayFrom: source.paneKey, generation: intent) }
                 if column { await AgentBesidePlacement.revealMoved(tab.id, from: anchor, services: services) }
                 return nil
             }

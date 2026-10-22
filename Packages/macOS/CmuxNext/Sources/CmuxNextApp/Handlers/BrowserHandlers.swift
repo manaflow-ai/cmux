@@ -156,16 +156,9 @@ enum BrowserHandlers {
         case .tab(let strip):
             return try browserTab(in: strip, url: url, profile: profile, context: context)
         case .besideDock(let dock):
-            // Home's pinned dock alone. Closed to tabs, the daemon makes a browser tab aimed at it in a
-            // new column right of it; taking tabs (Home's), the tab is made there and moves to the right.
-            let opener = context.services.linkOpener
-            var beside: (@MainActor (SurfaceID) -> Void)?
-            if dock.isOpenPinnedDockPane {
-                beside = { [weak dock] surface in
-                    if let dock { opener.moveBeside(surface, from: dock, focus: true) }
-                }
-            }
-            _ = dock.newBrowserTab(url: url, profile: profile, then: beside)
+            // Home's pinned dock alone: a browser tab aimed at it opens in a new column right of it
+            // (the daemon's reroute, or PaneBrowserTabOpener's move while the dock takes tabs).
+            _ = dock.newBrowserTab(url: url, profile: profile)
             return
         }
         if let refusal = browserTabs.refusal(in: model) { throw ActionFailure(message: refusal) }
