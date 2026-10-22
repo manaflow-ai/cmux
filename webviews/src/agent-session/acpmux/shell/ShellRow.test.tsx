@@ -70,6 +70,22 @@ test("a failed command presents a readable error and keeps raw diagnostics under
   expect(note.childNodes[0]!.textContent).not.toContain("zsh:");
 });
 
+test("separates partial output from the host error in Details", () => {
+  const document = new JSDOM(markup(run({ status: "failed", output: "partial-output", error: "host-error" }))).window
+    .document;
+  expect(document.querySelector("details pre")!.textContent).toBe("partial-output\nhost-error");
+});
+
+test("keeps a truncated empty output diagnostic visible", () => {
+  const document = new JSDOM(markup(run({ output: "", truncated: true }))).window.document;
+  expect(document.querySelector("pre")!.textContent).toBe("…");
+});
+
+test("failed truncated empty output keeps Details available", () => {
+  const document = new JSDOM(markup(run({ status: "failed", output: "", truncated: true }))).window.document;
+  expect(document.querySelector("details pre")!.textContent).toBe("…");
+});
+
 test("failed long output keeps Show all inside Details and can reveal the complete diagnostic", () => {
   const output = Array.from({ length: 10 }, (_, n) => `line ${n + 1}`).join("\n");
   const collapsed = new JSDOM(markup(run({ status: "failed", output }))).window.document;

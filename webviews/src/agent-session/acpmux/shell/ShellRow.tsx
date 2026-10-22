@@ -33,20 +33,34 @@ export function ShellRow({
   const lines = output ? output.split("\n") : [];
   const long = lines.length > SHELL_COLLAPSED_LINES;
   const shown = long && !expanded ? lines.slice(-SHELL_COLLAPSED_LINES) : lines;
+  const hasDiagnostics = run.truncated || shown.length > 0 || Boolean(run.error);
   const seconds = run.endedAt !== undefined ? (run.endedAt - run.startedAt) / 1000 : undefined;
   const time = seconds === undefined ? "" : seconds < 10 ? `${seconds.toFixed(1)}s` : `${Math.round(seconds)}s`;
   const failed = run.status === "failed";
-  const diagnostics = (
-    <pre className="acpmux-shell-block-output selectable">
-      {(run.truncated || (long && !expanded)) && (
-        <span className="acpmux-shell-block-cut" aria-hidden="true">
-          …
-        </span>
-      )}
-      {shown.join("\n")}
-      {run.error && <span className="acpmux-shell-block-error">{run.error}</span>}
-    </pre>
-  );
+  const diagnostics = (() => {
+    const cut = run.truncated || (long && !expanded);
+    return (
+      <pre className="acpmux-shell-block-output selectable">
+        {cut && (
+          <span className="acpmux-shell-block-cut" aria-hidden="true">
+            …{shown.length > 0 ? "\n" : null}
+          </span>
+        )}
+        {shown.map((line, index) => (
+          <span key={`${index}-${line}`}>
+            {line}
+            {index < shown.length - 1 ? "\n" : null}
+          </span>
+        ))}
+        {run.error && (
+          <>
+            {(shown.length > 0 || cut) && "\n"}
+            <span className="acpmux-shell-block-error">{run.error}</span>
+          </>
+        )}
+      </pre>
+    );
+  })();
   const more = long && (
     <button
       type="button"
@@ -98,7 +112,7 @@ export function ShellRow({
       {failed ? (
         <div className="cv-turn-note" role="alert">
           <span className="text-fg">{t("shell.commandFailed")}</span>
-          {(shown.length > 0 || run.error) && (
+          {hasDiagnostics && (
             <details className="mt-0.5" onToggle={(event) => setDetailsOpen(event.currentTarget.open)}>
               <summary className="cv-turn-note__summary">
                 {t("turn.failure.details")}
@@ -115,7 +129,7 @@ export function ShellRow({
           )}
         </div>
       ) : (
-        (shown.length > 0 || run.error) && diagnostics
+        hasDiagnostics && diagnostics
       )}
       {!failed && more}
     </div>
