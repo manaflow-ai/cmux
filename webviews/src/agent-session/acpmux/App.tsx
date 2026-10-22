@@ -3766,6 +3766,8 @@ function AcpmuxPane() {
   /// the tab. A pane that moves to another chat is an ordinary chat pane again.
   const changesPane = useRef<string | undefined>(undefined);
   const changesRequested = useRef(false);
+  /// Pages the chat's older history in (the direct client's `loadOlder`); set where the client is.
+  const loadOlderHistory = useRef<() => Promise<void>>(async () => undefined);
   /// Brings one message's row into the transcript, the way a running line's count does, and says
   /// which row it asked for; undefined while this chat has no row for that message. Set below,
   /// where the chat's rows are.
@@ -3785,6 +3787,8 @@ function AcpmuxPane() {
     const changes = revealedChanges(value);
     if (changes) {
       changesRequested.current = true;
+      // The turn shown before is not the one asked for: none shows until the asked one is found.
+      setDiffView(undefined);
       return setRequestedChanges(changes);
     }
     const agent = revealedSubagent(value);
@@ -4528,19 +4532,30 @@ function AcpmuxPane() {
     if (diffView && !diffOpen) setDiffView(undefined);
   }, [diffView, diffOpen]);
   // A pane opened on a turn's changes shows them once it shows that chat and the chat has that
-  // turn. A pane that shows another chat first drops the request and is an ordinary chat pane.
+  // turn, paging older history in for an older turn (a pane holds only the chat's recent events).
+  // A pane that shows another chat first, or a chat whose history ends without that turn, drops
+  // the request.
   useEffect(() => {
     if (!requestedChanges || !snapshot.sessionId) return;
-    if (snapshot.sessionId !== requestedChanges.sessionId) {
+    const drop = () => {
       changesRequested.current = false;
-      return setRequestedChanges(undefined);
+      setRequestedChanges(undefined);
+    };
+    if (snapshot.sessionId !== requestedChanges.sessionId) return drop();
+    if (!snapshot.rows.some((row) => row.id === requestedChanges.rowId)) {
+      // A pane still attaching has no rows yet: its history has not ended.
+      if (snapshot.rows.length === 0) return;
+      if (!snapshot.canLoadOlder) return drop();
+      // Each page that arrives changes the rows and runs this again; a failed page drops the request.
+      const asked = requestedChanges;
+      void loadOlderHistory.current().catch(() => setRequestedChanges((current) => (current === asked ? undefined : current)));
+      return;
     }
-    if (!snapshot.rows.some((row) => row.id === requestedChanges.rowId)) return;
     const { rowId, path } = requestedChanges;
     changesPane.current = snapshot.sessionId;
     setDiffView({ sessionId: snapshot.sessionId, rowId, ...(path ? { path } : {}) });
     setRequestedChanges(undefined);
-  }, [requestedChanges, snapshot.sessionId, snapshot.rows]);
+  }, [requestedChanges, snapshot.sessionId, snapshot.rows, snapshot.canLoadOlder]);
   // A changes pane that moves to another chat is an ordinary chat pane from then on.
   useEffect(() => {
     if (changesPane.current !== undefined && changesPane.current !== snapshot.sessionId) {
@@ -5223,6 +5238,7 @@ function AcpmuxPane() {
   const opensSideChat = useRef(false);
   const archiveChatRef = useRef<(() => void) | undefined>(undefined);
   const directClient = useRef<AcpmuxDirectClient | undefined>(undefined);
+  loadOlderHistory.current = () => directClient.current?.loadOlder() ?? Promise.resolve();
   /// The composer's prompt, which dictation writes into.
   const prompt = useRef<MarkdownFieldHandle>(null);
   /// The composer itself, which takes back prompts a harness switch held; prompts handed back
