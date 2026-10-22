@@ -49,8 +49,9 @@ export function SummaryTasks({
     const key = arrivalKey(command);
     const enters = live && arrived.has(key);
     return (
+      // Keyed as it arrives, by the call that started it, so the registry listing it keeps the row.
       <li
-        key={command.id}
+        key={key}
         className="acpmux-summary-task"
         data-state={command.state}
         data-enter={enters ? "top" : undefined}
