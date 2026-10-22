@@ -4843,8 +4843,8 @@ function AcpmuxPane() {
       setAutoOpenSubagents,
     ],
   );
-  // The Inspector (Debug Settings `agent.inspector`): its toggle at the header's end, the panel
-  // beside or over the chat. On, it takes the summary card's place.
+  // The Inspector (Debug Settings `agent.inspector`): its toggle the first of the header's
+  // top-right icons, the panel beside or over the chat. On, it takes the summary card's place.
   const inspector = useChatInspector({
     snapshot,
     machineName,
