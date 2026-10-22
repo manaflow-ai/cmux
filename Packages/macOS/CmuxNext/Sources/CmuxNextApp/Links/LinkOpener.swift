@@ -12,6 +12,8 @@ import CmuxNextWakeups
 /// here (``LinkRouter/openInCmux``, ``openFile(_:from:)``, ``openFolder(_:from:)``), so no surface picks its own pane.
 /// What a page opens (a chat and its pull request link, Home, New Tab, a Markdown page) is a tab in its pane, never an
 /// unasked split (Leo 2026-10-20); a terminal's or browser's Cmd-click (`cmdClick`) goes by `layout.linkPlacement`.
+/// A web link from an agent chat goes by `layout.linkPlacement` too (``ChatLinkPlacement``): on the right by default (the
+/// right pane focused last, else the rightmost, else a new split), never over a chat or into a pane on its left (Leo 2026-10-21).
 /// An agent chat that is its screen's main pane (``MainPaneLayout``, `layout.mainPane`) never holds what it opens: that is a
 /// tab in the column on its right, or the lone chat docks left to make that column.
 ///
@@ -72,7 +74,9 @@ final class LinkOpener {
     /// A source that takes no tabs (Home's pinned dock) finds the pane on its right by the layout's
     /// column order (``LinkOpenPlacement/paneRight(of:columns:takesTabs:recency:)``), not by drawn
     /// frames, which miss a strip column that is scrolled or not laid out yet.
-    func target(from source: PaneController, cmdClick: Bool = false, mainPane: Bool = true) -> LinkOpenPlacement<LayoutPaneID>.Target {
+    func target(from source: PaneController, cmdClick: Bool = false, mainPane: Bool = true,
+                chatLink: Bool = false) -> LinkOpenPlacement<LayoutPaneID>.Target {
+        if chatLink, let target = chatLinkTarget(from: source, mainPane: mainPane) { return target }
         if mainPane, let services, let side = MainPaneLayout.side(from: source, services: services) {
             switch side {
             case .tab(let pane): return .pane(pane)
@@ -95,13 +99,45 @@ final class LinkOpener {
             .target(source: source.layoutPaneID, takesTabs: takesTabs, right: right)
     }
 
+    /// Where a web link from `source` goes when `source` shows an agent chat (``ChatLinkPlacement``, by
+    /// `layout.linkPlacement`): the pane right of the chat the person focused last, else the rightmost,
+    /// else a new split (or column) on its right. A pane that shows an agent chat never gets it. Tab
+    /// in the Same Pane: a tab in the chat's pane, with no docking. A zoomed chat opens a new split,
+    /// which ends the zoom, never a tab in a pane the zoom hides. Nil when `source` shows no chat or
+    /// takes no tabs, or for Tab in the Same Pane in the chat dock: the rules above. A lone chat
+    /// under main pane layout still docks left (``MainPaneLayout``) for a link on the right, so it
+    /// lands in the column that slides in on its right.
+    func chatLinkTarget(from source: PaneController, mainPane: Bool = true) -> LinkOpenPlacement<LayoutPaneID>.Target? {
+        guard let services, source.stripModel.showsNewTabButton, let tab = source.selectedTab,
+              ChatColumnPlacement.isChat(tab, services: services), let content = source.workspace,
+              let screen = content.layoutModel.screen(containing: source.layoutPaneID) else { return nil }
+        let setting = placement()
+        let zoomed = content.workspace.screens.contains { $0.zoomedPane == source.pane.handle }
+        if setting != .samePane, !zoomed, mainPane, case .dockChat? = MainPaneLayout.side(from: source, services: services) {
+            return .dockChat(source.layoutPaneID)
+        }
+        let columns = screen.layout.columns.isEmpty
+            ? ChatColumnPlacement.columns(of: screen, containing: source.layoutPaneID) : screen.layout.visualColumns
+        let takesTabs: (LayoutPaneID) -> Bool = { id in
+            guard let pane = content.panes[id], pane.stripModel.showsNewTabButton else { return false }
+            return pane.selectedTab.map { !ChatColumnPlacement.isChat($0, services: services) } ?? true
+        }
+        return ChatLinkPlacement.target(setting, chat: source.layoutPaneID,
+                                        right: ChatLinkPlacement.rightSide(of: source.layoutPaneID, in: columns),
+                                        zoomed: zoomed, inChatDock: ChatDockRules.isChatDock(source.pane, services: services),
+                                        takesTabs: takesTabs, recency: content.recentPanes)
+    }
+
     /// Opens through `make` where the rule puts it. `background`: the opened tab takes no focus.
     /// `mainPane` false: main pane layout does not apply (a chat, which belongs in the dock, not
-    /// the column on its right). False with no source pane (no window) or when `make` refused.
+    /// the column on its right). `chatLink`: a web link, which from an agent chat goes on its
+    /// right (``chatLinkTarget(from:mainPane:)``). False with no source pane (no window) or when
+    /// `make` refused.
     @discardableResult
-    func open(from source: PaneController?, background: Bool = false, cmdClick: Bool = false, mainPane: Bool = true, _ make: Make) -> Bool {
+    func open(from source: PaneController?, background: Bool = false, cmdClick: Bool = false, mainPane: Bool = true,
+              chatLink: Bool = false, _ make: Make) -> Bool {
         guard let source = source ?? services?.windows.active?.focusedPane else { return false }
-        switch target(from: source, cmdClick: cmdClick, mainPane: mainPane) {
+        switch target(from: source, cmdClick: cmdClick, mainPane: mainPane, chatLink: chatLink) {
         case .pane(let id):
             return make(id == source.layoutPaneID ? source : source.workspace?.panes[id] ?? source, nil)
         case .splitRight:
@@ -134,7 +170,7 @@ final class LinkOpener {
         let from = source ?? services?.windows.active?.focusedPane
         // The person's intent: an agent's open in flight (AgentBesidePlacement) yields to it.
         if !background { _ = from?.workspace?.beginFocusIntent() }
-        return open(from: from, background: background, cmdClick: cmdClick) { [weak self, weak from] pane, placed in
+        return open(from: from, background: background, cmdClick: cmdClick, chatLink: true) { [weak self, weak from] pane, placed in
             let here = pane === from && placed == nil
             let opener = here ? from?.selectedTab?.surface : nil
             let back = background || here ? nil : from
