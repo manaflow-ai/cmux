@@ -478,39 +478,43 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
 
     // MARK: - Reconnect route policy (pure, testable)
 
-    /// Choose the routes to persist for the next reconnect.
-    ///
-    /// The reconnect path connects on `local` routes immediately (no added
-    /// latency on the common case) and only *replaces* the persisted routes when
-    /// the registry returns a usable, different set, so a stale-route Mac gets
-    /// rescued on the next reconnect trigger. Returns `nil` to signal "no change
-    /// needed" (registry unavailable, empty, or identical), letting callers skip
-    /// a redundant store write and fall back to the locally persisted routes.
+    /// Fixed reference instant used to stamp registry routes during dedup.
+    /// The registry response has no per-route timestamps at this layer, so using
+    /// one constant keeps duplicate-endpoint tie-breaking deterministic and
+    /// clock-free for tests.
+    private static let mergeReferenceDate = Date(timeIntervalSinceReferenceDate: 0)
+
+    /// Deduplicates registry routes without changing the transport owner's dial
+    /// order. Retains the cached Tailscale compatibility route for Iroh-only
+    /// publication; the reconnect owner still requires its device-local grant.
+    /// Returns nil for unavailable, empty, or order-only registry changes.
     public static func selectReconnectRoutes(
         local: [CmxAttachRoute],
         registry: [CmxAttachRoute]?
     ) -> [CmxAttachRoute]? {
         guard let registry, !registry.isEmpty else { return nil }
-        guard registry != local else { return nil }
-        // Keep a locally persisted Tailscale destination alongside a newly
-        // published Iroh route. The local route may carry the pre-Iroh grant
-        // needed to reconnect an older Mac while the registry has already
-        // converged on Iroh-only publication.
-        guard registry.contains(where: { $0.kind == .iroh }) else {
-            return registry
-        }
-        // The registry remains authoritative when it publishes any current
-        // Tailscale route. Only an Iroh-only response needs one legacy local
-        // fallback for Macs paired before the Iroh migration.
-        guard registry.allSatisfy({ $0.kind == .iroh }) else {
-            return registry
-        }
-        var selected = registry
-        if let legacyTailscale = local.first(where: { $0.kind == .tailscale }),
+        var selected = CmxRouteCandidateSet(
+            routes: registry,
+            source: .registry,
+            lastSeenAt: mergeReferenceDate
+        ).dedupedRoutes()
+        if selected.allSatisfy({ $0.kind == .iroh }),
+           let legacyTailscale = local.first(where: { $0.kind == .tailscale }),
            !selected.contains(where: { $0.endpoint == legacyTailscale.endpoint }) {
             selected.append(legacyTailscale)
         }
-        return selected == local ? nil : selected
+        // Group by transport and canonical endpoint identity, then compare full
+        // metadata. A duplicate local entry also requires a cleanup write.
+        let localByEndpoint = Dictionary(grouping: local) {
+            "\($0.kind.rawValue)|\($0.endpoint.routeDedupKey)"
+        }
+        if selected.count == local.count,
+           selected.allSatisfy({ route in
+               localByEndpoint["\(route.kind.rawValue)|\(route.endpoint.routeDedupKey)"] == [route]
+           }) {
+            return nil
+        }
+        return selected
     }
 
     /// Whether a background registry refresh may write back into the paired-Mac
