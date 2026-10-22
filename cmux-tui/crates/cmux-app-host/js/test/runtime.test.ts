@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs"
 import { describe, expect, test } from "bun:test"
 import { app, FakeHost } from "./fake-host.ts"
 
@@ -230,6 +231,46 @@ describe("compat with old sidebars", () => {
     host.dispatch("m1", id, "tap")
     await host.settle()
     expect(host.calls.find((c) => c.name === "workspace.focus")!.params).toEqual({ workspace_id: "ws_1" })
+  })
+
+  test("data.workspaces() has the old fields: title, selected, unread, agents, status", async () => {
+    const host = new FakeHost(`sidebar(() => VStack([ForEach({ items: () => data.workspaces() ?? [], key: (w) => w.id }, (w) => Text(() => [w().title, w().selected, w().unread, w().status, w().agents.length].join("|")))]))`)
+    host.handlers["workspace.list"] = () => ({ ok: true, body: { value: [{ id: "ws_1", name: "alpha", focused: true }, { id: "ws_2", name: "beta" }] } })
+    host.handlers["agent.list"] = () => ({ ok: true, body: { value: [{ workspace_id: "ws_2", state: "blocked" }, { workspace_id: "ws_1", state: "working" }] } })
+    host.handlers["notification.list"] = () => ({ ok: true, body: { value: [{ workspace_id: "ws_2", read: false }, { workspace_id: "ws_2", read: false }, { workspace_id: "ws_1", read: true }] } })
+    expect(host.mount("m1", "sidebar")).toBe("")
+    await host.settle()
+    expect(host.findNode("m1", (n) => n.type === "Text" && n.props.text === "alpha|true|0|working|1")).toBeTruthy()
+    expect(host.findNode("m1", (n) => n.type === "Text" && n.props.text === "beta|false|2|needs-attention|1")).toBeTruthy()
+  })
+
+  test("the custom sidebar examples mount with classic data and no errors", async () => {
+    const dir = new URL("../../../../../examples/custom-sidebars/", import.meta.url).pathname
+    for (const name of ["dots.js", "board.js", "cards.js"]) {
+      const host = new FakeHost(readFileSync(`${dir}${name}`, "utf8"))
+      host.handlers["workspace.list"] = () => ({ ok: true, body: { value: [{ id: "ws_1", name: "api", focused: true }, { id: "ws_2", name: "web" }] } })
+      host.handlers["agent.list"] = () => ({ ok: true, body: { value: [{ workspace_id: "ws_2", state: "blocked" }] } })
+      host.handlers["notification.list"] = () => ({ ok: true, body: { value: [{ workspace_id: "ws_2", read: false }] } })
+      expect(host.mount("m1", "sidebar")).toBe("")
+      await host.settle()
+      expect(host.logs.filter(([l]) => l === "error")).toEqual([])
+      expect(host.findNode("m1", (n) => n.type === "Text" && n.props.text === "web")).toBeTruthy()
+    }
+  })
+
+  test("one workspace's change sends one update op, not a rebuild of every row", async () => {
+    const host = new FakeHost(`sidebar(() => VStack([ForEach({ items: () => data.workspaces() ?? [], key: (w) => w.id }, (w) => HStack([Text(() => w().title), Text(() => String(w().unread))]))]))`)
+    let unread = 0
+    host.handlers["workspace.list"] = () => ({ ok: true, body: { value: Array.from({ length: 500 }, (_, i) => ({ id: `ws_${i}`, name: `w${i}` })) } })
+    host.handlers["notification.list"] = () => ({ ok: true, body: { value: Array.from({ length: unread }, () => ({ workspace_id: "ws_7", read: false })) } })
+    expect(host.mount("m1", "sidebar")).toBe("")
+    await host.settle()
+    const before = host.batches("m1").flat().length
+    unread = 3
+    host.emit("notification.changed", {})
+    await host.settle()
+    const ops = host.batches("m1").flat().slice(before)
+    expect(ops).toEqual([{ op: "update", id: expect.any(String), props: { text: "3" } }])
   })
 })
 
