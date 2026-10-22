@@ -1423,9 +1423,12 @@ export default agentPaneEntry({
         { isWorking: true },
       ),
       play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-tool.is-toggle").length === ENVELOPE_TOOLS.length);
-        for (let opened = 0; opened < ENVELOPE_TOOLS.length; opened++)
-          await ctx.click({ selector: '.cv-tool.is-toggle[aria-expanded="false"]' });
+        // A settled run folds to its line; opened, it lists the calls, each opened in turn.
+        await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-tool.is-toggle")));
+        if (ctx.document.querySelector(".cv-tools > .cv-tool.is-toggle")) await openFoldedRun(ctx);
+        const closed = '.cv-tool.is-toggle[aria-expanded="false"]';
+        await ctx.waitFor(() => ctx.document.querySelectorAll(closed).length === ENVELOPE_TOOLS.length);
+        for (let opened = 0; opened < ENVELOPE_TOOLS.length; opened++) await ctx.click({ selector: closed });
         await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-tool-output-card").length === ENVELOPE_TOOLS.length);
         if (!ctx.document.querySelector(".cv-tool-output__markdown h2"))
           throw new Error("the MCP text list did not render as Markdown");
