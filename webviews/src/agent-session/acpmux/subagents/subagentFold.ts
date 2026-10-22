@@ -1,5 +1,6 @@
 import type { AcpmuxRow } from "../model";
 import { childRows, type ChildEntry } from "./childRows";
+import { isPlumbingCall } from "../hiddenTools";
 
 /// The transcript row of a batch of subagents (SubagentGroup.tsx).
 export const SUBAGENTS = "subagents";
@@ -64,7 +65,12 @@ export class SubagentFold {
     for (const change of events) this.apply(change, event, spawn);
     const owner = typeof mux?.subagent === "string" ? this.agents.get(mux.subagent) : undefined;
     if (owner) {
-      if ((update?.sessionUpdate === "tool_call" || update?.sessionUpdate === "tool_call_update") && update.title)
+      // Plumbing (Claude Code's ToolSearch, hiddenTools.ts) is never what the subagent is doing.
+      if (
+        (update?.sessionUpdate === "tool_call" || update?.sessionUpdate === "tool_call_update") &&
+        update.title &&
+        !isPlumbingCall(update)
+      )
         owner.action = String(update.title);
       const kind = update?.sessionUpdate;
       if (kind !== "subagent_spawned" && kind !== "subagent_state_update") this.record(owner.id, { event, update });
