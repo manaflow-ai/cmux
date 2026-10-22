@@ -287,7 +287,7 @@ const projectRows = [
       touched("agent-pane-reference/README.md"),
       touched("cmuxterm-hq/build-fleet/FLEET-AND-CI.md"),
       touched("leo-workspace/NOW.md"),
-      touched("glaeda/main.go"),
+      touched("billing-service/main.go"),
     ],
     6,
   ),
