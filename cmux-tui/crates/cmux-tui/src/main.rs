@@ -2352,7 +2352,7 @@ fn run_server(
     // before the registry opens; an owner run by hand in a terminal keeps
     // its stderr.
     if args.headless && !io::stderr().is_terminal() {
-        crate::client_log::redirect_stderr_into_log();
+        client_log::redirect_stderr_into_log();
     }
     // Bind and serve the session socket before the restore below (registry
     // load, terminal host adoption), which can take minutes on a loaded
