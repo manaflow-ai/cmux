@@ -446,6 +446,88 @@ class LocalizationDebtRatchetTests(unittest.TestCase):
         self.assertEqual(status, 1)
         self.assertIn("may only go down", output)
 
+    def write_base(self, strings):
+        """The base tree's catalog and, as the base's baseline, a copy of the current baseline."""
+        base = self.root / "base"
+        path = base / self.catalog.relative_to(self.root)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(catalog(strings), indent=2) + "\n", encoding="utf-8")
+        # The base's ratchet and metadata, unchanged by the pull request.
+        (base / "scripts").mkdir(exist_ok=True)
+        for name in MODULE.RULE_FILES:
+            (base / "scripts" / name).write_bytes((ROOT / "scripts" / name).read_bytes())
+        base_baseline = self.root / "base-baseline.json"
+        base_baseline.write_text(self.baseline.read_text(encoding="utf-8"), encoding="utf-8")
+        return ["--base-root", str(base), "--base-baseline", str(base_baseline)]
+
+    def test_debt_the_base_already_has_is_a_warning_not_the_pull_requests_failure(self):
+        # #23770 copied English into feat-cmux-next (identical 38 -> 39) and every pull
+        # request merged with that base went red for it (#23877).
+        self.write({"open": self.copied("Open")})
+        self.check("--write-baseline")
+        self.write({"open": self.copied("Open"), "close": self.copied("Close")})
+        base_arguments = self.write_base({"open": self.copied("Open"), "close": self.copied("Close")})
+        status, output = self.check(*base_arguments)
+        self.assertEqual(status, 0, output)
+        self.assertIn("warning: the base is already over its baseline", output)
+        self.assertIn("identical 1 -> 2", output)
+
+    def test_debt_a_pull_request_adds_on_top_of_a_red_base_still_fails(self):
+        self.write({"open": self.copied("Open")})
+        self.check("--write-baseline")
+        self.write({"open": self.copied("Open"), "close": self.copied("Close"), "save": self.copied("Save")})
+        base_arguments = self.write_base({"open": self.copied("Open"), "close": self.copied("Close")})
+        status, output = self.check(*base_arguments)
+        self.assertEqual(status, 1, output)
+        self.assertIn("identical 2 -> 3", output)
+        self.assertIn("save:fr", output)
+
+    def test_a_base_within_the_baseline_does_not_excuse_new_debt(self):
+        self.write({"open": self.copied("Open")})
+        self.check("--write-baseline")
+        self.write({"open": self.copied("Open"), "close": self.copied("Close")})
+        base_arguments = self.write_base({"open": self.copied("Open")})
+        status, output = self.check(*base_arguments)
+        self.assertEqual(status, 1, output)
+        self.assertIn("identical 1 -> 2", output)
+        self.assertNotIn("warning", output)
+
+    def test_a_baseline_lowered_below_the_merged_count_still_fails(self):
+        # The base is within its own baseline; the pull request lowers the baseline under
+        # the debt it still has, so this is the pull request's red, not the base's.
+        self.write({"open": self.copied("Open"), "close": self.copied("Close")})
+        self.check("--write-baseline")
+        base_arguments = self.write_base({"open": self.copied("Open"), "close": self.copied("Close")})
+        self.baseline.write_text(MODULE.debt_json(MODULE.debt_counts(
+            [("Packages/macOS/CmuxNext/Sources/Area/Localizable.xcstrings", "identical to English")])),
+            encoding="utf-8")
+        status, output = self.check(*base_arguments)
+        self.assertEqual(status, 1, output)
+        self.assertIn("identical 1 -> 2", output)
+        self.assertNotIn("warning", output)
+
+    def test_a_change_to_the_rules_gets_no_allowance_for_base_debt(self):
+        # Base debt is counted with the pull request's rules; if they differ from the base's
+        # (an omission record removed, a check tightened), newly flagged strings would look
+        # like the base's debt and the next push would go red.
+        self.write({"open": self.copied("Open")})
+        self.check("--write-baseline")
+        self.write({"open": self.copied("Open"), "close": self.copied("Close")})
+        base_arguments = self.write_base({"open": self.copied("Open"), "close": self.copied("Close")})
+        omissions = self.root / "base" / "scripts" / "localization-allowed-omissions.json"
+        omissions.write_bytes(omissions.read_bytes() + b"\n")
+        status, output = self.check(*base_arguments)
+        self.assertEqual(status, 1, output)
+        self.assertIn("identical 1 -> 2", output)
+        self.assertIn("changes localization-allowed-omissions.json", output)
+        self.assertNotIn("warning", output)
+
+    def test_the_base_tree_needs_the_bases_baseline(self):
+        self.write({"open": string("Open")})
+        self.check("--write-baseline")
+        with self.assertRaises(SystemExit):
+            self.check("--base-root", str(self.root))
+
     def test_the_checked_in_baseline_loads(self):
         path = ROOT / "scripts" / MODULE.DEBT_BASELINE
         if path.exists():
