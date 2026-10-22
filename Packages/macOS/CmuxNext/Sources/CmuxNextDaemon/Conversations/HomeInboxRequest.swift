@@ -4,7 +4,7 @@ import Foundation
 /// (cmux-tui/spec/commands.md `home-inbox`), so the Messages view and the Channels page show one list.
 public struct HomeInboxRequest: DaemonRequest {
     /// One row, already in list order (pinned rows by position, then newest activity first).
-    public struct Row: Decodable, Sendable, Equatable {
+    public struct Row: Codable, Sendable, Equatable {
         public var id: String
         /// `chief`, `direct`, `channel` or `group`.
         public var kind: String
@@ -33,7 +33,7 @@ public struct HomeInboxRequest: DaemonRequest {
             case markedUnread = "marked_unread"
         }
     }
-    public struct Response: Decodable, Sendable, Equatable {
+    public struct Response: Codable, Sendable, Equatable {
         public var me: String
         public var rows: [Row]
         /// The Cloud rows: `included`, `signed_out`, `unavailable` or `not_asked`.

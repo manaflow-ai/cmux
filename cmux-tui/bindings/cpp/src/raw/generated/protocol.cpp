@@ -12739,6 +12739,116 @@ Result<TerminalPlacement> Codec<TerminalPlacement>::decode(const Json& value) {
     return result;
 }
 
+Result<Json> Codec<TerminalPortsListener>::encode(const TerminalPortsListener& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_bound = encode_value(value.bound);
+    if (!encoded_bound) return std::move(encoded_bound).error();
+    object.emplace("bound", std::move(encoded_bound).value());
+    auto encoded_host = encode_value(value.host);
+    if (!encoded_host) return std::move(encoded_host).error();
+    object.emplace("host", std::move(encoded_host).value());
+    auto encoded_port = encode_value(value.port);
+    if (!encoded_port) return std::move(encoded_port).error();
+    object.emplace("port", std::move(encoded_port).value());
+    auto encoded_url = encode_value(value.url);
+    if (!encoded_url) return std::move(encoded_url).error();
+    object.emplace("url", std::move(encoded_url).value());
+    return Json(std::move(object));
+}
+
+Result<TerminalPortsListener> Codec<TerminalPortsListener>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    TerminalPortsListener result{};
+    const Json* field_bound = value.find("bound");
+    if (!field_bound) {
+        return make_error(ErrorCode::decode, "missing required field 'bound'");
+    }
+    if (field_bound) {
+        auto decoded = decode_value<std::string>(*field_bound);
+        if (!decoded) return std::move(decoded).error();
+        result.bound = std::move(decoded).value();
+    }
+    const Json* field_host = value.find("host");
+    if (!field_host) {
+        return make_error(ErrorCode::decode, "missing required field 'host'");
+    }
+    if (field_host) {
+        auto decoded = decode_value<std::string>(*field_host);
+        if (!decoded) return std::move(decoded).error();
+        result.host = std::move(decoded).value();
+    }
+    const Json* field_port = value.find("port");
+    if (!field_port) {
+        return make_error(ErrorCode::decode, "missing required field 'port'");
+    }
+    if (field_port) {
+        auto decoded = decode_value<std::uint16_t>(*field_port);
+        if (!decoded) return std::move(decoded).error();
+        result.port = std::move(decoded).value();
+    }
+    const Json* field_url = value.find("url");
+    if (!field_url) {
+        return make_error(ErrorCode::decode, "missing required field 'url'");
+    }
+    if (field_url) {
+        auto decoded = decode_value<std::string>(*field_url);
+        if (!decoded) return std::move(decoded).error();
+        result.url = std::move(decoded).value();
+    }
+    return result;
+}
+
+Result<Json> Codec<TerminalPortsResult>::encode(const TerminalPortsResult& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_closed = encode_value(value.closed);
+    if (!encoded_closed) return std::move(encoded_closed).error();
+    object.emplace("closed", std::move(encoded_closed).value());
+    auto encoded_listeners = encode_value(value.listeners);
+    if (!encoded_listeners) return std::move(encoded_listeners).error();
+    object.emplace("listeners", std::move(encoded_listeners).value());
+    auto encoded_surface = encode_value(value.surface);
+    if (!encoded_surface) return std::move(encoded_surface).error();
+    object.emplace("surface", std::move(encoded_surface).value());
+    return Json(std::move(object));
+}
+
+Result<TerminalPortsResult> Codec<TerminalPortsResult>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    TerminalPortsResult result{};
+    const Json* field_closed = value.find("closed");
+    if (!field_closed) {
+        return make_error(ErrorCode::decode, "missing required field 'closed'");
+    }
+    if (field_closed) {
+        auto decoded = decode_value<std::vector<std::uint16_t>>(*field_closed);
+        if (!decoded) return std::move(decoded).error();
+        result.closed = std::move(decoded).value();
+    }
+    const Json* field_listeners = value.find("listeners");
+    if (!field_listeners) {
+        return make_error(ErrorCode::decode, "missing required field 'listeners'");
+    }
+    if (field_listeners) {
+        auto decoded = decode_value<std::vector<TerminalPortsListener>>(*field_listeners);
+        if (!decoded) return std::move(decoded).error();
+        result.listeners = std::move(decoded).value();
+    }
+    const Json* field_surface = value.find("surface");
+    if (!field_surface) {
+        return make_error(ErrorCode::decode, "missing required field 'surface'");
+    }
+    if (field_surface) {
+        auto decoded = decode_value<Id>(*field_surface);
+        if (!decoded) return std::move(decoded).error();
+        result.surface = std::move(decoded).value();
+    }
+    return result;
+}
+
 Result<Json> Codec<TerminalReadRangeResult>::encode(const TerminalReadRangeResult& value) {
     (void)value;
     Json::Object object;
@@ -31207,6 +31317,31 @@ Result<TerminalHistoryRequest> Codec<TerminalHistoryRequest>::decode(const Json&
     return result;
 }
 
+Result<Json> Codec<TerminalPortsRequest>::encode(const TerminalPortsRequest& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_surface = encode_value(value.surface);
+    if (!encoded_surface) return std::move(encoded_surface).error();
+    object.emplace("surface", std::move(encoded_surface).value());
+    return Json(std::move(object));
+}
+
+Result<TerminalPortsRequest> Codec<TerminalPortsRequest>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    TerminalPortsRequest result{};
+    const Json* field_surface = value.find("surface");
+    if (!field_surface) {
+        return make_error(ErrorCode::decode, "missing required field 'surface'");
+    }
+    if (field_surface) {
+        auto decoded = decode_value<Id>(*field_surface);
+        if (!decoded) return std::move(decoded).error();
+        result.surface = std::move(decoded).value();
+    }
+    return result;
+}
+
 Result<Json> Codec<TerminalReadRangeRequest>::encode(const TerminalReadRangeRequest& value) {
     (void)value;
     Json::Object object;
@@ -41377,16 +41512,16 @@ constexpr std::array<CommandFieldRequirement, 2> kCommand248FieldRequirements{{
     {"surface", 9U, "surface-subscribe-filter"},
     {"tree_events", 7U, ""},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand265FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 1> kCommand266FieldRequirements{{
     {"icon", 12U, "bookmark-icon-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand271FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 1> kCommand272FieldRequirements{{
     {"icon", 12U, "screen-group-icon-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand272FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 1> kCommand273FieldRequirements{{
     {"icon", 12U, "tab-group-icon-v1"},
 }};
-constexpr std::array<CommandMetadata, 282> kCommands{{
+constexpr std::array<CommandMetadata, 283> kCommands{{
     {"ack-tab-notifications", "control", 12U, "notification-ack-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"add-screens-to-screen-group", "control", 12U, "screen-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"add-tabs-to-tab-group", "control", 12U, "tab-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -41642,6 +41777,7 @@ constexpr std::array<CommandMetadata, 282> kCommands{{
     {"terminal-clipboard-subscribe", "frontend", 12U, "terminal-clipboard-read-v1", true, "subscribe", "", std::span<const CommandFieldRequirement>{}},
     {"terminal-events", "control", 9U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"terminal-history", "control", 12U, "terminal-snapshot-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"terminal-ports", "control", 12U, "terminal-ports-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"terminal-read-range", "control", 12U, "terminal-snapshot-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"terminal-resources", "control", 12U, "terminal-resources-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"terminal-resume-command", "control", 12U, "resume-command", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -41652,14 +41788,14 @@ constexpr std::array<CommandMetadata, 282> kCommands{{
     {"unregister-browser-provider", "local-admin", 10U, "browser-provider-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"unsave-screen-group", "control", 12U, "screen-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"unsave-tab-group", "control", 12U, "saved-tab-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"update-bookmark", "control", 12U, "bookmarks-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand265FieldRequirements)},
+    {"update-bookmark", "control", 12U, "bookmarks-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand266FieldRequirements)},
     {"update-browser-profile", "control", 12U, "browser-profiles-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"update-frontend-browser-tab", "control", 12U, "frontend-browser-tabs-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"update-personal-group", "control", 12U, "profiles-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"update-profile", "control", 12U, "profiles-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"update-remote-terminal-tab", "control", 12U, "remote-terminal-tabs-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"update-screen-group", "control", 12U, "screen-groups-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand271FieldRequirements)},
-    {"update-tab-group", "control", 12U, "tab-groups-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand272FieldRequirements)},
+    {"update-screen-group", "control", 12U, "screen-groups-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand272FieldRequirements)},
+    {"update-tab-group", "control", 12U, "tab-groups-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand273FieldRequirements)},
     {"update-workspace-group", "control", 12U, "workspace-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"url-open", "local-admin", 12U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"url-open-claim", "frontend", 12U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -44575,6 +44711,17 @@ Result<TerminalHistoryPagesResult> Client::terminal_history(
     auto response = core_.request("terminal-history", *parameters.value(), options.timeout);
     if (!response) return std::move(response).error();
     return decode_value<TerminalHistoryPagesResult>(response.value());
+}
+
+Result<TerminalPortsResult> Client::terminal_ports(
+    const TerminalPortsRequest& request, RequestOptions options) {
+    auto encoded = encode_value(request);
+    if (!encoded) return std::move(encoded).error();
+    auto parameters = encoded.value().as_object();
+    if (!parameters) return std::move(parameters).error();
+    auto response = core_.request("terminal-ports", *parameters.value(), options.timeout);
+    if (!response) return std::move(response).error();
+    return decode_value<TerminalPortsResult>(response.value());
 }
 
 Result<TerminalReadRangeResult> Client::terminal_read_range(

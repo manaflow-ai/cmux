@@ -7,7 +7,8 @@
 #     [--arg=rounds=N] [--arg=against=SHA] [--arg=max_p50_ms=X] [--arg=disk_load=N]
 # The binary is the commit's published cmux-tui tree, or a release build when unpublished.
 # against=SHA runs that commit's binary too, interleaved pass by pass. max_p50_ms=X fails the
-# step when any of this commit's first-text p50 is above X ms. disk_load=N runs every pass again with N
+# step when any of this commit's first-text p50 is above X ms. Each run also measures login
+# mode (labels *-login): as the app, so every shell starts through login(1). disk_load=N runs every pass again with N
 # background writers that write and F_FULLFSYNC in a loop (labels *-load), as on a busy Mac.
 set -euo pipefail
 rounds=40
@@ -64,16 +65,22 @@ state_root="$(mktemp -d /private/tmp/ntc.XXXXXX)"
 trap 'rm -rf "$state_root"' EXIT
 passes=2
 per=$(( (rounds + passes - 1) / passes ))
-loads="0"
-[ "$disk_load" -gt 0 ] && loads="0 $disk_load"
-for load in $loads; do
-  suffix=""
-  [ "$load" -gt 0 ] && suffix="-load"
+# Modes: plain (isolated HOME, no login(1)), load (plus disk_load writers), login (as the
+# app: a frontend client and the account's HOME, so shells start through login(1)).
+modes="plain login"
+[ "$disk_load" -gt 0 ] && modes="plain load login"
+for mode in $modes; do
+  suffix="" load=0 extra=""
+  case "$mode" in
+    load) suffix="-load" load="$disk_load" ;;
+    login) suffix="-login" extra="--login" ;;
+  esac
   for pass in $(seq 1 "$passes"); do
     for label in against ref; do
       [ -x "$work/bin-$label" ] || continue
+      # shellcheck disable=SC2086
       python3 -I cmux-tui/scripts/bench-terminal-create.py --bin "$work/bin-$label" --rounds "$per" \
-        --disk-load "$load" --label "$label$suffix-p$pass" --root-dir "$state_root" --spans \
+        --disk-load "$load" $extra --label "$label$suffix-p$pass" --root-dir "$state_root" --spans \
         --out "$work/$label$suffix-p$pass.json" || status=$?
     done
   done
@@ -82,7 +89,7 @@ python3 -I - "$work" "$max_p50" <<'PY' || status=$?
 import glob, json, os, sys
 work, max_p50 = sys.argv[1], sys.argv[2]
 bad = False
-for label in ("against", "ref", "against-load", "ref-load"):
+for label in ("against", "ref", "against-load", "ref-load", "against-login", "ref-login"):
     merged = {}
     for path in sorted(glob.glob(os.path.join(work, f"{label}-p*.json"))):
         for op, d in json.load(open(path))["ops"].items():

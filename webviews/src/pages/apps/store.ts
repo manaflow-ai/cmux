@@ -293,7 +293,10 @@ export class AppsStore {
   }
 
   setQuery(query: string): void {
-    this.set({ query, visible: filterApps(this.snapshot.catalog, query, this.snapshot.category) });
+    this.set({
+      query,
+      visible: filterApps(this.snapshot.catalog, query, this.snapshot.category),
+    });
   }
 
   setCategory(category: string | undefined): void {

@@ -116,6 +116,12 @@
       "title" : "Files Outside the Project",
       "type" : "string"
     },
+    "agentPane.needsYou.enabled" : {
+      "default" : false,
+      "description" : "A badge in the chat header counts what your agents wait on; a click lists every ask with its answers. New agent tabs.",
+      "title" : "Needs You",
+      "type" : "boolean"
+    },
     "agentPane.showContextUsage" : {
       "default" : true,
       "description" : "The ring beside the model that fills as the chat uses its context window.",
@@ -862,6 +868,17 @@
       "minimum" : 0.9,
       "title" : "Interface Size",
       "type" : "number"
+    },
+    "appearance.machineColors" : {
+      "default" : {
+
+      },
+      "description" : "The color of each machine's sidebar rows and tab badges, by machine name: \"#RRGGBB\", or an accent name (red, green, yellow, purple, cyan, orange, pink, blue) that follows the theme. A machine without one gets a color from its name.",
+      "properties" : {
+
+      },
+      "title" : "Machine Color",
+      "type" : "object"
     },
     "appearance.metrics.chromeFontSize" : {
       "description" : "Text size of tabs, the sidebar and other controls. Terminal text has its own size.",
@@ -3348,6 +3365,12 @@
       "title" : "Show Now Playing",
       "type" : "boolean"
     },
+    "sidebar.nowPlaying.otherApps" : {
+      "default" : false,
+      "description" : "Also show what plays in other apps, such as Spotify, Music or another browser. Off: only what plays in cmux.",
+      "title" : "Include Other Apps in Now Playing",
+      "type" : "boolean"
+    },
     "sidebar.numbering" : {
       "default" : "allItems",
       "description" : "Every item: Home is Command-1, the App Store Command-2, the first workspace Command-3. Workspaces only: the first workspace is Command-1.",
@@ -3489,6 +3512,16 @@
       "title" : "Wrap Around",
       "type" : "boolean"
     },
+    "sidebar.style" : {
+      "default" : "standard",
+      "description" : "Rail shrinks the sidebar to a thin strip with a mark for each workspace. Point at the strip to open the full sidebar over your work.",
+      "enum" : [
+        "standard",
+        "rail"
+      ],
+      "title" : "Sidebar Style",
+      "type" : "string"
+    },
     "sidebar.topBandMaxShare" : {
       "default" : 0.3333333333333333,
       "description" : "The share of the sidebar the top sections fill before they scroll.",
@@ -3580,7 +3613,7 @@
       "type" : "boolean"
     },
     "sidebar.workspaceRow.agentStatus" : {
-      "default" : true,
+      "default" : false,
       "description" : "The status agents and hooks report, one line each.",
       "title" : "Agent Status",
       "type" : "boolean"
@@ -3692,7 +3725,7 @@
       "type" : "boolean"
     },
     "sidebar.workspaceRow.log" : {
-      "default" : true,
+      "default" : false,
       "description" : "The newest line agents and scripts log: cmux workspace log append <text>.",
       "title" : "Log",
       "type" : "boolean"
@@ -3984,7 +4017,7 @@
       "type" : "boolean"
     },
     "tabs.newTabNowPlaying" : {
-      "default" : true,
+      "default" : false,
       "description" : "A player for what is playing, on the New Tab page.",
       "title" : "Show Now Playing on New Tab",
       "type" : "boolean"
@@ -4033,6 +4066,24 @@
       "description" : "A short greeting over the composer.",
       "title" : "Show Greeting on New Tab",
       "type" : "boolean"
+    },
+    "tabs.newTabWidgets.order" : {
+      "default" : [
+        "projects",
+        "actions",
+        "chats"
+      ],
+      "description" : "The order of the widgets on New Tab. Right-click New Tab and choose Edit New Tab to drag them.",
+      "items" : {
+        "enum" : [
+          "projects",
+          "actions",
+          "chats"
+        ],
+        "type" : "string"
+      },
+      "title" : "New Tab Widget Order",
+      "type" : "array"
     },
     "tabs.newTabWidgets.projects" : {
       "default" : false,

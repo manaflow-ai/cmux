@@ -111,6 +111,15 @@ enum AgentPaneContextMenu {
         return text
     }
 
+    /// The More button the page reported the message from (`popUp`, CSS px in the page's viewport):
+    /// the pane opens the message's menu under it. Nil for a right-click's report.
+    static func popUpAnchor(report body: Any?) -> CGRect? {
+        guard let box = (body as? [String: Any])?["popUp"] as? [String: Any] else { return nil }
+        let edge = { (key: String) in (box[key] as? NSNumber)?.doubleValue }
+        guard let left = edge("left"), let top = edge("top"), let right = edge("right"), let bottom = edge("bottom") else { return nil }
+        return CGRect(x: left, y: top, width: max(0, right - left), height: max(0, bottom - top))
+    }
+
     /// `text` as a Markdown quote, with a blank line after it for the reply.
     static func quote(_ text: String) -> String {
         text.split(separator: "\n", omittingEmptySubsequences: false).map { "> \($0)" }.joined(separator: "\n") + "\n\n"
@@ -125,9 +134,7 @@ enum AgentPaneContextMenu {
 
     /// A row's SF Symbol as a template image, as the action registry's menus draw theirs.
     static func icon(_ symbol: String) -> NSImage? {
-        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
-        image?.isTemplate = true
-        return image
+        NSImage.menuSymbol(symbol)
     }
 
     /// WebKit's own item (Cut, Copy, Look Up...): its target forgets the menu once WebKit's popUp

@@ -51,6 +51,12 @@ nonisolated struct RustRowKey: Codable {
             id = nil
             section = RustSectionID(fold.section)
             workspace = nil
+        case let .emptyGroup(group):
+            // Never sent: `RustRow.resolvable` leaves an empty group's row out.
+            kind = "empty_group"
+            id = group.rawValue
+            section = nil
+            workspace = nil
         case let .item(item), let .block(item):
             // Never sent: `RustRow.resolvable` leaves document rows out.
             kind = "item"
@@ -110,6 +116,8 @@ nonisolated struct RustRow: Codable {
             if case .doneFold = row.key { return nil }
             if case .showMore = row.key { return nil }
             if case .item = row.key { return nil }
+            // An empty group's row: the pointer over it falls on the open header's lower part, a drop into the group.
+            if case .emptyGroup = row.key { return nil }
             if case .custom = row.section { return nil } // the older resolver knows Pinned and machines only
             return RustRow(row)
         }

@@ -75,9 +75,18 @@ public nonisolated struct HomeTunables {
         help: "The chat shows the Chief's avatar and name pill on a glass band at its top, as Messages does. Off: no header, and the messages fade out at the top as they scroll away.",
         default: false, code: "HomeTunables.chatHeader")
 
+    /// The avatar-only list with only one conversation in it (`HomeSidebarSplitView`): off by default,
+    /// so a lone Chief takes no column and the chat gets the width (visual QA 2026-10-21: one avatar in
+    /// an empty band); on keeps the avatar-only column for it.
+    public static let loneConversationRail = Tunable<Bool>.toggle(
+        "home.loneConversationRail", section, "Avatar list for one conversation",
+        help: "A narrow Home column whose list holds one conversation (only the Chief) still shows the avatar-only list beside the chat. Off gives the chat the whole width; compose stays at its top-left.",
+        default: false, code: "HomeTunables.loneConversationRail")
+
     public static var all: [TunableDescriptor] {
         [flightRecorder.descriptor, flightRecorderCaptures.descriptor, firstRunHero.descriptor, launchIntoHome.descriptor,
-         turnProgress.descriptor, richTables.descriptor, voiceInput.descriptor, chatHeader.descriptor]
+         turnProgress.descriptor, richTables.descriptor, voiceInput.descriptor, chatHeader.descriptor,
+         loneConversationRail.descriptor]
     }
 }
 

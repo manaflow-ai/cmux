@@ -199,6 +199,18 @@ public final class SettingsController {
         try await setSetting(at: BrowserHibernationSetting.configPath, to: BrowserHibernationSetting(mode: mode).configValue, by: .currentRun())
     }
 
+    /// Writes `browser.hibernationExclusions` with `host` added ("Never Hibernate This Site")
+    /// through `setSetting`; does nothing when an exclusion already matches it. Returns the
+    /// setting with the host added.
+    @discardableResult
+    public func addBrowserHibernationExclusion(host: String) async throws -> BrowserHibernationSetting {
+        let current = snapshot.browserHibernation
+        let next = current.addingExclusion(host: host)
+        guard next != current else { return current }
+        try await setSetting(at: BrowserHibernationSetting.exclusionsPath, to: .array(next.exclusions.map(JSONValue.string)), by: .currentRun())
+        return next
+    }
+
     /// Writes `browser.keepNeighborTabsAwake` (0...3) through `setSetting`;
     /// the default (1) removes the key.
     public func setKeepNeighborTabsAwake(_ radius: Int) async throws {

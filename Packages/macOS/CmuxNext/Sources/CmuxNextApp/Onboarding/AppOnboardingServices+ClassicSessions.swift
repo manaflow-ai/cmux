@@ -38,9 +38,10 @@ extension AppOnboardingServices {
 
     /// Runs Import Workspaces from Classic cmux: every classic workspace not
     /// already open here (the migration ledger knows which ones came over),
-    /// with its window, group, color and pin. See ``migrateClassic(_:firstWorkspace:confirmation:)``.
-    func importClassicSessions() async throws -> ClassicImportSummary? {
-        let outcome = try await migrateClassic(.manual, confirmation: confirmClassicImport)
+    /// with its window, group, color and pin. `progress` hears the share of classic workspaces
+    /// handled, 0...1. See ``migrateClassic(_:firstWorkspace:confirmation:progress:)``.
+    func importClassicSessions(progress: (@MainActor (Double) -> Void)? = nil) async throws -> ClassicImportSummary? {
+        let outcome = try await migrateClassic(.manual, confirmation: confirmClassicImport, progress: progress)
         return outcome.confirmed ? outcome.summary : nil
     }
 

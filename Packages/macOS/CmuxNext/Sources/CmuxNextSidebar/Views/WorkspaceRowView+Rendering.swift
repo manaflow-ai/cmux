@@ -97,8 +97,8 @@ extension WorkspaceRowView {
         // (SidebarListView+GroupLines).
         let indent = CGFloat(treeDepth) * SidebarStyle.treeIndent // a started workspace sits in under its parent
         let (th, sh, top, cy) = textMetrics(head: b)
-        // A custom workspace icon takes the leading slot; without one the
-        // title starts at the leading inset (no default kind glyph).
+        // A custom workspace icon or favicon draws in the leading slot; without one the slot
+        // stays empty (no default kind glyph), so the title keeps its x.
         let leading = SidebarStyle.horizontalInset + indent
         let side: CGFloat
         switch iconKind {
@@ -196,14 +196,11 @@ extension WorkspaceRowView {
             trailing -= w + Metrics.space2
         }
 
-        // The title's text starts a Chrome-like 6 pt after the icon's drawing (a favicon or an
-        // emoji draws at `kindGlyphSize`, centered in its box; Lawrence 2026-10-19: "slightly too
-        // much space between the favicon and the name"); without an icon, at `leading`.
-        let iconTextGap: CGFloat = switch iconKind {
-        case .swatch?: Metrics.space3 // a color dot keeps its spacing
-        default: Metrics.space3 - Self.labelInset - max(0, (side - SidebarStyle.kindGlyphSize) / 2)
-        }
-        var textX = side > 0 ? icon.frame.maxX + iconTextGap : leading - Self.labelInset
+        // Every row keeps one leading icon slot, drawn or empty, so every title starts at one x
+        // (Lawrence 2026-10-21: "weird spacing" between rows with and without a favicon). The
+        // text starts a Chrome-like 6 pt after a favicon's drawing (it draws at `kindGlyphSize`,
+        // centered in its box; Lawrence 2026-10-19).
+        var textX = SidebarStyle.titleTextX(leading: leading) - Self.labelInset
         if !agentMark.isHidden && agentMarkVariant == .besideTitle {
             agentMark.frame = NSRect(x: textX + Self.labelInset, y: cy - ind / 2, width: ind, height: ind)
             textX = agentMark.frame.maxX + Metrics.space1
