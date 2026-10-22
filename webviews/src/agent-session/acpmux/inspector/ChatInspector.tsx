@@ -33,6 +33,7 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
+import { flushSync } from "react-dom";
 import { usePresence, type Presence } from "../../../ui/presence";
 import { useChatDisplay } from "../chatDisplay";
 import { chatColumnOf, useChatWidth, type ChatColumn } from "../chatWidth";
@@ -98,15 +99,17 @@ export const pushes = (placement: InspectorPlacement, paneWidth: number, width: 
 export const pushedWidth = (paneWidth: number, width: number) =>
   paneWidth <= 0 ? width : Math.min(width, Math.max(INSPECTOR_WIDTH.min, paneWidth - PUSH_MIN_CHAT - FLOAT_MARGIN));
 
-/// The pane's width, followed as it resizes; 0 before it is measured.
+/// The pane's width, followed as it resizes; 0 before it is measured. A resize draws in the frame
+/// that has the new width: the observer runs after that frame's layout and before its paint, and
+/// `flushSync` renders the panel's place there (state set plainly drew a frame or more later, the panel
+/// floating over the narrowed transcript before the chat jumped aside: "WHY DOES IT FLICKER").
 function usePaneWidth(shell: HTMLElement | null | undefined, live: boolean): number {
   const [width, setWidth] = useState(0);
   useLayoutEffect(() => {
     if (!shell || !live) return;
-    const measure = () => setWidth(shell.clientWidth);
-    measure();
+    setWidth(shell.clientWidth);
     if (typeof ResizeObserver !== "function") return;
-    const observer = new ResizeObserver(measure);
+    const observer = new ResizeObserver(() => flushSync(() => setWidth(shell.clientWidth)));
     observer.observe(shell);
     return () => observer.disconnect();
   }, [shell, live]);
