@@ -331,6 +331,20 @@ pub enum Input {
     CloudPauseFailed {
         peer: String,
     },
+    /// A finished subagent's own VM `peer` is deleted (its work was pushed).
+    CloudVmDeleted {
+        peer: String,
+    },
+    /// Deleting `peer` was refused (unpushed work) or failed: tried again
+    /// after another reap wait.
+    CloudVmDeleteFailed {
+        peer: String,
+    },
+    /// Subagent `id`'s own VM could not be made (`why`): it runs on this host.
+    SubagentPlacedHere {
+        id: String,
+        why: String,
+    },
     /// SIGUSR1 to the host: an update replaced the app, so the brain stops
     /// once no turn runs ([`HANDOFF_WHEN_IDLE`]); the app then hands acpmux
     /// off and starts the next host.
@@ -675,6 +689,12 @@ pub struct Brain {
     cloud_idle: std::time::Duration,
     cloud_paused: std::collections::BTreeSet<String>,
     cloud_idle_since: std::collections::BTreeMap<String, u64>,
+    /// One VM per subagent: how long a finished subagent's own VM stays
+    /// (paused) before it is deleted, since when each is done, and the
+    /// deletes in flight.
+    cloud_reap: std::time::Duration,
+    cloud_reap_since: std::collections::BTreeMap<String, u64>,
+    cloud_reaping: std::collections::BTreeSet<String>,
     /// Revokes cloud subagents' sandbox keys (agent_keys.rs); since when each
     /// keyed subagent is done, and the revokes in flight.
     agent_keys: Option<std::sync::Arc<dyn crate::agent_keys::AgentKeys>>,
@@ -871,6 +891,9 @@ impl Brain {
             cloud_idle: std::time::Duration::from_secs(chief.cloud_auto_pause_idle_secs),
             cloud_paused: Default::default(),
             cloud_idle_since: Default::default(),
+            cloud_reap: crate::subagents::REAP_AFTER_DONE,
+            cloud_reap_since: Default::default(),
+            cloud_reaping: Default::default(),
             agent_keys: None,
             agent_key_done_since: Default::default(),
             agent_key_revoking: Default::default(),
@@ -1014,6 +1037,12 @@ impl Brain {
         }
         self.cloud_vms = vms;
         self.cloud_idle = idle;
+    }
+
+    /// How long a finished subagent's own VM is kept before it is deleted
+    /// (default [`REAP_AFTER_DONE`](crate::subagents::REAP_AFTER_DONE)).
+    pub fn set_cloud_reap(&mut self, after: std::time::Duration) {
+        self.cloud_reap = after;
     }
 
     /// Revokes cloud subagents' sandbox keys once they are done for a while.
@@ -1171,9 +1200,16 @@ impl Brain {
                 place,
                 reply,
             } => {
+                // `cloud:SIZE`: on the cloud, at that VM size.
+                let (place, size) = match place.as_deref().and_then(|p| p.split_once(':')) {
+                    Some((p, s)) => (Some(p.to_owned()), Some(s.to_owned())),
+                    None => (place, None),
+                };
                 let plan = self
                     .spawn_peer(peer.as_deref(), place.as_deref())
-                    .and_then(|peers| self.register_spawn(&tasks, &peers));
+                    .and_then(|peers| {
+                        self.register_spawn_sized(&tasks, &peers, place.as_deref(), size.as_deref())
+                    });
                 let _ = reply.send(plan);
             }
             Input::SubagentQueued { id, launch } => self.sub_queued(&id, launch),
@@ -1271,8 +1307,15 @@ impl Brain {
             Input::CloudTick => {
                 self.cloud_tick();
                 self.agent_key_tick();
+                self.cloud_reap_tick();
             }
             Input::CloudPauseFailed { peer } => self.cloud_pause_failed(&peer),
+            Input::CloudVmDeleted { peer } => self.cloud_vm_deleted(&peer),
+            Input::CloudVmDeleteFailed { peer } => {
+                self.cloud_reaping.remove(&peer);
+                self.cloud_reap_since.remove(&peer);
+            }
+            Input::SubagentPlacedHere { id, why } => self.sub_placed_here(&id, &why),
             Input::SubTick => {
                 self.sub_tick();
             }

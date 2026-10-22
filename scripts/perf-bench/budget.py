@@ -46,6 +46,15 @@ ROWS = [
     ("budget-memory-per-chromium-tab", "Memory per further hidden Chromium tab", "MB"),
     ("budget-memory-first-webkit-tab", "Memory, first hidden WebKit tab (with the engine)", "MB"),
     ("budget-memory-per-webkit-tab", "Memory per further hidden WebKit tab", "MB"),
+    # Overhead rows (plans/cmux-next/speed-of-sound-DESIGN.md): the floor for each is 0 at idle.
+    ("budget-memory-per-workspace", "Memory per further workspace (one terminal, not shown)", "MB"),
+    ("budget-idle-disk-writes", "Disk writes, idle, every tab hidden, window in view", "KB/s"),
+    ("budget-idle-disk-writes-app-hidden", "Disk writes, idle, app hidden", "KB/s"),
+    ("budget-idle-mach-msgs", "Mach messages (IPC), idle, every tab hidden", "/s"),
+    ("budget-idle-syscalls", "Syscalls, idle, every tab hidden", "/s"),
+    ("budget-idle-csw-app-hidden", "Context switches, idle, app hidden", "/s"),
+    ("budget-processes", "Processes, every tab hidden", "n"),
+    ("budget-threads", "Threads, every tab hidden", "n"),
 ]
 ROW_INFO = {row: (label, unit, False) for row, label, unit in ROWS}
 
@@ -69,6 +78,7 @@ def session(run, browser, round_no: int, log, budgets_path: str | None = None):
     """One budget session on `browser` (an xbench CmuxBrowser); rows go through run.record."""
     scenario = load(budgets_path).get("scenario", {})  # report checks the file too; a bad one fails both
     terminals = int(scenario.get("terminals", 5))
+    workspaces = int(scenario.get("workspaces", 0))
     kinds = (("chromium", "openBrowser.chromium", int(scenario.get("chromium_tabs", 5))),
              ("webkit", "openBrowser.webkit", int(scenario.get("webkit_tabs", 5))))
     home_settle = float(scenario.get("home_settle_s", 30))
@@ -124,6 +134,19 @@ def session(run, browser, round_no: int, log, budgets_path: str | None = None):
                            count=tabs, **({"note": f"{unpainted} of {tabs} tabs never painted",
                                            "unpainted_mb": round(per_tab, 3)} if unpainted else {}))
 
+        if workspaces:
+            # Further workspaces, each with its first terminal, then back to the measured one: what
+            # a long session's sidebar of workspaces costs while only one is shown.
+            before = browser.instance.memory()["mb"]
+            for _ in range(workspaces):
+                browser.act("workspace.newAtBottom")
+                _sleep(0.2)  # bench: a user's pace between new workspaces
+            browser.app.action("workspace.selectFirst", focus=True)
+            _sleep(phase_settle)
+            after = browser.instance.memory()["mb"]
+            run.record(name, round_no, "budget-memory-per-workspace", (after - before) / workspaces,
+                       before_mb=before, after_mb=after, count=workspaces)
+
         _sleep(phase_settle)
         got = browser.instance.window(idle, per_pid=True)
         mem = browser.instance.memory(per_pid=True)
@@ -131,30 +154,71 @@ def session(run, browser, round_no: int, log, budgets_path: str | None = None):
         table = []
         for row in mem.pop("pids"):
             window = cpu.get(row["pid"], {})
-            table.append({**row, "cpu_pct": window.get("cpu_pct"), "wakeups_per_s": window.get("wakeups_per_s"),
-                          "mw": window.get("mw")})
+            table.append({**row, **{key: window.get(key) for key in (
+                "cpu_pct", "wakeups_per_s", "mw", "threads", "disk_kb_per_s", "mach_msgs_per_s", "syscalls_per_s",
+                "csw_per_s")}})
         run.record(name, round_no, "budget-idle-cpu", got["cpu_pct"], kinds=got["kinds"])
         run.record(name, round_no, "budget-idle-wakeups", got["wakeups_per_s"], kinds=got["kinds"])
         run.record(name, round_no, "budget-memory-total", mem["mb"], kinds=mem["kinds"],
                    processes=mem["processes"], pids=table)
+        run.record(name, round_no, "budget-idle-disk-writes", got["disk_kb_per_s"], kinds=got["kinds"])
+        run.record(name, round_no, "budget-idle-mach-msgs", got["mach_msgs_per_s"])
+        run.record(name, round_no, "budget-idle-syscalls", got["syscalls_per_s"])
+        run.record(name, round_no, "budget-processes", got["processes"])
+        run.record(name, round_no, "budget-threads", got["threads"])
         for row in table[:25]:
             log(f"  pid {row['pid']:>6} {row['kind'][:24]:<24} {row['footprint_mb']:>8.1f} MB "
                     f"{row['rss_mb'] or 0:>8.1f} MB rss {row['cpu_pct'] or 0:>6.2f}% "
-                    f"{row['wakeups_per_s'] or 0:>7.1f} wk/s")
+                    f"{row['wakeups_per_s'] or 0:>7.1f} wk/s {row.get('threads') or 0:>4} thr "
+                    f"{row.get('disk_kb_per_s') or 0:>7.1f} KB/s {row.get('mach_msgs_per_s') or 0:>7.1f} msg/s")
         if browser.hide():
             _sleep(10)
+            stacks = _sample_main(browser.instance.pid, min(10.0, idle))
             got = browser.instance.window(idle)
             run.record(name, round_no, "budget-idle-cpu-app-hidden", got["cpu_pct"], kinds=got["kinds"])
-            run.record(name, round_no, "budget-idle-wakeups-app-hidden", got["wakeups_per_s"], kinds=got["kinds"])
+            run.record(name, round_no, "budget-idle-wakeups-app-hidden", got["wakeups_per_s"], kinds=got["kinds"],
+                       main_thread_sample=stacks)
+            run.record(name, round_no, "budget-idle-disk-writes-app-hidden", got["disk_kb_per_s"])
+            run.record(name, round_no, "budget-idle-csw-app-hidden", got["csw_per_s"])
+            for line in stacks[:40]:
+                log(f"  hidden main: {line}")
             browser.unhide()
         else:  # a visible app's idle is not the hidden app's: leave the rows unmeasured this round
-            for row in ("budget-idle-cpu-app-hidden", "budget-idle-wakeups-app-hidden"):
+            for row in ("budget-idle-cpu-app-hidden", "budget-idle-wakeups-app-hidden",
+                        "budget-idle-disk-writes-app-hidden", "budget-idle-csw-app-hidden"):
                 run.record(name, round_no, row, None, note="the app did not hide")
     except Exception as error:  # noqa: BLE001 - a failed session is logged, the run goes on
         run.record(name, round_no, "session-error", None, note=f"{type(error).__name__}: {error}"[:400])
     finally:
         browser.quit()
         shutil.rmtree(profile, ignore_errors=True)
+
+
+def _sample_main(pid: int, seconds: float) -> list[str]:
+    """The main thread's call tree from `/usr/bin/sample` over `seconds` (the hidden app's idle):
+    names who wakes an idle app in a Release build, where debug.wakeups does not exist."""
+    import subprocess
+    import tempfile
+    with tempfile.NamedTemporaryFile(suffix=".txt") as out:
+        try:
+            subprocess.run(["/usr/bin/sample", str(pid), str(max(1, int(seconds))), "-mayDie", "-file", out.name],
+                           capture_output=True, timeout=seconds + 60)
+            text = open(out.name, errors="replace").read()
+        except (OSError, subprocess.SubprocessError):
+            return []
+    lines = []
+    in_main = False
+    for line in text.splitlines():
+        if "Thread_" in line and ("main-thread" in line or "DispatchQueue_1:" in line):
+            in_main = True
+        elif in_main and ("Thread_" in line or not line.strip()):
+            break
+        if in_main:
+            stripped = line.rstrip()
+            depth = len(stripped) - len(stripped.lstrip(" +!:|"))
+            if depth <= 90 and stripped:
+                lines.append(stripped[:200])
+    return lines[:200]
 
 
 def _fmt(value, unit: str) -> str:
@@ -164,6 +228,10 @@ def _fmt(value, unit: str) -> str:
         return f"{value:.2f}%"
     if unit == "/s":
         return f"{value:.1f}/s"
+    if unit == "KB/s":
+        return f"{value:,.1f} KB/s"
+    if unit == "n":
+        return f"{value:,.0f}"
     return f"{value:,.1f} MB"
 
 
