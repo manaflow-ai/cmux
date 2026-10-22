@@ -142,11 +142,23 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
             guard !isReadOnly else { return refuseReadOnly(id, method) }
             guard names(params["sessionId"]), let permission = params["permissionId"] as? String,
                   let option = params["optionId"] as? String else { return refuse(id, method) }
+            // A question's answers go with the allow (an object, as the page sent it): the proof
+            // covers them, so dropping them would send an allow the person did not make.
+            let answers: Data?
+            if let picked = params["answers"] {
+                guard picked is [String: Any], let json = try? JSONSerialization.data(withJSONObject: picked) else {
+                    return refuse(id, method)
+                }
+                answers = json
+            } else {
+                answers = nil
+            }
             // The decision proof the host added (never the page): acpmux on that machine decides.
             let decision = (params["_meta"] as? [String: Any])?["acpmux"] as? [String: Any]
             let nonce = decision?["decisionNonce"] as? String, proof = decision?["personDecision"] as? String
             run(id) { client in
-                try await client.permission(id: permission, option: option, decisionNonce: nonce, personDecision: proof)
+                try await client.permission(id: permission, option: option, answers: answers, decisionNonce: nonce,
+                                            personDecision: proof)
                 return Data("{}".utf8)
             }
         default:

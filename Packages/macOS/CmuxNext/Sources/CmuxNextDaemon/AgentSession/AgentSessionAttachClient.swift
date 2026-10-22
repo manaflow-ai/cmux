@@ -68,6 +68,8 @@ public actor AgentSessionAttachClient {
     private var servesKeyedReason = false
     /// The connected daemon serves `agent-session-children-v1`.
     private var servesChildren = false
+    /// The connected daemon serves `agent-session-permission-answers-v1`.
+    private var servesAnswers = false
 
     /// A start that needs the app's person key in that machine's acpmux (cx-0w0jj): `instance`
     /// is the acpmux run the app holds a key for, nil when it holds none.
@@ -155,16 +157,38 @@ public actor AgentSessionAttachClient {
         _ = try await call("agent-session-cancel", [:])
     }
 
-    /// `agent-session-permission`, with the person's decision proof of a relayed allow when there
-    /// is one (cx-0q7o): the daemon passes it to acpmux unchanged, and acpmux decides.
-    public func permission(id: String, option: String, decisionNonce: String? = nil, personDecision: String? = nil) async throws {
+    /// `agent-session-permission`, with a question's `answers` (a JSON object) and the person's
+    /// decision proof of a relayed allow when there is one (cx-0q7o): the daemon passes them to
+    /// acpmux unchanged, and acpmux decides. A daemon without
+    /// `agent-session-permission-answers-v1` gets no answers: the answer is refused here, never
+    /// sent as a bare allow.
+    public func permission(id: String, option: String, answers: Data? = nil, decisionNonce: String? = nil,
+                           personDecision: String? = nil) async throws {
         var params: [String: any Sendable] = ["permission_id": id, "option_id": option]
         if let decisionNonce, let personDecision {
             params["decision_nonce"] = decisionNonce
             params["person_decision"] = personDecision
         }
-        _ = try await call("agent-session-permission", params)
+        guard let answers else {
+            _ = try await call("agent-session-permission", params)
+            return
+        }
+        _ = try await liveTransport()
+        guard servesAnswers else {
+            throw AgentSessionAttachError(code: Self.answersUnsupported,
+                                          message: "the daemon on that machine does not take a question's answers: update cmux there")
+        }
+        // Encoded again here, compact (one line: the daemon reads one request per line).
+        guard let object = (try? JSONSerialization.jsonObject(with: answers)) as? [String: Any],
+              let compact = try? JSONSerialization.data(withJSONObject: object) else {
+            throw AgentSessionAttachError(code: "agent_session.refused", message: "a question's answers must be a JSON object")
+        }
+        _ = try await call("agent-session-permission", params, answers: compact)
     }
+
+    /// The code ``permission(id:option:answers:decisionNonce:personDecision:)`` throws for answers
+    /// to a daemon without `agent-session-permission-answers-v1`.
+    public static let answersUnsupported = "agent_session.answers_unsupported"
 
     public func detach() async {
         _ = try? await call("agent-session-detach", [:])
@@ -200,14 +224,16 @@ public actor AgentSessionAttachClient {
         return params
     }
 
-    /// One verb on the tab; the result's `data` as JSON, or the daemon's refusal.
-    private func call(_ cmd: String, _ params: [String: any Sendable]) async throws -> Data {
+    /// One verb on the tab; the result's `data` as JSON, or the daemon's refusal. `answers` (a
+    /// JSON object's bytes) goes in as the `answers` field.
+    private func call(_ cmd: String, _ params: [String: any Sendable], answers: Data? = nil) async throws -> Data {
         let transport = try await liveTransport()
         var object = params
         object["cmd"] = cmd
         object["surface"] = surface
         // Integers stay integers (the daemon reads u64 seqs and surface ids).
-        let fields = try JSONSerialization.data(withJSONObject: object)
+        let encoded = try JSONSerialization.data(withJSONObject: object)
+        let fields = answers.map { Data(#"{"answers":"#.utf8) + $0 + Data(",".utf8) + encoded.dropFirst() } ?? encoded
         let response: LineTransport.Response
         do {
             response = try await transport.request(cmd: cmd, timeout: requestTimeout) { id in
@@ -263,6 +289,7 @@ public actor AgentSessionAttachClient {
             servesTrust = identity.supports(DaemonCapabilities.shared.agentSessionTrust)
             servesKeyedReason = identity.supports(DaemonCapabilities.shared.agentSessionStartKeyedReason)
             servesChildren = identity.supports(DaemonCapabilities.shared.agentSessionChildren)
+            servesAnswers = identity.supports(DaemonCapabilities.shared.agentSessionPermissionAnswers)
             _ = try await DaemonConnection.perform(
                 SetClientInfoRequest(name: mode.clientInfoName, kind: mode.clientInfoKind, capabilities: []),
                 on: transport, timeout: requestTimeout)
