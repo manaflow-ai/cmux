@@ -415,6 +415,11 @@ button.acpmux-chat-inspector-port:hover,
   inset: 0;
   border-radius: inherit;
 }
+/* The link's own content paints above that overlay, so the glyph's and the check dot's titles and
+   the line counts' by-kind tooltip still get the pointer; a click there bubbles to the link. */
+.acpmux-chat-inspector-pr__link > * {
+  position: relative;
+}
 .acpmux-chat-inspector-pr__more {
   position: relative;
 }
