@@ -15,7 +15,8 @@ const src = path.resolve(import.meta.dir, "../src");
 
 type Loop = { file: string; keyframes: string; selector: string; props: string[] };
 
-/** The loops a stylesheet may keep: file, keyframes, a piece of the rule's selector, and why. */
+/** The loops a stylesheet may keep: file, keyframes, a piece of the rule's selector, and why.
+ *  `goneWith`: the open change that removes or adds the entry, so it may match nothing. */
 const ALLOWED: { file: string; keyframes: string; selector: string; why: string; goneWith?: string }[] = [
   {
     file: "agent-session/acpmux/conversation/conversation.css",
@@ -29,12 +30,6 @@ const ALLOWED: { file: string; keyframes: string; selector: string; why: string;
     keyframes: "acpmux-jump-latest-dot",
     selector: ".acpmux-jump-latest",
     why: "Jump to latest's three working dots (#21800); Static and Reduce Motion still them",
-  },
-  {
-    file: "agent-session/acpmux/inspector/inspector.css",
-    keyframes: "acpmux-chat-inspector-breathe",
-    selector: ".cv-subagent-avatar",
-    why: "a running subagent's avatar picture in the Inspector, not a status dot",
   },
   {
     file: "agent-session/acpmux/styles.css",
@@ -53,13 +48,14 @@ const ALLOWED: { file: string; keyframes: string; selector: string; why: string;
     keyframes: "cmux-breathe",
     selector: ".apps-skeleton",
     why: "the Apps page's loading skeleton",
+    goneWith: "#23870, which renames it cmux-skeleton-pulse",
   },
   {
     file: "pages/apps/styles.css",
     keyframes: "cmux-skeleton-pulse",
     selector: ".apps-skeleton",
     why: "the Apps page's loading skeleton (its name once #23870 lands)",
-    goneWith: "not yet: #23870 renames cmux-breathe here",
+    goneWith: "not until #23870, which renames cmux-breathe to this",
   },
   {
     file: "pages/cloud/styles.css",
@@ -158,36 +154,68 @@ function flicker(body: string): string[] {
   return props;
 }
 
-/** Every rule that runs a forever-repeating animation whose keyframes fade, blink or pulse. */
+/** A declaration's property, lowercased and without the `-webkit-` prefix, and its value. */
+function declarations(body: string): { property: string; value: string }[] {
+  return body
+    .split(";")
+    .map((d) => /^\s*([-\w]+)\s*:([\s\S]*)$/.exec(d))
+    .filter((m): m is RegExpExecArray => m !== null)
+    .map((m) => ({ property: m[1]!.toLowerCase().replace(/^-webkit-/, ""), value: m[2]!.trim() }));
+}
+
+/** The classes of each selector's subject (its last compound), which name the element it styles. */
+function subjectClasses(selector: string): string[] {
+  return splitTopLevel(selector).flatMap((one) => {
+    const subject = one.split(/\s*[\s>+~]\s*/).pop() ?? "";
+    return [...subject.matchAll(/\.([\w-]+)/g)].map((m) => m[1]!);
+  });
+}
+
+const INFINITE = /\binfinite\b/i;
+
+/** Every rule that runs a forever-repeating animation whose keyframes fade, blink or pulse. A rule
+ *  that only makes some other rule's animation repeat forever (`animation-iteration-count: infinite`,
+ *  or a shorthand with `infinite` and no keyframes) counts for every rule styling the same class. */
 export function flickerLoops(files: { file: string; css: string }[]): Loop[] {
   const parsed = files.map(({ file, css }) => ({ file, ...parseStylesheet(css) }));
   const keyframes = new Map<string, string>();
   for (const sheet of parsed)
     for (const [name, body] of sheet.keyframes) keyframes.set(name, (keyframes.get(name) ?? "") + body);
-  const loops: Loop[] = [];
+  const names = (value: string) => value.split(/[\s,]+/).filter((w) => keyframes.has(w));
+  type Run = { file: string; selector: string; name: string; forever: boolean };
+  const runs: Run[] = [];
+  const foreverClasses = new Set<string>();
   for (const { file, rules } of parsed) {
     for (const { selector, body } of rules) {
-      const declarations = body.split(";").map((d) => d.trim());
-      const shorthand = declarations
-        .filter((d) => /^animation\s*:/.test(d))
-        .map((d) => d.replace(/^animation\s*:/, ""));
-      const named = declarations
-        .filter((d) => /^animation-name\s*:/.test(d))
-        .map((d) => d.replace(/^animation-name\s*:/, ""));
-      const foreverCount = declarations.some((d) => /^animation-iteration-count\s*:.*infinite/.test(d));
-      const runs: string[] = [];
-      for (const value of shorthand)
-        for (const part of splitTopLevel(value))
-          if (/\binfinite\b/.test(part) || foreverCount)
-            runs.push(...part.split(/\s+/).filter((w) => keyframes.has(w)));
-      if (foreverCount) for (const value of named) runs.push(...splitTopLevel(value).filter((w) => keyframes.has(w)));
-      for (const name of new Set(runs)) {
-        const props = flicker(keyframes.get(name)!);
-        if (props.length) loops.push({ file, keyframes: name, selector: selector.replace(/\s+/g, " "), props });
+      const decls = declarations(body);
+      const countForever = decls.some((d) => d.property === "animation-iteration-count" && INFINITE.test(d.value));
+      let named = false;
+      for (const { property, value } of decls) {
+        if (property === "animation") {
+          for (const part of splitTopLevel(value)) {
+            const found = names(part);
+            if (found.length === 0 && INFINITE.test(part))
+              for (const c of subjectClasses(selector)) foreverClasses.add(c);
+            for (const name of found) runs.push({ file, selector, name, forever: INFINITE.test(part) || countForever });
+            named ||= found.length > 0;
+          }
+        } else if (property === "animation-name") {
+          for (const name of names(value)) runs.push({ file, selector, name, forever: countForever });
+          named = true;
+        }
       }
+      if (countForever && !named) for (const c of subjectClasses(selector)) foreverClasses.add(c);
     }
   }
-  return loops;
+  const loops = new Map<string, Loop>();
+  for (const run of runs) {
+    const forever = run.forever || subjectClasses(run.selector).some((c) => foreverClasses.has(c));
+    const props = flicker(keyframes.get(run.name)!);
+    if (!forever || props.length === 0) continue;
+    const selector = run.selector.replace(/\s+/g, " ");
+    loops.set(`${run.file}|${selector}|${run.name}`, { file: run.file, keyframes: run.name, selector, props });
+  }
+  return [...loops.values()];
 }
 
 const shipped = stylesheets(src).map((full) => ({ file: path.relative(src, full), css: readFileSync(full, "utf8") }));
@@ -202,7 +230,7 @@ describe("no breathing or blinking dots", () => {
     expect(loops.some((l) => l.keyframes === "acpmux-mic-wait")).toBe(true);
   });
 
-  test("it catches a breathing dot under any name, in a media query, by shorthand or longhands", () => {
+  test("it catches a breathing dot under any name, in a media query, nested, -webkit-, by shorthand or longhands, and with its repeat count in another rule", () => {
     const css = `
       @keyframes glow { 50% { opacity: .3 } }
       @keyframes throb { to { transform: scale(1.4) } }
@@ -212,7 +240,14 @@ describe("no breathing or blinking dots", () => {
       .b-mark[data-working] { animation-name: throb; animation-iteration-count: infinite }
       .c-status { color: red; .c-inner { animation: flash 1s steps(1) infinite } }
       .d-spinner { animation: turn 900ms linear infinite }
-      .e-once { animation: glow 2s ease-out 1 }`;
+      .e-once { animation: glow 2s ease-out 1 }
+      .f-dot { -webkit-animation: glow 2s INFINITE }
+      .g-dot { animation: glow 2s ease-out }
+      .g-row .g-dot[data-on] { animation-iteration-count: infinite }
+      .h-dot { -webkit-animation-name: throb }
+      .h-dot.on { -webkit-animation-iteration-count: Infinite }
+      .i-dot { animation: 2s infinite }
+      .i-dot[data-on] { animation-name: flash }`;
     const found = flickerLoops([{ file: "x.css", css }]).map(
       (l) => `${l.selector} ${l.keyframes} ${l.props.join("+")}`,
     );
@@ -220,6 +255,10 @@ describe("no breathing or blinking dots", () => {
       ".a-dot glow opacity",
       ".b-mark[data-working] throb scale",
       ".c-status .c-inner flash visibility",
+      ".f-dot glow opacity",
+      ".g-dot glow opacity",
+      ".h-dot throb scale",
+      ".i-dot[data-on] flash visibility",
     ]);
   });
 

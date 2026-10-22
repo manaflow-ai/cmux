@@ -652,16 +652,6 @@ button.acpmux-chat-inspector-port:focus-visible {
   color: var(--agent-muted);
   font-size: var(--text-detail);
 }
-@media (prefers-reduced-motion: no-preference) {
-  .acpmux-chat-inspector-avatars .cv-subagent-avatar[data-state="running"] {
-    animation: acpmux-chat-inspector-breathe 2.4s ease-in-out infinite;
-  }
-}
-@keyframes acpmux-chat-inspector-breathe {
-  50% {
-    opacity: 0.62;
-  }
-}
 .acpmux-chat-inspector-subagents__list {
   margin-top: 4px;
 }
