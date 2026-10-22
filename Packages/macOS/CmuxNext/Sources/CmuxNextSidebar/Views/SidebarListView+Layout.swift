@@ -65,7 +65,7 @@ extension SidebarListViewComponents {
         var o = model.listOptions()
         o.showsSoleMachineHeader = true
         o.pullRequests = SidebarSessionTree.shared.pullRequests
-        if let tree = SidebarSessionTree.shared.state {
+        if let tree = SidebarSessionTree.shared.drawn {
             (o.sessionTree, o.keycaps) = (tree, model.workspaceKeycaps(DesignSettings.shared.sidebarSections.navigation))
             o.chatHistory = SidebarChatHistory.shared.state
         }
@@ -275,6 +275,7 @@ extension SidebarListViewComponents {
             view.configure(section, row: row)
         case let (.emptySection(id), view as EmptySectionRowView): view.configure(pinned: id == .pinned || id == .custom(SidebarDocStore.pinnedSection))
         case let (.folder(_, folder), view as FolderHeaderRowView): view.configure(folder: folder)
+        case let (.status, view as StatusHeaderRowView): view.configure(row)
         case (.doneFold, let view as SidebarDoneFoldRowView), (.showMore, let view as SidebarDoneFoldRowView): view.configure(row)
         default:
             break
