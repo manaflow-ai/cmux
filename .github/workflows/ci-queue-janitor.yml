@@ -10,9 +10,10 @@ name: CI queue janitor
 # admission` or `app-host unit tests` shard, in that order. Draft pull requests are never cancelled for being
 # drafts, and a run whose diff changes what the failing shard does is never
 # cancelled for being doomed.
-# Main pushes, merge groups, main schedules/dispatches, release/tag, nightly
-# and TestFlight/App Store runs are never candidates. scripts/ci/queue_janitor.py
-# holds the policy; every decision is written to the step summary.
+# Main and feat-cmux-next pushes, merge groups, main schedules/dispatches,
+# release/tag, nightly and TestFlight/App Store runs are never candidates.
+# scripts/ci/queue_janitor.py holds the policy; every decision is written to
+# the step summary.
 #
 # Scheduled sweeps cancel for real unless the repository variable
 # CI_JANITOR_DRY_RUN is "true". A manual dispatch defaults to a dry run.
@@ -22,6 +23,15 @@ name: CI queue janitor
 # a newer job on the same labels got one, or a run still queued after a day.
 # These are lost runner assignments, not demand, so no queue threshold gates
 # them; release, tag and merge-queue orphans are only reported.
+#
+# Sooner than that, category e takes a push or pull request run (never a
+# protected one) whose job has queued with no runner for 30 minutes while a
+# newer job on exactly its labels was taken. A stale run is cancelled; a run
+# at an open pull request's head is cancelled and, on a later sweep, its failed
+# jobs are re-run once, unless a newer run at that head took over; a bot's
+# re-run there is left to the owned-pool rescue. That pending re-run rides in
+# the `macos-pool-load` snapshot below, which the next sweep reads back. It
+# shares the cancel cap.
 #
 # Each sweep also publishes the per-pool macOS queue it saw as the
 # `macos-pool-load` artifact, which pull request CI reads to overflow off a
