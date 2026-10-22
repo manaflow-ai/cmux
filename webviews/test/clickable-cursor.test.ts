@@ -93,7 +93,7 @@ test("every clickable thing in the agent pane shows the pointing hand, a disable
   const expected = Object.fromEntries(
     checked.map((element, index) => [
       element.dataset.name ?? `${element.tagName.toLowerCase()} #${index}`,
-      element.dataset.expect,
+      element.dataset.expect ?? "",
     ]),
   );
   expect(cursors).toEqual(expected);
