@@ -174,12 +174,24 @@ PATH_OWNERS = {
     # workflow; owned_pool_rescue.py and classify_failures.py import it too.
     "scripts/ci/ui_tests_dispatch.py": frozenset(("app-host-execution", "ci")),
     ".github/workflows/ci-ui-tests.yml": frozenset(("app-host-execution", "ci")),
-    # tests/test_ci_pr_media.py imports the script and reads the workflow.
+    # tests/test_ci_pr_media.py imports the script and reads the workflow;
+    # tests/test_ci_pr_media_privacy.py (ci) reads the workflow too.
     "scripts/ci/pr_media.py": frozenset(("app-host-execution",)),
-    ".github/workflows/pr-media.yml": frozenset(("app-host-execution",)),
+    ".github/workflows/pr-media.yml": frozenset(("app-host-execution", "ci")),
+    # tests/test_pr_media.py (preflight) and tests/test_ci_pr_media_privacy.py
+    # (ci) both load the uploader and its publishing-gate check.
+    "scripts/pr-media.py": frozenset(("ci", "preflight")),
     # tests/test_ci_pr_media_privacy.py imports the gate and reads its workflow;
     # scripts/pr-media.py (tests/test_pr_media.py) runs it before every upload.
     "scripts/ci/pr_media_privacy.py": frozenset(("ci", "preflight")),
+    # tests/test_ci_pr_media_privacy.py (ci) runs the publishing action's
+    # preflight and tesseract tool, and reads the action and its fixtures.
+    "scripts/ci/pr_media_gate.py": frozenset(("ci",)),
+    "scripts/ci/pr_media_ocr_tesseract.py": frozenset(("ci",)),
+    ".github/actions/pr-media-publish/action.yml": frozenset(("ci",)),
+    ".github/actions/pr-media-publish/canary.png": frozenset(("ci",)),
+    "tests/fixtures/pr_media_gate/clean.png": frozenset(("ci",)),
+    "tests/fixtures/pr_media_gate/seeded-private-term.png": frozenset(("ci",)),
     # tests/test_ci_pr_media_privacy.py runs its upload() through the gate.
     "dogfood/fuzz/cmuxfuzz/triage.py": frozenset(("ci",)),
     ".github/workflows/pr-media-privacy.yml": frozenset(("ci",)),
