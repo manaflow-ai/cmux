@@ -38,6 +38,8 @@ mod prewarm;
 pub mod reaction_wake;
 mod recover;
 mod replies;
+mod reply_ledger;
+pub use reply_ledger::{MAX_REPLY_TRIES, NO_REPLY_TAG, REPLY_RETRY_WAITS};
 mod send;
 mod side;
 mod spawns;
@@ -869,6 +871,8 @@ pub struct Brain {
     steer_deadline: Option<Duration>,
     /// When that deadline passes, and for which turn.
     steer_due: Option<(Instant, String)>,
+    /// The waits between reply checks (`reply_ledger::REPLY_RETRY_WAITS`).
+    reply_waits: Vec<Duration>,
 }
 
 impl Brain {
@@ -1000,6 +1004,7 @@ impl Brain {
             handoff_wait: HANDOFF_DEADLINE,
             steer_deadline: None,
             steer_due: None,
+            reply_waits: reply_ledger::REPLY_RETRY_WAITS.to_vec(),
         };
         // Each cut turn runs again first, on the reference client's note;
         // its messages are in the log already and are not logged again.
@@ -1017,6 +1022,7 @@ impl Brain {
                 logged: false,
             });
         }
+        brain.rearm_reply_checks();
         brain.save();
         // The compactor's first nodes take the turns' TTL too.
         brain.turn_cache_ttl();
@@ -1217,6 +1223,7 @@ impl Brain {
                 self.next_timer(),
                 self.next_wake(),
                 self.next_unanswered_due(),
+                self.next_reply_due(),
             ]
             .into_iter()
             .flatten()
@@ -1227,6 +1234,7 @@ impl Brain {
                     Err(RecvTimeoutError::Timeout) => {
                         self.on_timer();
                         self.fire_wakes_at(now_ms());
+                        self.fire_reply_checks_at(now_ms());
                         let now = (self.clock)();
                         self.deny_overdue_permissions_at(now);
                         continue;

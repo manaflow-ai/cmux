@@ -201,6 +201,11 @@ extension SidebarListViewComponents {
             guard case let .emptySection(section) = row.key, old.row(for: row.key) == nil else { return nil }
             return section
         })
+        // So do an empty group's row and the group's last member.
+        let emptied = Set(layout.rows.compactMap { row -> GroupID? in
+            guard case let .emptyGroup(group) = row.key, old.row(for: row.key) == nil else { return nil }
+            return group
+        })
         var leaving: [(SidebarRowView, NSRect)] = []
         let removeRuns = SidebarRowTransition.runTops(of: old, missingFrom: layout)
         for (key, view) in rowViews where !keep.contains(key) {
@@ -210,8 +215,8 @@ extension SidebarListViewComponents {
                 view.layoutSubtreeIfNeeded()
             }
             rowViews[key] = nil
-            let placeholder = if case .emptySection = key { true } else { false }
-            let replaced = old.row(for: key).map { returning.contains($0.section) } ?? false
+            let placeholder = switch key { case .emptySection, .emptyGroup: true; default: false }
+            let replaced = old.row(for: key).map { returning.contains($0.section) || $0.group.map(emptied.contains) == true } ?? false
             if adopting, !suppressed.contains(key) {
                 // A row the drop or the model took away fades where it is (its slot closes on the rows' spring).
                 leaving.append((view, view.frame))
@@ -270,6 +275,7 @@ extension SidebarListViewComponents {
             guard let section = sections[id] else { return }
             view.configure(section, row: row)
         case let (.emptySection(id), view as EmptySectionRowView): view.configure(pinned: id == .pinned || id == .custom(SidebarDocStore.pinnedSection))
+        case let (.emptyGroup(id), view as EmptyGroupRowView): view.configure(groupName: groups[id]?.name ?? model.group(id)?.name ?? "")
         case let (.folder(_, folder), view as FolderHeaderRowView): view.configure(folder: folder)
         case let (.status, view as StatusHeaderRowView): view.configure(row)
         case (.doneFold, let view as SidebarDoneFoldRowView), (.showMore, let view as SidebarDoneFoldRowView): view.configure(row)
