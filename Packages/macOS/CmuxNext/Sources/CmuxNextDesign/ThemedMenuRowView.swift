@@ -94,9 +94,9 @@ public final class ThemedMenuRowView: NSView {
             NSAttributedString(string: item.state == .on ? "✓" : "–", attributes: [.font: font, .foregroundColor: ink])
                 .draw(at: NSPoint(x: Self.markX, y: titleY))
         }
-        var x = Self.titleX
+        var x = Self.leading(of: item)
         if let image = item.image {
-            let rect = NSRect(x: x, y: titleY + (titleHeight - Self.imageSide) / 2, width: Self.imageSide, height: Self.imageSide)
+            let rect = Self.iconRect(for: image.size, x: x, midY: titleY + titleHeight / 2)
             Self.draw(image, in: rect, tint: image.isTemplate ? quiet : nil)
         }
         // Titles line up whether or not their row has an icon, once any row of the menu has one.
@@ -281,9 +281,18 @@ public final class ThemedMenuRowView: NSView {
 }
 
 extension ThemedMenuRowView {
+    // Native macOS menu metrics (Leo 2026-10-21, on the chat's right-click menu: "so much ...
+    // padding ... all over the place"): 22pt rows in the native menu font, 14pt icons, content at
+    // AppKit's leading, the highlight 5pt in from the menu's edge. ThemedMenuMetricsTests pins them.
     static let rowHeight: CGFloat = 22, subtitleRowHeight: CGFloat = 36
     static let inset: CGFloat = 5, radius: CGFloat = 4
-    static let markX: CGFloat = 10, titleX: CGFloat = 22, imageSide: CGFloat = 16, gap: CGFloat = 6
+    /// Where a row's icon (or title) starts: AppKit's own leading, so icons line up with the
+    /// menu's native separators. Only a menu with a checkmark or dash keeps a state column
+    /// (``markX``, then content at ``stateTitleX``), as a native menu does.
+    static let titleX: CGFloat = 15
+    static let markX: CGFloat = 10, stateTitleX: CGFloat = 22
+    /// The box an icon fits in, keeping its shape (an SF Symbol is rarely square), and the space after it.
+    static let imageSide: CGFloat = 14, gap: CGFloat = 6
     static let trailing: CGFloat = 12, shortcutGap: CGFloat = 28
     /// The run-loop order of a chosen row's run; `NSMenu.afterThemedRowRuns` comes after it.
     static let pendingRunOrder = 0
@@ -303,12 +312,27 @@ extension ThemedMenuRowView {
         item.image != nil || item.menu?.items.contains { $0.image != nil } == true
     }
 
+    /// Whether `item`'s menu draws a state column: some row in it shows a checkmark or a dash.
+    static func hasStateColumn(_ item: NSMenuItem) -> Bool {
+        item.state != .off || item.menu?.items.contains { $0.state != .off } == true
+    }
+
+    /// Where `item`'s icon, or its title without one, starts.
+    static func leading(of item: NSMenuItem) -> CGFloat { hasStateColumn(item) ? stateTitleX : titleX }
+
+    /// An image of `size` fitted, shape kept, into the ``imageSide`` box at `x`, centered on `midY`.
+    static func iconRect(for size: NSSize, x: CGFloat, midY: CGFloat) -> NSRect {
+        let scale = size.width > 0 && size.height > 0 ? min(imageSide / size.width, imageSide / size.height) : 1
+        let width = size.width > 0 ? size.width * scale : imageSide, height = size.height > 0 ? size.height * scale : imageSide
+        return NSRect(x: x + (imageSide - width) / 2, y: midY - height / 2, width: width, height: height)
+    }
+
     static func height(of item: NSMenuItem) -> CGFloat { subtitle(of: item) == nil ? rowHeight : subtitleRowHeight }
 
     static func width(of item: NSMenuItem) -> CGFloat {
         let font = font(of: item)
         func width(_ text: String, _ font: NSFont) -> CGFloat { NSAttributedString(string: text, attributes: [.font: font]).size().width }
-        var total = titleX + (hasIconColumn(item) ? imageSide + gap : 0)
+        var total = leading(of: item) + (hasIconColumn(item) ? imageSide + gap : 0)
         total += max(width(item.title, font), subtitle(of: item).map { width($0, subtitleFont) } ?? 0)
         let shortcut = shortcutText(of: item)
         if item.submenu != nil {
