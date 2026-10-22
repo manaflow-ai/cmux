@@ -39,6 +39,36 @@ extension AgentHandlers {
         })
     }
 
+    /// New Agent Chat that a script or agent aims at a pane or a workspace (the CLI, MCP; #23016),
+    /// shown or not. The chat tab opens on the workspace store in that pane (a workspace's most
+    /// recently focused one) with no window, workspace, selection or focus change, starts in
+    /// `cwd` when given, and the run answers the tab, pane and workspace ids. Before, a pane no
+    /// window shows was refused ("That pane is no longer open"). A person's run (context menu) and
+    /// a run that asks for focus keep the shown-pane path. False when this path does not apply.
+    static func openTargetedChat(_ invocation: ActionInvocation, context: AppActionContext) -> Bool {
+        guard let target = invocation.target, target.kind == .pane || target.kind == .workspace else { return false }
+        let services = context.services
+        guard let place = AgentChatPlacement.resolve(target, services: services) else {
+            services.registry.refuseNotFound(target.kind == .pane ? RefusalStrings.noPaneID(target.id) : RefusalStrings.noWorkspace(target.id))
+            return true
+        }
+        let shown = services.paneController(for: place.pane)
+        if let shown, invocation.allowsViewChange {
+            guard target.kind == .workspace else { return false }
+            openNewAgentChat(in: shown, invocation: invocation, context: context)
+            return true
+        }
+        let seed = AgentPaneSeed(cwd: place.cwd(invocation["cwd"]?.stringValue))
+        do {
+            services.registry.track(result: try place.openTab(seed: seed, selects: shown == nil, services: services))
+        } catch let failure as ActionFailure {
+            services.registry.refuse(failure.message)
+        } catch {
+            services.registry.refuse(RefusalStrings.agentTabCreateFailed)
+        }
+        return true
+    }
+
     /// A new workspace in the active window with the chat as its only tab, when that window shows
     /// a top page: the workspace under the page stays parked, and its panes never mount for a
     /// chat to open in. False when the daemon cannot hold a chat.
