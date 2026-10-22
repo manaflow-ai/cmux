@@ -29,7 +29,6 @@ pub mod process;
 pub mod route;
 pub mod run;
 pub mod session_folder;
-pub mod session_tree;
 pub mod shutdown;
 pub mod stdio;
 pub mod uniichat_agent;
