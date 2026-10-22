@@ -255,17 +255,11 @@ struct WorkspaceHoverCardContent: Equatable {
         case .message(let message):
             facts.append(Fact(icon: .agentChatList, text: message, lines: 2, kind: Fact.lastReplyKind, isPreview: true))
         case .needsYou:
-            // A wait whose reason the first row gives says it already. Without one, the last reply
-            // is usually the question: it shows, its icon in the wait's color. Without either, a
-            // chat whose chip needs the person and no waiting status row says "Needs you".
-            guard needsInputReason(workspace) == nil else { break }
-            if let message = lastReply(workspace) {
-                facts.append(Fact(icon: .agentChatList, text: message, lines: 2, kind: Fact.lastReplyKind, iconTone: .attention,
-                                  isPreview: true))
-            } else if !workspace.activity.waitsForPerson {
-                facts.append(Fact(icon: .statusNeedsinput, text: Strings.priorityNeedsYou, kind: needsYouKind, ink: .attention,
-                                  iconTone: .attention, isPreview: true))
-            }
+            // The reason row or the waiting status row says it already, so no reply shows under
+            // it. With neither (a chip that needs the person), the preview says "Needs you".
+            guard needsInputReason(workspace) == nil, !workspace.activity.waitsForPerson else { break }
+            facts.append(Fact(icon: .statusNeedsinput, text: Strings.priorityNeedsYou, kind: needsYouKind, ink: .attention,
+                              iconTone: .attention, isPreview: true))
         case .empty:
             break
         }
@@ -278,8 +272,8 @@ struct WorkspaceHoverCardContent: Equatable {
     /// What the card's last line says (Leo 2026-10-21): the latest meaningful status, and the
     /// agent chat's raw last reply only when there is none.
     enum Preview: Equatable {
-        /// The workspace waits on the person: the first row says why, else the last reply (the
-        /// question) shows with the wait's color.
+        /// The workspace waits on the person: the reason row or the waiting status row says so,
+        /// else a "Needs you" line; never the raw last reply.
         case needsYou
         /// Its pull request, in its state's color.
         case pullRequest

@@ -145,20 +145,22 @@ import Testing
         #expect(card.facts.first?.kind == "needsInput")
         #expect(card.facts.first?.iconTone == .attention)
 
-        // A wait with no reason: the last reply is the question, its icon in the wait's color.
+        // A wait with no reason: the waiting status row says so, so no reply shows under it.
         let waiting = Self.chat { $0.activity = .waiting(kind: nil) }
         #expect(WorkspaceHoverCardContent.preview(waiting, pullRequests: nil) == .needsYou)
-        let question = Self.card(waiting).facts.last
-        #expect(question?.kind == WorkspaceHoverCardContent.Fact.lastReplyKind && question?.iconTone == .attention)
-        #expect(question?.text == waiting.lastMessage && question?.isPreview == true)
+        #expect(!Self.card(waiting).facts.contains { $0.kind == WorkspaceHoverCardContent.Fact.lastReplyKind || $0.isPreview })
 
-        // A chip that needs the person, with no reason, no reply and no waiting status row: the
-        // preview says so, in the wait's color.
-        let chip = Self.chat { $0.agentChip = .needsYou; $0.lastMessage = nil }
-        #expect(WorkspaceHoverCardContent.preview(chip, pullRequests: nil) == .needsYou)
-        let last = Self.card(chip).facts.last
-        #expect(last?.kind == WorkspaceHoverCardContent.needsYouKind && last?.iconTone == .attention && last?.isPreview == true)
-        #expect(last?.ink == .attention && last?.text == CmuxNextSidebar.Strings.priorityNeedsYou)
+        // A chip that needs the person, with no reason and no waiting status row: the preview says
+        // so, in the wait's color, with or without a reply.
+        for message in [nil, Self.chat().lastMessage] {
+            let chip = Self.chat { $0.agentChip = .needsYou; $0.lastMessage = message }
+            #expect(WorkspaceHoverCardContent.preview(chip, pullRequests: nil) == .needsYou)
+            let card = Self.card(chip)
+            let last = card.facts.last
+            #expect(last?.kind == WorkspaceHoverCardContent.needsYouKind && last?.iconTone == .attention && last?.isPreview == true)
+            #expect(last?.ink == .attention && last?.text == CmuxNextSidebar.Strings.priorityNeedsYou)
+            #expect(!card.facts.contains { $0.kind == WorkspaceHoverCardContent.Fact.lastReplyKind }, "reply: \(message ?? "none")")
+        }
         // With a reason or a waiting status row, it is said already: no second line.
         #expect(!Self.card(reason).facts.contains { $0.kind == WorkspaceHoverCardContent.needsYouKind })
         #expect(!Self.card(waiting).facts.contains { $0.kind == WorkspaceHoverCardContent.needsYouKind })
