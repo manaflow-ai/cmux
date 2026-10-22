@@ -572,6 +572,7 @@ fn a_finished_turn_notification_carries_the_whole_prompt_and_answer_for_the_feed
     assert_eq!(event["title"], "Claude finished", "{event}");
     assert_eq!(event["message"].as_str(), Some(reply.as_str()), "the whole answer: {event}");
     assert_eq!(event["prompt"].as_str(), Some(prompt.as_str()), "the whole prompt: {event}");
+    assert_eq!(event["session"], "feed-1", "the posting agent's session: {event}");
     // The banner keeps its folded 200-character cut.
     let preview = event["preview"].as_str().unwrap_or_default();
     assert!(preview.starts_with(marker) && !preview.contains('\n'), "{event}");
@@ -621,6 +622,83 @@ fn an_error_notification_carries_the_error_text_for_the_feed() {
     assert_eq!(event["title"], "Claude reported an error", "{event}");
     assert_eq!(event["body"], "Bash", "{event}");
     assert_eq!(event["message"].as_str(), Some(error), "the error text: {event}");
+}
+
+/// A reply typed on the phone's Feed (where the screen is not in view) reaches only the agent
+/// that waits at its prompt, in the session that posted, and is submitted with Return in the same
+/// write (`send` `expect_agent`, `submit`): never a busy agent, one blocked on an approval, or a
+/// new session in the same terminal.
+#[test]
+fn a_feed_reply_reaches_only_the_waiting_agent_session() {
+    let _exclusive = exclusive_process_test();
+    let harness = RecoveryHarness::start("command-activity-feed-reply");
+    let helper = env!("CARGO_BIN_EXE_cmux-tui");
+    let payload_dir = std::env::temp_dir().join(format!("cmux-feed-reply-{}", std::process::id()));
+    fs::create_dir_all(&payload_dir).unwrap();
+    let start = payload_dir.join("start.json");
+    let stop = payload_dir.join("stop.json");
+    fs::write(&start, serde_json::json!({"session_id":"reply-s1","hook_event_name":"UserPromptSubmit","cwd":"/tmp","prompt":"go"}).to_string()).unwrap();
+    fs::write(&stop, serde_json::json!({"session_id":"reply-s1","hook_event_name":"Stop","cwd":"/tmp","last_assistant_message":"done"}).to_string()).unwrap();
+    // `cat` stands in for the agent's prompt once its turn ended: it echoes what it reads.
+    let script = format!(
+        "[ -n \"$CMUX_TUI_TERMINAL_ID\" ] && printf 'agent\\r\\n'; read step; \
+         '{helper}' __agent-hook claude UserPromptSubmit < '{}'; \
+         '{helper}' __agent-hook claude Stop < '{}'; printf 'turn\\r\\n'; exec cat",
+        start.display(),
+        stop.display()
+    );
+    let (surface, _) = run_script(&harness, "command-activity-feed-reply", &script, "agent");
+    step(&harness, surface);
+    assert!(wait_for_screen(&harness.socket, surface, "turn").contains("turn"));
+    wait_for_agent_state(&harness, "idle");
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    let program = loop {
+        let info = request(&harness.socket, serde_json::json!({"id": 4, "cmd": "process-info", "surface": surface}));
+        if let Some(name) = info["foreground_executable"].as_str().filter(|name| name.ends_with("cat")) {
+            break name.to_string();
+        }
+        assert!(Instant::now() < deadline, "cat never became the foreground: {info}");
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    let reply = |id: u64, text: &str, session: &str| {
+        request_response(
+            &harness.socket,
+            serde_json::json!({"id": id, "cmd": "send", "surface": surface, "text": text,
+                "expect_foreground": program, "expect_agent": {"session": session}, "submit": true}),
+        )
+    };
+    // Another session in the same terminal: refused, nothing typed.
+    let other = reply(5, "wrong_session_reply", "reply-s2");
+    assert_eq!(other["ok"], false, "{other}");
+    assert!(other["error"].to_string().contains("agent not waiting"), "{other}");
+    // The waiting session: typed and submitted (cat prints the line back after Return).
+    let sent = reply(6, "feed_reply_ok", "reply-s1");
+    assert_eq!(sent["ok"], true, "{sent}");
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    let screen = loop {
+        let screen = wait_for_screen(&harness.socket, surface, "feed_reply_ok");
+        if screen.matches("feed_reply_ok").count() >= 2 {
+            break screen;
+        }
+        assert!(Instant::now() < deadline, "the reply was typed but not submitted:\n{screen}");
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    assert!(!screen.contains("wrong_session_reply"), "{screen}");
+    // The agent went back to work (or is asking): refused.
+    request(&harness.socket, serde_json::json!({"id": 7, "cmd": "report-agent", "surface": surface, "state": "working", "source": "hook"}));
+    wait_for_agent_state(&harness, "working");
+    let busy = reply(8, "busy_reply", "reply-s1");
+    assert_eq!(busy["ok"], false, "{busy}");
+    request(&harness.socket, serde_json::json!({"id": 9, "cmd": "report-agent", "surface": surface, "state": "blocked", "source": "hook"}));
+    wait_for_agent_state(&harness, "blocked");
+    let asking = reply(10, "asking_reply", "reply-s1");
+    assert_eq!(asking["ok"], false, "{asking}");
+    let _ = fs::remove_dir_all(&payload_dir);
+    let screen = request(&harness.socket, serde_json::json!({"cmd": "read-screen", "surface": surface}))["text"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string();
+    assert!(!screen.contains("busy_reply") && !screen.contains("asking_reply"), "{screen}");
 }
 
 fn now_ms() -> u64 {

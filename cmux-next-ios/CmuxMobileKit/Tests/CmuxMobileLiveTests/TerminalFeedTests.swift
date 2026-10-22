@@ -36,13 +36,18 @@ import Testing
         var requests: [(String, [String: Int])] = []
         /// `process-info`'s foreground program (nil: the shell is in the foreground).
         var foreground: String? = "claude"
-        /// What `send` wrote: (surface, text, paste, expect_foreground).
-        var sent: [(Int, String, Bool, String)] = []
+        /// What `send` wrote: (surface, text, expect_foreground, expect_agent session).
+        var sent: [(Int, String, String, String?)] = []
         var sendError: String?
+        /// `identify`'s capabilities (a Mac without `send-expect-agent-v1` takes no Feed reply).
+        var capabilities = ["send-expect-foreground-v1", "send-expect-agent-v1"]
 
         func respond(_ command: String, _ params: [String: Int]) -> Data {
             requests.append((command, params))
             switch command {
+            case "identify":
+                let list = capabilities.map { #""\#($0)""# }.joined(separator: ",")
+                return Data(#"{"ok":true,"data":{"app":"cmux-tui","capabilities":[\#(list)]}}"#.utf8)
             case "process-info":
                 let foreground = foreground.map { #""\#($0)""# } ?? "null"
                 return Data(#"{"ok":true,"data":{"pid":42,"command":null,"foreground_executable":\#(foreground)}}"#.utf8)
@@ -61,9 +66,9 @@ import Testing
         let store = FeedStore(items: [])
         let feed = TerminalFeed(store: store)
         feed.request = { command, params, _ in daemon.respond(command, params) }
-        feed.send = { surface, text, paste, expect, _ in
+        feed.send = { surface, text, expect, session, _ in
             if let error = daemon.sendError { return Data(#"{"ok":false,"error":"\#(error)"}"#.utf8) }
-            daemon.sent.append((surface, text, paste, expect))
+            daemon.sent.append((surface, text, expect, session))
             return Data(#"{"ok":true,"data":{}}"#.utf8)
         }
         store.onItemsChange = { [weak feed] items in feed?.itemsChanged(items) }
@@ -381,22 +386,48 @@ import Testing
         #expect(store.item(id: "term-mac-ntf_1")?.kind == .response)
     }
 
-    /// A reply from the Feed is typed into that terminal's agent and submitted:
-    /// pasted, then Return as its own key, each only while the agent is still
-    /// the terminal's foreground program.
+    /// A reply from the Feed is typed into that terminal's agent and submitted
+    /// in one `send` (pasted, then Return), which the daemon writes only while
+    /// the agent is still the foreground program and waits at its prompt in
+    /// the session that posted the event.
     @Test func aReplyIsTypedIntoTheWaitingAgent() async {
         let daemon = FakeDaemon()
+        let (store, feed) = Self.make(daemon)
+        feed.treeChanged(Self.claudeTree("working"), macID: "mac", connection: Self.connection)
+        await Self.settle { daemon.lists == 1 }
+        daemon.rows = [Self.row("ntf_1", "Claude finished", surface: 1, at: 2_000_000)]
+        feed.notificationPosted(NotificationPost(id: "ntf_1", surface: 1, source: "agent", prompt: "fix it", message: "Fixed.",
+                                                 session: "sess-1"))
+        await Self.settle { store.items.count == 1 }
+        feed.treeChanged(Self.claudeTree(), macID: "mac", connection: Self.connection)
+        // An escape would end the paste early; line breaks stay.
+        let refusal = await feed.reply(itemID: "term-mac-ntf_1", text: "  now run\u{1b}[201~ the tests\nplease \n")
+        #expect(refusal == nil)
+        #expect(daemon.requests.contains { $0.0 == "process-info" && $0.1 == ["surface": 1] })
+        #expect(daemon.sent.count == 1)
+        #expect(daemon.sent.first?.0 == 1)
+        #expect(daemon.sent.first?.1 == "now run[201~ the tests\nplease")
+        #expect(daemon.sent.first?.2 == "claude")
+        #expect(daemon.sent.first?.3 == "sess-1")
+
+        // The Feed card: typing, then sent (the state lives on the item).
+        store.replyToTerminal("term-mac-ntf_1", text: "again") { item, text in await feed.reply(itemID: item.id, text: text) }
+        #expect(store.item(id: "term-mac-ntf_1")?.pending == FeedStore.typingIntoTerminal)
+        await Self.settle { store.item(id: "term-mac-ntf_1")?.pending == nil }
+        #expect(store.item(id: "term-mac-ntf_1")?.replies == ["again"])
+        #expect(store.item(id: "term-mac-ntf_1")?.error == nil)
+    }
+
+    /// A Mac whose daemon cannot check the agent itself takes no reply from the Feed.
+    @Test func anOlderMacTakesNoFeedReply() async {
+        let daemon = FakeDaemon()
+        daemon.capabilities = ["send-expect-foreground-v1"]
         let (store, feed) = Self.make(daemon)
         daemon.rows = [Self.row("ntf_1", "Claude finished", surface: 1, at: 2_000_000)]
         feed.treeChanged(Self.claudeTree(), macID: "mac", connection: Self.connection)
         await Self.settle { store.items.count == 1 }
-        let refusal = await feed.reply(itemID: "term-mac-ntf_1", text: "  now run the tests \n")
-        #expect(refusal == nil)
-        #expect(daemon.requests.contains { $0.0 == "process-info" && $0.1 == ["surface": 1] })
-        #expect(daemon.sent.map(\.0) == [1, 1])
-        #expect(daemon.sent.map(\.1) == ["now run the tests", "\r"])
-        #expect(daemon.sent.map(\.2) == [true, false])
-        #expect(daemon.sent.map(\.3) == ["claude", "claude"])
+        #expect(await feed.reply(itemID: "term-mac-ntf_1", text: "hi")?.contains("Update cmux on the Mac") == true)
+        #expect(daemon.sent.isEmpty)
     }
 
     /// Only that agent, at its prompt, for its newest event: never a shell, a
@@ -429,7 +460,15 @@ import Testing
         feed.treeChanged(Self.claudeTree(), macID: "mac", connection: Self.connection)
         daemon.sendError = "foreground changed: the expected program no longer runs in the foreground"
         #expect(await feed.reply(itemID: "term-mac-ntf_2", text: "hi") == "The agent left that terminal, so the reply was not sent.")
+        // The agent started working or asking (or restarted) since the phone looked: the daemon refuses.
+        daemon.sendError = "agent not waiting: the terminal's agent is working, asking, or another session"
+        #expect(await feed.reply(itemID: "term-mac-ntf_2", text: "hi")?.contains("busy, asking something, or restarted") == true)
         #expect(daemon.sent.isEmpty)
+        // The card shows why, and the reply can be tried again.
+        store.replyToTerminal("term-mac-ntf_2", text: "hi") { item, text in await feed.reply(itemID: item.id, text: text) }
+        await Self.settle { store.item(id: "term-mac-ntf_2")?.pending == nil }
+        #expect(store.item(id: "term-mac-ntf_2")?.error?.contains("busy") == true)
+        #expect(store.item(id: "term-mac-ntf_2")?.replies == [])
         // Not connected.
         feed.request = nil
         #expect(await feed.reply(itemID: "term-mac-ntf_2", text: "hi") == "Not connected to the Mac.")
