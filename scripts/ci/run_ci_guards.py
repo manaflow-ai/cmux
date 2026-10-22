@@ -295,6 +295,13 @@ def is_stateful(unit: Unit) -> bool:
     )
 
 
+def needs_clean_tree(steps: list[Step]) -> bool:
+    """The workload profile runner refuses a checkout with source changes, and
+    other steps (a submodule init) change the shared checkout while they run,
+    so a task holding it runs alone, before the parallel steps."""
+    return any("cmux_workload_profile.py run" in step.run for step in steps)
+
+
 def skipped_here(step: Step) -> bool:
     return sys.platform != "linux" and step.name in LINUX_ONLY_STEPS
 
@@ -591,18 +598,22 @@ def main(argv: list[str]) -> int:
         else:
             tasks.extend((unit, [step]) for step in unit.steps)
     tasks.sort(key=lambda task: -len(task[1]))
+    # Tasks that need a clean checkout run one at a time first; then the rest share the pool.
+    batches = [[task] for task in tasks if needs_clean_tree(task[1])]
+    batches.append([task for task in tasks if not needs_clean_tree(task[1])])
     results: list[StepResult] = []
     pool = concurrent.futures.ThreadPoolExecutor(max_workers=max(1, args.jobs))
-    futures = [pool.submit(run_steps, unit, steps, env, base_sha, args.keep_going) for unit, steps in tasks]
     try:
-        for future in concurrent.futures.as_completed(futures):
-            for result in future.result():
-                results.append(result)
-                if result.ok is False:
-                    print(f"  FAIL {result.seconds:6.1f}s  {result.unit.label}: {result.step.name}", flush=True)
-                    print(f"::group::{result.step.name}\n{result.output.rstrip()}\n::endgroup::", flush=True)
-                elif args.verbose and result.ok:
-                    print(f"  ok   {result.seconds:6.1f}s  {result.unit.label}: {result.step.name}", flush=True)
+        for batch in batches:
+            futures = [pool.submit(run_steps, unit, steps, env, base_sha, args.keep_going) for unit, steps in batch]
+            for future in concurrent.futures.as_completed(futures):
+                for result in future.result():
+                    results.append(result)
+                    if result.ok is False:
+                        print(f"  FAIL {result.seconds:6.1f}s  {result.unit.label}: {result.step.name}", flush=True)
+                        print(f"::group::{result.step.name}\n{result.output.rstrip()}\n::endgroup::", flush=True)
+                    elif args.verbose and result.ok:
+                        print(f"  ok   {result.seconds:6.1f}s  {result.unit.label}: {result.step.name}", flush=True)
     except KeyboardInterrupt:
         pool.shutdown(wait=False, cancel_futures=True)
         stop_running()

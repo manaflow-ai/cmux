@@ -128,6 +128,53 @@ test("a chat waiting with no readable ask still shows, once; an archived chat ne
   expect(items[1]!.ask).toBe("Pick a branch");
 });
 
+// Leo 2026-10-21: a row read "Waiting 5m" over the chat's last reply while a question waited. A chat
+// whose ask the page cannot read (another computer's) still names it in its summary (acpmux
+// `waitingOn`, `waitingPrompt`): the row shows that question; only a chat that names nothing falls
+// back to its last reply.
+test("a waiting chat's row shows the question it waits on, not its last reply", () => {
+  const items = needsYouItems({
+    sessions: [
+      session("question", {
+        indicator: "input",
+        updatedAt: 5,
+        preview: "I moved the retry helper into fetch.ts.",
+        waitingOn: { on: "question", prompt: "Which branch should the docs target?" },
+      }),
+      session("permission", {
+        indicator: "input",
+        updatedAt: 4,
+        preview: "The tests pass; pushing next.",
+        waitingOn: { on: "permission" },
+      }),
+      session("unnamed", {
+        indicator: "input",
+        updatedAt: 3,
+        preview: "Which tag should the notes start from?",
+        waitingOn: { on: "question" },
+      }),
+      session("plain", { indicator: "input", updatedAt: 2, preview: "Pick a branch" }),
+    ],
+    asks: [],
+  });
+  expect(items.map((item) => [item.id, item.kind, item.ask])).toEqual([
+    ["chat:question", "decision", "Which branch should the docs target?"],
+    ["chat:permission", "approval", "The tests pass; pushing next."],
+    ["chat:unnamed", "decision", "Which tag should the notes start from?"],
+    ["chat:plain", "input", "Pick a branch"],
+  ]);
+  expect(items.every((item) => item.answers.length === 0)).toBe(true);
+  const html = renderToStaticMarkup(
+    <NeedsYouPanel
+      items={items.slice(0, 1)}
+      actions={{ answer: async () => undefined, goTo: () => undefined, ask: async () => "" }}
+    />,
+  );
+  expect(html).toContain("Which branch should the docs target?");
+  expect(html).not.toContain("I moved the retry helper");
+  expect(html).toContain(translate("needsYou.kind.decision"));
+});
+
 test("the open chat's held agent pair messages are one item with Resume; a resumed pair is not", () => {
   const pair = (peer: string, resumed: boolean) =>
     ({
