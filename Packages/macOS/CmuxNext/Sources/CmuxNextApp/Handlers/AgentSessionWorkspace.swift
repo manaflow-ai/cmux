@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextAgentLanes
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
@@ -21,7 +22,11 @@ import Foundation
 /// (`chief:<home id>`: the session runs in this app's Chief home's acpmux),
 /// `group` (the name of the sidebar group it goes in, made when no group has
 /// that name; `acpmux new --group` sends it). A `key` that names a listed
-/// workspace opens nothing: a launcher run again finds its row.
+/// workspace opens nothing: a launcher run again finds its row. An agent's
+/// call (`callerAgentSession`) records that agent's session as the opened
+/// session's lineage parent (``AgentSessionParents``), so the sidebar's
+/// session tree nests the new workspace under the caller's even when the
+/// session's daemon lists no lineage (a remote or older daemon).
 enum AgentSessionWorkspace {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind("agent.openSessionWorkspace", run: { invocation in
@@ -39,17 +44,19 @@ enum AgentSessionWorkspace {
         // The Chief host's own acpmux runs the session (`chief:<home id>`); absent: this Mac's.
         let host = invocation["host"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
         let group = invocation["group"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
-        let task = try open(session: session, name: name, key: key, cwd: cwd, host: host, group: group, services: context.services)
+        let task = try open(session: session, name: name, key: key, cwd: cwd, host: host, group: group,
+                            parent: invocation.callerAgentSession, services: context.services)
         context.services.registry.track(task)
     }
 
     /// Starts the new workspace for `session` (see the type) and returns its
     /// work. Start Agent's Return (cx-hkat) puts its started chat in the
-    /// sidebar this way too. Throws when this build has no agent page or the
-    /// daemon is offline.
+    /// sidebar this way too. `parent` is the session of the agent that asked
+    /// (nil for a person), recorded once the chat tab opens. Throws when this
+    /// build has no agent page or the daemon is offline.
     @discardableResult
     static func open(session: String, name: String?, key: WorkspaceKey = .generate(), cwd: String?, host: String? = nil,
-                     group: String? = nil, services: AppServices) throws -> ActionWork {
+                     group: String? = nil, parent: String? = nil, services: AppServices) throws -> ActionWork {
         guard services.agentTabs.canHostChat else { throw ActionFailure(message: MiscHandlerStrings.quickChatUnavailable) }
         let daemon = services.daemon
         guard let connection = daemon.connection, case let repair = services.emptyWorkspaces else {
@@ -88,6 +95,7 @@ enum AgentSessionWorkspace {
                 for window in services.windows.controllers {
                     window.state.selection.select(created.key, in: pane.id)
                 }
+                AgentSessionWorkspace.recordParent(parent, of: session, in: .shared)
                 logger.info("agent.openSessionWorkspace: session \(session, privacy: .public) in workspace \(key.rawValue, privacy: .public) tab \(created.key, privacy: .public)")
                 return nil
             } catch let refusal as AgentTabRefusal {
@@ -97,6 +105,15 @@ enum AgentSessionWorkspace {
                 return ActionWorkFailure("agent.openSessionWorkspace: \(error)")
             }
         }
+    }
+
+    /// Records `caller`, the session of the agent that opened `session`'s
+    /// workspace, as `session`'s lineage parent. The sidebar's tree reads it
+    /// only where the session's daemon lists no lineage of its own, so a
+    /// daemon's `spawnedBy`/`startedBy` still wins. A person's open (no
+    /// caller) records nothing.
+    @MainActor static func recordParent(_ caller: String?, of session: String, in parents: AgentSessionParents) {
+        parents.record(caller?.trimmingCharacters(in: .whitespacesAndNewlines), of: session)
     }
 
     /// Moves workspace `id` into the sidebar group named `name`, or into a new
