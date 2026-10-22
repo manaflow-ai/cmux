@@ -104,7 +104,7 @@ final class CloudMachineUpdates {
                 logger.info("cloud machine \(machineID, privacy: .public): updating cmux-tui to the app's build")
                 return try await cli.machineUpdate(socket: socket, toBundled: true)
             },
-            reconnect: { [weak session] in await CloudMachineUpdates.reconnect(session) })
+            reconnect: { [weak session] in await session?.reconnectAfterUpdate() })
     }
 
     /// The machine's daemon as the app sees it: connected (its build and level), refused
@@ -129,21 +129,14 @@ final class CloudMachineUpdates {
     }
 
     /// The machine daemon's socket as this Mac reaches it (what Update Machine passes). A refused
-    /// daemon left no connection: the legacy link's socket can be asked again, but an app link
-    /// serves its socket once per connect (a second ask ends the link), so such a machine waits
-    /// for its next connect.
+    /// daemon left no connection: the legacy link's socket can be asked again; an app link's is
+    /// read without asking (its connection's second ask would end the link), and the carrier
+    /// dials the machine again for the CLI's own connection.
     private static func socket(of session: CloudMachineSession?) async -> String? {
         guard let session else { return nil }
         if let connection = session.daemon.connection, let path = await connection.endpoint?.socketPath { return path }
+        if let appLink = session.appLink { return await appLink.currentSocket }
         guard session.link != nil, let endpoint = session.daemon.remoteEndpoint else { return nil }
         return try? await endpoint().socketPath
-    }
-
-    /// After an update ran: the daemon restarted (or rolled back), so wake a connect that waits
-    /// (a refused daemon's), and connect an app link again, which ends with its connection.
-    private static func reconnect(_ session: CloudMachineSession?) {
-        guard let session else { return }
-        session.daemon.retryWake.fire()
-        if session.appLink != nil, session.linkEnded != nil { session.connect() }
     }
 }
