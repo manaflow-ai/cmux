@@ -8,9 +8,8 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// The Update Ready card's look and preview (Leo 2026-10-20): Automatic Updates is a themed
-/// switch at the end of its row (Debug Settings brings the checkbox back), Restart to Update is
-/// the app's primary button, a click on the card pins its changelog preview open and taller, and
+/// The Update Ready card's preview (Leo 2026-10-20): a click on the card pins its changelog
+/// preview open and taller, Debug Settings can still draw Restart to Update as the primary button, and
 /// Debug Settings "Simulate pending update" shows the newest published notes, even on the newest build.
 @MainActor @Suite(.serialized) struct UpdateReadyCardStyleTests {
     final class Highlights: SidebarSurfaceIsland {
@@ -70,31 +69,9 @@ import Testing
         #expect(await eventually { !card.notesAreShown }, "the second click left the preview open")
     }
 
-    @Test func automaticUpdatesIsAThemedSwitchAtTheEndOfItsRow() throws {
-        #expect(SidebarTunables.updateCardAutomaticControl.defaultValue == .switchControl)
-        let control = SidebarUpdateCheckbox(frame: NSRect(x: 0, y: 0, width: 180, height: SidebarUpdateCheckbox.height))
-        control.configure(title: "Automatic Updates", isOn: true)
-        control.layoutSubtreeIfNeeded()
-        control.updateLayer()
-        let track = try #require(control.layer?.sublayers?.first)
-        let knob = try #require(control.layer?.sublayers?.dropFirst().first)
-        #expect(track.frame.maxX == control.bounds.maxX, "the switch is not at the end of the row")
-        #expect(track.backgroundColor == control.performWithTheme { Palette.accentFill.cgColor })
-        #expect(knob.frame.midX > track.frame.midX, "an on switch has its knob at the leading end")
-        #expect(control.accessibilitySubrole() == .switch)
-        control.configure(title: "Automatic Updates", isOn: false)
-        control.layoutSubtreeIfNeeded()
-        #expect(knob.frame.midX < track.frame.midX, "an off switch has its knob at the trailing end")
-        // Debug Settings' checkbox: the box in front of the label, as before.
-        control.fixedLook = .checkbox
-        control.configure(title: "Automatic Updates", isOn: true)
-        control.layoutSubtreeIfNeeded()
-        #expect(track.frame.minX == 0)
-        #expect(knob.isHidden)
-    }
-
-    @Test func restartToUpdateIsThePrimaryButton() {
-        #expect(SidebarTunables.updateCardButton.defaultValue == .primary)
+    /// The primary style stays a Debug Settings choice (the default is the bordered button again,
+    /// ``UpdateCardPolishTests``).
+    @Test func restartToUpdateCanStillDrawThePrimaryButton() {
         let button = SidebarUpdateButton(frame: NSRect(x: 0, y: 0, width: 180, height: SidebarUpdateButton.height))
         button.fixedStyle = .primary
         button.configure(title: "Restart to Update", enabled: true, help: nil)

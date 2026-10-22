@@ -127,7 +127,7 @@ import Testing
         _ = flow.handle(.sparkle(.installing), preferences: .defaults)
         #expect(flow.card(downloadsAutomatically: true) == nil, "the click on the staged card swapped it for the notice card")
         #expect(flow.footerPill(preferences: .defaults) == .installing)
-        let card = UpdateReadyCard(version: "1.0.1", isInstalling: true, automaticUpdates: true,
+        let card = UpdateReadyCard(version: "1.0.1", isInstalling: true,
                                    notes: UpdateReadyNotes(version: "1.0.1", notes: nil, fullNotesURL: nil))
         #expect(card.title == UpdaterStrings.installingUpdate, "the installing card still reads \(card.title)")
     }

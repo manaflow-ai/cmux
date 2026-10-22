@@ -255,6 +255,9 @@ public struct Typography {
     public static var bodyEmphasized: NSFont { system(.default, size: size(12, 13), weight: .medium) }
     /// Subtitles, shortcut hints, counts.
     public static var caption: NSFont { system(.default, size: size(10.5, 11), weight: .regular) }
+    /// ``caption`` with tabular digits, for numbers that change while shown (a download's bytes
+    /// and percent, a timer, a live count): every digit is as wide, so the text does not jitter.
+    public static var captionDigits: NSFont { system(.monospacedDigit, size: size(10.5, 11), weight: .regular) }
     /// Section headers (uppercase is not used; weight and color carry hierarchy).
     public static var header: NSFont { system(.default, size: size(11, 12), weight: .semibold) }
     /// Palette search field.

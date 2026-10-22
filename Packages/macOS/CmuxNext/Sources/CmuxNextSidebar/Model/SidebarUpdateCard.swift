@@ -2,8 +2,7 @@ public import Foundation
 
 /// The staged update card above the footer (UPDATE-CARD): the App fills it
 /// from the updater only while an update is staged or installing. The
-/// button sends `SidebarIntent.installUpdate`, the checkbox
-/// `setAutomaticUpdates`, its accessibility action "See all changes"
+/// button sends `SidebarIntent.installUpdate`, its accessibility action "See all changes"
 /// `openUpdateChanges`; its Hide button (UPDATE-CARD-CLOSE: one click hides
 /// this version until a newer one) and its right-click menu (hide, Remind Me
 /// in 1 Day / 3 Days / 1 Week) `noticeAction(card: id, action:)`. The full build, the highlights and "See all
@@ -21,9 +20,6 @@ public nonisolated struct SidebarUpdateCard: Hashable, Sendable {
     public var buttonTitle: String
     /// False while the update installs (the click was taken).
     public var isEnabled: Bool
-    public var automaticUpdatesTitle: String
-    /// The Automatic Updates checkbox (`updates.downloadAutomatically`).
-    public var automaticUpdates: Bool
     /// The hover popover.
     public var notes: Notes
     /// The card id its Hide button and menu items are sent with (`noticeAction(card:action:)`).
@@ -39,8 +35,8 @@ public nonisolated struct SidebarUpdateCard: Hashable, Sendable {
     /// The card's right-click menu: each item sends `noticeAction(card: id, action: item.id)`.
     public var closeMenu: [SidebarNoticeCard.Action]
 
-    public init(title: String, detail: String? = nil, seeAllTitle: String? = nil, buttonTitle: String, isEnabled: Bool = true, automaticUpdatesTitle: String,
-                automaticUpdates: Bool, notes: Notes, id: String = SidebarUpdateCard.cardID, closeTitle: String? = nil,
+    public init(title: String, detail: String? = nil, seeAllTitle: String? = nil, buttonTitle: String, isEnabled: Bool = true,
+                notes: Notes, id: String = SidebarUpdateCard.cardID, closeTitle: String? = nil,
                 closeLabel: String? = nil, closeAction: String? = nil, closeMenu: [SidebarNoticeCard.Action] = []) {
         self.id = id
         self.closeTitle = closeTitle
@@ -52,8 +48,6 @@ public nonisolated struct SidebarUpdateCard: Hashable, Sendable {
         self.seeAllTitle = seeAllTitle
         self.buttonTitle = buttonTitle
         self.isEnabled = isEnabled
-        self.automaticUpdatesTitle = automaticUpdatesTitle
-        self.automaticUpdates = automaticUpdates
         self.notes = notes
     }
 
