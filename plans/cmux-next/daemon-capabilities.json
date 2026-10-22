@@ -4,6 +4,7 @@
     "agent-cli-app-invalidation-v1",
     "agent-cli-app-provider-v1",
     "agent-inventory-watch-admission-v1",
+    "agent-session-adopt-v1",
     "agent-session-attach-v1",
     "agent-session-children-v1",
     "agent-session-observe-v1",
