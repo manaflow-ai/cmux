@@ -14,20 +14,22 @@ import Testing
         return card
     }
 
-    private func capCenter(of label: NSTextField, in card: SidebarNoticeCardView) -> CGFloat {
+    private func capCenter(of label: ChromeLabel, in card: SidebarNoticeCardView) -> CGFloat {
         let frame = card.convert(label.frame, from: label.superview)
         return frame.minY + label.firstBaselineOffsetFromTop - (label.font?.capHeight ?? 0) / 2
     }
 
     @Test func theCloseXSitsOnTheHeadingsCapCenter() {
-        let card = laidOut(SidebarNoticeCard(id: "tip", eyebrow: "Did you know?", title: "Command Palette"))
+        let card = laidOut(SidebarNoticeCard(id: "tip", eyebrow: "Did you know?", title: "Command Palette", dismissLabel: "Close"))
+        #expect(!card.closeButton.isHidden, "the card shows its x")
         let close = card.convert(card.closeButton.frame, from: card.closeButton.superview)
         let cap = capCenter(of: card.eyebrowLabel, in: card)
         #expect(abs(close.midY - cap) <= 0.5, "the x's center \(close.midY), the heading's cap center \(cap)")
     }
 
     @Test func withoutAHeadingTheCloseXSitsOnTheTitlesCapCenter() {
-        let card = laidOut(SidebarNoticeCard(id: "note", title: "Command Palette"))
+        let card = laidOut(SidebarNoticeCard(id: "note", title: "Command Palette", dismissLabel: "Close"))
+        #expect(!card.closeButton.isHidden, "the card shows its x")
         let close = card.convert(card.closeButton.frame, from: card.closeButton.superview)
         let cap = capCenter(of: card.titleLabel, in: card)
         #expect(abs(close.midY - cap) <= 0.5, "the x's center \(close.midY), the title's cap center \(cap)")
