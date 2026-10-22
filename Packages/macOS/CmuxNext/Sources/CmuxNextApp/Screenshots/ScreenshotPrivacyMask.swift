@@ -15,9 +15,13 @@ import WebKit
 /// browser REPL, which masks them.
 @MainActor
 enum ScreenshotPrivacyMask {
-    /// Whether `invocation`'s capture is masked.
+    /// Whether `invocation`'s capture is masked: every run but a person's
+    /// own. An app's run carries `user` during the person's gesture in it
+    /// (``ActionInvocation/callerApp`` says whose), and an agent names its
+    /// chat or terminal; those are masked too, so the image never reaches them.
     static func applies(to invocation: ActionInvocation) -> Bool {
-        invocation.origin != .user
+        invocation.origin != .user || invocation.callerApp != nil || invocation.callerAgentSession != nil
+            || invocation.callerTerminal != nil
     }
 
     /// The rectangles to paint over in `window`, in window coordinates.
@@ -31,8 +35,8 @@ enum ScreenshotPrivacyMask {
             }
         }
         if let root = window.contentView { rects += foreignWebContentRects(in: root) }
-        // Chromium draws its pages in child windows, which the window server's image includes.
-        for child in window.childWindows ?? [] where WindowOverlayHost.isPageWindow(child) && child.isVisible {
+        // Chromium draws its pages in child windows, at any depth, which the window server's image includes.
+        for child in window.visibleChildWindows where WindowOverlayHost.isPageWindow(child) {
             rects.append(window.convertFromScreen(child.frame))
         }
         return rects.filter { $0.width > 0 && $0.height > 0 }

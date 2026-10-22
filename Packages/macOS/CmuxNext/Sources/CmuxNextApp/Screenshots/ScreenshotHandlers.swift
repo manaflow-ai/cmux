@@ -39,7 +39,7 @@ enum ScreenshotHandlers {
             let output = try ScreenshotOutput(invocation)
             guard let window = try context.window(invocation).window else { throw ActionFailure(message: ScreenshotStrings.notOnScreen) }
             start(output: output, invocation: invocation, context: context) {
-                try await shown(window, crop: nil, masked: invocation.origin != .user, services: context.services)
+                try await shown(window, crop: nil, masked: ScreenshotPrivacyMask.applies(to: invocation), services: context.services)
             }
         })
         registry.bind("pane.screenshot", run: { invocation in
@@ -52,7 +52,7 @@ enum ScreenshotHandlers {
             guard let window = pane.view.window, pane.isVisible, !pane.view.isHiddenOrHasHiddenAncestor else {
                 throw ActionFailure(message: ScreenshotStrings.paneNotShown)
             }
-            let masked = invocation.origin != .user
+            let masked = ScreenshotPrivacyMask.applies(to: invocation)
             if masked, case .browser? = pane.currentContent { throw ActionFailure(message: ScreenshotStrings.browserNeedsREPL) }
             let view = pane.view
             start(output: output, invocation: invocation, context: context) {
@@ -62,7 +62,7 @@ enum ScreenshotHandlers {
         registry.bind("tab.screenshot", run: { invocation in
             let output = try ScreenshotOutput(invocation)
             let (tab, controller) = try resolveTab(invocation, services: context.services)
-            let masked = invocation.origin != .user
+            let masked = ScreenshotPrivacyMask.applies(to: invocation)
             if masked, tab.kind == .browser { throw ActionFailure(message: ScreenshotStrings.browserNeedsREPL) }
             if let controller, let window = controller.view.window, controller.isVisible, controller.currentTabKey == tab.id,
                !controller.view.contentHost.isHiddenOrHasHiddenAncestor {
