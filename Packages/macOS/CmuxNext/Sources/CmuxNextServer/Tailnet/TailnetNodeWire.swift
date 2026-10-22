@@ -106,7 +106,7 @@ public nonisolated struct TailnetPairCode: Equatable, Sendable {
 extension TailnetPairCode {
     /// `https://<host>` for a typed address (`name.tail1234.ts.net`, with or without https://, a
     /// trailing dot or slash); nil for another scheme, a path, a user, a port or no host.
-    public static func canonicalAddress(_ text: String) -> String? {
+    public nonisolated static func canonicalAddress(_ text: String) -> String? {
         var text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if !text.contains("://") { text = "https://" + text }
         guard let components = URLComponents(string: text), components.scheme?.lowercased() == "https",
