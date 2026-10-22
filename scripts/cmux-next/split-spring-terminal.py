@@ -18,6 +18,7 @@ one grid per terminal of the row (presses + 1) for the whole gesture.
 
 With --suite=pane-perf it runs scripts/cmux-next/pane-perf-terminal.py instead (split, close, New Column, zoom
 and a divider drag in 2, 8 and 30 pane layouts; the controller allowlists this entry, not pane-perf.sh yet).
+With --suite=app-perf it runs scripts/cmux-next/app-perf.py the same way (app gestures at 10 and 50 workspaces).
 
 Usage: split-spring-terminal.py --tag <tag> --app PATH [--rounds 3] [--presses 5] [--interval 100]
        [--directions right,down] [--scrollback 20000] [--stream] [--json PATH] [--out DIR] [--gate]
@@ -29,6 +30,11 @@ import argparse, glob, json, os, signal, subprocess, sys, tempfile, time
 if "--suite=pane-perf" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pane-perf-terminal.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=pane-perf"])
+# `--suite=app-perf`, the same way: scripts/cmux-next/app-perf.py (Cmd-D, Cmd-Shift-D, the side pane, the sidebar, a new
+# workspace at the top and workspace switches, at 10 and 50 workspaces; app-efficiency 2026-10-21).
+if "--suite=app-perf" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "app-perf.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=app-perf"])
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
