@@ -4,6 +4,7 @@ import Foundation
 import Testing
 @testable import CmuxMobileLive
 
+#if os(iOS)
 /// Two cmux builds on one Mac register two devices with one machine id
 /// (PROTOCOL.md "Devices"). The phone lists and links that Mac once; two Macs
 /// that only share a name stay two Macs, each linked.
@@ -125,3 +126,4 @@ import Testing
         #expect(older.machineId == nil)
     }
 }
+#endif

@@ -75,3 +75,8 @@ public struct MacRoster: Equatable, Sendable {
         return a.id < b.id
     }
 }
+
+extension Team {
+    /// The team's Macs one per computer (``MacRoster``): what its lists, counts and pickers show.
+    public var listedMacs: [MacDevice] { MacRoster(macs).visible }
+}

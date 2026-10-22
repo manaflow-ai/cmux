@@ -21,6 +21,7 @@ public struct Team: Identifiable, Hashable, Sendable {
     /// Up to `limit` dots for the sidebar row, online Macs first, then the overflow count.
     public func macDots(limit: Int = 5) -> (dots: [Bool], overflow: Int) {
         // Online first; stable by name within each group.
+        let macs = listedMacs
         let ordered = macs.sorted {
             $0.isOnline != $1.isOnline ? $0.isOnline : $0.name.localizedStandardCompare($1.name) == .orderedAscending
         }
