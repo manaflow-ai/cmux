@@ -40,6 +40,10 @@ public struct AgentNotificationReconciler: Sendable {
         var attentionIdentities: Set<String> = []
         var attentionRequestIDs: [String: String] = [:]
         var completionIdentity: String?
+        /// The completion "Always" accepted while this turn's background work was
+        /// still running. The turn's later settled completion is a second, distinct
+        /// notification (the work is done), not a repeat of it (#24386).
+        var pendingCompletionIdentity: String?
         /// The settled turn reopened (a continuation without a new prompt)
         /// after its completion notified. Its next Stop reuses that completion
         /// identity and is deduplicated, so its idle reminder is the only signal
@@ -75,9 +79,17 @@ public struct AgentNotificationReconciler: Sendable {
     public init() {}
 
     /// Observes one committed semantic event and classifies its candidate.
-    /// - Parameter event: A journal event with causal evidence from its adapter.
+    /// - Parameters:
+    ///   - event: A journal event with causal evidence from its adapter.
+    ///   - deliversPendingCompletions: Whether a turn that ends while its own
+    ///     background work is still running is a completion candidate now (the
+    ///     Agent Finished "Always" setting) rather than held until the session is
+    ///     idle (the default, "When idle").
     /// - Returns: An admission candidate or a diagnostic explaining suppression.
-    public mutating func apply(_ event: AgentJournalEvent) -> AgentNotificationDecision {
+    public mutating func apply(
+        _ event: AgentJournalEvent,
+        deliversPendingCompletions: Bool = false
+    ) -> AgentNotificationDecision {
         let draft = event.draft
         guard draft.unattributedReason == nil, draft.surfaceId != nil,
               let sessionID = draft.sessionId, !sessionID.isEmpty else {
@@ -466,6 +478,7 @@ public struct AgentNotificationReconciler: Sendable {
             }
         case .turnStarted:
             session.rootStopped = false
+            session.pendingCompletionIdentity = nil
             if let key = context?.eventIdentity { session.starts.insert(key) }
             if incomingTurn != nil || context?.eventIdentity != nil || session.phase != .running {
                 session.turn = incomingTurn ?? context?.eventIdentity ?? draft.eventId
@@ -539,8 +552,27 @@ public struct AgentNotificationReconciler: Sendable {
         let boundary: String
         switch draft.kind {
         case .turnCompleted:
-            guard session.phase == .idle else { return .init(.delayed) }
-            boundary = Self.key(["completion", incomingTurn ?? session.turn])
+            // A turn waiting on its own background work is still running. "Always"
+            // notifies it as it ends (#24386); a blocking request keeps its own
+            // attention notification either way.
+            guard session.phase == .idle || (deliversPendingCompletions && session.phase == .running) else {
+                return .init(.delayed)
+            }
+            let completionBoundary = Self.key(["completion", incomingTurn ?? session.turn])
+            if session.phase == .idle,
+               let pendingIdentity = session.pendingCompletionIdentity,
+               pendingIdentity == Self.key([sessionKey, completionBoundary]) {
+                // The same turn settling after its pending completion notified. The
+                // marker stays until the next turn, so a repeated settled Stop maps here too.
+                boundary = Self.key(["completion", incomingTurn ?? session.turn, "settled"])
+            } else {
+                boundary = completionBoundary
+                // Only a Stop that reported its own background work is followed by a
+                // new settled Stop. A Stop held for subagents is released as itself.
+                if session.phase == .running, draft.pendingWork {
+                    session.pendingCompletionIdentity = Self.key([sessionKey, completionBoundary])
+                }
+            }
         case .approvalRequested, .questionRequested, .planReviewRequested:
             // A real blocking request is never gated by background work.
             boundary = Self.key(["attention", context?.requestIdentity

@@ -87,7 +87,12 @@ extension AgentJournalLifecycleCenter {
             if page.isEmpty { break }
             for event in page.events {
                 let canonical = canonicalized(event, aliases: aliases)
-                let decision = notifications.apply(canonical)
+                // Replay folds with the same Agent Finished setting as live events,
+                // so a completion "Always" delivered keeps its identity (#24386).
+                let decision = notifications.apply(
+                    canonical,
+                    deliversPendingCompletions: AgentNotificationDelivery().deliversPendingCompletions
+                )
                 if decision.disposition != .stale, decision.projectsLifecycle {
                     reducer.apply(notifications.lifecycleEvent(canonical), to: &state)
                 }

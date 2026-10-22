@@ -93,7 +93,12 @@ final class AgentJournalLifecycleCenter: Sendable {
             func reconcile(_ event: AgentJournalEvent, store: AgentJournalStore, deliver: Bool) async -> Bool {
                 guard let eventAliases = resolver(store) else { return false }
                 let canonical = Self.canonicalized(event, aliases: eventAliases)
-                let decision = notifications.apply(canonical)
+                // Agent Finished "Always" notifies a turn as it ends, even while its
+                // background work is still running (#24386).
+                let decision = notifications.apply(
+                    canonical,
+                    deliversPendingCompletions: AgentNotificationDelivery().deliversPendingCompletions
+                )
                 if decision.disposition != .stale, decision.projectsLifecycle,
                    let application = Self.reduceIngest(notifications.lifecycleEvent(canonical), sourceKind: canonical.kind,
                        aliases: eventAliases,
