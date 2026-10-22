@@ -165,7 +165,7 @@ public final class ImportSuggestionsCenter {
 
     // MARK: Buttons
 
-    /// Runs a card's button (the Home strip, a page, `import.card`). `caller` is the run that
+    /// Runs a card's button (Home's row, a page, `import.card`). `caller` is the run that
     /// pressed it, the person's own click when nil. Only that click starts an import at once: any
     /// other caller's Import, Resume or Try Again asks the person in a native dialog first (page
     /// script cannot answer it), and an agent's cookie request always gets
