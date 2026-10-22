@@ -32,6 +32,7 @@ use serde_json::{Value, json};
 
 use super::closed_history_privacy as privacy;
 use super::closed_history_store::tab_member;
+use crate::panic_free::JsonField;
 use crate::workspace_registry::{new_uuid_v4, unix_epoch_ms};
 
 /// `stash.create|list|restore|delete|import`.
@@ -86,11 +87,13 @@ pub(crate) fn choose_members(
 ) -> anyhow::Result<(Vec<Value>, Vec<Value>)> {
     let Some(ids) = ids else { return Ok((members, Vec::new())) };
     if let Some(unknown) =
-        ids.iter().find(|id| !members.iter().any(|member| member["id"] == id.as_str()))
+        ids.iter().find(|id| !members.iter().any(|member| member.field("id") == id.as_str()))
     {
         return Err(super::commit::state_not_found("stash", unknown));
     }
-    Ok(members.into_iter().partition(|member| ids.iter().any(|id| member["id"] == id.as_str())))
+    Ok(members
+        .into_iter()
+        .partition(|member| ids.iter().any(|id| member.field("id") == id.as_str())))
 }
 
 /// The close in this transaction stashes `tabs`: `capture_closed` records
@@ -166,18 +169,19 @@ pub(crate) fn store_workspace_stash(
 ) -> anyhow::Result<()> {
     anyhow::ensure!(!members.is_empty(), "bad request: no workspace to stash");
     anyhow::ensure!(
-        members.iter().all(|member| member["kind"] == "workspace"),
+        members.iter().all(|member| member.field("kind") == "workspace"),
         "bad request: a workspace of this session stays open when its tabs close, so it cannot be stashed"
     );
     // The page titles, read while the rows are live (the closed-history
     // record keeps only a tab's own name).
     for member in &mut members {
-        for screen in member["screens"].as_array_mut().into_iter().flatten() {
-            for tab in screen["tabs"].as_array_mut().into_iter().flatten() {
-                if tab["kind"] == "browser"
-                    && let Some(tab_id) = tab["tab_id"].as_str().map(str::to_string)
+        for screen in member.get_mut("screens").and_then(Value::as_array_mut).into_iter().flatten()
+        {
+            for tab in screen.get_mut("tabs").and_then(Value::as_array_mut).into_iter().flatten() {
+                if tab.field("kind") == "browser"
+                    && let Some(tab_id) = tab.field("tab_id").as_str().map(str::to_string)
                 {
-                    tab["title"] = json!(page_title(transaction, &tab_id)?);
+                    tab.set_field("title", json!(page_title(transaction, &tab_id)?));
                 }
             }
         }
@@ -206,15 +210,18 @@ pub(crate) fn stash_member(
     let Some(mut member) = tab_member(connection, tab_id, &none, &none, &none)? else {
         return Ok(Err(Refusal::Private));
     };
-    let tab = &member["screens"][0]["tabs"][0];
-    let page = tab["kind"] == "browser"
+    let tab = member.field("screens").item(0).field("tabs").item(0);
+    let page = tab.field("kind") == "browser"
         && tab.get("conversation").is_none_or(Value::is_null)
         && tab.get("remote").is_none_or(Value::is_null)
-        && tab["url"].as_str().is_some_and(is_web_url);
+        && tab.field("url").as_str().is_some_and(is_web_url);
     if !page || is_app_tab(connection, tab_id)? {
         return Ok(Err(Refusal::NotPage));
     }
-    member["screens"][0]["tabs"][0]["title"] = json!(page_title(connection, tab_id)?);
+    let title = json!(page_title(connection, tab_id)?);
+    if let Some(tab) = member.pointer_mut("/screens/0/tabs/0") {
+        tab.set_field("title", title);
+    }
     Ok(Ok(member))
 }
 
@@ -333,7 +340,7 @@ fn insert_stash_with(
     extra: Option<Value>,
 ) -> anyhow::Result<Value> {
     for member in &mut members {
-        member["id"] = json!(new_member_id());
+        member.set_field("id", json!(new_member_id()));
     }
     let created_at_ms = match created_at_ms {
         Some(created) => created,
@@ -384,7 +391,7 @@ pub(crate) fn keep_stash_members(
         transaction.execute("DELETE FROM stashed_groups WHERE stash_id = ?1", [stash_id])?;
         return Ok((super::store::state_delete(RESOURCE, stash_id), 0));
     }
-    record["members"] = Value::Array(keep);
+    record.set_field("members", Value::Array(keep));
     transaction.execute(
         "UPDATE stashed_groups SET record_json = ?2 WHERE stash_id = ?1",
         params![stash_id, serde_json::to_string(&record)?],
@@ -395,29 +402,30 @@ pub(crate) fn keep_stash_members(
 /// `StashSnapshot`: the group and its pages (or workspaces), never their
 /// back/forward history.
 pub(crate) fn public_stash(record: &Value) -> Value {
-    let members = record["members"]
+    let members = record
+        .field("members")
         .as_array()
         .into_iter()
         .flatten()
         .map(|member| {
-            if member["kind"] == "workspace" {
+            if member.field("kind") == "workspace" {
                 return public_workspace_member(member);
             }
-            let tab = &member["screens"][0]["tabs"][0];
+            let tab = member.field("screens").item(0).field("tabs").item(0);
             json!({
-                "id": member["id"],
+                "id": member.field("id"),
                 "kind": "tab",
-                "url": tab["url"],
+                "url": tab.field("url"),
                 "title": tab.get("title").cloned().unwrap_or(Value::Null),
-                "browser_profile_id": tab["browser_profile_id"],
-                "workspace_id": member["workspace_id"],
+                "browser_profile_id": tab.field("browser_profile_id"),
+                "workspace_id": member.field("workspace_id"),
             })
         })
         .collect::<Vec<_>>();
     json!({
-        "id": record["id"],
-        "name": record["name"],
-        "created_at_ms": record["created_at_ms"],
+        "id": record.field("id"),
+        "name": record.field("name"),
+        "created_at_ms": record.field("created_at_ms"),
         "member_count": members.len(),
         "members": members,
     })
@@ -427,11 +435,12 @@ pub(crate) fn public_stash(record: &Value) -> Value {
 /// and the first [`MAX_LISTED_WORKSPACE_TABS`] of them (kind, title, and the
 /// URL of a web page; no directory, command or history).
 fn public_workspace_member(member: &Value) -> Value {
-    let tabs = member["screens"]
+    let tabs = member
+        .field("screens")
         .as_array()
         .into_iter()
         .flatten()
-        .flat_map(|screen| screen["tabs"].as_array().into_iter().flatten())
+        .flat_map(|screen| screen.field("tabs").as_array().into_iter().flatten())
         .collect::<Vec<_>>();
     let listed = tabs
         .iter()
@@ -443,17 +452,18 @@ fn public_workspace_member(member: &Value) -> Value {
             } else if present("remote") {
                 "remote_terminal"
             } else {
-                tab["kind"].as_str().unwrap_or("terminal")
+                tab.field("kind").as_str().unwrap_or("terminal")
             };
-            let url = tab["url"].as_str().filter(|url| kind == "browser" && is_web_url(url));
-            let title = tab.get("title").and_then(Value::as_str).or_else(|| tab["name"].as_str());
+            let url = tab.field("url").as_str().filter(|url| kind == "browser" && is_web_url(url));
+            let title =
+                tab.get("title").and_then(Value::as_str).or_else(|| tab.field("name").as_str());
             json!({"kind": kind, "title": title, "url": url})
         })
         .collect::<Vec<_>>();
     json!({
-        "id": member["id"],
+        "id": member.field("id"),
         "kind": "workspace",
-        "name": member["name"],
+        "name": member.field("name"),
         "url": null,
         "title": null,
         "browser_profile_id": null,

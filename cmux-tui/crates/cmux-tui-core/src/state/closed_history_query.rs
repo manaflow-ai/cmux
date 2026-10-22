@@ -10,6 +10,7 @@
 
 use std::collections::HashSet;
 
+use crate::panic_free::JsonField;
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde_json::{Value, json};
 
@@ -41,21 +42,21 @@ fn in_scope(window: Option<&str>) -> &'static str {
 /// kept (cx-gzh.4.4).
 fn public_tab(tab: &Value, evicted: &HashSet<String>) -> Value {
     let mut public = json!({
-        "kind": tab["kind"],
-        "name": tab["name"],
-        "cwd": tab["cwd"],
-        "url": tab["url"],
-        "browser_profile_id": tab["browser_profile_id"],
-        "pinned": tab["pinned"].as_bool().unwrap_or(false),
+        "kind": tab.field("kind"),
+        "name": tab.field("name"),
+        "cwd": tab.field("cwd"),
+        "url": tab.field("url"),
+        "browser_profile_id": tab.field("browser_profile_id"),
+        "pinned": tab.field("pinned").as_bool().unwrap_or(false),
     });
-    if let Some(page) = tab["conversation"]["page"].as_str() {
-        public["page"] = json!(page);
+    if let Some(page) = tab.field("conversation").field("page").as_str() {
+        public.set_field("page", json!(page));
     }
     if reopens_empty(tab) {
-        public["empty"] = json!(true);
+        public.set_field("empty", json!(true));
     }
-    if tab["terminal_id"].as_str().is_some_and(|id| evicted.contains(id)) {
-        public["scrollback_not_kept"] = json!(true);
+    if tab.field("terminal_id").as_str().is_some_and(|id| evicted.contains(id)) {
+        public.set_field("scrollback_not_kept", json!(true));
     }
     public
 }
@@ -66,12 +67,12 @@ fn public_tab(tab: &Value, evicted: &HashSet<String>) -> Value {
 /// `chrome://newtab/`). A remote terminal, a chat, a page and any other conversation source
 /// never are.
 fn reopens_empty(tab: &Value) -> bool {
-    if tab["kind"] != "browser" || !tab["remote"].is_null() {
+    if tab.field("kind") != "browser" || !tab.field("remote").is_null() {
         return false;
     }
-    let conversation = &tab["conversation"];
+    let conversation = tab.field("conversation");
     match conversation.as_object() {
-        None => tab["url"].as_str().is_none_or(|url| {
+        None => tab.field("url").as_str().is_none_or(|url| {
             matches!(
                 url.to_ascii_lowercase().as_str(),
                 "" | "about:blank" | "chrome://newtab" | "chrome://newtab/"
@@ -79,29 +80,34 @@ fn reopens_empty(tab: &Value) -> bool {
         }),
         Some(source) => {
             source.keys().all(|key| key == "agent_session")
-                && source.get("agent_session").is_some_and(|agent| agent["session"].is_null())
+                && source.get("agent_session").is_some_and(|agent| agent.field("session").is_null())
         }
     }
 }
 
 /// The public `ClosedMemberRecord` of one stored member.
 fn public_member(member: &Value, evicted: &HashSet<String>) -> Value {
-    let screens = member["screens"]
+    let screens = member
+        .field("screens")
         .as_array()
         .into_iter()
         .flatten()
         .map(|screen| {
-            let tabs =
-                screen["tabs"].as_array().into_iter().flatten().map(|tab| public_tab(tab, evicted));
-            json!({"name": screen["name"], "tabs": tabs.collect::<Vec<_>>()})
+            let tabs = screen
+                .field("tabs")
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|tab| public_tab(tab, evicted));
+            json!({"name": screen.field("name"), "tabs": tabs.collect::<Vec<_>>()})
         })
         .collect::<Vec<_>>();
     json!({
-        "kind": member["kind"],
-        "name": member["name"],
-        "workspace_id": member["workspace_id"],
-        "pane_id": member["pane_id"],
-        "index": member["index"].as_u64().unwrap_or(0),
+        "kind": member.field("kind"),
+        "name": member.field("name"),
+        "workspace_id": member.field("workspace_id"),
+        "pane_id": member.field("pane_id"),
+        "index": member.field("index").as_u64().unwrap_or(0),
         "screens": screens,
     })
 }
@@ -114,28 +120,32 @@ pub(crate) fn public_item(record: &Value) -> Value {
 
 /// [`public_item`], marking the tabs of `evicted` terminals.
 fn public_item_in(record: &Value, evicted: &HashSet<String>) -> Value {
-    let members = record["members"].as_array().cloned().unwrap_or_default();
+    let members = record.field("members").as_array().cloned().unwrap_or_default();
     let first =
         members.first().map(|member| public_member(member, evicted)).unwrap_or_else(|| json!({}));
     // A deleted space is named by the space, not its first workspace (cx-ncc.44).
-    let room = &record["room"]["profile"][0]["name"];
+    let room = record
+        .field("room")
+        .field("profile")
+        .get(0)
+        .map_or(&Value::Null, |profile| profile.field("name"));
     let mut item = json!({
-        "id": record["id"],
-        "kind": record["kind"],
+        "id": record.field("id"),
+        "kind": record.field("kind"),
         // A window group has no member: its name is the window's workspace.
         "name": if room.is_string() {
             room.clone()
-        } else if first["name"].is_null() {
-            record["name"].clone()
+        } else if first.field("name").is_null() {
+            record.field("name").clone()
         } else {
-            first["name"].clone()
+            first.field("name").clone()
         },
-        "workspace_id": first["workspace_id"],
-        "pane_id": first["pane_id"],
-        "index": first["index"].as_u64().unwrap_or(0),
-        "closed_at_ms": record["closed_at_ms"],
-        "screens": first["screens"].as_array().cloned().unwrap_or_default(),
-        "window": record["window"],
+        "workspace_id": first.field("workspace_id"),
+        "pane_id": first.field("pane_id"),
+        "index": first.field("index").as_u64().unwrap_or(0),
+        "closed_at_ms": record.field("closed_at_ms"),
+        "screens": first.field("screens").as_array().cloned().unwrap_or_default(),
+        "window": record.field("window"),
         "member_count": members.len(),
         "members": members.iter().map(|member| public_member(member, evicted)).collect::<Vec<_>>(),
     });
@@ -145,12 +155,14 @@ fn public_item_in(record: &Value, evicted: &HashSet<String>) -> Value {
         .into_iter()
         .find_map(|field| record.get(field).filter(|group| group.is_object()));
     if let Some(group) = ungrouped {
-        item["workspace_id"] = group["workspace_id"].clone();
+        item.set_field("workspace_id", group["workspace_id"].clone());
     }
     // A deleted personal workspace group names the group it forms again.
     if let Some(group) = record.get("group").filter(|group| group.is_object()) {
-        item["group"] =
-            crate::workspace_registry::personal_mutations::group_archive::public_group(group);
+        item.set_field(
+            "group",
+            crate::workspace_registry::personal_mutations::group_archive::public_group(group),
+        );
     }
     item
 }
@@ -354,8 +366,8 @@ pub(crate) fn keep_members(
     members: Vec<Value>,
 ) -> anyhow::Result<Value> {
     let kind = super::closed_history_store::group_kind(&members);
-    record["kind"] = json!(kind);
-    record["members"] = Value::Array(members);
+    record.set_field("kind", json!(kind));
+    record.set_field("members", Value::Array(members));
     transaction.execute(
         "UPDATE closed_groups SET kind = ?2, record_json = ?3 WHERE closed_id = ?1",
         params![closed_id, kind, serde_json::to_string(&record)?],
@@ -386,12 +398,12 @@ pub(crate) fn group_member_holding_tab(
     for row in rows {
         let (closed_id, record) = row?;
         let record: Value = serde_json::from_str(&record)?;
-        let members = record["members"].as_array().cloned().unwrap_or_default();
+        let members = record.field("members").as_array().cloned().unwrap_or_default();
         let holds = |member: &Value| {
-            member["tab_id"].as_str() == Some(tab)
+            member.field("tab_id").as_str() == Some(tab)
                 || closed_tabs(&serde_json::json!({"members": [member]}))
                     .iter()
-                    .any(|closed| closed["tab_id"].as_str() == Some(tab))
+                    .any(|closed| closed.field("tab_id").as_str() == Some(tab))
         };
         if let Some(index) = members.iter().position(holds) {
             return Ok(Some((closed_id, index)));

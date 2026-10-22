@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use serde_json::{Map, Value};
 
+use crate::panic_free::JsonField;
 use crate::resource::{ResourceError, ResourceOperation};
 use crate::resource_router::{ParsedResourceRequest, mutation_result, resource_operation_error};
 use crate::state::stash::{ImportGroup, RestoreTarget, StashSource};
@@ -76,16 +77,17 @@ fn import_groups(fields: &Map<String, Value>) -> Result<Vec<ImportGroup>, Resour
         .flatten()
         .map(|group| {
             Ok(ImportGroup {
-                name: group["name"].as_str().map(str::to_string),
+                name: group.field("name").as_str().map(str::to_string),
                 created_ms: created_ms(group)?,
-                tabs: group["tabs"]
+                tabs: group
+                    .field("tabs")
                     .as_array()
                     .into_iter()
                     .flatten()
                     .filter_map(|tab| {
                         Some((
-                            tab["url"].as_str()?.to_string(),
-                            tab["title"].as_str().map(str::to_string),
+                            tab.field("url").as_str()?.to_string(),
+                            tab.field("title").as_str().map(str::to_string),
                         ))
                     })
                     .collect(),

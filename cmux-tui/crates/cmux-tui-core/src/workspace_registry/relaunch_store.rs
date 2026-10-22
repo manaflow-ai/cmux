@@ -42,6 +42,7 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde_json::{Map, Value, json};
 
 use super::WorkspaceRegistry;
+use crate::panic_free::JsonField;
 
 mod agent_launch;
 pub(crate) use agent_launch::{
@@ -402,11 +403,11 @@ impl WorkspaceRegistry {
             .collect();
         let agent = agent
             .and_then(|agent| serde_json::from_str::<Value>(&agent).ok())
-            .filter(|agent| agent[NON_INTERACTIVE] != true);
+            .filter(|agent| agent.field(NON_INTERACTIVE) != true);
         let agent_launch = agent.as_ref().and_then(stored_agent_launch);
         let agent = agent.and_then(|agent| {
-            let harness = agent["harness"].as_str()?.to_string();
-            let session_id = agent["session_id"].as_str()?.to_string();
+            let harness = agent.field("harness").as_str()?.to_string();
+            let session_id = agent.field("session_id").as_str()?.to_string();
             resumable_session_id(&session_id).then_some((harness, session_id))
         });
         let argv = argv
@@ -440,18 +441,25 @@ impl WorkspaceRegistry {
                     _ => None,
                 };
                 let non_interactive = matches!(start, AgentStart::NonInteractive)
-                    || stored.as_ref().is_some_and(|agent| agent[NON_INTERACTIVE] == true);
+                    || stored.as_ref().is_some_and(|agent| agent.field(NON_INTERACTIVE) == true);
                 let kept = match start {
                     AgentStart::Launch(launch) => Some(launch.clone()),
                     _ => stored.as_ref().and_then(stored_agent_launch),
                 };
                 let mut record = json!({"harness": harness, "session_id": session_id});
                 if non_interactive {
-                    record[NON_INTERACTIVE] = json!(true);
+                    record.set_field(NON_INTERACTIVE, json!(true));
                 } else if let Some(launch) = kept {
-                    record["args"] = json!(launch.args);
-                    record["env"] = Value::Object(
-                        launch.env.into_iter().map(|(key, value)| (key, json!(value))).collect(),
+                    record.set_field("args", json!(launch.args));
+                    record.set_field(
+                        "env",
+                        Value::Object(
+                            launch
+                                .env
+                                .into_iter()
+                                .map(|(key, value)| (key, json!(value)))
+                                .collect(),
+                        ),
                     );
                 }
                 Some(record.to_string())
@@ -507,7 +515,9 @@ impl WorkspaceRegistry {
             .optional()?
             .flatten()
             .and_then(|agent| serde_json::from_str::<Value>(&agent).ok());
-        Ok(stored.filter(|agent| agent["harness"] == harness && agent["session_id"] == session_id))
+        Ok(stored.filter(|agent| {
+            agent.field("harness") == harness && agent.field("session_id") == session_id
+        }))
     }
 }
 
@@ -515,13 +525,15 @@ impl WorkspaceRegistry {
 /// arguments only when none looks like a credential, its environment only the
 /// harness's account directory.
 fn stored_agent_launch(agent: &Value) -> Option<AgentLaunch> {
-    let harness = agent["harness"].as_str()?;
+    let harness = agent.field("harness").as_str()?;
     let args = agent.get("args")?.as_array()?;
     let args =
         args.iter().map(|arg| arg.as_str().map(str::to_string)).collect::<Option<Vec<_>>>()?;
     let args = kept_agent_args(harness, &args);
     let key = account_env_key(harness)?;
-    let env = agent["env"][key]
+    let env = agent
+        .field("env")
+        .field(key)
         .as_str()
         .filter(|dir| Path::new(dir).is_absolute() && !dir.chars().any(char::is_control))
         .map(|dir| vec![(key.to_string(), dir.to_string())])
@@ -564,8 +576,8 @@ pub(crate) fn closed_fields(
 /// Both kinds start the default shell, which the host integrates; a command
 /// is never run again.
 pub(crate) fn replay(tab: &Value) -> (Option<String>, Vec<(String, String)>) {
-    let cwd = tab["cwd"].as_str().and_then(absolute).filter(|path| Path::new(path).is_dir());
-    let env = tab["relaunch"]["env"].as_object().cloned().unwrap_or_default();
+    let cwd = tab.field("cwd").as_str().and_then(absolute).filter(|path| Path::new(path).is_dir());
+    let env = tab.field("relaunch").field("env").as_object().cloned().unwrap_or_default();
     let terminfo_usable =
         env.get("TERMINFO").and_then(Value::as_str).is_none_or(|path| Path::new(path).is_dir());
     let env = env

@@ -24,6 +24,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::mux::*;
+use crate::panic_free::JsonField;
 use crate::state::prelude::*;
 use crate::state::store::StateCommit;
 use crate::workspace_registry::PresentationSnapshot;
@@ -343,7 +344,7 @@ impl Mux {
         });
         if surfaces.is_empty() {
             let mut result = result;
-            result["closed_ids"] = json!([]);
+            result.set_field("closed_ids", json!([]));
             return Ok(StateCommit { revision, result, replayed: false, personal_revision: None });
         }
         let outcome = self.close_tabs_for_bulk(

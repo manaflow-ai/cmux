@@ -21,6 +21,7 @@
 
 use std::sync::OnceLock;
 
+use crate::panic_free::JsonField;
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde_json::{Map, Value, json};
 
@@ -161,7 +162,7 @@ pub(crate) const GROUPS: [&str; 6] =
 /// in `devices`, so `import-chrome-devices.py` can rewrite them.
 fn annotate(device: &Value, notes: Option<&Map<String, Value>>) -> Value {
     let mut device = device.clone();
-    let title = device["title"].as_str().unwrap_or_default().to_string();
+    let title = device.field("title").as_str().unwrap_or_default().to_string();
     if let (Some(extra), Some(object)) = (
         notes.and_then(|notes| notes.get(&title)).and_then(Value::as_object),
         device.as_object_mut(),
@@ -214,7 +215,7 @@ pub(crate) fn add_custom(transaction: &Transaction<'_>, device: &Value) -> anyho
         text.len() <= MAX_DEVICE_BYTES,
         "bad request: a device is at most {MAX_DEVICE_BYTES} bytes of JSON"
     );
-    let title = device["title"].as_str().unwrap_or_default().to_string();
+    let title = device.field("title").as_str().unwrap_or_default().to_string();
     let exists = transaction
         .query_row("SELECT 1 FROM browser_custom_devices WHERE title = ?1", [&title], |_| Ok(()))
         .optional()?
@@ -335,7 +336,7 @@ fn find(connection: &Connection, name: &str) -> anyhow::Result<Value> {
     let name = name.trim();
     let mut all = custom(connection)?;
     all.extend(built_in().devices.iter().cloned());
-    let title = |device: &Value| device["title"].as_str().unwrap_or_default().to_string();
+    let title = |device: &Value| device.field("title").as_str().unwrap_or_default().to_string();
     if let Some(device) = all.iter().find(|device| title(device) == name) {
         return Ok(device.clone());
     }
@@ -378,7 +379,7 @@ fn orientations(device: &Value) -> Vec<&'static str> {
         if let Some(name) = orientation_name(&name)
             && !seen.contains(&name)
             && (!name.ends_with("-spanned") || spans(device))
-            && device["screen"].get(name).is_some_and(Value::is_object)
+            && device.field("screen").get(name).is_some_and(Value::is_object)
         {
             seen.push(name);
         }
@@ -398,7 +399,7 @@ fn plain(text: &str) -> bool {
 
 fn pick_orientation(device: &Value, asked: Option<&str>) -> anyhow::Result<&'static str> {
     let available = orientations(device);
-    let title = device["title"].as_str().unwrap_or_default();
+    let title = device.field("title").as_str().unwrap_or_default();
     let Some(asked) = asked else {
         return available
             .first()
@@ -618,10 +619,10 @@ pub(crate) fn resolve(stored: &str) -> Option<Value> {
     let device = stored.get("device")?;
     check(device).ok()?;
     let orientation = pick_orientation(device, stored.get("orientation")?.as_str()).ok()?;
-    let screen = &device["screen"];
+    let screen = device.field("screen");
     let size = &screen[orientation];
-    let (width, height) = (size["width"].as_i64()?, size["height"].as_i64()?);
-    let ratio = screen["device-pixel-ratio"].as_f64()?;
+    let (width, height) = (size.field("width").as_i64()?, size.field("height").as_i64()?);
+    let ratio = screen.field("device-pixel-ratio").as_f64()?;
     let capabilities: Vec<&str> = device
         .get("capabilities")
         .and_then(Value::as_array)
@@ -630,7 +631,8 @@ pub(crate) fn resolve(stored: &str) -> Option<Value> {
     let mobile = capabilities.contains(&"mobile");
     let touch = capabilities.contains(&"touch");
     let major = built_in().chromium.clone();
-    let user_agent = patch_user_agent(device["user-agent"].as_str().unwrap_or_default(), &major);
+    let user_agent =
+        patch_user_agent(device.field("user-agent").as_str().unwrap_or_default(), &major);
     let portrait = matches!(orientation, "vertical" | "vertical-spanned");
     let screen_orientation = json!({
         "type": if portrait { "portraitPrimary" } else { "landscapePrimary" },
@@ -646,8 +648,8 @@ pub(crate) fn resolve(stored: &str) -> Option<Value> {
             let vertical = orientation == "vertical-spanned";
             json!({
                 "orientation": if vertical { "vertical" } else { "horizontal" },
-                "offset": if vertical { &hinge["x"] } else { &hinge["y"] },
-                "maskLength": if vertical { &hinge["width"] } else { &hinge["height"] },
+                "offset": if vertical { hinge.field("x") } else { hinge.field("y") },
+                "maskLength": if vertical { hinge.field("width") } else { hinge.field("height") },
             })
         });
     let posture = if display_feature.is_some() { "folded" } else { "continuous" };
@@ -695,7 +697,7 @@ pub(crate) fn resolve(stored: &str) -> Option<Value> {
     }
     let mut agent = json!({"userAgent": user_agent});
     if let Some(metadata) = &metadata {
-        agent["userAgentMetadata"] = metadata.clone();
+        agent.set_field("userAgentMetadata", metadata.clone());
     }
     let touch_call = if touch {
         json!({"enabled": true, "maxTouchPoints": 1})
@@ -710,7 +712,7 @@ pub(crate) fn resolve(stored: &str) -> Option<Value> {
          "params": {"enabled": touch, "configuration": if mobile { "mobile" } else { "desktop" }}},
     ]);
     Some(json!({
-        "device": device["title"],
+        "device": device.field("title"),
         "origin": device.get("origin").cloned().unwrap_or(json!("custom")),
         "orientation": orientation,
         "orientations": orientations(device),

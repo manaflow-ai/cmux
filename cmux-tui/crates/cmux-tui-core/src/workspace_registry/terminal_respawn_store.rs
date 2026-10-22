@@ -33,6 +33,7 @@ use super::{
     TerminalLifecycle, TerminalOnExit, WorkspaceMutation, WorkspaceRegistry, canonical_json,
     read_terminal, transaction_resource_revision, transaction_terminal_revision,
 };
+use crate::panic_free::JsonField;
 use crate::terminal_end::TerminalEnd;
 
 const RESPAWN_ORIGIN: &str = "cmux-tui-runtime";
@@ -228,10 +229,10 @@ impl WorkspaceRegistry {
             .collect::<rusqlite::Result<Vec<_>>>()?;
         let content_id = refs.iter().find_map(|refs| {
             serde_json::from_str::<Vec<Value>>(refs).ok()?.into_iter().find_map(|reference| {
-                if reference["terminal_id"].as_str() != Some(terminal_public_id) {
+                if reference.field("terminal_id").as_str() != Some(terminal_public_id) {
                     return None;
                 }
-                reference["content_id"].as_str().map(str::to_string)
+                reference.field("content_id").as_str().map(str::to_string)
             })
         });
         let Some(content_id) = content_id else { return Ok(None) };
@@ -271,11 +272,13 @@ impl WorkspaceRegistry {
         );
         let replay: Value = serde_json::from_slice(&uncompressed)?;
         anyhow::ensure!(
-            replay["format"].as_str() == Some("cmux.vt-replay.v1"),
+            replay.field("format").as_str() == Some("cmux.vt-replay.v1"),
             "checkpoint terminal content format is unsupported"
         );
         let bytes = base64::engine::general_purpose::STANDARD
-            .decode(replay["bytes_base64"].as_str().context("checkpoint replay has no bytes")?)
+            .decode(
+                replay.field("bytes_base64").as_str().context("checkpoint replay has no bytes")?,
+            )
             .context("decode checkpoint replay bytes")?;
         let size = |field: &str| {
             replay[field].as_u64().and_then(|value| u16::try_from(value).ok()).unwrap_or(0)

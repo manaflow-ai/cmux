@@ -13,6 +13,7 @@ use std::collections::HashSet;
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
 use super::values::{local_registry_id, workspace_public_id_for_key};
+use crate::panic_free::JsonField;
 use crate::user_settings::NewWorkspacePlacement;
 use crate::workspace_registry::personal_store::{
     PersonalGroup, bump_personal_revision, next_workspace_position, read_groups, read_pins,
@@ -229,7 +230,7 @@ fn place_created_rows(
     super::placement_shift::queue(transaction, index + placed.len(), None)?;
     let slots = read_groups(transaction)?;
     for change in super::personal::all_groups(transaction)?.into_iter().filter(|change| {
-        let id = change["id"].as_str();
+        let id = change.field("id").as_str();
         let slot = |groups: &[PersonalGroup]| {
             groups.iter().find(|group| Some(group.id.as_str()) == id).map(|group| group.top_index)
         };

@@ -16,6 +16,7 @@ use anyhow::Context;
 use serde_json::Value;
 
 use crate::mux::*;
+use crate::panic_free::JsonField;
 use crate::{Actor, PaneId, SurfaceId};
 
 /// The split tree of a closed screen, with its tabs (indexes into the
@@ -42,9 +43,9 @@ impl Shape {
     /// The shape of closed screen record `screen`; None when it has no
     /// layout (an older record) or no tab in it.
     pub(super) fn of(screen: &Value) -> Option<Self> {
-        let panes = screen["panes"].as_object()?;
-        let count = screen["tabs"].as_array()?.len();
-        let mut shape = Self::node(&screen["layout"], panes, count)?;
+        let panes = screen.field("panes").as_object()?;
+        let count = screen.field("tabs").as_array()?.len();
+        let mut shape = Self::node(screen.field("layout"), panes, count)?;
         // A tab of a pane the tree does not name joins the first pane.
         let mut placed = vec![false; count];
         shape.each_tab(&mut |tab| placed[tab] = true);
@@ -61,7 +62,7 @@ impl Shape {
         let tabs_of = |pane: &str| {
             panes
                 .get(pane)
-                .and_then(|entry| entry["tabs"].as_array())
+                .and_then(|entry| entry.field("tabs").as_array())
                 .into_iter()
                 .flatten()
                 .filter_map(Value::as_u64)
@@ -72,13 +73,13 @@ impl Shape {
         let active_of = |pane: &str| {
             panes
                 .get(pane)
-                .and_then(|entry| entry["active"].as_u64())
+                .and_then(|entry| entry.field("active").as_u64())
                 .and_then(|active| usize::try_from(active).ok())
                 .unwrap_or(0)
         };
-        match node["kind"].as_str()? {
+        match node.field("kind").as_str()? {
             "leaf" => {
-                let pane = node["pane"].as_str()?;
+                let pane = node.field("pane").as_str()?;
                 let tabs = tabs_of(pane);
                 let active = active_of(pane).min(tabs.len().saturating_sub(1));
                 (!tabs.is_empty()).then(|| Self::Leaf {
@@ -88,11 +89,11 @@ impl Shape {
                 })
             }
             "stack" => {
-                let expanded = node["expanded"].as_str();
+                let expanded = node.field("expanded").as_str();
                 let mut ids = Vec::new();
                 let mut tabs = Vec::new();
                 let mut active = 0;
-                for pane in node["panes"].as_array()?.iter().filter_map(Value::as_str) {
+                for pane in node.field("panes").as_array()?.iter().filter_map(Value::as_str) {
                     if Some(pane) == expanded {
                         active = tabs.len() + active_of(pane);
                     }
@@ -103,16 +104,16 @@ impl Shape {
                 (!tabs.is_empty()).then_some(Self::Leaf { panes: ids, tabs, active })
             }
             "split" => {
-                let first = Self::node(&node["first"], panes, count);
-                let second = Self::node(&node["second"], panes, count);
+                let first = Self::node(node.field("first"), panes, count);
+                let second = Self::node(node.field("second"), panes, count);
                 match (first, second) {
                     (Some(first), Some(second)) => {
-                        let edge = if node["direction"] == "down" {
+                        let edge = if node.field("direction") == "down" {
                             TabDropEdge::Bottom
                         } else {
                             TabDropEdge::Right
                         };
-                        let ratio = node["ratio"].as_f64().unwrap_or(0.5) as f32;
+                        let ratio = node.field("ratio").as_f64().unwrap_or(0.5) as f32;
                         Some(Self::Split {
                             edge,
                             share: (1.0 - ratio).clamp(0.05, 0.95),
@@ -201,7 +202,7 @@ impl Mux {
     ) -> anyhow::Result<Rebuilt> {
         let pane =
             self.with_state(|state| state.pane_of(first)).context("new screen has no pane")?;
-        let tabs = screen["tabs"].as_array().map(Vec::as_slice).unwrap_or_default();
+        let tabs = screen.field("tabs").as_array().map(Vec::as_slice).unwrap_or_default();
         let mut build = Build { actor, tabs, made: vec![None; tabs.len()], leaves: Vec::new() };
         if let Some(reused) = reused {
             build.made[reused] = Some(first);
@@ -233,7 +234,7 @@ impl Mux {
                 .find(|(_, _, _, panes)| panes.iter().any(|pane| pane == closed))
                 .map(|(pane, ..)| *pane)
         };
-        if let Some(zoomed) = screen["zoomed_pane"].as_str().and_then(pane_of)
+        if let Some(zoomed) = screen.field("zoomed_pane").as_str().and_then(pane_of)
             && let Err(error) = self.zoom_pane_as(actor, Some(zoomed), ZoomMode::On)
         {
             eprintln!("cmux-tui: a reopened screen could not zoom its pane again: {error:#}");
@@ -241,7 +242,7 @@ impl Mux {
         // The splits were rebuilt with undoable moves; undo must not fold them back.
         self.forget_layout_undo(pane);
         // A focused pane a stash emptied: focus stays where the last selection left it.
-        let focus = screen["active_pane"].as_str().and_then(pane_of);
+        let focus = screen.field("active_pane").as_str().and_then(pane_of);
         if let Some(focus) = focus {
             self.focus_pane_as(actor, focus);
         }

@@ -5,6 +5,7 @@ use super::resource_store::{
 };
 use super::*;
 use crate::diagnostics::CommitSpans;
+use crate::panic_free::JsonField;
 use crate::resource::ResourceError;
 use serde_json::json;
 
@@ -468,41 +469,50 @@ impl WorkspaceRegistry {
         });
         match stored.state.as_str() {
             "prepared" => {
-                result["state"] = json!("not_applied");
-                result["recovery"] = json!("retry_same_idempotency_key");
+                result.set_field("state", json!("not_applied"));
+                result.set_field("recovery", json!("retry_same_idempotency_key"));
             }
             "not_applied" => {
-                result["state"] = json!("not_applied");
-                result["recovery"] = json!("retry_new_idempotency_key");
+                result.set_field("state", json!("not_applied"));
+                result.set_field("recovery", json!("retry_new_idempotency_key"));
             }
             "executing"
                 if stored.execution_generation.as_deref() == Some(self.generation.as_str()) =>
             {
-                result["state"] = json!("pending");
-                result["recovery"] = json!("wait");
+                result.set_field("state", json!("pending"));
+                result.set_field("recovery", json!("wait"));
             }
             "executing" | "indeterminate" => {
-                result["state"] = json!("indeterminate");
-                result["recovery"] = json!("do_not_retry");
+                result.set_field("state", json!("indeterminate"));
+                result.set_field("recovery", json!("do_not_retry"));
             }
             "created" => {
-                result["state"] = json!("created");
-                result["recovery"] = json!("none");
-                result["created_path"] = serde_json::from_str(
-                    stored
-                        .created_path_json
-                        .as_deref()
-                        .ok_or_else(|| anyhow::anyhow!("created resource omitted its path"))?,
-                )?;
-                result["generation"] = json!(stored.generation.ok_or_else(|| {
-                    anyhow::anyhow!("created resource omitted its generation")
-                })?);
-                result["revision"] = json!(
-                    u64::try_from(stored.committed_revision.ok_or_else(|| {
-                        anyhow::anyhow!("created resource omitted its revision")
-                    })?)
-                    .context("stored creation revision is negative")?
-                    .to_string()
+                result.set_field("state", json!("created"));
+                result.set_field("recovery", json!("none"));
+                result.set_field(
+                    "created_path",
+                    serde_json::from_str(
+                        stored
+                            .created_path_json
+                            .as_deref()
+                            .ok_or_else(|| anyhow::anyhow!("created resource omitted its path"))?,
+                    )?,
+                );
+                result.set_field(
+                    "generation",
+                    json!(stored.generation.ok_or_else(|| {
+                        anyhow::anyhow!("created resource omitted its generation")
+                    })?),
+                );
+                result.set_field(
+                    "revision",
+                    json!(
+                        u64::try_from(stored.committed_revision.ok_or_else(|| {
+                            anyhow::anyhow!("created resource omitted its revision")
+                        })?)
+                        .context("stored creation revision is negative")?
+                        .to_string()
+                    ),
                 );
             }
             other => anyhow::bail!("invalid resource creation state {other:?}"),

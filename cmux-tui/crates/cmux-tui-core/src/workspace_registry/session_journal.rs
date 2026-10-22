@@ -1,5 +1,6 @@
 mod plugin_generation;
 use super::*;
+use crate::panic_free::JsonField;
 use base64::Engine;
 use flate2::bufread::GzDecoder;
 use rusqlite::Row;
@@ -2082,12 +2083,12 @@ fn normalize_terminal_output(
         return Ok(());
     }
     anyhow::ensure!(
-        record.payload["format"].as_str() == Some("cmux.terminal-output.v1"),
+        record.payload.field("format").as_str() == Some("cmux.terminal-output.v1"),
         "terminal output record has an invalid format"
     );
     let bytes = if let Some(bytes) = stored_content {
         anyhow::ensure!(
-            record.payload["encoding"].as_str() == Some("raw"),
+            record.payload.field("encoding").as_str() == Some("raw"),
             "stored terminal output record has an invalid encoding"
         );
         anyhow::ensure!(
@@ -2097,7 +2098,7 @@ fn normalize_terminal_output(
         bytes
     } else {
         anyhow::ensure!(
-            record.payload["encoding"].as_str() == Some("base64"),
+            record.payload.field("encoding").as_str() == Some("base64"),
             "archived terminal output record has an invalid encoding"
         );
         let data = record
@@ -2109,7 +2110,7 @@ fn normalize_terminal_output(
         let bytes = base64::engine::general_purpose::STANDARD
             .decode(data)
             .context("decode archived terminal output")?;
-        record.payload["encoding"] = Value::String("raw".into());
+        record.payload.set_field("encoding", Value::String("raw".into()));
         bytes
     };
     anyhow::ensure!(!bytes.is_empty(), "terminal output record is empty");
@@ -2129,7 +2130,7 @@ fn normalize_terminal_output(
         "terminal output stream offsets do not match its content"
     );
     let expected_digest =
-        record.payload["sha256"].as_str().context("terminal output record omitted sha256")?;
+        record.payload.field("sha256").as_str().context("terminal output record omitted sha256")?;
     anyhow::ensure!(
         expected_digest == encode_bytes_hex(Sha256::digest(&bytes).as_slice()),
         "terminal output content digest is invalid"

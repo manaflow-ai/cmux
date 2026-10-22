@@ -13,6 +13,7 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde::Serialize;
 use serde_json::{Map, Value, json};
 
+use crate::panic_free::JsonField;
 use crate::resource::TerminalPublicId;
 
 pub(crate) const STATES: [&str; 5] = ["busy", "success", "error", "waiting", "info"];
@@ -287,11 +288,11 @@ pub(crate) fn decorate_entries(
          WHERE workspace_id = ?1 AND status_key = ?2 AND entry_updated_at_ms = ?3",
     )?;
     for entry in entries.iter_mut() {
-        let Some(key) = entry["key"].as_str().map(str::to_owned) else { continue };
+        let Some(key) = entry.field("key").as_str().map(str::to_owned) else { continue };
         // Meta belongs to the write that made it: an entry an older binary
         // rewrote since (a new updated_at_ms) is a plain line again.
         let Some(updated) =
-            entry["updated_at_ms"].as_str().and_then(|value| value.parse::<i64>().ok())
+            entry.field("updated_at_ms").as_str().and_then(|value| value.parse::<i64>().ok())
         else {
             continue;
         };

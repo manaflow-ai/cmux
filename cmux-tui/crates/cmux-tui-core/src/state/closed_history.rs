@@ -16,6 +16,8 @@ use crate::Actor;
 use crate::mux::tab_groups::{group_members, pane_by_public_id};
 use crate::mux::tab_strip::StripRequest;
 use crate::mux::*;
+use crate::panic_free::JsonField;
+use crate::panic_free::RecoverPoison;
 use crate::state::closed_history_query::{
     closed_page, closed_record, keep_members, newest_for_window, public_item, remove_closed,
     remove_other_closes,
@@ -55,16 +57,16 @@ impl ReopenRequest {
     fn fingerprint(&self) -> Value {
         let mut fingerprint = serde_json::json!({"operation": OPERATION, "closed": self.closed});
         if let Some(window) = &self.window {
-            fingerprint["window"] = serde_json::json!(window);
+            fingerprint.set_field("window", serde_json::json!(window));
         }
         if let Some(members) = &self.members {
-            fingerprint["members"] = serde_json::json!(members);
+            fingerprint.set_field("members", serde_json::json!(members));
         }
         if let Some(tab) = &self.tab {
-            fingerprint["tab"] = serde_json::json!(tab);
+            fingerprint.set_field("tab", serde_json::json!(tab));
         }
         if let Some(pane) = &self.fallback_pane {
-            fingerprint["fallback_pane"] = serde_json::json!(pane);
+            fingerprint.set_field("fallback_pane", serde_json::json!(pane));
         }
         fingerprint
     }
@@ -97,7 +99,7 @@ impl Reopened {
 
     /// Note `tab`, reopened from the closed tab `record`.
     pub(super) fn note_tab(&mut self, record: &Value, tab: String) {
-        if let Some(closed) = record["tab_id"].as_str() {
+        if let Some(closed) = record.field("tab_id").as_str() {
             self.reopened_as.insert(closed.to_string(), tab.clone());
         }
         self.tabs.push(tab);
@@ -170,7 +172,8 @@ fn commit_reopen(
 ) -> anyhow::Result<StateChanges> {
     let record = closed_record(transaction, closed_id)?
         .ok_or_else(|| state_not_found("closed", closed_id))?;
-    let mut keep = record["members"]
+    let mut keep = record
+        .field("members")
         .as_array()
         .into_iter()
         .flatten()
@@ -179,7 +182,7 @@ fn commit_reopen(
         .collect::<Vec<_>>();
     super::closed_pane_split::follow_split_panes(&mut keep, &reopened.panes);
     let remaining = keep.len();
-    let kind = record["kind"].as_str().unwrap_or_default().to_string();
+    let kind = record.field("kind").as_str().unwrap_or_default().to_string();
     // A deleted space (SPACE-DELETE-CLOSES-ITS-WORKSPACES) comes back first,
     // so its reopened workspaces get their pins and groups back.
     let room = record.get("room").filter(|room| room.is_object()).cloned();
@@ -188,7 +191,7 @@ fn commit_reopen(
     let group = record.get("group").filter(|group| group.is_object()).cloned();
     // A closed window (`window` group) reopens no workspace: the app shows
     // that window again, with the workspaces it kept.
-    let window = (kind == "window").then(|| record["window_record"].clone());
+    let window = (kind == "window").then(|| record.field("window_record").clone());
     // An ungrouped tab or screen group has no member: its reopen formed it
     // again.
     let tab_group = ["tab_group", "screen_group"]
@@ -320,11 +323,12 @@ impl Mux {
     ) -> anyhow::Result<StateCommit> {
         let _serial = REOPEN.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let fingerprint = request.fingerprint();
-        if let Some(replay) = self.workspace_registry.lock().unwrap().replay_resource_patch(
-            mutation,
-            OPERATION,
-            &fingerprint,
-        )? {
+        if let Some(replay) = self
+            .workspace_registry
+            .lock()
+            .recover_poison()
+            .replay_resource_patch(mutation, OPERATION, &fingerprint)?
+        {
             return Ok(replay.into());
         }
         let by_tab = match &request.tab {
@@ -360,7 +364,7 @@ impl Mux {
         let record = self
             .read_registry_state(|connection| closed_record(connection, &closed_id))?
             .ok_or_else(|| state_not_found("closed", &closed_id))?;
-        let members = record["members"].as_array().cloned().unwrap_or_default();
+        let members = record.field("members").as_array().cloned().unwrap_or_default();
         let chosen = match &by_tab {
             Some((_, member)) => Some(vec![*member]),
             None => request.members.clone(),
@@ -383,11 +387,12 @@ impl Mux {
             .get("tab_group")
             .filter(|group| group.is_object())
             .into_iter()
-            .chain(record["tab_groups"].as_array().into_iter().flatten());
+            .chain(record.field("tab_groups").as_array().into_iter().flatten());
         for group in groups {
             let mut group = group.clone();
             if closed {
-                let tabs = group["tab_ids"]
+                let tabs = group
+                    .field("tab_ids")
                     .as_array()
                     .into_iter()
                     .flatten()
@@ -396,7 +401,7 @@ impl Mux {
                 if tabs.is_empty() {
                     continue;
                 }
-                group["tab_ids"] = serde_json::json!(tabs);
+                group.set_field("tab_ids", serde_json::json!(tabs));
             }
             self.reopen_tab_group(&mutation.actor, &group, closed, &mut reopened)?;
         }
@@ -431,7 +436,7 @@ impl Mux {
         member: &Value,
         reopened: &mut Reopened,
     ) -> anyhow::Result<()> {
-        match member["kind"].as_str() {
+        match member.field("kind").as_str() {
             Some("tab") => self.reopen_closed_tab(actor, member, reopened),
             Some("screen") => self.reopen_closed_screen(actor, member, reopened),
             Some("workspace") => self.reopen_closed_workspace(actor, member, reopened),
@@ -460,14 +465,15 @@ impl Mux {
         closed: bool,
         reopened: &mut Reopened,
     ) -> anyhow::Result<()> {
-        let Some(id) = archive["id"].as_str().map(str::to_string) else { return Ok(()) };
+        let Some(id) = archive.field("id").as_str().map(str::to_string) else { return Ok(()) };
         let presentation = self.presentation_snapshot();
         // A group row a close left behind (no strip edit pruned it yet)
         // holds no open tab: it is not live, and forms again.
         let live = self
             .with_state(|state| !group_members(state, &presentation.tab_groups, &id).is_empty());
         if !live || closed {
-            let wanted = archive["tab_ids"]
+            let wanted = archive
+                .field("tab_ids")
                 .as_array()
                 .into_iter()
                 .flatten()
@@ -485,7 +491,7 @@ impl Mux {
                 })
                 .map(str::to_string)
                 .collect::<Vec<_>>();
-            let home = archive["pane_id"].as_str().map(str::to_string);
+            let home = archive.field("pane_id").as_str().map(str::to_string);
             let members = self.with_state(|state| {
                 let open = wanted
                     .iter()
@@ -520,12 +526,12 @@ impl Mux {
                 self.tab_group_create(
                     StripRequest::local(actor, "closed.reopen"),
                     move |_| Ok(members),
-                    archive["name"].as_str().map(str::to_string),
-                    archive["color"].as_str().map(str::to_string),
+                    archive.field("name").as_str().map(str::to_string),
+                    archive.field("color").as_str().map(str::to_string),
                     id.clone(),
-                    archive["icon"].as_str().map(str::to_string),
+                    archive.field("icon").as_str().map(str::to_string),
                 )?;
-                if let Some(saved) = archive["saved_id"].as_str() {
+                if let Some(saved) = archive.field("saved_id").as_str() {
                     self.relink_saved_tab_group(actor, &id, saved)?;
                 }
             }
@@ -555,10 +561,11 @@ impl Mux {
         archive: &Value,
         reopened: &mut Reopened,
     ) -> anyhow::Result<()> {
-        let Some(id) = archive["id"].as_str().map(str::to_string) else { return Ok(()) };
+        let Some(id) = archive.field("id").as_str().map(str::to_string) else { return Ok(()) };
         let presentation = self.presentation_snapshot();
         if !presentation.screens.groups.contains_key(&id) {
-            let wanted = archive["screen_ids"]
+            let wanted = archive
+                .field("screen_ids")
                 .as_array()
                 .into_iter()
                 .flatten()
@@ -588,8 +595,8 @@ impl Mux {
             self.create_screen_group_with_id(
                 StripRequest::local_screens(actor, "closed.reopen"),
                 &members,
-                archive["name"].as_str().map(str::to_string),
-                archive["color"].as_str().map(str::to_string),
+                archive.field("name").as_str().map(str::to_string),
+                archive.field("color").as_str().map(str::to_string),
                 id.clone(),
             )?;
         }
@@ -646,13 +653,13 @@ impl Mux {
         // The tab comes back under its own id, so every link to it keeps
         // working (plans/cmux-next/durable-links-DESIGN.md). Each creation
         // attempt below gets the id; the first that commits keeps it.
-        let retired = tab["tab_id"].as_str();
+        let retired = tab.field("tab_id").as_str();
         let same_id = |create: &mut dyn FnMut() -> anyhow::Result<SurfaceId>| {
             tab_strip::reopen_identity::scoped(retired, create)
         };
-        let surface = match tab["kind"].as_str() {
+        let surface = match tab.field("kind").as_str() {
             Some("browser") if tab.get("conversation").is_some_and(|value| !value.is_null()) => {
-                let record = ConversationTabRecord::from_wire(&tab["conversation"])
+                let record = ConversationTabRecord::from_wire(tab.field("conversation"))
                     .context("the closed conversation tab has no valid record")?;
                 same_id(&mut || {
                     let target = ConversationTabTarget::Pane(Some(pane));
@@ -663,15 +670,15 @@ impl Mux {
                 })?
             }
             Some("browser") if tab.get("remote").is_some_and(|value| !value.is_null()) => {
-                let record = RemoteTerminalRecord::from_wire(&tab["remote"])
+                let record = RemoteTerminalRecord::from_wire(tab.field("remote"))
                     .context("the closed remote-terminal tab has no valid record")?;
                 same_id(&mut || {
                     Ok(self.new_remote_terminal_tab_as(actor, Some(pane), record.clone(), None)?.id)
                 })?
             }
             Some("browser") => {
-                let url = tab["url"].as_str().unwrap_or("about:blank").to_string();
-                match tab["engine"].as_str() {
+                let url = tab.field("url").as_str().unwrap_or("about:blank").to_string();
+                match tab.field("engine").as_str() {
                     Some(engine) => {
                         let surface = same_id(&mut || {
                             Ok(self
@@ -683,7 +690,8 @@ impl Mux {
                                         url: url.clone(),
                                         title: None,
                                         favicon_url: None,
-                                        profile_id: tab["browser_profile_id"]
+                                        profile_id: tab
+                                            .field("browser_profile_id")
                                             .as_str()
                                             .map(str::to_string),
                                         // The app that shows the reopened tab claims it.
@@ -695,7 +703,7 @@ impl Mux {
                         })?;
                         // The page restores its back/forward entries and
                         // scroll from here, as at relaunch (cx-d0d.11).
-                        if let Some(history) = tab["browser_history"].as_str()
+                        if let Some(history) = tab.field("browser_history").as_str()
                             && let Err(error) =
                                 self.set_frontend_browser_history(surface, Some(history.into()))
                         {
@@ -712,7 +720,7 @@ impl Mux {
             }
             _ => {
                 let running = reattach
-                    .then(|| tab["terminal_id"].as_str())
+                    .then(|| tab.field("terminal_id").as_str())
                     .flatten()
                     .and_then(|terminal| self.resolve_terminal(terminal).ok().flatten())
                     .filter(|resolution| {
@@ -754,10 +762,10 @@ impl Mux {
         surface: SurfaceId,
         tab: &Value,
     ) -> anyhow::Result<()> {
-        if let Some(name) = tab["name"].as_str() {
+        if let Some(name) = tab.field("name").as_str() {
             self.rename_surface_as(actor, surface, name.to_string());
         }
-        if tab["pinned"].as_bool() == Some(true) {
+        if tab.field("pinned").as_bool() == Some(true) {
             let selectors = crate::ResourceSelectors {
                 tab: Some(self.public_tab_of(surface)?),
                 ..Self::ordinary_resource_selectors()
@@ -773,8 +781,8 @@ impl Mux {
         record: &Value,
         reopened: &mut Reopened,
     ) -> anyhow::Result<()> {
-        let tab = &record["screens"][0]["tabs"][0];
-        let closed_pane = record["pane_id"].as_str();
+        let tab = record.field("screens").item(0).field("tabs").item(0);
+        let closed_pane = record.field("pane_id").as_str();
         // The tab's own pane: live, or split off its neighbor again by an
         // earlier reopen, while still in the tab's workspace. With it gone,
         // the neighbor it was split off takes the tab first, then splits
@@ -789,7 +797,7 @@ impl Mux {
         let pane = self.with_state(|state| {
             home.or(neighbor)
                 .or_else(|| {
-                    let workspace = record["workspace_id"].as_str()?;
+                    let workspace = record.field("workspace_id").as_str()?;
                     let workspace = state
                         .workspaces
                         .iter()
@@ -805,8 +813,9 @@ impl Mux {
         // one change (one `tab-added` there; cx-d1xb8), not at the end and
         // then moved, which a client animates across the strip. A pinned tab
         // takes the place its pin gives it.
-        let index = recorded_index(record)
-            .filter(|_| pane.is_some() && pane == home && tab["pinned"].as_bool() != Some(true));
+        let index = recorded_index(record).filter(|_| {
+            pane.is_some() && pane == home && tab.field("pinned").as_bool() != Some(true)
+        });
         let surface = match pane {
             Some(pane) => match index {
                 Some(index) => tab_strip::tab_slot::scoped(pane, index, || {
@@ -826,7 +835,8 @@ impl Mux {
         };
         let home = match (home, neighbor) {
             (None, Some(neighbor)) => {
-                let pane = self.split_closed_pane_again(actor, surface, neighbor, &record["split"]);
+                let pane =
+                    self.split_closed_pane_again(actor, surface, neighbor, record.field("split"));
                 let split = pane.and_then(|pane| {
                     self.with_state(|state| super::closed_pane_split::SplitPane::of(state, pane))
                 });
@@ -864,7 +874,7 @@ impl Mux {
         record: &Value,
         tab: &Value,
     ) {
-        if tab["pinned"].as_bool() == Some(true) {
+        if tab.field("pinned").as_bool() == Some(true) {
             return;
         }
         let Some(index) = recorded_index(record) else {
@@ -894,7 +904,7 @@ impl Mux {
         let (workspace, screen_id) = self.public_screen_of_pane(pane)?;
         reopened.note_workspace(workspace);
         reopened.screens.push(screen_id);
-        if let Some(name) = screen["name"].as_str()
+        if let Some(name) = screen.field("name").as_str()
             && let Some(slot) = self.with_state(|state| {
                 state
                     .screen_of(pane)
@@ -903,8 +913,8 @@ impl Mux {
         {
             self.rename_screen_as(actor, slot, name.to_string());
         }
-        let tabs = screen["tabs"].as_array().cloned().unwrap_or_default();
-        let reused = tabs.iter().position(|tab| tab["kind"] == "terminal");
+        let tabs = screen.field("tabs").as_array().cloned().unwrap_or_default();
+        let reused = tabs.iter().position(|tab| tab.field("kind") == "terminal");
         if let Some(reused) = reused {
             self.restore_tab_details(actor, first, &tabs[reused])?;
         }
@@ -940,9 +950,10 @@ impl Mux {
         &self,
         screen: &Value,
     ) -> (TerminalSpawnOptions, Option<terminal_archive::SeedGuard<'_>>, Option<(u16, u16)>) {
-        match screen["tabs"]
+        match screen
+            .field("tabs")
             .as_array()
-            .and_then(|tabs| tabs.iter().find(|tab| tab["kind"] == "terminal"))
+            .and_then(|tabs| tabs.iter().find(|tab| tab.field("kind") == "terminal"))
         {
             Some(tab) => {
                 let (spawn, guard, size) = self.reopen_terminal_spawn(tab);
@@ -958,8 +969,8 @@ impl Mux {
         record: &Value,
         reopened: &mut Reopened,
     ) -> anyhow::Result<()> {
-        let screen = &record["screens"][0];
-        let workspace = record["workspace_id"].as_str().and_then(|workspace| {
+        let screen = record.field("screens").item(0);
+        let workspace = record.field("workspace_id").as_str().and_then(|workspace| {
             self.with_state(|state| {
                 state
                     .workspaces
@@ -1000,8 +1011,8 @@ impl Mux {
         record: &Value,
         reopened: &mut Reopened,
     ) -> anyhow::Result<()> {
-        let screens = record["screens"].as_array().cloned().unwrap_or_default();
-        let name = record["name"].as_str().map(str::to_string);
+        let screens = record.field("screens").as_array().cloned().unwrap_or_default();
+        let name = record.field("name").as_str().map(str::to_string);
         let (spawn, _seed, size) = screens
             .first()
             .map_or((TerminalSpawnOptions::new(None, Vec::new()), None, None), |screen| {
@@ -1017,7 +1028,7 @@ impl Mux {
                 Some((state.workspaces[index].id, state.workspaces[index].key.clone()))
             })
             .context("reopened workspace is missing")?;
-        if let Some(closed_key) = record["workspace_key"].as_str() {
+        if let Some(closed_key) = record.field("workspace_key").as_str() {
             reopened.placements.push((closed_key.to_string(), key));
         }
         let mut focus = Vec::with_capacity(screens.len());
@@ -1031,14 +1042,15 @@ impl Mux {
             focus.push(self.fill_screen(actor, surface.id, screen, reopened)?);
         }
         // The screen that was shown is shown again, with its focused pane.
-        if let Some(pane) = record["active_screen"]
+        if let Some(pane) = record
+            .field("active_screen")
             .as_u64()
             .and_then(|index| usize::try_from(index).ok())
             .and_then(|index| focus.get(index))
         {
             self.focus_pane_as(actor, *pane);
         }
-        self.restore_workspace_presentation(actor, workspace, &record["presentation"]);
+        self.restore_workspace_presentation(actor, workspace, record.field("presentation"));
         if screens.is_empty() {
             let pane = self
                 .with_state(|state| state.pane_of(first.id))
@@ -1070,7 +1082,7 @@ impl Mux {
             color: text("color").map(Some),
             icon: text("icon").map(Some),
             title: text("title").map(Some),
-            pinned: presentation["pinned"].as_bool().filter(|pinned| *pinned),
+            pinned: presentation.field("pinned").as_bool().filter(|pinned| *pinned),
             ..Default::default()
         };
         if update == Default::default() {
@@ -1087,5 +1099,5 @@ impl Mux {
 
 /// The strip index a closed tab member recorded in its pane.
 fn recorded_index(record: &Value) -> Option<usize> {
-    record["index"].as_u64().and_then(|index| usize::try_from(index).ok())
+    record.field("index").as_u64().and_then(|index| usize::try_from(index).ok())
 }

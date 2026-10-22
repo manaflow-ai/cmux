@@ -21,6 +21,8 @@ use serde_json::Map;
 
 use crate::Surface;
 use crate::mux::*;
+use crate::panic_free::JsonField;
+use crate::panic_free::RecoverPoison;
 use crate::resource::BrowserPublicId;
 use crate::state::commit::StateEffects;
 use crate::state::conversation_tabs_store::{
@@ -128,7 +130,7 @@ impl Mux {
             });
             let write =
                 |tx: &rusqlite::Transaction<'_>| write_conversation_tab(tx, &id, &record, key);
-            let mut registry = self.workspace_registry.lock().unwrap();
+            let mut registry = self.workspace_registry.lock().recover_poison();
             registry.put_frontend_browser(browser_id.as_str(), &frontend, Some(&write))?;
             self.reload_presentation(&registry)?;
         }
@@ -180,7 +182,7 @@ impl Mux {
             Err(error) => {
                 // A keyed creation keeps its record, so a retry resumes it.
                 if key.is_none() {
-                    let mut registry = self.workspace_registry.lock().unwrap();
+                    let mut registry = self.workspace_registry.lock().recover_poison();
                     if registry.delete_frontend_browser(browser_id.as_str()).is_ok() {
                         let _ = self.reload_presentation(&registry);
                     }
@@ -223,7 +225,7 @@ impl Mux {
                 let mut ids =
                     serde_json::json!({"pane": id.as_str(), "split": direction, "pane_id": pane_id});
                 if let Some(split_id) = split_id {
-                    ids["split_id"] = Value::String(split_id.clone());
+                    ids.set_field("split_id", Value::String(split_id.clone()));
                 }
                 Ok(ids)
             }
@@ -304,7 +306,7 @@ impl Mux {
         let presentation = self.presentation_snapshot();
         if let Some(items) = browsers.as_array_mut() {
             items.retain(|item| {
-                item["id"]
+                item.field("id")
                     .as_str()
                     .is_none_or(|id| !presentation.conversation_tabs.contains_key(id))
             });
@@ -313,7 +315,8 @@ impl Mux {
 
     /// `browser.get` of a conversation content is refused (`validation.invalid`).
     pub(crate) fn refuse_conversation_content(&self, browser: &Value) -> Result<(), ResourceError> {
-        let conversation = browser["id"]
+        let conversation = browser
+            .field("id")
             .as_str()
             .is_some_and(|id| self.presentation_snapshot().conversation_tabs.contains_key(id));
         if conversation {

@@ -16,6 +16,7 @@ use super::agent_message_policy::{
 };
 use super::agent_message_release::{expire_held, hold_deadline};
 use super::agent_message_schema::DELIVERY_STATES;
+use crate::panic_free::JsonField;
 
 /// Bytes of UTF-8 one body may hold.
 pub(crate) const MAX_BODY_BYTES: usize = 32 * 1024;
@@ -635,7 +636,7 @@ pub(crate) fn snapshot(
         })?
         .collect::<Result<Vec<_>, _>>()?;
     let recipients: Vec<Value> =
-        deliveries.iter().map(|delivery| delivery["recipient"].clone()).collect();
+        deliveries.iter().map(|delivery| delivery.field("recipient").clone()).collect();
     let references: Vec<String> = serde_json::from_str(&references)?;
     Ok(Some(json!({
         "id": id,

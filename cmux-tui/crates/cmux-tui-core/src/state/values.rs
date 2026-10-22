@@ -12,6 +12,7 @@ use rusqlite::{Connection, OptionalExtension};
 use serde_json::{Map, Value, json};
 
 use super::store::resource_upsert;
+use crate::panic_free::JsonField;
 use crate::resource::SessionPublicId;
 use crate::workspace_registry::resource_store::load_resource_topology;
 use crate::workspace_registry::{meta_value, required_meta};
@@ -282,7 +283,7 @@ pub(crate) fn decorate_value(
     resource: &str,
     value: &mut Value,
 ) -> anyhow::Result<()> {
-    let Some(id) = value["id"].as_str().map(str::to_string) else { return Ok(()) };
+    let Some(id) = value.field("id").as_str().map(str::to_string) else { return Ok(()) };
     let fields = match resource {
         "workspace" => workspace_extra(connection, &id)?,
         "tab" => tab_extra(connection, &id)?,
@@ -292,7 +293,7 @@ pub(crate) fn decorate_value(
     // The canonical kind of a conversation tab; connections without
     // `conversation-tabs-v1` see `browser` (server/conversation_tabs_wire.rs).
     if resource == "tab" && fields.contains_key("conversation") {
-        value["content_kind"] = json!(super::conversation_tabs_store::CONVERSATION_KIND);
+        value.set_field("content_kind", json!(super::conversation_tabs_store::CONVERSATION_KIND));
     }
     merge_extra(value, fields);
     Ok(())
@@ -305,10 +306,10 @@ pub(crate) fn decorate_changes(connection: &Connection, changes: &mut Value) -> 
         return Ok(());
     }
     for change in changes {
-        if change["kind"] != "upsert" {
+        if change.field("kind") != "upsert" {
             continue;
         }
-        let resource = change["resource"].as_str().unwrap_or_default().to_string();
+        let resource = change.field("resource").as_str().unwrap_or_default().to_string();
         if let Some(value) = change.get_mut("value") {
             decorate_value(connection, &resource, value)?;
         }
@@ -420,9 +421,11 @@ pub(crate) fn upserted_value(changes: &[Value], resource: &str, id: &str) -> Opt
         .iter()
         .rev()
         .find(|change| {
-            change["kind"] == "upsert" && change["resource"] == resource && change["id"] == id
+            change.field("kind") == "upsert"
+                && change.field("resource") == resource
+                && change.field("id") == id
         })
-        .map(|change| change["value"].clone())
+        .map(|change| change.field("value").clone())
 }
 
 /// The session's own registry id (the personal-state session key).

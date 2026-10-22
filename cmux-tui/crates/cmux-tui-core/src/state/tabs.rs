@@ -7,6 +7,8 @@ use crate::Actor;
 use crate::mux::tab_groups::{pane_by_public_id, tab_public_id};
 use crate::mux::tab_strip::{StripRequest, StripResult};
 use crate::mux::*;
+use crate::panic_free::JsonField;
+use crate::panic_free::RecoverPoison;
 use crate::state::commit::{StateEffects, state_not_found};
 use crate::state::prelude::*;
 use crate::state::store::{StateChanges, StateCommit, state_delete, state_upsert};
@@ -242,7 +244,7 @@ impl Mux {
                     .into_iter()
                     .filter(|id| {
                         tab_group_snapshot(transaction, id).ok().flatten().is_some_and(|group| {
-                            group["saved_tab_group_id"].as_str() == Some(saved_id)
+                            group.field("saved_tab_group_id").as_str() == Some(saved_id)
                         })
                     })
                     .collect::<Vec<_>>();
@@ -281,11 +283,12 @@ impl Mux {
             "saved_tab_group": saved_id,
             "pane_id": pane,
         });
-        if let Some(replay) = self.workspace_registry.lock().unwrap().replay_resource_patch(
-            mutation,
-            OPERATION,
-            &fingerprint,
-        )? {
+        if let Some(replay) = self
+            .workspace_registry
+            .lock()
+            .recover_poison()
+            .replay_resource_patch(mutation, OPERATION, &fingerprint)?
+        {
             return Ok(replay.into());
         }
         if self.read_registry_state(|connection| saved_tab_group(connection, saved_id))?.is_none() {

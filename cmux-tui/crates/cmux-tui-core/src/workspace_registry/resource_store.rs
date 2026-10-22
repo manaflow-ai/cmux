@@ -1,6 +1,7 @@
 mod events_page;
 use super::*;
 use crate::JournalIngress;
+use crate::panic_free::JsonField;
 use crate::resource::{NotificationPublicId, TerminalPublicId};
 pub(crate) use events_page::query_resource_events_after;
 use serde_json::json;
@@ -2253,8 +2254,8 @@ pub(crate) fn complete_terminal_close_patch(
         .collect::<HashSet<_>>();
     let mut deleted = changes
         .iter()
-        .filter(|change| change["kind"] == "delete" && change["resource"] == "terminal")
-        .filter_map(|change| change["id"].as_str().map(str::to_string))
+        .filter(|change| change.field("kind") == "delete" && change.field("resource") == "terminal")
+        .filter_map(|change| change.field("id").as_str().map(str::to_string))
         .collect::<HashSet<_>>();
 
     for (terminal_id, expected_incarnation) in terminals {

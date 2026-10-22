@@ -16,6 +16,7 @@ use super::super::personal_store::{
     write_order,
 };
 use super::room_archive::{insert_rows, reinsert, rows};
+use crate::panic_free::JsonField;
 
 /// The record of `group` before its delete: its row, its place in the
 /// group order and its members in personal order.
@@ -28,7 +29,7 @@ pub(crate) fn snapshot_group(connection: &Connection, group: &str) -> anyhow::Re
         &[&group],
     )?
     .into_iter()
-    .map(|row| json!({"session_id": row["session_id"], "workspace_key": row["workspace_key"]}))
+    .map(|row| json!({"session_id": row.field("session_id"), "workspace_key": row.field("workspace_key")}))
     .collect::<Vec<_>>();
     Ok(json!({
         "id": group,
@@ -40,8 +41,8 @@ pub(crate) fn snapshot_group(connection: &Connection, group: &str) -> anyhow::Re
 
 /// The public summary of a group record (`ClosedItemSnapshot.group`).
 pub(crate) fn public_group(archive: &Value) -> Value {
-    let row = &archive["row"][0];
-    json!({"id": archive["id"], "name": row["name"], "color": row["color"], "icon": row["icon"]})
+    let row = archive.field("row").item(0);
+    json!({"id": archive.field("id"), "name": row.field("name"), "color": row.field("color"), "icon": row.field("icon")})
 }
 
 /// Restore the group of `archive` when it is gone. Members of `session`
@@ -54,17 +55,17 @@ pub(crate) fn restore_group(
     session: &str,
     placements: &[(String, String)],
 ) -> anyhow::Result<bool> {
-    let group = archive["id"].as_str().unwrap_or_default();
+    let group = archive.field("id").as_str().unwrap_or_default();
     anyhow::ensure!(!group.is_empty(), "the closed group has no id");
     if read_group(transaction, group)?.is_some() {
         return Ok(false);
     }
     let empty = Vec::new();
-    let row = archive["row"].as_array().unwrap_or(&empty);
+    let row = archive.field("row").as_array().unwrap_or(&empty);
     anyhow::ensure!(!row.is_empty(), "the closed group {group} has no row");
     insert_rows(transaction, "personal_groups", row)?;
     // A group of a room deleted since then shows in the default room.
-    let room = row[0]["profile_id"].as_str().unwrap_or(DEFAULT_PROFILE_ID);
+    let room = row[0].field("profile_id").as_str().unwrap_or(DEFAULT_PROFILE_ID);
     if read_profile(transaction, room)?.is_none() {
         transaction.execute(
             "UPDATE personal_groups SET profile_id = ?2 WHERE group_id = ?1",
@@ -72,11 +73,11 @@ pub(crate) fn restore_group(
         )?;
     }
     let order = read_groups(transaction)?.into_iter().map(|group| group.id).collect();
-    let order = reinsert(order, &[(group.to_string(), archive["index"].as_u64())]);
+    let order = reinsert(order, &[(group.to_string(), archive.field("index").as_u64())]);
     write_order(transaction, "personal_groups", "group_id", &order)?;
-    for member in archive["members"].as_array().unwrap_or(&empty) {
+    for member in archive.field("members").as_array().unwrap_or(&empty) {
         let (Some(member_session), Some(key)) =
-            (member["session_id"].as_str(), member["workspace_key"].as_str())
+            (member.field("session_id").as_str(), member.field("workspace_key").as_str())
         else {
             continue;
         };

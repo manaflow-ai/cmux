@@ -18,6 +18,7 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde::Serialize;
 use serde_json::json;
 
+use crate::panic_free::JsonField;
 use crate::workspace_registry::presentation_store::{
     append_presentation_record, validate_frontend_browser_title,
 };
@@ -306,7 +307,7 @@ pub(crate) fn tab_remote_wire(
         .optional()?;
     Ok(record.map(|record| {
         let mut wire = record.wire();
-        wire["title"] = json!(record.title);
+        wire.set_field("title", json!(record.title));
         wire
     }))
 }
@@ -315,10 +316,10 @@ impl RemoteTerminalRecord {
     /// The record [`tab_remote_wire`] stored for a closed tab.
     pub(crate) fn from_wire(value: &serde_json::Value) -> Option<Self> {
         Some(Self {
-            session_id: value["session_id"].as_str()?.to_string(),
-            terminal_id: value["terminal_id"].as_str()?.to_string(),
-            session_name: value["session_name"].as_str()?.to_string(),
-            title: value["title"].as_str().map(str::to_string),
+            session_id: value.field("session_id").as_str()?.to_string(),
+            terminal_id: value.field("terminal_id").as_str()?.to_string(),
+            session_name: value.field("session_name").as_str()?.to_string(),
+            title: value.field("title").as_str().map(str::to_string),
         })
     }
 }

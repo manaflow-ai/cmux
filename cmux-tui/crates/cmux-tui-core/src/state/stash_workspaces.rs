@@ -18,6 +18,7 @@ use serde_json::json;
 
 use crate::Actor;
 use crate::mux::*;
+use crate::panic_free::JsonField;
 use crate::state::closed_history::{Reopened, note_created};
 use crate::state::commit::state_not_found;
 use crate::state::prelude::*;
@@ -26,7 +27,7 @@ use crate::state::store::StateCommit;
 
 /// Whether `member` is a whole stashed workspace.
 pub(super) fn is_workspace(member: &Value) -> bool {
-    member["kind"] == "workspace"
+    member.field("kind") == "workspace"
 }
 
 /// Every tab of the live workspace `public`, in screen and pane order.
@@ -194,9 +195,10 @@ impl Mux {
         if !any {
             return Ok(());
         }
-        for group in record["tab_groups"].as_array().into_iter().flatten() {
+        for group in record.field("tab_groups").as_array().into_iter().flatten() {
             let mut group = group.clone();
-            let tabs = group["tab_ids"]
+            let tabs = group
+                .field("tab_ids")
                 .as_array()
                 .into_iter()
                 .flatten()
@@ -205,7 +207,7 @@ impl Mux {
             if tabs.is_empty() {
                 continue;
             }
-            group["tab_ids"] = json!(tabs);
+            group.set_field("tab_ids", json!(tabs));
             self.reopen_tab_group(actor, &group, true, reopened)?;
         }
         Ok(())

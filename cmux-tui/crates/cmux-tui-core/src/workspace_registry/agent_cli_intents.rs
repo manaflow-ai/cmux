@@ -12,6 +12,7 @@ use super::{
     Actor, MachinePublicId, PanePublicId, ScreenPublicId, SessionPublicId, TabPublicId,
     TerminalPublicId, WorkspacePublicId, WorkspaceRegistry,
 };
+use crate::panic_free::JsonField;
 
 pub(crate) fn create_schema(tx: &Transaction<'_>) -> anyhow::Result<()> {
     tx.execute_batch(
@@ -242,17 +243,17 @@ fn text<'a>(value: &'a Value, field: &str) -> anyhow::Result<&'a str> {
 fn normalize_receipt(intent: &AgentCLIIntent, receipt: &Value) -> anyhow::Result<Value> {
     anyhow::ensure!(
         receipt.as_object().is_some_and(|o| o.len() == 6)
-            && receipt["machine"] == intent.machine
-            && receipt["session"] == intent.session
-            && receipt["cli"] == intent.cli
-            && receipt["replayed"].is_boolean(),
+            && *receipt.field("machine") == intent.machine
+            && *receipt.field("session") == intent.session
+            && *receipt.field("cli") == intent.cli
+            && receipt.field("replayed").is_boolean(),
         "receipt identity mismatch"
     );
     let revision = text(receipt, "revision")?;
     anyhow::ensure!(revision.parse::<u64>()?.to_string() == revision, "invalid receipt revision");
-    let path = &receipt["path"];
+    let path = receipt.field("path");
     anyhow::ensure!(
-        path.as_object().is_some_and(|o| o.len() == 6) && path["kind"] == "terminal",
+        path.as_object().is_some_and(|o| o.len() == 6) && path.field("kind") == "terminal",
         "invalid terminal receipt path"
     );
     WorkspacePublicId::parse(text(path, "workspace_id")?.to_owned())?;
@@ -261,13 +262,13 @@ fn normalize_receipt(intent: &AgentCLIIntent, receipt: &Value) -> anyhow::Result
     TabPublicId::parse(text(path, "tab_id")?.to_owned())?;
     TerminalPublicId::parse(text(path, "terminal_id")?.to_owned())?;
     let mut receipt = receipt.clone();
-    receipt["replayed"] = json!(true);
+    receipt.set_field("replayed", json!(true));
     Ok(receipt)
 }
 
 fn row_value(intent: &AgentCLIIntent, receipt: Option<Value>) -> anyhow::Result<Value> {
     let mut value = serde_json::to_value(intent)?;
-    value["receipt"] = receipt.unwrap_or(Value::Null);
+    value.set_field("receipt", receipt.unwrap_or(Value::Null));
     Ok(value)
 }
 

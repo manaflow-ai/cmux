@@ -16,6 +16,7 @@ use sha2::{Digest, Sha256};
 
 use super::*;
 
+use crate::panic_free::JsonField;
 use crate::resource::{
     AgentPublicId, BrowserPublicId, FrontendProjectionPublicId, NotificationPublicId, WireDecimal,
 };
@@ -64,7 +65,7 @@ pub struct RegistryAgentProjection {
 pub(crate) fn agent_projection_extra(agent: Option<&str>, agent_session_id: Option<&str>) -> Value {
     let mut extra = json!({"agent": agent});
     if let Some(agent_session_id) = agent_session_id {
-        extra["agent_session_id"] = json!(agent_session_id);
+        extra.set_field("agent_session_id", json!(agent_session_id));
     }
     extra
 }
@@ -313,9 +314,9 @@ impl WorkspaceRegistry {
             let retained_ids = rows
                 .iter()
                 .filter_map(|(outcome_json, _)| {
-                    serde_json::from_str::<Value>(outcome_json)
-                        .ok()
-                        .and_then(|value| value["value"]["id"].as_str().map(str::to_string))
+                    serde_json::from_str::<Value>(outcome_json).ok().and_then(|value| {
+                        value.field("value").field("id").as_str().map(str::to_string)
+                    })
                 })
                 .collect::<HashSet<String>>();
             let stale =

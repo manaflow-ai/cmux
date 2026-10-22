@@ -5,6 +5,7 @@ use serde::Serialize;
 
 use crate::Actor;
 use crate::mux::*;
+use crate::panic_free::RecoverPoison;
 use crate::state::commit::{StateEffects, workspace_identity};
 use crate::state::prelude::*;
 use crate::state::status_meta::OwnerProcess;
@@ -255,7 +256,8 @@ impl Mux {
                 if !orphan {
                     continue;
                 }
-                let host = self.workspace_registry.lock().unwrap().terminal_host_id(&terminal)?;
+                let host =
+                    self.workspace_registry.lock().recover_poison().terminal_host_id(&terminal)?;
                 if let Some(host) = host
                     && let Err(error) = self.close_terminal_with_mutation(
                         &host,

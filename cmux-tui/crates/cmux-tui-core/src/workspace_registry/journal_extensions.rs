@@ -1,4 +1,5 @@
 use super::*;
+use crate::panic_free::JsonField;
 
 mod exit_snapshot;
 mod writer_batch;
@@ -1824,10 +1825,11 @@ impl WorkspaceRegistry {
         let replay: Value =
             serde_json::from_slice(&uncompressed).context("decode terminal exit snapshot")?;
         anyhow::ensure!(
-            replay["format"].as_str() == Some("cmux.vt-replay.v1"),
+            replay.field("format").as_str() == Some("cmux.vt-replay.v1"),
             "terminal exit snapshot payload format is invalid"
         );
-        let replay_bytes = replay["bytes_base64"]
+        let replay_bytes = replay
+            .field("bytes_base64")
             .as_str()
             .context("terminal exit snapshot omitted bytes_base64")?;
         let replay_bytes = base64::engine::general_purpose::STANDARD
@@ -2325,11 +2327,12 @@ fn journal_segment_receipt(
         |row| row.get::<_, String>(0),
     )?;
     let result: Value = serde_json::from_str(&result)?;
-    let through_sequence = result["through_sequence"]
+    let through_sequence = result
+        .field("through_sequence")
         .as_str()
         .context("segment receipt omitted through_sequence")?
         .parse()?;
-    let segments = serde_json::from_value(result["segments"].clone())?;
+    let segments = serde_json::from_value(result.field("segments").clone())?;
     Ok(JournalSegmentSealCommit { through_sequence, segments, journal })
 }
 
@@ -2504,7 +2507,7 @@ fn operation_receipt(
     let result: Value = serde_json::from_str(&result)?;
     Ok(Some(JournalAppendCommit {
         sequence: u64::try_from(sequence)?,
-        event_id: result["event_id"].as_str().context("receipt omitted event_id")?.into(),
+        event_id: result.field("event_id").as_str().context("receipt omitted event_id")?.into(),
         replayed: true,
     }))
 }

@@ -29,6 +29,7 @@ use std::path::{Path, PathBuf};
 use serde_json::{Value, json};
 
 use crate::Mux;
+use crate::panic_free::JsonField;
 use crate::resource::ResourceError;
 
 /// Advertised by `identify` once `workspace.agent_start.get` exists.
@@ -198,34 +199,36 @@ pub(crate) fn resolve(inputs: &Inputs<'_>) -> Value {
 pub(crate) fn tab_folders(snapshot: &Value, workspace: &str) -> Vec<String> {
     let list = |key: &str| snapshot[key].as_array().cloned().unwrap_or_default();
     let ordered = |mut items: Vec<Value>| {
-        items.sort_by_key(|item| item["index"].as_u64().unwrap_or(u64::MAX));
+        items.sort_by_key(|item| item.field("index").as_u64().unwrap_or(u64::MAX));
         items
     };
     let screens: Vec<String> = ordered(list("screens"))
         .into_iter()
-        .filter(|screen| screen["workspace_id"] == workspace)
-        .filter_map(|screen| screen["id"].as_str().map(str::to_owned))
+        .filter(|screen| screen.field("workspace_id") == workspace)
+        .filter_map(|screen| screen.field("id").as_str().map(str::to_owned))
         .collect();
     let panes: Vec<String> = screens
         .iter()
         .flat_map(|screen| {
             list("panes")
                 .into_iter()
-                .filter(move |pane| pane["screen_id"] == screen.as_str())
-                .filter_map(|pane| pane["id"].as_str().map(str::to_owned))
+                .filter(move |pane| pane.field("screen_id") == screen.as_str())
+                .filter_map(|pane| pane.field("id").as_str().map(str::to_owned))
         })
         .collect();
     let terminals = list("terminals");
     let mut folders = Vec::new();
     for pane in &panes {
-        for tab in ordered(list("tabs")).into_iter().filter(|tab| tab["pane_id"] == pane.as_str()) {
-            if tab["content_kind"] != "terminal" {
+        for tab in
+            ordered(list("tabs")).into_iter().filter(|tab| tab.field("pane_id") == pane.as_str())
+        {
+            if tab.field("content_kind") != "terminal" {
                 continue;
             }
             let cwd = terminals
                 .iter()
-                .find(|terminal| terminal["id"] == tab["content_id"])
-                .and_then(|terminal| terminal["cwd"].as_str());
+                .find(|terminal| terminal.field("id") == tab.field("content_id"))
+                .and_then(|terminal| terminal.field("cwd").as_str());
             if let Some(cwd) = cwd
                 && !folders.iter().any(|folder| folder == cwd)
             {

@@ -25,6 +25,7 @@ use std::fmt;
 
 use rusqlite::{Connection, OptionalExtension, Transaction};
 
+use crate::panic_free::JsonField;
 use crate::workspace_registry::personal_store::read_workspaces;
 use crate::workspace_registry::{PersonalWorkspaceUpdate, WorkspaceRegistry};
 
@@ -231,15 +232,15 @@ fn place_home_first(transaction: &Transaction<'_>, workspace_key: &str) -> anyho
     let after = crate::state::personal_state_store::workspace_group_snapshots(transaction, None)?;
     for group in after {
         if !groups.contains(&group) {
-            let id = group["id"].as_str().unwrap_or_default().to_string();
+            let id = group.field("id").as_str().unwrap_or_default().to_string();
             let change = crate::state::store::state_upsert("workspace_group", &id, group);
             crate::state::closed_history_store::queue_change(transaction, &change)?;
         }
     }
     for placement in crate::state::personal_state_store::placement_snapshots(transaction)? {
         let id = crate::state::personal_state_store::placement_id(
-            placement["workspace"]["session_id"].as_str().unwrap_or_default(),
-            placement["workspace"]["workspace_ref"].as_str().unwrap_or_default(),
+            placement.field("workspace").field("session_id").as_str().unwrap_or_default(),
+            placement.field("workspace").field("workspace_ref").as_str().unwrap_or_default(),
         );
         let change = crate::state::store::state_upsert("workspace_placement", &id, placement);
         crate::state::closed_history_store::queue_change(transaction, &change)?;

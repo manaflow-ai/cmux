@@ -21,6 +21,8 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use zeroize::{Zeroize, Zeroizing};
 
+#[cfg(test)]
+use crate::panic_free::RecoverPoison;
 use crate::platform;
 use crate::resource::{
     BrowserPublicId, ContentPublicId, FrontendProjectionPublicId, MachinePublicId, PanePublicId,
@@ -297,9 +299,9 @@ impl ResourceEffectPepper {
         key_block[..RESOURCE_EFFECT_PEPPER_BYTES].copy_from_slice(self.0.as_ref());
         let mut inner_pad = [0x36_u8; BLOCK_BYTES];
         let mut outer_pad = [0x5c_u8; BLOCK_BYTES];
-        for index in 0..BLOCK_BYTES {
-            inner_pad[index] ^= key_block[index];
-            outer_pad[index] ^= key_block[index];
+        for ((inner, outer), key) in inner_pad.iter_mut().zip(outer_pad.iter_mut()).zip(key_block) {
+            *inner ^= key;
+            *outer ^= key;
         }
 
         let mut inner = Sha256::new();
@@ -327,11 +329,10 @@ fn update_sha256_part(hasher: &mut Sha256, value: &[u8]) {
 }
 
 fn hex_sha256(digest: [u8; 32]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
+    use std::fmt::Write as _;
     let mut encoded = String::with_capacity(64);
     for byte in digest {
-        encoded.push(char::from(HEX[usize::from(byte >> 4)]));
-        encoded.push(char::from(HEX[usize::from(byte & 0x0f)]));
+        let _ = write!(encoded, "{byte:02x}");
     }
     encoded
 }
@@ -831,13 +832,14 @@ fn pending_session_reset_kind(rest: &str) -> Option<PendingSessionResetKind> {
 
 fn is_canonical_reset_uuid_v4(value: &str) -> bool {
     let bytes = value.as_bytes();
+    let at = |index: usize| bytes.get(index).copied();
     bytes.len() == 36
-        && bytes[8] == b'-'
-        && bytes[13] == b'-'
-        && bytes[18] == b'-'
-        && bytes[23] == b'-'
-        && bytes[14] == b'4'
-        && matches!(bytes[19], b'8' | b'9' | b'a' | b'b')
+        && at(8) == Some(b'-')
+        && at(13) == Some(b'-')
+        && at(18) == Some(b'-')
+        && at(23) == Some(b'-')
+        && at(14) == Some(b'4')
+        && matches!(at(19), Some(b'8' | b'9' | b'a' | b'b'))
         && bytes.iter().enumerate().all(|(index, byte)| {
             matches!(index, 8 | 13 | 18 | 23) || matches!(*byte, b'0'..=b'9' | b'a'..=b'f')
         })
@@ -884,10 +886,11 @@ fn pending_session_reset_dirs(
         let Some(file_name) = file_name.to_str() else {
             continue;
         };
-        if !file_name.starts_with(&prefix) || !file_name.ends_with(suffix) {
+        let Some(rest) =
+            file_name.strip_prefix(prefix.as_str()).and_then(|rest| rest.strip_suffix(suffix))
+        else {
             continue;
-        }
-        let rest = &file_name[prefix.len()..file_name.len() - suffix.len()];
+        };
         let Some(kind) = pending_session_reset_kind(rest) else {
             continue;
         };
@@ -1019,7 +1022,7 @@ fn rename_reset_dir_for_deletion(
 fn sync_private_reset_rename(root: &Path, candidate: &Path, label: &str) -> anyhow::Result<()> {
     #[cfg(test)]
     {
-        let mut failure_root = RESET_RENAME_SYNC_FAILURE_ROOT.lock().unwrap();
+        let mut failure_root = RESET_RENAME_SYNC_FAILURE_ROOT.lock().recover_poison();
         if failure_root.as_deref() == Some(root) {
             *failure_root = None;
             anyhow::bail!("injected private reset rename sync failure");
@@ -1091,7 +1094,7 @@ fn reset_confirmation_snapshot(
     }
     let digest = hash.finalize();
     Ok(ResetConfirmationSnapshot {
-        confirm_reset: digest[..12].iter().map(|byte| format!("{byte:02x}")).collect(),
+        confirm_reset: digest.iter().take(12).map(|byte| format!("{byte:02x}")).collect(),
         session_fingerprint,
         terminal_host_fingerprint,
         pending_reset_dir_fingerprints,
@@ -1132,11 +1135,10 @@ fn reset_path_token(path: &Path) -> String {
 }
 
 fn hex_bytes(bytes: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
+    use std::fmt::Write as _;
     let mut encoded = String::with_capacity(bytes.len() * 2);
     for byte in bytes {
-        encoded.push(char::from(HEX[usize::from(byte >> 4)]));
-        encoded.push(char::from(HEX[usize::from(byte & 0x0f)]));
+        let _ = write!(encoded, "{byte:02x}");
     }
     encoded
 }
@@ -1381,7 +1383,7 @@ fn remove_reset_dir_all(
     }
     #[cfg(test)]
     {
-        let mut injected_file = RESET_DELETE_AFTER_MANIFEST_FILE.lock().unwrap();
+        let mut injected_file = RESET_DELETE_AFTER_MANIFEST_FILE.lock().recover_poison();
         if injected_file.as_ref().is_some_and(|(target, _)| target == path) {
             let (_, file_path) = injected_file.take().unwrap();
             fs::write(&file_path, b"late")
@@ -1551,7 +1553,7 @@ fn remove_reset_dir_children_from_handle(
 
 #[cfg(all(unix, test))]
 fn inject_reset_delete_child_replacement(path: &Path) -> anyhow::Result<()> {
-    let mut replacement = RESET_DELETE_AFTER_CHILD_VERIFY_FILE.lock().unwrap();
+    let mut replacement = RESET_DELETE_AFTER_CHILD_VERIFY_FILE.lock().recover_poison();
     if replacement.as_ref() != Some(&path.to_path_buf()) {
         return Ok(());
     }
@@ -1565,7 +1567,7 @@ fn inject_reset_delete_child_replacement(path: &Path) -> anyhow::Result<()> {
 
 #[cfg(test)]
 fn inject_reset_recreated_session_dir_after_staging(path: &Path) -> anyhow::Result<()> {
-    let mut injected = RESET_RECREATE_SESSION_DIR_AFTER_STAGING.lock().unwrap();
+    let mut injected = RESET_RECREATE_SESSION_DIR_AFTER_STAGING.lock().recover_poison();
     let Some(session_dir) = injected.take() else {
         return Ok(());
     };
@@ -1747,7 +1749,7 @@ fn reset_child_file_content_sha256(
             break;
         }
         budget.add_file_bytes(display_path, read as u64)?;
-        hash.update(&buffer[..read]);
+        hash.update(buffer.get(..read).context("read reported more bytes than its buffer")?);
     }
     let current = reset_child_stat(parent_fd, name, display_path)?;
     if reset_stat_metadata_fingerprint(&current) != reset_stat_metadata_fingerprint(expected) {
@@ -2211,7 +2213,7 @@ fn remove_reset_dir_all(
 fn ensure_checked_reset_deletion_supported(root: &Path) -> anyhow::Result<()> {
     #[cfg(test)]
     {
-        let mut unsupported_root = RESET_UNSUPPORTED_CHECKED_DELETION_ROOT.lock().unwrap();
+        let mut unsupported_root = RESET_UNSUPPORTED_CHECKED_DELETION_ROOT.lock().recover_poison();
         if unsupported_root.as_deref() == Some(root) {
             *unsupported_root = None;
             return unsupported_checked_reset_deletion(root, "saved state");
@@ -2309,7 +2311,7 @@ fn reset_file_content_sha256(
             break;
         }
         budget.add_file_bytes(path, read as u64)?;
-        hash.update(&buffer[..read]);
+        hash.update(buffer.get(..read).context("read reported more bytes than its buffer")?);
     }
     let current = fs::symlink_metadata(path)
         .with_context(|| format!("inspect reset file {}", path.display()))?;
@@ -4632,8 +4634,8 @@ fn validate_terminal(terminal: &RegistryTerminal) -> anyhow::Result<()> {
 fn validate_terminal_identity(label: &str, value: &str) -> anyhow::Result<()> {
     if value.len() != 32
         || !value.bytes().all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
-        || value.as_bytes()[12] != b'4'
-        || !matches!(value.as_bytes()[16], b'8'..=b'b')
+        || value.as_bytes().get(12) != Some(&b'4')
+        || !matches!(value.as_bytes().get(16), Some(b'8'..=b'b'))
     {
         anyhow::bail!("{label} must be a 32-character lowercase UUIDv4 hex value");
     }
@@ -5048,7 +5050,7 @@ fn prepare_terminal_host_root_for_reset(
 
 #[cfg(all(unix, test))]
 fn inject_legacy_terminal_host_record_removal_before_liveness(root: &Path) -> anyhow::Result<()> {
-    let mut record = RESET_REMOVE_LEGACY_HOST_RECORD_BEFORE_LIVENESS.lock().unwrap();
+    let mut record = RESET_REMOVE_LEGACY_HOST_RECORD_BEFORE_LIVENESS.lock().recover_poison();
     let Some(path) = record.as_ref() else {
         return Ok(());
     };

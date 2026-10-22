@@ -58,10 +58,11 @@ pub(super) fn decorate_snapshot_result(
 ) -> anyhow::Result<()> {
     // Topology results carry the committed value as `public_value`.
     let target = if result.get("public_value").is_some_and(Value::is_object) {
-        &mut result["public_value"]
+        result.get_mut("public_value")
     } else {
-        result
+        Some(result)
     };
+    let Some(target) = target else { return Ok(()) };
     let Some(id) = target.get("id").and_then(Value::as_str) else { return Ok(()) };
     let resource = match (operation.split('.').next(), id.split('_').next()) {
         (Some("workspace"), Some("ws")) => "workspace",

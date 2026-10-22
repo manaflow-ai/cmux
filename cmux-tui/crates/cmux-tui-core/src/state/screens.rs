@@ -17,6 +17,8 @@ use std::collections::BTreeSet;
 use crate::Actor;
 use crate::mux::tab_strip::StripRequest;
 use crate::mux::*;
+use crate::panic_free::JsonField;
+use crate::panic_free::RecoverPoison;
 use crate::state::commit::{StateEffects, state_not_found};
 use crate::state::prelude::*;
 use crate::state::screen_state_store::{
@@ -136,8 +138,10 @@ fn screen_rows_write(
         // changed with them.
         let moved = changes
             .iter()
-            .filter(|change| change["kind"] == "upsert" && change["resource"] == "screen")
-            .filter_map(|change| change["id"].as_str().map(str::to_string))
+            .filter(|change| {
+                change.field("kind") == "upsert" && change.field("resource") == "screen"
+            })
+            .filter_map(|change| change.field("id").as_str().map(str::to_string))
             .collect::<BTreeSet<_>>();
         let mut group_ids = changed_groups.clone();
         for (screen, group) in &screens.members {
@@ -282,7 +286,7 @@ impl Mux {
         )?;
         if !commit.replayed {
             {
-                let registry = self.workspace_registry.lock().unwrap();
+                let registry = self.workspace_registry.lock().recover_poison();
                 self.reload_presentation(&registry)?;
             }
             for (surface, _, key) in retarget {

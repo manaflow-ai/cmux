@@ -31,6 +31,7 @@ use rusqlite::{Connection, Transaction, params};
 use serde_json::{Map, json};
 
 use crate::mux::*;
+use crate::panic_free::JsonField;
 use crate::resource::BrowserPublicId;
 use crate::state::home_store::live_app_workspace;
 use crate::state::prelude::*;
@@ -234,7 +235,9 @@ impl Mux {
         )?;
         self.emit(MuxEvent::TreeChanged);
         self.publish_journal_event();
-        let workspace_id = commit.result["workspace_id"]
+        let workspace_id = commit
+            .result
+            .field("workspace_id")
             .as_str()
             .context("the created app tab has no workspace")?;
         Ok(EnsuredApp {

@@ -16,6 +16,7 @@ use super::super::personal_store::{
     DEFAULT_PROFILE_ID, bump_personal_revision, commit_personal, read_groups, read_profile,
     read_profiles, subject, write_order,
 };
+use crate::panic_free::JsonField;
 
 /// The rooms that show workspace `key` of `session` (data-model.md 3.2, the
 /// rule of the app's `RoomMembership`): its pin, else every room that
@@ -131,7 +132,7 @@ pub(crate) fn snapshot_room(connection: &Connection, room: &str) -> anyhow::Resu
         rows(connection, "personal_groups", "profile_id = ?1 ORDER BY position", &[&room])?;
     let group_indexes = groups
         .iter()
-        .map(|group| order.iter().position(|id| group["group_id"] == id.as_str()))
+        .map(|group| order.iter().position(|id| group.field("group_id") == id.as_str()))
         .collect::<Vec<_>>();
     Ok(json!({
         "id": room,
@@ -149,9 +150,9 @@ pub(crate) fn snapshot_room(connection: &Connection, room: &str) -> anyhow::Resu
         )?
         .into_iter()
         .map(|row| json!({
-            "session_id": row["session_id"],
-            "workspace_key": row["workspace_key"],
-            "group_id": row["group_id"],
+            "session_id": row.field("session_id"),
+            "workspace_key": row.field("workspace_key"),
+            "group_id": row.field("group_id"),
         }))
         .collect::<Vec<_>>(),
     }))
@@ -178,7 +179,7 @@ pub(crate) fn restore_room(
     local: &str,
     placements: &[(String, String)],
 ) -> anyhow::Result<bool> {
-    let room = archive["id"].as_str().unwrap_or_default();
+    let room = archive.field("id").as_str().unwrap_or_default();
     anyhow::ensure!(!room.is_empty(), "the closed space has no id");
     let restored = read_profile(transaction, room)?.is_none();
     let empty = Vec::new();
@@ -186,7 +187,7 @@ pub(crate) fn restore_room(
     if restored {
         insert_rows(transaction, "profiles", &list("profile"))?;
         let order = read_profiles(transaction)?.into_iter().map(|profile| profile.id).collect();
-        let order = reinsert(order, &[(room.to_string(), archive["index"].as_u64())]);
+        let order = reinsert(order, &[(room.to_string(), archive.field("index").as_u64())]);
         write_order(transaction, "profiles", "profile_id", &order)?;
         insert_rows(transaction, "profile_follows", &list("follows"))?;
         insert_rows(transaction, "personal_groups", &list("groups"))?;
@@ -194,7 +195,7 @@ pub(crate) fn restore_room(
             .iter()
             .zip(list("group_indexes"))
             .filter_map(|(group, index)| {
-                Some((group["group_id"].as_str()?.to_string(), index.as_u64()))
+                Some((group.field("group_id").as_str()?.to_string(), index.as_u64()))
             })
             .collect::<Vec<_>>();
         let order = read_groups(transaction)?.into_iter().map(|group| group.id).collect();
@@ -205,9 +206,9 @@ pub(crate) fn restore_room(
                 "UPDATE personal_workspaces SET group_id = ?3
                  WHERE session_id = ?1 AND workspace_key = ?2 AND group_id IS NULL",
                 params![
-                    row["session_id"].as_str(),
-                    row["workspace_key"].as_str(),
-                    row["group_id"].as_str()
+                    row.field("session_id").as_str(),
+                    row.field("workspace_key").as_str(),
+                    row.field("group_id").as_str()
                 ],
             )?;
         }

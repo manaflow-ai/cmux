@@ -17,6 +17,7 @@
 use std::collections::HashMap;
 
 use super::*;
+use crate::panic_free::JsonField;
 
 const TRACKED_RESOURCES: [&str; 6] = ["workspace", "screen", "pane", "tab", "terminal", "browser"];
 
@@ -30,9 +31,11 @@ impl PublicTopologyFold {
     fn apply(&mut self, changes: &Value) {
         let Some(changes) = changes.as_array() else { return };
         for change in changes {
-            let (Some(kind), Some(resource), Some(id)) =
-                (change["kind"].as_str(), change["resource"].as_str(), change["id"].as_str())
-            else {
+            let (Some(kind), Some(resource), Some(id)) = (
+                change.field("kind").as_str(),
+                change.field("resource").as_str(),
+                change.field("id").as_str(),
+            ) else {
                 continue;
             };
             if !TRACKED_RESOURCES.contains(&resource) {
@@ -41,7 +44,7 @@ impl PublicTopologyFold {
             let key = (resource.to_string(), id.to_string());
             match kind {
                 "upsert" => {
-                    self.values.insert(key, change["value"].clone());
+                    self.values.insert(key, change.field("value").clone());
                 }
                 "delete" => {
                     self.values.remove(&key);
@@ -52,16 +55,17 @@ impl PublicTopologyFold {
     }
 
     fn states(&self, change: &Value) -> bool {
-        change["kind"] == "upsert"
-            && change["resource"]
+        change.field("kind") == "upsert"
+            && change
+                .field("resource")
                 .as_str()
                 .is_some_and(|resource| TRACKED_RESOURCES.contains(&resource))
-            && match (change["resource"].as_str(), change["id"].as_str()) {
+            && match (change.field("resource").as_str(), change.field("id").as_str()) {
                 (Some(resource), Some(id)) => {
                     self.values.get(&(resource.to_string(), id.to_string())).is_some_and(|value| {
-                        value == &change["value"]
+                        value == change.field("value")
                             || (resource == "workspace"
-                                && without_workspace_key(value) == change["value"])
+                                && without_workspace_key(value) == *change.field("value"))
                     })
                 }
                 _ => false,

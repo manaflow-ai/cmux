@@ -34,6 +34,7 @@ use sha2::{Digest, Sha256};
 use crate::Actor;
 use crate::mux::tab_groups::pane_by_public_id;
 use crate::mux::*;
+use crate::panic_free::JsonField;
 use crate::state::closed_history::{REOPEN, Reopened, note_created, recording_created};
 use crate::state::closed_history_store::queue_change;
 use crate::state::commit::{StateEffects, state_not_found};
@@ -165,7 +166,8 @@ impl Mux {
                     }
                     Ok(member) => {
                         if first_workspace.is_none() {
-                            first_workspace = member["workspace_id"].as_str().map(str::to_string);
+                            first_workspace =
+                                member.field("workspace_id").as_str().map(str::to_string);
                         }
                         pages.push((tab, member));
                     }
@@ -177,8 +179,8 @@ impl Mux {
             // records a close), so each tab goes back to its own index after
             // the lower ones are in place.
             pages.sort_by(|(_, left), (_, right)| {
-                (left["pane_id"].as_str(), left["index"].as_i64())
-                    .cmp(&(right["pane_id"].as_str(), right["index"].as_i64()))
+                (left.field("pane_id").as_str(), left.field("index").as_i64())
+                    .cmp(&(right.field("pane_id").as_str(), right.field("index").as_i64()))
             });
             let tabs = pages.into_iter().map(|(tab, _)| tab).collect::<Vec<_>>();
             let name = match &first_workspace {
@@ -262,7 +264,7 @@ impl Mux {
             .read_registry_state(|connection| store::stash_record(connection, stash_id))?
             .ok_or_else(|| state_not_found("stash", stash_id))?;
         let (restore, _) = store::choose_members(
-            record["members"].as_array().cloned().unwrap_or_default(),
+            record.field("members").as_array().cloned().unwrap_or_default(),
             members,
         )?;
         if let Some(pane) = pane
@@ -270,7 +272,8 @@ impl Mux {
         {
             return Err(state_not_found("pane", pane));
         }
-        let restored_ids = restore.iter().map(|member| member["id"].clone()).collect::<Vec<_>>();
+        let restored_ids =
+            restore.iter().map(|member| member.field("id").clone()).collect::<Vec<_>>();
         let mut reopened = Reopened::default();
         // All or nothing: when a member cannot reopen, or the commit fails,
         // every surface this call created closes again and every member
@@ -335,11 +338,12 @@ impl Mux {
             |transaction, _| {
                 let record = store::stash_record(transaction, stash_id)?
                     .ok_or_else(|| state_not_found("stash", stash_id))?;
-                let keep = record["members"]
+                let keep = record
+                    .field("members")
                     .as_array()
                     .into_iter()
                     .flatten()
-                    .filter(|member| !restored_ids.contains(&member["id"]))
+                    .filter(|member| !restored_ids.contains(member.field("id")))
                     .cloned()
                     .collect::<Vec<_>>();
                 let (change, remaining) =
@@ -423,7 +427,7 @@ impl Mux {
         reopened: &mut Reopened,
     ) -> anyhow::Result<()> {
         let Some(pane) = pane else { return self.reopen_closed_tab(actor, member, reopened) };
-        let tab = &member["screens"][0]["tabs"][0];
+        let tab = member.field("screens").item(0).field("tabs").item(0);
         let (target, own) = self
             .with_state(|state| {
                 super::closed_pane_split::home_pane(state, member, &HashMap::new())
@@ -433,10 +437,11 @@ impl Mux {
             .ok_or_else(|| state_not_found("pane", pane))?;
         // Back in its own pane, at its recorded index (a pinned tab takes
         // the place its pin gives it); in the named pane, at the end.
-        let index = member["index"]
+        let index = member
+            .field("index")
             .as_u64()
             .and_then(|index| usize::try_from(index).ok())
-            .filter(|_| own && tab["pinned"].as_bool() != Some(true));
+            .filter(|_| own && tab.field("pinned").as_bool() != Some(true));
         let created = match index {
             Some(index) => tab_strip::tab_slot::scoped(target, index, || {
                 self.reopen_tab_record(actor, target, tab, true)
@@ -470,7 +475,7 @@ impl Mux {
         reopened: &mut Reopened,
     ) -> anyhow::Result<()> {
         let actor = &mutation.actor;
-        let name = record["name"].as_str().map(str::to_string);
+        let name = record.field("name").as_str().map(str::to_string);
         let starter = self.new_workspace_as(actor, name, None)?.id;
         note_created(starter);
         let pane =
@@ -479,8 +484,12 @@ impl Mux {
         reopened.note_workspace(workspace);
         reopened.screens.push(screen);
         for member in restore {
-            let surface =
-                self.reopen_tab_record(actor, pane, &member["screens"][0]["tabs"][0], false)?;
+            let surface = self.reopen_tab_record(
+                actor,
+                pane,
+                member.field("screens").item(0).field("tabs").item(0),
+                false,
+            )?;
             reopened.tabs.push(self.public_tab_of(surface)?);
         }
         if !restore.is_empty() {
@@ -525,7 +534,7 @@ impl Mux {
             |transaction, _| {
                 let record = store::stash_record(transaction, stash_id)?
                     .ok_or_else(|| state_not_found("stash", stash_id))?;
-                let all = record["members"].as_array().cloned().unwrap_or_default();
+                let all = record.field("members").as_array().cloned().unwrap_or_default();
                 let (removed, keep) = store::choose_members(all, members)?;
                 *keys.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
                     super::agent_home_moves::member_keys(&removed);
@@ -633,5 +642,5 @@ fn workspace_form(source: &StashSource) -> bool {
 }
 
 fn member_pinned(member: &Value) -> bool {
-    member["screens"][0]["tabs"][0]["pinned"].as_bool() == Some(true)
+    member.field("screens").item(0).field("tabs").item(0).field("pinned").as_bool() == Some(true)
 }

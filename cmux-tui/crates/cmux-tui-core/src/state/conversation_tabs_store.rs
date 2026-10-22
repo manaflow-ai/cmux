@@ -33,6 +33,7 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use crate::panic_free::JsonField;
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde_json::{Value, json};
 
@@ -259,15 +260,17 @@ impl ConversationTabRecord {
         let text = |value: &Value| value.as_str().map(str::to_string);
         let record = match (value.get("agent_session"), value.get("page")) {
             (Some(agent), _) => Self::AgentSession {
-                host: text(&agent["host"])?,
-                session: text(&agent["session"]),
-                harness: text(&agent["harness"]),
-                host_name: text(&agent["host_name"]),
+                host: text(agent.field("host"))?,
+                session: text(agent.field("session")),
+                harness: text(agent.field("harness")),
+                host_name: text(agent.field("host_name")),
             },
-            (None, Some(page)) => Self::Page { page: text(page)?, route: text(&value["route"]) },
+            (None, Some(page)) => {
+                Self::Page { page: text(page)?, route: text(value.field("route")) }
+            }
             (None, None) => Self::Conversation {
-                conversation: text(&value["conversation"])?,
-                owner: text(&value["owner"])?,
+                conversation: text(value.field("conversation"))?,
+                owner: text(value.field("owner"))?,
             },
         };
         record.validate().ok().map(|()| record)

@@ -18,6 +18,7 @@
 use std::path::{Path, PathBuf};
 
 use super::agent_start::agent_home_base;
+use crate::panic_free::JsonField;
 
 /// The folder the app empties into the Trash.
 pub(crate) const TRASH_PENDING: &str = ".trash-pending";
@@ -102,7 +103,7 @@ fn retire_folder(base: &Path, key: &str) {
 pub(crate) fn member_keys(members: &[serde_json::Value]) -> Vec<String> {
     members
         .iter()
-        .filter(|member| member["kind"] == "workspace")
-        .filter_map(|member| member["workspace_key"].as_str().map(str::to_string))
+        .filter(|member| member.field("kind") == "workspace")
+        .filter_map(|member| member.field("workspace_key").as_str().map(str::to_string))
         .collect()
 }

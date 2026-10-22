@@ -18,6 +18,7 @@ use serde_json::Value;
 
 use super::sidebar_doc_store as store;
 use super::values::local_registry_id;
+use crate::panic_free::JsonField;
 use crate::user_settings::NewWorkspacePlacement;
 
 /// This machine's workspace ids in document order, and how many of them
@@ -86,7 +87,8 @@ pub(crate) fn sort_workspaces(
         .take_while(|workspace| rank_of(workspace).is_some_and(|rank| rank < order.machine_start))
         .count();
     let is_active = |workspace: &Value| {
-        workspace["active"].as_bool() == Some(true) || workspace["focused"].as_bool() == Some(true)
+        workspace.field("active").as_bool() == Some(true)
+            || workspace.field("focused").as_bool() == Some(true)
     };
     let slot = match placement {
         NewWorkspacePlacement::Bottom => placed.len(),

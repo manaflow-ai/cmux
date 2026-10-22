@@ -21,6 +21,7 @@ use anyhow::Context;
 use rusqlite::{Connection, OptionalExtension, Transaction};
 use serde_json::{Value, json};
 
+use crate::panic_free::JsonField;
 use crate::workspace_registry::personal_store::personal_revision;
 use crate::workspace_registry::resource_store::{prune_resource_mutations, resource_patch_replay};
 use crate::workspace_registry::session_journal::append_resource_journal_record;
@@ -206,14 +207,14 @@ pub(crate) fn state_delete(resource: &str, id: &str) -> Value {
 /// one in the same batch.
 pub(crate) fn finish_changes(changes: Vec<Value>) -> Vec<Value> {
     let key = |change: &Value| {
-        let family = match change["kind"].as_str() {
+        let family = match change.field("kind").as_str() {
             Some("upsert" | "delete") => "resource",
             _ => "state",
         };
         (
             family.to_string(),
-            change["resource"].as_str().unwrap_or_default().to_string(),
-            change["id"].as_str().unwrap_or_default().to_string(),
+            change.field("resource").as_str().unwrap_or_default().to_string(),
+            change.field("id").as_str().unwrap_or_default().to_string(),
         )
     };
     let mut output: Vec<Value> = Vec::with_capacity(changes.len());
@@ -223,7 +224,7 @@ pub(crate) fn finish_changes(changes: Vec<Value>) -> Vec<Value> {
         output.push(change);
     }
     for (sequence, change) in output.iter_mut().enumerate() {
-        change["sequence"] = json!(sequence);
+        change.set_field("sequence", json!(sequence));
     }
     output
 }
