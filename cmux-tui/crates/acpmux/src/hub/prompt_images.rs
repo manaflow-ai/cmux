@@ -15,6 +15,9 @@ fn dir() -> PathBuf {
     crate::config::home().join("attachments")
 }
 
+/// The records that name a prompt's images.
+const NAMING_KINDS: [&str; 3] = ["user_message", "queued", "queue_updated"];
+
 /// A kept image's name: 64 lowercase hex digits, never a path.
 fn valid_id(id: &str) -> bool {
     id.len() == 64 && id.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
@@ -92,24 +95,40 @@ impl Hub {
     /// `_acpmux/attachment`: the image `id` one of session `session`'s prompts sent or queued
     /// (so a queued prompt's row shows it before it runs), as `{mimeType, data}` (base64). Only
     /// an image the session's own log names is read.
+    ///
+    /// The log is read newest first, only the records that can name an image are parsed, and the
+    /// read stops at the first that names it; an image never kept is refused without reading the
+    /// log. Reading every record from the first took 16.7 s for one image of a 701 MB chat, and
+    /// the bubble showed an empty box meanwhile (Leo, 2026-10-21).
     pub fn prompt_image(&self, session: &str, id: &str) -> Result<Value, RpcError> {
         let missing = || RpcError::not_found(format!("no image {id} in this chat"));
-        if !valid_id(id) {
+        let path = dir().join(id);
+        if !valid_id(id) || !path.is_file() {
             return Err(missing());
         }
-        let filter = EventFilter::parse(Some(&json!(["user_message", "queued", "queue_updated"])))?;
-        let page = self
-            .events_page(session, 0, None, usize::MAX, None, false, &filter)
+        let filter = EventFilter::parse(Some(&json!(NAMING_KINDS)))?;
+        let skip = |dir: &[u8], kind: &[u8]| filter.surely_skips(dir, kind);
+        let mut named = None;
+        self.store
+            .scan_back(session, 0, u64::MAX, &skip, &mut |rec| {
+                if !filter.matches(&rec) {
+                    return true;
+                }
+                named = rec
+                    .msg
+                    .get("images")
+                    .and_then(Value::as_array)
+                    .and_then(|images| {
+                        images
+                            .iter()
+                            .find(|image| image.get("id").and_then(Value::as_str) == Some(id))
+                    })
+                    .cloned();
+                named.is_none()
+            })
             .map_err(|e| RpcError::internal(e.to_string()))?;
-        let named = page
-            .events
-            .iter()
-            .filter_map(|event| event.msg.get("images").and_then(Value::as_array))
-            .flatten()
-            .find(|image| image.get("id").and_then(Value::as_str) == Some(id))
-            .cloned()
-            .ok_or_else(missing)?;
-        let bytes = std::fs::read(dir().join(id)).map_err(|_| missing())?;
+        let named = named.ok_or_else(missing)?;
+        let bytes = std::fs::read(path).map_err(|_| missing())?;
         use base64::Engine;
         Ok(json!({
             "mimeType": named.get("mimeType").cloned().unwrap_or_else(|| json!("image/png")),
