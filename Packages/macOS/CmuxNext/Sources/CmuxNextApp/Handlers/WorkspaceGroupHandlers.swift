@@ -39,8 +39,9 @@ enum WorkspaceGroupHandlers {
             try createGroup(named: name, members: members, byUser: invocation.origin == .user, context)
         })
         registry.bind("groupSelectedWorkspaces", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
-            var members = try context.sidebar().model.orderedSelection
-            if members.isEmpty { members = [SidebarWorkspaceID(try context.workspace(invocation).model.id)] }
+            // The right-clicked row's selection, or the row alone: a right-click no longer selects its row (Leo
+            // 2026-10-21), so a row outside the selection must not group the selection.
+            let members = try WindowMembershipHandlers.workspaces(invocation, context).map(SidebarWorkspaceID.init)
             try createGroup(named: "", members: members, byUser: invocation.origin == .user, context)
         })
         registry.bind("moveWorkspaceToGroup", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
@@ -64,7 +65,7 @@ enum WorkspaceGroupHandlers {
             for workspace in grouped { context.ungroupPersonal(workspace) }
         })
         ActionTargetVisibility.hide("removeWorkspaceFromGroup", in: registry) { (try? context.workspace($0).model).map { (try? WorkspaceVerbHandlers.group(of: $0, context)) == nil } ?? false }
-        ActionTargetVisibility.hide("groupSelectedWorkspaces", in: registry) { _ in ((try? context.sidebar().model.orderedSelection.count) ?? 0) < 2 }
+        ActionTargetVisibility.hide("groupSelectedWorkspaces", in: registry) { ((try? WindowMembershipHandlers.workspaces($0, context).count) ?? 0) < 2 }
         registry.bind("workspaceGroup.newWorkspace", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
             try newPersonalWorkspace(in: context.group(invocation).id, newTabPage: invocation.origin == .user, context)
         })
