@@ -7,6 +7,9 @@
   color: var(--cv-text);
   font-weight: 500;
 }
+:is(button, a[href]).cv-subsession__name {
+  cursor: pointer;
+}
 /* The name opens the sub-session's chat: the pointer and an underline on keyboard focus only, as
    neighbouring transcript rows show focus, never a box. */
 .cv-subsession__name.is-link {

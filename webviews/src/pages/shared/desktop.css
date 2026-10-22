@@ -256,10 +256,10 @@ input:is(
   ) {
   cursor: pointer;
 }
-:where(:disabled, [aria-disabled="true"]),
-:where(:disabled, [aria-disabled="true"]) *,
-input:disabled {
-  cursor: default;
+/* A disabled control never shows the hand, whatever a surface's rule for it says. */
+:is(:disabled, [aria-disabled="true"]),
+:is(:disabled, [aria-disabled="true"]) * {
+  cursor: default !important;
 }
 
 /* Focus rings only for keyboard focus. */
