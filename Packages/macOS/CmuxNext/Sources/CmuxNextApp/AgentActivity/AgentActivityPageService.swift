@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextAgentActivity
 import CmuxNextBridge
 import CmuxNextBrowser
+import CmuxNextCompat
 import Foundation
 
 /// Opens `cmux://agent-activity` (plans/cmux-next/computer-use.md section 7)
@@ -12,6 +13,10 @@ import Foundation
 @MainActor
 final class AgentActivityPageService {
     private unowned let services: AppServices
+    /// A jump waiting for its workspace's first pane (`open(_:in:)`); the next jump cancels it.
+    private var paneWait: Task<Void, Never>?
+    /// Counts jumps, so a workspace that mounts after a newer jump opens nothing.
+    private var jumps = 0
 
     init(services: AppServices) {
         self.services = services
@@ -42,6 +47,9 @@ final class AgentActivityPageService {
                                         hasWorkspace: { [services] in services.workspace(id: $0) != nil })
         // The next settled location is its own step, even within one workspace.
         services.locationTrail.noteJump()
+        jumps += 1
+        paneWait?.cancel()
+        paneWait = nil
         switch jump {
         case .revealTab(let key):
             if !services.revealTab(key, intent: .raise) { openInFocusedPane(lane.id) }
@@ -62,15 +70,31 @@ final class AgentActivityPageService {
         services.showJumpWindow(nsWindow, .raise)
         guard window.content?.workspace.id != workspaceID else { return open(session, in: window) }
         // It has to mount that workspace's panes first.
+        let jump = jumps
         services.windows.afterNextContent(in: window, showing: workspaceID) { [weak self, weak window] in
-            guard let window else { return }
-            self?.open(session, in: window)
+            guard let self, let window, jumps == jump else { return }
+            open(session, in: window)
         }
     }
 
     private func open(_ session: String, in window: WindowController) {
-        guard let pane = window.focusedPane else { return services.registry.refuse(MiscHandlerStrings.noPane) }
-        pane.openAgentSession(session)
+        if let pane = window.focusedPane { return pane.openAgentSession(session) }
+        guard let workspaceID = window.content?.workspace.id else { return services.registry.refuse(MiscHandlerStrings.noPane) }
+        // The workspace shows before its panes mount: open the chat in the first one. The wait
+        // ends when a pane mounts, when the window closes or shows another workspace, or when
+        // the next pick replaces it.
+        let windows = services.windows, mounts = services.paneMounts, windowID = window.state.id
+        paneWait = Task { [weak self] in
+            for await next in ObservationStream({ () -> AgentChatJump.PaneWait in
+                _ = mounts.generation
+                let window = windows.controller(for: windowID)
+                return .decide(showing: window?.content?.workspace.id, workspaceID: workspaceID, hasPane: window?.focusedPane != nil)
+            }) where next != .wait {
+                if next == .open, !Task.isCancelled { windows.controller(for: windowID)?.focusedPane?.openAgentSession(session) }
+                break
+            }
+            if !Task.isCancelled { self?.paneWait = nil }
+        }
     }
 
     /// The `cmux://session/<id>` path every session link takes: the focused pane

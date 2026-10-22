@@ -43,7 +43,8 @@ enum AgentChatJump: Equatable {
         ///   - workspaceID: The workspace the jump went to.
         ///   - hasPane: Whether that window has a pane yet.
         static func decide(showing: String?, workspaceID: String, hasPane: Bool) -> PaneWait {
-            hasPane ? .open : .stop
+            guard showing == workspaceID else { return .stop }
+            return hasPane ? .open : .wait
         }
     }
 }
