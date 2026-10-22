@@ -58,16 +58,19 @@ fn only_the_daemons_own_turns_and_permission_prompts_make_it_busy() {
         {"name": "closed", "status": "closed"},
         {"name": "other/lane", "peer": "other", "status": "running", "turn": {"startedAt": 1}},
     ]});
-    assert_eq!(busy_sessions(&ls.to_string()), Some(vec!["mid-turn".into(), "asking".into()]));
+    assert_eq!(
+        busy_sessions(&ls.to_string(), None),
+        Some(vec!["mid-turn".into(), "asking".into()])
+    );
     // A sub-session is a session of the same daemon: an idle parent
     // with a child mid-turn is busy.
     let family = json!({"sessions": [
         {"name": "parent", "status": "idle", "turn": null, "pendingPermissions": 0, "children": 1},
         {"name": "parent-sub", "status": "running", "turn": {"startedAt": 1}, "startedBy": "parent", "depth": 1},
     ]});
-    assert_eq!(busy_sessions(&family.to_string()), Some(vec!["parent-sub".into()]));
-    assert_eq!(busy_sessions(r#"{"sessions": []}"#), Some(vec![]));
-    assert_eq!(busy_sessions(""), None, "unreadable is not idle");
+    assert_eq!(busy_sessions(&family.to_string(), None), Some(vec!["parent-sub".into()]));
+    assert_eq!(busy_sessions(r#"{"sessions": []}"#, None), Some(vec![]));
+    assert_eq!(busy_sessions("", None), None, "unreadable is not idle");
     assert_eq!(
         answering_build("{\n  \"build\": \"d5829ffea 2026-10-21\",\n  \"pid\": 7\n}").as_deref(),
         Some("d5829ffea 2026-10-21")
@@ -124,6 +127,10 @@ const UNITS: &str = ".config/systemd/user";
 #[cfg(unix)]
 const TARGET: &str = "x86_64-unknown-linux-musl";
 
+/// The `personInstance` the fake peer daemon reports.
+#[cfg(unix)]
+const PEER_DAEMON: &str = "peer-daemon-run";
+
 /// A fake acpmux of `build` whose daemon, once started, reports `runs`
 /// (None: it never answers). Like cmux-tui, it answers as acpmux only
 /// under that file name. `$HOME/daemon` holds the build of the daemon
@@ -139,7 +146,7 @@ fn fake_acpmux(build: &str, runs: Option<&str>) -> String {
 echo "acpmux $*" >> "$HOME/calls"
 case "$*" in
 --version) if [ "${{0##*/}}" = acpmux ]; then echo "acpmux 1.0.0 ({build})"; else echo "cmux 1.0.0"; fi;;
-"--json daemon status") if [ -f "$HOME/daemon" ]; then printf '{{\n  "build": "%s",\n  "pid": 4242\n}}\n' "$(cat "$HOME/daemon")"; else printf '{{\n  "running": false,\n  "error": "daemon not running"\n}}\n'; fi;;
+"--json daemon status") if [ -f "$HOME/daemon" ]; then printf '{{\n  "build": "%s",\n  "pid": 4242,\n  "personInstance": "{PEER_DAEMON}"\n}}\n' "$(cat "$HOME/daemon")"; else printf '{{\n  "running": false,\n  "error": "daemon not running"\n}}\n'; fi;;
 "--json ls") cat "$HOME/sessions.json";;
 "daemon shutdown"*) rm -f "$HOME/daemon";;
 "--json daemon start"|__start) {start};;
@@ -335,7 +342,19 @@ impl FakePeer {
     }
 
     fn update(&self, if_idle: bool) -> PeerUpdate {
-        let opts = UpdateOptions { binary_dir: Some(self.home.join("binaries")), if_idle };
+        let opts =
+            UpdateOptions { binary_dir: Some(self.home.join("binaries")), if_idle, caller: None };
+        update_peer(self, &opts)
+    }
+
+    /// `update(true)` run from the session `session` of the daemon `daemon`.
+    fn update_from(&self, session: &str, daemon: &str) -> PeerUpdate {
+        let caller = Caller { session: session.to_owned(), daemon: daemon.to_owned() };
+        let opts = UpdateOptions {
+            binary_dir: Some(self.home.join("binaries")),
+            if_idle: true,
+            caller: Some(caller),
+        };
         update_peer(self, &opts)
     }
 
@@ -413,7 +432,7 @@ fn a_login_banner_is_not_read_as_the_platform() {
         "Welcome to box\n{UNAME}Linux aarch64\n{CLOUD_VM}\n\n{PROBE_SPLIT}\n{{}}\n\n{PROBE_SPLIT}\n\n{PROBE_SPLIT}\n"
     );
     let out = RemoteOut { ok: true, stdout, stderr: String::new() };
-    let probe = Probe::parse(&out).unwrap();
+    let probe = Probe::parse(&out, None).unwrap();
     assert_eq!(probe.uname, "Linux aarch64");
     assert!(probe.cloud_vm);
 }
@@ -472,7 +491,7 @@ fn a_current_peer_or_one_without_a_binary_is_left_alone() {
     let peer = FakePeer::new("wrong-platform");
     let other = if cfg!(target_os = "linux") { "Darwin arm64" } else { "Linux x86_64" };
     peer.write("uname", other);
-    let up = update_peer(&peer, &UpdateOptions { binary_dir: None, if_idle: false });
+    let up = update_peer(&peer, &UpdateOptions { binary_dir: None, if_idle: false, caller: None });
     assert_eq!((up.outcome, up.reason.as_deref()), (Outcome::NeedsBinary, Some("wrongPlatform")));
     let why = up.error.as_deref().unwrap_or("");
     assert!(why.contains("--binary-dir") && why.contains("fake is "), "{why}");
@@ -499,6 +518,46 @@ fn if_idle_leaves_a_peer_mid_turn_untouched() {
     peer.assert_untouched(&fake_acpmux(OLD, Some(OLD)), OLD);
     // Without --if-idle it updates.
     assert_eq!(peer.update(false).outcome, Outcome::Updated);
+}
+
+#[test]
+#[cfg(unix)]
+fn if_idle_does_not_wait_on_the_session_that_runs_the_update() {
+    // deputy-2, 2026-10-22: "`--if-idle` never succeeds on a busy host (a
+    // probe or the calling lane is always mid-turn)". The caller's own turn
+    // runs this command, so it never ends first.
+    let peer = FakePeer::new("busy-caller");
+    let sessions = |other_busy: bool, caller_asks: u64| {
+        json!({"sessions": [
+            {"name": "caller", "sessionId": "01a1-caller", "status": "running", "turn": {"startedAt": 1},
+             "pendingPermissions": caller_asks},
+            {"name": "probe", "sessionId": "01a1-probe", "status": "idle",
+             "turn": if other_busy { json!({"startedAt": 1}) } else { Value::Null }, "pendingPermissions": 0},
+        ]})
+        .to_string()
+    };
+    peer.write("sessions.json", &sessions(true, 0));
+    peer.offer(NEW, Some(NEW));
+    // Another session mid-turn still holds the update, and the caller is not named.
+    let up = peer.update_from("01a1-caller", PEER_DAEMON);
+    assert_eq!((up.outcome, up.reason.as_deref()), (Outcome::Busy, Some("busy")), "{up:?}");
+    assert_eq!(up.error.as_deref(), Some("mid-turn or waiting on a permission: probe"));
+    peer.write("sessions.json", &sessions(false, 0));
+    // From another session, the caller's turn holds it.
+    let up = peer.update_from("01a1-elsewhere", PEER_DAEMON);
+    assert_eq!(up.error.as_deref(), Some("mid-turn or waiting on a permission: caller"));
+    // A session id is daemon-local: the same id on another daemon is not the caller.
+    let up = peer.update_from("01a1-caller", "another-daemon-run");
+    assert_eq!(up.error.as_deref(), Some("mid-turn or waiting on a permission: caller"));
+    // A permission the caller waits on still holds it: a restart would cancel it.
+    peer.write("sessions.json", &sessions(false, 1));
+    let up = peer.update_from("01a1-caller", PEER_DAEMON);
+    assert_eq!(up.error.as_deref(), Some("mid-turn or waiting on a permission: caller"));
+    // Only the caller's turn runs: it updates, through both reads.
+    peer.write("sessions.json", &sessions(false, 0));
+    let up = peer.update_from("01a1-caller", PEER_DAEMON);
+    assert_eq!(up.outcome, Outcome::Updated, "{up:?}");
+    assert_eq!(peer.daemon(), NEW);
 }
 
 #[test]
