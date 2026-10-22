@@ -169,13 +169,16 @@ export function useChatInspector({
     });
   }, [on, label]);
   // Esc closes it from anywhere but a text field (the composer keeps its own Esc), before a diff in
-  // place takes it (DiffPanel listens on the window, after the document).
+  // place takes it (DiffPanel listens on the window, after the document). An open popover, menu or
+  // dialog takes Esc first (as WidgetEditing.tsx): they listen on the document too, but after this.
   useEffect(() => {
     if (!shown) return;
     const escape = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented || event.isComposing) return;
       const focus = document.activeElement;
       if (focus instanceof HTMLElement && focus.closest("input, textarea, select, [contenteditable]:not([contenteditable=false])"))
+        return;
+      if (document.querySelector('dialog[open], [role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"], .ui-popup'))
         return;
       event.preventDefault();
       setInspectorOpen(false);

@@ -186,7 +186,7 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
   // diff in place the chat header (with the toggle) is hidden, so the panel carries its own close
   // button, and Esc closes it from anywhere but a text field (the composer keeps its own Esc).
   for (const name of browsers.keys())
-    test(`${name}: the Inspector's own close button and Esc close it; Esc in the composer leaves it open`, async () => {
+    test(`${name}: the Inspector's own close button and Esc close it; Esc in the composer or on a popover leaves it open`, async () => {
       current = browsers.get(name)!;
       const page = await pane!.open({ width: 900, height: 620 });
       try {
@@ -204,9 +204,27 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
         await page.waitForTimeout(300);
         const keptInComposer = (await panel.count()) === 1;
         await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+        // An open popover takes Esc first: the Inspector stays.
+        await page.evaluate(() => {
+          const popover = document.createElement("dialog");
+          popover.open = true;
+          popover.className = "ui-popup";
+          popover.innerHTML = "<button>Item</button>";
+          document.body.append(popover);
+          popover.querySelector("button")!.focus();
+        });
+        await page.keyboard.press("Escape");
+        await page.waitForTimeout(300);
+        const keptUnderPopover = (await panel.count()) === 1;
+        await page.evaluate(() => document.querySelector("dialog.ui-popup")!.remove());
         await page.keyboard.press("Escape");
         const byEscape = await panel.waitFor({ state: "detached", timeout: 5_000 }).then(() => true, () => false);
-        expect({ byButton, keptInComposer, byEscape }).toEqual({ byButton: true, keptInComposer: true, byEscape: true });
+        expect({ byButton, keptInComposer, keptUnderPopover, byEscape }).toEqual({
+          byButton: true,
+          keptInComposer: true,
+          keptUnderPopover: true,
+          byEscape: true,
+        });
       } finally {
         await page.close();
       }
