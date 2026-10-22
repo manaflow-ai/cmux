@@ -1,11 +1,13 @@
 import CmuxNextAccounts
 import CmuxNextActions
+import CmuxNextAgentIntegrations
 import CmuxNextApps
 import CmuxNextDesign
 import CmuxNextHomeEngine
 import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextTerminal
+import CmuxNextUpdater
 import Foundation
 import UniformTypeIdentifiers
 import CmuxNextMobileHost
@@ -100,13 +102,16 @@ struct PageFactory {
         return page
     }
 
+    /// The Settings page's engine options.
+    static let settingsEngineOptions = PageEngineOptions.standard
+
     /// The React Settings page (R82) on `route` (`#/settings/<section>?focus=<key>`). Its namespace
     /// goes to `SettingsPageProvider` (interim owner; the daemon relay once the config actor
     /// serves `settings.*`), `cmux.app.` to the native ops.
     func settingsPage(route: String?) -> PageWebView? {
         guard let settings = services.settings else { return nil }
         let provider = SettingsPageProvider(settings: settings, domains: { [weak services] in
-            ["themes": services?.themes.catalog.names ?? [], "font_families": SettingsPageDomains.fontFamilies, "sounds": SettingsPageDomains.sounds]
+            ["themes": services?.themes.catalog.names ?? [], "font_families": SettingsPageDomains.fontFamilies, "sounds": SettingsPageDomains.sounds, "recent_fonts": services?.settings?.recentFonts.families ?? []]
         }, hostLists: { [weak services] in services?.settingsWindow.pageHostLists() ?? .null })
         let accounts = services.accounts.model
         provider.accountsState = { (try? JSONValue.parse(JSONEncoder().encode(accounts.pageState))) ?? .null }
@@ -134,12 +139,10 @@ struct PageFactory {
         )
         provider.harnessesState = { harnesses.state }
         provider.harnessesRun = { params, context in try await harnesses.run(params, context: context) }
+        provider.integrations = SettingsAgentIntegrations(cli: { LocalServerSource.bundledCLI() })
         provider.setTheme = { [weak services] level, spec in try services?.settingsWindow.setPageTheme(level: level, spec: spec) }
         provider.acceptsTheme = { [weak services] text in services?.settingsWindow.acceptsTheme(text) ?? false }
-        provider.themeColors = { [weak services] in
-            guard let catalog = services?.themes.catalog else { return [] }
-            return catalog.names.compactMap { catalog.colors[$0] }
-        }
+        provider.themeColors = { [weak services] in (services?.themes.catalog).map { c in c.names.compactMap { c.colors[$0] } } ?? [] }
         let registry = services.registry
         provider.sectionActions = { section in
             .array(SettingsSchema.actions(in: section).compactMap { id in
@@ -191,7 +194,8 @@ struct PageFactory {
                       // Agents > Chiefs: the same Chief editor routes as Home (ChiefProfilePageRelay, AgentHarnessCenter).
                       PageRoute(prefix: ChiefProfilePageRoute.prefix, provider: ChiefProfilePageRoute(owner: services.home.chief)),
                       PageRoute(prefix: ChiefBackendPageRoute.prefix, provider: ChiefBackendPageRoute(center: services.agentHarnesses)),
-                      PageRoute(prefix: "cmux.settings.mobile.", provider: MobilePageProvider(host: services.iphone))]
+                      PageRoute(prefix: "cmux.settings.mobile.", provider: MobilePageProvider(host: services.iphone)),
+                      PageRoute(prefix: ChannelsPageProvider.prefix, provider: ChannelsPageProvider(updater: services.updater))]
             + (images.map { [PageRoute(prefix: BackdropImagesPageProvider.prefix, provider: $0)] } ?? [])
         // `appearance.surfaces.settings` colors the page, as it colored the Swift Settings view.
         let dynamicResources = SettingsBackdropThumbnails(choices: SettingsWindowService.backdrops.choices,
@@ -200,11 +204,12 @@ struct PageFactory {
                                                           iconPNG: { [weak services] icon in
                                                               await SettingsIconAssets.png(icon, owner: services?.machines.local)
                                                           })
-        let page = services.pageHostPool.claim(.settings, routes: routes, route: route, surface: .settings,
+        let page = services.pageHostPool.claim(.settings, routes: routes, route: route, options: Self.settingsEngineOptions,
+                                               surface: .settings,
                                                dynamicResources: dynamicResources,
                                                window: services.windows.active?.window, focus: false)
-            ?? PageWebView(descriptor: .settings, routes: routes, route: route, surface: .settings,
-                           dynamicResources: dynamicResources)
+            ?? PageWebView(descriptor: .settings, routes: routes, route: route, options: Self.settingsEngineOptions,
+                           surface: .settings, dynamicResources: dynamicResources)
         native.anchor = { [weak page] in page }
         // An image or movie dropped on Settings becomes the background (cx-t2x.8).
         page?.fileDrop = PageFileDrop(accepts: { url in BackdropUserImages.isImage(url) }) { [weak provider] url in

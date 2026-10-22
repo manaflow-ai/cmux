@@ -44,6 +44,17 @@ final class SidebarRows {
         document.withoutChats
     }
 
+    /// The layout window `windowID` draws: `visibleLayout` without the band's
+    /// workspaces another window owns, so a new window starts clean. Only on
+    /// the sidebar document, whose band moves anchor on a drawn neighbour; the
+    /// older owner's index ops count the stored layout, so it draws it whole.
+    static func visibleLayout(_ document: SidebarLayoutDocument, window windowID: String, machines: MachineRegistry,
+                              registry: WindowRegistry) -> SidebarLayoutDocument {
+        guard SidebarDocWiring.isActive else { return visibleLayout(document) }
+        let refs = WorkspaceLayoutRefs(machines: machines)
+        return visibleLayout(document).scopedToWindow { refs.ownedElsewhere($0, window: windowID, registry: registry) }
+    }
+
     /// Shows `live` (when given) with the pending edits applied, then the
     /// rows of the creates in flight (`creating`, when given).
     func show(_ live: [SidebarRowSection]? = nil, creating: (rows: [PendingWorkspaceRows.Row], home: String?)? = nil) {
@@ -59,7 +70,8 @@ final class SidebarRows {
             shown.isCollapsed = fold.collapsed
             sections[s].nodes[n] = .group(shown)
         }
-        model.setSections(model.priorityOrdering ? SidebarPriority().reordered(sections) : sections)
+        // Manual order only (Leo 2026-10-20): a row state shows as a badge; attention order is the Priority view's.
+        model.setSections(sections)
     }
 
     /// Row content of listed workspaces changed (`SidebarRowFeed`): written in place, or shown again when it moves rows.

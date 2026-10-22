@@ -24,7 +24,7 @@ struct VaultListView: View {
                     Image(systemName: "arrow.clockwise")
                 }
                 .buttonStyle(.borderless)
-                .help(VaultStrings.refresh)
+                .accessibilityLabel(VaultStrings.refresh)
                 .disabled(vault.isLoading)
             }
             .padding(Metrics.panelInset)

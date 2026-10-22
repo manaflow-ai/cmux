@@ -12,8 +12,8 @@ protocol ChangelogSource: Sendable {
 extension ReleaseNotesStore: ChangelogSource {}
 
 /// The owner side of the changelog page (`cmux.changelog.*`, R114), read only:
-/// `list` (recent builds, newest first, and the running build) and `get {build}`
-/// (one build's verified notes). A highlight's action survives only when it is
+/// `list` (recent builds, newest first, and the running build), `get {build}`
+/// (one build's verified notes) and `reel {build}` (`url`: its nightly reel, else null). A highlight's action survives only when it is
 /// in ``PageDescriptor/changelogTryItActions``. Media arrive inlined (``ReleaseMediaStore``).
 @MainActor
 final class ChangelogPageProvider: PageProvider {
@@ -33,8 +33,9 @@ final class ChangelogPageProvider: PageProvider {
         case "cmux.changelog.list":
             let builds = await source?.index() ?? []
             return ["current": .string(currentBuild), "builds": try Self.json(builds)]
-        case "cmux.changelog.get":
+        case "cmux.changelog.get", "cmux.changelog.reel":
             guard let build = params["build"]?.stringValue, !build.isEmpty else { throw PageError.invalidParams("build is required") }
+            if op == "cmux.changelog.reel" { return ["url": (await media?.reel(build: build)).map { JSONValue.string($0.absoluteString) } ?? .null] }
             guard var notes = await source?.notes(for: build) else {
                 throw PageError(code: "cmux.changelog.not_found", message: "No verified notes for this build", retryable: true)
             }
@@ -50,7 +51,5 @@ final class ChangelogPageProvider: PageProvider {
         }
     }
 
-    private static func json(_ value: some Encodable) throws -> JSONValue {
-        try JSONValue.parse(JSONEncoder().encode(value))
-    }
+    private static func json(_ value: some Encodable) throws -> JSONValue { try JSONValue.parse(JSONEncoder().encode(value)) }
 }

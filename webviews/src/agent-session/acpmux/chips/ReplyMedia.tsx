@@ -166,7 +166,6 @@ function MediaPlayer({
         type="button"
         className="cv-media__expand"
         aria-label={t("media.expand")}
-        title={t("media.expand")}
         onClick={() => setExpanded(true)}
       >
         <Expand size={14} />

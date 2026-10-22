@@ -33,11 +33,12 @@ extension UpdateDriver: @preconcurrency SPUUpdaterDelegate {
         return resolved.url
     }
 
-    /// cmux-next appcast items carry `sparkle:channel` cmux-next; only a build whose baked
-    /// feed is the cmux-next feed accepts them. Every other build allows no extra channel,
-    /// so it ignores those items even if a wrong feed URL served them.
+    /// cmux-next appcast items carry a `sparkle:channel` per release ring; only a build whose
+    /// baked feed is the cmux-next feed accepts them, and only the tags of its ring and the
+    /// slower ones. Every other build allows no extra channel, so it ignores those items even
+    /// if a wrong feed URL served them.
     func allowedChannels(for updater: SPUUpdater) -> Set<String> {
-        UpdateFeedResolver().resolve(infoFeedURL: infoFeedURLProvider()).channel.allowedSparkleChannels
+        UpdateFeedResolver().resolve(infoFeedURL: infoFeedURLProvider()).channel.allowedSparkleChannels(ring: ring)
     }
 
     func updater(_ updater: SPUUpdater, willInstallUpdate item: SUAppcastItem) {
@@ -58,6 +59,8 @@ extension UpdateDriver: @preconcurrency SPUUpdaterDelegate {
     func updater(_ updater: SPUUpdater, willInstallUpdateOnQuit item: SUAppcastItem, immediateInstallationBlock immediateInstallHandler: @escaping () -> Void) -> Bool {
         log.append("silent install staged \(item.versionString) (\(item.displayVersionString))")
         model.clearDetectedUpdate()
+        // Sparkle's own silent install: only a click starts it, never the idle policy.
+        relaunchIsAutomatic = false
         quitInstallItem = item
         model.setState(.installing(.init(
             isAutoUpdate: true,
@@ -144,6 +147,7 @@ extension UpdateDriver: @preconcurrency SPUUpdaterDelegate {
         let errorText = error.map(formatErrorForLog) ?? "none"
         log.append("update cycle finished (check=\(updateCheck.rawValue), error=\(errorText))")
         relaunchGate.cancel()
+        relaunchIsAutomatic = false
         eventDelegate?.updateDriverDidFinishCycle(updateCheck, error: error.map { $0 as NSError })
     }
 

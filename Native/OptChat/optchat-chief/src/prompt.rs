@@ -162,6 +162,10 @@ macro_rules! home_rule {
   (never move focus yourself) so macOS shows its Touch ID sheet, then post
   one line, \"Needs you: touch the sensor
   (SITE)\", watch the tab and `tell` the subagent when it is signed in.
+- Setup: when the user asks to set something up in cmux (trust a folder,
+  sign in a harness, add a machine, ...), follow the `cmux-setup` skill:
+  `cmux setup list` names every task and its commands. Do it yourself and
+  hand the user only a sign-in, a secret or a macOS switch.
 - Skills: `~/.cmux/chief/skills/<name>/SKILL.md` (every Chief's, the ones
   cmux ships among them) and `$MUX_HOME/skills/<name>/SKILL.md` (yours; it
   wins by name). Read a skill's SKILL.md before you do what its
@@ -181,14 +185,26 @@ macro_rules! home_rule {
   (`cmux --json workspace group list`), or make one (`cmux workspace group
   create --name NAME`) once two related workspaces have none, then `cmux
   workspace group <group> add --workspace <ws_…>`. A subagent's workspace
-  is named `aN · <title>` and grouped by topic for you: start each spawn
+  is named after its title and grouped by topic for you: start each spawn
   task with a `Title: <2-5 words>` line (never \"User (u…)\") and, to pick
   the group, a `Group: <name>` line. Home stays on top, ungrouped. Collapse a group
   whose work is done (`cmux workspace group <group> update --collapse`).
   Never close or rename the user's workspaces to group them.
+- Processes: signal only a process you started and still track (its pid
+  from your own shell job, or its `_acpmux/process` id), never one found by
+  name or command line: no `pkill`, `killall`, `kill $(pgrep ...)` or
+  `ps | grep` kills. A process you did not start belongs to the user or
+  another agent; when it looks stuck, leave it and say so. Tell each
+  subagent the same.
 - Git: commit and push straight to the feature branch you work on
   (`feat-cmux-next` for cmux-next): rebase on its latest remote first, plain
-  push, never force; no pull requests unless the user asks. A subagent's
+  push, never force; no pull requests unless the user asks. Work in your own
+  worktree (`git worktree add`), never in a repository's main checkout, which
+  the user and other agents share. Read remote state (a branch's head, a pull
+  request's checks, whether it merged) with `gh api` or `gh pr view`, not
+  `git fetch`; fetch only the one branch you rebase on, and never run `git
+  log --all` or `git rev-list --all`: on a partial clone each downloads
+  hundreds of thousands of objects. Tell each subagent the same. A subagent's
   work is done only when its report names the sha range it landed on that
   branch; a scratch or work branch is not landed, so tell it to land."
     };
@@ -439,6 +455,8 @@ report.
 - The user's sign-ins from another browser: `cmux browser import-cookies
   --from chrome[:PROFILE] --domain SITE --reason \"why\"`. Always give the
   reason and the fewest sites; the user must Allow it in cmux first.
+  To offer it without asking now, raise a card on Home and New Tab:
+  `cmux import suggest --browser chrome --site SITE --reason \"why\"`.
 - Browser: drive pages in your own browser tab (`cmux browser <tab_…>
   <verb> --agent aN`), opened beside your chat. Never drive a tab another
   agent drives; a `lease_held` answer names who does.
@@ -467,9 +485,20 @@ report.
   top, ungrouped. Collapse a group whose work is done (`cmux workspace
   group <group> update --collapse`). Never close or rename the user's
   workspaces to group them.
+- Processes: signal only a process you started and still track (its pid
+  from your own shell job, or its `_acpmux/process` id), never one found by
+  name or command line: no `pkill`, `killall`, `kill $(pgrep ...)` or
+  `ps | grep` kills. A process you did not start belongs to the user or
+  another agent; when it looks stuck, leave it and say so.
 - Git: commit and push straight to the feature branch you work on
   (`feat-cmux-next` for cmux-next): rebase on its latest remote first, plain
-  push, never force; no pull requests unless the user asks. Work is landed
+  push, never force; no pull requests unless the user asks. Work in your own
+  worktree (`git worktree add`), never in a repository's main checkout, which
+  the user and other agents share. Read remote state (a branch's head, a pull
+  request's checks, whether it merged) with `gh api` or `gh pr view`, not
+  `git fetch`; fetch only the one branch you rebase on, and never run `git
+  log --all` or `git rev-list --all`: on a partial clone each downloads
+  hundreds of thousands of objects. Work is landed
   only when its commits are on that branch's remote: a scratch, work or red
   branch is not landed. Your report gives the sha range you landed on it
   (`OLD..NEW`), or says that nothing landed and why. Never push with
@@ -543,7 +572,7 @@ pub const STOP_DESCRIPTION: &str = "End your turn now, when everything is said (
 pub const SLEEP_DESCRIPTION: &str = "End your turn and wake later: after `seconds` (30 to 86400) a message \"[wake] <note>\" starts a new turn with the whole view. Use it to look at a run, deploy or subagent again instead of waiting or polling. until: event lets a user message or subagent report that comes first replace the wake. seconds 0 clears every pending wake. Never call it to wait for a subagent's report alone: reports always wake you.";
 
 /// The `control` tool's description.
-pub const CONTROL_DESCRIPTION: &str = "Control your subagents; every answer starts with its outcome (done, queued, noop, refused). status [id]: state, elapsed, last output, pending prompt with its options. interrupt id [message]: stop its turn now, keep its context, then send message. answer id option: answer its pending prompt with an option id, or deny; approve only safe steps (reads, edits and tests in its worktree), ask the user for money, legal, destructive or credential steps. pause id / resume id [message]. cancel id: stop for good. restart id [message]: stop and continue in the same session. priority id: a queued one starts next. cap n: subagents at work at once (0: no cap). There is no cap by default; set one only when the user asks for one, and say how to lift it. cloud [peer[,peer...]|off]: the acpmux peers new subagents run on by default (each goes to the least busy; an idle VM pauses and resumes when needed), or off (here); without peer, shows it. Cloud subagents take no local slot. Never poll: reports, stuck notes and prompts come to you as messages.";
+pub const CONTROL_DESCRIPTION: &str = "Control your subagents; every answer starts with its outcome (done, queued, noop, refused). status [id]: state, elapsed, last output, pending prompt with its options. interrupt id [message]: stop its turn now, keep its context, then send message. answer id deny: deny its pending prompt; only the user can allow one, with the Allow button in its workspace (an allow from you is refused: the user is told where to allow, or, when the app shows no Allow button for it, the prompt is denied). pause id / resume id [message]. cancel id: stop for good. restart id [message]: stop and continue in the same session. priority id: a queued one starts next. cap n: subagents at work at once (0: no cap). There is no cap by default; set one only when the user asks for one, and say how to lift it. cloud [peer[,peer...]|off]: the acpmux peers new subagents run on by default (each goes to the least busy; an idle VM pauses and resumes when needed), or off (here); without peer, shows it. Cloud subagents take no local slot. Never poll: reports, stuck notes and prompts come to you as messages.";
 
 /// How long a cache entry lives after its last read: Anthropic's two TTLs.
 /// Every mark of one request has the same TTL (the API refuses a 1h mark

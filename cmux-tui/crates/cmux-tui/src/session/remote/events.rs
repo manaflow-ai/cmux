@@ -409,6 +409,10 @@ impl RemoteSession {
                     source: Arc::from(agent.source.as_str()),
                     session: agent.session.as_deref().map(Arc::from),
                     agent: agent.agent.as_deref().map(Arc::from),
+                    agent_session_id: value
+                        .get("agent_session_id")
+                        .and_then(Value::as_str)
+                        .map(Arc::from),
                     updated_at_ms,
                     // An older daemon sends no state start: count from the last report.
                     since_ms: value
@@ -503,6 +507,10 @@ impl RemoteSession {
                     preview: value.get("preview").and_then(Value::as_str).map(str::to_string),
                     level,
                     surface: surface_id(),
+                    workspace_id: value
+                        .get("workspace_id")
+                        .and_then(Value::as_str)
+                        .and_then(|id| cmux_tui_core::resource::WorkspacePublicId::parse(id).ok()),
                     source: value
                         .get("source")
                         .and_then(Value::as_str)

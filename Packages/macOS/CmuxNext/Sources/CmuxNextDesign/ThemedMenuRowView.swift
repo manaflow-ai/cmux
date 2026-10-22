@@ -1,15 +1,18 @@
 public import AppKit
 
 /// One row of a themed menu (`NSMenu.themeRows(in:)`): the item's state mark, image, title,
-/// subtitle, and key equivalent or submenu chevron, highlighted in the theme's accent with its
-/// on-accent ink.
+/// subtitle, and key equivalent or submenu chevron, highlighted with a faint wash of the theme's
+/// accent (`Palette.menuHighlight`) over the menu's glass.
 ///
 /// AppKit still tracks the row: arrow keys and the pointer highlight it (`draw` reads
 /// `enclosingMenuItem.isHighlighted`), its title feeds type-select, and its submenu opens from it.
 /// Two things AppKit does not do for a view row are done here: a click runs the item (AppKit sends
-/// no action on mouse-up), and Return delivered to the row runs it too. Every route funnels through
-/// the item's `ThemedMenuDispatch`, which runs once per opening. VoiceOver reads and presses the
-/// native menu item, not this view.
+/// no action on mouse-up), and Return, keypad Enter or Space runs the highlighted row (AppKit runs
+/// no action for a view row from the keyboard). A menu's window sends a key to its first responder,
+/// so the highlighted row takes that role (``takeKeys()``) and gives every other key back to the
+/// menu: the arrows, Right into a submenu, type-select, Escape. Every route funnels through the
+/// item's `ThemedMenuDispatch`, which runs once per opening. VoiceOver reads and presses the native
+/// menu item, not this view.
 public final class ThemedMenuRowView: NSView {
     private let scope: ThemeScope
     private let session: ThemedMenuSession
@@ -23,10 +26,21 @@ public final class ThemedMenuRowView: NSView {
     private var shownAt: TimeInterval = 0
     /// Where the pointer was when the menu opened: once it moved, a release is a choice.
     private var openedAt: NSPoint = .zero
-    /// The item `activate` runs once the menu's tracking loop has ended.
+    /// The item `activate` runs once the menu's tracking loop has ended, and its menu: an item
+    /// does not keep its menu, and only AppKit held a right-click menu while it tracked.
     private var pendingItem: NSMenuItem?
+    private var pendingMenu: NSMenu?
+    /// Waits for the menu's window to give up the keys before the chosen row runs.
+    private var keyWaiter: ThemedMenuKeyWaiter?
+    /// The item this row was made for. Weak: the item holds its view.
+    private weak var ownItem: NSMenuItem?
+
+    /// The row's item: AppKit's `enclosingMenuItem`, else the item it was made for (AppKit finds
+    /// the item only while the row is in that item's menu).
+    var menuItem: NSMenuItem? { enclosingMenuItem ?? ownItem }
 
     init(item: NSMenuItem, scope: ThemeScope, session: ThemedMenuSession) {
+        ownItem = item
         self.scope = scope
         self.session = session
         if let action = item.action {
@@ -47,20 +61,22 @@ public final class ThemedMenuRowView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    var isHighlighted: Bool { highlightOverride ?? (enclosingMenuItem?.isHighlighted == true) }
+    var isHighlighted: Bool { highlightOverride ?? (menuItem?.isHighlighted == true) }
 
     // MARK: Drawing
 
     public override func draw(_ dirtyRect: NSRect) {
-        guard let item = enclosingMenuItem else { return }
+        guard let item = menuItem else { return }
         let lit = isHighlighted && item.isEnabled
         scope.perform {
+            // A faint wash of the theme's accent over the menu's glass, not a solid system-blue bar
+            // (Leo 2026-10-20: "the blue is garish, but don't make it opaque"). The ink stays the label's.
             if lit {
-                Palette.accentFill.setFill()
+                Palette.menuHighlight.setFill()
                 NSBezierPath(roundedRect: bounds.insetBy(dx: Self.inset, dy: 0), xRadius: Self.radius, yRadius: Self.radius).fill()
             }
-            let ink: NSColor = lit ? Palette.onAccent : item.isEnabled ? .labelColor : .tertiaryLabelColor
-            let quiet: NSColor = lit ? Palette.onAccent : item.isEnabled ? .secondaryLabelColor : .tertiaryLabelColor
+            let ink: NSColor = item.isEnabled ? .labelColor : .tertiaryLabelColor
+            let quiet: NSColor = item.isEnabled ? .secondaryLabelColor : .tertiaryLabelColor
             drawContent(of: item, ink: ink, quiet: quiet)
         }
     }
@@ -81,9 +97,10 @@ public final class ThemedMenuRowView: NSView {
         var x = Self.titleX
         if let image = item.image {
             let rect = NSRect(x: x, y: titleY + (titleHeight - Self.imageSide) / 2, width: Self.imageSide, height: Self.imageSide)
-            Self.draw(image, in: rect, tint: image.isTemplate ? ink : nil)
-            x += Self.imageSide + Self.gap
+            Self.draw(image, in: rect, tint: image.isTemplate ? quiet : nil)
         }
+        // Titles line up whether or not their row has an icon, once any row of the menu has one.
+        if Self.hasIconColumn(item) { x += Self.imageSide + Self.gap }
         title.draw(at: NSPoint(x: x, y: titleY))
         if let subtitle { subtitle.draw(at: NSPoint(x: x, y: bounds.midY - subtitle.size().height)) }
 
@@ -122,20 +139,49 @@ public final class ThemedMenuRowView: NSView {
 
     /// Runs the item, as releasing on a native row would: closes the menu, then sends the action
     /// once the tracking loop has ended (the run loop is back in its default mode), so an action
-    /// that opens a field, popover or another menu never does it inside the closing one. Rows with
-    /// a submenu open it instead (AppKit does that).
-    func activate() {
-        guard let item = enclosingMenuItem, Self.runs(item), let menu = item.menu else { return }
+    /// that opens a field, popover or another menu never does it inside the closing one. A key
+    /// (`fromKey`) also waits for the menu to close (its root's `menuDidClose`) and its window to give
+    /// the keys back: an action that acts on the focused window or pane (Split Right, New Browser
+    /// Tab) must not see the menu's window as focused. Rows with a submenu open it instead (AppKit
+    /// does that). A row the menu's `runsInPlace` picks runs as the menu closes instead.
+    func activate(fromKey: Bool = false) {
+        guard let item = menuItem, Self.runs(item), let menu = item.menu else { return }
         var root = menu
         while let parent = root.supermenu { root = parent }
         root.cancelTracking()
         if menu !== root { menu.cancelTracking() }
+        // An engine's own item runs now, while its engine still holds the menu (`runsInPlace`).
+        if session.runsInPlace(item) { return menu.performActionForItem(at: menu.index(of: item)) }
         pendingItem = item
-        RunLoop.main.perform(#selector(runPendingItem), target: self, argument: nil, order: 0, modes: [.default])
+        pendingMenu = menu
+        session.awaitingRun = true
+        guard fromKey else { return schedulePendingRun() }
+        let menuWindow = window
+        session.runWhenClosed { [self] in whenKeysAreBack(from: menuWindow) { [self] in schedulePendingRun() } }
+    }
+
+    private func schedulePendingRun() {
+        RunLoop.main.perform(#selector(runPendingItem), target: self, argument: nil, order: Self.pendingRunOrder, modes: [.default])
+    }
+
+    /// Runs `body` once `menuWindow` no longer has the keys: now when it has none, else when it
+    /// resigns key or closes, whichever AppKit reports first.
+    private func whenKeysAreBack(from menuWindow: NSWindow?, _ body: @escaping @MainActor () -> Void) {
+        guard let menuWindow, menuWindow.isKeyWindow else { return body() }
+        let waiter = ThemedMenuKeyWaiter(window: menuWindow, then: body)
+        keyWaiter = waiter
+        waiter.start { [weak self] in self?.keyWaiter = nil }
     }
 
     @objc private func runPendingItem() {
-        guard let item = pendingItem, let menu = item.menu else { return }
+        defer {
+            pendingMenu = nil
+            if session.awaitingRun {
+                session.awaitingRun = false
+                session.finishedRun()
+            }
+        }
+        guard let item = pendingItem, let menu = item.menu ?? pendingMenu else { return }
         pendingItem = nil
         menu.performActionForItem(at: menu.index(of: item))
     }
@@ -157,27 +203,48 @@ public final class ThemedMenuRowView: NSView {
     }
 
     public override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        guard takesReturn(event) else { return super.performKeyEquivalent(with: event) }
-        activate()
+        guard takesActivationKey(event) else { return super.performKeyEquivalent(with: event) }
+        activate(fromKey: true)
         return true
     }
 
+    public override var acceptsFirstResponder: Bool { true }
+
     public override func keyDown(with event: NSEvent) {
-        guard takesReturn(event) else { return super.keyDown(with: event) }
-        activate()
+        if takesActivationKey(event) { return activate(fromKey: true) }
+        // Every other key is the menu's (arrows, Right into a submenu, type-select, Escape): with no
+        // first responder its window handles the key as the menu's own, as the name field hands the
+        // arrows back (`MenuIdentityHeaderView`). The menu's next highlight gives a row the keys again.
+        guard let window, window.firstResponder === self, window.makeFirstResponder(nil) else { return super.keyDown(with: event) }
+        window.sendEvent(event)
     }
 
-    /// Return on this highlighted row when it runs an item; Return on a submenu row (it opens the
-    /// submenu) or a disabled one stays AppKit's.
-    private func takesReturn(_ event: NSEvent) -> Bool {
-        guard isHighlighted, Self.isReturn(event), let item = enclosingMenuItem else { return false }
+    /// This row took the highlight: it takes the keys of its menu's window, so Return, keypad Enter
+    /// and Space reach it. A field in the menu that has the keys (the name in the identity header)
+    /// keeps them while the pointer passes over rows.
+    func takeKeys() {
+        guard let window, window.firstResponder !== self else { return }
+        let current = window.firstResponder
+        guard current == nil || current === window || current is ThemedMenuRowView else { return }
+        window.makeFirstResponder(self)
+    }
+
+    /// The highlight left the menu's rows: keys go back to the menu itself.
+    func releaseKeys() {
+        if let window, window.firstResponder === self { window.makeFirstResponder(nil) }
+    }
+
+    /// Return, keypad Enter or Space on this highlighted row when it runs an item; on a submenu row
+    /// (it opens the submenu) or a disabled one the key stays AppKit's.
+    private func takesActivationKey(_ event: NSEvent) -> Bool {
+        guard isHighlighted, Self.isActivationKey(event), let item = menuItem else { return false }
         return Self.runs(item)
     }
 
-    /// Return or keypad Enter, without modifiers.
-    private static func isReturn(_ event: NSEvent) -> Bool {
+    /// Return, keypad Enter or Space, without modifiers.
+    private static func isActivationKey(_ event: NSEvent) -> Bool {
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.numericPad, .function])
-        return event.type == .keyDown && (event.keyCode == 36 || event.keyCode == 76) && modifiers.isEmpty
+        return event.type == .keyDown && [36, 76, 49].contains(event.keyCode) && modifiers.isEmpty
     }
 
     // MARK: Hover and opening
@@ -218,6 +285,8 @@ extension ThemedMenuRowView {
     static let inset: CGFloat = 5, radius: CGFloat = 4
     static let markX: CGFloat = 10, titleX: CGFloat = 22, imageSide: CGFloat = 16, gap: CGFloat = 6
     static let trailing: CGFloat = 12, shortcutGap: CGFloat = 28
+    /// The run-loop order of a chosen row's run; `NSMenu.afterThemedRowRuns` comes after it.
+    static let pendingRunOrder = 0
     /// How long a release with no press on the row is ignored after the menu opens.
     static let openingGrace: TimeInterval = 0.3
     static var subtitleFont: NSFont { .menuFont(ofSize: NSFont.smallSystemFontSize) }
@@ -229,12 +298,17 @@ extension ThemedMenuRowView {
         return nil
     }
 
+    /// Whether `item`'s menu draws an icon column: some row in it has an image.
+    static func hasIconColumn(_ item: NSMenuItem) -> Bool {
+        item.image != nil || item.menu?.items.contains { $0.image != nil } == true
+    }
+
     static func height(of item: NSMenuItem) -> CGFloat { subtitle(of: item) == nil ? rowHeight : subtitleRowHeight }
 
     static func width(of item: NSMenuItem) -> CGFloat {
         let font = font(of: item)
         func width(_ text: String, _ font: NSFont) -> CGFloat { NSAttributedString(string: text, attributes: [.font: font]).size().width }
-        var total = titleX + (item.image == nil ? 0 : imageSide + gap)
+        var total = titleX + (hasIconColumn(item) ? imageSide + gap : 0)
         total += max(width(item.title, font), subtitle(of: item).map { width($0, subtitleFont) } ?? 0)
         let shortcut = shortcutText(of: item)
         if item.submenu != nil {

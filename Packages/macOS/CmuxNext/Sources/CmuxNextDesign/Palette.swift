@@ -51,6 +51,8 @@ public struct Palette {
     /// The scrim's alpha: the most a translucent band over the window's
     /// backdrop may cover (the Home header's top fade peaks there).
     public static var legibilityScrimOpacity: CGFloat { CGFloat(ThemeTokens.legibilityScrimOpacity) }
+    /// The veil's alpha over an unfocused pane (``ThemeTokens/inactivePaneDim``).
+    public static var inactivePaneDim: CGFloat { CGFloat((ThemeContext.active ?? ThemeScope.app.tokens).inactivePaneDim) }
     /// Fields and toolbars that need a faint lift (omnibar, find bar).
     public static var chromeBackground: NSColor { color(\.chromeBackground, dynamic: PaletteDynamic.chromeBackground) }
     /// Floating cards: palette, hover card, editors.
@@ -132,14 +134,23 @@ public struct Palette {
     public static var highlightText: NSColor { color(\.highlightText, opaque: true, dynamic: PaletteDynamic.highlightText) }
 
     /// The theme's accent as a solid fill (``ThemeTokens/accent``): the primary text by default,
-    /// the theme's own hue with `appearance.accent`. A themed menu's highlighted row (`NSMenu.themeRows(in:)`).
+    /// the theme's own hue with `appearance.accent`. A themed menu's highlight washes it (`menuHighlight`).
     public static var accentFill: NSColor { color(\.accent, opaque: true, dynamic: PaletteDynamic.accentFill) }
     /// Glyphs and labels on `accentFill`, at least 4.5:1 (``ThemeTokens/onAccent``).
     public static var onAccent: NSColor { color(\.onAccent, opaque: true, dynamic: PaletteDynamic.onAccent) }
+    /// A themed menu's highlighted row (`NSMenu.themeRows(in:)`): `accentFill` as a faint wash over
+    /// the menu's glass, so labels keep their own ink. A neutral theme gets a gray wash.
+    public static var menuHighlight: NSColor { accentFill.withAlphaComponent(menuHighlightOpacity) }
+    static let menuHighlightOpacity: CGFloat = 0.2
 
     /// The app accent. Deliberately neutral so any control that reads the
     /// accent stays in the theme's grays.
     public static var accent: NSColor { focusRing }
+
+    /// A lit (on, chosen, done) control's glyph or label (``ThemeTokens/litGlyph``): the accent,
+    /// lifted to contrast at least as much as the rest ink. Never the raw `accent`, `accentFill` or
+    /// `focusRing` for a lit glyph (`no-raw-accent-lit-glyph`).
+    public static var litGlyph: NSColor { color(\.litGlyph, dynamic: PaletteDynamic.litGlyph) }
 
     /// Text on top of `textPrimary` fills (inverted badges).
     public static var textOnPrimary: NSColor { color(\.contentBackground, opaque: true, dynamic: PaletteDynamic.textOnPrimary) }

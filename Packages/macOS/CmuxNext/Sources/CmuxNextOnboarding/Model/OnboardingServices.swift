@@ -34,6 +34,12 @@ public protocol OnboardingServices: AnyObject {
     /// Import Passwords from CSV… into `profile` (nil: the default profile):
     /// the person's own export, no Keychain.
     func importPasswordsFromCSV(into profile: String?)
+    /// The cmux browser profiles an import row can go into instead of its
+    /// own new profile, in display order.
+    func importTargets() async -> [ImportTargetChoice]
+    /// Sources an earlier import put into another cmux profile than their
+    /// own (`BrowserSourceProfile.id` to that profile's id): the row starts there.
+    func earlierImportTargets() async -> [String: String]
 
     // Computer use
     /// The helper app's grants, or nil when this build has no computer use.
@@ -48,6 +54,19 @@ public extension OnboardingServices {
     func requestFolderAccess(for browser: ImportBrowser) async -> Bool { false }
     func accessFolder(for browser: ImportBrowser) -> URL? { nil }
     func importPasswordsFromCSV(into profile: String?) {}
+    func importTargets() async -> [ImportTargetChoice] { [] }
+    func earlierImportTargets() async -> [String: String] { [:] }
+}
+
+/// A cmux browser profile an import row can go into.
+public struct ImportTargetChoice: Sendable, Equatable {
+    public var id: String
+    public var name: String
+
+    public init(id: String, name: String) {
+        self.id = id
+        self.name = name
+    }
 }
 
 /// System Settings deep links.

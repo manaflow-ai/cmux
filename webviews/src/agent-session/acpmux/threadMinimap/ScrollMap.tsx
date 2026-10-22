@@ -48,6 +48,18 @@ const AGENT_LENGTH = [5, 15] as const;
 type PromptMarks = ReturnType<typeof usePromptMarks>;
 type Press = { pointer: number; y: number; moved: boolean; mark?: string };
 
+/// The first and last place in `marks` (top to bottom) whose y lies in [top, bottom].
+function marksIn(marks: readonly MapMark[], top: number, bottom: number) {
+  let first = -1;
+  let last = -1;
+  marks.forEach((mark, index) => {
+    if (mark.y < top || mark.y > bottom) return;
+    if (first < 0) first = index;
+    last = index;
+  });
+  return first < 0 ? undefined : { first, last };
+}
+
 const within = (element: Element | null, to: EventTarget | null) =>
   !!element && !!to && "nodeType" in to && element.contains(to as Node);
 
@@ -57,6 +69,7 @@ export function ScrollMap({
   layout,
   scroller,
   viewportHeight,
+  scrolls,
   width,
   marks: bookmarks,
   jump,
@@ -66,6 +79,7 @@ export function ScrollMap({
   layout: ConversationLayout;
   scroller: React.RefObject<HTMLElement | null>;
   viewportHeight: number;
+  scrolls: boolean;
   width: number;
   marks: PromptMarks;
   /// The compact rail's jump to a prompt (ThreadMinimap), so a click lands and flashes the same.
@@ -100,21 +114,26 @@ export function ScrollMap({
   const press = useRef<Press | undefined>(undefined);
   const shown =
     turns.length >= MAP_MIN_PROMPTS &&
-    layout.totalHeight > viewportHeight &&
+    scrolls &&
     height > 4 * MAP_MARGIN &&
     transcriptColumn(width).inset >= MIN_GUTTER;
 
-  const live = useRef({ height, total: layout.totalHeight, viewportHeight });
-  live.current = { height, total: layout.totalHeight, viewportHeight };
+  /// The marks the view bar covers (first and last place in `marks`), for their "current" tone.
+  /// The bar moves by style on each scroll frame; this renders only when the covered marks change.
+  const [inView, setInView] = useState<{ first: number; last: number } | undefined>(undefined);
+  const live = useRef({ height, total: layout.totalHeight, viewportHeight, marks });
+  live.current = { height, total: layout.totalHeight, viewportHeight, marks };
   // The bar follows the scroll on the scroll's own frame, by style alone.
   const [placeThumb] = useState(() => () => {
     const node = scroller.current;
     const bar = thumb.current;
     if (!node || !bar) return;
-    const { height: rail, total, viewportHeight: view } = live.current;
+    const { height: rail, total, viewportHeight: view, marks: all } = live.current;
     const at = mapThumb(node.scrollTop, view, total, rail);
     bar.style.transform = `translateY(${at.top}px)`;
     bar.style.height = `${at.height}px`;
+    const covered = marksIn(all, at.top, at.top + at.height);
+    setInView((was) => (was?.first === covered?.first && was?.last === covered?.last ? was : covered));
   });
   useLayoutEffect(placeThumb);
   useEffect(() => {
@@ -181,7 +200,8 @@ export function ScrollMap({
     const at = keyOf(marks[markAt(marks, y) ?? -1]);
     setPointerY(Math.round(y));
     setHovered(at);
-    if (at === undefined) return;
+    // A scrub moves the transcript, not the card: it opens again once the drag ends.
+    if (at === undefined || press.current?.moved) return;
     setCardMark(at);
     intend("map");
   };
@@ -198,7 +218,8 @@ export function ScrollMap({
     if (state.mark !== undefined) activate(state.mark);
     else seek(railY(event.clientY), true);
   };
-  const active = hovered ?? focused;
+  // The previewed message stays lit while the pointer is on its card.
+  const active = hovered ?? focused ?? (showCard ? cardMark : undefined);
   const focusTick = (turn: number) =>
     rail.current
       ?.querySelector<HTMLButtonElement>(`[data-tick="${Math.max(0, Math.min(turns.length - 1, turn))}"]`)
@@ -249,6 +270,7 @@ export function ScrollMap({
           if (state && !state.moved && Math.abs(event.clientY - state.y) >= SCRUB_SLOP) {
             state.moved = true;
             setScrubbing(true);
+            dismiss();
             try {
               event.currentTarget.setPointerCapture?.(state.pointer);
             } catch {}
@@ -296,7 +318,7 @@ export function ScrollMap({
         }}
       >
         <div ref={thumb} className="acpmux-scrollmap__view" aria-hidden />
-        {marks.map((mark) => {
+        {marks.map((mark, index) => {
           const turn = mark.kind === "user" ? turns[mark.turn] : undefined;
           const key = keyOf(mark)!;
           return (
@@ -306,6 +328,7 @@ export function ScrollMap({
               mark={mark}
               progress={pointerY !== undefined ? mapProgress(mark.y - pointerY) : key === focused ? 1 : 0}
               active={key === active}
+              current={inView !== undefined && index >= inView.first && index <= inView.last}
               bookmarked={!!turn && bookmarks.has(turn)}
               describedBy={showCard && cardMark === key ? cardId : undefined}
               prompt={turn?.prompt}
@@ -359,6 +382,7 @@ const Mark = memo(function Mark({
   mark,
   progress,
   active,
+  current,
   bookmarked,
   describedBy,
   prompt,
@@ -370,6 +394,8 @@ const Mark = memo(function Mark({
   mark: MapMark;
   progress: number;
   active: boolean;
+  /// Under the view bar: on screen.
+  current: boolean;
   bookmarked: boolean;
   describedBy?: string;
   /// A prompt's mark: its prompt, for the label.
@@ -381,7 +407,7 @@ const Mark = memo(function Mark({
   const [rest, grown] = mark.kind === "user" ? USER_LENGTH : AGENT_LENGTH;
   const length = rest + (grown - rest) * progress;
   const style = { transform: `translateY(${mark.y - 5}px)` };
-  const tone = active ? "active" : "rest";
+  const tone = active ? "active" : current ? "current" : "rest";
   const label =
     prompt === undefined
       ? ""

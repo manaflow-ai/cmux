@@ -111,10 +111,34 @@ public final class AppStoreModel {
         return AppFeature.Category.allCases.filter(present.contains)
     }
 
-    /// The Features tab's category chip; nil shows all.
+    /// The Features tab's category chip; nil shows all. On Discover it shows only that feature section.
     public var featureCategory: AppFeature.Category?
 
+    /// One category of cmux's features on Discover: its header and its cards.
+    public nonisolated struct FeatureSection: Identifiable, Equatable, Sendable {
+        public let category: AppFeature.Category
+        public let features: [AppFeature]
+        public var id: AppFeature.Category { category }
+    }
+
+    /// Discover's feature sections under the apps: the landed features that match the search, one
+    /// section per category in catalog order. An app category chip (``category``) hides them.
+    public var discoverFeatureSections: [FeatureSection] {
+        guard category == nil else { return [] }
+        let features = featureListings
+        return AppFeature.Category.allCases.compactMap { category in
+            let cards = features.filter { $0.category == category }
+            return cards.isEmpty ? nil : FeatureSection(category: category, features: cards)
+        }
+    }
+
+    /// Whether Discover shows the apps: not while a feature category chip is chosen.
+    public var discoverShowsListings: Bool { featureCategory == nil }
+
     public func isOn(_ feature: AppFeature) -> Bool { features?.isOn(feature) ?? false }
+    public func hasSettings(_ feature: AppFeature) -> Bool { features?.hasSettings(feature) ?? false }
+    /// The card's Settings… link: Settings on the feature's own rows.
+    public func openSettings(_ feature: AppFeature) { features?.openSettings(feature) }
 
     /// Get (on) or Remove (off) from this page's button: a user gesture.
     public func setFeature(_ feature: AppFeature, on: Bool) async throws {
@@ -141,6 +165,8 @@ public final class AppStoreModel {
         guard tab != .discover || selection != appID else { return }
         record()
         tab = .discover
+        // A feature chip hides the apps; the app opened must show (split lists it, Back returns to it).
+        featureCategory = nil
         if !listings.contains(where: { $0.id == appID }) {
             query = ""
             category = nil

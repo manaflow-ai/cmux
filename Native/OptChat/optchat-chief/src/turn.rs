@@ -635,9 +635,11 @@ pub fn run_with_drafts(
             last_cancel = Some(Instant::now());
         }
         let resend = last_cancel.filter(|_| stopping).map(|t| t + CANCEL_RESEND);
+        // A turn that waits on a permission request is idle too: its
+        // running tool is not at work, and nobody may ever answer.
         let idle_at = start
             .idle_limit
-            .filter(|_| !fold.tool_running() && last_cancel.is_none())
+            .filter(|_| (!fold.tool_running() || fold.awaits_permission()) && last_cancel.is_none())
             .map(|limit| last_event + limit);
         if idle_at.is_some_and(|at| Instant::now() >= at) {
             answered = true;

@@ -12,12 +12,9 @@ enum ScreenAppearanceHandlers {
             if let name = invocation["name"]?.stringValue {
                 return ScreenCommands.rename(ref.screen, to: name, daemon: ref.daemon)
             }
-            // Inline in the screen bar when it shows the screen, else a prompt.
+            // Inline in the screen bar when it shows the screen, else a Cmd-Shift-P step.
             if ref.content?.screenBar.beginRename(ref.screen) == true { return }
-            guard let window = ctx.services.windows.active?.window ?? ctx.refuse(RefusalStrings.noWindowForRename) else { return }
-            RenamePrompt.run(title: HandlerStrings.renameScreenTitle, initial: ref.screen.name ?? "", in: window) { name in
-                ScreenCommands.rename(ref.screen, to: name, daemon: ref.daemon)
-            }
+            ctx.services.registry.ask("screen.rename", invocation, ActionArgumentAsk(argument: "name", initialText: ref.screen.name ?? ""))
         })
         registry.bind("screen.clearName", invoke: { invocation in
             guard let ref = ctx.screen(invocation) else { return }

@@ -4,6 +4,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextHomeEngine
 import CmuxNextSettings
+import CmuxNextTerminal
 import os
 
 /// Runs a quit (user decision 2026-09-30). `applicationShouldTerminate`
@@ -170,6 +171,7 @@ final class QuitCoordinator {
                 await services.agentTabs.relaunchWake.save(services.agentTabs.relaunchWakeStates())
                 // Agent panes on screen draw their last page at the next launch.
                 await services.agentTabs.launchImages.save(services.agentTabs.shownPageImages())
+                await TerminalLaunchFrames.beside(services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent()).save(services.cache.terminals.mapValues(\.session))  // and terminals their last frame
                 // Browser tabs reopen at their recorded page (before any
                 // session ends, while the daemon still answers).
                 await services.cache.browserTabs.flushRecords()
@@ -185,7 +187,8 @@ final class QuitCoordinator {
                 await ChiefHostStop.endChiefSessions(home: services.home.chief.home,
                                                      bundledBin: Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true))
                 await services.home.chief.shutdownForEndSessions()
-                return await QuitAgents.end(QuitAgents.environment(services), waitForShutdown: attempts.isRetry())
+                let keep = ChiefHostStop.appAcpmuxEndKeep(chiefUsesAppAcpmux: services.home.chief.home.usesAppAcpmux)
+                return await QuitAgents.end(QuitAgents.environment(services), keep: keep, waitForShutdown: attempts.isRetry())
             },
             stopBrowserEngines: { [weak self, deadline = self.deadline] in
                 // CefShutdown runs on the main thread and can block it for

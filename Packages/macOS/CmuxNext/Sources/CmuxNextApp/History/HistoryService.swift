@@ -65,6 +65,10 @@ final class HistoryService {
             self?.daemonHistory
         }
         routes[profile] = route
+        route.onRemove = { [weak self, wire = BrowserProfileRecord.wireID(for: profile)] url in
+            guard let sync = self?.services.onboarding.historySync else { return }
+            Task { await sync.forgetPage(url, profile: wire) }  // task-owner: imported pages too
+        }
         history.persistence = route
         if let daemon = daemonHistory { return seedFromDaemon(history, profile: profile, daemon) }
         let log = sink.log
@@ -215,6 +219,7 @@ final class HistoryService {
     func clear(kinds: Set<HistoryEntry.Kind>, range: HistoryRange) {
         let wants = { (kind: HistoryEntry.Kind) in kinds.isEmpty || kinds.contains(kind) }
         let since = range.start(now: Date())
+        if wants(.page) { Task { [sync = services.onboarding.historySync] in await sync.forget(profile: nil, since: since) } }  // task-owner: imported pages too
         if daemonHistory != nil {
             // The daemon removes page visits and trail entries and hides agents; terminal commands
             // are deleted as rows in each connected daemon. The app's Back/Forward steps drop too.
@@ -248,6 +253,7 @@ final class HistoryService {
     /// Clears one profile's page history (Clear Browser History).
     func clearPages(profile: BrowserProfileID, range: HistoryRange) {
         let since = range.start(now: Date())
+        Task { [sync = services.onboarding.historySync, wire = BrowserProfileRecord.wireID(for: profile)] in await sync.forget(profile: wire, since: since) }  // task-owner: imported pages too
         if daemonHistory != nil {
             let wireID = BrowserProfileRecord.wireID(for: profile)
             daemonMutation { try await $0.clear(kinds: [.page], range: range, profile: wireID) }
@@ -293,6 +299,7 @@ final class HistoryService {
 
     /// Removes every page visit of `host` in every profile.
     func removePages(host: String) {
+        Task { [sync = services.onboarding.historySync] in await sync.forgetSite(host: host) }  // task-owner: imported pages too
         if daemonHistory != nil {
             // One site removal on the daemon (one backup); memory forgets without persistence.
             daemonMutation { try await $0.removeSite(host: host, profile: nil) }
@@ -304,9 +311,9 @@ final class HistoryService {
         }
         for (profile, _) in profileLogs {
             guard let engine = BrowserProfileRecord.engineProfile(for: profile) else { continue }
+            // One removal in the log; memory forgets without persistence (not a Remove from History per page).
             sink(for: engine).remove(host: host)
-            let memory = services.cache.history(for: engine)
-            for entry in memory.entries where entry.url.host()?.lowercased() == host.lowercased() { memory.removeEntry(for: entry.url) }
+            services.cache.history(for: engine).forget(host: host)
         }
         onChange?()
     }

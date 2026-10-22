@@ -46,6 +46,8 @@ public final class UpdaterService {
     public internal(set) var updateSnooze = UpdateSnooze()
     /// The pending reminder's end, on the injected clock (one-shot; re-armed at launch).
     @ObservationIgnored let snoozeTimer: DemandTimer
+    /// The pulled-build banner (made on first use; it needs `self`).
+    @ObservationIgnored public private(set) lazy var pulledWatch = PulledBuildWatch(updater: self)
     /// The notice whose timeout is pending, and its one-shot deadline on the
     /// injected clock (no `asyncAfter`).
     @ObservationIgnored var expiringCard: UpdateCard?
@@ -119,11 +121,14 @@ public final class UpdaterService {
     @ObservationIgnored var activationObservation: Task<Void, Never>?
     /// The test feed in use ("Use Test Update Feed"), or nil.
     public internal(set) var testFeedURL: String?
+    /// The release ring followed in the cmux-next appcast (`updates.channel`, ``follow(ring:)``).
+    public internal(set) var ring: UpdateRing = .nightly
     /// The `updates.*` settings the gate reads (set by the App).
     public var preferences = UpdatePreferences.defaults
     /// Sparkle's staged install and its cancel (replaced by tests).
     @ObservationIgnored var installStaged: () -> Void = {}
-    @ObservationIgnored var cancelStaged: () -> Void = {}
+    /// The cancel returns whether an installer was held and is now cancelled.
+    @ObservationIgnored var cancelStaged: () -> Bool = { false }
     @ObservationIgnored var acceptAvailable: () -> Void = {}
     @ObservationIgnored var phaseObservation: Task<Void, Never>?
     @ObservationIgnored var pathMonitor: NWPathMonitor?
@@ -137,12 +142,16 @@ public final class UpdaterService {
     @ObservationIgnored var markedCardKind: String?
     #endif
 
-    /// Asks the App to show the update sheet (set by the App): a failure's
-    /// details only.
+    /// Asks the App to show the update sheet (set by the App): a failure's details only.
     @ObservationIgnored public var presentUpdateUI: (() -> Void)?
-    /// Sparkle is about to relaunch into the update (set by the App: the quit
-    /// keeps every terminal).
+    /// Sparkle is about to relaunch into the update (set by the App: the quit keeps every terminal).
     @ObservationIgnored public var willRelaunch: (() -> Void)?
+    /// Reads the executable's live session and input state before Sparkle relaunches.
+    @ObservationIgnored public var relaunchBlockers: () -> UpdateRelaunchBlockers = { .daemonUnavailable }
+    /// How long input must be quiet before a nightly installs by itself (`updates.idleInstallQuietSeconds`).
+    @ObservationIgnored public internal(set) var idleInstallQuiet: Duration = UpdateRelaunchBlockers.quietInputPeriod
+    /// The install in flight started by itself (the idle policy): a failure opens nothing.
+    @ObservationIgnored var automaticInstallInFlight = false
     /// Whether a window shows the update notice (the sidebar footer's
     /// pill). Without it, checks and installs open the update sheet.
     @ObservationIgnored public var showsIndicator: () -> Bool = { true }
@@ -196,6 +205,16 @@ public final class UpdaterService {
             // Set on this updater only; no defaults change, so the legacy app
             // sharing the domain keeps its own behavior.
             controller.installsUpdatesInBackground = true
+            // The click hides every window and the daemon keeps every session, so a user
+            // install relaunches at once; only automatic idle installs wait.
+            controller.holdsUserInstalls = false
+            // The nightly feed lists each build's deltas minutes after its DMG
+            // (nightly.yml generate-nightly-deltas); a scheduled check in that gap
+            // waits once instead of downloading the full DMG.
+            if identity.track == .nightly { controller.pendingDeltaWindow = 45 * 60 }
+            // A nightly installs a downloaded update by itself once agents, commands and input
+            // are quiet, or at `updates.idleInstallMaxWaitSeconds`; no prompt.
+            controller.installsUpdatesWhenIdle = identity.track == .nightly
             self.controller = controller
         } else {
             #if DEBUG
@@ -206,7 +225,7 @@ public final class UpdaterService {
         }
         if let controller {
             installStaged = { [weak controller] in controller?.installStagedUpdate() }
-            cancelStaged = { [weak controller] in controller?.cancelStagedUpdate() }
+            cancelStaged = { [weak controller] in controller?.cancelStagedUpdate() ?? false }
             acceptAvailable = { [weak controller] in controller?.acceptAvailableUpdate() }
             stagedBuild = { [weak controller] in controller?.stagedUpdate?.versionString }
         }
@@ -224,8 +243,7 @@ public final class UpdaterService {
         return policy.disablesUpdates ? .managedPolicy : nil
     }
 
-    /// Starts Sparkle (scheduled checks and the launch probe honor
-    /// `SUEnableAutomaticChecks`). Idempotent; no-op without a driver.
+    /// Starts Sparkle (its checks honor `SUEnableAutomaticChecks`). Idempotent; no-op without a driver.
     public func start() {
         guard !started else { return }
         started = true
@@ -238,6 +256,7 @@ public final class UpdaterService {
             return
         }
         controller.actionDelegate = self
+        pulledWatch.start(controller: controller)
         controller.startUpdaterIfNeeded()
         #if DEBUG
         if UpdateHarness.current?.backgroundCheck == true {
@@ -302,12 +321,14 @@ public final class UpdaterService {
         if let probeTask { return probeTask }
         isProbing = true
         let prober = prober
+        // Sparkle's allowedChannels reads the baked feed, not a test feed: the probe does the same.
+        let allowed = identity.feed().channel.allowedSparkleChannels(ring: ring)
         var identity = identity
         if let testFeedURL { identity.infoFeedURL = testFeedURL }
         let task = Task { [weak self] () -> String? in
             let failure: String?
             do {
-                let result = try await prober.probe(identity)
+                let result = try await prober.probe(identity, allowedChannels: allowed)
                 self?.lastProbe = result
                 self?.lastProbeError = nil
                 self?.log.append("probe \(result.outcome.kind) feed=\(result.feedURL) items=\(result.itemCount)")
@@ -416,6 +437,7 @@ public final class UpdaterService {
             lastProbeError: lastProbeError,
             channelSwitchTarget: identity.channelSwitchTarget,
             testFeedURL: testFeedURL,
+            ring: ring,
             card: card,
             cardPresentation: cardPresentation,
             badge: footerPill?.title
@@ -443,10 +465,9 @@ extension UpdaterService: UpdateActionDelegate {
         willRelaunch?()
     }
 
-    /// A relaunch interrupts nothing (the daemon keeps every terminal and
-    /// agent running), so a ready update is never held.
+    /// Reads the executable's live blocker provider before Sparkle relaunches.
     public func updaterRelaunchBlockers() -> UpdateRelaunchBlockers {
-        .empty
+        relaunchBlockers()
     }
 }
 

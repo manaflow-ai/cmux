@@ -19,9 +19,9 @@ struct NewTabWidgetSettingsTests {
     @Test func eachWidgetTurnsOnAndTheGreetingOff() {
         let snapshot = Self.parse([
             "greeting": .bool(false), "projects": .bool(true), "actions": .bool(true),
-            "chats": .bool(true), "modeSwitch": .bool(true), "styleDots": .bool(true),
+            "chats": .bool(true), "styleDots": .bool(true),
         ])
-        #expect(snapshot.newTabWidgets.ids == ["projects", "actions", "chats", "modeSwitch", "styleDots"])
+        #expect(snapshot.newTabWidgets.ids == ["projects", "actions", "chats", "styleDots"])
         #expect(snapshot.diagnostics.isEmpty, "\(snapshot.diagnostics)")
     }
 
@@ -34,7 +34,7 @@ struct NewTabWidgetSettingsTests {
     @Test func settingsListsEveryWidgetWithTheNewTabRowsAndAgentsMaySetThem() throws {
         let template = try #require(SettingsSchema.descriptor(for: ["tabs", "newTabTemplate"]))
         let defaults: [String: Bool] = [
-            "greeting": true, "projects": false, "actions": false, "chats": false, "modeSwitch": false, "styleDots": false,
+            "greeting": true, "projects": false, "actions": false, "chats": false, "styleDots": false,
         ]
         for (name, value) in defaults {
             let descriptor = try #require(SettingsSchema.descriptor(for: ["tabs", "newTabWidgets", name]), "\(name)")

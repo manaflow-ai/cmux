@@ -1,6 +1,7 @@
 import CmuxNextControl
 import CmuxNextSettings
 import CmuxNextUpdater
+import CmuxNextWebUpdates
 import Foundation
 #if DEBUG
 import AppKit
@@ -13,6 +14,7 @@ import WebKit
 // automatic-check settings, last probe). `updates.check`: a read-only probe
 // of the build's real feed; answers with the typed result (or `pending`
 // when the feed is slower than the control deadline), never installs.
+// `updates.web.*`: web updates (CmuxNextWebUpdates).
 extension AppControl {
     func registerUpdateMethods(_ updater: UpdaterService, services appServices: AppServices) {
         service?.router.register([
@@ -65,7 +67,7 @@ extension AppControl {
                     }
                 }
             },
-        ])
+        ] + WebUpdates.shared.controlMethods)
         // DEV and NIGHTLY only: a test appcast for every check (signatures
         // still required). `{url: null}` returns to the real feed.
         if updater.identity.track == .nightly || updater.identity.track == .development {
@@ -168,7 +170,7 @@ extension AppControl {
             "last_probe": status.lastProbe.map(json) ?? .null,
             "last_probe_error": status.lastProbeError.map(JSONValue.string) ?? .null,
             "channel_switch_target": status.channelSwitchTarget.map { .string($0.rawValue) } ?? .null,
-            "test_feed": status.testFeedURL.map(JSONValue.string) ?? .null,
+            "test_feed": status.testFeedURL.map(JSONValue.string) ?? .null, "ring": .string(status.ring.rawValue),
             "card": status.card.map { card in
                 let shown = status.cardPresentation ?? card.presentation(version: status.version, build: status.build)
                 return .object(["kind": .string(card.kind), "title": .string(shown.title),

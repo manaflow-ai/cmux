@@ -20,7 +20,7 @@ nonisolated extension ActionSurfaceCatalog {
         "palette.clearWorkspaceDescription", "markWorkspaceDone", "palette.workspaceStatus",
         "palette.addWorkspaceChecklistItem", "palette.openWorkspaceTodoPane", "toggleChecklistItemComplete",
         "checklistEditItem", "checklistMarkInProgress", "checklistCompleteItem", "checklistRemoveItem", "checklistOpenAsPane",
-        "checklistAttachImages", "palette.openVaultPane", "palette.closeOtherWorkspaces", "palette.closeWorkspacesBelow", "palette.closeWorkspacesAbove",
+        "checklistAttachImages", "palette.openVaultPane", "palette.openFilesPane", "palette.openFindPane", "palette.closeOtherWorkspaces", "palette.closeWorkspacesBelow", "palette.closeWorkspacesAbove",
         "workspace.closeAll", "workspace.closeAllInAllWindows", "workspaceGroup.closeOthers", "workspaceGroup.duplicate",
         "window.closeOthers", "closeAllWindows",
         "palette.toggleWorkspacePin", "palette.markWorkspaceRead", "palette.markWorkspaceUnread",
@@ -86,7 +86,7 @@ nonisolated extension ActionSurfaceCatalog {
         "browser.extension.enable", "browser.extension.disable", "browser.extension.move", "browser.extension.reload",
         "browser.extension.remove", "browser.extension.command", "browserProfile.new", "browserProfile.rename",
         "browserProfile.setColor", "browserProfile.clearColor", "browserProfile.setIcon", "browserProfile.clearIcon",
-        "browserProfile.clearBrowsingData", "browserProfile.newTab", "browserProfile.newWindow", "browserProfile.newWorkspace",
+        "browserProfile.clearBrowsingData", "browserProfile.removeImportedData", "browserProfile.newTab", "browserProfile.newWindow", "browserProfile.newWorkspace",
         "browserProfile.openLink", "browserProfile.setWorkspaceDefault", "browserProfile.clearWorkspaceDefault",
         "browserProfile.setSpaceDefault", "browserProfile.clearSpaceDefault", "browserProfile.moveTab",
         "browserProfile.duplicateTab", "palette.toggleMatchTerminalBackground", "palette.enableMinimalMode",
@@ -96,7 +96,7 @@ nonisolated extension ActionSurfaceCatalog {
         "notifications.dismissal.timeout", "notifications.dismissal.never", "palette.newAgentChat", "palette.quickAgentChat",
         "palette.launchClaudeTeams", "palette.launchCodexTeams", "palette.forkAgentConversationRight",
         "palette.forkAgentConversationLeft", "palette.forkAgentConversationTop", "palette.forkAgentConversationBottom",
-        "palette.forkAgentConversationNewTab", "palette.forkAgentConversationNewWorkspace", "computerUseStop",
+        "palette.forkAgentConversationNewTab", "palette.forkAgentConversationNewWorkspace", "palette.forkAgentConversationNewWindow", "computerUseStop",
         "newCloudWorkspace", "newCloudMachine", "palette.cloud.fork", "palette.cloud.snapshot",
         "palette.cloud.restore", "palette.cloud.promoteTemplate", "palette.cloud.status", "palette.cloud.ports",
         "palette.cloud.handoff", "cloudMove", "cloudBringBack", "cloudSSH", "cloudExec", "cloudFilesList", "cloudFileRead", "cloudFileWrite",
@@ -106,6 +106,7 @@ nonisolated extension ActionSurfaceCatalog {
         "cloudDiagnostics", "cloudPauseMachine", "cloudResumeMachine", "cloudDomainList", "cloudPublicationList", "palette.cloud.deleteSnapshot", "palette.auth.signIn", "palette.auth.signOut", "accounts.show", "palette.mobileConnect", "accounts.refresh",
         "accounts.reauthenticate", "accounts.connect", "accounts.remove", "remote.connect", "remote.newGroup", "remote.removeGroup", "machine.reconnect", "remote.newWorkspace",
         "remote.openTerminalHere", "remote.reconnect", "remote.disconnect", "remote.install", "remote.forget",
+        "machine.add", "machine.doctor",
         "reloadConfiguration", "palette.makeDefaultBrowser", "palette.makeDefaultTerminal", "palette.toggleSetting",
         "palette.shortcutKeymap", "palette.installCLI", "palette.uninstallCLI", "palette.restartSocketListener", "palette.restartServer",
         "palette.checkForUpdates", "updates.whatsNew", "announcements.show", "announcements.hide", "palette.applyUpdateIfAvailable", "palette.switchAppChannel", "updates.rollback",
@@ -130,6 +131,7 @@ nonisolated extension ActionSurfaceCatalog {
         "bookmark.open", "bookmark.openInNewTab", "bookmark.openInBackgroundTab", "bookmark.openAll", "bookmark.edit",
         "bookmark.move", "bookmark.remove", "bookmark.import", "bookmark.importFromBrowser", "bookmark.export",
         "bookmark.setIcon", "bookmark.clearIcon", "machine.setIcon", "machine.clearIcon",
+        "agentChat.toggleNotificationMute",
     ]
 
     /// Why the CLI has no verb for an action (`cmux action run <id>` still runs it).
@@ -153,11 +155,6 @@ nonisolated extension ActionSurfaceCatalog {
     static let cliExemption: [ActionID: SurfaceExemption] = byReason(cliExemptionsByReason)
     static let cliExemptionsByReason: [SurfaceExemption: [ActionID]] = [
         .ownerVerb: ownerVerbActions,
-        .unimplemented: [
-            "agentChat.toggleNotificationMute",
-            "palette.openFindPane",
-            "palette.openFilesPane",
-        ],
         .guiOnly: [
             "agentHistory.show", "music.open", "music.stop",
             "notifications.dismissHighlight", "openSettings", "minimizeWindow", "toggleFullScreen", "globalSearch", "commandPalette", "appearance.customize",
@@ -194,7 +191,7 @@ nonisolated extension ActionSurfaceCatalog {
             "toggleTerminalCopyMode", "palette.terminalToggleTextBoxInput", "cycleTextBoxSubmitAction",
             "attachTextBoxFile", "sendCtrlFToTerminal", "pasteLastScreenshot", "find", "findInDirectory", "findNext",
             "findPrevious", "hideFind", "useSelectionForFind", "terminal.scrollToSelection", "terminalCopy", "terminalPaste",
-            "browserScreenshotSection", "saveFilePreview", "markdownSave", "markdownLink", "markdownBack", "markdownForward", "markdownResetTableWidths", "toggleFileEditorWordWrap", "diffViewerNextLine",
+            "browserScreenshotSection", "saveFilePreview", "markdownSave", "markdownLink", "markdownBack", "markdownForward", "markdownReload", "markdownResetTableWidths", "markdownGoToTop", "toggleFileEditorWordWrap", "diffViewerNextLine",
             "diffViewerPreviousLine", "diffViewerHalfPageDown", "diffViewerHalfPageUp", "diffViewerNextHunk",
             "diffViewerPreviousHunk", "diffViewerGoToBottom", "diffViewerGoToTop", "diffViewerSearch",
             "diffViewerNextFile", "diffViewerPreviousFile", "fileEditorGotoLine", "fileEditorReplace", "fileEditorAction", "fileExplorerOpenSelection",

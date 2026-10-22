@@ -92,7 +92,8 @@ SECTIONS = [
         "type": "UpdateSettingsSchema",
         "lists": {"updates": ("descriptors", "UpdatesSettings"),
                   "announcements": ("announcements", "AnnouncementsSettings")},
-        "enums": {"updates.meteredNetwork": "UpdatesMeteredSetting", "updates.notify": "UpdatesNotifySetting"},
+        "enums": {"updates.channel": "UpdatesChannelSetting", "updates.meteredNetwork": "UpdatesMeteredSetting",
+                  "updates.notify": "UpdatesNotifySetting", "updates.web": "UpdatesWebSetting"},
     },
     {
         "source": "schemas/settings/source/labs.json",
@@ -178,6 +179,13 @@ SECTIONS = [
         "swift": SCHEMA_DIR + "/SettingsSchema+Subsessions.generated.swift",
         "type": "SubsessionSettingsSchema",
         "lists": {"subsessions": ("descriptors", "SubsessionSettings")},
+        "enums": {},
+    },
+    {
+        "source": "schemas/settings/source/trust.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+Trust.generated.swift",
+        "type": "TrustSettingsSchema",
+        "lists": {"trust": ("descriptors", "TrustSettings")},
         "enums": {},
     },
     {
@@ -353,6 +361,10 @@ def load_section(section, seen_keys, section_ids):
                 if not isinstance(default, list) or not all(isinstance(item, str) and (item.startswith("/") or item.startswith("~/")) for item in default) \
                         or "choices" in row or "range" in row:
                     fail(src, "%s: a folder_list default is a list of absolute or ~/ paths" % key)
+            elif kind == "string_list":
+                if not isinstance(default, list) or not all(isinstance(item, str) and item.strip() for item in default) \
+                        or "choices" in row or "range" in row:
+                    fail(src, "%s: a string_list default is a list of non-empty strings" % key)
             elif kind == "text":
                 if not isinstance(default, str) or "choices" in row or "range" in row:
                     fail(src, "%s: a text row has a string default and no choices or range" % key)
@@ -424,7 +436,7 @@ def section_swift(section, data):
                 out.append("    public nonisolated static let %sDefault: Double = %s" % (name, number_literal(row["default"])))
                 out.append("    public nonisolated static let %sRange: ClosedRange<Double> = %s...%s"
                            % (name, number_literal(rng["min"]), number_literal(rng["max"])))
-            elif kind == "folder_list":
+            elif kind in ("folder_list", "string_list"):
                 out.append("    public nonisolated static let %sDefault: [String] = [%s]" % (name, ", ".join(swift_string(p) for p in row["default"])))
             elif kind == "text":
                 out.append("    public nonisolated static let %sDefault = %s" % (name, swift_string(row["default"])))
@@ -461,8 +473,8 @@ def section_swift(section, data):
                 args += ["kind: .number(SettingNumber(%s.%sRange, step: %s, unit: .%s%s))"
                          % (owner, name, number_literal(rng["step"]), rng["unit"], extra),
                          "default: .number(%s.%sDefault)" % (owner, name)]
-            elif kind == "folder_list":
-                args += ["kind: .folderList", "default: .array(%s.%sDefault.map { .string($0) })" % (owner, name)]
+            elif kind in ("folder_list", "string_list"):
+                args += ["kind: .folderList" if kind == "folder_list" else "kind: .stringList", "default: .array(%s.%sDefault.map { .string($0) })" % (owner, name)]
             elif kind == "text":
                 args += ["kind: .text", "default: .string(%s.%sDefault)" % (owner, name)]
             else:

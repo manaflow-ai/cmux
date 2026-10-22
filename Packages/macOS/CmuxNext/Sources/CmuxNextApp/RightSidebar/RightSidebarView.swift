@@ -36,7 +36,7 @@ final class RightSidebarView: NSView {
             button.bezelStyle = .accessoryBarAction
             button.isBordered = false
             button.setButtonType(.pushOnPushOff)
-            button.toolTip = title(mode)
+            button.themedToolTip = title(mode)
             button.setAccessibilityLabel(title(mode))
             button.identifier = NSUserInterfaceItemIdentifier(mode.rawValue)
             buttons[mode] = button

@@ -71,6 +71,8 @@ public nonisolated struct BrowserSearchEngine: Hashable, Sendable, Codable, Iden
     )
 
     public static let builtIn: [BrowserSearchEngine] = [google, duckDuckGo, bing, brave, kagi]
+    /// Each built-in engine's search address by id (an imported engine maps to the one with its host).
+    public static var templates: [String: String] { Dictionary(uniqueKeysWithValues: builtIn.map { ($0.id, $0.queryTemplate) }) }
 
     /// A user's engine (`browser.customSearchEngine`): `search` and `suggest`
     /// take `{searchTerms}` or `%s`. Named after the search host.
