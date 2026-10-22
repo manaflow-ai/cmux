@@ -8,14 +8,14 @@ import Foundation
 public struct HostSampler: Sendable {
     public init() {}
 
-    /// The cores the budget counts: "performance" (else the physical cores),
-    /// or "logical" (every CPU), as acpmux counts them.
-    public func cores(_ which: String) -> Int {
-        let logical = ProcessInfo.processInfo.activeProcessorCount
-        guard which == "performance" else { return max(1, logical) }
-        if let count = Self.sysctlInt32("hw.perflevel0.physicalcpu"), count > 0 { return Int(count) }
-        if let count = Self.sysctlInt32("hw.physicalcpu"), count > 0 { return Int(count) }
-        return max(1, logical)
+    /// The cores the budget counts and their kind, as acpmux counts them:
+    /// "performance" (else "physical"), or "logical" (every CPU).
+    public func cores(_ which: String) -> (count: Int, kind: String) {
+        let logical = (max(1, ProcessInfo.processInfo.activeProcessorCount), "logical")
+        guard which == "performance" else { return logical }
+        if let count = Self.sysctlInt32("hw.perflevel0.physicalcpu"), count > 0 { return (Int(count), "performance") }
+        if let count = Self.sysctlInt32("hw.physicalcpu"), count > 0 { return (Int(count), "physical") }
+        return logical
     }
 
     /// The share of RAM available (kern.memorystatus_level, the "System-wide

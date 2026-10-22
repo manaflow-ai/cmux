@@ -125,6 +125,28 @@ struct HostBudgetFormulaTests {
         #expect(file.formula(host: "air-blue").swapGrowthMBPerMin == 64)
     }
 
+    /// acpmux keys `hosts` by the lowercased short name, and 0 turns the RAM reason off.
+    @Test func aMixedCaseHostGetsItsOverride() throws {
+        let json = #"{"formula": {"min_available_ram_fraction": 0.2},"#
+            + #" "hosts": {"cosmic-gray": {"load1_per_core": 2, "min_available_ram_fraction": 0}}}"#
+        let file = try JSONDecoder().decode(HostBudgetFile.self, from: Data(json.utf8))
+        let gray = file.formula(host: " Cosmic-Gray.local")
+        #expect(HostBudgetFile.shortName(" Cosmic-Gray.local") == "cosmic-gray")
+        #expect(gray.loadLimit(cores: 12) == 24)
+        #expect(gray.minAvailableRAMFraction == 0)
+        let verdict = HostBudgetVerdict(host: "cosmic-gray", cores: 12, load1: 25, pressure: .normal, availableRAMFraction: 0.04,
+                                        swapMBPerMin: 0, formula: gray)
+        #expect(verdict.over == ["load1 25.0 >= 24 (12 P-cores)"])
+        #expect(HostPressureTracker.level(for: verdict, holding: .normal) == .warning)
+        #expect(HostBudgetFile.shortName("") == "localhost")
+    }
+
+    @Test func aLogicalCoreBudgetSaysCores() {
+        let verdict = HostBudgetVerdict(host: "x", cores: 15, coresKind: "logical", load1: 15, pressure: .normal,
+                                        availableRAMFraction: nil, swapMBPerMin: nil)
+        #expect(verdict.over == ["load1 15.0 >= 15 (15 cores)"])
+    }
+
     @Test func theOverrideKeepsAcpmuxsRules() throws {
         let json = #"{"formula": {"pressure": "warn", "min_available_ram_fraction": 0.2, "cores": "logical"},"#
             + #" "hosts": {"bad": {"pressure": "critical", "min_available_ram_fraction": 2, "cores": "all"}}}"#

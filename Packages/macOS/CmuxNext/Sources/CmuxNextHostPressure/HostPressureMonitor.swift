@@ -29,7 +29,7 @@ public actor LocalHostPressureSource: HostPressureSource {
     /// `host` defaults to kern.hostname (a sysctl, not a name lookup); `acpmux`
     /// reads its verdict, and nil means there is no acpmux to ask.
     public init(host: String? = nil, acpmux: (@Sendable () async -> HostBudgetVerdict?)? = nil) {
-        self.host = host ?? HostSampler().hostName()
+        self.host = HostBudgetFile.shortName(host ?? HostSampler().hostName())
         self.acpmux = acpmux
     }
 
@@ -48,7 +48,7 @@ public actor LocalHostPressureSource: HostPressureSource {
         let formula = formula
         let cores = sampler.cores(formula.cores)
         let rate = sampler.swappedOutBytes().flatMap { swap.feed(bytes: $0, seconds: ProcessInfo.processInfo.systemUptime) }
-        return HostBudgetVerdict(host: host, cores: cores, load1: sampler.load1(), pressure: sampler.memoryPressure(),
+        return HostBudgetVerdict(host: host, cores: cores.count, coresKind: cores.kind, load1: sampler.load1(), pressure: sampler.memoryPressure(),
                                  availableRAMFraction: sampler.availableRAMFraction(), swapMBPerMin: rate, formula: formula)
     }
 }

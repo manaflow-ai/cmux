@@ -39,13 +39,14 @@ public struct HostBudgetOverride: Decodable, Equatable, Sendable {
         case swapGrowthMBPerMin = "swap_growth_mb_per_min"
     }
 
-    /// acpmux's rules: positive numbers, a fraction in (0, 1], known words only.
+    /// acpmux's rules: positive numbers, a fraction in [0, 1] (0 turns the RAM
+    /// reason off), known words only.
     func applied(to formula: HostBudgetFormula) -> HostBudgetFormula {
         var formula = formula
         if let load1PerCore, load1PerCore > 0 { formula.load1PerCore = load1PerCore }
         if let cores, ["performance", "logical"].contains(cores) { formula.cores = cores }
         if let pressure, ["normal", "warn"].contains(pressure) { formula.pressure = pressure }
-        if let minAvailableRAMFraction, minAvailableRAMFraction > 0, minAvailableRAMFraction <= 1 {
+        if let minAvailableRAMFraction, (0 ... 1).contains(minAvailableRAMFraction) {
             formula.minAvailableRAMFraction = minAvailableRAMFraction
         }
         if let swapGrowthMBPerMin, swapGrowthMBPerMin > 0 { formula.swapGrowthMBPerMin = swapGrowthMBPerMin }
@@ -60,12 +61,19 @@ public struct HostBudgetFile: Decodable, Equatable, Sendable {
     public var hosts: [String: HostBudgetOverride]?
 
     /// The formula for `host`: the built-in defaults, the file's `formula`,
-    /// then its `hosts[host]`.
+    /// then its `hosts` entry for the host's short name (`shortName(_:)`).
     public func formula(host: String) -> HostBudgetFormula {
         let base = formula?.applied(to: HostBudgetFormula()) ?? HostBudgetFormula()
-        let short = host.split(separator: ".").first.map(String.init) ?? host
-        guard let layer = hosts?[host] ?? hosts?[short] else { return base }
+        guard let layer = hosts?[Self.shortName(host)] else { return base }
         return layer.applied(to: base)
+    }
+
+    /// A host's name as acpmux keys it (host_pressure.rs `host_name`): before
+    /// the first dot, trimmed, lowercased; "localhost" when empty.
+    public static func shortName(_ host: String) -> String {
+        let short = (host.split(separator: ".", omittingEmptySubsequences: false).first.map(String.init) ?? "")
+            .trimmingCharacters(in: .whitespaces).lowercased()
+        return short.isEmpty ? "localhost" : short
     }
 
     /// The file's path, if one is configured.
@@ -115,6 +123,8 @@ public enum HostMemoryPressure: String, Comparable, Sendable, Codable {
 public struct HostBudgetVerdict: Codable, Equatable, Sendable {
     public var host: String
     public var cores: Int
+    /// "performance", "physical" or "logical": which cores `cores` counts.
+    public var coresKind: String?
     /// nil when the host could not read it.
     public var load1: Double?
     public var loadLimit: Double
@@ -136,6 +146,7 @@ public struct HostBudgetVerdict: Codable, Equatable, Sendable {
     enum CodingKeys: String, CodingKey {
         case host, cores, load1, pressure, over, ok, top, formula
         case loadLimit = "load_limit"
+        case coresKind = "cores_kind"
         case availableRAMFraction = "available_ram_fraction"
         case swapMBPerMin = "swap_mb_per_min"
         case localTurns = "local_turns"
@@ -151,10 +162,11 @@ public struct HostBudgetVerdict: Codable, Equatable, Sendable {
     /// (cmux-tui host_pressure.rs `evaluate`): load at or over its limit, memory
     /// pressure over the formula's allowance, available RAM under its fraction,
     /// swap growing faster than its limit.
-    public init(host: String, cores: Int, load1: Double, pressure: HostMemoryPressure, availableRAMFraction: Double?,
-                swapMBPerMin: Double?, formula: HostBudgetFormula = HostBudgetFormula()) {
+    public init(host: String, cores: Int, coresKind: String = "performance", load1: Double, pressure: HostMemoryPressure,
+                availableRAMFraction: Double?, swapMBPerMin: Double?, formula: HostBudgetFormula = HostBudgetFormula()) {
         self.host = host
         self.cores = cores
+        self.coresKind = coresKind
         self.load1 = load1
         loadLimit = formula.loadLimit(cores: cores)
         self.pressure = pressure
@@ -162,7 +174,10 @@ public struct HostBudgetVerdict: Codable, Equatable, Sendable {
         self.swapMBPerMin = swapMBPerMin
         self.formula = Allowance(pressure: formula.pressure)
         var over: [String] = []
-        if load1 >= loadLimit { over.append(String(format: "load1 %.1f >= %g", load1, loadLimit) + " (\(cores) P-cores)") }
+        if load1 >= loadLimit {
+            let kind = coresKind == "performance" ? "P-cores" : "cores"
+            over.append(String(format: "load1 %.1f >= %g", load1, loadLimit) + " (\(cores) \(kind))")
+        }
         if pressure.isOver(allowing: formula.pressure) { over.append(Self.memoryReason(pressure)) }
         if let availableRAMFraction, availableRAMFraction < formula.minAvailableRAMFraction {
             over.append(String(format: "available RAM %.0f%% < %.0f%%", availableRAMFraction * 100, formula.minAvailableRAMFraction * 100))
