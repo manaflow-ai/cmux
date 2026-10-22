@@ -154,6 +154,7 @@ fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) ->
     }
     if notify_desktop::drop_unsupported(&mut reader, &socket, &mut request)
         | super::launch_credential::attach(&mut reader, &socket, &mut request)
+        | super::browser_caller::attach(&mut reader, &socket, &mut request, caller_route)
         | list_order::apply(&mut plan, &mut request, &socket)
     {
         encoded = match encode_request(&request) {

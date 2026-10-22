@@ -95,21 +95,32 @@ impl Mux {
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
         let selectors = {
             let state = self.state.lock().unwrap();
-            let target = match pane {
-                Some(id) => {
+            // `browser-open-caller-v1`: a caller's tab goes to the rightmost
+            // pane of its own workspace; with no caller and no focused
+            // workspace, to the home workspace, never to a new one.
+            let caller = pane
+                .is_none()
+                .then(|| extra_fields.get(super::BROWSER_CALLER_FIELD))
+                .flatten()
+                .and_then(|caller| self.caller_workspace_in_state(&state, caller));
+            let target = match (pane, caller) {
+                (Some(id), _) => {
                     if !state.panes.contains_key(&id) {
                         anyhow::bail!("unknown pane {id}");
                     }
                     Some(id)
                 }
-                None => state.active_pane(),
+                (None, Some(workspace)) => super::rightmost_pane(&state, workspace),
+                (None, None) => state.active_pane(),
             };
+            let workspace = caller
+                .or_else(|| state.workspaces.get(state.active_workspace).map(|w| w.id))
+                .or_else(|| self.home_workspace_in_state(&state));
             if let Some(target) = target {
                 drop(state);
                 self.ordinary_pane_selectors(target)
                     .with_context(|| format!("unknown pane {target}"))?
-            } else if let Some(workspace) = state.workspaces.get(state.active_workspace) {
-                let workspace = workspace.id;
+            } else if let Some(workspace) = workspace {
                 drop(state);
                 self.ordinary_workspace_selectors(workspace)
                     .with_context(|| format!("unknown workspace {workspace}"))?

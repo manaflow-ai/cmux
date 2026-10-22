@@ -151,6 +151,7 @@ mod agent_reports;
 mod agent_roster_fold;
 mod agent_roster_restore;
 mod apply_layout;
+mod browser_caller;
 mod browser_create;
 mod browser_providers;
 mod browser_tab_create;
@@ -163,6 +164,9 @@ mod test_actor_wrappers;
 mod test_hooks;
 mod topology_edit;
 mod topology_ops;
+pub(crate) use browser_caller::{
+    BROWSER_OPEN_CALLER_CAPABILITY, CALLER_FIELD as BROWSER_CALLER_FIELD, rightmost_pane,
+};
 pub(crate) use browser_tab_create::{
     FRONTEND_BROWSER_ACTIVATE_CAPABILITY, FRONTEND_BROWSER_INSERT_AFTER_CAPABILITY,
     FrontendTabPlacement, TRANSACTION_FIELD as FRONTEND_BROWSER_TRANSACTION_FIELD,

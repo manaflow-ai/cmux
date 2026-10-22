@@ -38,8 +38,14 @@ impl Mux {
         let resolved = self
             .resolve_resource_path_in_state(state, registry, target, selectors)
             .map_err(anyhow::Error::new)?;
+        let mut path = resolved.path.clone();
+        if operation == ResourceOperation::TabCreateBrowser
+            && target == crate::ResourceTarget::Session
+        {
+            self.browser_open_path(state, fields, &mut path);
+        }
         let mut intent = json!({
-            "path":resolved.path,
+            "path":path,
             "fields":fields,
         });
         let creates = creation_identity_kind(operation, fields);
@@ -468,6 +474,15 @@ impl Mux {
                         frontend_browser_transaction(fields),
                     )?,
                     None => {
+                        // `browser-open-caller-v1`: only an app's workspace
+                        // (`workspace.ensure_app`) or a session with no
+                        // workspace at all gets a new one, never a caller's.
+                        anyhow::ensure!(
+                            fields.contains_key(APP_WORKSPACE_FIELD)
+                                || !fields.contains_key(crate::mux::BROWSER_CALLER_FIELD),
+                            "no workspace to open the browser in: the caller's workspace is gone \
+                             and the session has no home workspace"
+                        );
                         let (workspace_key, workspace_public_id, workspace_mutation) =
                             self.effect_workspace_reservation(intent)?;
                         // `app-screens-v1`: the app workspace and its kind

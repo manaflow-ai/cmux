@@ -349,6 +349,25 @@ records the result, so a retry answers it. Each creation, split, focus and
 tab selection step runs under a key derived from the request's key, so a
 retry replays it; the navigation has no step key, so a retry after a queued
 navigation that the result missed queues the same URL again.
+`caller {workspace?, agent_session?}` on `tab.create_browser`,
+`browser.profile.open` and `workspace.open_url` (capability
+`browser-open-caller-v1`) names who opens the page: the workspace the caller
+runs in (`CMUX_WORKSPACE_ID`: a workspace key in any case, with or without
+dashes, or a `ws_` id) and its acpmux session (`CMUX_AGENT_SESSION`; the
+workspace showing that session's chat tab wins over `workspace`). The CLI and
+`cmux mcp` send it for an open in the caller's own session that names no
+workspace, screen or pane, and only to a daemon that advertises the
+capability. With a known caller and nothing named, the page opens in the
+rightmost pane of the caller workspace's focused screen (right to left through
+the layout; in a column of rows, the row focused last; never an `agent_chat`
+dock or a pinned column that takes no tabs), whatever workspace has the focus;
+`workspace.open_url` targets the caller's workspace instead of home and tries
+that pane first by its right-side rule. A caller this session does not know
+changes nothing. No browser open makes a workspace as a fallback: with no
+caller and no focused workspace, `tab.create_browser` and
+`browser.profile.open` open in the home workspace; only a session with no
+workspace at all still gets a new one, and never for a request with `caller`
+(it fails instead). `workspace.ensure_app` still makes its app's workspace.
 `closed.reopen` and `saved_tab_group.reopen` compose several creations; the request's key records the whole result, so a retry replays it.
 
 A window record holds one app window's state (shown workspace, listed

@@ -23,6 +23,7 @@ declare namespace Cmux {
   type BrowserDeviceAddResult = { device: Cmux.JsonValue }
   type BrowserDeviceList = { chrome: Cmux.JsonValue; devices: Array<Cmux.JsonValue> }
   type BrowserDeviceRemoveResult = { removed: boolean }
+  type BrowserOpenCaller = { workspace?: string; agent_session?: string }
   type BrowserProfile = { id: string; name: string; color: string | null; icon: string | null; index: number }
   type BrowserProfileCreateResult = { browser_profile: Cmux.BrowserProfile; changed: boolean }
   type BrowserProfileList = { browser_profiles: Array<Cmux.BrowserProfile> }
@@ -572,7 +573,7 @@ interface CmuxGlobal {
       /** `browser.profile.list` (read, scope `browser:read`) */
       list: CmuxOp<{ machine?: string; session?: string }, Cmux.BrowserProfileList>
       /** `browser.profile.open` (mutation, scope `browser:write`) */
-      open: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; url: string; profile: string; engine?: "webkit" | "cef"; title?: string; activate?: boolean }, Cmux.MutationResult<Cmux.BrowserProfileOpenResult>>
+      open: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; url: string; profile: string; engine?: "webkit" | "cef"; title?: string; activate?: boolean; caller?: Cmux.BrowserOpenCaller }, Cmux.MutationResult<Cmux.BrowserProfileOpenResult>>
     }
     /** `browser.reload` (mutation, scope `browser:write`) */
     reload: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; browser: string; expected_revision?: string }, Cmux.MutationResult<Cmux.BrowserSnapshot>>
@@ -1476,7 +1477,7 @@ interface CmuxGlobal {
   }
   tab: {
     /** `tab.create_browser` (mutation, scope `workspace:write`) */
-    create_browser: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; correlation_key?: string; url: string; name?: string; engine?: "webkit" | "cef"; width_px?: number; height_px?: number; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedBrowserPath>>
+    create_browser: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; correlation_key?: string; url: string; name?: string; engine?: "webkit" | "cef"; width_px?: number; height_px?: number; expected_revision?: string; caller?: Cmux.BrowserOpenCaller }, Cmux.MutationResult<Cmux.CreatedBrowserPath>>
     /** `tab.create_terminal` (mutation, scope `workspace:write`) */
     create_terminal: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; correlation_key?: string; cwd?: string; argv?: Array<string>; shell?: string; name?: string; cols?: number; rows?: number; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedTerminalPath>>
     /** `tab.focus` (mutation, scope `workspace:write`) */

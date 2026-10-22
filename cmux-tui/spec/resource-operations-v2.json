@@ -93,6 +93,32 @@
       },
       "extra": false
     },
+    "BrowserOpenCaller": {
+      "kind": "object",
+      "fields": {
+        "workspace": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          },
+          "description": "The caller's workspace: its id (ws_...) or its key, in any case and with or without dashes (CMUX_WORKSPACE_ID)."
+        },
+        "agent_session": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 256
+          },
+          "description": "The caller's acpmux agent session (CMUX_AGENT_SESSION); the workspace that shows its chat tab wins over workspace."
+        }
+      },
+      "extra": false
+    },
     "BrowserProfile": {
       "kind": "object",
       "fields": {
@@ -16000,6 +16026,14 @@
             },
             "default": true,
             "description": "False keeps the pane's selected tab."
+          },
+          "caller": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "BrowserOpenCaller"
+            },
+            "description": "Who opens the page (browser-open-caller-v1): the CLI and the MCP server send the caller's own workspace and agent session from its environment. With no pane named, the tab opens in the rightmost pane of that workspace's focused screen (the workspace that shows the agent session's chat, else the one named); a caller this session does not know changes nothing."
           }
         },
         "extra": false,
@@ -29076,6 +29110,14 @@
               "name": "decimal"
             },
             "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          },
+          "caller": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "BrowserOpenCaller"
+            },
+            "description": "Who opens the tab (browser-open-caller-v1): the CLI and the MCP server send the caller's own workspace and agent session from its environment. With no workspace, screen or pane named, the tab opens in the rightmost pane of that workspace's focused screen (the workspace that shows the agent session's chat, else the one named), never in a new workspace; a caller this session does not know changes nothing."
           }
         },
         "extra": false,
@@ -32615,6 +32657,14 @@
               "min_length": 1
             },
             "description": "The link: an http or https URL with a host and no user name or password, at most 8192 bytes, with no control, space or invisible format character (bidi marks and overrides, zero-width characters). Anything else is validation.invalid (field url)."
+          },
+          "caller": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "BrowserOpenCaller"
+            },
+            "description": "Who opens the link (browser-open-caller-v1): the CLI and the MCP server send the caller's own workspace and agent session from its environment. With no workspace named, the link opens in that workspace (the one that shows the agent session's chat, else the one named) instead of the home workspace, its rightmost pane first for the reuse and the new tab; a caller this session does not know changes nothing."
           }
         },
         "extra": false,

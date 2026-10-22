@@ -154,6 +154,9 @@ pub(super) fn resource(
     ) {
         return opened.map_err(|failure| app_open_failure(failure, key.as_deref()));
     }
+    // An open from inside cmux names its caller (browser_caller.rs).
+    let own_session = global.socket.is_none() && global.session.is_none();
+    super::super::browser_caller::attach(&mut reader, &socket, &mut request, own_session);
     super::super::launch_credential::attach(&mut reader, &socket, &mut request);
     let encoded = resolve::encode_request_bytes(&request)
         .map_err(|message| fail(NotRun, "validation.invalid", message))?;

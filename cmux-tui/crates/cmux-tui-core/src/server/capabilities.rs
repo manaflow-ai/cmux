@@ -297,6 +297,7 @@ pub(super) fn advertised_capabilities(
         crate::state::agent_folder::CAPABILITY,
         crate::state::agent_start::CAPABILITY,
         crate::resource_router::OPEN_URL_CAPABILITY,
+        crate::mux::BROWSER_OPEN_CALLER_CAPABILITY,
         crate::state::personal_order::PERSONAL_MIXED_ORDER_CAPABILITY,
         crate::state::personal::WORKSPACE_GROUP_ICON_CAPABILITY,
         crate::state::personal::WORKSPACE_GROUP_PIN_CAPABILITY,
