@@ -1,0 +1,164 @@
+// The chat's Changes view reads a change the way the diff viewer and the pull request card do
+// (Leo 2026-10-21, "this is pretty uninformative compared to claude... no tests, some other
+// useful metadata"): files in kind order, a kind label on each file that isn't code, a quiet
+// line when code changed and no test did, and generated files folded until opened.
+import { afterAll, expect, test } from "bun:test";
+import { JSDOM, VirtualConsole } from "jsdom";
+
+const dom = new JSDOM("<!doctype html><div id=root></div>", {
+  url: "http://localhost/",
+  pretendToBeVisual: true,
+  virtualConsole: new VirtualConsole(),
+});
+const scope = globalThis as Record<string, unknown>;
+const replacements: Record<string, unknown> = {
+  window: dom.window,
+  document: dom.window.document,
+  navigator: dom.window.navigator,
+  localStorage: dom.window.localStorage,
+  HTMLElement: dom.window.HTMLElement,
+  Element: dom.window.Element,
+  customElements: dom.window.customElements,
+  Node: dom.window.Node,
+  MutationObserver: dom.window.MutationObserver,
+  IntersectionObserver: class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  },
+  ResizeObserver: class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  },
+  getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
+  requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
+  cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
+  IS_REACT_ACT_ENVIRONMENT: true,
+};
+// Pierre's registered elements read their own DOM constructors at import time.
+for (const key of Object.getOwnPropertyNames(dom.window))
+  if (
+    /^(HTML|SVG|CSS|Shadow|Document|Mutation|KeyboardEvent|PointerEvent|MouseEvent|FocusEvent)/.test(key) &&
+    !(key in scope)
+  )
+    replacements[key] = (dom.window as unknown as Record<string, unknown>)[key];
+const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
+Object.assign(scope, replacements);
+
+const { act } = await import("react");
+const { createRoot } = await import("react-dom/client");
+const { DiffPanel } = await import("../src/agent-session/acpmux/DiffPanel");
+const { toolFiles } = await import("../src/agent-session/acpmux/diff");
+const { orderByKind } = await import("../src/fileKinds");
+
+afterAll(() => {
+  dom.window.close();
+  for (const [key, had, value] of saved) {
+    if (had) scope[key] = value;
+    else delete scope[key];
+  }
+});
+
+/// One tool call per path, each changing the file's only line.
+const turn = (paths: string[]) =>
+  toolFiles(
+    paths.map((path, index) => ({
+      id: `edit-${index}`,
+      kind: "edit",
+      title: `Edit ${path}`,
+      status: "completed",
+      diffs: [{ path, oldText: "before\n", newText: "after\n" }],
+    })) as never,
+  );
+
+const settle = () => act(async () => void (await new Promise((resolve) => setTimeout(resolve, 0))));
+
+async function render(files: ReturnType<typeof turn>) {
+  const container = dom.window.document.getElementById("root")!;
+  const root = createRoot(container);
+  await act(async () => root.render(<DiffPanel files={files} onClose={() => {}} />));
+  await settle();
+  const blocks = () => [...container.querySelectorAll<HTMLElement>(".acpmux-diff-file")];
+  return {
+    container,
+    names: () => blocks().map((block) => block.querySelector(".acpmux-fh-name")?.textContent ?? ""),
+    kinds: () => blocks().map((block) => block.querySelector(".acpmux-fh-kind")?.textContent ?? ""),
+    folded: () => blocks().filter((block) => block.dataset.collapsed !== undefined).map((block) => block.dataset.path),
+    noTests: () => container.querySelector(".acpmux-diff-no-tests")?.textContent,
+    unmount: () => act(async () => root.unmount()),
+  };
+}
+
+test("files read in kind order, code first, each kind in the order the turn changed it", async () => {
+  const view = await render(
+    turn(["/repo/bun.lock", "/repo/README.md", "/repo/src/b.ts", "/repo/test/a.test.ts", "/repo/src/a.ts"]),
+  );
+  try {
+    expect(view.names()).toEqual(["src/b.ts", "src/a.ts", "test/a.test.ts", "README.md", "bun.lock"]);
+    // The diff viewer's names for the kinds; code needs none.
+    expect(view.kinds()).toEqual(["", "", "Tests", "Docs", "Generated"]);
+    // A test changed, so nothing is missing.
+    expect(view.noTests()).toBeUndefined();
+    // A lockfile starts folded; the code, test and doc beside it start open.
+    expect(view.folded()).toEqual(["/repo/bun.lock"]);
+  } finally {
+    await view.unmount();
+  }
+});
+
+test("code changed with no test says so, quietly, above the files", async () => {
+  const view = await render(turn(["/repo/docs/guide.md", "/repo/src/a.ts"]));
+  try {
+    expect(view.names()).toEqual(["src/a.ts", "docs/guide.md"]);
+    expect(view.noTests()).toBe("Code changed with no test.");
+  } finally {
+    await view.unmount();
+  }
+});
+
+test("a turn of docs or generated files alone is not missing a test", async () => {
+  const view = await render(turn(["/repo/README.md", "/repo/bun.lock"]));
+  try {
+    expect(view.noTests()).toBeUndefined();
+  } finally {
+    await view.unmount();
+  }
+});
+
+test("a file's kind is read from its whole path, not the folder the turn's files share", async () => {
+  // Both files sit under tests/, which their shown names drop.
+  const view = await render(turn(["/repo/tests/helpers.py", "/repo/tests/fixtures/answer.json"]));
+  try {
+    expect(view.names()).toEqual(["helpers.py", "fixtures/answer.json"]);
+    expect(view.kinds()).toEqual(["Tests", "Mocks"]);
+    expect(view.noTests()).toBeUndefined();
+  } finally {
+    await view.unmount();
+  }
+});
+
+test("a generated file the reader opens stays open", async () => {
+  const view = await render(turn(["/repo/src/a.ts", "/repo/package-lock.json"]));
+  try {
+    expect(view.folded()).toEqual(["/repo/package-lock.json"]);
+    const lockName = [...view.container.querySelectorAll<HTMLButtonElement>(".acpmux-fh-name")].find((button) =>
+      button.textContent?.includes("package-lock.json"),
+    )!;
+    await act(async () => lockName.click());
+    await settle();
+    expect(view.folded()).toEqual([]);
+  } finally {
+    await view.unmount();
+  }
+});
+
+test("orderByKind sorts by kind and hands back a list of one kind untouched", () => {
+  const items = ["src/a.ts", "src/b.ts"];
+  expect(orderByKind(items, (path) => path)).toBe(items);
+  expect(orderByKind(["yarn.lock", "README.md", "src/a.ts"], (path) => path)).toEqual([
+    "src/a.ts",
+    "README.md",
+    "yarn.lock",
+  ]);
+});

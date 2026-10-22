@@ -4,10 +4,21 @@ import React from "react";
 import type { DiffEdit, DiffHunk, TurnFile } from "../diff";
 import { ChevronDown, Code, Eye, OpenTab } from "../changeIcons";
 import { FileTypeIcon } from "./FileTypeIcon";
-import { useT } from "../i18n";
+import { useT, type StringKey } from "../i18n";
+import { fileKind, type FileKind } from "../../../fileKinds";
 import { Counts } from "./Counts";
 import { FileMenu } from "./FileMenu";
 import { openFileKeys, type HunkDecision, type HunkReview } from "./hunkReview";
+
+/// The kinds' names, as the pull request card and the diff viewer write them. Code is what a
+/// person came to read, so it goes unlabelled.
+const KIND_LABELS: Record<Exclude<FileKind, "code">, StringKey> = {
+  tests: "prCard.kind.tests",
+  mocks: "prCard.kind.mocks",
+  docs: "prCard.kind.docs",
+  evals: "prCard.kind.evals",
+  generated: "prCard.kind.generated",
+};
 
 export type FileView = { collapsed: boolean; viewed: boolean };
 /// Where the host opens a changed file: a tab beside the agent, or the editor app.
@@ -45,6 +56,8 @@ export function FileHeader({
   const open = review ? openFileKeys(file, review.decisions) : [];
   const decideFile = (decision: HunkDecision) => open.forEach((key) => review?.decide(key, decision));
   const slash = file.displayPath.lastIndexOf("/");
+  // The whole path: a turn's display path drops the folder its files share (DiffPanel.tsx).
+  const kind = fileKind(file.path);
   const additions = edit.hunks.reduce((sum, hunk) => sum + hunk.lines.filter((line) => line.type === "add").length, 0);
   const deletions = edit.hunks.reduce((sum, hunk) => sum + hunk.lines.filter((line) => line.type === "del").length, 0);
   return (
@@ -64,6 +77,11 @@ export function FileHeader({
       {file.deleted && <span className="acpmux-fh-badge">{t("changes.badgeDeleted")}</span>}
       {file.edits.length > 1 && <span className="acpmux-fh-badge">{`Edit ${index + 1} of ${file.edits.length}`}</span>}
       {file.outside && <span className="acpmux-fh-badge acpmux-fh-outside">{t("turn.outside")}</span>}
+      {kind !== "code" && (
+        <span className="acpmux-fh-badge acpmux-fh-kind" data-kind={kind}>
+          {t(KIND_LABELS[kind])}
+        </span>
+      )}
       <span className="acpmux-fh-spacer" />
       <Counts additions={additions} deletions={deletions} />
       <button

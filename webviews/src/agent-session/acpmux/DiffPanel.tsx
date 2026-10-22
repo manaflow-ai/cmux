@@ -30,6 +30,7 @@ import { ChatFindBar } from "./conversation/ChatFindBar";
 import { useDiffKeys } from "./changes/useDiffKeys";
 import { useScopeChanges } from "./changes/useScopeChanges";
 import { useT } from "./i18n";
+import { fileKind, missingTests, orderByKind } from "../../fileKinds";
 import { GitToolbarButtons, GitWriteBar } from "./changes/GitActions";
 import type { GitWriteOp, WriteKeys } from "./changes/gitWrite";
 import { useGitWrite } from "./changes/useGitWrite";
@@ -146,7 +147,14 @@ export function DiffPanel({
     onGitIntentHandled?.();
   }, [gitIntent, git, commitOpen, onGitIntentHandled]);
   const scopeFiles = useMemo(() => (load.state === "loaded" ? changeSetFiles(load.changeSet) : []), [load]);
-  const files = scope === "lastTurn" ? turnFiles : scopeFiles;
+  // The delineated diff, as the diff viewer and the pull request card read a change
+  // (fileKinds.ts): code first, then tests, mocks, docs, evals and generated files. A kind is
+  // read from the whole path, since a turn's display path drops the folder its files share
+  // (one file under `tests/` shows as `helpers.py`).
+  const files = useMemo(
+    () => [...orderByKind(scope === "lastTurn" ? turnFiles : scopeFiles, (file) => file.path)],
+    [scope, turnFiles, scopeFiles],
+  );
   const threadsByPath = useMemo(() => {
     const byPath = new Map<string, ReviewThread[]>();
     for (const thread of threads ?? []) byPath.set(thread.path, [...(byPath.get(thread.path) ?? []), thread]);
@@ -186,10 +194,26 @@ export function DiffPanel({
       : load.state === "loaded"
         ? "empty"
         : load.state;
+  // Code changed and no test did: the pull request card's warning, in its words.
+  const noTests = !scopeState && missingTests(files);
   const [layout, setLayout] = useState<DiffLayout>(() => (stored(LAYOUT_KEY) === "split" ? "split" : "unified"));
   const [wrap, setWrap] = useState(() => stored(WRAP_KEY) === "on");
   const [showTree, setShowTree] = useState(() => stored(TREE_KEY) !== "off");
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set());
+  // Generated files and lockfiles start folded, as the diff viewer defers them; the reader opens
+  // one from its header or the tree. Each file folds once, so one the reader opened stays open,
+  // and the file the view was opened on is never folded.
+  const generated = useMemo(
+    () => files.filter((file) => fileKind(file.path) === "generated").map((file) => file.path),
+    [files],
+  );
+  const [folded, setFolded] = useState<ReadonlySet<string>>(() => new Set());
+  const unfolded = generated.filter((path) => !folded.has(path));
+  if (unfolded.length > 0) {
+    setFolded(new Set([...folded, ...unfolded]));
+    const fold = unfolded.filter((path) => path !== initialPath);
+    if (fold.length > 0) setCollapsed((current) => new Set([...current, ...fold]));
+  }
   const [viewed, setViewed] = useState<ReadonlySet<string>>(() => new Set());
   const [selected, setSelected] = useState<string | undefined>(initialPath ?? files[0]?.path);
   const body = useRef<HTMLDivElement>(null);
@@ -459,6 +483,7 @@ export function DiffPanel({
             stopRevealing();
             setScope(next);
             setCollapsed(new Set());
+            setFolded(new Set());
             setViewed(new Set());
             setSelected(undefined);
             latestOpen.current += 1;
@@ -500,9 +525,10 @@ export function DiffPanel({
           </button>
         </div>
       )}
-      {(branch || skipped > 0 || turnNote) && (
+      {(branch || skipped > 0 || turnNote || noTests) && (
         <div className="acpmux-diff-notes">
           {turnNote && <output className="acpmux-turn-note">{turnNote}</output>}
+          {noTests && <output className="acpmux-diff-no-tests">{t("prCard.noTestsWhy")}</output>}
           {branch && (
             <div className="acpmux-branch-row">
               <BranchPill branch={branch.branch} base={branch.base} />
