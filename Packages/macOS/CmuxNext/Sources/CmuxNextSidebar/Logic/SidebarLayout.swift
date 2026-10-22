@@ -431,15 +431,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             // Group by Folder: groups as they were, then a header per folder
             // over its loose rows, folders in first-seen order, "no folder" last.
             for (index, entry) in nodes.enumerated() where isGroup(entry) { emit(index, entry) }
-            var folders: [String] = []
-            var members: [String: [Int]] = [:]
-            for (index, entry) in nodes.enumerated() {
-                guard case let .workspace(ws) = entry.node else { continue }
-                let folder = ws.folder ?? ""
-                if members[folder] == nil { folders.append(folder) }
-                members[folder, default: []].append(index)
-            }
-            if let none = folders.firstIndex(of: ""), none != folders.count - 1 { folders.append(folders.remove(at: none)) }
+            let (folders, members) = Self.folderBuckets(nodes.map(\.node))
             for folder in folders {
                 let indices = members[folder] ?? []
                 rows.append(SidebarRow(
