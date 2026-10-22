@@ -152,6 +152,15 @@ await requireBrowserLane("agent-pane-queue-row-click.test.ts", async () => {
     queue: queue.map((q) => ({ promptId: q.promptId, prompt: preview(q.prompt) })),
     turn: { turnId: "turn-1", promptId: "p-turn", startedAt: START },
     updatedAt: START,
+    // The access chip lists the agent's modes (acpmux's claude_stdio MODES).
+    modes: {
+      currentModeId: "default",
+      availableModes: [
+        { id: "default", name: "Manual", description: "Always ask before making changes" },
+        { id: "acceptEdits", name: "Accept edits", description: "Automatically accept all file edits" },
+        { id: "plan", name: "Plan", description: "Create a plan before making changes" },
+      ],
+    },
   });
 
   type Socket = { send(data: string): void };
@@ -375,6 +384,86 @@ await requireBrowserLane("agent-pane-queue-row-click.test.ts", async () => {
         expect(await field.inputValue()).toBe("also man what happened with the space thing");
         await page.close();
       });
+    });
+  }
+
+  // With a composer chip's menu open, one press on a queued row's control both closes the menu and
+  // does what the control says (the dead click on nightly 331e2e9: menuPressGuard.ts swallowed every
+  // press outside the open menu that was not on a menu button, so Steer and the trash can only closed
+  // the chip). The chips are the access (Mode) menu and the model menu; each action is pressed only
+  // where the open menu leaves it uncovered (the model menu's Effort row sits over Steer, and the
+  // context card over all three, so a press there is the menu's own).
+  const CHIPS = {
+    access: 'button[aria-haspopup][aria-label="Mode"]',
+    model: 'button[aria-haspopup][aria-label="Model"]',
+  } as const;
+  const chipOpen = (page: Page, chip: string) =>
+    page
+      .locator(chip)
+      .evaluate((button) => button.getAttribute("aria-expanded") === "true" || button.hasAttribute("data-popup-open"));
+  /// Opens `chip`'s menu with a real press. The pointer then goes straight to the action, as a
+  /// person's does: the access menu opens over the row's text, so the row's hover comes from the
+  /// action itself.
+  const openChip = async (page: Page, chip: string) => {
+    await press(page, chip);
+    await page.waitForFunction(
+      (sel) => {
+        const button = document.querySelector(sel)!;
+        return button.getAttribute("aria-expanded") === "true" || button.hasAttribute("data-popup-open");
+      },
+      chip,
+      { timeout: 5_000 },
+    );
+  };
+  const chipClosed = (page: Page, chip: string) =>
+    page.waitForFunction(
+      (sel) => {
+        const button = document.querySelector(sel)!;
+        return button.getAttribute("aria-expanded") !== "true" && !button.hasAttribute("data-popup-open");
+      },
+      chip,
+      { timeout: 5_000 },
+    );
+  const ACTIONS = {
+    steer: async (page: Page) => {
+      await press(page, `${ROW} [data-action="steer"]`);
+      await sent("_acpmux/queue_edit");
+      expect(calls.filter((call) => call.method === "_acpmux/queue_edit").map((call) => call.params)).toEqual([
+        expect.objectContaining({ promptId: "q-2", op: "send_now" }),
+      ]);
+    },
+    trash: async (page: Page) => {
+      await press(page, `${ROW} [data-action="delete"]`);
+      await page.locator(ROW).waitFor({ state: "detached", timeout: 5_000 });
+      expect(
+        calls.filter((call) => call.method === "_acpmux/queue_remove").map((call) => call.params.promptId),
+      ).toEqual(["q-2"]);
+    },
+    more: async (page: Page) => {
+      await press(page, `${ROW} [data-menu="queued-more"]`);
+      await page.getByRole("menuitem", { name: /Edit message/ }).waitFor({ timeout: 5_000 });
+    },
+  } as const;
+  const OPEN_CHIP_CASES: [keyof typeof CHIPS, keyof typeof ACTIONS][] = [
+    ["access", "steer"],
+    ["access", "trash"],
+    ["access", "more"],
+    ["model", "trash"],
+    ["model", "more"],
+  ];
+  for (const engine of ["chromium", "webkit"] as const) {
+    describe(`queued row with a chip's menu open (${engine})`, () => {
+      for (const [chip, action] of OPEN_CHIP_CASES)
+        test(`one press on ${action} closes the ${chip} menu and does what it says`, async () => {
+          const page = await openChat(true, undefined, [], engine);
+          await caughtUp(page, "the cwd fix.");
+          calls.length = 0;
+          await openChip(page, CHIPS[chip]);
+          await ACTIONS[action](page);
+          await chipClosed(page, CHIPS[chip]);
+          expect(await chipOpen(page, CHIPS[chip])).toBe(false);
+          await page.close();
+        });
     });
   }
 });
