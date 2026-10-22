@@ -438,8 +438,15 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 }
                 PeerCmd::Update { name, all, binary_dir, if_idle } => {
                     // Run from a session, `--if-idle` never waits on that session's own turn.
-                    let caller =
-                        std::env::var("ACPMUX_SESSION_ID").ok().filter(|id| !id.is_empty());
+                    let caller = match std::env::var("ACPMUX_SESSION_ID") {
+                        Ok(session) if if_idle && !session.is_empty() => {
+                            let status = client.request(method::MUX_STATUS, json!({})).await?;
+                            status.get("personInstance").and_then(Value::as_str).map(|d| {
+                                crate::cli::hosts::Caller { session, daemon: d.to_owned() }
+                            })
+                        }
+                        _ => None,
+                    };
                     let opts = crate::cli::hosts::UpdateOptions { binary_dir, if_idle, caller };
                     return crate::cli::hosts::update(client, name, all, opts, json_out).await;
                 }
