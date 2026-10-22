@@ -36,3 +36,15 @@ test("the Voice input row shows home.voiceInput and its switch writes it", async
   expect(toggle(page.container).getAttribute("aria-checked")).toBe("false");
   page.unmount();
 });
+
+test("Voice input sits on the Chief page's Behavior card, one glass card", async () => {
+  const page = await renderPage({
+    path: "/settings/chief",
+    setup: (provider) => provider.setHost({ ...provider.host, voice_input: { on: true } }),
+  });
+  await settle();
+  const behavior = card(page.container)!;
+  expect(behavior.classList.contains("ui-glass")).toBe(true);
+  expect(behavior.querySelector(".group-title")?.textContent).toBe("Behavior");
+  page.unmount();
+});
