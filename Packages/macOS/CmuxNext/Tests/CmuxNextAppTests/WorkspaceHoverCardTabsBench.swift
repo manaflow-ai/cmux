@@ -78,11 +78,15 @@ import Testing
         let card = WorkspaceHoverCardView()
         window.contentView = card
         let now = Date()
+        // One hover is one event: the app's run loop drains the autorelease pool after each, so
+        // the bench does too (without it, AppKit's autoreleased layout objects read as held heap).
         func hover(_ workspace: SidebarWorkspace) {
-            card.configure(.make(workspace, machine: nil, now: now))
-            card.layoutSubtreeIfNeeded()
-            _ = card.fittingSize
-            CATransaction.flush() // perf-gate-ok: the bench times the card's commit
+            autoreleasepool {
+                card.configure(.make(workspace, machine: nil, now: now))
+                card.layoutSubtreeIfNeeded()
+                _ = card.fittingSize
+                CATransaction.flush() // perf-gate-ok: the bench times the card's commit
+            }
         }
         // Warm: the first card makes its views and fonts.
         let coldStart = Self.threadCPUms()
