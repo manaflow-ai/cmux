@@ -315,3 +315,40 @@ final class SinkBox: @unchecked Sendable {
         #expect(model.notice == nil)
     }
 }
+
+/// Keyboard input to a streamed page: what each key sends, and how much of the page
+/// the keyboard covers (the page lays out above it).
+@Suite struct StreamedKeyboardTests {
+    let wire = RemoteBrowserWire()
+
+    func object(_ data: Data) -> [String: Any] { (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:] }
+
+    @Test func typedTextReturnAndTab() {
+        let text = StreamedBrowserKey.typed("héllo 👋", wire: wire).map(object)
+        #expect(text.count == 1 && text[0]["e"] as? String == "ime_commit" && text[0]["text"] as? String == "héllo 👋")
+        let enter = StreamedBrowserKey.typed("\n", wire: wire).map(object)
+        #expect(enter.map { $0["down"] as? Bool } == [true, false])
+        #expect(enter.allSatisfy { $0["code"] as? String == "Enter" && $0["text"] as? String == "\r" })
+        let tab = StreamedBrowserKey.typed("\t", wire: wire).map(object)
+        #expect(tab.first?["code"] as? String == "Tab")
+        #expect(StreamedBrowserKey.typed("", wire: wire).isEmpty)
+    }
+
+    @Test func barKeysAndShortcuts() {
+        let all = StreamedBrowserKey.selectAll.events(wire).map(object)
+        #expect(all[0]["code"] as? String == "KeyA" && all[0]["modifiers"] as? Int == 8)
+        #expect((all[0]["edit_commands"] as? [[String: String]])?.first?["name"] == "SelectAll")
+        #expect((all[1]["edit_commands"] as? [Any])?.isEmpty == true && all[1]["down"] as? Bool == false)
+        #expect(StreamedBrowserKey.escape.events(wire).map(object).first?["code"] as? String == "Escape")
+        #expect(StreamedBrowserKey.left.events(wire).map(object).first?["key"] as? String == "ArrowLeft")
+        #expect(StreamedBrowserKey.copy.events(wire).map(object).first?["modifiers"] as? Int == 8)
+    }
+
+    @Test func theKeyboardCoversTheBottomOfThePage() {
+        let page = CGRect(x: 0, y: 59, width: 402, height: 700)
+        #expect(StreamedBrowserKey.covered(page: page, keyboard: nil) == 0)
+        #expect(StreamedBrowserKey.covered(page: page, keyboard: CGRect(x: 0, y: 874, width: 402, height: 336)) == 0)
+        #expect(StreamedBrowserKey.covered(page: page, keyboard: CGRect(x: 0, y: 500, width: 402, height: 374)) == 259)
+        #expect(StreamedBrowserKey.covered(page: page, keyboard: CGRect(x: 0, y: 0, width: 402, height: 874)) == 700)
+    }
+}

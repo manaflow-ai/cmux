@@ -595,7 +595,16 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   - An older hostd refuses every address but http, https and `about:blank`
     ("only http, https and about:blank load") and drops other `rb.navigate`
     without an answer. The phone's address bar sends `file:` URLs, Mac paths
-    (`/Users/...` becomes a `file:` URL) and the other schemes as typed. Under
+    (`/Users/...` becomes a `file:` URL) and the other schemes as typed.
+  **Keyboard** (2026-10-21): the phone types into the page with rb input events on
+  the input lane: text as `ime_commit`, Return, Tab, Backspace, Escape and arrows
+  as `key` down/up, and shortcuts as `key` with `modifiers` (Command = 8) and the
+  Mac's `edit_commands` (`SelectAll`, `Copy`, `Cut`, `Undo`). Paste sends the
+  phone's clipboard text as `ime_commit`. While the keyboard shows, the phone sends
+  `rb.screen` with the page's visible height, so the page lays out above the
+  keyboard. Hiding the keyboard sends nothing (the page keeps its focus). The host
+  does not report the focused field yet (`rb.text_input`), so the phone cannot
+  raise the keyboard by itself when the page focuses a field. Under
   `CMUX_MOBILE_CONTROL=stdio` the app starts the hosts: hostd writes
   `{"type":"need_browser","request","tab","url"}` and the app answers
   `{"type":"browser","request","addr":"127.0.0.1:PORT","secret"}` or
