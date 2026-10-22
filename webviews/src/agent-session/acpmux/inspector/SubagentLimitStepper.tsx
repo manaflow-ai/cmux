@@ -89,9 +89,9 @@ export function SubagentLimitStepper({
           </span>
         )}
       </span>
-      <span className="acpmux-subagent-limit__refused" role="status">
+      <output className="acpmux-subagent-limit__refused">
         {failed ? t("chatInspector.subagents.limit.refused") : ""}
-      </span>
+      </output>
       {onSet && (
         <span className="acpmux-subagent-limit__controls">
           {own && (
