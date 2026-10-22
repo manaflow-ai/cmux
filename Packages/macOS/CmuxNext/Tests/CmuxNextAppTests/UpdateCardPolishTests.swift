@@ -46,7 +46,6 @@ import Testing
     @Test func theUpdateReadyCardHasNoAutomaticUpdatesRow() {
         let card = SidebarUpdateCardView(frame: NSRect(x: 0, y: 0, width: 216, height: 120))
         let model = SidebarUpdateCard(title: "Update Ready", detail: "nightly 3969569 · Oct 21", buttonTitle: "Restart to Update",
-                                      automaticUpdatesTitle: "Automatic Updates", automaticUpdates: true,
                                       notes: .init(headline: "Update Ready", keepsRunning: ""))
         card.configure(model)
         card.frame.size.height = SidebarUpdateCardView.height(for: model)

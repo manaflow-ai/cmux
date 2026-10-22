@@ -1,10 +1,8 @@
 import CmuxUpdater
 public import Foundation
 
-/// UPDATE-CARD: the staged update card's content, its release notes
-/// (fetched once when the update is staged, never on hover) and its
-/// Automatic Updates checkbox (`updates.downloadAutomatically`, written by
-/// the App's settings path).
+/// UPDATE-CARD: the staged update card's content and its release notes
+/// (fetched once when the update is staged, never on hover).
 extension UpdaterService {
     /// The card while an update is staged or installing; nil otherwise and,
     /// for a staged update, under `updates.notify` silent (``footerPill``)
@@ -19,7 +17,7 @@ extension UpdaterService {
         if pill == .ready, case .ready(let version) = flow.phase,
            updateSnooze.hides(version: version, at: now()) { return nil }
         let notes = UpdateReadyNotes(version: stagedVersion, notes: stagedNotes, fullNotesURL: stagedReleaseNotesURL)
-        return UpdateReadyCard(version: stagedVersion, isInstalling: !pill.isEnabled, automaticUpdates: automaticUpdates, notes: notes,
+        return UpdateReadyCard(version: stagedVersion, isInstalling: !pill.isEnabled, notes: notes,
                                changelog: stagedChangelog)
     }
 
@@ -34,12 +32,6 @@ extension UpdaterService {
     public var stagedReleaseNotesURL: URL? {
         stagedVersion.flatMap { UpdateState.ReleaseNotes(displayVersionString: $0)?.url }
             ?? URL(string: "https://github.com/manaflow-ai/cmux/releases")
-    }
-
-    /// The checkbox: writes the setting; the setting's change comes back
-    /// through ``configure(checkAutomatically:checkInterval:downloadAutomatically:metered:ring:)``.
-    public func setAutomaticUpdates(_ on: Bool) {
-        writeSetting?(.automaticUpdates, on)
     }
 
     /// Follows the flow's phase: a staged update records its version and
