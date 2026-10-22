@@ -80,4 +80,18 @@ describe("vault transcript JSONL parsing", () => {
 
     expect(messages).toEqual([{ role: "assistant", text }]);
   });
+
+  test("handles a giant line streamed in many chunks without quadratic buffering", () => {
+    const text = "x".repeat(8 * 1024 * 1024);
+    const line = JSON.stringify({ role: "assistant", content: text }) + "\n";
+    const messages: TranscriptMessage[] = [];
+    const parser = new TranscriptLineParser((message) => messages.push(message));
+
+    for (let offset = 0; offset < line.length; offset += 256) {
+      parser.feed(line.slice(offset, offset + 256));
+    }
+    parser.finish();
+
+    expect(messages).toEqual([{ role: "assistant", text }]);
+  });
 });
