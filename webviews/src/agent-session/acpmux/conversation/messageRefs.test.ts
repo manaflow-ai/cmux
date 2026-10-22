@@ -34,6 +34,10 @@ test("a pull request written twice in a row shows once", () => {
   // A bracket with the agent's words in it is theirs; an empty bracket they wrote stays.
   expect(dedupeReferences("Reverted #5 (#5 broke main)", repo)).toBe("Reverted #5 (#5 broke main)");
   expect(dedupeReferences("f() #5 (manaflow-ai/cmux#5, #5)", repo)).toBe("f() #5");
+  expect(dedupeReferences("Fix #5 [manaflow-ai/cmux#5] broke", repo)).toBe("Fix #5 broke");
+  // A fence closes only on its own kind of fence: a ``` line inside a ~~~ block is code.
+  const fenced = ["~~~", "```", "#5 manaflow-ai/cmux#5", "~~~", "#5 manaflow-ai/cmux#5"].join("\n");
+  expect(dedupeReferences(fenced, repo)).toBe(["~~~", "```", "#5 manaflow-ai/cmux#5", "~~~", "#5"].join("\n"));
 });
 
 test("deduping a line is quick whatever it holds", () => {

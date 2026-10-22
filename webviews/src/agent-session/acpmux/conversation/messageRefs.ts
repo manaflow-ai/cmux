@@ -10,31 +10,40 @@ const BETWEEN = /^[\s,;:()[\]/|=·•—–-]*(?:[0-9a-f]{7,40}(?![0-9a-f])[\s,;
 /// What may follow a repeat that opens a bracket, up to its close: separators, SHAs and other
 /// references ("#1 (o/r#1, abc1234, #1)"); words after it ("#5 (#5 broke main)") make it the
 /// agent's own.
-const BRACKET_REST = /^(?:[\s,;]|[0-9a-f]{7,40}(?![0-9a-f])|[\w.-]*(?:\/[\w.-]+)?#\d+)*\)/;
+const BRACKET_REST = /^(?:[\s,;]|[0-9a-f]{7,40}(?![0-9a-f])|[\w.-]*(?:\/[\w.-]+)?#\d+)*[)\]]/;
 /// A line longer than this is left as written (its references are read once each, but its links
 /// are not).
 const LONGEST_LINE = 4000;
 /// Stands in for a dropped repeat until the brackets it leaves empty go.
 const DROPPED = "\uE000";
-/// A fence's opening or closing line; a code span, a link or an image, which are never rewritten.
-const FENCE = /^\s{0,3}(?:```|~~~)/;
+/// A code span, a link or an image, which are never rewritten.
 const CODE_SPAN = /(`+)[^`\n]*?\1|!?\[[^\]\n]*\]\([^)\n]*\)/g;
 
 /// `text` without the second spelling of a reference written twice in a row. `repository` is the
 /// one a bare `#N` means (the transcript's).
 export function dedupeReferences(text: string, repository?: string): string {
   if (!text.includes("#")) return text;
-  let fenced = false;
+  let open: string | undefined;
   return text
     .split("\n")
     .map((line) => {
-      if (FENCE.test(line)) {
-        fenced = !fenced;
-        return line;
-      }
-      return fenced ? line : dedupeLine(line, repository);
+      const step = fenceStep(line, open);
+      open = step.open;
+      return step.fenced ? line : dedupeLine(line, repository);
     })
     .join("\n");
+}
+
+/// A fenced block's state after `line`, given the fence that opened the block it is in (`open`, its
+/// marker: "```", "~~~~"): the fence still open after it, and whether `line` is fenced (a fence's
+/// own lines included). Only a fence of the same character, at least as long, with nothing after
+/// it, closes the block (CommonMark).
+export function fenceStep(line: string, open: string | undefined): { open: string | undefined; fenced: boolean } {
+  const marker = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
+  if (open === undefined) return { open: marker, fenced: marker !== undefined };
+  const closes =
+    marker !== undefined && marker[0] === open[0] && marker.length >= open.length && line.trim() === marker;
+  return { open: closes ? undefined : open, fenced: true };
 }
 
 function dedupeLine(line: string, repository?: string): string {
@@ -51,8 +60,9 @@ function dedupeLine(line: string, repository?: string): string {
     const before = last.get(key);
     last.set(key, ref);
     if (!before || !BETWEEN.test(prose.slice(before.end, ref.start))) continue;
-    // In brackets by itself ("o/r#1 (#1)"), the brackets go with it.
-    if (line[ref.start - 1] === "(" && line[ref.end] === ")") {
+    // In brackets by itself ("o/r#1 (#1)", "#5 [o/r#5]"), the brackets go with it.
+    const wrap = line[ref.start - 1];
+    if ((wrap === "(" && line[ref.end] === ")") || (wrap === "[" && line[ref.end] === "]")) {
       let start = ref.start - 1;
       while (start > before.end && /\s/.test(line[start - 1]!)) start--;
       push(drop, start, ref.end + 1);
@@ -62,7 +72,7 @@ function dedupeLine(line: string, repository?: string): string {
     let start = ref.start;
     let end = ref.end;
     while (start > before.end && /[\s,;/|=·•—–-]/.test(line[start - 1]!)) start--;
-    if (line[start - 1] === "(") {
+    if (line[start - 1] === "(" || line[start - 1] === "[") {
       if (!BRACKET_REST.test(prose.slice(ref.end))) continue;
       while (end < line.length && /[\s,;]/.test(line[end]!)) end++;
     }
@@ -78,7 +88,7 @@ function dedupeLine(line: string, repository?: string): string {
   out += line.slice(at);
   // Brackets left empty by the repeats they held go too ("#1 (o/r#1, #1)" is "#1"); an empty
   // bracket the agent wrote (`f()`) stays.
-  return out.replace(/\s*\(\s*(?:\uE000[\s,;]*)+\)/g, "").replaceAll(DROPPED, "");
+  return out.replace(/\s*\(\s*(?:\uE000[\s,;]*)+\)|\s*\[\s*(?:\uE000[\s,;]*)+\]/g, "").replaceAll(DROPPED, "");
 }
 
 /// Adds a range to drop after the ones before it, never overlapping them.

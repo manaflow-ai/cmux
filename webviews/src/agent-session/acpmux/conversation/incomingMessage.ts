@@ -94,6 +94,8 @@ export function incomingPrompt(
   msg: { _meta?: { provenance?: unknown }; client?: unknown } | undefined,
 ): IncomingPrompt | undefined {
   const provenance = msg?._meta?.provenance as Record<string, unknown> | undefined;
+  // Relayed from another machine (acpmux hub/peers.rs): its files are that machine's, on every path.
+  const remote = String(msg?.client ?? "").startsWith("acpmux-peer#") ? { remote: true as const } : {};
   const fromSession = provenance?.kind === "subsession_message" || provenance?.kind === "session_message";
   if (fromSession && typeof provenance.from === "string" && provenance.from) {
     // `from` is the sender's raw session id, always a chat here; its short name, when it is a
@@ -113,6 +115,7 @@ export function incomingPrompt(
         name: signed?.name ?? name,
         ...(sessionId && { sessionId }),
         ...(relation && { relation }),
+        ...remote,
         text: signed?.text ?? text.trim(),
         raw: text,
       },
@@ -132,7 +135,10 @@ export function incomingPrompt(
     if (senders.length > 0) {
       const name = senders.length > 3 ? `${senders.slice(0, 3).join(", ")} +${senders.length - 3}` : senders.join(", ");
       const body = digestBody(text) || text.trim();
-      return { kind: "message", message: { name, ...digestReply(provenance.messages), text: body, raw: text } };
+      return {
+        kind: "message",
+        message: { name, ...digestReply(provenance.messages), ...remote, text: body, raw: text },
+      };
     }
   }
   if (provenance?.kind === "agent_message" && typeof provenance.from === "string" && provenance.from) {
@@ -155,6 +161,7 @@ export function incomingPrompt(
         ...(sessionId && { sessionId }),
         ...id("msgId"),
         ...id("threadId"),
+        ...remote,
         text: signed?.text ?? body,
         raw: text,
       },
@@ -162,7 +169,6 @@ export function incomingPrompt(
   }
   if (!provenance && typeof msg?.client === "string" && CLI_CLIENT.test(msg.client)) {
     const named = namedFirst(text.trim()) ?? fromFirst(text.trim());
-    const remote = String(msg.client).startsWith("acpmux-peer#") ? { remote: true as const } : {};
     if (named) return { kind: "message", message: { ...named, ...remote, raw: text } };
   }
   if (msg?.client !== "adopt") return undefined;
@@ -283,12 +289,12 @@ function agentSigned(text: string, known: readonly unknown[] = []): { name: stri
 }
 
 /// Whether `name` is one of the sender's `known` names, or one of them on another machine
-/// (`<peer>/<name>`, acpmux hub/peers.rs), ignoring case.
+/// (`<peer>/<name>`, acpmux hub/peers.rs), ignoring case and runs of spaces.
 function namesSender(name: string, known: readonly unknown[]): boolean {
-  const said = name.toLowerCase();
+  const said = name.toLowerCase().replace(/\s+/g, " ");
   return known.some((value) => {
     if (typeof value !== "string" || !value.trim()) return false;
-    const full = value.trim().toLowerCase();
+    const full = value.trim().toLowerCase().replace(/\s+/g, " ");
     return said === full || said === full.split("/").at(-1) || full === said.split("/").at(-1);
   });
 }

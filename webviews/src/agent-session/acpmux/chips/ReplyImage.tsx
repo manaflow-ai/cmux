@@ -137,9 +137,13 @@ export function ReplyImage({
 }) {
   const scope = useMessageScope();
   const local = localImageSource(src);
-  // Another machine's image: its chip, never a file of the same path here.
+  // Another machine's image: its chip, never a file of the same path here; a denied one is its name.
   if (local && scope?.host !== undefined)
-    return <ElsewhereChip path={local} host={scope.host} label={alt || undefined} />;
+    return isDeniedPath(local) ? (
+      <span className="cv-chip-plain">{alt || pathName(local)}</span>
+    ) : (
+      <ElsewhereChip path={local} host={scope.host} label={alt || undefined} />
+    );
   if (local && mediaKind(local)) return <ReplyMedia path={local} alt={alt} fallback={fallback} />;
   if (!local && isRemoteMedia(src)) return <RemoteMedia url={src} alt={alt} fallback={fallback} />;
   const host = local ? undefined : remoteImageHost(src);

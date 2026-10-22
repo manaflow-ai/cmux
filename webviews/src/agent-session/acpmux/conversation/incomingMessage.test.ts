@@ -47,6 +47,11 @@ test("agent_message provenance names the sending chat", () => {
   // Without a name the address stands in.
   const unnamed = incomingPrompt("hi", { _meta: { provenance: { ...provenance, fromName: undefined } } });
   expect(unnamed?.kind === "message" && unnamed.message.name).toBe("acp:child-3");
+  // Relayed from another machine: its files are that machine's, whatever provenance it carries.
+  for (const kind of ["agent_message", "session_message"]) {
+    const relayed = incomingPrompt("hi", { _meta: { provenance: { ...provenance, kind } }, client: "acpmux-peer#air" });
+    expect(relayed?.kind === "message" && relayed.message.remote).toBe(true);
+  }
 });
 
 test("only a chat's address opens; a terminal agent or a person at a shell does not", () => {
