@@ -64,8 +64,8 @@ gh variable list --repo manaflow-ai/cmux
 
 | Variable | Used by | Intended steady state | Fallback baked into the workflow |
 | --- | --- | --- | --- |
-| `LINUX_RUNNER` | every Linux job (`ci.yml` web/typecheck/db, presence, cloud-vm, nightly/ios decide jobs, homebrew, tmux fuzz) | `blacksmith-4vcpu-ubuntu-2404` | `blacksmith-4vcpu-ubuntu-2404` |
-| `LINUX_BUILD_RUNNER` | the cmux-tui tree's Linux musl and macOS-on-Linux build legs (`cmux-tui-build-package.yml`), which run every cargo group at once (`scripts/ci/cargo-groups.sh`) | unset | `blacksmith-16vcpu-ubuntu-2404` (forks: `ubuntu-24.04`) |
+| `LINUX_RUNNER` | every small Linux job (guards, status, API scripts, cloud-vm contracts, nightly/ios decide jobs, homebrew). Linux jobs that compile (Rust, cross builds, zig, Go, C++, Gradle, web builds and suites) take `blacksmith-32vcpu-ubuntu-2404`, or `blacksmith-16vcpu-ubuntu-2404` for small compiles, and read it only when it names a non-Blacksmith runner (the outage switch; see "Blacksmith outage" below, `tests/test_ci_linux_compile_runners.py`) | `blacksmith-4vcpu-ubuntu-2404` | `blacksmith-4vcpu-ubuntu-2404` |
+| `LINUX_BUILD_RUNNER` | the cmux-tui tree's Linux musl and macOS-on-Linux build legs (`cmux-tui-build-package.yml`), which run every cargo group at once (`scripts/ci/cargo-groups.sh`) | unset | `blacksmith-32vcpu-ubuntu-2404` (forks: `ubuntu-24.04`) |
 | `CI_TRUSTED_RUNNER` | jobs holding trusted tokens that must run on an ephemeral VM: the required `backend migrations applied` check and `web-complexity-trusted.yml` (`validate-cla-policy.rb` accepts this exact selector for the CLA checks too, with a runner guard step that admits only GitHub-hosted runners and Blacksmith VMs; `cla.yml` and `cla-policy-guard.yml` pin `ubuntu-24.04` until they move to it). Only `ubuntu-24.04`, `blacksmith-2vcpu-ubuntu-2404` or `blacksmith-4vcpu-ubuntu-2404` is accepted; any other value, owned label included, falls back. Set it to `ubuntu-24.04` when Blacksmith stalls, or leave it unset when GitHub-hosted runners stall | unset | `blacksmith-4vcpu-ubuntu-2404` (forks: `ubuntu-24.04`) |
 | `LINUX_ARM64_RUNNER` | native ARM64 package entrypoint verification | `ubuntu-24.04-arm` | `ubuntu-24.04-arm` |
 | `MACOS_RUNNER_15` | the macOS 15 default: `macos-compile-admission`, non-PR `app-host-unit-tests`, nightly helper and test-cache jobs, `iroh-release-gate.yml` streamed validation | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
@@ -979,6 +979,16 @@ its `watch` job, on GitHub-hosted Linux, waits for the probe:
   back (a variable changed by hand since is left alone and named) and the
   record is deleted. While the record exists the probe asks for the label it
   names, not `LINUX_RUNNER`, which is GitHub-hosted then.
+
+The Linux compile jobs on the 16 and 32 vCPU sizes follow `LINUX_RUNNER` only
+while it is off Blacksmith. Their trusted fallback is
+`!startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || '<size>'`:
+while `LINUX_RUNNER` is unset or names a `blacksmith-*` label (the steady
+4 vCPU value) they take their own size, and once the switch points it at
+`ubuntu-24.04` they run there too, so the switch's rerun does not queue them
+on the stalled pool again. When the switch puts `LINUX_RUNNER` back, they
+return to their size. `tests/test_ci_linux_compile_runners.py` pins each
+selector.
 
 The lane switches (`CI_PR_POOL_OWNED`, `CI_E2E_OWNED_UI`, `CI_IOS_OWNED` and
 the other `CI_OWNED_*`) are never touched: minis first does not change, only

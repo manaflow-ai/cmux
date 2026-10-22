@@ -15,8 +15,8 @@ enum AgentChatTabTitle {
     }
 
     /// A workspace name as a chat's: without the subagent id an older Chief put in front of its
-    /// subagents' workspace names (``ChiefWorkspaceName/taskTitle(_:)``); nil when empty.
+    /// subagents' workspace names (`String.chiefTaskTitle`); nil when empty.
     static func taskName(_ workspaceName: String) -> String? {
-        ChiefWorkspaceName.taskTitle(workspaceName)
+        workspaceName.chiefTaskTitle
     }
 }
