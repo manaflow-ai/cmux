@@ -144,8 +144,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextTasks/Views/TasksBoardView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextTasks/Views/TasksInboxView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextTasks/Views/TasksListView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextTasks/Views/TasksView.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/UpdateSheetController.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/UpdateSheetView.swift
 Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/FirstFrameColorsTests.swift
 Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/ThemedNoticeControlsTests.swift
 Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/ThemedPlainFieldsTests.swift

@@ -2,7 +2,6 @@ public import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
 import Observation
-import SwiftUI
 
 /// Presents the update sheet: a compact Liquid Glass panel attached as a
 /// window sheet (or a standalone floating panel with no window). It resizes
@@ -12,7 +11,7 @@ import SwiftUI
 public final class UpdateSheetController {
     private let source: any UpdateSheetSource
     private var panel: UpdateSheetPanel?
-    private var hosting: NSHostingView<UpdateSheetView>?
+    private var body: UpdateSheetView?
     private var watch: Task<Void, Never>?
 
     public init(source: any UpdateSheetSource) {
@@ -22,7 +21,7 @@ public final class UpdateSheetController {
     public var isPresented: Bool { panel != nil }
 
     /// The sheet's body while it shows (tests read its views).
-    var bodyView: NSView? { hosting }
+    var bodyView: NSView? { body }
 
     /// Redraws the body from the source now (the observation does it on the next turn).
     func reload() { fit() }
@@ -39,17 +38,20 @@ public final class UpdateSheetController {
         panel.hasShadow = true
         panel.isReleasedWhenClosed = false
         panel.onCancel = { [weak self] in self?.cancel() }
-        let hosting = NSHostingView(rootView: UpdateSheetView(source: source, dismiss: { [weak self] in self?.dismiss() }))
-        hosting.translatesAutoresizingMaskIntoConstraints = false
-        // The solid popup surface, never glass: the update notes are text. The hosting view keeps
-        // its constraints, so its fitting size still sizes the sheet.
+        let source = source
+        let body = UpdateSheetView(press: { [weak self] button in
+            source.perform(button)
+            if button.dismisses { self?.dismiss() }
+        })
+        // The solid popup surface, never glass: the update notes are text. The body keeps
+        // its constraints, so its fitting size sizes the sheet.
         let glass = Glass.makeOverlayPanel()
-        glass.contentView.addSubview(hosting)
+        glass.contentView.addSubview(body)
         NSLayoutConstraint.activate([
-            hosting.leadingAnchor.constraint(equalTo: glass.contentView.leadingAnchor),
-            hosting.trailingAnchor.constraint(equalTo: glass.contentView.trailingAnchor),
-            hosting.topAnchor.constraint(equalTo: glass.contentView.topAnchor),
-            hosting.bottomAnchor.constraint(equalTo: glass.contentView.bottomAnchor),
+            body.leadingAnchor.constraint(equalTo: glass.contentView.leadingAnchor),
+            body.trailingAnchor.constraint(equalTo: glass.contentView.trailingAnchor),
+            body.topAnchor.constraint(equalTo: glass.contentView.topAnchor),
+            body.bottomAnchor.constraint(equalTo: glass.contentView.bottomAnchor),
         ])
         let root = NSView()
         root.addSubview(glass)
@@ -61,7 +63,7 @@ public final class UpdateSheetController {
         ])
         panel.contentView = root
         self.panel = panel
-        self.hosting = hosting
+        self.body = body
         fit()
         if let window {
             window.beginSheet(panel)
@@ -78,7 +80,7 @@ public final class UpdateSheetController {
         watch = nil
         guard let panel else { return }
         self.panel = nil
-        hosting = nil
+        body = nil
         if let parent = panel.sheetParent { parent.endSheet(panel) } else { panel.orderOut(nil) }
     }
 
@@ -90,8 +92,9 @@ public final class UpdateSheetController {
     }
 
     private func fit() {
-        guard let panel, let hosting else { return }
-        let size = hosting.fittingSize
+        guard let panel, let body else { return }
+        body.show(source.content)
+        let size = body.fittingSize
         guard size.width > 0, size.height > 0, size != panel.frame.size else { return }
         panel.setContentSize(size)
     }
