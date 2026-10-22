@@ -3,7 +3,7 @@
 // closures over module scope).
 //
 // One measurement: `arm(predicate)` with a predicate source that is false now; the next input
-// event (capture phase, any of pointerdown, mousedown, keydown, input, click) records its
+// event (capture phase, any of pointerdown, mousedown, keydown, input, click, paste) records its
 // `timeStamp`. A MutationObserver (and each animation frame, for shadow DOM) evaluates the
 // predicate; the first time it holds is the response, and the next animation frame after it is the
 // paint. Long tasks between the input and the paint come from the Long Tasks API where the engine
@@ -118,7 +118,7 @@ export function installLatencyProbe(): void {
     maxGap = 0;
     // A response applied inside this very handler chain is caught by the observer's microtask.
   };
-  for (const type of ["pointerdown", "mousedown", "keydown", "beforeinput", "input", "click"]) {
+  for (const type of ["pointerdown", "mousedown", "keydown", "beforeinput", "input", "click", "paste"]) {
     window.addEventListener(type, onInput, { capture: true });
   }
 

@@ -16,9 +16,6 @@ final class TerminalClipboardRequests {
     /// True only during a synchronous Ghostty key/binding call initiated by
     /// the user. A copy callback inside that call is not program output.
     private var userClipboardWriteInProgress = false
-    /// True while Ghostty synchronously commits a write the user approved in
-    /// ``confirm(contents:kind:state:)``.
-    private var approvedClipboardWriteInProgress = false
     /// At most one program-write dialog per surface; later writes are denied
     /// instead of growing the global dialog queue.
     private var writePromptPending = false
@@ -119,15 +116,24 @@ final class TerminalClipboardRequests {
         }
     }
 
-    /// Every callback that is not synchronous user copy or an already
-    /// approved Ghostty request is program output and requires consent.
-    func write(items: [TerminalClipboardItem], location: TerminalPasteboardLocation) {
-        if userClipboardWriteInProgress || approvedClipboardWriteInProgress {
+    /// Ghostty's write callback. Ghostty already applied `clipboard-write`:
+    /// it asks for confirmation only when the user set `ask` (and drops the
+    /// write for `deny`), so an unconfirmed write is committed silently.
+    func write(items: [TerminalClipboardItem], location: TerminalPasteboardLocation, requiresConfirmation: Bool) {
+        switch Self.writeDecision(userInitiated: userClipboardWriteInProgress,
+                                  requiresConfirmation: requiresConfirmation) {
+        case .write:
             guard userClipboardWriteInProgress || bounded(items) else { return }
             TerminalPasteboard.write(items, to: location)
-        } else {
+        case .confirm:
             confirmWrite(items: items, location: location)
         }
+    }
+
+    /// What a clipboard write callback does: a user's own copy always
+    /// writes; a program write asks only when Ghostty's config says `ask`.
+    nonisolated static func writeDecision(userInitiated: Bool, requiresConfirmation: Bool) -> TerminalClipboardWriteDecision {
+        userInitiated || !requiresConfirmation ? .write : .confirm
     }
 
     private func confirmProgramWrite(contents: String, contentBytes: Int, state: UncheckedPointer) {
@@ -142,8 +148,6 @@ final class TerminalClipboardRequests {
                 deny(state: state)
                 return
             }
-            approvedClipboardWriteInProgress = true
-            defer { approvedClipboardWriteInProgress = false }
             complete(state: state, with: contents)
         }
     }
