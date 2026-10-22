@@ -71,7 +71,7 @@ import Testing
         let expected: [String: AppFeature.Category] = [
             "appearance.ultraCompact": .appearance, "appearance.calm": .appearance,
             "appearance.brailleStatus": .appearance, "appearance.runningCommands": .appearance,
-            "chief.suggestedTasks": .chief, "chief.githubFeed": .chief,
+            "chief.suggestedTasks": .chief, "chief.githubFeed": .chief, "chat.needsYou": .chief,
             "editor.splitDiff": .editor, "editor.minimap": .editor,
             "devices.phoneAccess": .devices, "devices.globalHotKey": .devices,
         ]
@@ -182,11 +182,12 @@ import Testing
         let (settings, home) = try await Self.make()
         defer { try? FileManager.default.removeItem(at: home) }
         let bridge = SettingsAppFeatures(settings: { settings })
-        let newTabPlayer = try Self.feature("newTab.nowPlaying")
-        #expect(bridge.isOn(newTabPlayer), "on by default")
-        try await bridge.set(newTabPlayer, on: false)
-        #expect(settings.fileRoot.value(at: newTabPlayer.path) == .bool(false))
-        #expect(!bridge.isOn(newTabPlayer))
+        // The New Tab player was this test's feature until it went off by default (u8394).
+        let hoverCards = try Self.feature("sidebar.hoverCards")
+        #expect(bridge.isOn(hoverCards), "on by default")
+        try await bridge.set(hoverCards, on: false)
+        #expect(settings.fileRoot.value(at: hoverCards.path) == .bool(false))
+        #expect(!bridge.isOn(hoverCards))
     }
 
     /// Every card on its own key (the live toggle pass, 2026-10-21): pressing the card writes its

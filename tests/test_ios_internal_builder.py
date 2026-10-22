@@ -9,9 +9,13 @@ from __future__ import annotations
 
 import datetime as dt
 import importlib.util
+import json
+import os
 from pathlib import Path
+import subprocess
 import sys
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location("ios_internal_builder", ROOT / "scripts/ci/ios_internal_builder.py")
@@ -190,6 +194,55 @@ class AdmitTests(unittest.TestCase):
         ok, reason = ib.admit(self.env(), 10 * 1024 ** 3)
         self.assertFalse(ok)
         self.assertIn("GiB", reason)
+
+
+class FakeGh:
+    """Stands in for subprocess.run(["gh", "api", ...]): answers from a script of (returncode, stdout, stderr)."""
+
+    def __init__(self, *answers):
+        self.answers = list(answers)
+        self.calls = 0
+
+    def __call__(self, argv, **_kw):
+        self.calls += 1
+        code, out, err = self.answers.pop(0) if len(self.answers) > 1 else self.answers[0]
+        return subprocess.CompletedProcess(argv, code, out, err)
+
+
+RATE_LIMITED = (1, "", "gh: API rate limit exceeded for installation ID 1234. (HTTP 403)")
+RUNS_JSON = json.dumps({"workflow_runs": [{"id": 7, "display_title": f"cmux-next-ios INTERNAL {A}",
+                                           "status": "completed", "conclusion": "success",
+                                           "created_at": "2026-10-20T08:00:00Z"}]})
+
+
+class GitHubApiTests(unittest.TestCase):
+    """Run 39724971722: a rate-limited `gh api` read turned the whole decide job red."""
+
+    def test_retries_a_rate_limited_read(self):
+        gh = FakeGh(RATE_LIMITED, (0, RUNS_JSON, ""))
+        runs = ib.builder_runs(runner=gh, sleep=lambda _s: None)
+        self.assertEqual([r["sha"] for r in runs], [A])
+        self.assertEqual(gh.calls, 2)
+
+    def test_unregistered_workflow_is_no_runs(self):
+        gh = FakeGh((1, "", "gh: Not Found (HTTP 404)"))
+        self.assertEqual(ib.builder_runs(runner=gh, sleep=lambda _s: None), [])
+        self.assertEqual(gh.calls, 1)
+
+    def test_lasting_outage_skips_the_head_instead_of_failing(self):
+        gh = FakeGh(RATE_LIMITED)
+        with mock.patch.object(ib, "_show", return_value="x"), \
+                mock.patch.object(ib, "builder_has_script", return_value=True), \
+                mock.patch.dict(os.environ, {"GITHUB_OUTPUT": ""}):
+            code = ib.cmd_plan(A, ".", runner=gh, sleep=lambda _s: None)
+        self.assertEqual(code, 0)
+        self.assertGreater(gh.calls, 1)
+
+    def test_other_api_errors_still_fail(self):
+        gh = FakeGh((1, "", "gh: Resource not accessible by integration (HTTP 403)"))
+        with self.assertRaises(subprocess.CalledProcessError):
+            ib.builder_runs(runner=gh, sleep=lambda _s: None)
+        self.assertEqual(gh.calls, 1)
 
 
 if __name__ == "__main__":

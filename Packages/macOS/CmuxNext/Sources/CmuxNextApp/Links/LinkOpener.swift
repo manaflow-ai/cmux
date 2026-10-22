@@ -18,7 +18,7 @@ import CmuxNextWakeups
 /// A new tab for the pane on the right opens there, selected and focused. A new split or column is
 /// made by opening the tab unselected in the source pane and moving it there in one daemon move
 /// (`TabMoves`), the way an agent's tab reaches the column beside its chat (``AgentBesidePlacement``):
-/// the source keeps showing what it showed.
+/// the source keeps showing what it showed, and its strip never lists the tab (``OutboundTab``).
 @MainActor
 final class LinkOpener {
     /// Opens the item in `pane`. `placed` is nil for a tab that shows in `pane` now (selected and
@@ -31,7 +31,7 @@ final class LinkOpener {
 
     /// The app's services (they own this opener and outlive it).
     private weak var services: AppServices?
-    /// A pane a link's tab gives the focus back to when it closes (``returnPane(closing:in:)``).
+    /// A pane a link's tab gives the focus back to when its close empties its pane (``returnPane(closing:in:emptiesPane:)``).
     private struct Return {
         let pane: LayoutPaneID
         weak var content: WorkspaceContentController?
@@ -105,30 +105,34 @@ final class LinkOpener {
         case .pane(let id):
             return make(id == source.layoutPaneID ? source : source.workspace?.panes[id] ?? source, nil)
         case .splitRight:
-            return make(source) { [weak self, weak source] surface in
-                guard let self, let source else { return }
-                self.move(surface, from: source, to: .split(.right), focus: !background)
-            }
+            let outbound = OutboundTab.begin(in: source)
+            return outbound.started(make(source) { [weak self, weak source] surface in
+                guard let self, let source else { return outbound.finish(moved: false) }
+                self.move(surface, from: source, to: .split(.right), focus: !background, outbound: outbound)
+            })
         case .newColumn:
-            return make(source) { [weak self, weak source] surface in
-                guard let self, let source else { return }
-                self.move(surface, from: source, to: .besideColumn, focus: !background)
-            }
+            let outbound = OutboundTab.begin(in: source)
+            return outbound.started(make(source) { [weak self, weak source] surface in
+                guard let self, let source else { return outbound.finish(moved: false) }
+                self.move(surface, from: source, to: .besideColumn, focus: !background, outbound: outbound)
+            })
         case .besideDock:
             // The daemon makes a tab aimed at a lone pinned dock in a new column right of it.
             return make(source, nil)
         case .dockChat:
-            return make(source) { [weak source] surface in
-                guard let source else { return }
-                MainPaneLayout.dockChat(of: source, keeping: surface, focus: !background, services: source.services)
-            }
+            let outbound = OutboundTab.begin(in: source)
+            return outbound.started(make(source) { [weak source] surface in
+                guard let source else { return outbound.finish(moved: false) }
+                outbound.made(surface)
+                MainPaneLayout.dockChat(of: source, keeping: surface, focus: !background, services: source.services, outbound: outbound)
+            })
         }
     }
 
     /// A web link in a cmux browser tab (``LinkRouter/openInCmux``), as Chrome opens a clicked
     /// link (Leo 2026-10-21). In the source's own pane the clicked tab is its opener: the new tab
     /// goes right after it and its close selects it again (``BrowserTabOpeners``). A focused tab
-    /// anywhere else gives the focus back to the source when it closes (``returnPane(closing:in:)``).
+    /// anywhere else gives the focus back to the source when its close empties its pane (``returnPane(closing:in:emptiesPane:)``).
     @discardableResult
     func openWeb(_ url: URL, from source: PaneController?, background: Bool, cmdClick: Bool = false) -> Bool {
         let from = source ?? services?.windows.active?.focusedPane
@@ -156,11 +160,15 @@ final class LinkOpener {
     }
 
     /// The pane tab `id` of `pane` gives the focus back to as it closes: the pane it was clicked
-    /// open from (``returnFocus(of:to:in:)``), when `pane` has the focus and that pane still shows
-    /// in the same workspace. Nil otherwise. The record is spent either way.
-    func returnPane(closing id: StripTabID, in pane: PaneController) -> PaneController? {
+    /// open from (``returnFocus(of:to:in:)``), when the close empties `pane` (`emptiesPane`, so the
+    /// pane goes away with it), `pane` has the focus and that pane still shows in the same
+    /// workspace. Nil otherwise. The record is spent either way.
+    /// While `pane` has other tabs the focus stays in it, on the tab the close selects: Leo
+    /// 2026-10-21, "when i close a tab in the browser then it refocuses immediately back to the
+    /// agent pane", so his next Cmd-W closed the agent chat instead of the next browser tab.
+    func returnPane(closing id: StripTabID, in pane: PaneController, emptiesPane: Bool) -> PaneController? {
         returns = returns.filter { $0.value.content != nil }
-        guard let surface = pane.tab(id)?.surface, let back = returns.removeValue(forKey: surface),
+        guard let surface = pane.tab(id)?.surface, let back = returns.removeValue(forKey: surface), emptiesPane,
               let content = pane.workspace, back.content === content, back.pane != pane.layoutPaneID,
               content.focusedPane === pane else { return nil }
         return content.panes[back.pane]
@@ -198,7 +206,7 @@ final class LinkOpener {
         }
     }
 
-    /// Where ``move(_:from:to:focus:)`` takes a new tab.
+    /// Where ``move(_:from:to:focus:outbound:)`` takes a new tab.
     enum Destination {
         /// A new split of the tab's pane on this side.
         case split(PaneEdge)
@@ -238,16 +246,19 @@ final class LinkOpener {
             }
         }
         guard let destination else { return make(pane, nil) }
-        return make(pane) { [weak self, weak pane] surface in
-            guard let self, let pane else { return }
-            self.move(surface, from: pane, to: destination, focus: true)
-        }
+        let outbound = OutboundTab.begin(in: pane)
+        return outbound.started(make(pane) { [weak self, weak pane] surface in
+            guard let self, let pane else { return outbound.finish(moved: false) }
+            self.move(surface, from: pane, to: destination, focus: true, outbound: outbound)
+        })
     }
 
     /// Moves the new tab on `surface` out of `source` to `destination` (a new split, column or dock)
-    /// once the store lists it, then focuses it unless not `focus`. A failed move selects it where
-    /// it is, so it never stays hidden.
-    private func move(_ surface: SurfaceID, from source: PaneController, to destination: Destination, focus: Bool) {
+    /// once the store lists it, then focuses it unless not `focus`. Until then `source`'s strip leaves it
+    /// out (`outbound`). A failed move selects it where it is, so it never stays hidden.
+    private func move(_ surface: SurfaceID, from source: PaneController, to destination: Destination, focus: Bool,
+                      outbound: OutboundTab) {
+        outbound.made(surface)
         let services = source.services, store = source.daemon.store
         let intent = focus ? source.workspace?.beginFocusIntent() : nil
         services.registry.track(Task { @MainActor [weak source] () -> ActionWorkFailure? in
@@ -263,7 +274,10 @@ final class LinkOpener {
             bound.schedule(after: Self.listLimit) { @MainActor in listed.cancel() }
             let found = await listed.value
             bound.cancel()
-            guard let tab = found, let source, let anchor = store.pane(holding: tab) else { return "link open: the new tab did not open" }
+            guard let tab = found, let source, let anchor = store.pane(holding: tab) else {
+                outbound.finish(moved: false)
+                return "link open: the new tab did not open"
+            }
             let moved = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
                 switch destination {
                 case .besideColumn:
@@ -278,6 +292,7 @@ final class LinkOpener {
                 }
             }
             let column = if case .besideColumn = destination { true } else { false }
+            outbound.finish(moved: moved)
             if moved {
                 if let intent { source.workspace?.expectFocus(on: surface, awayFrom: source.paneKey, generation: intent) }
                 if column { await AgentBesidePlacement.revealMoved(tab.id, from: anchor, services: services) }
