@@ -54,6 +54,15 @@ pub struct ServiceConfig {
     pub browser: crate::browser::BrowserConfig,
 }
 
+impl ServiceConfig {
+    /// The app's own daemon socket: `default_socket`, else `<tui_socket_dir>/<default_session>.sock`.
+    pub fn daemon_socket(&self) -> PathBuf {
+        self.default_socket
+            .clone()
+            .unwrap_or_else(|| self.tui_socket_dir.join(format!("{}.sock", self.default_session)))
+    }
+}
+
 /// The default `upload` size cap: 100 MiB.
 pub const DEFAULT_UPLOAD_MAX_BYTES: u64 = 100 * 1024 * 1024;
 /// `ChiefHome.sessionName`: `cmux-chief-` and the FNV-1a 32 hash of the
