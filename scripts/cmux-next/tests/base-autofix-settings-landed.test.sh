@@ -46,7 +46,7 @@ PY
 lane_commit() { # <file> <text>
   (cd "$tmp/lane" && echo "$2" > "$1" && git add -A && git commit -q -m "lane: $1" && git push -q origin feat)
 }
-landed() { (cd "$tmp/bot" && bash "$script" "file://$tmp/remote.git" feat "$run" "" "$tmp/exports"); }
+landed() { (cd "$tmp/bot" && bash "$script" "file://$tmp/remote.git" feat "$run" "${1:-}" "$tmp/exports"); }
 
 # 1. The run landed the exports it made: passes.
 setup
@@ -71,5 +71,16 @@ lane_commit "$schema" "schema new"
 lane_commit "$mdm" "mdm hand-edited"
 landed > "$tmp/out" 2>&1 && fail "an export changed after the run passed: $(cat "$tmp/out")"
 grep -q "::error::.*$mdm" "$tmp/out" || fail "no error naming the changed MDM file: $(cat "$tmp/out")"
+
+# 5. The Mac job retried at a commit with other sources (MADE_AT), and the tip has since gone back to the
+#    run's own sources: the exports were made for sources the tip no longer has, so nothing made them for
+#    the run's. It fails, so the next run's "since" keeps the run's changes (else no run makes them).
+setup
+rm -rf "$tmp/exports" && mkdir -p "$tmp/exports"
+lane_commit sources.txt s2
+made="$(git -C "$tmp/lane" rev-parse HEAD)"
+lane_commit sources.txt s1
+landed "$made" > "$tmp/out" 2>&1 && fail "the tip back at the run's sources passed with exports made for others: $(cat "$tmp/out")"
+grep -q '::error::' "$tmp/out" || fail "no error when the tip went back to the run's sources: $(cat "$tmp/out")"
 
 echo "base-autofix-settings-landed: PASS: a run fails when the exports it made for the tip's settings sources did not land, and only warns when a newer commit changed the sources"

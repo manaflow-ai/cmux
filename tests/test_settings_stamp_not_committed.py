@@ -106,6 +106,15 @@ class ExportsAreComparedWithAFreshExport(unittest.TestCase):
             run("git", "commit", "-q", "-am", "settings swift")
             result = subprocess.run(["bash", "-c", self.step()], cwd=repo, env=env, capture_output=True, text=True)
             self.assertIn("EXPORTED", result.stdout)
+            # An event that changes an export with the sources unchanged (a merge that kept older exports
+            # while taking the base's sources) is checked too: the stamp alone would let it through.
+            schema = repo / "schemas/settings"
+            schema.mkdir(parents=True)
+            (schema / "settings-schema.json").write_text("{}\n")
+            run("git", "add", "-A")
+            run("git", "commit", "-q", "-m", "an older export")
+            result = subprocess.run(["bash", "-c", self.step()], cwd=repo, env=env, capture_output=True, text=True)
+            self.assertIn("EXPORTED", result.stdout)
 
 if __name__ == "__main__":
     unittest.main()
