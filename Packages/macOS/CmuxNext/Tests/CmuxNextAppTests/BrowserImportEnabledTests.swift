@@ -3,18 +3,20 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
 import CmuxNextImportCards
+import CmuxNextImportSuggestions
 @testable import CmuxNextSettings
 import Foundation
 import Testing
 
 /// `browser.import.enabled` (on by default): off, cmux's Import from Browser entry points leave the
 /// palette, the File menu and the context menus, the import tool window does not open, the import
-/// suggestion cards (Home, New Tab, Settings › Import) are off. On again, every one is back.
+/// suggestion cards (Home, New Tab, Settings › Import) are off and Keep in Sync pauses. On again,
+/// every one is back.
 @MainActor @Suite(.serialized) struct BrowserImportEnabledTests {
     /// The entry points the setting hides: the menu items and palette actions, and the card verbs.
     static let entryPoints: [ActionID] = [
         "importFromBrowser", "bookmark.importFromBrowser", "browser.importFromFiles", "browser.importCookies",
-        "import.open", "import.card", "import.suggest",
+        "import.open", "import.card", "import.suggest", "import.list",
     ]
 
     struct Harness {
@@ -37,10 +39,22 @@ import Testing
             }
         }
 
+        /// Writes the setting and waits until the snapshot and the cards it drives both follow it.
         func set(_ on: Bool) async throws {
             try await settings.set(.bool(on), at: BrowserImportSetting.configPath)
-            await until { settings.snapshot.browserImportEnabled == on }
+            await until { settings.snapshot.browserImportEnabled == on && ImportSuggestionsCenter.shared.importEnabled == on }
             #expect(settings.snapshot.browserImportEnabled == on)
+            #expect(ImportSuggestionsCenter.shared.importEnabled == on)
+        }
+
+        /// Waits for Keep in Sync (an actor) to be paused or not.
+        func syncPaused(_ paused: Bool, within timeout: Duration = .seconds(10)) async -> Bool {
+            let sync = services.onboarding.historySync
+            let deadline = ContinuousClock.now + timeout
+            while await sync.isPaused != paused, ContinuousClock.now < deadline {
+                try? await Task.sleep(for: .milliseconds(5))
+            }
+            return await sync.isPaused == paused
         }
 
         /// Whether the File menu shows `id` (a hidden item is validated off and hidden, as AppKit does on open).
@@ -100,9 +114,16 @@ import Testing
         // The import tool window (onboarding's import step) does not open, whoever asks.
         h.services.onboarding.show(step: .importData)
         #expect(!h.services.onboarding.isShowing, "the import window stays closed")
-        // The import suggestion cards are off on Home, New Tab and Settings › Import.
+        // Every run says why: the palette's subtitle and the socket's `unavailable` reason.
+        #expect(h.services.registry.unavailableReason(for: "importFromBrowser") == BrowserImportOfferStrings.turnedOff)
+        // The import suggestion cards are off on Home, New Tab and Settings › Import, and a card
+        // still on screen starts nothing.
         #expect(!ImportSuggestionsCenter.shared.isEnabled)
         #expect(ImportSuggestionsCenter.shared.settingsJSON == .null)
+        #expect(ImportSuggestionsCenter.shared.list(for: .home).cards.isEmpty)
+        #expect(throws: (any Error).self) { try ImportSuggestionsCenter.shared.perform("chrome", .start) }
+        // Keep in Sync stops re-reading other browsers' history.
+        #expect(await h.syncPaused(true), "Keep in Sync is paused while browser import is off")
 
         // Already-imported data stays: Remove Imported Data is still offered.
         #expect(h.services.registry.isAvailable("browserProfile.removeImportedData"))
@@ -113,5 +134,6 @@ import Testing
         }
         #expect(h.fileMenuShows("importFromBrowser"))
         #expect(ImportSuggestionsCenter.shared.isEnabled)
+        #expect(await h.syncPaused(false), "Keep in Sync watches again")
     }
 }

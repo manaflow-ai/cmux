@@ -168,10 +168,19 @@ public actor ImportHistorySync {
         // A Preferences or Cookies write also wakes the folder watch: nothing to read then.
         let stamp = HistoryFileWatch.stamp(watch.file)
         guard stamp != lastRead[key], let record = await store.syncedSources().first(where: { $0.sourceKey == key }) else { return }
+        // Paused (browser import turned off) or rewatched while the store answered: read nothing.
+        guard isCurrent(watch, key) else { return }
         guard let pages = try? BrowserImporter.readHistory(record.browser.family, file: watch.file, limit: limit),
               let saved = try? await store.replaceHistory(key, with: pages) else { return }
         lastRead[key] = stamp
+        // The pages are saved; only a watch still current hands them on.
+        guard isCurrent(watch, key) else { return }
         if !saved.changed.isEmpty { await deliver(saved.record.targetProfileID, saved.changed, []) }
+    }
+
+    /// `watch` is still the one for `key` and sync is not paused.
+    private func isCurrent(_ watch: HistoryFileWatch, _ key: String) -> Bool {
+        !isPaused && watches[key] === watch
     }
 }
 

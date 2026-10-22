@@ -28,7 +28,12 @@ struct BrowserImportGate {
         }
     }
 
-    /// Follows the setting: the suggestion cards and Keep in Sync.
+    /// The launch read's value, before the cards start, so an off setting never lets them scan.
+    static func prime(_ snapshot: CmuxConfigSnapshot) {
+        ImportSuggestionsCenter.shared.importEnabled = snapshot.browserImportEnabled
+    }
+
+    /// Follows the setting: the suggestion cards, the browser tab's offer and Keep in Sync.
     func follow(_ settings: SettingsController) -> Task<Void, Never> {
         // task-owner: OnboardingService.importSettingFollow (cancelled when settings are replaced)
         Task { [weak services] in
@@ -36,6 +41,7 @@ struct BrowserImportGate {
             for await on in ObservationStream({ settings.snapshot.browserImportEnabled }) {
                 guard let services else { return }
                 ImportSuggestionsCenter.shared.importEnabled = on
+                if !on { services.onboarding.browserImportOffer.importTurnedOff() }
                 // Keep in Sync is made on first use: leave it unmade while import was never off.
                 if !on || last == false { await services.onboarding.historySync.setPaused(!on) }
                 last = on
