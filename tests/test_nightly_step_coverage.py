@@ -445,6 +445,8 @@ COUNTERPART_CASES = [
     ("caller schedule", {"pr.yml": counterpart(pr="workflow_call"), "c.yml": caller({"if": SCHEDULE})}, "does not run"),
     ("caller base", {"pr.yml": counterpart(pr="workflow_call"), "c.yml": caller(
         {"if": f"github.event.pull_request.base.ref != '{BASE}'"})}, "does not run"),
+    ("caller empty matrix", {"pr.yml": counterpart(pr="workflow_call"), "c.yml": caller(
+        matrix_job({"shard": ["a"], "exclude": [{"shard": "a"}]}))}, "does not run"),
     ("caller input row", {"pr.yml": CALLEE, "c.yml": caller({"with": {"groups": '["release"]'}})}, None),
     ("caller input no row", {"pr.yml": CALLEE, "c.yml": caller({"with": {"groups": '["ci"]'}})}, "matrix"),
     ("job dispatch", {"pr.yml": counterpart(job={"if": "github.event_name == 'workflow_dispatch'"})}, "job 'check'"),
