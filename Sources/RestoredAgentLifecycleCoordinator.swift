@@ -64,7 +64,7 @@ final class RestoredAgentLifecycleCoordinator {
                     processIdentities: []
                 )
             }
-        } else {
+        } else if completedGenerationsByPanelId[panelId] != nil {
             completedGenerationsByPanelId.removeValue(forKey: panelId)
         }
 
@@ -72,7 +72,7 @@ final class RestoredAgentLifecycleCoordinator {
             if queuedRestoreSnapshotsByPanelId[panelId] == nil {
                 replaceQueuedRestoreSnapshot(snapshotsByPanelId[panelId], panelId: panelId)
             }
-        } else {
+        } else if queuedRestoreSnapshotsByPanelId[panelId] != nil {
             queuedRestoreSnapshotsByPanelId.removeValue(forKey: panelId)
         }
     }
@@ -335,7 +335,11 @@ final class RestoredAgentLifecycleCoordinator {
         replaceResumeWorkingDirectory(resumeWorkingDirectory, panelId: panelId)
     }
 
+    // Session autosave reapplies the current values for every restored agent
+    // panel. Writing an unchanged value still notifies observers and
+    // invalidates SwiftUI, so each replace writes only a change.
     private func replaceSnapshot(_ snapshot: SessionRestorableAgentSnapshot?, panelId: UUID) {
+        guard snapshotsByPanelId[panelId] != snapshot else { return }
         if let snapshot {
             snapshotsByPanelId[panelId] = snapshot
         } else {
@@ -344,6 +348,7 @@ final class RestoredAgentLifecycleCoordinator {
     }
 
     private func replaceResumeState(_ state: Workspace.RestoredAgentResumeState?, panelId: UUID) {
+        guard resumeStatesByPanelId[panelId] != state else { return }
         if let state {
             resumeStatesByPanelId[panelId] = state
         } else {
@@ -355,6 +360,7 @@ final class RestoredAgentLifecycleCoordinator {
         _ snapshot: SessionRestorableAgentSnapshot?,
         panelId: UUID
     ) {
+        guard queuedRestoreSnapshotsByPanelId[panelId] != snapshot else { return }
         if let snapshot {
             queuedRestoreSnapshotsByPanelId[panelId] = snapshot
         } else {
@@ -389,9 +395,12 @@ final class RestoredAgentLifecycleCoordinator {
     private func replaceResumeWorkingDirectory(_ directory: String?, panelId: UUID) {
         guard let directory = directory?.trimmingCharacters(in: .whitespacesAndNewlines),
               !directory.isEmpty else {
-            resumeWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
+            if resumeWorkingDirectoriesByPanelId[panelId] != nil {
+                resumeWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
+            }
             return
         }
+        guard resumeWorkingDirectoriesByPanelId[panelId] != directory else { return }
         resumeWorkingDirectoriesByPanelId[panelId] = directory
     }
 

@@ -35,9 +35,31 @@ public struct TerminalRendererWindowVisibility: Sendable {
     }
 
     public var isVisible: Bool {
+        Self.isVisible(
+            occlusionVisible: occlusionVisible,
+            windowHasReportedVisible: windowHasReportedVisible,
+            isWindowVisible: isWindowVisible,
+            isMiniaturized: isMiniaturized,
+            isKeyWindow: isKeyWindow,
+            isOnActiveSpace: { isOnActiveSpace }
+        )
+    }
+
+    /// The same rule, reading the active-Space state only when no earlier input
+    /// decides it. `NSWindow.isOnActiveSpace` is a synchronous WindowServer
+    /// round trip, and every terminal in a window evaluates this rule on each
+    /// screen, key and occlusion notification (CMUXTERM-MACOS-3PGM).
+    public static func isVisible(
+        occlusionVisible: Bool,
+        windowHasReportedVisible: Bool,
+        isWindowVisible: Bool,
+        isMiniaturized: Bool,
+        isKeyWindow: Bool,
+        isOnActiveSpace: () -> Bool
+    ) -> Bool {
         if occlusionVisible || isKeyWindow { return true }
         // Occlusion has been trustworthy for this window: honor its verdict.
         if windowHasReportedVisible { return false }
-        return isWindowVisible && !isMiniaturized && isOnActiveSpace
+        return isWindowVisible && !isMiniaturized && isOnActiveSpace()
     }
 }

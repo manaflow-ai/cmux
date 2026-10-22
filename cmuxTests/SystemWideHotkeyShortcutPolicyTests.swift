@@ -277,3 +277,54 @@ extension GlobalSearchShortcutBehaviorTests {
     }
     }
 }
+
+@Suite struct ShortcutKeyCodeResolutionCacheTests {
+    private let strokeK = ShortcutStroke(key: "k", command: true, shift: false, option: false, control: false)
+    private let shiftedStrokeK = ShortcutStroke(key: "k", command: true, shift: true, option: false, control: false)
+
+    @Test func resolvesEachStrokeOnceUntilInputSourceChanges() {
+        let cache = ShortcutKeyCodeResolutionCache(distributedNotificationCenter: nil)
+        var resolveCount = 0
+        let resolve: () -> UInt16? = {
+            resolveCount += 1
+            return 40
+        }
+
+        // Every UserDefaults change re-resolves the system-wide hotkey; only
+        // the first lookup per stroke may walk the keyboard layout.
+        for _ in 0..<50 {
+            #expect(cache.keyCode(for: strokeK, resolve: resolve) == 40)
+        }
+        #expect(resolveCount == 1)
+
+        #expect(cache.keyCode(for: shiftedStrokeK, resolve: resolve) == 40)
+        #expect(resolveCount == 2)
+
+        cache.invalidate()
+        #expect(cache.keyCode(for: strokeK) { 31 } == 31)
+        #expect(cache.keyCode(for: strokeK, resolve: resolve) == 31)
+        #expect(resolveCount == 2)
+    }
+
+    @Test func cachesUnresolvableStrokes() {
+        let cache = ShortcutKeyCodeResolutionCache(distributedNotificationCenter: nil)
+        var resolveCount = 0
+        for _ in 0..<5 {
+            #expect(cache.keyCode(for: strokeK) {
+                resolveCount += 1
+                return nil
+            } == nil)
+        }
+        #expect(resolveCount == 1)
+    }
+
+    @Test func dropsResolutionThatRacedAnInputSourceChange() {
+        let cache = ShortcutKeyCodeResolutionCache(distributedNotificationCenter: nil)
+        let stale = cache.keyCode(for: strokeK) {
+            cache.invalidate()
+            return 40
+        }
+        #expect(stale == 40)
+        #expect(cache.keyCode(for: strokeK) { 31 } == 31)
+    }
+}

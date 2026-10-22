@@ -642,10 +642,38 @@ enum MenuBarOnlySettings {
         isEnabled(defaults: defaults)
     }
 
-    static func applyActivationPolicy(defaults: UserDefaults = .standard, application: NSApplication = .shared) {
-        let targetPolicy = activationPolicy(defaults: defaults)
-        guard application.activationPolicy() != targetPolicy else { return }
-        application.setActivationPolicy(targetPolicy)
+}
+
+/// Keeps the app's activation policy in step with the menu-bar-only preference.
+///
+/// `NSApplication.activationPolicy()` is not a cached property: it asks
+/// LaunchServices for the running application's information, which can block
+/// the main thread in `sysctl` (Sentry CMUXTERM-MACOS-GF1). The app re-syncs
+/// on every UserDefaults change, so this remembers the policy it last applied
+/// and skips both the query and the set while the preference resolves to the
+/// same policy.
+@MainActor
+final class MenuBarOnlyActivationPolicySync {
+    private let currentPolicy: @MainActor () -> NSApplication.ActivationPolicy
+    private let setPolicy: @MainActor (NSApplication.ActivationPolicy) -> Bool
+    private var lastAppliedPolicy: NSApplication.ActivationPolicy?
+
+    init(
+        currentPolicy: @escaping @MainActor () -> NSApplication.ActivationPolicy = { NSApplication.shared.activationPolicy() },
+        setPolicy: @escaping @MainActor (NSApplication.ActivationPolicy) -> Bool = { NSApplication.shared.setActivationPolicy($0) }
+    ) {
+        self.currentPolicy = currentPolicy
+        self.setPolicy = setPolicy
+    }
+
+    func sync(defaults: UserDefaults = .standard) {
+        let targetPolicy = MenuBarOnlySettings.activationPolicy(defaults: defaults)
+        guard targetPolicy != lastAppliedPolicy else { return }
+        if currentPolicy() != targetPolicy {
+            // A refused change is retried on the next preference change.
+            guard setPolicy(targetPolicy) else { return }
+        }
+        lastAppliedPolicy = targetPolicy
     }
 }
 

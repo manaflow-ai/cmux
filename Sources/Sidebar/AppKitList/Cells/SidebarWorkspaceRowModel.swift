@@ -28,20 +28,24 @@ struct SidebarWorkspaceRowModel: Equatable {
     /// freeze auto-naming).
     let hasUserCustomTitle: Bool
     let canCloseWorkspace: Bool
-    let accessibilityWorkspaceCount: Int
+    // `var` only for `hasHeightEquivalentContent` (see `index`); every row
+    // carries it, so a create or close changes it on the whole list.
+    var accessibilityWorkspaceCount: Int
     var unreadCount: Int
     var latestNotificationText: String?
     let showsAgentActivity: Bool
-    let rowSpacing: CGFloat
-    let isBeingDragged: Bool
-    let topDropIndicatorVisible: Bool
-    let bottomDropIndicatorVisible: Bool
+    // The fields below through `showsShortcutHints` are `var` only for
+    // `hasHeightEquivalentContent` (see `index`): they paint chrome that the
+    // measurement pass never reads.
+    var rowSpacing: CGFloat
+    var isBeingDragged: Bool
+    var topDropIndicatorVisible: Bool
+    var bottomDropIndicatorVisible: Bool
     let isGrouped: Bool
-    // `var` only for `hasHeightEquivalentContent` (see `index`).
     var isFirstRow: Bool
     /// Resolved modifier-hold hint text (nil hides the pill).
-    let shortcutHintText: String?
-    let showsShortcutHints: Bool
+    var shortcutHintText: String?
+    var showsShortcutHints: Bool
     let colorSchemeIsDark: Bool
     /// Hex of the opaque terminal-matched backdrop (secondary text holds a
     /// contrast floor over it), or `nil` over the sidebar material.
@@ -81,21 +85,34 @@ struct SidebarWorkspaceRowModel: Equatable {
     }
 
     /// Equality over every field that can influence the measured row height.
-    /// `index` feeds only the accessibility label and `isFirstRow` only the
-    /// drop-indicator frame in the apply pass (`layoutContent(apply: true)`),
-    /// so neither changes what `layoutContent(apply: false)` returns. Closing
-    /// a workspace shifts both for every row below it; height caching keyed on
-    /// full equality would re-measure that whole tail and lose its entries
-    /// exactly when a stale-width fallback needs them.
+    /// `index` and `accessibilityWorkspaceCount` feed only the accessibility
+    /// label; `isFirstRow`, `rowSpacing` and the drop indicators only the
+    /// apply-pass chrome frames (`layoutContent(apply: true)`); the shortcut
+    /// hint pill is an overlay; dragging only dims the row; and the unread
+    /// count matters only as badge visibility (the badge side is fixed). None
+    /// changes what `layoutContent(apply: false)` returns. Closing or creating
+    /// a workspace, holding the hint modifier, or a drag changes these on many
+    /// rows at once; keying the height cache on full equality re-measured the
+    /// whole list on the main actor and lost the entries a stale-width
+    /// fallback needs.
     func hasHeightEquivalentContent(to other: Self) -> Bool {
         if self == other { return true }
-        var normalizedSelf = self
-        var normalizedOther = other
-        normalizedSelf.index = 0
-        normalizedOther.index = 0
-        normalizedSelf.isFirstRow = false
-        normalizedOther.isFirstRow = false
-        return normalizedSelf == normalizedOther
+        return heightNormalized == other.heightNormalized
+    }
+
+    private var heightNormalized: Self {
+        var normalized = self
+        normalized.index = 0
+        normalized.isFirstRow = false
+        normalized.accessibilityWorkspaceCount = 0
+        normalized.unreadCount = unreadCount > 0 ? 1 : 0
+        normalized.rowSpacing = 0
+        normalized.isBeingDragged = false
+        normalized.topDropIndicatorVisible = false
+        normalized.bottomDropIndicatorVisible = false
+        normalized.shortcutHintText = nil
+        normalized.showsShortcutHints = false
+        return normalized
     }
 }
 
