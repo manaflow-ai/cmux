@@ -13,7 +13,7 @@ import type { SavedEnvironment, SavedEnvironmentHost } from "../environments";
 import { SavedEnvironmentPanel } from "../SavedEnvironmentPanel";
 import { useSavedEnvironments } from "./savedEnvironments";
 import type { ComposerAttachment, DroppedKind, LinkItem } from "../attachments";
-import { AttachmentStrip, useAttachmentIntake } from "../composer/attachmentIntake";
+import { AttachmentStrip, useAttachmentIntake, useSendWhenAttached } from "../composer/attachmentIntake";
 import { AllChatsList, type LoadChatsPage } from "./AllChatsList";
 import { ChatCards } from "./ChatCards";
 import { ClosedList } from "./ClosedList";
@@ -41,6 +41,17 @@ import {
 } from "./screenModel";
 import { RowGlyph } from "./RowGlyph";
 import { WidgetCards } from "./WidgetCards";
+import {
+  greetingKey,
+  shownMovable,
+  shownPageWidgets,
+  type MovableWidget,
+  type PageWidget,
+  type PageWidgets,
+  type WidgetEdit,
+} from "./pageWidgets";
+import { useWidgetEditing, WidgetEditBar, WidgetFrame } from "./WidgetEditing";
+import { ContextMenu } from "../../../ui/ContextMenu";
 import { EnvironmentCard, SuggestionsCard } from "./StageCards";
 import { Icon } from "../icons/Icon";
 import { type NewTabTranslate, useNt } from "./strings";
@@ -156,9 +167,14 @@ type Props = NewTabScreenActions & {
   template?: ScreenTemplate;
   /// The widget view (Debug Settings `newTab.widgets`): the Projects and Needs you cards.
   widgets?: boolean;
+  /// The page's widgets (`tabs.newTabWidgets.*`, pageWidgets.ts): on Minimal, without them the page
+  /// is the greeting and the composer. Unset shows the template's own (shownPageWidgets).
+  pageWidgets?: PageWidgets;
   /// false: Show All Chats on New Tab is off (`sidebar.showChats`): the recent chats show where
   /// the template would list All chats.
   allChats?: boolean;
+  /// Minimal's edit mode saved an edit (WidgetEditing.tsx); unset, the page has no edit mode.
+  onEditWidgets?(edit: WidgetEdit): void;
   /// Buttons before Send, such as the dictation mic (DictationMic).
   accessory?: React.ReactNode;
   /// Why dictation did not run (DictationNotice), under the field.
@@ -195,9 +211,18 @@ export function NewTabScreen(props: Props) {
   const { snapshot, omnibar = EMPTY_OMNIBAR, location, lastAgent, home, now, inputToken } = props;
   const template = props.template ?? "default";
   const sections = screenSections(template);
+  const widgets = props.pageWidgets ?? shownPageWidgets(template);
   // Claude Code desktop's new-session page (templates.ts stage, the Default template): the composer
-  // at the foot, the environment and suggestions cards over it.
-  const stage = sections.stage;
+  // at the foot, the environment and suggestions cards over it. On Minimal with none of the stage's
+  // widgets on, the page is the plain one: the greeting and the composer.
+  const stage = sections.stage && (widgets.has("projects") || widgets.has("actions") || widgets.has("chats"));
+  // Nothing but the greeting and the composer (Minimal, Leo 2026-10-20): the composer sits about the
+  // window's middle.
+  const minimal = !stage && !widgets.has("actions") && !widgets.has("chats");
+  // Minimal's edit mode (right-click > Edit New Tab): its widgets wiggle, move and close.
+  const onEditWidgets = template === "minimal" ? props.onEditWidgets : undefined;
+  const editing = useWidgetEditing(onEditWidgets);
+  const order = shownMovable(widgets);
   const [text, setText] = useState(location ?? "");
   // The location stays a suggestion until edited: no rows for it.
   const [touched, setTouched] = useState(false);
@@ -248,12 +273,20 @@ export function NewTabScreen(props: Props) {
   const field = useRef<HTMLTextAreaElement>(null);
   // A paste on the field (an image, a copied file, a screenshot) and a file drop anywhere on the
   // page stage attachments, as a chat's composer does (composer/attachmentIntake.tsx).
-  const { attachments, setAttachments, attachError, dropping } = useAttachmentIntake({
+  const {
+    attachments,
+    setAttachments,
+    pending: reading,
+    attachError,
+    dropping,
+  } = useAttachmentIntake({
     allowImages: snapshot.summary?.promptCapabilities?.image !== false,
     // Shell mode turns the page into a terminal, which takes no attachment: the paste stays text.
     pasteTarget: (target) => (!shell && field.current?.contains(target) ? { uploads: false } : undefined),
     ...(props.localPaths ? { localPaths: props.localPaths } : {}),
   });
+  const holdForAttachments = useSendWhenAttached(reading.length);
+  const submitNow = useRef(() => {});
   const wholeSelection = useRef(false);
   const inlineCaret = useRef<number | undefined>(undefined);
   const composing = useRef(false);
@@ -382,7 +415,12 @@ export function NewTabScreen(props: Props) {
   // With All chats on the page (the host answers `chats.page`) every chat is in that list, so
   // the cards keep only the chats that are running or need the user. Show All Chats off
   // (`sidebar.showChats`) keeps the recent chats in its place.
-  const allChats = sections.allChats && props.allChats !== false && !!props.loadChatsPage && !!props.onOpenChat;
+  const allChats =
+    widgets.has("chats") &&
+    sections.allChats &&
+    props.allChats !== false &&
+    !!props.loadChatsPage &&
+    !!props.onOpenChat;
   const activeCards = useMemo(() => cards.filter((card) => card.state !== "idle"), [cards]);
   // The stage layout's suggested actions start with the chats waiting on the user: one asking for
   // input, or one that hit an error or lost its agent. Picked from every chat, not the trimmed
@@ -567,6 +605,8 @@ export function NewTabScreen(props: Props) {
     setSelected(undefined);
   };
   const submit = () => {
+    // A screenshot pasted a moment ago is still being read: Return goes once its chip is ready.
+    if (holdForAttachments(() => submitNow.current())) return;
     // Closed suggestions still answer Return: their top row ("reddit" opens reddit.com).
     const row = rows.length ? rows[current] : suggested[defaultSelection(suggested)];
     // Staged attachments go with a chat: a row that opens a page or a tab would drop them.
@@ -580,6 +620,7 @@ export function NewTabScreen(props: Props) {
     if (!harness) return;
     askChat(harness, prompt, project, chipModel);
   };
+  submitNow.current = submit;
   // One create per page: a double click, or a click while the terminal spawns, opens one tab.
   const created = useRef(false);
   const create = (kind: "terminal" | "browser") => {
@@ -936,8 +977,10 @@ export function NewTabScreen(props: Props) {
         />
       )}
       {props.openTabs && <OpenTabsList tabs={props.openTabs} onMoveHere={(id) => props.onJump("here", id)} />}
-      {sections.closed && <ClosedList items={closed} onReopen={(id) => props.onJump("closed", id)} />}
-      {sections.chats !== "none" && !allChats && (
+      {sections.closed && widgets.has("chats") && (
+        <ClosedList items={closed} onReopen={(id) => props.onJump("closed", id)} />
+      )}
+      {sections.chats !== "none" && !allChats && widgets.has("chats") && (
         <ChatCards
           cards={cards}
           variant={sections.chats}
@@ -1029,6 +1072,7 @@ export function NewTabScreen(props: Props) {
             text and never moves it (Leo 2026-10-19: the composer kept "going to places"). */}
           <AttachmentStrip
             attachments={attachments}
+            pending={reading}
             {...(attachError ? { error: attachError } : {})}
             dropping={dropping}
             codex={harness === "codex"}
@@ -1061,150 +1105,217 @@ export function NewTabScreen(props: Props) {
       </div>
     </>
   );
-  return (
-    <div
-      ref={screen}
-      className="nt-screen"
-      data-shell={shell || undefined}
-      data-template={template}
-      data-pill={pill || undefined}
-      data-all-chats={allChats || undefined}
-      data-layout={stage ? "stage" : undefined}
+  // The stage's widgets, in the user's order (`tabs.newTabWidgets.order`): Projects and Quick
+  // Actions are cards (cards next to each other share a column), Recent Chats is the player and the
+  // lists, as before the order; with Recent Chats off the player and the other lists come last.
+  const stageCard = (widget: Exclude<MovableWidget, "chats">) =>
+    widget === "projects" ? (
+      <EnvironmentCard
+        projects={props.projects ?? []}
+        {...(envFolder ? { current: envFolder } : {})}
+        noProject={none}
+        {...(props.machineName ? { machineName: props.machineName } : {})}
+        onPick={(cwd) => pickProject(cwd)}
+        onNoProject={() => pickProject(undefined)}
+        {...(browseProject ? { onBrowse: browseProject } : {})}
+      />
+    ) : (
+      <SuggestionsCard
+        attention={needsYou}
+        onOpen={openCard}
+        {...(props.onCreate ? { onCreate: create } : {})}
+        onChat={startChat}
+      />
+    );
+  const playerAndLists = (
+    <>
+      {!allChats && <NowPlayingPlayer {...(props.onNowPlaying ? { onCommand: props.onNowPlaying } : {})} />}
+      {lists}
+    </>
+  );
+  const frame = (widget: PageWidget, content: React.ReactNode) => (
+    <WidgetFrame
+      key={widget}
+      widget={widget}
+      editing={editing}
+      order={order}
+      className="nt-widget-slot"
+      {...(onEditWidgets ? { onEdit: onEditWidgets } : {})}
     >
-      {stage ? (
-        <>
-          {/* Claude Code desktop's new-session screen (Leo 2026-10-19): the free space over the
-              composer holds, centered, the environment card and the suggested actions card, then the
-              recent chats; it scrolls on its own, so nothing in it ever moves the composer. */}
-          <div className="nt-stage">
-            <div className="nt-stage-cards">
-              <EnvironmentCard
-                projects={props.projects ?? []}
-                {...(envFolder ? { current: envFolder } : {})}
-                noProject={none}
-                {...(props.machineName ? { machineName: props.machineName } : {})}
-                onPick={(cwd) => pickProject(cwd)}
-                onNoProject={() => pickProject(undefined)}
-                {...(browseProject ? { onBrowse: browseProject } : {})}
-              />
-              <SuggestionsCard
-                attention={needsYou}
-                onOpen={openCard}
-                {...(props.onCreate ? { onCreate: create } : {})}
-                onChat={startChat}
-              />
+      {content}
+    </WidgetFrame>
+  );
+  return (
+    <ContextMenu
+      className="nt-menu-host"
+      items={
+        onEditWidgets
+          ? [
+              editing.editing
+                ? { id: "edit.done", label: nt("edit.done"), onSelect: () => editing.setEditing(false) }
+                : { id: "edit", label: nt("edit.menu"), onSelect: () => editing.setEditing(true) },
+            ]
+          : []
+      }
+      ignore="input, textarea, [contenteditable], .acpmux-composer, .nt-popover"
+      targets="own"
+    >
+      <div
+        ref={screen}
+        className="nt-screen"
+        data-editing={editing.editing || undefined}
+        data-shell={shell || undefined}
+        data-template={template}
+        data-pill={pill || undefined}
+        data-all-chats={allChats || undefined}
+        data-layout={stage ? "stage" : undefined}
+        data-minimal={minimal || undefined}
+      >
+        {onEditWidgets && <WidgetEditBar editing={editing} onEdit={onEditWidgets} />}
+        {stage ? (
+          <>
+            {/* Claude Code desktop's new-session screen (Leo 2026-10-19): the free space over the
+                composer holds, centered, the environment card and the suggested actions card, then the
+                recent chats; it scrolls on its own, so nothing in it ever moves the composer. */}
+            <div className="nt-stage">
+              {/* Minimal keeps its greeting over the stage when widgets are on (Default has none). */}
+              {widgets.has("greeting") &&
+                frame("greeting", <p className="nt-greeting">{nt(greetingKey(new Date(at).getHours()))}</p>)}
+              {stageRuns(order).map((run) =>
+                run[0] === "chats" ? (
+                  frame("chats", playerAndLists)
+                ) : (
+                  <div key={run[0]} className="nt-stage-cards">
+                    {run.map((widget) => widget !== "chats" && frame(widget, stageCard(widget)))}
+                  </div>
+                ),
+              )}
+              {!order.includes("chats") && playerAndLists}
             </div>
+            {composerCard}
+            {props.notice}
+            {environmentPanel}
+          </>
+        ) : (
+          <>
+            {/* A quiet greeting over the composer (a widget, on by default), by the hour. */}
+            {widgets.has("greeting") &&
+              frame("greeting", <p className="nt-greeting">{nt(greetingKey(new Date(at).getHours()))}</p>)}
+            {composerCard}
+            {props.notice}
+            {environmentPanel}
+            {/* The create actions (cx-ag5.7, dogfood call K2): a blank terminal in the tab's folder, a
+                browser tab on the new tab page, or this page as an empty chat with the agent Return asks.
+                Not beside All chats: that list takes the room under the field (new-tab-scroll). */}
+            {/* Cards draws no create row (u2851, as Aside's New Tab): New Terminal, New Browser Tab and
+                New Chat stay in the palette and the pane's + menu. With the split too, not only the pill. */}
+            {!allChats && template !== "cards" && widgets.has("actions") && (
+              // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+              <div className="nt-create ui-ghost-row" role="group" aria-label={nt("create.label")}>
+                {props.onCreate && (
+                  <>
+                    <button
+                      type="button"
+                      className="nt-tool ui-ghost"
+                      data-create="terminal"
+                      onClick={() => create("terminal")}
+                    >
+                      <span className="nt-tool-icon ui-ghost-icon" aria-hidden="true">
+                        <Icon name="terminal" size={14} />
+                      </span>
+                      <span>{nt("create.terminal")}</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="nt-tool ui-ghost"
+                      data-create="browser"
+                      onClick={() => create("browser")}
+                    >
+                      <span className="nt-tool-icon ui-ghost-icon" aria-hidden="true">
+                        <Icon name="browser" size={14} />
+                      </span>
+                      <span>{nt("create.browser")}</span>
+                    </button>
+                  </>
+                )}
+                <button type="button" className="nt-tool ui-ghost" data-create="chat" onClick={startChat}>
+                  <span className="nt-tool-icon ui-ghost-icon" aria-hidden="true">
+                    <Icon name="agent.chat" size={14} />
+                  </span>
+                  <span>{nt("create.chat")}</span>
+                </button>
+              </div>
+            )}
             {!allChats && <NowPlayingPlayer {...(props.onNowPlaying ? { onCommand: props.onNowPlaying } : {})} />}
             {lists}
-          </div>
-          {composerCard}
-          {props.notice}
-          {environmentPanel}
-        </>
-      ) : (
-        <>
-          {composerCard}
-          {props.notice}
-          {environmentPanel}
-          {/* The create actions (cx-ag5.7, dogfood call K2): a blank terminal in the tab's folder, a
-              browser tab on the new tab page, or this page as an empty chat with the agent Return asks.
-              Not beside All chats: that list takes the room under the field (new-tab-scroll). */}
-          {/* Cards draws no create row (u2851, as Aside's New Tab): New Terminal, New Browser Tab and
-              New Chat stay in the palette and the pane's + menu. With the split too, not only the pill. */}
-          {!allChats && template !== "cards" && (
-            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-            <div className="nt-create ui-ghost-row" role="group" aria-label={nt("create.label")}>
-              {props.onCreate && (
-                <>
-                  <button
-                    type="button"
-                    className="nt-tool ui-ghost"
-                    data-create="terminal"
-                    onClick={() => create("terminal")}
-                  >
-                    <span className="nt-tool-icon ui-ghost-icon" aria-hidden="true">
-                      <Icon name="terminal" size={14} />
-                    </span>
-                    <span>{nt("create.terminal")}</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="nt-tool ui-ghost"
-                    data-create="browser"
-                    onClick={() => create("browser")}
-                  >
-                    <span className="nt-tool-icon ui-ghost-icon" aria-hidden="true">
-                      <Icon name="browser" size={14} />
-                    </span>
-                    <span>{nt("create.browser")}</span>
-                  </button>
-                </>
-              )}
-              <button type="button" className="nt-tool ui-ghost" data-create="chat" onClick={startChat}>
-                <span className="nt-tool-icon ui-ghost-icon" aria-hidden="true">
-                  <Icon name="agent.chat" size={14} />
-                </span>
-                <span>{nt("create.chat")}</span>
-              </button>
+          </>
+        )}
+        {rows.length > 0 && anchor && (
+          <Popover
+            open
+            // The rows follow the field (Escape there and a press outside close them): the popover
+            // never closes itself.
+            onOpenChange={() => undefined}
+            anchor={anchor}
+            side={stage ? "top" : "bottom"}
+            label={nt("suggestions")}
+            className="nt-popover"
+            initialFocus={false}
+            finalFocus={false}
+          >
+            {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
+            <div ref={attachList} className="nt-rows" id="nt-rows" role="listbox" aria-label={nt("suggestions")}>
+              {rows.map((row, index) => (
+                <div
+                  key={rowKey(row)}
+                  id={`nt-row-${index}`}
+                  ref={index === current ? keepInView : undefined}
+                  // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+                  role="option"
+                  tabIndex={-1}
+                  aria-selected={index === current}
+                  data-type={row.type}
+                  className={index === current ? "nt-row is-selected" : "nt-row"}
+                  onMouseMove={() => {
+                    if (index === current) return;
+                    pick(index);
+                  }}
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    activate(row);
+                  }}
+                >
+                  {rowFavicon(row) ? (
+                    <img className="nt-row-glyph nt-row-favicon" src={rowFavicon(row)} alt="" draggable={false} />
+                  ) : (
+                    <RowGlyph kind={rowGlyph(row)} />
+                  )}
+                  <span className="nt-row-title">{rowTitle(nt, row)}</span>{" "}
+                  {rowDetail(row) && <span className="nt-row-detail">{rowDetail(row)}</span>}
+                  <span className="nt-row-action" data-popup-skip>
+                    {rowAction(t, nt, row)}
+                    {index === current && <kbd>↵</kbd>}
+                  </span>
+                </div>
+              ))}
             </div>
-          )}
-          {!allChats && <NowPlayingPlayer {...(props.onNowPlaying ? { onCommand: props.onNowPlaying } : {})} />}
-          {lists}
-        </>
-      )}
-      {rows.length > 0 && anchor && (
-        <Popover
-          open
-          // The rows follow the field (Escape there and a press outside close them): the popover
-          // never closes itself.
-          onOpenChange={() => undefined}
-          anchor={anchor}
-          side={stage ? "top" : "bottom"}
-          label={nt("suggestions")}
-          className="nt-popover"
-          initialFocus={false}
-          finalFocus={false}
-        >
-          {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
-          <div ref={attachList} className="nt-rows" id="nt-rows" role="listbox" aria-label={nt("suggestions")}>
-            {rows.map((row, index) => (
-              <div
-                key={rowKey(row)}
-                id={`nt-row-${index}`}
-                ref={index === current ? keepInView : undefined}
-                // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-                role="option"
-                tabIndex={-1}
-                aria-selected={index === current}
-                data-type={row.type}
-                className={index === current ? "nt-row is-selected" : "nt-row"}
-                onMouseMove={() => {
-                  if (index === current) return;
-                  pick(index);
-                }}
-                onMouseDown={(event) => {
-                  event.preventDefault();
-                  activate(row);
-                }}
-              >
-                {rowFavicon(row) ? (
-                  <img className="nt-row-glyph nt-row-favicon" src={rowFavicon(row)} alt="" draggable={false} />
-                ) : (
-                  <RowGlyph kind={rowGlyph(row)} />
-                )}
-                <span className="nt-row-title">{rowTitle(nt, row)}</span>{" "}
-                {rowDetail(row) && <span className="nt-row-detail">{rowDetail(row)}</span>}
-                <span className="nt-row-action" data-popup-skip>
-                  {rowAction(t, nt, row)}
-                  {index === current && <kbd>↵</kbd>}
-                </span>
-              </div>
-            ))}
-          </div>
-        </Popover>
-      )}
-    </div>
+          </Popover>
+        )}
+      </div>
+    </ContextMenu>
   );
+}
+
+/// The stage's widgets in runs: next to each other, Projects and Quick Actions share a cards
+/// column; Recent Chats is a run of its own.
+function stageRuns(order: readonly MovableWidget[]): (readonly MovableWidget[])[] {
+  const runs: MovableWidget[][] = [];
+  for (const widget of order) {
+    const last = runs.at(-1);
+    if (widget !== "chats" && last && last[0] !== "chats") last.push(widget);
+    else runs.push([widget]);
+  }
+  return runs;
 }
 
 /// Down or Ctrl-N is 1, Up or Ctrl-P is -1 (R85: the native list.next keys, here for a field

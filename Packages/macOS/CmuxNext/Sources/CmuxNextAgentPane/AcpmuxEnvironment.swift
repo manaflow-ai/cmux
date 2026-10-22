@@ -25,8 +25,8 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
     /// endpoint directory is allowed; legacy socket tokens are withheld.
     public var computerUse: [String: String] = [:]
     /// Whether the daemon this app spawns gets ``offerToolsKey`` (`1`): its local sessions then get
-    /// the cmux-sessions MCP server (`offer_session`), whatever the harness. On while the Debug
-    /// Settings toggle `agent.suggestedTasks` is on; ``AcpmuxHost`` reads it at each daemon start, so a running
+    /// the cmux-sessions MCP server (`offer_session`), whatever the harness. On while suggested tasks
+    /// are on (``AgentPaneSuggestedTasks``); ``AcpmuxHost`` reads it at each daemon start, so a running
     /// daemon keeps the value it started with.
     public var offersSessionTools = false
     /// Whether the daemon this app spawns keeps the agent message runaway guard on (acpmux

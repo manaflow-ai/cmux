@@ -3,30 +3,25 @@ public import CoreGraphics
 /// Where a sidebar row's hover card sits, and which part of the screen keeps it
 /// (`HoverCardPlacement.besideRow`). Pure: no window, no view.
 ///
-/// Leo 2026-10-20: dismissing the workspace card took too much travel ("trapped by the
-/// preview"). Top-aligned against its row, the card filled everything right of the row, so
-/// the only way out was across its whole width. Now the card's near edge starts at the row's
-/// middle: right of the row's other half is an empty escape slot the card never covers, and
-/// the pointer there dismisses the card at once. The half the card faces still touches it, so
-/// a pointer moving straight across keeps the card.
-///
-/// Leo 2026-10-20, later: the card's corner still touched the row's top-right corner, where the
-/// row's x sits, so a pointer going down to the next row ran into the card and kept it. The card
-/// now stands `rowGap` off the row. The gap keeps the card only for a pointer heading into it
-/// (`HoverCardCoordinator`); one moving down past the row lets it go.
+/// Leo 2026-10-21: "WHY HAS IT NOT BEEN ALIGNED". The card sits beside the sidebar with its top
+/// on the hovered row's top, as Chrome's and Arc's tab hover cards do, `rowGap` off the row,
+/// and it follows the row from row to row. Near the screen's bottom edge the visible frame
+/// clamps it up (it still covers the row's side); near its right edge it goes left of the row.
 ///
 /// ```
-///   +-----------+ . . . . . . . . . . . .
-///   |    row    |     escape slot        :   (the pointer here dismisses the card)
-///   |           |gap +--------------------+
-///   +-----------+    |                    |   (straight right from here: the card)
-///                    |        card        |
+///   +-----------+    +--------------------+
+///   |    row    |gap |                    |   (the card's top on the row's top)
+///   +-----------+    |        card        |
 ///                    +--------------------+
 /// ```
 ///
-/// The card goes right of the row and below the slot when it fits on screen; it flips above
-/// (slot below) near the screen's bottom edge and left of the row near its right edge, so the
-/// slot survives the screen clamp. Coordinates are screen points, y up.
+/// The gap keeps the card only for a pointer heading into it (`HoverCardCoordinator`); one
+/// moving down past the row lets it go (Leo 2026-10-20).
+///
+/// `RowAlignment.middle` keeps the earlier layout (#22473, Leo 2026-10-20 "trapped by the
+/// preview"): the card's top on the row's middle, so right of the row's upper half is an empty
+/// escape slot that dismisses the card. It flips above the row's middle near the screen's bottom.
+/// Debug Settings turns it back on (`escapeSlotTunable`). Coordinates are screen points, y up.
 public nonisolated struct HoverCardEscapeGeometry: Hashable, Sendable {
     /// What a point is, for a shown card.
     public enum Zone: Hashable, Sendable {
@@ -54,13 +49,31 @@ public nonisolated struct HoverCardEscapeGeometry: Hashable, Sendable {
     /// The card sits left of its row (no room on the right).
     public private(set) var isLeading: Bool
 
+    /// Which edge of the card goes where on its row.
+    public enum RowAlignment: Hashable, Sendable {
+        /// The card's top on the row's top (Chrome, Arc). No escape slot.
+        case top
+        /// The card's top on the row's middle, below an escape slot beside the row's upper half.
+        case middle
+    }
+
     /// The room between a sidebar row (or header, or card) and the card beside it.
     public static let rowGap: CGFloat = 10
 
+    /// Debug Settings: the escape-slot layout (`RowAlignment.middle`) instead of the top-aligned one.
+    public static let escapeSlotTunable = Tunable<Bool>.toggle(
+        "sidebar.hoverCardEscapeSlot", .sidebar, "Workspace card below the row's middle",
+        help: "The workspace hover card starts at its row's middle, leaving an empty slot beside the row's upper half that dismisses it, instead of lining its top up with the row's top.",
+        default: false, code: "HoverCardEscapeGeometry.escapeSlotTunable")
+
+    /// The alignment the sidebar uses now: top, or middle while the Debug Settings switch is on.
+    public static var currentAlignment: RowAlignment { escapeSlotTunable.value ? .middle : .top }
+
     /// The card for `anchor` at `size`, kept inside `visible` (the screen's visible frame,
     /// already inset by any margin) when given, its near edge `gap` off the row on device pixels
-    /// of `scale`.
-    public init(anchor: CGRect, cardSize size: CGSize, visible: CGRect? = nil, scale: CGFloat = 2, gap: CGFloat = rowGap) {
+    /// of `scale`, lined up with the row by `alignment`.
+    public init(anchor: CGRect, cardSize size: CGSize, visible: CGRect? = nil, scale: CGFloat = 2, gap: CGFloat = rowGap,
+                alignment: RowAlignment = .top) {
         let scale = max(scale, 1)
         func up(_ value: CGFloat) -> CGFloat { (value * scale).rounded(.up) / scale }
         func down(_ value: CGFloat) -> CGFloat { (value * scale).rounded(.down) / scale }
@@ -73,12 +86,19 @@ public nonisolated struct HoverCardEscapeGeometry: Hashable, Sendable {
             x = up(anchor.minX - gap) - size.width
             leading = true
         }
-        // Below the slot: the card's top on the row's middle; above it near the screen's bottom.
-        var y = middle - size.height
+        var y: CGFloat
         var below = true
-        if let visible, y < visible.minY, middle + size.height <= visible.maxY {
-            y = middle
-            below = false
+        switch alignment {
+        case .top:
+            // The card's top on the row's top, on a device pixel; the clamp below keeps it on screen.
+            y = (anchor.maxY * scale).rounded() / scale - size.height
+        case .middle:
+            // Below the slot: the card's top on the row's middle; above it near the screen's bottom.
+            y = middle - size.height
+            if let visible, y < visible.minY, middle + size.height <= visible.maxY {
+                y = middle
+                below = false
+            }
         }
         if let visible {
             x = min(max(x, visible.minX), visible.maxX - size.width)
@@ -94,7 +114,7 @@ public nonisolated struct HoverCardEscapeGeometry: Hashable, Sendable {
         let slot = below
             ? CGRect(x: slotX, y: card.maxY, width: slotWidth, height: max(0, anchor.maxY - card.maxY))
             : CGRect(x: slotX, y: anchor.minY, width: slotWidth, height: max(0, card.minY - anchor.minY))
-        escapeSlot = slot.width > 0 && slot.height > 0 ? slot : .zero
+        escapeSlot = alignment == .middle && slot.width > 0 && slot.height > 0 ? slot : .zero
         let strip = leading
             ? CGRect(x: card.maxX, y: card.minY, width: max(0, anchor.minX - card.maxX), height: card.height)
             : CGRect(x: anchor.maxX, y: card.minY, width: max(0, card.minX - anchor.maxX), height: card.height)
