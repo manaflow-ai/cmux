@@ -56,7 +56,10 @@ public nonisolated struct HomeChiefRoster: Hashable, Sendable, Codable {
     /// places for the Chiefs listed now, so the first frame does not tag them "This Mac" and move
     /// "Main" when the read lands. A Chief the last launch did not know keeps this roster's place.
     public func launching(last: HomeChiefRoster) -> HomeChiefRoster {
-        self // red: not implemented yet
+        var places = self.places
+        for id in places.keys { if let place = last.places[id] { places[id] = place } }
+        let main = last.main.flatMap { places[$0] != nil ? $0 : nil } ?? self.main
+        return HomeChiefRoster(main: main, places: places)
     }
 
     /// The list's tag after a Chief's name: where it runs, after "Main" for

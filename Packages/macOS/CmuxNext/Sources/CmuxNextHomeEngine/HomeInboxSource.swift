@@ -85,7 +85,8 @@ public final class HomeInboxSource {
     /// The last launch's rows (`HomeSidebarLaunchCache`), shown until the owner answers; nothing
     /// once it has. The owner's first answer replaces them in place (the list moves only what changed).
     public func seed(_ last: HomeInboxRequest.Response?) {
-        _ = last // red: not implemented yet
+        guard !answered, reply == nil, let last else { return }
+        reply = last
     }
 
     /// One owner reply: kept unless an edit is still unanswered.

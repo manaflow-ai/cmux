@@ -25,6 +25,9 @@ struct HomeInboxMapping {
             if !row.name.isEmpty, !row.name.isHomeInternalID { mapped.title = row.name }
             // A row the store knows only from the cache (no newest message yet) shows the owner's
             // preview, never an empty line under its name.
+            if mapped.summary.lastMessage == nil, mapped.preview.isEmpty, let preview = row.preview, !preview.isEmpty {
+                mapped.preview = preview
+            }
             mapped.unread = row.unread
             mapped.isPinned = row.pinned
             mapped.summary.muted = row.muted ?? mapped.summary.muted
