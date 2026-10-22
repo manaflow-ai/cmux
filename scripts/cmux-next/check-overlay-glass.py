@@ -81,12 +81,6 @@ ALLOWED: dict[str, dict[str, str]] = {
     P + "CmuxNextDesign/ShortcutHintChipView.swift": {"popup-surface": "the chip's .opaque material path (Reduce Transparency)"},
     P + "CmuxNextDesign/CardSurfaceView.swift": {"elevated-fill": "Reduce Transparency's sidebar card"},
     # Not a floating surface: content and in-pane chrome that sits on its own page.
-    P + "CmuxNextHome/Conversations/HomeSheetController.swift": {
-        "popup-surface": "a sheet window: the theme's surface over AppKit's sheet background (HomeSheetThemeTests)",
-    },
-    P + "CmuxNextHome/Conversations/HomeGroupInfoColors.swift": {
-        "popup-surface": "the group info sheet's surface, as the other Home sheets",
-    },
     P + "CmuxNextAgentQuestion/AgentQuestionCardView.swift": {
         "elevated-fill": "a pending question card inline in the conversation, set apart from answered ones",
     },

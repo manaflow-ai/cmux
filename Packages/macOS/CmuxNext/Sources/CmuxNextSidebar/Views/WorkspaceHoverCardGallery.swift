@@ -26,7 +26,7 @@ public struct WorkspaceHoverCardGallery {
                  additions: adds, deletions: dels, iconTone: tone, isPreview: preview)
         }
         // A made-up machine name: the capture's privacy check refuses a real host's.
-        let machine = Fact(icon: .machineRemote, text: "build-box", kind: "machine", accessory: .dot(.danger))
+        let machine = Fact(icon: .machineRemote, text: "dev-mini", kind: "machine", accessory: .dot(.danger))
         let offline = Fact(icon: .statusDisconnected, text: "Remote environment is offline", kind: "machineStatus", ink: .danger)
         let states: [(String, WorkspaceHoverCardContent, [Double])] = [
             ("Agent running", WorkspaceHoverCardContent(

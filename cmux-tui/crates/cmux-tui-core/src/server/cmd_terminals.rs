@@ -449,7 +449,7 @@ fn resolve_workspace(
             (Some(_), Some(_), _, _) => {
                 anyhow::bail!("workspace id and key do not identify the same workspace")
             }
-            _ => unreachable!("workspace selector cases are exhaustive"),
+            _ => anyhow::bail!("workspace id and key do not identify a workspace"),
         };
         Ok((workspace.id, workspace.key.clone()))
     })

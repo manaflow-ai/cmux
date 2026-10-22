@@ -139,6 +139,20 @@ fn cloud_subagents_start_on_the_peer_and_take_no_local_slot() {
 }
 
 #[test]
+fn a_cloud_subagent_is_told_how_its_commits_land_without_a_git_credential() {
+    // The VM holds no GitHub credential: the subagent marks its worktree with
+    // `git config cmux.land BRANCH`, and the Chief host's pool tool (cmuxterm-hq
+    // tools/cloud-subagents deploy.sh land-requests) rebases and pushes it through
+    // the Mac when the VM pauses at the final report.
+    let text = cloud().task("a7", Some("~/fun/cmux"), "do it");
+    assert!(
+        text.contains("git -C /home/agent/work/a7 config cmux.land <branch>"),
+        "{text}"
+    );
+    assert!(text.contains("never a token"), "{text}");
+}
+
+#[test]
 fn the_cloud_folder_names_the_repo_of_a_mac_path() {
     use optchat_chief::subagents::cloud_repo;
     assert_eq!(cloud_repo(Some("~/fun/cmux")), Some("cmux".into()));
@@ -779,4 +793,295 @@ fn an_unplaced_sandbox_key_is_revoked_and_the_subagent_starts_without_one() {
         vec!["vmk_a1".to_owned()]
     );
     assert!(!subs(&h)[0].1.contains("CMUX_AGENT_CONFIG"));
+}
+
+// ---- One VM per subagent (cloud-subagents-DESIGN.md, "One VM per subagent") ----
+
+/// Records provision/resume/pause/destroy; the first `refuse` destroys fail
+/// (unpushed work on the VM).
+#[derive(Default)]
+struct PerAgentVms {
+    refuse: std::sync::atomic::AtomicUsize,
+    calls: std::sync::Mutex<Vec<String>>,
+}
+
+impl optchat_chief::cloud_vms::CloudVms for PerAgentVms {
+    fn resume(&self, peer: &str) -> Result<(), String> {
+        self.calls.lock().unwrap().push(format!("resume {peer}"));
+        Ok(())
+    }
+    fn pause(&self, peer: &str) -> Result<(), String> {
+        self.calls.lock().unwrap().push(format!("pause {peer}"));
+        Ok(())
+    }
+    fn provision(&self, peer: &str, size: &str) -> Result<(), String> {
+        self.calls
+            .lock()
+            .unwrap()
+            .push(format!("provision {peer} {size}"));
+        Ok(())
+    }
+    fn destroy(&self, peer: &str) -> Result<(), String> {
+        self.calls.lock().unwrap().push(format!("destroy {peer}"));
+        use std::sync::atomic::Ordering::SeqCst;
+        if self.refuse.load(SeqCst) > 0 {
+            self.refuse.fetch_sub(1, SeqCst);
+            return Err("unpushed: ~/work/a1: 1 commits not pushed".into());
+        }
+        Ok(())
+    }
+}
+
+fn per_agent(h: &mut Harness, vms: &Arc<PerAgentVms>) -> Arc<Spawner> {
+    let dyn_vms: Arc<dyn optchat_chief::cloud_vms::CloudVms> = vms.clone();
+    let sp = Arc::new(
+        Arc::try_unwrap(spawner(h, None))
+            .ok()
+            .unwrap()
+            .with_cloud_text("SUBAGENT SYSTEM TEXT".into())
+            .with_cloud_vms(Some(dyn_vms.clone())),
+    );
+    h.brain.set_sub_starter(Some(sp.queue_starter()));
+    h.brain
+        .set_cloud_vms(Some(dyn_vms), Duration::from_secs(3600));
+    set_cloud(h, &sp, optchat_chief::subagents::PER_AGENT);
+    sp
+}
+
+fn calls_of(vms: &PerAgentVms) -> Vec<String> {
+    vms.calls.lock().unwrap().clone()
+}
+
+/// `control cloud freestyle`: each subagent gets its own VM (its peer is
+/// chief-sub-<id>), made at the size its task needs; a task that needs the
+/// Mac (app UI, screenshots, computer use, sign-ins) stays on this host.
+#[test]
+fn each_cloud_subagent_gets_its_own_right_sized_vm_and_mac_tasks_stay_local() {
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    let vms = Arc::new(PerAgentVms::default());
+    let sp = per_agent(&mut h, &vms);
+    let a = sp.clone();
+    let spawned = run(&mut h, move || {
+        a.spawn(
+            vec![
+                "Design doc for cloud groups".into(),
+                "Fix the web route and run bun test in web/".into(),
+                "Screenshot the Home sidebar in the tagged app (reload.sh --launch)".into(),
+            ],
+            None,
+        )
+    })
+    .unwrap();
+    assert!(spawned.contains("Started a1, a2, a3"), "{spawned}");
+    let peers: Vec<Option<String>> = subs(&h).into_iter().map(|(s, _)| s.peer).collect();
+    assert_eq!(
+        peers,
+        vec![
+            Some("chief-sub-a1".to_owned()),
+            Some("chief-sub-a2".to_owned()),
+            None,
+        ]
+    );
+    let calls = calls_of(&vms);
+    assert!(
+        calls.contains(&"provision chief-sub-a1 small".to_owned()),
+        "{calls:?}"
+    );
+    assert!(
+        calls.contains(&"provision chief-sub-a2 medium".to_owned()),
+        "{calls:?}"
+    );
+    assert!(!calls.iter().any(|c| c.contains("a3")), "{calls:?}");
+
+    // An explicit size wins over the guess; `local` still means here.
+    let a = sp.clone();
+    run(&mut h, move || {
+        a.spawn_placed(
+            vec!["Write the README".into()],
+            None,
+            None,
+            Some("cloud:large".into()),
+        )
+    })
+    .unwrap();
+    assert!(calls_of(&vms).contains(&"provision chief-sub-a4 large".to_owned()));
+    let a = sp.clone();
+    run(&mut h, move || {
+        a.spawn_placed(
+            vec!["Write the README".into()],
+            None,
+            None,
+            Some("local".into()),
+        )
+    })
+    .unwrap();
+    assert_eq!(subs(&h).last().unwrap().0.peer, None);
+}
+
+/// A VM that cannot be made (over the daily budget, provider down) does not
+/// lose the subagent: it starts on this host instead.
+#[test]
+fn a_subagent_whose_vm_cannot_be_made_starts_here() {
+    struct NoVms;
+    impl optchat_chief::cloud_vms::CloudVms for NoVms {
+        fn resume(&self, _: &str) -> Result<(), String> {
+            Ok(())
+        }
+        fn pause(&self, _: &str) -> Result<(), String> {
+            Ok(())
+        }
+        fn provision(&self, _: &str, _: &str) -> Result<(), String> {
+            Err("budget: a small VM would pass 20 USD/day".into())
+        }
+    }
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    let vms: Arc<dyn optchat_chief::cloud_vms::CloudVms> = Arc::new(NoVms);
+    let sp = Arc::new(
+        Arc::try_unwrap(spawner(&h, None))
+            .ok()
+            .unwrap()
+            .with_cloud_text("T".into())
+            .with_cloud_vms(Some(vms.clone())),
+    );
+    h.brain.set_sub_starter(Some(sp.queue_starter()));
+    h.brain.set_cloud_vms(Some(vms), Duration::from_secs(3600));
+    set_cloud(&mut h, &sp, optchat_chief::subagents::PER_AGENT);
+    let a = sp.clone();
+    let spawned = run(&mut h, move || a.spawn(vec!["Design doc".into()], None)).unwrap();
+    assert!(spawned.contains("Started a1"), "{spawned}");
+    assert!(spawned.contains("budget"), "says why: {spawned}");
+    assert_eq!(subs(&h).last().unwrap().0.peer, None);
+}
+
+/// A finished subagent's own VM is deleted once its reap time passes; a
+/// refusal (unpushed work) leaves it and tries again later; a tell after
+/// the delete says so instead of reaching a VM that is gone.
+#[test]
+fn a_finished_subagents_vm_is_deleted_after_its_work_is_pushed() {
+    use optchat_chief::brain::Input;
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    let vms = Arc::new(PerAgentVms::default());
+    vms.refuse.store(1, std::sync::atomic::Ordering::SeqCst);
+    let sp = per_agent(&mut h, &vms);
+    h.brain.set_cloud_reap(Duration::ZERO);
+    let a = sp.clone();
+    run(&mut h, move || a.spawn(vec!["Design doc".into()], None)).unwrap();
+    h.brain.step(Input::CloudTick);
+    assert!(
+        !calls_of(&vms).iter().any(|c| c.starts_with("destroy")),
+        "a1 lives"
+    );
+
+    h.brain.step(Input::SubagentFailed {
+        id: "a1".into(),
+        error: "ended".into(),
+    });
+    let destroys = |v: &PerAgentVms| {
+        calls_of(v)
+            .iter()
+            .filter(|c| *c == "destroy chief-sub-a1")
+            .count()
+    };
+    let until = Instant::now() + Duration::from_secs(5);
+    while destroys(&vms) < 2 && Instant::now() < until {
+        h.brain.step(Input::CloudTick);
+        while let Ok(input) = h.rx.recv_timeout(Duration::from_millis(20)) {
+            h.brain.step(input);
+        }
+    }
+    assert_eq!(
+        destroys(&vms),
+        2,
+        "refused once, then deleted: {:?}",
+        calls_of(&vms)
+    );
+    for _ in 0..3 {
+        h.brain.step(Input::CloudTick);
+        while let Ok(input) = h.rx.recv_timeout(Duration::from_millis(20)) {
+            h.brain.step(input);
+        }
+    }
+    assert_eq!(destroys(&vms), 2, "deleted once");
+    let a = sp.clone();
+    let told = run(&mut h, move || a.tell("a1", "one more thing"));
+    let told = format!("{told:?}");
+    assert!(told.contains("deleted"), "{told}");
+}
+
+/// Records the folder each workspace's terminal is opened in.
+#[derive(Default)]
+struct CwdRecorder {
+    opened: std::sync::Mutex<Vec<PathBuf>>,
+}
+
+impl optchat_chief::workspaces::Workspaces for CwdRecorder {
+    fn open(
+        &self,
+        key: &str,
+        _session: &str,
+        _name: &str,
+        _group: &str,
+        cwd: &std::path::Path,
+    ) -> Result<String, String> {
+        self.opened.lock().unwrap().push(cwd.to_path_buf());
+        // The daemon spawns the terminal's shell in `cwd` (create-terminal):
+        // a folder missing on this Mac fails the PTY spawn (a511, Oct 21:
+        // "failed to spawn PTY command: No such file or directory").
+        if !cwd.is_dir() {
+            return Err("create-terminal: terminal launch failed: failed to spawn PTY command: No such file or directory (os error 2)".into());
+        }
+        Ok(key.to_owned())
+    }
+    fn rename(&self, _key: &str, _name: &str) -> Result<(), String> {
+        Ok(())
+    }
+    fn place(&self) -> String {
+        "the test".into()
+    }
+}
+
+/// a511 (Oct 21): a cloud subagent got no cmux workspace, because its
+/// workspace terminal was opened in the VM's folder (/home/agent/work),
+/// which does not exist on the Mac. The session runs on the peer; the
+/// terminal beside its chat runs here, so it opens in a local folder.
+#[test]
+fn a_cloud_subagents_workspace_terminal_opens_in_a_folder_on_this_mac() {
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    std::fs::create_dir_all(h.dir.path().join("subagent")).unwrap();
+    let recorder = Arc::new(CwdRecorder::default());
+    let ws: Arc<dyn optchat_chief::workspaces::Workspaces> = recorder.clone();
+    h.brain.set_workspaces(Some(ws.clone()));
+    let sp = Arc::new(
+        Arc::try_unwrap(spawner(&h, Some(cloud())))
+            .ok()
+            .unwrap()
+            .with_workspaces(Some(ws)),
+    );
+    let a = sp.clone();
+    let spawned = run(&mut h, move || {
+        a.spawn(vec!["Title: Cloud thing\nbuild it".into()], None)
+    })
+    .unwrap();
+    assert!(spawned.contains("Started a1"), "{spawned}");
+    assert!(
+        !spawned.contains("no cmux workspace"),
+        "a cloud subagent gets its workspace: {spawned}"
+    );
+    let (spec, _) = subs(&h).into_iter().next().unwrap();
+    assert_eq!(
+        spec.cwd,
+        PathBuf::from("/home/agent/work"),
+        "the session still runs in the VM's folder"
+    );
+    let opened = recorder.opened.lock().unwrap().clone();
+    assert_eq!(opened.len(), 1, "{opened:?}");
+    assert!(
+        opened[0].is_dir(),
+        "the terminal opens in a folder on this Mac: {:?}",
+        opened[0]
+    );
 }
