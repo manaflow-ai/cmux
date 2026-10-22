@@ -200,8 +200,7 @@ const settle = () => act(async () => await new Promise((resolve) => setTimeout(r
 const chip = () => host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!;
 const menu = () => dom.window.document.querySelector<HTMLElement>(".acpmux-quick-menu");
 const fastRow = () => menu()?.querySelector<HTMLElement>('.acpmux-quick-fast[role="menuitemcheckbox"]') ?? null;
-const ultraRow = () =>
-  menu()?.querySelector<HTMLElement>('.acpmux-quick-ultrafast[role="menuitemcheckbox"]') ?? null;
+const ultraRow = () => menu()?.querySelector<HTMLElement>('.acpmux-quick-ultrafast[role="menuitemcheckbox"]') ?? null;
 const rows = () =>
   [...(menu()?.querySelectorAll<HTMLElement>('[role^="menuitem"]') ?? [])].map((item) =>
     item.textContent?.replace("✓", "").trim(),
