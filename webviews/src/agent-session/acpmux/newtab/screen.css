@@ -531,6 +531,9 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
   padding-top: 0;
   padding-bottom: 16px;
 }
+/* With Claude Code's split the quiet row ends the page, a few px over its bottom edge as in the chat
+   pane (the row's own margin, composerLocation.css): the page adds no band under it. */
+.nt-screen[data-layout="stage"]:has(.nt-foot) { padding-bottom: 0; }
 .nt-screen[data-layout="stage"] .nt-stage {
   flex: 1;
   min-height: 0;

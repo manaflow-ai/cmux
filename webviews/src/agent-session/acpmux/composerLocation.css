@@ -1093,8 +1093,11 @@
   min-height: 28px;
   /* Claude desktop (2x capture, Leo 2026-10-20): the row's middle 22 px under the box. */
   margin-top: 8px;
-  /* Room under the row so it never sits on the window's edge (Leo 2026-10-20, as Codex and Claude). */
-  margin-bottom: 10px;
+  /* Claude Code's row sits at the window's bottom edge with a few px under it (Leo 2026-10-21: too
+     much space at the bottom compared to Claude Code). The form adds nothing under the row (below),
+     so these 4 px and the row's own 2 px around its 24 px controls are all the room there is: enough
+     for a control's focus outline, and no band. */
+  margin-bottom: 4px;
   padding-block: 0;
   padding-inline: calc(17px - var(--acpmux-row-inset)) calc(var(--acpmux-row-edge) - var(--acpmux-row-inset));
   gap: 0;
@@ -1102,6 +1105,9 @@
   background: none;
   box-shadow: none;
 }
+/* The form's bottom padding (16 px, styles.css) is the other look's room under its card: under the
+   quiet row it would add a band as tall as the row. */
+.acpmux-composer:has(> .acpmux-chrome-area > .acpmux-composer-foot) { padding-bottom: 0; }
 /* The chips lay out as the row's own items, so the mode goes left and the rest right (right too
    before a chat has a mode, as on a fresh New Tab page). */
 .acpmux-composer-foot .acpmux-chips { display: contents; }
