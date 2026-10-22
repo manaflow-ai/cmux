@@ -123,6 +123,62 @@ struct ClickableCursorTrackerTests {
         #expect(host.cursors.last === NSCursor.arrow, "B's own exit still clears its hand")
     }
 
+    /// From an enabled button that owns the hand onto a disabled sibling: the sibling sets nothing
+    /// and A's exit comes with the pointer already off A, so the exit itself puts the arrow back.
+    @Test func leavingTheHandsOwnerForADisabledSiblingShowsTheArrow() {
+        let host = Host()
+        let disabled = host.add(at: NSRect(x: 50, y: 10, width: 40, height: 20))
+        disabled.isEnabled = false
+        host.tracker.pointerEntered()
+        host.pointer = NSPoint(x: 70, y: 20)
+        disabled.cursorTracker.pointerEntered()
+        host.tracker.pointerExited()
+        #expect(host.cursors == [NSCursor.pointingHand, NSCursor.arrow])
+        #expect(ClickableCursorTracker.owner == nil)
+    }
+
+    /// The exit of the hand's owner keeps the hand while the pointer is already over another
+    /// enabled button whose enter has not come yet.
+    @Test func anExitOntoAnotherEnabledButtonKeepsTheHand() {
+        let host = Host()
+        host.add(at: NSRect(x: 50, y: 10, width: 40, height: 20))
+        host.tracker.pointerEntered()
+        host.pointer = NSPoint(x: 70, y: 20)
+        host.tracker.pointerExited()
+        #expect(host.cursors == [NSCursor.pointingHand])
+    }
+
+    /// The pointer rests on a button while its own window has the key (the rects show the hand);
+    /// then a page's child window takes the key with no pointer move. The keeper's next pass gives
+    /// the button the hand.
+    @Test func aChildWindowTakingTheKeyUnderAStillPointerGivesTheHand() {
+        let host = Host()
+        host.keyWindow = host.window
+        host.tracker.pointerEntered()
+        ClickableCursorTracker.keepHand()
+        #expect(host.cursors.isEmpty)
+        host.keyWindow = host.child
+        ClickableCursorTracker.keepHand()
+        #expect(host.cursors == [NSCursor.pointingHand])
+        #expect(ClickableCursorTracker.owner === host.tracker)
+    }
+
+    /// The same key change after the pointer left the button, or with the button disabled, sets
+    /// nothing.
+    @Test func aChildWindowTakingTheKeyAfterThePointerLeftSetsNothing() {
+        let host = Host()
+        host.keyWindow = host.window
+        host.tracker.pointerEntered()
+        host.tracker.pointerExited()
+        let disabled = host.add(at: NSRect(x: 50, y: 10, width: 40, height: 20))
+        disabled.isEnabled = false
+        host.pointer = NSPoint(x: 70, y: 20)
+        disabled.cursorTracker.pointerEntered()
+        host.keyWindow = host.child
+        ClickableCursorTracker.keepHand()
+        #expect(host.cursors.isEmpty)
+    }
+
     /// A's exit was swallowed (a menu's tracking loop) and the pointer went onto the page, which set
     /// its own hand: a later hide or disable of A leaves the page's hand.
     @Test func aSwallowedExitNeverPutsTheArrowOverThePage() {
