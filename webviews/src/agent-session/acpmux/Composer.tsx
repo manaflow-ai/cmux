@@ -76,6 +76,7 @@ import {
 } from "./composer/attachmentIntake";
 import { type KeptAttachments, useKeptAttachments } from "./composer/keptAttachments";
 import { isPasteAsPlainTextKey, usePastedChips } from "./composer/pastedChips";
+import { usePasteAnywhere } from "./composer/pasteAnywhere";
 import type { SendBlock } from "./useFolderTrustAsk";
 import { folder, promptSuggestion, type LivePullRequest, type PromptSuggestion } from "./promptSuggestion";
 import { useHeaderState } from "./header/headerState";
@@ -114,7 +115,6 @@ export const COMPOSER_LABELS = {
   send: "composer.send",
   stop: "composer.stop",
   escapeAgainToStop: "composer.escapeAgainToStop",
-  escapeKey: "composer.escapeKey",
   commands: "composer.commands",
   noCommands: "composer.noCommands",
   noMatchingCommands: "composer.noMatchingCommands",
@@ -439,6 +439,9 @@ export function Composer({
   const sending = useRef(false);
   /// The newest submit, for the handle's `send` (rendered after the trust answer lands).
   const submitNow = useRef<(force: boolean, steer?: boolean) => boolean>(() => false);
+  /// The newest `onOpenInWindow`, for a ⌘Return held until a screenshot's chip is ready.
+  const openInWindow = useRef(onOpenInWindow);
+  openInWindow.current = onOpenInWindow;
   const allowImages = snapshot.summary?.promptCapabilities?.image !== false;
   // A paste on the prompt or the shell field, and a file drop anywhere (composer/attachmentIntake.tsx).
   const { attachments, setAttachments, pending, attachError, setAttachError, dropping, attach } = useAttachmentIntake({
@@ -452,6 +455,19 @@ export function Composer({
           : undefined,
     ...(upload ? { upload } : {}),
     ...(localPaths ? { localPaths } : {}),
+    // A screenshot still being read when the composer moves to another chat stays the chat's it was
+    // pasted in: its chip joins that chat's kept chips (keptAttachments.ts), unless a switch carries
+    // the prompt to its new session.
+    scope: sessionId,
+    elsewhere: (chat, chips) => {
+      if (!keptAttachments) return;
+      void keptAttachments
+        .read(chat)
+        .catch(() => [])
+        .then((kept) => keptAttachments.write(chat, appendAttachments(kept, chips).slice(0, MAX_ATTACHMENTS)))
+        .catch(() => {});
+    },
+    carries: () => carryPrompt.current || Boolean(switching),
   });
   const attachmentsRef = useRef(attachments);
   attachmentsRef.current = attachments;
@@ -459,6 +475,21 @@ export function Composer({
   const holdForAttachments = useSendWhenAttached(pending.length, sessionId);
   // A huge paste is a chip; Paste as Plain Text keeps it raw (composer/pastedChips.ts).
   const pastedChips = usePastedChips(attachmentsRef, setAttachments, field);
+  // A paste anywhere in the pane outside a text field goes into the prompt, after what is already
+  // there (composer/pasteAnywhere.ts).
+  usePasteAnywhere(() => {
+    const shellInput = shellRef.current.shell ? shellField.current : null;
+    if (shellInput) {
+      shellInput.focus();
+      shellInput.setSelectionRange(shellInput.value.length, shellInput.value.length);
+      return true;
+    }
+    const prompt = field.current;
+    if (!prompt?.element()) return false;
+    prompt.focus();
+    prompt.setCaret(Number.MAX_SAFE_INTEGER);
+    return true;
+  });
   // + then Attach files clicks this input: the system file chooser (an open panel in the app).
   const chooser = useRef<HTMLInputElement>(null);
   useLayoutEffect(() => {
@@ -1049,7 +1080,8 @@ export function Composer({
       }
     }
     // Esc on an empty prompt stops the turn, as Stop does: by default the second of two presses
-    // does (escapeStop.ts), and the first turns Stop into an Esc hint. Menus, pickers and the
+    // does (escapeStop.ts), and the first arms Stop: it keeps its glyph, takes the accent and is named
+    // "Press Esc again to stop". Menus, pickers and the
     // @ list take their Esc above, so one press still closes them.
     if (event.key === "Escape" && plain && !open && stop && !quick) {
       event.preventDefault();
@@ -1073,11 +1105,17 @@ export function Composer({
       !event.altKey &&
       !event.ctrlKey
     ) {
+      event.preventDefault();
       const typed = unwrapped().trim() !== "";
-      const sent = submit(event);
-      // A prompt the host refused stays in the composer, and the chat stays here.
-      if (typed && !sent) return;
-      onOpenInWindow(sent);
+      const sendAndOpen = () => {
+        const sent = submitNow.current(false, steersAlways);
+        // A prompt the host refused stays in the composer, and the chat stays here.
+        if (typed && !sent) return;
+        openInWindow.current?.(sent);
+      };
+      // A screenshot still being read: the prompt and the window wait for its chip, as Return does.
+      if (holdForAttachments(sendAndOpen)) return;
+      sendAndOpen();
       return;
     }
     if (event.key === "Enter" && plain && returnSends()) {
@@ -1375,12 +1413,12 @@ export function Composer({
       className="acpmux-send acpmux-cancel"
       data-escape-armed={escapeStop.armed ? "" : undefined}
       aria-label={t(escapeStop.armed ? COMPOSER_LABELS.escapeAgainToStop : COMPOSER_LABELS.stop)}
-      // tooltip-allow: names the icon-only Stop, and once armed says to press the Esc it shows again.
+      // tooltip-allow: names the icon-only Stop, and once armed says to press Esc again.
       title={t(escapeStop.armed ? COMPOSER_LABELS.escapeAgainToStop : COMPOSER_LABELS.stop)}
       onClick={stopTurn}
     >
-      {/* The first Esc of the double press: Stop says which key stops the turn. */}
-      {escapeStop.armed ? <span className="acpmux-escape-key">{t(COMPOSER_LABELS.escapeKey)}</span> : <StopIcon />}
+      {/* The first Esc of the double press keeps the glyph; its color and name say Esc again stops. */}
+      <StopIcon />
     </button>
   ) : null;
   // Why a failed turn paused the queue: the paused note names it (queuePause.ts).
