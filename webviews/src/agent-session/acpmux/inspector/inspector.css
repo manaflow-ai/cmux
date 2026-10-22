@@ -125,6 +125,14 @@ button.acpmux-chat-inspector-port:hover,
 .acpmux-chat-inspector .acpmux-summary-subagent-rows .cv-subagent {
   border-radius: var(--acpmux-inspector-row-radius);
 }
+/* A reveal (the header's Environment line, a running count) lights its section for a moment: a soft
+   tint of the text that fades on the motion scale's standard step. */
+.acpmux-chat-inspector-section {
+  transition: background-color var(--cmux-motion-standard, 180ms) var(--acpmux-motion-ease, ease-out);
+}
+.acpmux-chat-inspector-section[data-revealed] {
+  background: color-mix(in srgb, var(--agent-text) 9%, var(--agent-page-bg));
+}
 .acpmux-chat-inspector-section .ui-disclosure-trigger,
 .acpmux-chat-inspector-section__head {
   display: flex;
@@ -378,7 +386,11 @@ button.acpmux-chat-inspector-port:hover,
 .acpmux-chat-inspector-pr[data-state="merged"] .acpmux-chat-inspector-pr__icon {
   color: var(--agent-ansi-5, var(--agent-accent));
 }
-.acpmux-chat-inspector-pr[data-state="closed"] .acpmux-chat-inspector-pr__icon {
+.acpmux-chat-inspector-pr[data-state="draft"] .acpmux-chat-inspector-pr__icon {
+  color: var(--agent-warning, var(--agent-muted));
+}
+.acpmux-chat-inspector-pr[data-state="closed"] .acpmux-chat-inspector-pr__icon,
+.acpmux-chat-inspector-pr[data-state="conflicting"] .acpmux-chat-inspector-pr__icon {
   color: var(--agent-danger);
 }
 .acpmux-chat-inspector-pr__text {
@@ -387,7 +399,14 @@ button.acpmux-chat-inspector-port:hover,
   display: flex;
   flex-direction: column;
 }
+.acpmux-chat-inspector-pr__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
 .acpmux-chat-inspector-pr__title {
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
@@ -398,14 +417,16 @@ button.acpmux-chat-inspector-port:hover,
   align-items: center;
   gap: 6px;
   min-width: 0;
+  overflow: hidden;
   color: var(--agent-muted);
   font-size: var(--text-detail);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
+/* `repo #N` stays whole (Claude's); the failing checks at the end give way first. */
 .acpmux-chat-inspector-pr__ref {
-  flex: 0 1 auto;
-  min-width: 0;
+  flex: 0 0 auto;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -413,7 +434,12 @@ button.acpmux-chat-inspector-port:hover,
 .acpmux-chat-inspector-pr__line .acpmux-diff-counts {
   flex: none;
 }
-.acpmux-chat-inspector-pr__state,
+.acpmux-chat-inspector-pr__comments {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
 .acpmux-chat-inspector-pr__checks {
   flex: 0 1 auto;
   min-width: 0;
@@ -443,7 +469,6 @@ button.acpmux-chat-inspector-port:hover,
 .acpmux-chat-inspector-pr__owner {
   flex: none;
   max-width: 40%;
-  margin-top: 6px;
   padding: 0 6px;
   overflow: hidden;
   border-radius: 6px;
@@ -456,6 +481,9 @@ button.acpmux-chat-inspector-port:hover,
 }
 .acpmux-chat-inspector-pr__more {
   margin-top: 4px;
+}
+.acpmux-chat-inspector-pr-fold {
+  margin-top: 2px;
 }
 .acpmux-chat-inspector-breakdown__rows {
   display: grid;
