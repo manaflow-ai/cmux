@@ -26,7 +26,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 
-const FAKE_CLAUDE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude.py");
+const CLAUDE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/bin/claude");
 const PERSON_KEY: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 const ANNOUNCE: &str = "_acpmux/forum/announce";
 const CONTEXT_TAG: &str = "cmux-rules-context";
@@ -52,7 +52,7 @@ fn paths(d: &Path) -> Paths {
 
 fn hub(d: &Path) -> Arc<Hub> {
     let mut cfg: Config = serde_json::from_value(json!({
-        "harnesses": {"fclaude": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio"}},
+        "harnesses": {"fclaude": {"argv": [CLAUDE], "kind": "claude-stdio"}},
         "defaultHarness": "fclaude",
         "permissionPolicy": "approve-all",
     }))

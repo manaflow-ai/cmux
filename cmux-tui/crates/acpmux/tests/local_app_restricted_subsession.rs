@@ -25,7 +25,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 
-const FAKE_CLAUDE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude.py");
+const CLAUDE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/bin/claude");
 const START: &str = "_acpmux/subsession/start";
 
 fn dir(tag: &str) -> PathBuf {
@@ -39,7 +39,7 @@ fn dir(tag: &str) -> PathBuf {
 
 fn hub(d: &Path) -> Arc<Hub> {
     let mut cfg: Config = serde_json::from_value(json!({
-        "harnesses": {"fclaude": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio"}},
+        "harnesses": {"fclaude": {"argv": [CLAUDE], "kind": "claude-stdio"}},
         "defaultHarness": "fclaude",
         "permissionPolicy": "approve-all",
     }))

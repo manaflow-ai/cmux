@@ -26,7 +26,7 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 
 const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
-const FAKE_CLAUDE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude.py");
+const CLAUDE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/bin/claude");
 
 fn dir(tag: &str) -> PathBuf {
     let d = std::env::temp_dir().join(format!("arf-{tag}-{}", std::process::id()));
@@ -42,13 +42,13 @@ fn hub(d: &Path) -> Arc<Hub> {
     let limit = json!({"FAKE_CLAUDE_LIMIT": "1"});
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {
-            "climit": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio", "env": limit,
+            "climit": {"argv": [CLAUDE], "kind": "claude-stdio", "env": limit,
                        "fallback": "fcodex"},
             "fcodex": {"argv": ["python3", FAKE], "family": "codex",
                        "env": {"FAKE_CWD_LOG": d.join("codex.log")}},
-            "climit2": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio", "env": limit,
+            "climit2": {"argv": [CLAUDE], "kind": "claude-stdio", "env": limit,
                         "fallback": "cok"},
-            "cok": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio"},
+            "cok": {"argv": [CLAUDE], "kind": "claude-stdio"},
         },
         "defaultHarness": "climit",
         "permissionPolicy": "approve-all",

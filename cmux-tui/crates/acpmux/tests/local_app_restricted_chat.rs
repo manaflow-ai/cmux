@@ -28,6 +28,7 @@ use tokio::sync::mpsc;
 
 const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
 const FAKE_CLAUDE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude.py");
+const CLAUDE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/bin/claude");
 const TITLER: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_titler.py");
 
 fn dir(tag: &str) -> PathBuf {
@@ -62,21 +63,24 @@ fn hub(d: &Path) -> Arc<Hub> {
             // A plugin folder from the env loads that plugin's hooks, like `--plugin-dir`; a
             // preload loads the folder's library before Claude Code starts; a PATH folder in it
             // would give the git Claude Code runs at startup, and the `systemd-run` acpmux probes.
-            "fclaude": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio",
+            "fclaude": {"argv": [CLAUDE], "kind": "claude-stdio",
                         "env": {"CLAUDE_CODE_PLUGIN_DIRS": d.join("work").join("plugin"),
                                 "LD_PRELOAD": d.join("work").join("preload.so"),
                                 "PATH": planted_path(d)}},
             "fcodex": {"argv": ["python3", FAKE], "family": "codex"},
-            // An interpreter is checked, but its script is the folder's own: by path, or found
-            // in the chat's folder, where Claude Code starts.
+            // An interpreter loads the folder's own code: a script by path, or one, a module or
+            // a preload it finds in the chat's folder, where Claude Code starts.
             "fscript": {"argv": ["python3", "${cwd}/claude.py"], "kind": "claude-stdio"},
             "fscriptrel": {"argv": ["python3", "claude.py"], "kind": "claude-stdio"},
+            "fpymod": {"argv": ["python3", "-m", "claude_wrapper"], "kind": "claude-stdio"},
+            // Python imports the `sitecustomize.py` it finds on PYTHONPATH (the folder) at start.
+            "fpypath": {"argv": [CLAUDE], "kind": "claude-stdio", "env": {"PYTHONPATH": "."}},
             // Its HOME is the chat's folder: Claude Code would read the folder's
             // `.claude/settings.json` as the person's own.
-            "fhome": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio",
+            "fhome": {"argv": [CLAUDE], "kind": "claude-stdio",
                       "env": {"HOME": d.join("work")}},
             // Its HOME is elsewhere, but its `.claude` is the chat's folder.
-            "fhomelink": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio",
+            "fhomelink": {"argv": [CLAUDE], "kind": "claude-stdio",
                           "env": {"HOME": d.join("account")}},
         },
         "defaultHarness": "fclaude",
@@ -293,9 +297,10 @@ async fn not_now_opens_a_restricted_claude_chat_only_with_the_setting_on() {
     // Other harnesses keep the refusal.
     assert_eq!(reason(&app.new_session(&work, "fcodex").await), "trust.untrusted");
 
-    // A Claude Code whose user settings or script would be the folder's own does not start.
+    // A Claude Code whose user settings or code would be the folder's own does not start.
     std::fs::copy(FAKE_CLAUDE, work.join("claude.py")).unwrap();
-    for harness in ["fhome", "fhomelink", "fscript", "fscriptrel"] {
+    std::fs::copy(FAKE_CLAUDE, work.join("claude_wrapper.py")).unwrap();
+    for harness in ["fhome", "fhomelink", "fscript", "fscriptrel", "fpymod"] {
         let r = app.new_session(&work, harness).await;
         let refused = match r["result"]["sessionId"].as_str() {
             Some(id) => {
@@ -305,8 +310,16 @@ async fn not_now_opens_a_restricted_claude_chat_only_with_the_setting_on() {
             None => r,
         };
         assert_eq!(reason(&refused), "restricted.refused", "{harness}: {refused}");
-        assert!(refused.to_string().contains("inside the chat's folder"), "{refused}");
+        if harness.starts_with("fhome") {
+            assert!(refused.to_string().contains("inside the chat's folder"), "{refused}");
+        }
     }
+    let planted = "import pathlib\npathlib.Path(__file__).with_name('planted').touch()\n";
+    std::fs::write(work.join("sitecustomize.py"), planted).unwrap();
+    let r = app.new_session(&work, "fpypath").await;
+    let p = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+    restricted_flags(&argv(&app.ask(&p, "argv").await));
+    assert!(!work.join("planted").exists(), "the folder's sitecustomize.py ran");
 
     // A chat that existed unrestricted becomes restricted at the pane's next prompt.
     restricted_flags(&argv(&app.ask(&kept, "argv").await));
