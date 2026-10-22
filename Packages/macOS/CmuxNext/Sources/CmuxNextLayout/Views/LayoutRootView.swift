@@ -1,6 +1,6 @@
 public import AppKit
 import CmuxNextCompat
-import CmuxNextDesign
+public import CmuxNextDesign
 import Observation
 
 /// The workspace content area: renders every screen of a `LayoutModel`,
