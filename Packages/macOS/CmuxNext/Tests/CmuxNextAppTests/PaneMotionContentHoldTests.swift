@@ -88,4 +88,22 @@ import Testing
         let clip = column.page.superview?.bounds ?? .zero
         #expect(column.page.frame.maxX == clip.maxX, "the content slides in with the pane's right edge: \(column.page.frame)")
     }
+    /// A split's new pane starts as a zero-wide sliver (`PaneArrival`). While it is narrower than
+    /// twice the padding its clip is zero wide; the page still lays out once, at its size at rest,
+    /// and never resizes on the way (Leo, ask-7d6c0da7c9: "the speedy non laggy animation for
+    /// opening up a new thing on the right").
+    @Test func aPaneGrowingFromASliverNeverResizesItsPage() {
+        let column = Screen(hostFrame: CGRect(x: 600, y: 0, width: 0, height: 300))
+        column.host.restSize = CGSize(width: 400, height: 300)
+        column.host.restOffset = CGVector(dx: -400, dy: 0)
+        column.host.isOnLayoutSpring = true
+        var widths: [CGFloat] = []
+        for width: CGFloat in [3, 7, 12, 15, 16, 24, 60, 180, 330, 399.5] {
+            column.host.restOffset = CGVector(dx: -(400 - width), dy: 0)
+            column.host.frame = CGRect(x: 600 - width, y: 0, width: width, height: 300)
+            widths.append(column.page.frame.width)
+        }
+        let rest: CGFloat = 384 // 400 less the 8 pt padding on each side
+        #expect(widths.allSatisfy { $0 == rest }, "the page resized while the pane grew: \(widths)")
+    }
 }
