@@ -1016,40 +1016,49 @@ test "$daemon_pid" = fixture
     // 71.6 GB into a deleted test dir). Each shell runs under `ulimit -f` so a
     // regression fails here instead of filling the disk.
     const hooks = '[hooks.state."/home/cmux/.codex/hooks.json:Stop:0:0"]\ntrusted_hash = "3f0c"\n';
-    for (const existing of [hooks, null]) {
-      for (let round = 0; round < 3; round += 1) {
-        const home = mkdtempSync(path.join(tmpdir(), "cmux-devbox-agent-config-race-"));
-        try {
-          mkdirSync(path.join(home, ".codex"), { recursive: true });
-          if (existing !== null) writeFileSync(path.join(home, ".codex/config.toml"), existing);
-          const env = {
-            ...process.env,
-            HOME: home,
-            PATH: "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin",
-            OPENAI_BASE_URL: "https://example.invalid/v1",
-            OPENAI_API_KEY: "cmux-vm-edge-placeholder",
-            CMUX_CODEROUTER_URL: "https://example.invalid",
-          };
-          const results = await Promise.all(Array.from({ length: 8 }, () =>
-            runChild("/bin/bash", ["-c", `ulimit -f 256; . ${ownerAgentConfig}`], { env, timeout: 20_000, reapGroup: true }),
-          ));
-          for (const result of results) {
-            expect(result.error).toBeUndefined();
-            expect(result.status).toBe(0);
-            expect(result.orphans).toBe(false);
+    // The computer-use MCP writer edits the same file on every start; a fake
+    // driver on PATH makes both writers race, and both entries must survive.
+    const bin = mkdtempSync(path.join(tmpdir(), "cmux-devbox-agent-config-race-bin-"));
+    writeFileSync(path.join(bin, "cua-driver"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+    try {
+      for (const existing of [hooks, null]) {
+        for (let round = 0; round < 3; round += 1) {
+          const home = mkdtempSync(path.join(tmpdir(), "cmux-devbox-agent-config-race-"));
+          try {
+            mkdirSync(path.join(home, ".codex"), { recursive: true });
+            if (existing !== null) writeFileSync(path.join(home, ".codex/config.toml"), existing);
+            const env = {
+              ...process.env,
+              HOME: home,
+              PATH: `${bin}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin`,
+              OPENAI_BASE_URL: "https://example.invalid/v1",
+              OPENAI_API_KEY: "cmux-vm-edge-placeholder",
+              CMUX_CODEROUTER_URL: "https://example.invalid",
+            };
+            const results = await Promise.all(Array.from({ length: 8 }, () =>
+              runChild("/bin/bash", ["-c", `ulimit -f 256; . ${ownerAgentConfig}`], { env, timeout: 20_000, reapGroup: true }),
+            ));
+            for (const result of results) {
+              expect(result.error).toBeUndefined();
+              expect(result.status).toBe(0);
+              expect(result.orphans).toBe(false);
+            }
+            const merged = readFileSync(path.join(home, ".codex/config.toml"), "utf8");
+            expect(merged.length).toBeLessThan(4096);
+            const parsed = Bun.TOML.parse(merged) as Record<string, unknown>;
+            expect(parsed.model_provider).toBe("cmux");
+            expect(merged.match(/^model_provider = /gm)).toHaveLength(1);
+            expect(merged.match(/^\[model_providers\.cmux\]$/gm)).toHaveLength(1);
+            if (existing !== null) expect(merged).toContain('trusted_hash = "3f0c"');
+            expect((parsed.mcp_servers as Record<string, unknown> | undefined)?.["cua-driver"]).toBeDefined();
+            expect(readdirSync(path.join(home, ".codex")).filter((name) => name.includes("cmux-tmp") || name.startsWith(".cmux-cua-"))).toEqual([]);
+          } finally {
+            rmSync(home, { recursive: true, force: true });
           }
-          const merged = readFileSync(path.join(home, ".codex/config.toml"), "utf8");
-          expect(merged.length).toBeLessThan(4096);
-          const parsed = Bun.TOML.parse(merged) as Record<string, unknown>;
-          expect(parsed.model_provider).toBe("cmux");
-          expect(merged.match(/^model_provider = /gm)).toHaveLength(1);
-          expect(merged.match(/^\[model_providers\.cmux\]$/gm)).toHaveLength(1);
-          if (existing !== null) expect(merged).toContain('trusted_hash = "3f0c"');
-          expect(readdirSync(path.join(home, ".codex")).filter((name) => name.includes("cmux-tmp"))).toEqual([]);
-        } finally {
-          rmSync(home, { recursive: true, force: true });
         }
       }
+    } finally {
+      rmSync(bin, { recursive: true, force: true });
     }
   }, 120_000);
 

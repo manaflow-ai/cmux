@@ -110,7 +110,7 @@ cmux_write_agent_configs() {
   # it goes to a private temp file renamed into place. Nothing reads the file
   # it writes, and the size of what it writes is bounded.
   if [ -n "${OPENAI_BASE_URL-}" ]; then
-    python3 - "$HOME/.codex" "$OPENAI_BASE_URL" 2>/dev/null <<'CMUX_CODEX_CONFIG_MERGE' || true
+    python3 -I - "$HOME/.codex" "$OPENAI_BASE_URL" 2>/dev/null <<'CMUX_CODEX_CONFIG_MERGE' || true
 import fcntl, json, os, pathlib, signal, stat, sys, tempfile, tomllib
 
 LIMIT = 1 << 20
@@ -274,7 +274,7 @@ CMUX_CODEX_CONFIG_MERGE
 cmux_ensure_opencode_config() {
   [ -e "$HOME/.config/cmux/opencode-team.json" ] && return 0
   [ -n "${CMUX_CODEROUTER_URL-}" ] && [ -n "${OPENAI_API_KEY-}" ] || return 0
-  python3 - <<'CMUX_OPENCODE_CONFIG'
+  python3 -I - <<'CMUX_OPENCODE_CONFIG'
 import fcntl, hashlib, json, os, pathlib, re, subprocess, sys, tempfile, time
 
 config = pathlib.Path.home() / ".config/cmux/opencode-team.json"
@@ -371,10 +371,12 @@ cmux_write_cua_mcp_config() {
   driver=$(command -v cua-driver 2>/dev/null || true)
   [ -x "$driver" ] || return 0
   CMUX_CUA_CONFIG_HOME="$HOME" CMUX_CUA_DRIVER_BIN="$driver" CMUX_CUA_ALLOW_MISSING="$mode" \
-    CMUX_CUA_OPENCODE_CONFIG="${OPENCODE_CONFIG-}" python3 - <<'CMUX_CUA_CONFIG'
+    CMUX_CUA_OPENCODE_CONFIG="${OPENCODE_CONFIG-}" python3 -I - <<'CMUX_CUA_CONFIG'
+import fcntl
 import json
 import os
 import pathlib
+import signal
 import stat
 import sys
 import tempfile
@@ -473,6 +475,32 @@ def toml_document(raw):
 
 
 def add_codex_server(path):
+    # The provider merge above writes the same file: take its lock, so neither
+    # write is built on a read the other one replaced. A holder that keeps it
+    # past 5 s makes this start skip the update.
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        lock = open(path.parent / "config.toml.cmux-lock", "a")
+    except OSError:
+        # An unwritable ~/.codex: the write below fails and reports itself.
+        add_codex_server_locked(path)
+        return
+    with lock:
+        def give_up(*_):
+            raise TimeoutError
+        previous = signal.signal(signal.SIGALRM, give_up)
+        signal.alarm(5)
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+        except (TimeoutError, OSError):
+            return
+        finally:
+            signal.alarm(0)
+            signal.signal(signal.SIGALRM, previous)
+        add_codex_server_locked(path)
+
+
+def add_codex_server_locked(path):
     try:
         if path.is_symlink():
             return
