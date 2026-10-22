@@ -5,6 +5,7 @@ import CmuxNextBridge
 import CmuxNextSidebar
 import Darwin
 import Foundation
+import Observation
 import Testing
 @testable import CmuxNextAgentLanes
 @testable import CmuxNextApp
@@ -99,6 +100,23 @@ import Testing
             let row = fixture.model.sections.flatMap(\.workspaces).first { $0.title == "Agent workspace 7" }
             #expect(row?.agentStep == "Editing SidebarListView.swift")
         }
+    }
+
+    /// The pull request badges' pass reads each session's links: a new step leaves them alone, a
+    /// new folder tells them.
+    @Test func aStepLeavesTheLaneLinksAlone() {
+        let lanes = AgentLaneStore()
+        lanes.lanes = ["s-1": Fixture.lane(1, step: "Reading")]
+        nonisolated final class Told: @unchecked Sendable { var value = false } // written once by the tracking callback, read after on this thread
+        let told = Told()
+        withObservationTracking { _ = lanes.links("s-1") } onChange: { told.value = true }
+        lanes.lanes["s-1"] = Fixture.lane(1, step: "Editing")
+        #expect(!told.value, "a new step told the links' reader")
+        #expect(lanes.lane("s-1")?.step == "Editing")
+        let moved = AgentActivityLane(id: "s-1", name: "s-1", title: "Agent 1", peer: nil, parent: nil, state: .working,
+                                      since: nil, error: nil, step: "Editing", cwd: "/tmp/elsewhere")
+        lanes.lanes["s-1"] = moved
+        #expect(told.value, "a new folder did not tell the links' reader")
     }
 
     /// Not a check: main-thread CPU per agent event (lane write, row maps, patch) at 150 and 500.
