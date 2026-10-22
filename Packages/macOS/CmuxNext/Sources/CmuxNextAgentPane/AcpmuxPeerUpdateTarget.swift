@@ -88,6 +88,13 @@ nonisolated struct AcpmuxPeerUpdateSource: Sendable {
         return status.updatablePeers.map { AcpmuxPeerUpdateTarget(name: $0.name, url: $0.url, source: self) }
     }
 
+    /// The connected ssh peers now, without waiting for others to connect, while the local daemon
+    /// may push its build (``AcpmuxPeerReconnects/sweep(_:every:clock:)``).
+    func targetsNow() async -> [any DaemonUpdateTarget] {
+        guard let status = await status(), status.blocked(bundledBuild: await bundledBuild()) == nil else { return [] }
+        return status.updatablePeers.map { AcpmuxPeerUpdateTarget(name: $0.name, url: $0.url, source: self) }
+    }
+
     /// The status once every ssh peer connected and named its build, or after ``settleLimit``: a
     /// launch right after an update restarts the daemon, and its peers connect over ssh after it.
     private func settledStatus() async -> AcpmuxPeerUpdateStatus? {
@@ -172,7 +179,7 @@ extension DaemonUpdatePolicy {
 
     /// Once per launch, in the background, after the app's acpmux is up (``AcpmuxHost/prewarm()``):
     /// offers the acpmux ssh peers of the app's daemon to ``shared``, and arms
-    /// ``AcpmuxPeerReconnects`` for the peers that connect later. `download` fetches a published
+    /// ``AcpmuxPeerReconnects`` and its sweep for the peers that connect later. `download` fetches a published
     /// artifact of the bundled build next to `executable` (the app wires
     /// `RemoteInstaller.download(artifact:nextTo:)`).
     public nonisolated static func startOnce(
@@ -196,6 +203,7 @@ extension DaemonUpdatePolicy {
             for target in await peers.targets() {
                 await DaemonUpdatePolicy.shared.offer(target)
             }
+            await MainActor.run { _ = AcpmuxPeerReconnects.shared.sweep(peers, every: .seconds(600), clock: ContinuousClock()) }
         }
     }
 }

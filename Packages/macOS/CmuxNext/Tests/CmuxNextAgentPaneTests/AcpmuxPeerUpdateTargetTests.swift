@@ -263,6 +263,40 @@ import Testing
         #expect(fixture.calls.count == 1, "offered again after a reconnect; the ledger has it updated on this build")
     }
 
+    /// Review of #24070: a peer that connects with no session sends no change on the app's watch,
+    /// so only the next launch updated it. The sweep offers it at its next read; turning
+    /// `agent.updatePeers` off ends the sweep.
+    @Test @MainActor func aPeerThatConnectsWithNoSessionIsUpdatedByTheSweep() async throws {
+        let fixture = try StandInAcpmux()
+        defer { fixture.remove() }
+        try fixture.reply("huge-blue", nil, #"{"updated":[{"peer":"huge-blue","outcome":"updated","ok":true,"build":"abc123def 2026-10-20"}],"peers":[]}"#)
+        let connected = Mutex(false)
+        let source = fixture.source(peers: [], status: {
+            AcpmuxPeerUpdateStatus(build: Self.local, peers: [Self.peer("huge-blue", connected: connected.withLock { $0 })])
+        })
+        let policy = DaemonUpdatePolicy(DaemonUpdatePolicy.Dependencies(
+            bundledBuild: { Self.local }, targets: { await source.targets() }, enabled: { true }, report: { _ in },
+            directory: fixture.root.appendingPathComponent("state"), clock: PolicyTestClock()))
+        // On for three sweeps; the peer connects after the first.
+        let sweeps = Mutex(0)
+        let reconnects = AcpmuxPeerReconnects(offer: { target in
+            await policy.offer(target)
+            await policy.drained()
+        }, enabled: {
+            sweeps.withLock { count in
+                defer { count += 1 }
+                if count == 1 { connected.withLock { $0 = true } }
+                return count < 3
+            }
+        })
+        await policy.run()
+        #expect(fixture.calls.isEmpty, "offline at launch")
+
+        await reconnects.sweep(source, every: .seconds(600), clock: PolicyTestClock()).value
+        #expect(fixture.calls.count == 1, "updated at the sweep after it connected, once")
+        #expect(sweeps.withLock { $0 } == 4, "the sweep ended when the toggle read off")
+    }
+
     @Test func updateArgumentsDropIfIdleOnlyWhileBusy() {
         let binaries = URL(fileURLWithPath: "/tmp/binaries/abc123def")
         let base = ["--json", "host", "update", "cmux16", "--binary-dir", "/tmp/binaries/abc123def"]

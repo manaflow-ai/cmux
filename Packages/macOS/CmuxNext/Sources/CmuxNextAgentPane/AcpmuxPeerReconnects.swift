@@ -11,8 +11,8 @@ import Foundation
 /// connects (its fresh list replaces the cached rows) and when it drops (they turn `stale`). The
 /// first live change of a peer not known connected reads the local daemon's status once
 /// (``AcpmuxPeerUpdateSource/check(peer:)``) and offers the peer when it is a connected ssh peer
-/// that named its build; the policy and its ledger keep that to one update per build. A peer with
-/// no session sends no change: it waits for its first session or the next launch.
+/// that named its build; the policy and its ledger keep that to one update per build. What those
+/// changes cannot show, ``sweep(_:every:clock:)`` catches within ten minutes.
 @MainActor
 public final class AcpmuxPeerReconnects {
     // lint:allow one per app process: the app's turn-state watch feeds it, the launch's discovery arms it
@@ -51,6 +51,29 @@ public final class AcpmuxPeerReconnects {
             // Not up after all (it dropped again, or has not named its build yet): its next change checks again.
             case .notConnected: await self?.forget(peer)
             case .skipped: break
+            }
+        }
+    }
+
+    /// Offers every connected ssh peer again every `interval` while `agent.updatePeers` is on, and
+    /// ends when it is turned off (the next launch starts it again). It catches what
+    /// ``note(peer:stale:)`` cannot see: a peer that connects with no session sends no change, a
+    /// reconnect of the app's watch brings a snapshot and no changes, and an offer that came while
+    /// the policy still ran that peer's earlier attempt is dropped. One local status read per
+    /// `interval`; the policy and its ledger keep it to one update per build.
+    @discardableResult
+    func sweep(_ source: AcpmuxPeerUpdateSource, every interval: Duration, clock: any Clock<Duration>) -> Task<Void, Never> {
+        let offer = offer
+        let enabled = enabled
+        // task-owner: one per launch (startOnce); ends when agent.updatePeers is turned off or the task is cancelled
+        return Task.detached(priority: .utility) {
+            while true {
+                // wakeup-allow: one local status read every ten minutes while peer updates are on
+                do { try await clock.sleep(for: interval) } catch { return }
+                guard enabled() else { return }
+                for target in await source.targetsNow() {
+                    await offer(target)
+                }
             }
         }
     }
