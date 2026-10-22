@@ -20,6 +20,7 @@ import { curatedSections, modelSections } from "./modelSections";
 import { effortWords, fitsQuery, modelEffort, parseQuery } from "./modelQuery";
 import { registerPicker } from "./pickerOpeners";
 import { QuickModelMenu, type QuickAccount, type QuickFamily, type QuickModel } from "./QuickModelMenu";
+import type { PickerProfile } from "./pickerProfiles";
 import { useUiAnchor } from "../../ui/anchor";
 import { useEscapeCloses } from "../../ui/escapeDismiss";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
@@ -184,7 +185,14 @@ const STARRED = "\u0000starred";
 /// claude-sr2, a folder's Claude profile) are that harness's accounts, listed under its Account
 /// row, never tabs of their own. A tab is the account the chat runs, else its first signed-in one,
 /// named as the harness's first profile ("Claude Code"). Unbranded profiles keep their own tabs.
-function railByHarness(list: QuickFamily[], running: string | undefined): QuickFamily[] {
+/// `profiles` are the installed profiles each tab's catalog entry folded into one (pickerProfiles.ts,
+/// by tab id): `claude` and `claude-sr` are one Claude Code there, and both its accounts here.
+function railByHarness(
+  list: QuickFamily[],
+  running: string | undefined,
+  profiles: Readonly<Record<string, readonly PickerProfile[]>> = {},
+  signedOut: (id: string) => boolean = () => false,
+): QuickFamily[] {
   const groups = new Map<string, QuickFamily[]>();
   for (const family of list) {
     const brand = family.starred || !family.mark ? undefined : agentBrand(family.mark);
@@ -193,16 +201,26 @@ function railByHarness(list: QuickFamily[], running: string | undefined): QuickF
   }
   return [...groups.values()].map((members) => {
     const first = members[0]!;
-    if (members.length === 1) return first;
+    const listed = members.flatMap((member): QuickAccount[] => {
+      const folded = profiles[member.id];
+      if (!folded?.length) return [{ id: member.id, name: member.name, ...(member.note ? { disabled: true } : {}) }];
+      return folded.map((profile) => ({
+        id: profile.id,
+        name: profile.name,
+        ...(profile.unavailable || signedOut(profile.id) ? { disabled: true } : {}),
+      }));
+    });
+    const seen = new Set<string>();
+    const unique = listed.filter((account) => !seen.has(account.id) && seen.add(account.id));
+    const accounts = unique.map((account) =>
+      unique.filter((other) => other.name === account.name).length > 1
+        ? { ...account, name: `${account.name} (${account.id})` }
+        : account,
+    );
     const lead = members.find((member) => member.id === running) ?? members.find((member) => !member.note) ?? first;
-    const named = (member: QuickFamily) =>
-      members.filter((other) => other.name === member.name).length > 1 ? `${member.name} (${member.id})` : member.name;
-    const accounts: QuickAccount[] = members.map((member) => ({
-      id: member.id,
-      name: named(member),
-      ...(member.note ? { disabled: true } : {}),
-    }));
-    return { ...lead, name: first.name, accounts };
+    const account = accounts.some((choice) => choice.id === running) ? running : lead.id;
+    if (members.length === 1 && accounts.length < 2) return first;
+    return { ...lead, name: first.name, accounts, ...(account ? { account } : {}) };
   });
 }
 
@@ -579,13 +597,13 @@ export function ModelPicker(props: ModelPickerProps) {
           : {}),
       });
     }
-    const rail = railByHarness(list, current?.id);
+    const rail = railByHarness(list, harness ?? current?.id, props.profiles, (id) => signedOut?.[id] !== undefined);
     if (!harnessFixed) return rail;
     // A started chat (Leo 2026-10-22: "can expose as fork"): another harness's tab is Fork to it,
     // Starred keeps the chat's own models, and another account of any harness forks there.
     return rail.flatMap((family): QuickFamily[] => {
       const accounts = family.accounts?.map((account) =>
-        account.id === current?.id || fork?.ready ? account : { ...account, disabled: true },
+        account.id === harness || fork?.ready ? account : { ...account, disabled: true },
       );
       const own = { ...family, ...(accounts ? { accounts } : {}) };
       if (family.starred) {
@@ -609,6 +627,8 @@ export function ModelPicker(props: ModelPickerProps) {
     props.model,
     t,
     onLogIn,
+    props.profiles,
+    signedOut,
   ]);
   /// A compact-menu pick: this harness's model lands in place; another harness's starts a chat there.
   const pickQuick = (model: QuickModel) => {
@@ -623,10 +643,12 @@ export function ModelPicker(props: ModelPickerProps) {
     else if (owner.acpmuxHarness) onHarness?.(owner.acpmuxHarness);
   };
   /// An Account pick: the harness's other profile starts a chat there, or forks a started chat there.
+  /// `id` is an acpmux profile: one a tab folded (pickerProfiles.ts) is no harness entry of its own.
   const pickAccount = (id: string) => {
+    if (id === harness || signedOut?.[id] !== undefined) return;
     const owner = allHarnesses.find((entry) => entry.id === id);
-    if (!owner || owner.ids.includes(harness ?? "") || loginFor(owner) !== undefined) return;
-    const target = owner.acpmuxHarness ?? owner.id;
+    if (owner && loginFor(owner) !== undefined) return;
+    const target = owner?.acpmuxHarness ?? id;
     if (harnessFixed) {
       if (fork?.ready) fork.to(target);
     } else onHarness?.(target);

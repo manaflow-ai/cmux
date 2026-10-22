@@ -26,6 +26,7 @@ import { catalogRow } from "./catalogRow";
 import { harnessProfiles } from "./harnessProfiles";
 import { useStartMode } from "./startMode";
 import type { PickerCatalog } from "./modelCatalogData";
+import { catalogProfiles } from "./pickerProfiles";
 import { focusWithRing } from "../../ui/focusWithRing";
 import { Popover } from "../../ui/Popover";
 import { ContextMenu } from "../../ui/ContextMenu";
@@ -242,6 +243,8 @@ export function ComposerPickers({
   // Fork to, never as a switch in place (Leo 2026-10-22: "can expose as fork").
   const ownEntries = locked && !fork ? allEntries.filter((entry) => entry.id === summary?.harness) : [];
   const pickerEntries = ownEntries.length > 0 ? ownEntries : allEntries;
+  // The profiles each catalog harness folded into its one entry: its accounts in the model menu.
+  const profiles = pickerCatalog ? catalogProfiles(snapshot.catalog, pickerCatalog.harnesses) : undefined;
   const switchHarness = locked ? undefined : onHarness;
   // An agent's own default remains an internal sentinel. The picker omits it
   // instead of exposing a separate "Default" row.
@@ -749,6 +752,7 @@ export function ComposerPickers({
           }}
           onHarness={switchHarness}
           {...(locked && fork ? { fork } : {})}
+          {...(profiles ? { profiles } : {})}
           onCombo={combo}
           onHarnessHint={onHarnessHint}
           onHarnessEnable={onHarnessEnable}

@@ -59,6 +59,8 @@ export type QuickFamily = {
   /// The harness's accounts, when it has more than one: each profile that runs it (Claude Code,
   /// claude-sr2, a folder's Claude profile), under the tab's Account row. The tab is the first.
   accounts?: QuickAccount[];
+  /// The account the tab runs or starts on (an acpmux profile id); the tab's own id when unset.
+  account?: string;
   /// A started chat's other harness: the tab offers Fork to it in place of its models.
   fork?: boolean;
 };
@@ -173,6 +175,7 @@ export function QuickModelMenu({
   const forkTab = !query && shown?.fork ? shown : undefined;
   // The shown harness's accounts, only those that run it (Leo 2026-10-22: "not per-account available").
   const profiles = families?.onAccount && (shown?.accounts?.length ?? 0) > 1 ? shown?.accounts : undefined;
+  const profile = shown?.account ?? shown?.id;
   // What the list draws: the typed filter's matches, else the tab's top models.
   const rows: (QuickModel & { hint?: string })[] = !families
     ? models.map((model) => ({ ...model, family: "" }))
@@ -347,7 +350,7 @@ export function QuickModelMenu({
                 onChatTab && accounts.switchFailed
                   ? t("picker.accountSwitchFailed")
                   : ((onChatTab ? activeAccount?.name : undefined) ??
-                    profiles?.find((choice) => choice.id === shown?.id)?.name ??
+                    profiles?.find((choice) => choice.id === profile)?.name ??
                     (onChatTab && accounts.list ? t("picker.harnessLogin") : undefined))
               }
             />
@@ -356,9 +359,9 @@ export function QuickModelMenu({
           {/* The harness's own accounts: a pick starts it on that profile, or forks a started chat there. */}
           {profiles && (
             <MenuRadioGroup
-              value={shown?.id ?? ""}
+              value={profile ?? ""}
               onValueChange={(id) => {
-                if (id === shown?.id) return;
+                if (id === profile) return;
                 onOpenChange(false);
                 families?.onAccount?.(id);
               }}

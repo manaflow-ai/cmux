@@ -326,3 +326,63 @@ test("the chat composer forks through Continue In…'s chat.handoff.prepare", as
     { method: "chat.handoff.prepare", params: { harness: "codex" } },
   ]);
 });
+
+// Codex review of #24355: buildPickerCatalog folds every installed profile of a catalog family into
+// that harness's one entry, keeping only the profile it runs (`acpmuxHarness`). With `claude` and
+// `claude-sr` installed, the live pane's picker saw one Claude Code: a started Claude chat's Account
+// row left out `claude-sr`, and nothing forked to it. The real catalog join and the pane's own chips.
+test("a family's profiles that the catalog join folds into one harness are each its accounts, and fork", async () => {
+  const { BUNDLED_MODEL_CATALOG, buildPickerCatalog } = await import("../src/agent-session/acpmux/modelCatalogData");
+  const { familyProfiles } = await import("../src/agent-session/acpmux/pickerProfiles");
+  const models = (id: string) =>
+    BUNDLED_MODEL_CATALOG.harnesses
+      .find((harness) => harness.id === id)!
+      .models.map((model) => ({ id: model.id, name: model.name }));
+  const catalog = [
+    { id: "claude", name: "Claude Code", family: "claude", models: models("claude") },
+    { id: "claude-sr", name: "claude-sr", family: "claude", models: models("claude") },
+    { id: "codex", name: "Codex", family: "codex", models: models("codex") },
+  ] as Snapshot["catalog"];
+  // The join keeps one Claude Code entry, on the profile it runs.
+  const joined = buildPickerCatalog({
+    catalog: BUNDLED_MODEL_CATALOG,
+    acpmux: catalog,
+    session: { harness: "claude" },
+  });
+  const claude = joined.harnesses.filter((entry) => entry.acpmuxHarness?.startsWith("claude"));
+  expect(claude.map((entry) => entry.acpmuxHarness)).toEqual(["claude"]);
+  expect(familyProfiles(catalog, "claude").map((profile) => profile.id)).toEqual(["claude", "claude-sr"]);
+
+  const { createRoot } = await import("react-dom/client");
+  const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
+  const { ChatComposerChips } = await import("../src/agent-session/acpmux/App");
+  const calls: { method: string; params: unknown }[] = [];
+  (dom.window as unknown as { cmuxAcpmuxActions: unknown }).cmuxAcpmuxActions = new Proxy(
+    {},
+    { get: (_target, method) => async (params: unknown) => void calls.push({ method: String(method), params }) },
+  );
+  const snapshot = chat(catalog, 1, { canHandoff: true, handoff: { ready: true } } as Partial<Snapshot>);
+  root = createRoot(host);
+  await act(async () =>
+    root!.render(
+      <QueryClientProvider client={new QueryClient()}>
+        <ChatComposerChips snapshot={snapshot} />
+      </QueryClientProvider>,
+    ),
+  );
+  await settle();
+  await open();
+  expect(railTabs().filter((tab) => tab.getAttribute("aria-label") === "Claude Code")).toHaveLength(1);
+  const account = await openAccount();
+  expect(profileRows(account).map(labelOf)).toEqual(["Claude Code", "claude-sr"]);
+  expect(account.querySelector('.acpmux-quick-profile[aria-checked="true"]')?.textContent).toContain("Claude Code");
+  await act(async () =>
+    profileRows(account)
+      .find((row) => labelOf(row) === "claude-sr")!
+      .click(),
+  );
+  await settle();
+  expect(calls.filter((call) => call.method.startsWith("chat."))).toEqual([
+    { method: "chat.handoff.prepare", params: { harness: "claude-sr" } },
+  ]);
+});

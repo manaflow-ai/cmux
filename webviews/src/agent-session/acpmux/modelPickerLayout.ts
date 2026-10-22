@@ -2,6 +2,7 @@
 import type { AcpmuxSnapshot } from "./model";
 import type { Choice, Combo } from "./ComposerPickers";
 import type { QuickMenuExtras } from "./QuickModelMenu";
+import type { PickerProfile } from "./pickerProfiles";
 
 /// What the picker gets from ComposerPickers. Picks go through `onLand` (model, then its effort
 /// once the agent reports that model) and `onEffort`.
@@ -66,6 +67,9 @@ export type ModelPickerProps = {
   /// rail, and another harness's tab, or another account of the chat's own, offers Fork to it.
   /// `to` gets the acpmux profile id; `ready` false (a turn running, a queued prompt) disables it.
   fork?: { to(harness: string): void; ready: boolean };
+  /// The installed acpmux profiles each catalog entry stands for, by its id (pickerProfiles.ts): the
+  /// accounts its Account row lists. An entry with none listed is its own one account.
+  profiles?: Readonly<Record<string, readonly PickerProfile[]>>;
   /// A short note per harness in place of "New chat" (a harness that failed to start).
   harnessNotes?: Readonly<Record<string, string>>;
   /// The harnesses this Mac's acpmux found signed out, by acpmux id, with each one's login
