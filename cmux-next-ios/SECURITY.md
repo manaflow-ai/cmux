@@ -804,6 +804,27 @@ for anyone but a developer who launches their own DEBUG build with it. The e2e
 rig sets it in the rig app's `LSEnvironment` (`e2e/mac.py`) and names its
 simulator; it never clicks Allow and never writes `paired-devices.json`.
 
+## Notification replies: the mailbox, sealed pushes and terminal input (`feat-cmux-next-ios-push-fallback`)
+
+Held for #13742 (`verify/notifications-trust.md`). Wire format: PROTOCOL.md
+"Sealed pushes and the reply mailbox".
+
+| Threat | What stops it | What's left |
+| --- | --- | --- |
+| The Worker (or someone holding a stolen Stack token) forges a reply | the Mac opens only what is sealed to its box key and signed by a paired phone's identity key (Secure Enclave); the Worker-stamped sender must be that phone | none: a token alone signs nothing |
+| A replayed or late reply | one-time id and nonce, a spent set kept on disk until expiry, `expiresAt` at most 10 minutes ahead; an Allow or answer also spends acpmux's own decision nonce | none beyond the window |
+| A reply applied to something else | it names one session, permission, conversation or terminal notification, and hostd checks it is still pending; an Allow or answer is bound by the acpmux approval signature to that prompt, option and daemon run | none |
+| A removed or refused phone | the Mac checks its current paired list and denied list on every reply | a removal not yet on the Mac (the Mac app was off) applies when it next starts |
+| The Worker or APNs reads notification content | sealed pushes (ECIES to the phone's push key, signed by the Mac identity key); the generic banner names only the Mac | kinds, ids, sizes, timing and the target Mac stay visible |
+| A forged sealed push (fake question) | the service extension checks the Mac identity signature against the key pinned at pairing; a bad one keeps the generic banner | none |
+| The Worker withholds or delays replies | the phone polls the item's state and says "Couldn't reach <Mac>" with Retry | availability only |
+| Lock-screen input into a terminal | the Reply action is `authenticationRequired` (device unlock), the text is what the person typed, it goes only to the notifying terminal, at most 4 KB, and only for a notification of the person's session; Allow and answers still need Face ID | a program's notification can invite a harmful reply: the person reads what they send |
+| A lost, unlocked phone | the same as the app itself; removing the phone from the Mac (or the account) ends its replies | none new |
+
+Policy: the `daemon` lane adds `notification-reply` with only `notification`
+and `text` (`policy.rs` tests refuse every other field and over-long text);
+hostd's mailbox applies a reply through the same policy as a link request.
+
 ## Decisions for the person
 
 - Agent chats from the phone in the person's workspaces: acpmux lets a phone
@@ -814,5 +835,8 @@ simulator; it never clicks Allow and never writes `paired-devices.json`.
 
 - Phone pairing and Face ID signed approvals (`verify/phone-approvals.md`),
   a trust-policy change recommended on issue #13742.
+- Notification replies without the live link and terminal input from a
+  notification (`verify/notifications-trust.md`), recommended on #13742; held
+  until approved.
 - None for the service: production builds use the production Worker
   (`https://mobile-api.cmux.dev`), and development builds use the dev Worker.
