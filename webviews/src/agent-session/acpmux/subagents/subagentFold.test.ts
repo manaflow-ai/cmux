@@ -270,3 +270,16 @@ test("a message to a subagent nothing named reads as the generic recipient, neve
   expect(names.size).toBe(0);
   expect(recipientName("a39e817af38ddf5e7", names)).toBeUndefined();
 });
+
+test('a subagent\'s "Subagent of" pill names a parent nothing named as its rows do, never the chat', async () => {
+  const { childView, SUBAGENT_OF } = await import("./subagentRows");
+  const row = (agents: object[]) =>
+    ({ id: `${SUBAGENTS}-1`, version: 1, at: 0, kind: SUBAGENTS, subagents: agents }) as never;
+  const parent = { id: "s/toolu_P1", parent: null, name: "", unnamed: true, state: "running", startedAt: 0 };
+  const child = { id: "s/toolu_C1", parent: "s/toolu_P1", name: "Read docs", state: "running", startedAt: 1 };
+  const pill = (agents: object[]) =>
+    childView("s/toolu_C1", [row(agents)], {}, new Set(), "My chat", translate)?.find((r) => r.kind === SUBAGENT_OF);
+  expect(pill([parent, child])?.text).toBe("Subagent");
+  expect(pill([{ ...parent, kind: "Explore" }, child])?.text).toBe("Explore");
+  expect(pill([{ ...child, parent: null }])?.text).toBe("My chat");
+});

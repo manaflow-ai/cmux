@@ -4030,10 +4030,10 @@ function AcpmuxPane() {
   const childDoneLines = useRef<DoneLineCache>(new Map());
   const childRows = useMemo(() => {
     if (!subagentView) return undefined;
-    if (!subagentTray) return childView(subagentView, snapshot.rows, snapshot.subagentViews, expanded, chatName);
-    const view = childView(subagentView, snapshot.rows, snapshot.subagentViews, NO_EXPANDED, chatName);
+    if (!subagentTray) return childView(subagentView, snapshot.rows, snapshot.subagentViews, expanded, chatName, t);
+    const view = childView(subagentView, snapshot.rows, snapshot.subagentViews, NO_EXPANDED, chatName, t);
     return view && (withSubagentLines(view, childDoneLines.current) as AcpmuxRow[]);
-  }, [subagentView, snapshot.rows, snapshot.subagentViews, expanded, chatName, subagentTray]);
+  }, [subagentView, snapshot.rows, snapshot.subagentViews, expanded, chatName, subagentTray, t]);
   // The session's edit rows for the edited-files card, the same array while they are the same rows.
   const lastEditRows = useRef<SessionEdits | undefined>(undefined);
   const editRows = useMemo(() => {
