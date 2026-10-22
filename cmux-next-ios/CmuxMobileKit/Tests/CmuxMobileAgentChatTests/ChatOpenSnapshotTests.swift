@@ -82,4 +82,22 @@ import Testing
         #expect(store.isReplayed(TurnRow.permission(pending).id))
         #expect(!store.wasOpenOnArrival(TurnRow.permission(pending).id))
     }
+
+    /// An ask shown from the attach reply's pending list before its turn's records came
+    /// moves to that turn when its own record arrives; an answered one is not shown again.
+    @Test func askSeenAgainMovesToItsTurn() throws {
+        let store = AgentChatStore(source: Silent())
+        let ask = ACPPermissionRequest(id: "perm", toolCall: ACPToolCall(id: "c", title: "rm", kind: .execute),
+                                       options: [ACPPermissionOption(id: "allow", name: "Allow", kind: .allowOnce)])
+        store.apply(.batch(Self.turn(0) + [.permissionRequest(ask)]))
+        store.apply(.userMessage(text: "next", promptId: "p1", turnId: "t1", attachments: [], at: Date()))
+        store.apply(.turnStarted(turnId: "t1", at: Date()))
+        store.apply(.permissionRequest(ask))
+        #expect(store.pendingPermission?.request.id == "perm")
+        let asks = store.turns.map { $0.items.filter { if case .permission = $0 { true } else { false } }.count }
+        #expect(asks == [0, 1])
+        store.apply(.permissionDecision(permissionId: "perm", optionId: "allow"))
+        store.apply(.permissionRequest(ask))
+        #expect(store.turns.flatMap(\.items).filter { if case .permission = $0 { true } else { false } }.count == 1)
+    }
 }

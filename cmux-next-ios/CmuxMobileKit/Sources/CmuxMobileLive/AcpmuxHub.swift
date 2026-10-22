@@ -660,12 +660,14 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             // Permissions still open (records may be older than the page). Before the held
             // records, so a decision among them lands after its request; an ask whose own
             // request is held comes with it instead, in order (on the turn it belongs to).
+            // An ask whose record comes later still (it raced the reply) is sent again with
+            // that record, and the chat moves it to its turn (`AgentChatStore`).
             let heldAsks = Set(held.compactMap { record -> String? in
                 record["kind"]?.stringValue == "permission_request" ? record["msg"]?["permissionId"]?.stringValue : nil
             })
             for entry in result["session"]?["pending"]?.arrayValue ?? [] {
                 if let id = entry["permissionId"]?.stringValue, !heldAsks.contains(id), let request = entry["request"],
-                   let event = records.permission(id, request: request) { emitPermission(event) }
+                   let event = records.permission(id, request: request) { emitPermission(event, listedOnly: true) }
             }
             emit(.status(summary.status))
             endHistory()
@@ -728,8 +730,11 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     }
 
     private var seenPermissions: Set<String> = []
+    /// Asks shown from an attach reply's pending list whose own record has not come yet.
+    private var listedPermissions: Set<String> = []
 
-    private func emitPermission(_ event: AgentSessionEvent) {
+    /// `listedOnly`: from the attach reply's pending list, not a record.
+    private func emitPermission(_ event: AgentSessionEvent, listedOnly: Bool = false) {
         let id: String
         switch event {
         case .permissionRequest(let request): id = request.id
@@ -738,7 +743,11 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             questions[question.id] = question
         default: return
         }
-        guard seenPermissions.insert(id).inserted else { return }
+        if seenPermissions.insert(id).inserted {
+            if listedOnly { listedPermissions.insert(id) }
+        } else if listedOnly || listedPermissions.remove(id) == nil {
+            return
+        }
         emit(event)
     }
 

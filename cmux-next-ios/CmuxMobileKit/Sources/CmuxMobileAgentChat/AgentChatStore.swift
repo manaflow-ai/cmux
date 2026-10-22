@@ -399,9 +399,11 @@ public final class AgentChatStore {
             }
             applyUpdate(update)
         case .permissionRequest(let request):
+            guard takeOpenAsk(request.id) else { return }
             appendItem(.permission(PermissionRecord(request: request)))
             summary.status = .waiting
         case .question(let question):
+            guard takeOpenAsk(question.id) else { return }
             appendItem(.question(question))
             summary.status = .waiting
         case .permissionDecision(let permissionId, let optionId):
@@ -573,6 +575,30 @@ public final class AgentChatStore {
         case .sessionInfo(let title):
             if let title = title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty { sessionTitle = title }
         }
+    }
+
+    /// An ask seen again (shown from an attach reply's pending list, then its own record
+    /// came with its turn): still open, it leaves its old place for the newest turn;
+    /// answered, the repeat is dropped. False: drop the repeat.
+    private func takeOpenAsk(_ id: String) -> Bool {
+        for turnIndex in turns.indices {
+            guard let itemIndex = turns[turnIndex].items.firstIndex(where: { item in
+                switch item {
+                case .permission(let record): record.request.id == id
+                case .question(let question): question.id == id
+                default: false
+                }
+            }) else { continue }
+            let open: Bool = switch turns[turnIndex].items[itemIndex] {
+            case .permission(let record): record.resolution == nil
+            case .question(let question): question.isPending
+            default: false
+            }
+            guard open else { return false }
+            turns[turnIndex].items.remove(at: itemIndex)
+            return true
+        }
+        return true
     }
 
     private func appendItem(_ item: TurnItem) {

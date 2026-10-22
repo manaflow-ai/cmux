@@ -190,7 +190,8 @@ import Testing
         let hub = AcpmuxHub()
         await hub.bind(try await link.openChannel(service: "acpmux", args: [:]))
         let store = AgentChatStore(source: hub.source(sessionID: "s1", summary: Self.summary))
-        for _ in 0..<2000 where store.pendingPermission == nil { await Task.yield() }
+        // Whichever lands first (the reply or the records sent ahead of it), the ask ends on t1.
+        for _ in 0..<2000 where store.turns.count < 2 || store.pendingPermission == nil { await Task.yield() }
         #expect(store.turns.map(\.id) == ["t0", "t1"])
         #expect(store.pendingPermission?.request.id == "perm")
         let asks = store.turns.flatMap(\.items).filter { if case .permission = $0 { true } else { false } }
