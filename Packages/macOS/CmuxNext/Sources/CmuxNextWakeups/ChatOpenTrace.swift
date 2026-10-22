@@ -28,6 +28,8 @@ public final class ChatOpenTrace {
     }()
     /// Finished traces kept for `get`.
     public static let capacity = 16
+    /// The agent chat page's id (`PageDescriptor.agent`): only its marks are a chat open's.
+    public static let agentPageID = "cmux.agent"
     /// The frame sampler stops by itself after this, whether or not the trace finished.
     public static let frameCap: TimeInterval = 15
 

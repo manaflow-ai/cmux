@@ -51,7 +51,7 @@ final class ChromiumPageHost: PageChromiumHosting {
         #if DEBUG
         // The first agent page made while a chat open is traced is that open's (``ChatOpenTrace``).
         let trace = ChatOpenTrace.shared
-        if trace.isArmed, trace.chromiumPane == nil, page.id == PageDescriptor.agent.id { trace.chromiumPane = configuration.pane?.rawValue }
+        if trace.isArmed, trace.chromiumPane == nil, page.id == ChatOpenTrace.agentPageID { trace.chromiumPane = configuration.pane?.rawValue }
         #endif
         let made = try await cef.makeTab(configuration)
         guard let tab = made as? CEFTab else {
