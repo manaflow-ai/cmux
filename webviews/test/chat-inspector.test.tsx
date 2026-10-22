@@ -16,7 +16,10 @@ import { JSDOM } from "jsdom";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import { INSPECTOR_PLACEMENT_KEY, setChatDisplay } from "../src/agent-session/acpmux/chatDisplay";
 import { ChatHeaderTools } from "../src/agent-session/acpmux/header/ChatHeaderTools";
+import { setChipHost } from "../src/agent-session/acpmux/chips/host";
+import { resetPullRequestStore } from "../src/agent-session/acpmux/chips/pullRequestStore";
 import { setHeaderState } from "../src/agent-session/acpmux/header/headerState";
+import { resetChangesStatuses } from "../src/agent-session/acpmux/inspector/changesStatus";
 import {
   ChatInspector,
   pushedWidth,
@@ -37,7 +40,7 @@ import {
 } from "../src/agent-session/acpmux/started/startedSessions";
 import type { Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
 import { sessionSummary } from "../src/agent-session/acpmux/summary/sessionSummary";
-import { activity, chat, tool } from "../src/gallery/fixtures/acpmux";
+import { activity, assistant, chat, tool } from "../src/gallery/fixtures/acpmux";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -471,6 +474,70 @@ test("Changes lists the pull requests the chat opened or touched, open ones firs
   expect(folder.querySelector("button.acpmux-chat-inspector-pr__more")?.getAttribute("aria-label")).toBe(
     "More for acme/atlas-web#12",
   );
+});
+
+test("Changes reads every pull request's title, state and checks from the App's cache, the issues named like #N left out", async () => {
+  const container = installDom(true);
+  const hq = "https://github.com/manaflow-ai/cmuxterm-hq/pull/2681";
+  const glaeda = "https://github.com/manaflow-ai/glaeda/pull/1546";
+  const calls: string[] = [];
+  const answer = (url: string, number: number, title: string, state: string, failed: number) => ({
+    pullRequest: {
+      url,
+      number,
+      title,
+      state,
+      review: "",
+      mergeable: "",
+      additions: 608,
+      deletions: 8,
+      checks: { state: failed ? "failing" : "passing", passed: 3, total: 3 + failed },
+      checkList: Array.from({ length: failed }, (_, index) => ({ name: `check ${index}`, state: "failed" })),
+    },
+    fetchedAt: 1_700_000_000,
+    reading: false,
+  });
+  setChipHost(async (method, params) => {
+    calls.push(method);
+    if (method !== "pr.inspect") return {};
+    if (params.url === hq) return answer(hq, 2681, "Bash scripts keep here-documents", "open", 2);
+    if (params.url === glaeda) return answer(glaeda, 1546, "ota: hosts report what they run", "merged", 0);
+    // GitHub has no pull request #9: it was an issue.
+    return { pullRequest: null, reading: false };
+  });
+  try {
+    await render(
+      container,
+      chat([
+        activity([ran("glaeda-gh wait pr manaflow-ai/cmuxterm-hq#2681 --sha abc")], 3),
+        activity([ran("glaeda-gh status pr manaflow-ai/glaeda#1546")], 2),
+        assistant("Both are in; glaeda #9 is the issue it fixes.", 1),
+      ]),
+    );
+    // The host's answers settle on promises: yield until both rows have their titles.
+    for (
+      let turn = 0;
+      turn < 20 && !/here-documents[\s\S]*hosts report/.test(section(container, "changes")?.textContent ?? "");
+      turn++
+    )
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    const changes = section(container, "changes")!;
+    const rows = [...changes.querySelectorAll<HTMLElement>("li.acpmux-chat-inspector-pr")];
+    expect(rows.map((row) => row.querySelector(".acpmux-chat-inspector-pr__title")?.textContent)).toEqual([
+      "Bash scripts keep here-documents",
+      "ota: hosts report what they run",
+    ]);
+    expect(rows.map((row) => row.dataset.state)).toEqual(["open", "merged"]);
+    expect(rows[0]!.querySelector(".acpmux-chat-inspector-pr__checks")?.textContent).toBe("2 failing");
+    expect(rows[0]!.querySelector(".acpmux-diff-counts")?.textContent).toBe("+608-8");
+    expect(meta(changes)).toBe("2");
+    // One registration for the whole list, then the host's cache: never a GitHub read per row.
+    expect(calls.filter((method) => method === "link.inspect")).toHaveLength(1);
+  } finally {
+    setChipHost(undefined);
+    resetPullRequestStore();
+    resetChangesStatuses();
+  }
 });
 
 test("a pull request named only inside a quoted --body or --title is not the one the command touched", () => {

@@ -49,6 +49,22 @@ struct AgentPanePullRequestInspectTests {
         #expect(json["author"] as? String == "octocat")
     }
 
+    /// The Inspector's Changes shows a comment count: the batched read asks GitHub for
+    /// `totalCommentsCount`; a `gh pr view` cannot, so its answer says nothing rather than zero.
+    @Test func readsTheCommentCountWhenTheReadSaysIt() throws {
+        let batched = #"{"url":"https://github.com/o/r/pull/7","number":7,"state":"OPEN","totalCommentsCount":13,"statusCheckRollup":[]}"#
+        let pullRequest = try #require(AgentPanePullRequest(ghView: Data(batched.utf8)))
+        #expect(pullRequest.comments == 13)
+        let json = try #require(pullRequest.json.foundationObject as? [String: Any])
+        #expect(json["comments"] as? Int == 13)
+        let view = #"{"url":"https://github.com/o/r/pull/7","number":7,"state":"OPEN","statusCheckRollup":[]}"#
+        let unknown = try #require(AgentPanePullRequest(ghView: Data(view.utf8)))
+        #expect(unknown.comments == nil)
+        #expect((try #require(unknown.json.foundationObject as? [String: Any]))["comments"] is NSNull)
+        let target = try #require(AgentChatPullRequestReader.Target(url: "https://github.com/o/r/pull/7"))
+        #expect(AgentChatPullRequestReader.query([target]).contains(" totalCommentsCount "))
+    }
+
     @MainActor @Test func answersWithWhatTheHostReads() throws {
         let links = AgentPaneReplyLinks()
         var asked: [URL] = []
