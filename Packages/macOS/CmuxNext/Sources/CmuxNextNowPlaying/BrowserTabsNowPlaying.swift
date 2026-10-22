@@ -13,6 +13,9 @@ import CmuxNextWakeups
 public final class BrowserTabsNowPlaying: NowPlayingSource {
     @ObservationIgnored private var sessions: () -> [NowPlayingSession] = { [] }
     @ObservationIgnored private var browserTab: (BrowserTabID) -> (any BrowserTab)? = { _ in nil }
+    /// `media.pictureInPicture.enabled`: off, the card offers no Picture in Picture and its button does nothing.
+    /// The App sets it; reading it while observing tracks the setting.
+    @ObservationIgnored public var allowsPictureInPicture: () -> Bool = { true }
     /// Bumped when `follow` changes the tabs, so readers look again.
     private var generation = 0
     /// The tab the card showed last; it keeps the card while it plays.
@@ -46,7 +49,7 @@ public final class BrowserTabsNowPlaying: NowPlayingSource {
             title: media.title, artist: media.artist, artwork: artworkData(media.artworkURL, tab: shown.tab), isPlaying: media.isPlaying,
             position: media.position, duration: media.duration, rate: media.rate, positionDate: media.positionDate,
             canPrevious: media.actions.contains(.previoustrack), canNext: media.actions.contains(.nexttrack),
-            site: Self.site(browserTab(shown.tab)?.state.url), canPictureInPicture: media.isVideo,
+            site: Self.site(browserTab(shown.tab)?.state.url), canPictureInPicture: media.isVideo && allowsPictureInPicture(),
             isPictureInPicture: media.isPictureInPicture,
             labels: SidebarNowPlaying.Labels(play: BrowserMediaStrings.play, pause: BrowserMediaStrings.pause,
                                              previous: BrowserMediaStrings.previous, next: BrowserMediaStrings.next,
@@ -65,6 +68,7 @@ public final class BrowserTabsNowPlaying: NowPlayingSource {
 
     public func perform(_ command: SidebarNowPlayingCommand) {
         guard let shown, let tab = browserTab(shown.tab) else { return }
+        if command == .pictureInPicture, !allowsPictureInPicture() { return }
         let media: BrowserMediaCommand = switch command {
         case .playPause: .playPause
         case .previous: .previousTrack
