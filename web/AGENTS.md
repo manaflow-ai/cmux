@@ -40,6 +40,18 @@ local diagnostic.
 
 cmux Cloud uses PlanetScale PostgreSQL, organization `cmux`, database `cmux-prod`. Branches are `main` (production), `staging`, and `development`. Vercel uses a PlanetScale `DATABASE_URL`; migration jobs use `DATABASE_URL` and `bun run cloud-vm:migrate -- <target>`. Aurora/RDS IAM and AWS migration-role instructions are retired. AWS KMS access for coderouter encryption is separate from database access. For PlanetScale CLI work, run `pscale auth check --format json` and pass `--org cmux` plus the confirmed branch.
 
+## Migration order
+
+Production migrations never run at deploy, and merging `main` deploys `cmux` and `cmux-staging` at once. A pull request that adds a folder under `db/migrations` therefore follows this order: open the pull request, apply its migration to staging with `bun run cloud-vm:migrate -- staging`, apply it to production with `bun run cloud-vm:migrate -- production`, then merge. Run both from the pull request's reviewed checkout.
+
+Write the migration as an expand step: the code already on `main` must keep working after it is applied, so it adds tables, columns, or indexes and does not drop, rename, or tighten anything that running code reads or writes. Remove old schema in a later pull request, after no deployed code uses it.
+
+Two checks enforce this order, and one escape hatch bypasses the first:
+
+- `tools/migration-deploy-gate.mjs` runs first in `vercel-build`. On a production build of `cmux` or `cmux-staging`, it reads `drizzle.__drizzle_migrations` in a read-only transaction and fails the build when any local migration name is missing, by the same name rule that `getMigrationsToRun` uses. A failed build leaves the previous deployment live. If the database cannot be read, the build fails. Previews, docs projects, CI, and local builds skip it.
+- The `Web migration readiness` workflow checks the migrations that a pull request adds against staging and production, read-only, when the `CMUX_MIGRATION_GATE_STAGING_DATABASE_URL` and `CMUX_MIGRATION_GATE_PRODUCTION_DATABASE_URL` repository secrets exist. Each secret holds a PlanetScale role that can only `SELECT` from `drizzle.__drizzle_migrations`. Without those secrets, the workflow requires the `db-migrations-applied` label as an attestation. Re-run the check after you apply the migration.
+- Break-glass: set `CMUX_MIGRATION_GATE_BREAK_GLASS` to the commit SHA being deployed on the project's production environment and redeploy. It skips the deploy gate for that commit only. Use it only when the database is unreachable and a fix must ship, and remove it after the deployment.
+
 ## Running Cloud machines
 
 Machines never update themselves: a change to guest software, the daemon's command line, or the attach contract reaches only new machines unless it is shipped to running ones. Before changing `services/vms/images/devbox/`, `scripts/build-devbox-freestyle.ts`, or attach/open/route code that reads `providerMetadata`, read [docs/cloud-guest-upgrades.md](../docs/cloud-guest-upgrades.md). Never gate a running machine on a create-time marker without a backfill in the same PR, and never answer a permanent refusal with a retryable `502`. Upgrade cmux-tui on running machines with `bun scripts/upgrade-fleet-cmux-tui.ts`.
