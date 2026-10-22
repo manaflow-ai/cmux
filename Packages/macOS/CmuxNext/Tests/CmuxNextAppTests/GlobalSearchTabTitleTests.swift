@@ -25,11 +25,12 @@ struct GlobalSearchTabTitleTests {
         let workspace = try #require(daemon.store.workspaces.first)
         let tabs = AgentTabStore(build: nil, registry: ActionRegistry.standard(), environment: [:], showcase: true)
         tabs.localHost = Self.host
-        let titles = TabTitleResolver(agentTabs: tabs)
-        let shown = try #require(daemon.store.tab(surface: 1).map(titles.title))
+        var strip = TabTitleResolver(agentTabs: tabs)
+        strip.workspaceName = workspace.displayName
+        let shown = try #require(daemon.store.tab(surface: 1).map(strip.title))
         #expect(!shown.lowercased().contains("about:blank"))
 
-        let searched = GlobalSearchHandlers.searchable([(workspace, daemon)], titles: titles)
+        let searched = GlobalSearchHandlers.searchable([(workspace, daemon)], titles: TabTitleResolver(agentTabs: tabs))
         let corpus = await GlobalSearchCorpus.load(searched.map(\.source))
         let words = GlobalSearchCorpus.words("transparent")
         let found = await corpus.hits(words)
@@ -38,7 +39,9 @@ struct GlobalSearchTabTitleTests {
                                           reveal: { _, _ in }, done: {})
         let row = try #require(rows.first)
         #expect(row.title == shown)
-        #expect(row.subtitle == "Transparent popover readability › \(shown)")
+        // An untitled chat is named by its workspace, so the place names it once.
+        let place = shown == workspace.displayName ? shown : "Transparent popover readability › \(shown)"
+        #expect(row.subtitle == place)
         #expect(await corpus.hits(GlobalSearchCorpus.words("about:blank")).hits.isEmpty, "the page's address is not the tab's name")
     }
 }

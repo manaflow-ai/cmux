@@ -14,7 +14,11 @@ enum GlobalSearchPage {
         /// The title the tab strip shows (`TabTitleResolver`).
         let title: String
         let located: LocatedTab
-        var place: String { "\(located.workspace.displayName) › \(title)" }
+        /// An agent chat with no title of its own is named by its workspace: shown once.
+        var place: String {
+            let workspace = located.workspace.displayName
+            return title == workspace ? workspace : "\(workspace) › \(title)"
+        }
     }
 
     /// Shows a tab and, given a needle, runs its terminal's Find for it.
