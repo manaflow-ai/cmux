@@ -107,6 +107,7 @@ select {
   :root :focus-visible:where(
       .acpmux-send-ready,
       .acpmux-cancel,
+      .cv-user__edit-button--send,
       .acpmux-question-submit,
       .nt-player-play,
       .acpmux-task-action[data-primary],
