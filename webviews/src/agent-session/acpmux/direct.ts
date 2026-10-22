@@ -2685,6 +2685,8 @@ export class AcpmuxDirectClient {
         if (typeof msg.from === "string" && typeof msg.to === "string") {
           this.endAssistantSegment();
           this.streamingActivity = undefined;
+          // The last harness's /context is not the fallback's: acpmux drops it there too.
+          if (this.summary?.contextBreakdown) this.summary = { ...this.summary, contextBreakdown: undefined };
           const id = `failover-${event.seq}`;
           this.rows.set(id, {
             id,
