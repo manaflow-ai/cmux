@@ -155,6 +155,25 @@ test("the card shows the state, who, the branches, the checks, the review and th
   expect(text).toContain("−65");
 });
 
+// Leo 2026-10-20: "ones with links ... the hovers need to be styled". The card's owner/repo#N is
+// the pull request's link, in the theme's accent, not grey text: a click on it takes the host's
+// link-click path, as the bar's and the chip's own anchors do.
+test("the card's owner/repo#N is a styled link to the pull request", async () => {
+  const { body } = await card({ pullRequest: pullRequest(), fetchedAt: Date.now() / 1000 - 5 });
+  const ref = body.querySelector<HTMLAnchorElement>("a.acpmux-pr-card__ref");
+  expect(ref).not.toBeNull();
+  expect(ref!.getAttribute("href")).toBe(PR_URL);
+  expect(ref!.textContent).toBe("manaflow-ai/cmux#22777");
+  // The card is what replaces system tooltips, so its link grows none.
+  expect(ref!.hasAttribute("title")).toBe(false);
+  const { readFileSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const styles = readFileSync(join(import.meta.dir, "../src/agent-session/acpmux/styles.css"), "utf8");
+  const rule = styles.match(/\.acpmux-pr-card__ref\{([^}]*)\}/)?.[1] ?? "";
+  expect(rule).toContain("color:var(--agent-accent");
+  expect(rule).toContain("tabular-nums");
+});
+
 test("hovering the +/- breaks the lines down by kind", async () => {
   const { body, act } = await card({ pullRequest: pullRequest(), fetchedAt: Date.now() / 1000 - 5 });
   expect(body.querySelector(".acpmux-pr-card__kinds")).toBeNull();
