@@ -94,10 +94,17 @@ export function isHomeFolder(path: string): boolean {
   return /^\/(?:Users|home)\/[^/]+$/.test(trim(path));
 }
 
-/// A lane's or agent's scratch folder: Spotlight-hidden `.noindex` checkouts and caches. Never a
-/// project row of its own; it shows only folded under a repository it is known to belong to.
+/// A lane's or agent's scratch folder: Spotlight-hidden `.noindex` checkouts and caches, and lane
+/// folders named `<owner>--<lane>` (`leo--ask-cost-dollar`, `codex--protocol-contract`,
+/// `cmux--queue-scroll`). Never a project row of its own; it shows only folded under a repository it
+/// is known to belong to. Only a folder in no repository is judged by its name: a Git checkout is
+/// placed by its `.git`, whatever it is called.
 export function isScratchFolder(path: string): boolean {
-  return /\/[^/]+\.noindex(?:\/|$)|\/\.cache\/|^\/(?:private\/)?tmp\/|^\/(?:private\/)?var\/folders\//.test(trim(path));
+  const folder = trim(path);
+  return (
+    /\/[^/]+\.noindex(?:\/|$)|\/\.cache\/|^\/(?:private\/)?tmp\/|^\/(?:private\/)?var\/folders\//.test(folder) ||
+    /\/[^/.][^/]*--[^/]+$/.test(folder)
+  );
 }
 
 /// One repository however many clones hold it: its GitHub `owner/name`, else its main checkout.
