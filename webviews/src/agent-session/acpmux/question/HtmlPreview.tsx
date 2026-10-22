@@ -7,8 +7,9 @@
 // - its document carries a policy that loads nothing (no network, no remote image or font), on top
 //   of the pane's own, which an srcdoc frame inherits;
 // - the fragment is cleaned first (`previewDocument`): elements that load or navigate (script,
-//   frames, embeds, meta, base, link) are dropped and links lose their targets, so even a host
-//   without that policy shows the same still picture.
+//   frames, embeds, meta, base, link, SVG animation) are dropped and links lose their targets. The
+//   cleaning is a second line: a remote url() in an inline style survives it, and only the
+//   policy keeps that from loading.
 // The frame shares the pane's origin (allow-same-origin without allow-scripts), only so the card can
 // read the picture's height and grow to it, up to a cap past which it scrolls.
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
@@ -18,7 +19,6 @@ import { renderFrameCSS } from "../conversation/renderBase";
 /// box, like a monospace preview. `canvas`: on a page-coloured artboard with an edge, so a mockup
 /// with its own background reads as a picture. `bleed`: no box, the picture fills the column.
 export type HtmlPreviewLook = "framed" | "canvas" | "bleed";
-export const HTML_PREVIEW_LOOKS: readonly HtmlPreviewLook[] = ["framed", "canvas", "bleed"];
 export const HtmlPreviewLookContext = createContext<HtmlPreviewLook>("framed");
 
 /// The shortest and tallest the picture draws; a taller one scrolls inside the frame.

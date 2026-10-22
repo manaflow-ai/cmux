@@ -62,7 +62,8 @@ impl Hub {
     /// launch (`note_preview_format`), so an agent adopted after a daemon
     /// restart keeps the format it was started with.
     pub(super) fn preview_format(session: &Session) -> super::questions::PreviewFormat {
-        super::questions::PreviewFormat::from_flag(session.meta.lock().unwrap().html_previews)
+        let meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+        super::questions::PreviewFormat::from_flag(meta.html_previews)
     }
 
     /// Records how the agent `profile` starts writes its question previews:
@@ -70,7 +71,9 @@ impl Hub {
     /// the value `harness_command` pins it to (`agent::preview_format`).
     pub(super) fn note_preview_format(&self, session: &Session, profile: &HarnessProfile) {
         let html = crate::agent::preview_format(profile) == super::questions::PreviewFormat::Html;
-        let was = std::mem::replace(&mut session.meta.lock().unwrap().html_previews, html);
+        let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+        let was = std::mem::replace(&mut meta.html_previews, html);
+        drop(meta);
         if was != html {
             self.save_meta(session);
         }
