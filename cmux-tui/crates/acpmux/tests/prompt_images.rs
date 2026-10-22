@@ -457,8 +457,9 @@ async fn a_queued_prompts_pasted_blocks_are_named_while_it_waits_and_once_it_run
     assert_eq!(sent["pasted"], range, "{sent}");
 }
 
-/// A store that counts the records it parses for a reader (`scan`, `scan_back`, `scan_kinds`,
-/// `events`); every other call goes to the store it wraps.
+/// A store that counts the records it hands a reader (`scan`, `scan_back`, `scan_kinds`,
+/// `events`): a file store parses each of those, and passes a line `scan_back`'s skip names on its
+/// header. Every other call goes to the store it wraps.
 struct Counting {
     inner: Box<dyn acpmux::store::Store>,
     parsed: Arc<std::sync::atomic::AtomicUsize>,
@@ -568,7 +569,7 @@ async fn reading_a_sent_image_back_parses_only_the_records_that_can_name_it() {
     let session = "01a1-image-read-cost";
     let bytes = b"image-read-cost: a pasted screenshot";
     let id = sha256_hex(bytes);
-    let attachments = root().join("home").join("attachments");
+    let attachments = acpmux::config::home().join("attachments");
     std::fs::create_dir_all(&attachments).unwrap();
     std::fs::write(attachments.join(&id), bytes).unwrap();
     let record = |seq: u64, dir: &str, kind: &str, msg: Value| acpmux::store::EventRecord {
