@@ -41,6 +41,7 @@ import {
   type AccountsState,
   type AgentsRun,
   type AgentsState,
+  type ChannelsState,
   type Domains,
   type HarnessesRun,
   type HarnessesState,
@@ -467,6 +468,12 @@ export class SettingsStore {
     await this.refreshHost();
   }
 
+  /** Settings > Chief > Voice input: turn the message box's mic on or off, then re-read the host lists. */
+  async setVoiceInput(on: boolean): Promise<void> {
+    await this.request("cmux.settings.voice_input.set", { on });
+    await this.refreshHost();
+  }
+
   /** One Accounts gesture; answers the failure text of a Keychain save, else null. */
   async runAccounts(run: AccountsRun): Promise<string | null> {
     const reply = await this.request("cmux.settings.accounts.run", run);
@@ -480,6 +487,12 @@ export class SettingsStore {
   readonly chiefCalls = {
     call: <R>(op: string, params: unknown): Promise<R> => this.client.call<R>(op, params),
   };
+
+  /** Settings > Updates' channels; null when the host has no updater. */
+  async channelsState(): Promise<ChannelsState | null> {
+    const reply = await this.request("cmux.settings.channels.state", {});
+    return reply.ok ? reply.value : null;
+  }
 
   /** Settings > Agents' state; null when the host has no Agents part. */
   async agentsState(): Promise<AgentsState | null> {

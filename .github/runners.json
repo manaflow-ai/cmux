@@ -159,11 +159,6 @@
     "cmux-next-media.yml#tour": "apple-gui",
     "cmux-next-perf-bench.yml#bench": "apple-gui",
     "cmux-next-pr-autofix.yml#action-exports": "apple-app-build",
-    "cmux-next-shim-cpp.yml#shim-downloads-cpp": {
-      "class": "cpp-unit-tests",
-      "linux_followup": "each script runs one xcrun clang++ -std=c++20 call on a CEFShim header test; run it with clang++ on Linux",
-      "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
-    },
     "cmux-next-source-archive.yml#archive": "apple-app-build",
     "cmux-next-terminal.yml#rust-terminal": {
       "class": "macos-runtime-tests",
@@ -212,10 +207,6 @@
       "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
     },
     "macos-cross-parity.yml#runtime-x86_64": "macos-runtime-tests",
-    "macos-matrix-fuzz.yml#fuzz": {
-      "class": "apple-gui",
-      "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
-    },
     "main-compile-probe.yml#compile": "apple-app-build",
     "nightly-next-canary.yml#canary": "macos-runtime-tests",
     "nightly-next-train.yml#build": "apple-app-build",
@@ -250,10 +241,6 @@
     "resume-nightly-notarization.yml#verify-stapled": "apple-signing-release",
     "seed-derived-data.yml#seed": "apple-app-build",
     "seed-swiftpm-manifests.yml#seed": "apple-app-build",
-    "signing-keychain-macos.yml#bash32-syntax": {
-      "class": "shell-parse",
-      "linux_followup": "build bash 3.2.57 on Linux and set CMUX_PARSE_BASH, which check-bash32-parse.sh already reads"
-    },
     "signing-keychain-macos.yml#real-import": "macos-runtime-tests",
     "terminal-hang-diagnostics.yml#phase-attribution": {
       "class": "apple-swift-tests",
