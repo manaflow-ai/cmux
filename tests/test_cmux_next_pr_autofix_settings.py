@@ -27,7 +27,6 @@ BASE = yaml.safe_load((ROOT / ".github/workflows/cmux-next-base-autofix.yml").re
 SETTINGS_EXPORTS = (
     "docs/mdm/com.manaflow.cmux.json",
     "schemas/settings/settings-schema.json",
-    "schemas/settings-export/settings-schema.sources.sha256",
 )
 
 

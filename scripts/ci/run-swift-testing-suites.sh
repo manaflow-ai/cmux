@@ -21,11 +21,10 @@ if [[ "${CMUX_CI_REQUIRED_MACOS_SDK_MAJOR:-}" == "export-settings" ]]; then
   (cd "$package_path" && CMUX_SWIFT_BIN_PATH="$bin_path" "$compile_catalogs")
   CMUX_UPDATE_MDM_SCHEMA=1 swift test ${swift_test_debug_info_args[@]+"${swift_test_debug_info_args[@]}"} --package-path "$package_path" --skip-build --filter ManagedPreferencesManifestTests
   CMUX_UPDATE_ACTION_SURFACES=1 swift test ${swift_test_debug_info_args[@]+"${swift_test_debug_info_args[@]}"} --package-path "$package_path" --skip-build --filter SettingsSchemaExportTests
-  # Every file the two exporters write, and the source stamp of the schema
-  # (defaults_guard.py check-fresh compares it with the CmuxNextSettings sources).
+  # Every file the two exporters write.
   for file in docs/mdm/com.manaflow.cmux.json docs/mdm/com.manaflow.cmux.plist docs/mdm/com.manaflow.cmux.intune.plist \
     docs/mdm/cmux-example.mobileconfig docs/mdm/managed-preferences.md \
-    schemas/settings/settings-schema.json schemas/settings-export/settings-schema.sources.sha256; do
+    schemas/settings/settings-schema.json; do
     echo "BEGIN_ARTIFACT:$file"
     base64 < "$file" | tr -d "\n"
     echo

@@ -34,8 +34,8 @@ allowed() { # repository-relative path -> 0 when an autofix repair writes it
     web/data/cmux-shortcuts.generated.json) return 0 ;;
     plans/cmux-next/action-surfaces.json|plans/cmux-next/actions.md|plans/cmux-next/links.json) return 0 ;; # action exports
     scripts/lint-namespace-types-ratchet.txt) return 0 ;;
-    # The settings exports and their source stamp: exactly the files regenerate-settings-exports.sh writes.
-    schemas/settings/settings-schema.json|schemas/settings-export/settings-schema.sources.sha256) return 0 ;;
+    # The settings exports: exactly the files regenerate-settings-exports.sh writes.
+    schemas/settings/settings-schema.json) return 0 ;;
     docs/mdm/com.manaflow.cmux.json|docs/mdm/com.manaflow.cmux.plist|docs/mdm/com.manaflow.cmux.intune.plist) return 0 ;;
     docs/mdm/cmux-example.mobileconfig|docs/mdm/managed-preferences.md) return 0 ;;
     clients/ts/cloud/src/generated.ts) return 0 ;;

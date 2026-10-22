@@ -3174,8 +3174,8 @@ jobs:
           retention-days: 14
 
   # Generated files are fresh: the action catalog, surfaces and inventory
-  # (ActionSurfaceParityTests and its siblings) and the settings exports with
-  # their source stamp; the CI target graph and the defaults snapshot are
+  # (ActionSurfaceParityTests and its siblings) and the settings exports,
+  # against a fresh export; the CI target graph and the defaults snapshot are
   # bot-only (#21946) and not checked. Its
   # own job, so a pull request that skips the package tests still cannot land
   # a stale export (feat-cmux-next went red at a925bd9 that way). When a file
@@ -3426,19 +3426,37 @@ jobs:
       # #21946): it is stale on every event between a merge that adds a target
       # and the base autofix's commit, so no event checks it here.
 
-      # The settings exports (schemas/settings/settings-schema.json, docs/mdm):
-      # check-stamp recomputes the source stamp (schemas/settings-export) from
-      # the CmuxNextSettings sources, so a settings edit without a re-export
-      # fails here and is regenerated below. --base HEAD^1 (the merge commit's
-      # base tip, or a push's parent): a source already stale on the base is a
-      # warning, since the base autofix regenerates it after the merge. The
-      # defaults snapshot is bot-only (#21946): it is stale on every event
+      # The settings exports (schemas/settings/settings-schema.json, docs/mdm)
+      # are compared with a fresh export, never with a committed stamp of their
+      # sources (Leo 2026-10-21: "just generate and don't commit"). Only when this
+      # event changed the settings sources (their stamp, derived at HEAD^1, the
+      # merge commit's base tip or a push's parent, and at HEAD, differs) or an
+      # export itself. The
+      # fresh export of a merge commit also holds the base's own unexported
+      # changes, so any other event would go red for the base's staleness; that
+      # is the base autofix's, which regenerates the exports after the merge.
+      # The export writes the files into the checkout; any that changed is stale.
+      # The defaults snapshot is bot-only (#21946): it is stale on every event
       # between a merge and the base autofix's commit, so no event checks it here.
       - name: Check the settings exports
         id: settings
         if: ${{ steps.reuse.outputs.hit != 'true' }}
         continue-on-error: true
-        run: python3 scripts/ci/defaults_guard.py check-stamp --base "$(git rev-parse HEAD^1)"
+        run: |
+          set -euo pipefail
+          base_stamp="$(python3 scripts/ci/defaults_guard.py source-stamp --ref "$(git rev-parse HEAD^1)")"
+          head_stamp="$(python3 scripts/ci/defaults_guard.py source-stamp --ref HEAD)"
+          # An event that changes an export itself is checked even with the sources unchanged (a merge
+          # can keep older exports while taking the base's sources).
+          if [[ "$base_stamp" == "$head_stamp" ]] && git diff --quiet HEAD^1 HEAD -- docs/mdm schemas/settings; then
+            echo "The settings sources and exports did not change; any stale export is the base's (the base autofix regenerates it)."
+            exit 0
+          fi
+          scripts/cmux-next/regenerate-settings-exports.sh "$RUNNER_TEMP/settings-exports" | tee "$RUNNER_TEMP/settings-exported.txt"
+          if grep -q '^regenerated: ' "$RUNNER_TEMP/settings-exported.txt"; then
+            echo "::error::the committed settings exports differ from a fresh export"
+            exit 1
+          fi
 
       # Only the generated paths are collected into the artifact.
       - name: Regenerate stale files
@@ -3449,12 +3467,8 @@ jobs:
           if [[ "${{ steps.actions.outcome }}" == failure ]]; then
             scripts/cmux-next/regenerate-action-contracts.sh
           fi
-          # The Swift settings export only when the source stamp is stale. It writes the
-          # files into the checkout, as the fleet export step does, and fails
-          # when the stamp still does not match afterwards.
-          if [[ "${{ steps.settings.outcome }}" == failure ]] && ! python3 scripts/ci/defaults_guard.py check-stamp; then
-            scripts/cmux-next/regenerate-settings-exports.sh "$RUNNER_TEMP/settings-exports"
-          fi
+          # A stale settings export was already written into the checkout by the
+          # check above.
           # The defaults snapshot reads the action and settings exports, so it
           # follows whichever of them was regenerated.
           python3 scripts/ci/defaults_guard.py snapshot
@@ -3464,7 +3478,7 @@ jobs:
           out="$RUNNER_TEMP/generated/files"
           mkdir -p "$out"
           generated=('plans/cmux-next/*.json' 'plans/cmux-next/*.md'
-            schemas/settings/settings-schema.json 'schemas/settings-export/*' 'docs/mdm/*' schemas/defaults/cmux-next.json)
+            schemas/settings/settings-schema.json 'docs/mdm/*' schemas/defaults/cmux-next.json)
           git add -N -- "${generated[@]}"
           git diff --name-only -- "${generated[@]}" > "$RUNNER_TEMP/generated/paths.txt"
           git diff --stat
@@ -3493,7 +3507,7 @@ jobs:
             echo "### Generated cmux-next files are stale"
             echo
             [[ "${{ steps.actions.outcome }}" != failure ]] || echo "- action catalog, surfaces or inventory: scripts/cmux-next/regenerate-action-contracts.sh"
-            [[ "${{ steps.settings.outcome }}" != failure ]] || echo "- settings exports and source stamp: scripts/cmux-next/regenerate-settings-exports.sh"
+            [[ "${{ steps.settings.outcome }}" != failure ]] || echo "- settings exports: scripts/cmux-next/regenerate-settings-exports.sh"
             echo
             echo "The cmux-next-generated-patch artifact holds the regenerated files at their repository paths."
           } | tee -a "$GITHUB_STEP_SUMMARY"
