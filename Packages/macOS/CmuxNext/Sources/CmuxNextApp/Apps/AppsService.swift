@@ -140,6 +140,10 @@ final class AppsService {
         if let reason = client.unavailableReason { throw .unavailable(reason) }
         guard let app = client.app(appID), app.installed else { throw .unknownApp }
         guard app.enabled else { throw .disabled }
+        if case .native(let page) = AppPaneRoute(app.manifest), command == nil {
+            try openNativePane(page, focus: focus)
+            return nil
+        }
         guard AppPanePage.opens(app), let provider = pageProvider(appID: appID, codeRouterAsPage: false) else { throw .noPage }
         guard services.pages.show(provider.page, in: services.windows.active, focus: focus) != nil else { throw .noWindow }
         guard let command else { return nil }
@@ -147,6 +151,19 @@ final class AppsService {
             throw .unknownCommand
         }
         return AppCommandPalette.run(AppCommandPalette.Entry(app: app, command: found), services: services, origin: origin)
+    }
+
+    /// Opens a pane cmux draws itself (manifest `native`): Home, or the internal page with that id
+    /// (`cloud`, `app-store`). A name with no page here (an older App) has no page to open.
+    private func openNativePane(_ page: String, focus: Bool) throws(AppsServiceError) {
+        if page == "home" {
+            let invocation = ActionInvocation(arguments: [:], origin: focus ? .user : .script)
+            guard services.registry.perform("home.show", invocation: invocation) else { throw .noPage }
+            return
+        }
+        let id = InternalPageID(rawValue: page)
+        guard services.pages.provider(id) != nil else { throw .noPage }
+        guard services.pages.show(id, in: services.windows.active, focus: focus) != nil else { throw .noWindow }
     }
 
     /// The page provider of app `appID` (registered on first use): CodeRouter's

@@ -15,6 +15,8 @@ public nonisolated enum AppPaneRoute: Sendable, Hashable {
     public init(_ manifest: AppManifest) {
         if let pane = manifest.scenePane {
             self = .scene(pane)
+        } else if let native = manifest.implementations.first(where: { $0.isPane && $0.native != nil })?.native {
+            self = .native(native)
         } else {
             self = .none
         }
