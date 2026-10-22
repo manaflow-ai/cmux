@@ -55,7 +55,12 @@ final class WorkspaceRowView: SidebarRowView {
     /// The session tree (`sidebar.sessionTree`, WorkspaceRowView+SessionTree): a started workspace's
     /// guide line, the pull request badge and the keycap.
     let treeLine = NSView(), pullRequests = SidebarPullRequestBadgeView(), keycap = SidebarKeycapView()
+    /// A tree parent's chevron (folds its subtree) and a folded parent's roll-up chips.
+    let treeFoldButton = SidebarIconButton(icon: .disclosureExpanded, pointSize: { Metrics.smallIconSize - Metrics.space2 },
+                                           label: Strings.collapseSessions), rollUp = SidebarTreeRollUpView()
     var treeDepth = 0
+    var treeFold: SidebarTreeFold?
+    var onToggleTree: (() -> Void)?
     internal(set) var disclosure: SidebarTabDisclosure?
     internal(set) var count: Int?
 
@@ -128,7 +133,7 @@ final class WorkspaceRowView: SidebarRowView {
         machineMark.imageScaling = .scaleProportionallyDown
         machineMark.isHidden = true
         [icon, title, subtitle, timeLabel, metaLabel, activity, agentMark, mutedMark, machineMark, audioButton, badge, rowBadge, presenceDots, closeButton, moreButton, pinButton, disclosureButton, tabCount, prBadge, placeholderBar, statusBlock,
-         treeLine, pullRequests, keycap].forEach(addSubview)
+         treeLine, pullRequests, keycap, treeFoldButton, rollUp].forEach(addSubview)
         setUpSessionTree()
         disclosureButton.isHidden = true
         tabCount.isHidden = true
@@ -152,7 +157,7 @@ final class WorkspaceRowView: SidebarRowView {
         audioButton.onPress = { [weak self] in self?.onToggleAudio?() }
     }
 
-    override var interactiveSubviews: [NSView] { [closeButton, moreButton, pinButton, disclosureButton, audioButton] }
+    override var interactiveSubviews: [NSView] { [closeButton, moreButton, pinButton, disclosureButton, treeFoldButton, audioButton] }
     override var debugIcon: String? {
         switch iconKind {
         case nil: !agentMark.isHidden && agentMarkVariant == .besideTitle ? "agentMark" : nil
@@ -185,6 +190,7 @@ final class WorkspaceRowView: SidebarRowView {
         (onPin, isPinned) = (nil, nil)
         onSelect = nil
         onToggleTabs = nil
+        onToggleTree = nil
         onToggleAudio = nil
         title.stopMarquee()
         title.layer?.removeAnimation(forKey: "workspace-title-motion")
