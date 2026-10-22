@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useFormatter, useTranslations } from "next-intl";
 import { useState } from "react";
+import { TEAM_PRICING_USD } from "@/services/billing/plans";
 import { ActionMenu, type ActionMenuItem } from "@/dashboard-app/components/settings-ui/action-menu";
 import { ConfirmDialog } from "@/dashboard-app/components/settings-ui/confirm-dialog";
 import { EmptyState } from "@/dashboard-app/components/page-states";
@@ -30,10 +31,23 @@ export function TeamMembers() {
   const detail = useTeamContext();
   const t = useTranslations("dashboard.teams.members");
   const canInvite = detail.viewer.permissions.inviteMembers;
+  const memberLimit = detail.billing.memberLimit;
+  // The full roster tracks optimistic removals. Restricted viewers receive
+  // only their own row, so use the server's total for them.
+  const memberCount = detail.viewer.role === "admin" || detail.viewer.permissions.readMembers
+    ? detail.members.length
+    : detail.billing.memberCount;
   return (
     <SettingsStack>
-      <SettingsPanel title={t("title")} description={t("count", { count: detail.members.length })}>
+      <SettingsPanel title={t("title")} description={memberLimit == null
+        ? t("count", { count: memberCount })
+        : t("countWithLimit", { count: memberCount, limit: memberLimit })}>
         <MembersTable detail={detail} />
+        {memberLimit != null ? (
+          <div className="mt-3 border-t border-border pt-3">
+            <MemberCapacity detail={detail} memberCount={memberCount} limit={memberLimit} />
+          </div>
+        ) : null}
       </SettingsPanel>
       {canInvite ? (
         <>
@@ -54,6 +68,38 @@ export function TeamMembers() {
         </>
       ) : null}
     </SettingsStack>
+  );
+}
+
+function MemberCapacity({ detail, memberCount, limit }: {
+  readonly detail: TeamDetail;
+  readonly memberCount: number;
+  readonly limit: number;
+}) {
+  const t = useTranslations("dashboard.teams.members");
+  // Invitation details are admin-only. Never infer open spots from a
+  // non-admin's intentionally empty invitation list.
+  const canSeeInvitations = detail.viewer.role === "admin" && detail.viewer.permissions.inviteMembers;
+  const pending = new Set(detail.invitations.map((invitation) => invitation.email?.toLowerCase() ?? invitation.id)).size;
+  const remaining = Math.max(0, limit - memberCount - pending);
+  return (
+    <div className="grid gap-2 text-xs text-muted">
+      <p>{t("limitDescription")}</p>
+      {canSeeInvitations ? (
+        <div className="flex flex-wrap gap-x-4 gap-y-1" aria-live="polite">
+          <span>{t("pendingCount", { count: pending })}</span>
+          <span className="font-medium text-foreground">{t("remainingCount", { count: remaining })}</span>
+        </div>
+      ) : null}
+      {detail.viewer.permissions.manageBilling ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <Link {...teamTabLink(detail.team.id, "billing")} className={settingsButtonClass("secondary", "sm")}>
+            {t("upgradeToTeam")}
+          </Link>
+          <p>{t("upgradePrice", { price: TEAM_PRICING_USD.month.billedAmount })}</p>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
