@@ -1165,6 +1165,7 @@
   color: var(--agent-muted);
   font-family: inherit;
   font-size: var(--text-control);
+  font-weight: 400;
   cursor: default;
 }
 .acpmux-composer-foot .acpmux-harness .acpmux-picker-button .agent-mark { flex: none; }

@@ -27,6 +27,8 @@ type Item = {
   markWidth: number;
   background: string;
   button: boolean;
+  /** The item's label weight: the row's quiet text is regular, never a heavier label. */
+  weight: string;
 };
 
 await requireBrowserLane("composer-footer-harness.test.ts", async () => {
@@ -119,6 +121,7 @@ await requireBrowserLane("composer-footer-harness.test.ts", async () => {
           markWidth: mark?.getBoundingClientRect().width ?? 0,
           background: getComputedStyle(control).backgroundColor,
           button: control instanceof HTMLButtonElement,
+          weight: getComputedStyle(element.querySelector(".acpmux-harness-name, .acpmux-mode-text") ?? element).fontWeight,
         };
       })
       .sort((a, b) => a.left - b.left);
@@ -138,6 +141,7 @@ await requireBrowserLane("composer-footer-harness.test.ts", async () => {
       expect(first?.text).toBe(name);
       expect(first?.mark).toBe(mark);
       expect(second?.className).toContain("acpmux-access");
+      expect(first?.weight).toBe(second?.weight);
       // Quiet text: no capsule at rest, and a started chat's harness is fixed, so not a button.
       expect(clear(first!.background)).toBe(true);
       expect(first?.button).toBe(false);
