@@ -16,8 +16,10 @@ import Foundation
 /// - a workspace at the top level of Pinned leaves its machine and lists as a
 ///   workspace row in Pinned, at the top of the list, in the document's order,
 ///   before Pinned's groups; one that is closed lists as an item row with its
-///   stored name. Every pinned workspace's row draws the pin glyph
-///   (`SidebarWorkspace.pinned`), a member pinned in its group too.
+///   stored name and the pin (`SidebarListItem.pinned`). Every pinned
+///   workspace's row draws the pin glyph (`SidebarWorkspace.pinned`), a member
+///   pinned in its group too; a content patch keeps it. Its item actions
+///   resolve through `SidebarDocProjection.pinnedLayoutItem`.
 extension SidebarDocProjection {
     /// `sections` arranged as this document places items; `drag` names each row's item and each list section's document section.
     @MainActor public func arrange(_ sections: [SidebarSection], drag: SidebarDocDrag) -> [SidebarSection] {

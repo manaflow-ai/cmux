@@ -100,8 +100,17 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
         /// The workspace is not live (closed, or on a machine not connected now): it lists as an item
         /// row with its stored name, as its dimmed tile did, since no live workspace row stands for it.
         public var closed: Bool
-        /// Its item row while it is closed.
+        /// Its item row while it is closed (`SidebarListItem.pinned`: it draws the pin glyph).
         public var listed: SidebarListItem
+        /// Its layout item: what an item action resolves (`pinnedLayoutItem`), though `layout` does not hold it.
+        public var layoutItem: LayoutItem
+    }
+
+    /// The layout item of the workspace at the top level of Pinned with item `id`, open or closed. It lists as a
+    /// row, not in `layout`, so an item action on its row (the menu, the palette, the CLI, MCP) resolves it here:
+    /// Remove from Section unpins it, as on its tile before.
+    public func pinnedLayoutItem(_ id: String) -> LayoutItem? {
+        pinnedWorkspaces.first { $0.item == id }?.layoutItem
     }
 
     /// The layout item kind of a group placed in Pinned or a custom section.
@@ -156,7 +165,10 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
                       let at = bandGroups.lastIndex(where: { $0.id == parent }) {
                 bandGroups[at].add(id, item) // a workspace, link, tab or app member: a member row in the list
             } else if row.depth == 0, record.kind == .pinned, let ref = item.body.workspace {
-                pinnedWorkspaces.append(PinnedWorkspace(item: id, ref: ref, section: record.id, closed: row.dimmed, listed: Self.listItem(item)))
+                var listed = Self.listItem(item)
+                listed.pinned = true
+                pinnedWorkspaces.append(PinnedWorkspace(item: id, ref: ref, section: record.id, closed: row.dimmed, listed: listed,
+                                                        layoutItem: Self.layoutItem(item)))
             } else if row.depth == 0 {
                 sections[index].items.append(Self.layoutItem(item))
             }

@@ -416,6 +416,8 @@ public final class SidebarModel {
             let old = SidebarRowIndex.workspace(at: path, in: storedSections)
             row.rowState = old.rowState
             row.machineID = old.machineID
+            // Pinned is structural (a pin or unpin moves the row; `arrange` marks it): a content patch keeps the glyph.
+            row.pinned = old.pinned
             guard row != old else { continue }
             guard !movesRows(from: old, to: row) else { return false }
             for path in paths {

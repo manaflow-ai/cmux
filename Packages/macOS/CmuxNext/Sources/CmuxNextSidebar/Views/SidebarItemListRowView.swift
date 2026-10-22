@@ -4,11 +4,14 @@ import CmuxNextDesign
 /// A sidebar document item listed as a row (a link, a tab or an app in a
 /// machine list; `SidebarRowKey.item`). It draws as a workspace row in the
 /// compact density: the favicon when known, then the title in the regular
-/// weight; no kind glyph, no close or more control. Hover and the one
-/// selection paint the same fills; the list owns its mouse, menu and drag.
+/// weight; no kind glyph, no close or more control. A closed pinned
+/// workspace's row (`SidebarListItem.pinned`) draws the workspace row's pin
+/// glyph before its title. Hover and the one selection paint the same
+/// fills; the list owns its mouse, menu and drag.
 final class SidebarItemListRowView: SidebarRowView {
     private let icon = SidebarIconView()
     private let title = SidebarRowView.label(font: SidebarStyle.titleFont)
+    private let pinMark = DecorativeImageView() // the row's label says it is pinned
     private var hasIcon = false
     /// Runs the item from an accessibility AXPress.
     var onSelect: (() -> Void)?
@@ -21,7 +24,10 @@ final class SidebarItemListRowView: SidebarRowView {
 
     required init(key: SidebarRowKey) {
         super.init(key: key)
-        [icon, title].forEach(addSubview)
+        pinMark.imageScaling = .scaleProportionallyDown
+        pinMark.isHidden = true
+        pinMark.setAccessibilityElement(false)
+        [icon, pinMark, title].forEach(addSubview)
     }
 
     override var debugIcon: String? { hasIcon ? "favicon" : nil }
@@ -43,10 +49,14 @@ final class SidebarItemListRowView: SidebarRowView {
         iconAddress = item.iconAddress
         icon.configure(icon: favicon.map(WorkspaceIcon.favicon))
         icon.isHidden = !hasIcon
+        pinMark.image = item.pinned
+            ? NSImage.icon(.statePinned, size: .iconRowSize(forLabelPointSize: SidebarStyle.indicatorSize - Metrics.space1)) : nil
+        pinMark.isHidden = pinMark.image == nil
+        pinMark.setAccessibilityIdentifier("cmux.sidebar.item.\(item.id).pin")
         setAccessibilityElement(true)
         setAccessibilityRole(.row)
         setAccessibilityIdentifier("cmux.sidebar.item.\(item.id)")
-        setAccessibilityLabel(item.title)
+        setAccessibilityLabel(item.pinned ? [item.title, Strings.pinned].joined(separator: ", ") : item.title)
         needsLayout = true
         needsDisplay = true
     }
@@ -60,6 +70,7 @@ final class SidebarItemListRowView: SidebarRowView {
     override func updateLayer() {
         performWithTheme {
             title.textColor = Palette.textPrimary
+            pinMark.setTint(Palette.textTertiary)
             paintFill(isSelected ? Palette.selectionFill : isHovered ? Palette.hoverFill : nil)
         }
     }
@@ -71,7 +82,13 @@ final class SidebarItemListRowView: SidebarRowView {
         let leading = SidebarStyle.horizontalInset
         let side: CGFloat = hasIcon ? SidebarStyle.iconBox : 0
         icon.frame = NSRect(x: leading, y: (b.height - side) / 2, width: side, height: side)
-        let textX = SidebarStyle.titleTextX(leading: leading) - WorkspaceRowView.labelInset
+        var textX = SidebarStyle.titleTextX(leading: leading) - WorkspaceRowView.labelInset
+        if !pinMark.isHidden {
+            // The workspace row's pin, at its place: before the title (`WorkspaceRowView+Rendering`).
+            let side = SidebarStyle.indicatorSize
+            pinMark.frame = NSRect(x: textX + WorkspaceRowView.labelInset, y: (b.height - side) / 2, width: side, height: side)
+            textX = pinMark.frame.maxX + Metrics.space1
+        }
         let height = ceil(title.intrinsicContentSize.height)
         title.frame = NSRect(x: textX, y: (b.height - height) / 2, width: max(0, b.width - textX - SidebarStyle.horizontalInset), height: height)
     }
