@@ -14,6 +14,9 @@ public final class CardSurfaceView: NSView {
     private let reduceTransparency: ReduceTransparency
     /// The rim; nil under Reduce Transparency.
     public private(set) var rimView: GlassRimView?
+    /// The light-mode hairline (``lightEdgeShare``), above the rim: the rim's white top stroke
+    /// covers a layer border drawn under it. Nil in dark mode and under Reduce Transparency.
+    public private(set) var edgeView: NSView?
 
     public init(cornerRadius: CGFloat = Metrics.space3, reduceTransparency: ReduceTransparency = .shared) {
         self.reduceTransparency = reduceTransparency
@@ -30,7 +33,10 @@ public final class CardSurfaceView: NSView {
 
     public var cornerRadius: CGFloat {
         get { layer?.cornerRadius ?? 0 }
-        set { layer?.cornerRadius = newValue }
+        set {
+            layer?.cornerRadius = newValue
+            edgeView?.layer?.cornerRadius = newValue
+        }
     }
 
     nonisolated public override var wantsUpdateLayer: Bool { true }
@@ -40,8 +46,9 @@ public final class CardSurfaceView: NSView {
     /// card's rim (``FloatingGlassStyle/card``'s light rim) fades to white at the top, so over the
     /// white sidebar the card had no top edge (live-qa, nightly 3a63d6d: sides about 208 gray, top
     /// about 254, the sidebar's own). 17228e100b1 dropped the old all-sides edge (the text at 18%,
-    /// 0.5 pt); this keeps it in light mode, a little lighter. The rim itself is unchanged: toasts
-    /// and dialogs share that look.
+    /// 0.5 pt); this keeps it in light mode, a little lighter, in ``edgeView`` above the rim (a
+    /// layer border on the card itself sits under the rim, whose white top hid it). The rim itself
+    /// is unchanged: toasts and dialogs share that look.
     public static let lightEdgeShare: CGFloat = 0.14
 
     public override func updateLayer() {
@@ -49,19 +56,34 @@ public final class CardSurfaceView: NSView {
         let isDark = themeTokens.isDark
         let look = Self.style.look(isDark: isDark)
         updateRim(opaque ? nil : look)
+        let edge = updateEdge(shown: !opaque && !isDark)
         performWithTheme {
             layer?.backgroundColor = (opaque ? Palette.elevatedBackground : look.veil.nsColor).cgColor
-            if opaque {
-                layer?.borderColor = Palette.separator.cgColor
-                layer?.borderWidth = Metrics.lineWidth(1)
-            } else if !isDark {
-                layer?.borderColor = Palette.textPrimary.withAlphaComponent(Self.lightEdgeShare).cgColor
-                layer?.borderWidth = Metrics.lineWidth(0.5)
-            } else {
-                layer?.borderColor = nil
-                layer?.borderWidth = 0
-            }
+            layer?.borderColor = opaque ? Palette.separator.cgColor : nil
+            layer?.borderWidth = opaque ? Metrics.lineWidth(1) : 0
+            edge?.borderColor = Palette.textPrimary.withAlphaComponent(Self.lightEdgeShare).cgColor
+            edge?.borderWidth = Metrics.lineWidth(0.5)
         }
+    }
+
+    /// Shows or removes the light-mode hairline, kept above the rim; answers its layer.
+    private func updateEdge(shown: Bool) -> CALayer? {
+        guard shown else {
+            edgeView?.removeFromSuperview()
+            edgeView = nil
+            return nil
+        }
+        let edge = edgeView ?? NSView(frame: bounds)
+        if edgeView == nil {
+            edge.wantsLayer = true
+            edge.autoresizingMask = [.width, .height]
+            edge.layer?.cornerCurve = .continuous
+            edge.setAccessibilityElement(false)
+            edgeView = edge
+        }
+        edge.layer?.cornerRadius = cornerRadius
+        if subviews.last !== edge { addSubview(edge, positioned: .above, relativeTo: nil) }
+        return edge.layer
     }
 
     private func updateRim(_ look: FloatingGlassLook?) {
