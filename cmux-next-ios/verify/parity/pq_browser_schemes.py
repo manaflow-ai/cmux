@@ -29,7 +29,7 @@ PAGES = f"{pq.RBASE}/macpages"  # not a workspace folder: only the Mac's own tab
 
 
 def write_page(path, title, body):
-    html = f"<!doctype html><title>{title}</title><body style='font:48px -apple-system;padding:24px'><h1>{body}</h1></body>"
+    html = f"<!doctype html><title>{title}</title><body style='font:28px -apple-system;padding:24px'><p>{body}</p></body>"
     r = pq.rsh(f"mkdir -p $(dirname {path}) && printf %s {shlex.quote(html)} > {path} && cd $(dirname {path}) && pwd -P")
     check(r.returncode == 0, f"write {path}: {r.stderr.strip()[:200]}")
     return f"{r.stdout.strip()}/{os.path.basename(path)}"
@@ -63,12 +63,12 @@ def notice(j):
 
 @t.flow("mac-file")
 def mac_file(j):
-    path = write_page(f"{PAGES}/iphone-link-sequence-{STAMP}.html", "Mac page", f"MACBODY {BODY}")
+    path = write_page(f"{PAGES}/iphone-link-sequence-{STAMP}.html", "Mac page", f"MPGX {BODY}")
     a = t.seed(f"brs-mac-{STAMP}", terminals=1)
     pane = t.ws_tabs(a)[0][0]
     t.mac_raw({"cmd": "new-browser-tab", "url": f"file://{path}", "pane": pane})
     t.open_ws(j, a["name"])
-    took = ocr_wait(j, "MACBODY", timeout=45)
+    took = ocr_wait(j, "MPGX", timeout=45)
     pill = j.sim.ocr_find("only http")
     j.sim.shot("mac-file")
     check(not pill, "the phone shows the old scheme pill")
@@ -79,15 +79,15 @@ def mac_file(j):
 @t.flow("typed")
 def typed(j):
     proj = pq.rsh(f"mkdir -p {t.PROJ} && cd {t.PROJ} && pwd -P").stdout.strip()
-    shared = write_page(f"{proj}/shared-{STAMP}.html", "Shared page", f"SHAREDBODY {BODY}")
-    outside = write_page(f"{PAGES}/outside-{STAMP}.html", "Outside page", f"OUTSIDEBODY {BODY}")
+    shared = write_page(f"{proj}/shared-{STAMP}.html", "Shared page", f"SPGX {BODY}")
+    outside = write_page(f"{PAGES}/outside-{STAMP}.html", "Outside page", f"OPGX {BODY}")
     a = t.seed(f"brs-typed-{STAMP}", terminals=1)
     t.open_ws(j, a["name"])
     pq.plus_menu(j, "New Browser Tab")
-    pq.wait_opened(j, timeout=60)
+    pq.wait_opened(j, timeout=120)
     out = []
     go(j, f"file://{shared}")
-    took = ocr_wait(j, "SHAREDBODY")
+    took = ocr_wait(j, "SPGX")
     j.sim.shot("typed-shared")
     check(took is not None, "a file in the workspace folder did not load")
     out.append(f"shared file loaded in {took:.1f} s")
@@ -96,7 +96,7 @@ def typed(j):
     said = notice(j)
     j.sim.shot("typed-outside")
     check("isn't in a folder this Mac shares" in said, f"outside file: notice {said!r}")
-    check(not j.sim.ocr_find("OUTSIDEBODY"), "the outside file's content showed")
+    check(not j.sim.ocr_find("OPGX"), "the outside file's content showed")
     out.append(f"outside file: {said!r}")
     go(j, "data:text/html,<h1>DATAOK42</h1>")
     took = ocr_wait(j, "DATAOK42")
@@ -112,7 +112,9 @@ def typed(j):
     return "; ".join(out)
 
 
-ORDER = ["mac-file", "typed", "keyboard"]
+# The keyboard flow first: `typed` uses axe (hardware key events), after which the
+# simulator shows only the key bar, never the software keyboard.
+ORDER = ["keyboard", "mac-file", "typed"]
 
 
 def run(name):
@@ -139,9 +141,10 @@ FORM = """<!doctype html><title>Form</title><body style='font:28px -apple-system
 <button style='font:28px -apple-system'>Send</button></form><h1 id=out></h1></body>"""
 
 
-def keyboard_up(j, timeout=8):
+def keyboard_up(j, timeout=15):
     t0 = time.time()
     while time.time() - t0 < timeout:
+        j.sim.dismiss_keyboard_intro()
         if j.sim.keyboard():
             return True
         time.sleep(0.5)
