@@ -180,7 +180,7 @@ async fn dispatch_request(
                     "sessionCapabilities": {"list": {}, "fork": {}, "close": {}, "delete": {}},
                 },
                 "authMethods": [],
-                "_meta": {"acpmux": {"version": VERSION, "build": crate::hub::BUILD,
+                "_meta": {"acpmux": {"version": VERSION, "build": crate::hub::BUILD, "capabilities": crate::capabilities::ids(),
                 // `local`: the unix socket or the proven local app
                 // (`local_app.rs`), which the session pool serves.
                 "origin": match conn.origin { Origin::Web => "remote", Origin::Peer => "peer", _ => "local" },
@@ -1064,6 +1064,9 @@ async fn dispatch_request(
                 .ok_or_else(|| RpcError::invalid_params("promptId is required"))?;
             let removed = hub.withdraw_queued(&s, prompt_id)?;
             Ok(json!({"sessionId": s.id, "promptId": prompt_id, "removed": removed}))
+        }
+        method::MUX_SEND_QUEUE | method::MUX_SEND_STATUS => {
+            super::outbox::handle(hub, conn, m, &params).await
         }
         method::MUX_PROMPT_WITHDRAW | method::MUX_AGENT_PAIR_RESUME => {
             super::agent_messages::handle(hub, conn, m, &params).await
