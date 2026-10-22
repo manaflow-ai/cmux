@@ -159,6 +159,9 @@ fn performance_cores_are_every_level_but_efficiency() {
     assert_eq!(performance_cores(&levels(&[("Super", 5), ("Performance", 10)])), Some(15));
     // air-blue, an M5: 4 Super + 6 Efficiency.
     assert_eq!(performance_cores(&levels(&[("Super", 4), ("Efficiency", 6)])), Some(4));
+    // cmux16, an M6: 2 Super + 4 Performance + 6 Efficiency.
+    let m6 = levels(&[("Super", 2), ("Performance", 4), ("Efficiency", 6)]);
+    assert_eq!(performance_cores(&m6), Some(6));
     // M1 to M4.
     assert_eq!(performance_cores(&levels(&[("Performance", 8), ("Efficiency", 4)])), Some(8));
     assert_eq!(performance_cores(&levels(&[("Efficiency", 4)])), None);
