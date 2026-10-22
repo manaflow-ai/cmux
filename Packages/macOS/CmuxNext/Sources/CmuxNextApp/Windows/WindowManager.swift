@@ -388,7 +388,9 @@ final class WindowManager {
         controller.teardown()
         if programmaticCloses.remove(id) != nil || isTerminating { return }
         if id == launchWindowID {
-            // The unregistered launch window: nothing to hand over.
+            // The unregistered launch window: nothing to hand over. It often wears the saved front
+            // window's id, so the restore must not open that one again either.
+            if restoring || !restored { closedDuringRestore.insert(id) }
             launchWindowID = nil
             states[id] = nil
             return
