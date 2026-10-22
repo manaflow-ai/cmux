@@ -11,15 +11,13 @@
 // (its top less the offset), so it plays on top of that hold. Reduce Motion, the host's animation
 // switches (`data-agent-motion="off"`, a 0 ms token) and a page with no Web Animations open and
 // close at once: nothing here runs.
-import { cssTimeMs, foldMotion, foldMs } from "./fold";
+import { foldMotion, foldMs } from "./fold";
 import { FOLD_SETTLE_MS } from "./foldAnchor";
 
 /// The fold's state on the thread while it plays: "open" or "close" (the CSS and tests read it).
 export const TURN_FOLD_ATTR = "data-turn-fold";
 /// A drawn copy of a row a close hides, fading out where the row was (conversation.css).
 export const TURN_FOLD_GHOST = "acpmux-row--fold-ghost";
-/// The fade-out token (`--agent-motion-out`), and the share of the fold it takes with no host.
-const FADE_OUT_VAR = "--agent-motion-out";
 
 /// A row as the transcript places it: its id and top (layout px), by index.
 export type PlacedRows = {
@@ -140,10 +138,9 @@ export function playTurnFold(
   // Until the toggle's render lands (a scroll's pass can come first), every copy's row is still there.
   const present = fold.copies && new Set(placed.ids);
   if (fold.copies && [...fold.copies.keys()].some((id) => !present!.has(id))) {
-    const out = cssTimeMs(
-      thread.ownerDocument.defaultView?.getComputedStyle(thread).getPropertyValue(FADE_OUT_VAR) ?? "",
-    );
-    const fadeMs = Math.min(fold.ms, out && out > 0 ? out : fold.ms / 2);
+    // Over the whole fold, as the rows below slide over it: a shorter fade left a blank band where
+    // the steps were while the rows below were still on their way up.
+    const fadeMs = fold.ms;
     const below = rows[0]?.node ?? null;
     for (const [id, row] of fold.copies) {
       if (present!.has(id)) continue;
