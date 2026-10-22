@@ -330,12 +330,79 @@ test("`acpmux send` from a shell is the message of the agent named first in brac
     "[coord-deputy]",
   ])
     expect(incomingPrompt(text, { client: "acpmux-cli#a1b2c3" })).toBeUndefined();
-  // Provenance, when the record has it, names the sender instead.
+  // Provenance, when the record has it, gives the sending chat to open; the agent's own name first
+  // still names it.
   const provenance = { kind: "session_message", from: "lane-7", fromName: "app-store-features", to: "coordinator-1" };
   expect(incomingPrompt(sent, { _meta: { provenance }, client: "acpmux-cli#a1b2c3" })).toEqual({
     kind: "message",
-    message: { name: "app-store-features", sessionId: "lane-7", text: sent, raw: sent },
+    message: { name: "coord-deputy", sessionId: "lane-7", text: "Merged #1", raw: sent },
   });
+});
+
+// Each way another agent's message reaches a chat, signed by the agent first in brackets or after
+// "From": the signature names the chip and leaves the message's text, on every path.
+test("an agent's signature names its message on every path, and leaves the text", () => {
+  // `acpmux send` run in the sending chat: session_message provenance keeps that chat to open.
+  const session = { kind: "session_message", from: "acp:deputy-2", fromName: "deputy-2", to: "acp:parent" };
+  const laned = "[land-and-ci-c9] Not idle. #22674 is in the merge queue.";
+  expect(incomingPrompt(laned, { _meta: { provenance: session }, client: "acpmux-cli#a1b2c3" })).toEqual({
+    kind: "message",
+    message: {
+      name: "land-and-ci-c9",
+      sessionId: "deputy-2",
+      text: "Not idle. #22674 is in the merge queue.",
+      raw: laned,
+    },
+  });
+  // A sub-session family's message keeps who it is to this chat.
+  const family = { ...session, kind: "subsession_message", fromRole: "parent" };
+  const fromCoord = "From claude-sr2: still live in the nightly.";
+  expect(incomingPrompt(fromCoord, { _meta: { provenance: family } })).toEqual({
+    kind: "message",
+    message: {
+      name: "claude-sr2",
+      sessionId: "deputy-2",
+      relation: "parent",
+      text: "still live in the nightly.",
+      raw: fromCoord,
+    },
+  });
+  // SendMessage from another Claude session: Claude Code's envelope after its line about it.
+  const envelope = `Another Claude session sent a message:\n<cross-session-message from="uds:/tmp/a.sock" from-name="Leo's chat">\nFrom claude-sr2: merge it.\n</cross-session-message>${NOTE}`;
+  expect(incomingPrompt(envelope, adopted)).toEqual({
+    kind: "message",
+    message: { name: "claude-sr2", text: "merge it.", raw: envelope },
+  });
+  // A relay from a peer machine: no provenance, the signature is all that names the sender.
+  for (const [relayed, name, text] of [
+    ["[lane-x] Rebased on #23838.", "lane-x", "Rebased on #23838."],
+    ["From claude-sr2. Leo, furious, on nightly 3a63d6d.", "claude-sr2", "Leo, furious, on nightly 3a63d6d."],
+  ] as const)
+    expect(incomingPrompt(relayed, { client: "acpmux-peer#huge-blue" })).toEqual({
+      kind: "message",
+      message: { name, text, raw: relayed },
+    });
+  // `cmux agent message`: the rendered body's signature.
+  const delivered = rendered("[coord-deputy] Merged #23727.");
+  expect(incomingPrompt(delivered, { _meta: { provenance } })).toEqual({
+    kind: "message",
+    message: {
+      name: "coord-deputy",
+      sessionId: "child-3",
+      msgId: "m-1",
+      threadId: "t-1",
+      text: "Merged #23727.",
+      raw: delivered,
+    },
+  });
+  // Not a signature: "From" before words that are no agent's name, and a tag in brackets.
+  for (const text of ["From now on: run the tests first.", "From Monday: the queue is frozen."])
+    expect(incomingPrompt(text, { client: "acpmux-cli#a1b2c3" })).toBeUndefined();
+  for (const text of ["[WIP] stuff", "[1/3] part one", "[P1] fix it", "From now on: keep going."])
+    expect(incomingPrompt(text, { _meta: { provenance: session } })).toEqual({
+      kind: "message",
+      message: { name: "deputy-2", sessionId: "deputy-2", text, raw: text },
+    });
 });
 
 // Agent messages that waited for a busy chat go in as one turn (acpmux hub/digest.rs): the card
