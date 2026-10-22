@@ -27,7 +27,7 @@
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, VecDeque};
 use std::sync::atomic::{AtomicU8, Ordering};
-use std::sync::{Arc, Condvar, Mutex, OnceLock};
+use std::sync::{Arc, Condvar, Mutex, OnceLock, PoisonError};
 use std::time::{Duration, Instant};
 
 /// How long a worker beyond the first waits for work before it exits.
@@ -106,8 +106,7 @@ impl Lane {
                 RUNNING => KICKED,
                 _ => return,
             };
-            match status.compare_exchange_weak(current, next, Ordering::AcqRel, Ordering::Acquire)
-            {
+            match status.compare_exchange_weak(current, next, Ordering::AcqRel, Ordering::Acquire) {
                 Ok(_) => {
                     if next == QUEUED {
                         executor().push_ready(self.0.clone());
@@ -182,15 +181,15 @@ fn executor() -> &'static Executor {
 
 impl Executor {
     fn push_ready(&'static self, lane: Arc<LaneShared>) {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
         inner.ready.push_back(lane);
         self.wake_for_ready(&mut inner);
     }
 
     fn push_timer(&'static self, lane: Arc<LaneShared>, at: Instant) {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
         {
-            let mut armed = lane.armed_at.lock().unwrap();
+            let mut armed = lane.armed_at.lock().unwrap_or_else(PoisonError::into_inner);
             // An entry at or before `at` is still in the heap: it runs the
             // lane, which returns this deadline again if it still wants it.
             if armed.is_some_and(|armed| armed <= at) {
@@ -256,10 +255,10 @@ impl Executor {
     /// queue; other entries go to `discard`.
     fn fire_due(inner: &mut Inner, now: Instant) {
         while inner.timers.peek().is_some_and(|Reverse(entry)| entry.at <= now) {
-            let Reverse(entry) = inner.timers.pop().expect("peeked");
+            let Some(Reverse(entry)) = inner.timers.pop() else { break };
             let lane = entry.lane;
             {
-                let mut armed = lane.armed_at.lock().unwrap();
+                let mut armed = lane.armed_at.lock().unwrap_or_else(PoisonError::into_inner);
                 if *armed == Some(entry.at) {
                     *armed = None;
                 }
@@ -287,14 +286,14 @@ impl Executor {
         let discard = std::mem::take(&mut inner.discard);
         drop(inner);
         drop(discard);
-        self.inner.lock().unwrap()
+        self.inner.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     fn work_loop(&'static self) {
         struct WorkerExit(&'static Executor);
         impl Drop for WorkerExit {
             fn drop(&mut self) {
-                let mut inner = self.0.inner.lock().unwrap();
+                let mut inner = self.0.inner.lock().unwrap_or_else(PoisonError::into_inner);
                 inner.workers -= 1;
                 // A worker that died in a run function may have been the
                 // only one able to serve a ready lane or the timers.
@@ -308,7 +307,7 @@ impl Executor {
             }
         }
         let _exit = WorkerExit(self);
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
         loop {
             Self::fire_due(&mut inner, Instant::now());
             inner = self.drop_discarded(inner);
@@ -316,7 +315,7 @@ impl Executor {
                 self.cover_while_running(&mut inner);
                 drop(inner);
                 run_lane(lane);
-                inner = self.inner.lock().unwrap();
+                inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
                 continue;
             }
             if inner.timer_wait.is_none()
@@ -325,7 +324,8 @@ impl Executor {
                 let at = next.at;
                 inner.timer_wait = Some(at);
                 let timeout = at.saturating_duration_since(Instant::now());
-                let (guard, _) = self.timer.wait_timeout(inner, timeout).unwrap();
+                let (guard, _) =
+                    self.timer.wait_timeout(inner, timeout).unwrap_or_else(PoisonError::into_inner);
                 inner = guard;
                 inner.timer_wait = None;
                 continue;
@@ -333,10 +333,13 @@ impl Executor {
             inner.idle += 1;
             let keep = inner.workers == 1;
             if keep {
-                inner = self.work.wait(inner).unwrap();
+                inner = self.work.wait(inner).unwrap_or_else(PoisonError::into_inner);
                 inner.idle -= 1;
             } else {
-                let (guard, timeout) = self.work.wait_timeout(inner, IDLE_WORKER_EXIT).unwrap();
+                let (guard, timeout) = self
+                    .work
+                    .wait_timeout(inner, IDLE_WORKER_EXIT)
+                    .unwrap_or_else(PoisonError::into_inner);
                 inner = guard;
                 inner.idle -= 1;
                 if timeout.timed_out()
@@ -352,8 +355,7 @@ impl Executor {
 
 /// Run one queued lane, then settle its status from the result.
 fn run_lane(lane: Arc<LaneShared>) {
-    if lane.status.compare_exchange(QUEUED, RUNNING, Ordering::AcqRel, Ordering::Acquire).is_err()
-    {
+    if lane.status.compare_exchange(QUEUED, RUNNING, Ordering::AcqRel, Ordering::Acquire).is_err() {
         return; // closed while queued
     }
     struct ClosedOnPanic<'a>(&'a LaneShared, bool);
