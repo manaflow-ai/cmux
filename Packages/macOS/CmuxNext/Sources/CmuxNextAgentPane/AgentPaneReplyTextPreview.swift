@@ -30,7 +30,7 @@ nonisolated struct AgentPaneReplyTextPreview: Equatable, Sendable {
         guard fstat(fd, &info) == 0, info.st_mode & S_IFMT == S_IFREG,
               info.st_dev == before.st_dev, info.st_ino == before.st_ino else { return .failure(.pathInvalid) }
         var real = [CChar](repeating: 0, count: Int(MAXPATHLEN))
-        guard fcntl(fd, F_GETPATH, &real) != -1, accept(real.withUnsafeBufferPointer { String(cString: $0.baseAddress!) })
+        guard fcntl(fd, F_GETPATH, &real) != -1, accept(String(decoding: real.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self))
         else { return .failure(.pathInvalid) }
         let data: Data
         do {

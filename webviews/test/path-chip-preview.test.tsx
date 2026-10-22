@@ -84,6 +84,15 @@ async function renderChip(
     chip,
     rootElement,
     card: () => rootElement.querySelector<HTMLElement>(".cv-path-preview"),
+    /// Lets the host's answer arrive: a deadline-bounded poll, never a fixed sleep.
+    until: async (ready: () => unknown) => {
+      const deadline = Date.now() + 2000;
+      while (!ready() && Date.now() < deadline) {
+        await act(async () => {
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+      }
+    },
     done: async () => {
       await act(async () => root.unmount());
       setChipHost(undefined);
@@ -105,9 +114,7 @@ test("a locked chip outside the session's folders previews on hover and its clic
   expect(view.chip.classList.contains("is-outside")).toBe(true);
   expect(view.chip.querySelector(".cv-chip__lock")).not.toBeNull();
   await view.act(async () => view.chip.focus());
-  await view.act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
+  await view.until(() => view.card()?.querySelector("img, pre"));
   const card = view.card()!;
   expect(card).not.toBeNull();
   expect(card.getAttribute("aria-label")).toBe("after-opened.png");
@@ -134,9 +141,7 @@ test("a text file's hover card shows its first lines from the host's bounded rea
     method === "link.preview" ? { lines: ["$ bun run build", "built in 2.1s"], truncated: true } : undefined,
   );
   await view.act(async () => view.chip.focus());
-  await view.act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
+  await view.until(() => view.card()?.querySelector("img, pre"));
   const text = view.card()!.querySelector<HTMLElement>("pre.cv-path-preview__text")!;
   expect(text.textContent).toBe("$ bun run build\nbuilt in 2.1s");
   expect(text.dataset.truncated).toBe("true");
