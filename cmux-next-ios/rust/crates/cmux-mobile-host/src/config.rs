@@ -294,6 +294,7 @@ impl HostConfig {
             ),
             (None, None) => crate::browser::BrowserConfig::default(),
         };
+        let sibling_device_ids = sibling_device_ids(&app_support_dir(), &device_id);
         let file_roots = env("CMUX_MOBILE_FILE_ROOTS")
             .map(|roots| roots.split(':').filter(|r| !r.is_empty()).map(PathBuf::from).collect())
             .unwrap_or_default();
@@ -304,7 +305,7 @@ impl HostConfig {
             device_name: env("CMUX_MOBILE_DEVICE_NAME").unwrap_or_else(hostname),
             host_uuid: host_uuid(),
             machine_id_override: env("CMUX_MOBILE_MACHINE_ID"),
-            sibling_device_ids: sibling_device_ids(&app_support_dir(), &device_id),
+            sibling_device_ids,
             tokens,
             owner_user_id: env("CMUX_MOBILE_OWNER_USER_ID"),
             include_loopback: env("CMUX_MOBILE_INCLUDE_LOOPBACK").is_some_and(|v| v == "1"),
