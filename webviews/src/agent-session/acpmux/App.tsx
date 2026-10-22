@@ -7959,6 +7959,8 @@ function AcpmuxPane() {
               initialKind={newTab.initialKind}
               cwd={newTab.cwd}
               {...(newTab.startedProject ? { startedProject: newTab.startedProject } : {})}
+              {...(newTab.home ? { home: newTab.home } : {})}
+              knownProjects={newTabKnownProjects}
               host={newTab.host ?? machineName}
               location={newTab.location}
               omnibar={newTab.omnibar}

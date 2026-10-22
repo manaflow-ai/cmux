@@ -18,11 +18,13 @@ import {
 } from "./omnibar";
 import {
   activityTime,
+  firstProject,
   folded,
   homePath,
   listed,
-  projectLabel,
+  mostRecentProject,
   normalizedSessionEntry,
+  projectLabel,
   sessionMark,
   type AcpmuxSessionEntry,
 } from "./sessionList";
@@ -242,6 +244,12 @@ type Props = {
   /// The app's copy of the project of the chat the person last picked and started (this run's own
   /// copy wins): the project a tab with no folder of its own starts on.
   startedProject?: string;
+  /// This Mac's home folder; unset on a page of another machine (NewTabPageMachine), which never
+  /// starts in this Mac's started or recent project.
+  home?: string;
+  /// The host's project folders (`project.list`): a started or recent project it no longer lists
+  /// (removed, deleted) is never the start. Empty is not loaded yet, so every folder counts.
+  knownProjects?: readonly string[];
   /// The machine it runs on (the handshake's `machineName`); "This Mac" when absent.
   host?: string;
   inputToken?: string;
@@ -277,6 +285,8 @@ export function NewTabPage({
   initialKind = "agent",
   cwd,
   startedProject,
+  home,
+  knownProjects,
   host,
   chips: Chips,
   omnibar = EMPTY_OMNIBAR,
@@ -297,11 +307,19 @@ export function NewTabPage({
   // placeholder and context a visible swipe without moving the composer or stealing its focus.
   const [kindSwitch, setKindSwitch] = useState<KindSwitchDirection>();
   const kindSwitchTimer = useRef<number | undefined>(undefined);
-  // A tab with no project of its own (none, `~`, a private agent-home folder) starts on the project
-  // of the chat the person last picked and started (Leo 2026-10-21, newtab/startedProject.ts).
-  const [projectCwd, setProjectCwd] = useState(() =>
-    isStartableProject(cwd) ? cwd : (rememberedStartedProject() ?? startedProject ?? cwd),
-  );
+  // A tab with no project of its own (none, `~`, a private agent-home folder) on this Mac starts on
+  // the project of the chat the person last picked and started (Leo 2026-10-21,
+  // newtab/startedProject.ts), else the newest chat's, each only while the host still lists it; a
+  // page on another machine (no `home`) never on this Mac's. A pick replaces it.
+  const [picked, setProjectCwd] = useState<string | undefined>(undefined);
+  const [started] = useState(() => (home ? (rememberedStartedProject() ?? startedProject) : undefined));
+  const projectCwd =
+    picked ??
+    (isStartableProject(cwd) || !home
+      ? cwd
+      : (firstProject(started ? [started.replace(/(.)\/+$/, "$1")] : [], home, knownProjects) ??
+        mostRecentProject(snapshot.sessions, home, knownProjects) ??
+        cwd));
   const [text, setText] = useState(location ?? "");
   /// The last open was refused (the host made no tab): a note under the field until the next edit.
   const [openFailed, setOpenFailed] = useState(false);
