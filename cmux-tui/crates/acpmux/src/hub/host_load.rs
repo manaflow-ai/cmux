@@ -25,7 +25,7 @@ impl Hub {
                 top.push((running, turn, s.id.clone(), s.meta().name));
             }
         }
-        top.sort_by(|a, b| (b.0, b.1).cmp(&(a.0, a.1)));
+        top.sort_by_key(|t| std::cmp::Reverse((t.0, t.1)));
         let top: Vec<Value> = top
             .into_iter()
             .take(TOP)
