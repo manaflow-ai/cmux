@@ -131,8 +131,10 @@ actor FakeOwner: InstallAuthTransport {
             let jwk = params["public_jwk"] as! [String: String]
             let x = Data(base64URLEncoded: jwk["x"]!)!, y = Data(base64URLEncoded: jwk["y"]!)!
             let publicKey = try P256.Signing.PublicKey(x963Representation: Data([0x04]) + x + y)
-            if installs.values.contains(where: { $0.rawRepresentation == publicKey.rawRepresentation })
-                && !installs.filter({ $0.value.rawRepresentation == publicKey.rawRepresentation }).keys.allSatisfy(revoked.contains) {
+            // The closures compare bytes: swift-crypto's P256 keys are not Sendable on Linux.
+            let raw = publicKey.rawRepresentation
+            if installs.values.contains(where: { $0.rawRepresentation == raw })
+                && !installs.filter({ $0.value.rawRepresentation == raw }).keys.allSatisfy(revoked.contains) {
                 return try reply(["ok": false, "error": ["code": "validation.invalid", "message": "this public key is already registered"]])
             }
             let id = "inst_\(installs.count + 1)"

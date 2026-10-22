@@ -42,7 +42,10 @@ final class TestClock: @unchecked Sendable { var now = Date(timeIntervalSince197
 
     func owner(_ clock: TestClock, level: TextConfirmLevel = .strict, locked: TextConfirmLevel? = nil,
                registeredHoursAgo: Double = 25, nonCanonical: Bool = false) -> MockTextConfirmOwner {
-        MockTextConfirmOwner(level: level, lockedLevel: locked, presenceKey: key.publicKey,
+        // A fresh copy of the public key, so the actor gets a value nothing else holds
+        // (swift-crypto's P256 keys are not Sendable on Linux).
+        MockTextConfirmOwner(level: level, lockedLevel: locked,
+                             presenceKey: try! P256.Signing.PublicKey(rawRepresentation: key.publicKey.rawRepresentation),
                              keyRegisteredAt: clock.now.addingTimeInterval(-registeredHoursAgo * 3600),
                              nonCanonical: nonCanonical, now: { clock.now })
     }
