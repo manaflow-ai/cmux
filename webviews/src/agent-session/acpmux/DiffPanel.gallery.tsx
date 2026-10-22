@@ -220,7 +220,13 @@ const threadsSource: ChangesSource = {
 /// A repository with Commit and Push, the branch two commits ahead: the toolbar at its widest.
 const gitSource: ChangesSource = {
   diff: async () => ({ files: [] }),
-  status: async () => ({ branch: "feat/upload-retry", upstream: "origin/feat/upload-retry", detached: false, ahead: 2, behind: 0 }),
+  status: async () => ({
+    branch: "feat/upload-retry",
+    upstream: "origin/feat/upload-retry",
+    detached: false,
+    ahead: 2,
+    behind: 0,
+  }),
   commit: async () => ({}),
   push: async () => ({}),
 };
