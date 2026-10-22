@@ -184,7 +184,6 @@ export type IPhoneHostState = {
 /** `ComputerUseSetup.Phase` in the app. */
 export type ComputerUsePhase = "disabled_by_policy" | "off" | "unavailable" | "starting" | "ready" | "version_mismatch";
 
-/** The Computer Use card's state: the grants of the helper that runs (or would run). */
 /** A web update the app keeps: its commit and when that commit landed (unix seconds). */
 export type WebUpdateVersion = { commit: string; committed_at: number };
 
@@ -203,6 +202,7 @@ export type WebUpdatesState = {
   refusal: "app_too_old" | "not_newer" | "untrusted" | "damaged" | "offline" | null;
 };
 
+/** The Computer Use card's state: the grants of the helper that runs (or would run). */
 export type ComputerUseState = {
   phase: ComputerUsePhase;
   accessibility: boolean | null;
