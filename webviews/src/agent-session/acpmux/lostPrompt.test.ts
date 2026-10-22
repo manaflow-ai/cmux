@@ -5,6 +5,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import {
   clientWaiter,
+  holdsOnly,
   isLostConnection,
   lostDrafts,
   lostPrompt,
@@ -227,13 +228,13 @@ test("a harness switch sends a lost prompt it held under its id, never marked a 
 });
 
 test("a lost prompt that comes back while another chat shows waits for its own chat", () => {
-  const drafts = lostDrafts<string>();
-  drafts.hold("s-a", "chat A's task");
+  const drafts = lostDrafts<{ promptId: string; text: string }>();
+  drafts.hold("s-a", { promptId: "p-a", text: "chat A's task" });
   // Chat B shows: nothing of chat A goes into its composer.
   expect(drafts.take("s-b")).toEqual([]);
   expect(drafts.take(undefined)).toEqual([]);
   // Chat A shows again: its draft comes back, once.
-  expect(drafts.take("s-a")).toEqual(["chat A's task"]);
+  expect(drafts.take("s-a")).toEqual([{ promptId: "p-a", text: "chat A's task" }]);
   expect(drafts.take("s-a")).toEqual([]);
 });
 
@@ -305,4 +306,39 @@ test("a connection whose history already shows a kept lost prompt retires its id
   } finally {
     client.close();
   }
+});
+
+test("a late resend names the kept prompts a connection's history shows, and retires them", () => {
+  const slot = lostPromptSlot();
+  slot.keep("s-1", "p-read", "continue", []);
+  slot.keep("s-1", "p-other", "and test it", []);
+  expect(slot.forgetShown((_chat, promptId) => promptId === "p-read")).toEqual(["p-read"]);
+  // Retired: the sender's later keep does not bring it back.
+  slot.keep("s-1", "p-read", "continue", []);
+  expect(slot.take("s-1", "and test it", [])).toBe("p-other");
+  expect(slot.take("s-1", "continue", [])).toBeUndefined();
+});
+
+test("a lost prompt the host sent again after all never comes back into its chat's composer", () => {
+  const drafts = lostDrafts<{ promptId: string; text: string }>();
+  drafts.hold("s-a", { promptId: "p-1", text: "continue" });
+  drafts.hold("s-a", { promptId: "p-2", text: "and test it" });
+  drafts.hold("s-b", { promptId: "p-3", text: "ship it" });
+  drafts.drop("p-1");
+  drafts.drop("p-3");
+  expect(drafts.take("s-a")).toEqual([{ promptId: "p-2", text: "and test it" }]);
+  expect(drafts.take("s-b")).toEqual([]);
+});
+
+test("only a lost prompt's draft left as it came back is taken out once the host sent it after all", () => {
+  const restored = { text: "continue", attachmentIds: ["img-1"] };
+  expect(holdsOnly({ text: "continue", attachmentIds: ["img-1"] }, restored)).toBe(true);
+  // Edited, added to, or a chip changed: the person's draft now, so it stays.
+  expect(holdsOnly({ text: "continue please", attachmentIds: ["img-1"] }, restored)).toBe(false);
+  expect(holdsOnly({ text: "continue\n\nand test it", attachmentIds: ["img-1"] }, restored)).toBe(false);
+  expect(holdsOnly({ text: "continue", attachmentIds: [] }, restored)).toBe(false);
+  expect(holdsOnly({ text: "continue", attachmentIds: ["img-1", "img-2"] }, restored)).toBe(false);
+  expect(holdsOnly({ text: "continue", attachmentIds: ["img-2"] }, restored)).toBe(false);
+  // Sent already: the composer is empty, nothing to take out.
+  expect(holdsOnly({ text: "", attachmentIds: [] }, restored)).toBe(false);
 });

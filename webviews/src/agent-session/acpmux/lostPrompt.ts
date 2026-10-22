@@ -101,9 +101,11 @@ export function lostPromptSlot() {
       for (const [key, id] of kept) if (id === promptId) kept.delete(key);
     },
     /// Forgets each kept prompt `shows` finds in its chat (a connection's history, read before
-    /// the pane heard of the connection).
-    forgetShown(shows: (sessionId: string, promptId: string) => boolean): void {
-      for (const [key, id] of kept) if (shows(JSON.parse(key)[0], id)) this.forget(id);
+    /// the pane heard of the connection), and names them.
+    forgetShown(shows: (sessionId: string, promptId: string) => boolean): string[] {
+      const shown = [...kept].filter(([key, id]) => shows(JSON.parse(key)[0], id)).map(([, id]) => id);
+      for (const id of shown) this.forget(id);
+      return shown;
     },
     /// The lost prompt's id when this send is that prompt. Each lost prompt goes again once, and
     /// the chat's other lost prompts stay for theirs; a send in the chat that is none of them ends
@@ -124,11 +126,19 @@ export function lostPromptSlot() {
 /// Lost prompts that came back while the pane showed another chat, by chat. Each goes back into
 /// the composer, with its "Not sent", only once the pane shows its own chat again: in another
 /// chat's composer, the next Send would run it there.
-export function lostDrafts<Draft>() {
+export function lostDrafts<Draft extends { promptId: string }>() {
   const kept = new Map<string, Draft[]>();
   return {
     hold(sessionId: string, draft: Draft): void {
       kept.set(sessionId, [...(kept.get(sessionId) ?? []), draft]);
+    },
+    /// The host sent `promptId` again after all: its draft never comes back, in any chat.
+    drop(promptId: string): void {
+      for (const [sessionId, drafts] of kept) {
+        const left = drafts.filter((draft) => draft.promptId !== promptId);
+        if (left.length > 0) kept.set(sessionId, left);
+        else kept.delete(sessionId);
+      }
     },
     /// The drafts kept for `sessionId`, once: the pane shows that chat now.
     take(sessionId: string | undefined): Draft[] {
@@ -138,4 +148,18 @@ export function lostDrafts<Draft>() {
       return drafts;
     },
   };
+}
+
+/// A composer's prompt, by its text and its chips' ids in order.
+export type HeldPrompt = { text: string; attachmentIds: readonly string[] };
+
+/// The composer holds `restored` and nothing else: the lost prompt that came back, as it came
+/// back. Once the host sends that prompt again after all, such a draft goes (its next Send would
+/// run it a second time, under a new id); one the person edited or added to is theirs and stays.
+export function holdsOnly(composer: HeldPrompt, restored: HeldPrompt): boolean {
+  return (
+    composer.text === restored.text &&
+    composer.attachmentIds.length === restored.attachmentIds.length &&
+    composer.attachmentIds.every((id, index) => id === restored.attachmentIds[index])
+  );
 }
