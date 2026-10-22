@@ -64,7 +64,7 @@ import Testing
         let store = WebUpdateStore(base: root.appending(path: "store", directoryHint: .isDirectory))
         let updater = Self.updater(server, store: store)
         var ready: [URL?] = []
-        updater.onReady = { ready.append($0) }
+        updater.onReady = { tree, _ in ready.append(tree) }
         await updater.check()
         #expect(updater.phase == .idle)
         #expect(updater.state.active == pointer)
@@ -82,6 +82,7 @@ import Testing
         #expect(again.state.active == pointer)
         #expect(server.downloads == 1)
         #expect(await again.launchTree() == store.tree(for: pointer.key).root)
+        #expect(again.launchVersion == pointer)
     }
 
     @Test func offAtLaunchServesTheBundledWeb() async throws {
@@ -179,7 +180,7 @@ import Testing
         let store = WebUpdateStore(base: root.appending(path: "store", directoryHint: .isDirectory))
         let updater = Self.updater(server, store: store)
         var ready: [URL?] = []
-        updater.onReady = { ready.append($0) }
+        updater.onReady = { tree, _ in ready.append(tree) }
         server.pointer = try Self.pointerData(first)
         await updater.check()
         server.pointer = try Self.pointerData(second)
@@ -235,6 +236,33 @@ import Testing
         // Once the check ends, the roll back goes through.
         try await updater.rollBack()
         #expect(updater.state.active == first)
+    }
+
+    @Test func turningUpdatesOffDuringARollBackServesTheBundledWeb() async throws {
+        let root = try WebUpdateStoreTests.scratch()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (archive, first) = try await WebUpdateStoreTests.makeArchive(in: root)
+        var second = first
+        second.key = String(repeating: "e", count: 64)
+        second.committedAt = first.committedAt + 100
+        let server = Server()
+        server.archive = archive
+        let store = WebUpdateStore(base: root.appending(path: "store", directoryHint: .isDirectory))
+        let updater = Self.updater(server, store: store)
+        var ready: [WebUpdatePointer?] = []
+        updater.onReady = { _, pointer in ready.append(pointer) }
+        server.pointer = try Self.pointerData(first)
+        await updater.check()
+        server.pointer = try Self.pointerData(second)
+        server.etag = "\"2\""
+        await updater.check()
+        // Off, then a roll back before the channel's write ran: the roll back waits for it and
+        // finds the bundled web, so it never brings an update back.
+        updater.follow(.off)
+        try await updater.rollBack()
+        #expect(updater.state.active == nil)
+        #expect(store.readState().active == nil)
+        #expect(ready.last == .some(nil))
     }
 
     @Test func theServedTreeIsKeptUntilTheSafePointSwapsItOut() async throws {

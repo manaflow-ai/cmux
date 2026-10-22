@@ -23,11 +23,12 @@ public final class WebUpdates {
     public private(set) var updater: WebUpdater?
     /// The folder to serve from the next safe point (`.some(nil)`: the bundled web).
     public private(set) var pending: URL??
-    /// The update the pages serve now (nil: the bundled web). The updater's `state.active` runs
-    /// ahead of it while a swap waits for its safe point.
-    public private(set) var served: WebUpdatePointer?
+    /// The update the last swap served (`.some(nil)`: the bundled web), none before the first.
+    private var swapped: WebUpdatePointer??
     /// The update ``pending`` swaps in.
     @ObservationIgnored private var pendingVersion: WebUpdatePointer?
+    /// Pages waited for the launch check, so they serve its update until the first swap.
+    @ObservationIgnored private var launchServed = false
     /// The wait in the background before an update swaps in.
     @ObservationIgnored private let safePoint = DemandTimer(owner: "web-updates.safe-point")
     @ObservationIgnored private var observers: [Task<Void, Never>] = []
@@ -60,21 +61,18 @@ public final class WebUpdates {
             overlay.register(bundled: PageDescriptor.diffRoot(inAppResources: resources), output: WebUpdateTree.outputs[4])
         }
         let updater = WebUpdater(store: store, app: app)
-        updater.onReady = { [weak self] tree in self?.ready(tree) }
+        updater.onReady = { [weak self] tree, pointer in self?.ready(tree, version: pointer) }
         updater.served = { WebBundleOverlay.shared.activeTree }
         self.updater = updater
         if WebBundleServedViews.shared.isEmpty {
+            launchServed = true
             overlay.load { await updater.launchTree() }
-            // task-owner: reads the one launch check's result; it ends by itself
-            Task { [weak self] in
-                if await updater.launchTree() != nil { self?.served = updater.state.active }
-            }
         } else {
             // A page already loaded bundled files: the kept update waits for a safe point.
             // task-owner: one launch check; it ends by itself
             Task { [weak self] in
                 let tree = await updater.launchTree()
-                if tree != nil { self?.ready(tree) }
+                if tree != nil { self?.ready(tree, version: updater.launchVersion) }
             }
         }
         // task-owner: the app's activation events, for the life of the app
@@ -101,10 +99,18 @@ public final class WebUpdates {
         updater.follow(WebUpdater.Channel(rawValue: settings.web.rawValue) ?? .off)
     }
 
-    /// The updater kept `tree` (nil: serve the bundled web): swap it in at the next safe point.
-    func ready(_ tree: URL?) {
+    /// The update the pages serve now (nil: the bundled web). The updater's `state.active` runs
+    /// ahead of it while a swap waits for its safe point.
+    public var served: WebUpdatePointer? {
+        if let swapped { return swapped }
+        return launchServed ? updater?.launchVersion : nil
+    }
+
+    /// The updater kept `tree`, `version`'s (both nil: serve the bundled web): swap it in at the
+    /// next safe point.
+    func ready(_ tree: URL?, version: WebUpdatePointer?) {
         pending = .some(tree)
-        pendingVersion = tree == nil ? nil : updater?.state.active
+        pendingVersion = version
         if WebBundleServedViews.shared.isEmpty || !NSApp.isActive { scheduleSafePoint() }
     }
 
@@ -113,7 +119,7 @@ public final class WebUpdates {
     public func applyPending() -> Int {
         guard let tree = pending else { return 0 }
         pending = nil
-        served = pendingVersion
+        swapped = .some(pendingVersion)
         guard WebBundleOverlay.shared.activate(tree) else { return 0 }
         // task-owner: one prune of the trees nothing serves now; it ends by itself
         if let updater { Task { await updater.pruneUnused() } }
