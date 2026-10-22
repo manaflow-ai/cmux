@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextBrowser
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -62,6 +63,70 @@ import Testing
         let started = now()
         body()
         return now() - started
+    }
+
+    /// The suite's budgets, ms of main-thread CPU on the hosts they were set on, held to on this runner scaled
+    /// by its reference workload (FrameBudgetCalibration): aws-m4pro-9, 3-4x slower at every sidebar frame
+    /// too, read a 51.3 ms first open against 50 ms with no change in the code.
+    struct Budgets {
+        var open = 16.0, firstOpen = 50.0, hover = 16.0
+        let calibration: FrameBudgetCalibration
+
+        /// `nominal` ms, scaled to this runner. A stub: it does not scale yet.
+        func scaled(_ nominal: Double) -> Double { nominal }
+
+        /// Each timing over its scaled budget, described; empty when every one holds.
+        func overruns(open measuredOpen: Double? = nil, firstOpen measuredFirst: Double? = nil, hover measuredHover: Double? = nil) -> [String] {
+            var found: [String] = []
+            func check(_ what: String, _ measured: Double?, _ nominal: Double) {
+                guard let measured else { return }
+                let limit = scaled(nominal)
+                if measured >= limit {
+                    found.append("\(what) took \(measured) ms, over \(nominal) ms scaled by \(calibration.factor) to \(limit) ms")
+                }
+            }
+            check("an open and close", measuredOpen, open)
+            check("the first open", measuredFirst, firstOpen)
+            check("the slowest hover", measuredHover, hover)
+            return found
+        }
+    }
+
+    /// A slow runner, stood in deterministically as in SidebarScrollCostTests, with no screen, so it runs on
+    /// every runner: every timed open and every reference sample does the reference work `slowdown` times.
+    /// This host's own reference is nominal and its own unslowed opens set the budgets, so the host's speed
+    /// cancels out. The slowed opens break those budgets as they are, and hold them once they scale by the
+    /// slowed reference.
+    @Test func aSlowRunnerScalesTheMenuBudgets() {
+        let slowdown = 3
+        func work(_ times: Int) { for _ in 0..<times { FrameBudgetCalibration.referenceWork() } }
+        func opens(_ times: Int) -> [Double] { (0..<30).map { _ in FrameBudgetCalibration.cpuMs { work(times) } } }
+        work(4) // warm up
+        let nominalMs = FrameBudgetCalibration.percentile(opens(1), 0.5)
+        let budget = 1.5 * FrameBudgetCalibration.percentile(opens(1), 0.95)
+        var slow = FrameBudgetCalibration(nominalMs: nominalMs, reference: { work(slowdown) })
+        slow.checkpoint()
+        let slowed = FrameBudgetCalibration.percentile(opens(slowdown), 0.95)
+        slow.checkpoint()
+        print(String(format: "EXTENSIONS-MENU-CALIBRATION-TEST reference %.3f ms, budget %.3f ms, slowed p95 %.3f ms | ",
+                     nominalMs, budget, slowed) + slow.summary)
+        #expect(slowed > budget, "the stand-in runner is not slow enough to break an unscaled budget")
+        if let reason = slow.skipReason { return print("EXTENSIONS-MENU-CALIBRATION-TEST skipped: \(reason)") }
+        let budgets = Budgets(open: budget, firstOpen: budget, hover: budget, calibration: slow)
+        let overruns = budgets.overruns(open: slowed, firstOpen: slowed, hover: slowed)
+        #expect(overruns.isEmpty, "a runner \(slowdown)x slower at the reference: \(overruns.joined(separator: "; "))")
+    }
+
+    /// A runner at or faster than nominal keeps the budgets as they were set: 16 ms an open, 50 ms the first,
+    /// 16 ms a hover.
+    @Test func aFastRunnerKeepsTheMenuBudgets() {
+        var fast = FrameBudgetCalibration(nominalMs: 1_000)
+        fast.checkpoint()
+        let budgets = Budgets(calibration: fast)
+        #expect(fast.factor == 1, "\(fast.summary)")
+        #expect([budgets.scaled(budgets.open), budgets.scaled(budgets.firstOpen), budgets.scaled(budgets.hover)] == [16, 50, 16])
+        #expect(budgets.overruns(open: 15.9, firstOpen: 49.9, hover: 15.9).isEmpty)
+        #expect(budgets.overruns(firstOpen: 51.3).count == 1)
     }
 
     /// A visible window with the Extensions button at its top right.
