@@ -140,6 +140,11 @@ impl Mux {
                 store::with_doc_mut(transaction, |doc| {
                     let mut ops = ops.clone();
                     closes_for_reset(transaction, doc, &mut ops)?;
+                    // A workspace joining the document records when (the one list orders by it).
+                    cmux_layout_reducer::sidebar_doc::created::stamp_created(
+                        &mut ops,
+                        cmux_layout_reducer::sidebar_doc::created::now_ms(),
+                    );
                     anyhow::ensure!(
                         !reduce::changes_app_kind(doc, &ops),
                         "bad request: {}",

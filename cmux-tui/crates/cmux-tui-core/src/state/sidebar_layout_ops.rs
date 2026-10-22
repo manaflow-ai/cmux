@@ -82,6 +82,10 @@ impl Mux {
                         ops
                     };
                     crate::state::sidebar_doc_ops::closes_for_reset(transaction, doc, &mut ops)?;
+                    cmux_layout_reducer::sidebar_doc::created::stamp_created(
+                        &mut ops,
+                        cmux_layout_reducer::sidebar_doc::created::now_ms(),
+                    );
                     let mut events = Vec::new();
                     let mut doc_changed = false;
                     if !ops.is_empty() {

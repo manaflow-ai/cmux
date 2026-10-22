@@ -34,6 +34,7 @@ extension SidebarDocProjection {
             }
             if section.machine != nil {
                 section.nodes = Self.machineNodes(section, projection, drag: drag)
+                if !projection.createdMs.isEmpty { section.nodes = Self.timed(section.nodes, projection, drag: drag) }
                 // A machine section the person made a remote group keeps its header in one list.
                 section.isHostGroup = drag.section(section.id).flatMap { projection.hostGroups.contains($0) } ?? false
             }
@@ -156,6 +157,15 @@ extension SidebarDocProjection {
         }
         // Unplaced rows after the last placed one keep their mapped order at the end.
         return nodes + waiting
+    }
+
+    /// `nodes` with each loose workspace's creation time from its document item (the one list's merge key).
+    @MainActor private static func timed(_ nodes: [SidebarNode], _ projection: SidebarDocProjection, drag: SidebarDocDrag) -> [SidebarNode] {
+        nodes.map { node in
+            guard case .workspace(var ws) = node, let item = drag.item(.workspace(ws.id)), let created = projection.createdMs[item] else { return node }
+            ws.createdMs = created
+            return .workspace(ws)
+        }
     }
 
     /// A kept group with no open member (Pinned keeps it): its header alone.

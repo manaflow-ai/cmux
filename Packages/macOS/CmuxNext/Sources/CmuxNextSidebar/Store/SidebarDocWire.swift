@@ -159,7 +159,8 @@ nonisolated enum SidebarDocWire {
             }
             return SidebarDocItem(id: id, section: section, parent: parent, body: body, showsLabel: showsLabel ?? true, span: span,
                                   label: label ?? self.body.string("label"), iconURL: self.body.string("icon_url") ?? (extra?.value as? [String: Any])?["icon_url"] as? String,
-                                  pinnedInGroup: (extra?.value as? [String: Any])?["pinned"] as? Bool == true)
+                                  pinnedInGroup: (extra?.value as? [String: Any])?["pinned"] as? Bool == true,
+                                  createdMs: self.body.createdMs)
         }
     }
 
@@ -189,6 +190,12 @@ nonisolated enum SidebarDocWire {
 
         func string(_ key: String) -> String? { fields[key] as? String }
         func bool(_ key: String) -> Bool? { fields[key] as? Bool }
+
+        /// A workspace reference's `created_ms` (R3 of remote-groups-per-machine-DESIGN.md).
+        var createdMs: UInt64? {
+            let ref = fields["ref"] as? [String: Any] ?? fields
+            return (ref["created_ms"] as? NSNumber).map(\.uint64Value)
+        }
 
         var workspaceRef: SidebarDocWorkspaceRef? {
             let ref = fields["ref"] as? [String: Any] ?? fields

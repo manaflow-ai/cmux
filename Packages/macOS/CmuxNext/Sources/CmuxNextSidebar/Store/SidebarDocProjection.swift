@@ -79,6 +79,8 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
     public var bandGroups: [Group]
     /// The machine sections made remote groups (remote-groups-DESIGN.md slice 4), by document section id.
     public var hostGroups: Set<String> = []
+    /// Each workspace item's creation time (`created_ms`, R3 of remote-groups-per-machine-DESIGN.md), by item id.
+    public var createdMs: [String: UInt64] = [:]
 
     /// The layout item kind of a group placed in Pinned or a custom section.
     public static let groupKind = "group"
@@ -145,6 +147,7 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
         self.unplaced = unplaced
         self.bandGroups = bandGroups
         hostGroups = Set(records.sections.values.filter(\.hostGroup).map(\.id))
+        createdMs = records.items.compactMapValues(\.createdMs)
     }
 
     private static func place(_ row: SidebarDocRow, session: String, records: SidebarDocRecords, into machines: inout [String: [Node]],

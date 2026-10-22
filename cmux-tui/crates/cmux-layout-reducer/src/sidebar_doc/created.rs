@@ -12,7 +12,19 @@ pub const CREATED_MS_KEY: &str = "created_ms";
 /// Stamps `now_ms` on every reference an `adopt` in `ops` places that has no creation time yet.
 /// A reference that already carries one (a reopened workspace, a replayed op) keeps it.
 pub fn stamp_created(ops: &mut [Op], now_ms: u64) {
-    let _ = (ops, now_ms);
+    for op in ops {
+        let Op::Adopt { refs, .. } = op else { continue };
+        for reference in refs {
+            reference.extra.entry(CREATED_MS_KEY).or_insert_with(|| Value::from(now_ms));
+        }
+    }
+}
+
+/// Now, in milliseconds since 1970 (0 when the clock reads before 1970): the daemon's stamp.
+pub fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX))
 }
 
 /// The creation time `reference` carries, if any.
