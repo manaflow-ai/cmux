@@ -1,18 +1,21 @@
 #!/usr/bin/env python3
-"""The webviews checks gate of the cmux-next fast gates, run on a pull request merged with the current tip.
+"""The webviews checks that fail a feat-cmux-next pull request, compared with its base per error.
 
-    fast_gate_webviews_checks.py --base BASE [--repo PATH]
+    fast_gate_webviews_checks.py [--base BASE] [--repo PATH] [--no-install]
 
-Installs webviews' node_modules (bun install --frozen-lockfile) and runs, in webviews/, each check that ci-web's
-"Check webviews" step fails on for a feat-cmux-next pull request, except the type check, which compiles rather than
-checks. tests/test_cmux_next_fast_gates.py keeps CHECKS equal to ci-web.yml's fail-mode list.
+Installs webviews' node_modules (bun install --frozen-lockfile; --no-install when the job already did) and runs, in
+webviews/, every check in CHECKS, each on its own: a red never stops the next. ci-web's "Check webviews" step runs
+this on a pull request (BASE the merge parent) and on a push (no BASE), and the fast gates run it on a dispatch.
 
-Only findings the pull request adds fail, as in the other diff-scoped gates: a check that fails on the merge runs
-again on BASE (a worktree of it, sharing the merge's node_modules), and the gate fails only on output lines BASE
-does not print as often (with the checkout root, `path:line` numbers and timings ignored, since the pull request
-may move lines; a check's own counts still compare). A
-check red on the base and no worse here is the base's red, which this gate never charges to a pull request.
-Runs every check and exits 1 when any adds a finding.
+Only findings the pull request adds fail: a check that fails on the merge runs again on BASE (a worktree of it,
+sharing the merge's node_modules), and the gate fails only on findings BASE does not have as often. A finding is
+one diagnostic of the type check (Oxlint's report: `path: code: message`), or else one output line (with the
+checkout root, `path:line` numbers and timings ignored, since the pull request may move lines; a check's own
+counts still compare). The base's findings are warnings, never charged to the pull request. Without BASE (a push)
+every red is the commit's. Exits 1 when any check adds a finding.
+
+#23763 (2026-10-21) merged a TS2339 in test/composer-row-layout.test.ts: the base was red, so its own red read as
+"the same base red". Compared per error, it is the one new finding (tests/test_cmux_next_fast_gates.py replays it).
 
 cmux_next_fast_gates.py runs this only on a dispatch (pr=N, against the current tip): on a pull_request event
 ci-web already ran these checks on the same merge commit. A merger dispatches when a check path
@@ -32,9 +35,14 @@ import sys
 import tempfile
 from pathlib import Path
 
-CHECKS = ("check:browser-lanes", "check:fixed-waits", "acpmux-protocol:check", "check:catalog-keys")
+CHECKS = ("check:browser-lanes", "check:fixed-waits", "typecheck", "acpmux-protocol:check", "check:catalog-keys")
 LINE_REF = re.compile(r"(\S):\d+(?::\d+)?\b")
 TIMING = re.compile(r"\b\d+(?:\.\d+)?\s?(?:ms|s)\b")
+ANSI = re.compile(r"\x1b\[[0-9;]*m")
+# Oxlint's graphical report (the type check, `vp lint`): `  x typescript(TS2339): message`, then
+# `   ,-[path:line:col]` and a code frame. One finding per diagnostic; the frame and the totals are not findings.
+DIAGNOSTIC = re.compile(r"^\s*[x!×⚠]\s+(?P<code>[\w/@-]+\([^)]*\)):\s*(?P<message>.*?)\s*$")
+LOCATION = re.compile(r"^\s*,-\[(?P<path>[^\]]+?)(?::\d+:\d+)?\]\s*$")
 
 
 def run_check(webviews: Path, check: str) -> tuple[int, str]:
@@ -49,20 +57,54 @@ def key(line: str, root: str = "") -> str:
     return TIMING.sub("<time>", LINE_REF.sub(r"\1", line.strip()))
 
 
-def added(merge_output: str, base_output: str, merge_root: str = "", base_root: str = "") -> list[str]:
-    """Lines of the merge's output beyond the base's, in the merge's order. Counted, not a set: a second finding
-    that reads like one the base already has is still new."""
-    left = Counter(key(line, base_root) for line in base_output.splitlines() if line.strip())
-    out = []
-    for line in merge_output.splitlines():
-        found = key(line, merge_root)
-        if not found:
+def findings(output: str, root: str = "") -> list[tuple[str, str]]:
+    """(key, shown) per finding: each Oxlint diagnostic when the output has any, else each non-empty line."""
+    lines = ANSI.sub("", output).splitlines()
+    diagnostics: list[tuple[str, str]] = []
+    pending = None
+    for line in lines:
+        found = DIAGNOSTIC.match(line)
+        if found:
+            if pending:
+                diagnostics.append(pending)
+            pending = (f"{found['code']}: {found['message']}",) * 2
             continue
+        where = LOCATION.match(line)
+        if where and pending:
+            path = where["path"].replace(root, "<root>") if root else where["path"]
+            diagnostics.append((f"{path}: {pending[0]}", f"{where['path']}: {pending[1]}"))
+            pending = None
+    if pending:
+        diagnostics.append(pending)
+    if diagnostics:
+        return diagnostics
+    return [(key(line, root), line.rstrip()) for line in lines if line.strip()]
+
+
+def compare(merge_output: str, base_output: str, merge_root: str = "", base_root: str = "") -> tuple[list, list]:
+    """(new, old): the merge's findings beyond the base's, and those the base has too, in the merge's order.
+    Counted, not a set: a second finding that reads like one the base already has is still new."""
+    left = Counter(found for found, _ in findings(base_output, base_root))
+    new, old = [], []
+    for found, shown in findings(merge_output, merge_root):
         if left[found] > 0:
             left[found] -= 1
+            old.append(shown)
         else:
-            out.append(line.rstrip())
-    return out
+            new.append(shown)
+    return new, old
+
+
+def added(merge_output: str, base_output: str, merge_root: str = "", base_root: str = "") -> list[str]:
+    """The merge's findings the base does not have (compare's first half)."""
+    return compare(merge_output, base_output, merge_root, base_root)[0]
+
+
+def generate_strings(webviews: Path) -> None:
+    """A worktree's page strings (generated/strings.json, gitignored) that bun install's postinstall writes;
+    a base sharing the merge's node_modules installs nothing, and the type check reads them."""
+    if (webviews / "scripts/pages/gen-strings.mjs").is_file():
+        subprocess.run(["bun", "scripts/pages/gen-strings.mjs", "--best-effort"], cwd=webviews, capture_output=True)
 
 
 class BaseTree:
@@ -84,6 +126,7 @@ class BaseTree:
             modules = self.repo / "webviews" / "node_modules"
             if modules.is_dir():
                 (holder / "base" / "webviews" / "node_modules").symlink_to(modules.resolve())
+            generate_strings(holder / "base" / "webviews")
             self.path = holder / "base"
         return self.path / "webviews" if self.path else None
 
@@ -96,15 +139,16 @@ class BaseTree:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--base", required=True, help="the base sha the pull request was merged into")
+    parser.add_argument("--base", default="", help="the base sha (or ref) to compare with; none charges every red")
     parser.add_argument("--repo", type=Path, default=Path.cwd())
+    parser.add_argument("--no-install", action="store_true", help="webviews' node_modules is already installed")
     args = parser.parse_args(argv)
     repo = args.repo.resolve()
     webviews = repo / "webviews"
-    if subprocess.run(["bun", "install", "--frozen-lockfile"], cwd=webviews).returncode != 0:
+    if not args.no_install and subprocess.run(["bun", "install", "--frozen-lockfile"], cwd=webviews).returncode != 0:
         print("webviews checks: bun install --frozen-lockfile failed", flush=True)
         return 1
-    base = BaseTree(repo, args.base)
+    base = BaseTree(repo, args.base) if args.base else None
     failed = []
     try:
         for check in CHECKS:
@@ -112,13 +156,18 @@ def main(argv: list[str] | None = None) -> int:
             print(output, end="", flush=True)
             if code == 0:
                 continue
-            base_webviews = base.webviews()
-            if base_webviews is None:  # no base to compare with: the red is charged here
+            base_webviews = base.webviews() if base else None
+            if base_webviews is None:  # a push, or no base to compare with: the red is charged here
                 failed.append(check)
                 continue
             base_code, base_output = run_check(base_webviews, check)
-            new = (added(output, base_output, str(repo), str(base_webviews.parent)) if base_code != 0
-                   else output.splitlines())
+            new, old = (compare(output, base_output, str(repo), str(base_webviews.parent)) if base_code != 0
+                        else ([shown for _, shown in findings(output, str(repo))] or ["(no output)"], []))
+            if old:
+                print(f"::warning title=webviews {check} (base)::{len(old)} error(s) the base {args.base[:12]} "
+                      "has too; not this change's", flush=True)
+                for line in old:
+                    print(f"  base: {line}", flush=True)
             if not new:
                 print(f"webviews checks: {check} fails on the base {args.base[:12]} too and this adds nothing to it",
                       flush=True)
@@ -127,10 +176,13 @@ def main(argv: list[str] | None = None) -> int:
             print(f"webviews checks: {check} adds, over the base {args.base[:12]}:", flush=True)
             for line in new:
                 print(f"  {line}", flush=True)
+                print(f"::error title=webviews {check}::{line}", flush=True)
     finally:
-        base.close()
+        if base:
+            base.close()
+    where = "the pull request merged with its base" if args.base else "this commit"
     for check in failed:
-        print(f"::error title=webviews {check}::{check} fails on the pull request merged with the current tip")
+        print(f"::error title=webviews {check}::{check} fails on {where}")
     print(f"webviews checks: {', '.join(failed) + ' failed' if failed else 'all passed'}", flush=True)
     return 1 if failed else 0
 
