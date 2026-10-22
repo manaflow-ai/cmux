@@ -14,12 +14,17 @@ import { needsYouItems } from "../src/agent-session/acpmux/needsYou/model";
 import { NeedsYouPanel, type NeedsYouMode } from "../src/agent-session/acpmux/needsYou/NeedsYou";
 
 const css = fs.readFileSync(path.resolve(import.meta.dir, "../src/agent-session/acpmux/needsYou/needsYou.css"), "utf8");
-/** Every declaration block whose selector list names `selector` exactly (a whole selector, not a part). */
+/** The sheet's top-level rules: comments and `@media` blocks (a touch screen's, Reduce Motion's) dropped. */
+const topLevel = css
+  .replace(/\/\*[\s\S]*?\*\//g, "")
+  .replace(/@media[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/g, "");
+/** Every top-level declaration block whose selector list names `selector` exactly (a whole selector,
+ * not a part); a comma inside `:is(...)` or `:has(...)` does not split the list. */
 const rules = (selector: string) =>
-  [...css.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+  [...topLevel.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
     .filter((rule) =>
       rule[1]
-        .split(",")
+        .split(/,(?![^(]*\))/)
         .map((part) => part.trim())
         .includes(selector),
     )
