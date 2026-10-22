@@ -23,6 +23,9 @@ const CHANNELS: [(&str, &str); 3] = [
     ("com.cmuxterm.app.staging", "staging"),
 ];
 
+/// The old shared daemon session an untagged channel build may adopt.
+const LEGACY_SESSION: &str = "cmux-app";
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct AppIdentity {
     pub bundle_id: Option<String>,
@@ -155,16 +158,23 @@ impl AppIdentity {
     /// `scripts/reload.sh` DEV build, `cmux-app-<channel>` for an untagged
     /// nightly, rc or staging build, `cmux-app` for release, and
     /// `cmux-app--<key hash>` for every other build (the untagged DEV build
-    /// among them), so each build reaches its own daemon.
+    /// among them), so each build reaches its own daemon; `cmux-app` for a
+    /// channel build that adopted the old shared session.
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     pub(crate) fn daemon_session(&self) -> Option<String> {
         let home = std::env::var_os("HOME").filter(|home| !home.is_empty()).map(PathBuf::from);
         self.daemon_session_in(home.as_deref())
     }
 
-    /// [`Self::daemon_session`] for the user home `user_home`.
-    fn daemon_session_in(&self, _user_home: Option<&Path>) -> Option<String> {
-        self.build().app_session()
+    /// [`Self::daemon_session`] for the user home `user_home`. An untagged
+    /// channel build that adopted the old shared session (CmuxNext
+    /// `LegacyChannelSession` wrote its marker) runs `cmux-app` instead.
+    fn daemon_session_in(&self, user_home: Option<&Path>) -> Option<String> {
+        let build = self.build();
+        let adopted = user_home
+            .and_then(|home| build.legacy_session_marker(home))
+            .is_some_and(|marker| marker.is_file());
+        if adopted { Some(LEGACY_SESSION.to_owned()) } else { build.app_session() }
     }
 }
 
