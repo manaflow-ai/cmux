@@ -31,7 +31,7 @@ export function PathChip({ path, label, written: text }: { path: string; label?:
   // link keeps its own label.
   const written = (text === undefined ? undefined : scope?.written?.get(text)) ?? text;
   // An image whose thumbnail shows under the message: its mention is a quiet link, not a second chip.
-  const pictured = useImageShown(scope?.pictured?.has(path) ? path : undefined);
+  const pictured = useImageShown(scope?.shown, path);
   if (isDeniedPath(path)) return <span className="cv-chip-plain">{written ?? label ?? path}</span>;
   // Another machine's file: never asked about or opened here (chips/messageScope.ts).
   if (scope?.host !== undefined) return <ElsewhereChip path={path} host={scope.host} label={label} />;
@@ -106,6 +106,9 @@ export function ElsewhereChip({ path, host, label }: { path: string; host: strin
 /// hover card names the site, shows its favicon and title, and offers Open and Open in. The anchor
 /// keeps the host's link-click path.
 export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNode; children: ReactNode }) {
+  // A web image whose thumbnail shows under another agent's message: its mention is a quiet link.
+  const scope = useMessageScope();
+  const pictured = useImageShown(scope?.shown, href);
   const privateHost = isPrivateUrl(href);
   const known = useSiteInfo(href);
   // A dev server's or a device's page is never dressed as a site, whatever cmux browsed there.
@@ -125,6 +128,12 @@ export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNo
   const hover = useHoverCard();
   const [anchor, setAnchor] = useState<HTMLAnchorElement | null>(null);
   const pullRequest = pullRequestRef(href);
+  if (pictured)
+    return (
+      <a className="cv-link is-image-mention" href={href} rel="noreferrer">
+        {children}
+      </a>
+    );
   return (
     <>
       <a

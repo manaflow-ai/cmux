@@ -30,14 +30,17 @@ const RELATIVE_EXTENSIONS = `${BARE_EXTENSIONS}|ya?ml|toml|tsx?|jsx?|mjs|cjs|css
 // path, an address, a reference (`owner/repo@abc.md`), an option (`--out=a.png`), a variable or a
 // Windows path (`C:\Users\a.png`), and none ends inside one; sentence punctuation after it stays text.
 const MENTION = new RegExp(
-  String.raw`(?<![\p{L}\p{N}\w/\\.:~@#+=$%-])(?:` +
+  String.raw`(?<![\w/\\.:~@#+=$%-])(?:` +
     String.raw`(~?\/(?:[\w.@+-]+\/)*[\w.@+-]*)` +
     String.raw`|(\.{1,2}\/(?:[\w.@+-]+\/)*[\w@+-][\w.@+-]*\.(?:${RELATIVE_EXTENSIONS})(?::\d+(?::\d+)?)?)` +
     String.raw`|(\.?\w[\w@+-]*\/(?:[\w.@+-]+\/)*[\w@+-][\w.@+-]*\.(?:${RELATIVE_EXTENSIONS})(?::\d+(?::\d+)?)?)` +
     String.raw`|(\w[\w.@+-]*\.(?:${BARE_EXTENSIONS}))` +
-    String.raw`)(?![\p{L}\p{N}\w/\\@+-]|\.[\p{L}\p{N}\w])`,
-  "giu",
+    String.raw`)(?![\w/\\@+-]|\.\w)`,
+  "gi",
 );
+/// A letter or digit outside ASCII (`ü`, `ï`): a name next to one is part of a word. Checked
+/// around each match rather than in `MENTION`, which the `u` flag makes many times slower.
+const WORD_CHAR = /[\p{L}\p{N}]/u;
 /// A run of text without a space longer than this is no file name (and would make `MENTION` slow).
 const LONGEST_WORD = 512;
 const LONG_WORD = new RegExp(String.raw`(\S{${LONGEST_WORD + 1},})`);
@@ -58,7 +61,7 @@ export type MessageFiles = { text: string; written: ReadonlyMap<string, string> 
 export function messageFiles(text: string, cwd: string | undefined): MessageFiles {
   const written = new Map<string, string>();
   if (!text.includes(".")) return { text, written };
-  const state: Folder = { base: undefined, kind: undefined, cwd: folderOf(cwd), written };
+  const state: Folder = { base: undefined, kind: undefined, cwd: folderOf(cwd), written, explicit: new Set() };
   let fenced = false;
   const out = text
     .split("\n")
@@ -70,9 +73,6 @@ export function messageFiles(text: string, cwd: string | undefined): MessageFile
       return fenced ? line : messageLine(line, state);
     })
     .join("\n");
-  // A full path the agent also wrote out itself draws as it is: its spelling is the path.
-  // (Deleting a key while iterating a Map is safe.)
-  for (const full of written.keys()) if (text.includes(full)) written.delete(full);
   return { text: out, written };
 }
 
@@ -89,6 +89,8 @@ type Folder = {
   kind: string | undefined;
   cwd: string | undefined;
   written: Map<string, string>;
+  /// Full paths the agent wrote itself: the first spelling of a file is the one its chip falls back to.
+  explicit: Set<string>;
 };
 
 function messageLine(line: string, state: Folder): string {
@@ -124,13 +126,18 @@ function prose(text: string, state: Folder): string {
       .split(LONG_WORD)
       .map((part, index) => (index % 2 ? part : prose(part, state)))
       .join("");
-  return text.replace(MENTION, (match, full?: string, dotted?: string, relative?: string, bare?: string) => {
-    if (full) {
-      startsFolder(full, state);
-      return match;
-    }
-    return writeOut(match, nameFolder(Boolean(bare), match, state), state);
-  });
+  return text.replace(
+    MENTION,
+    (match, full?: string, dotted?: string, relative?: string, bare?: string, at?: number) => {
+      if (WORD_CHAR.test(text[at! - 1] ?? "") || WORD_CHAR.test(text[at! + match.length] ?? "")) return match;
+      if (full) {
+        startsFolder(full, state);
+        claim(full, state);
+        return match;
+      }
+      return writeOut(match, nameFolder(Boolean(bare), match, state), state);
+    },
+  );
 }
 
 /// The folder a relative (`bare` false) or bare name is in: a bare name's is the last full path's
@@ -144,7 +151,7 @@ function nameFolder(bare: boolean, name: string, state: Folder): string | undefi
 function writeOut(name: string, folder: string | undefined, state: Folder): string {
   if (!folder) return name;
   const full = joinPath(folder, name);
-  if (!state.written.has(full)) state.written.set(full, name);
+  if (!state.written.has(full) && !state.explicit.has(full)) state.written.set(full, name);
   return full;
 }
 
@@ -166,6 +173,7 @@ function fullMention(written: string, state: Folder): string | undefined {
   if (!match || match.index !== 0 || match[0].length !== written.length) return undefined;
   if (match[1]) {
     startsFolder(written, state);
+    claim(written, state);
     return undefined;
   }
   const from = nameFolder(Boolean(match[4]), written, state);
@@ -193,7 +201,13 @@ function parentOf(path: string): string | undefined {
 /// An absolute or home folder without its trailing slash; undefined for anything else.
 function folderOf(folder: string | undefined): string | undefined {
   const trimmed = folder?.trim().replace(/\/+$/, "");
-  return trimmed && /^(?:~|\/)/.test(trimmed) && trimmed !== "~" ? trimmed : undefined;
+  return trimmed && /^(?:~$|~\/|\/)/.test(trimmed) ? trimmed : undefined;
+}
+
+/// A full path the agent wrote, unless a name was written out to it before.
+function claim(written: string, state: Folder): void {
+  const path = written.replace(/[.,;:!?]+$/, "");
+  if (!state.written.has(path)) state.explicit.add(path);
 }
 
 /// `name` (relative, `./` or `../` allowed) inside `folder`, with `.` and `..` resolved; a line

@@ -16,7 +16,7 @@ import { ImageIcon, Lock } from "../conversation/icons";
 import { ImageViewerContext } from "../conversation/imageViewerContext";
 import { callChipHost } from "./host";
 import { DataUrlCache, IMAGE_CACHE_MAX_CHARS, IMAGE_CACHE_MAX_ENTRIES } from "./imageCache";
-import { markImageShown } from "./imageShown";
+import { useMarkShown } from "./imageShown";
 import { ElsewhereChip } from "./LinkChips";
 import { useMessageScope } from "./messageScope";
 import { usePathInfo, useReplyPolicy } from "./linkStore";
@@ -66,7 +66,6 @@ function useImageLoad(src: string, auto: boolean) {
         if (byClick) clicked.set(src, data);
         else loaded.set(src, data);
         setState({ kind: "shown", src: data });
-        markImageShown(src);
       } else {
         started.delete(src);
         setState({ kind: "failed" });
@@ -158,7 +157,7 @@ export function ReplyImage({
   return local ? (
     <LocalImage src={src} path={local} alt={alt} fallback={fallback} thumb={thumb} strip={strip} />
   ) : (
-    <RemoteImage src={src} alt={alt} host={host!} fallback={fallback} thumb={thumb} />
+    <RemoteImage src={src} alt={alt} host={host!} fallback={fallback} thumb={thumb} strip={strip} />
   );
 }
 
@@ -186,6 +185,8 @@ function LocalImage({
   const loadable =
     answered && !denied && place !== "missing" && (place !== "outside" || policy.outsideRoots !== "text");
   const { state } = useImageLoad(src, loadable);
+  const shownIn = useMessageScope()?.shown;
+  useMarkShown(strip ? shownIn : undefined, src, state.kind === "shown");
   if (state.kind === "shown") return <OpenableImage src={state.src} alt={alt} path={path} thumb={thumb} />;
   // In a message's strip, an image the pane will not show draws nothing: its chip in the text says so.
   if (strip && (denied || place === "missing" || state.kind === "failed" || (place === "outside" && !loadable)))
@@ -230,17 +231,23 @@ function RemoteImage({
   host,
   fallback,
   thumb,
+  strip,
 }: {
   src: string;
   alt: string;
   host: string;
   fallback: ReactNode;
   thumb: boolean;
+  strip: boolean;
 }) {
   const t = useT();
   const policy = useReplyPolicy();
   const { state, load } = useImageLoad(src, policy.remoteImages === "always");
+  const shownIn = useMessageScope()?.shown;
+  useMarkShown(strip ? shownIn : undefined, src, state.kind === "shown");
   if (state.kind === "shown") return <OpenableImage src={state.src} alt={alt} thumb={thumb} />;
+  // In a message's strip, a web image the pane will not show draws nothing: its chip says so.
+  if (strip && (policy.remoteImages === "never" || state.kind === "failed")) return null;
   if (policy.remoteImages === "never") return <>{fallback}</>;
   const placeholder = (
     <span className="cv-image-placeholder">

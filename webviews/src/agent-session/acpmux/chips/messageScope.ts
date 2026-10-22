@@ -6,6 +6,7 @@
 // which this Mac never opens or reads: each is a chip with the machine's name and a lock, never a
 // file of the same path here.
 import { createContext, useContext } from "react";
+import type { ShownImages } from "./imageShown";
 
 export type MessageScope = {
   /// The machine the sender's files are on, when it is not this Mac: its name, or "" when the
@@ -14,9 +15,9 @@ export type MessageScope = {
   /// What the agent wrote for each file name the card wrote out in full (messageFiles.ts), keyed by
   /// the full path as written out: a chip that draws as text shows the agent's own spelling.
   written?: ReadonlyMap<string, string>;
-  /// The images drawn as thumbnails under the message's text: a mention of one in the text is a
-  /// quiet link once its thumbnail shows (chips/imageShown.ts).
-  pictured?: ReadonlySet<string>;
+  /// The images the strip under the message's text has shown: a mention of one in the text is a
+  /// quiet link (chips/imageShown.ts).
+  shown?: ShownImages;
 };
 
 export const MessageScopeContext = createContext<MessageScope | null>(null);

@@ -31,6 +31,7 @@ import { Markdown, ThumbStrip } from "./Markdown";
 import { AgentMark, agentBrand } from "../../shared/AgentMark";
 import { useSenderChat, useSenderPlace } from "../subagents/subsessions";
 import { MessageScopeContext, type MessageScope } from "../chips/messageScope";
+import { shownImages } from "../chips/imageShown";
 import { mentionedRepository } from "../../../githubReferences";
 
 /// A family sender's label, its relation before its name ("Parent · coordinator").
@@ -110,12 +111,11 @@ export function IncomingMessageLine({
   // Its screenshots, under the text where the six-line cut never hides them; none for another
   // machine's files, which this Mac cannot read.
   const pictures = useMemo(() => (host === undefined ? messageImages(body) : []), [body, host]);
+  // The images its strip has shown, whose mentions are quiet links (chips/imageShown.ts).
+  const [shown] = useState(shownImages);
   const scope = useMemo<MessageScope>(
-    () =>
-      host === undefined
-        ? { written: files.written, pictured: new Set(pictures.map((item) => item.src)) }
-        : { host, written: files.written },
-    [host, files.written, pictures],
+    () => (host === undefined ? { written: files.written, shown } : { host, written: files.written }),
+    [host, files.written, shown],
   );
   // Whether the text runs past `RECEIVED_LINES`, measured as drawn (its width and font decide).
   const textBox = useRef<HTMLDivElement>(null);

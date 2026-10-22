@@ -672,7 +672,7 @@ export function ThumbStrip({ items, className }: { items: readonly ThumbItem[]; 
   return (
     <div className={className}>
       {items.map((item) =>
-        localImageSource(item.src) ? (
+        localImageSource(item.src) || /^https?:\/\//i.test(item.src) ? (
           <ReplyImage key={item.src} src={item.src} alt={item.alt} fallback={null} thumb strip />
         ) : (
           <InlineImage key={item.src} source={`![${item.alt}](${item.src})`} opts={NO_OPTIONS} />

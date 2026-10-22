@@ -125,9 +125,23 @@ test("a name after a letter outside ASCII is part of a word, never split", () =>
     expect(messageFileText(text, "/repo")).toBe(text);
 });
 
-test("a full path the agent also wrote out itself keeps that spelling", () => {
-  const { written } = messageFiles("Shots: /tmp/x/a.png, b.png; again /tmp/x/b.png", undefined);
-  expect([...written]).toEqual([]);
+test("a file's first spelling is the one its chip falls back to", () => {
+  expect([...messageFiles("Shot /tmp/x/b.png, then b.png", undefined).written]).toEqual([]);
+  expect([...messageFiles("Shots: /tmp/x/a.png, b.png; again /tmp/x/b.png", undefined).written]).toEqual([
+    ["/tmp/x/b.png", "b.png"],
+  ]);
+});
+
+test("a home folder starts the folder of the names after it", () => {
+  expect(messageFileText("in ~/: shot.png", "/repo")).toBe("in ~/: ~/shot.png");
+  expect(messageFileText("Wrote shot.png", "~")).toBe("Wrote ~/shot.png");
+});
+
+test("a message naming many files is read once", () => {
+  const text = Array.from({ length: 100000 }, (_, i) => `/tmp/x/a${i}.png b${i}.png`).join(" ");
+  const started = performance.now();
+  messageFiles(text, "/repo");
+  expect(performance.now() - started).toBeLessThan(2000);
 });
 
 test("a long run without a space is passed over quickly", () => {

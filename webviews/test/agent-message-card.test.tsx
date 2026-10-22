@@ -220,3 +220,19 @@ test("Leo's case: two screenshots on this Mac each draw once; one the host canno
   expect(body.querySelector(".is-image-mention")).toBeNull();
   expect(body.querySelector(".cv-received__pics .cv-thumb, .cv-image-file")).toBeNull();
 });
+
+test("a web image draws once too: its placeholder loads it, then its mention is a quiet link", async () => {
+  const url = "https://example.com/shots/after.png";
+  const text = `[composer-look] After: ${url} (the menu).`;
+  await render({ name: "composer-look", text, raw: text }, [
+    { sessionId: "lane-1", name: "composer-look", cwd: "/w/cmux", hostKind: "local" },
+  ]);
+  const body = host.querySelector(".cv-received__body")!;
+  // Click to load (the default): the strip holds its placeholder, and the mention is its chip.
+  expect(body.querySelector(".cv-received__pics .cv-image-placeholder")).not.toBeNull();
+  expect(body.querySelector(".is-image-mention")).toBeNull();
+  await act(async () => body.querySelector<HTMLButtonElement>(".cv-image-placeholder__load")!.click());
+  for (let i = 0; i < 4; i++) await act(async () => await new Promise((done) => setTimeout(done, 0)));
+  expect(body.querySelectorAll(".cv-received__pics .cv-thumb img")).toHaveLength(1);
+  expect(body.querySelector<HTMLAnchorElement>("a.is-image-mention")!.getAttribute("href")).toBe(url);
+});
