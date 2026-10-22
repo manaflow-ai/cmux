@@ -62,7 +62,9 @@ import Testing
         room.show(nil)
         #expect(room.backdropTintOpacity == nil)
         workspace.pinBackdropTint(1)
-        #expect(workspace.backdropTintOpacity == WindowBackdrop.maximumWorkspaceTint)
+        #expect(workspace.backdropTintOpacity == 1)
+        workspace.pinBackdropTint(1.5)
+        #expect(workspace.backdropTintOpacity == 1)
         // A hand-edited "nan" follows the work's tint rather than turning the window opaque.
         workspace.pinBackdropTint(.nan)
         #expect(workspace.backdropTintOpacity == nil)
