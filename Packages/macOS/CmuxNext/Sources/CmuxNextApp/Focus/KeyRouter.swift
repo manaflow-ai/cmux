@@ -20,8 +20,9 @@ import CmuxNextFocus
 ///    wins), with the context keys of the window the key goes to; a winning
 ///    Ghostty keybind goes to a focused terminal, which runs it itself;
 /// 4. the action's tier decides whether it may take the key from this focus
-///    (system always; navigation unless browser focus mode; content only
-///    when its content has the keyboard, never a text field): run it;
+///    (system always, but in browser focus mode only its exit chord and
+///    Quit; navigation unless browser focus mode; content only when its
+///    content has the keyboard, never a text field): run it;
 /// 5. else the focused surface gets the key (Ghostty keybinds, the page, the
 ///    field), after a Chrome extension shortcut of the focused Chromium tab;
 ///    a printable key on a screen with a primary input and no focused text
@@ -70,7 +71,10 @@ final class KeyRouter: BrowserKeyRouting {
     /// (Cmd-Opt-I, Cmd-Opt-J, Cmd-Opt-C) are not editing chords: they run
     /// from the page, the address bar, the find bar and DevTools itself.
     /// Browser focus mode still gives them to the page.
+    /// Browser focus mode gives the page every system action too (the command palette, Close
+    /// Tab), all but ``focusModeKeptActions``.
     nonisolated static func allows(_ tier: ActionKeyTier, id: ActionID, focus: FocusState) -> Bool {
+        if focus.isBrowserFocusModeActive, tier == .system { return focusModeKeptActions.contains(id) }
         if tier == .content, devToolsActions.contains(id), BrowserChordTable.isBrowserContext(focus.resolved),
            !focus.isBrowserFocusModeActive { return true }
         if tier == .content, browserChromeActions.contains(id), isBrowserChromeField(focus.resolved) { return true }
