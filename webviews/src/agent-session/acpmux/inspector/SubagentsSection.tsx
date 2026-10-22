@@ -2,15 +2,17 @@
 // one row each, and what ended is one row. The harness's own subagents and the chats its agent
 // started (ChildSessionRows.tsx; a Cloud VM's or another machine's included) share the list. Each
 // running one is a line of its own (subagents/AgentLine.tsx, the tray's): its name, what it does
-// now, how long it has run and its state, Waiting ones first; past five, "Show more" opens the rest.
-// The ones that ended are one row, "94 done · 1 failed", that opens into their lines, failed first.
-// Every line opens what it names: a subagent's pane or view (App.tsx `showSubagent`), a chat beside
-// this one (`chat.offer.open`); its hover card names it and says its state and its task. The live
-// counts sit in the section's head ("3 running · 40 done", `subagentCounts`). Leo 2026-10-21: the
-// row of identical avatars it replaces opened nothing anyone could tell apart.
+// now, how long it has run and its state, Waiting ones first; past five, "Show more" opens the
+// rest. The ones that ended are one row, "94 done · 1 failed", that opens into their lines, failed
+// first. Every line opens what it names: a subagent's pane or view (App.tsx `showSubagent`), a chat
+// beside this one (`chat.offer.open`); its hover card names it and says its state and its task. The
+// running lines' icons share one shimmer that sweeps down them (ui/wave.ts); the ended ones stay
+// still. The live counts sit in the section's head ("3 running · 40 done", `subagentCounts`). Leo
+// 2026-10-21: the row of identical avatars it replaces opened nothing anyone could tell apart.
 import { useState } from "react";
 import { formatDuration } from "../conversation/turns";
 import { useT, type Translate } from "../i18n";
+import { waveIndices } from "../../../ui/wave";
 import { Icon } from "../icons/Icon";
 import type { StartedSession } from "../started/startedSessions";
 import { AgentLine } from "../subagents/AgentLine";
@@ -145,7 +147,9 @@ export function SubagentsSection({
     ...children.filter((child) => !live(sessionStatus(child))).map(sessionLine),
   ].sort((a, b) => ENDED_RANK[a.status] - ENDED_RANK[b.status] || b.at - a.at);
   const shown = more ? runningLines : runningLines.slice(0, SUBAGENTS_SHOWN);
-  const line = (item: Line, index: number) => (
+  // Each running line's place in the wave, top to bottom; the ended lines take none.
+  const wave = waveIndices(shown, (item) => live(item.status));
+  const line = (item: Line, index: number, inWave: boolean) => (
     <li key={item.key}>
       <AgentLine
         name={item.name}
@@ -156,7 +160,7 @@ export function SubagentsSection({
         icon={item.icon}
         depth={item.depth}
         onOpen={item.open}
-        wave={live(item.status) ? index : undefined}
+        wave={inWave ? wave[index] : undefined}
         card={
           <span className="acpmux-agent-card">
             <span className="acpmux-agent-card__name">{item.name}</span>
@@ -174,7 +178,9 @@ export function SubagentsSection({
   return (
     <div className="acpmux-chat-inspector-subagents">
       {runningLines.length > 0 && (
-        <ul className="acpmux-summary-list acpmux-chat-inspector-subagents__running">{shown.map(line)}</ul>
+        <ul className="acpmux-summary-list acpmux-chat-inspector-subagents__running">
+          {shown.map((item, index) => line(item, index, true))}
+        </ul>
       )}
       {runningLines.length > SUBAGENTS_SHOWN && (
         <button
@@ -204,7 +210,7 @@ export function SubagentsSection({
           </button>
           {endedOpen && (
             <ul className="acpmux-summary-list acpmux-chat-inspector-scroll acpmux-chat-inspector-subagents__list">
-              {endedLines.map(line)}
+              {endedLines.map((item, index) => line(item, index, false))}
             </ul>
           )}
         </>
