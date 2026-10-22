@@ -132,12 +132,6 @@ export function initialAppState(config: DiffViewerConfig, initialStatus: DiffVie
     options: {
       collapsed: false,
       ...defaultDiffViewerOptions(payload),
-      // Outside `defaultDiffViewerOptions`, which diff-option-defaults.test.ts holds to the
-      // exported `diff.*` schema: this one has no schema row yet. The delineated diff is opt-in
-      // from the toolbar while it is session-local, because a reorder of the file column that a
-      // reader cannot durably turn off is not a default (familiar first). It moves in there, and
-      // can become the default, once `diff.groupByKind` has its row and the toggle sticks.
-      groupByKind: false,
       ...seededOptions,
       layout: initialDiffViewerLayout(payload),
     } as DiffViewerOptions,
@@ -156,18 +150,20 @@ export function initialAppState(config: DiffViewerConfig, initialStatus: DiffVie
 /**
  * The display options before any stored pref. In cmux NEXT (the page host; its config's transport
  * is `page`) they are the defaults of the `diff.*` settings (DiffViewerSettingsSchema.swift), and
- * diff-option-defaults.test.ts holds every key here to the exported schema — which is why
- * `groupByKind`, the one display option with no schema row yet, is defaulted by the caller and
- * named in the type rather than left to drift in here. Word changes are on there (Leo,
- * 2026-10-20). The classic viewer and the dev server embed their config and keep word changes off.
+ * diff-option-defaults.test.ts holds every key here to the exported schema. Word changes are on
+ * there (Leo, 2026-10-20). The classic viewer and the dev server embed their config and keep word
+ * changes off.
+ *
+ * `groupByKind` is off here: the familiar order is the order the diff arrived in, and the grouping
+ * is turned on from the toolbar. Now that `diff.groupByKind` has a schema row, turning it on lasts
+ * past the tab, which is what a default would have to be worth before it becomes one.
  */
-export function defaultDiffViewerOptions(
-  payload: DiffViewerPayload,
-): Omit<DiffViewerOptions, "collapsed" | "layout" | "groupByKind"> {
+export function defaultDiffViewerOptions(payload: DiffViewerPayload): Omit<DiffViewerOptions, "collapsed" | "layout"> {
   return {
     colors: "theme",
     diffIndicators: "bars",
     expandUnchanged: false,
+    groupByKind: false,
     lineNumbers: true,
     showBackgrounds: true,
     wordDiffs: payload.transport?.kind === "page",

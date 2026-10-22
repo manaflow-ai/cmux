@@ -135,11 +135,16 @@ extension SidebarListView {
                 }
             }
             if shownCard == ws.id { hoverCards.contentChanged(WorkspaceHoverCardController.targetID(ws.id)) }
-            guard let row = displayed.row(for: .workspace(ws.id)), let section = sections[row.section] else { continue }
+            guard let row = displayed.row(for: .workspace(ws.id)), let section = sections[row.section] else {
+                // A session a folded parent hides: the parent's roll-up counts it, so the list lays out again.
+                if SidebarSessionTree.shared.drawn?.hidesInFold(ws.id) == true { heightChanged = true }
+                continue
+            }
             let o = options ?? self.options(includeGap: true)
             options = o
             var content = o.rowContent(ws, machine: SidebarLayout.machineLabel(section, options: o))
             content.treeDepth = row.content?.treeDepth ?? 0 // a patch moves no row: it stays where the tree put it
+            (content.treeFold, content.rollUp) = (row.content?.treeFold, row.content?.rollUp) // and keeps its chevron and roll-up
             let m = o.minimal ? metrics.minimal : metrics
             guard m.height(for: content) == row.height else {
                 heightChanged = true

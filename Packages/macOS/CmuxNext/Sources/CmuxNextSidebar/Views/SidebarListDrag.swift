@@ -22,6 +22,8 @@ final class SidebarListDrag {
     var groupHeadHeight: CGFloat?
     /// A dragged group's drop blocks (`SidebarGroupReorder.blocks`) in the list without it, built with `docGeometry`.
     var groupBlocks: [ClosedRange<CGFloat>] = []
+    /// Each of `groupBlocks`' drop anchors (`SidebarGroupReorder.anchors`): the row a drop goes beside.
+    var groupAnchors: [SidebarGroupReorder.Anchor] = []
     /// The card as drops see it: the head row of a workspace card.
     var probeCard: CGRect {
         var card = lift.frame

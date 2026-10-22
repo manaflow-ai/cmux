@@ -39,6 +39,10 @@ extension SidebarDocProjection {
             }
             return section
         }
+        // A list arranged before (a fold passes the shown list back in) holds the document's sections
+        // already: their groups are pulled above, and they come again below, once.
+        let made = Set(projection.layout.sections.filter { $0.content != .workspaces }.map(\.id.rawValue))
+        arranged.removeAll { if case .custom(let id) = $0.id { made.contains(id) } else { false } }
         // Every section of the document in its order: the sections before the machine lists (Pinned,
         // custom, app sections) draw their items in their own arrangement (a block) and their groups as
         // list rows; the machine lists follow; a section after them lists its groups only.
@@ -123,7 +127,7 @@ extension SidebarDocProjection {
             switch entry {
             case .workspace(_, let item): if let node = byItem[item] { placedIDs.insert(node.id) }
             case .group(let group): if let node = byItem[group.id] { placedIDs.insert(node.id) }
-            case .link: break
+            case .link(let listed): if let node = byItem[listed.id] { placedIDs.insert(node.id) }
             }
         }
         var before: [SidebarNode.ID: [SidebarNode]] = [:]
@@ -145,7 +149,9 @@ extension SidebarDocProjection {
             case .group(let group):
                 if let node = byItem.removeValue(forKey: group.id) { append(node) }
             case .link(let listed):
-                nodes.append(.item(titled(listed)))
+                // A link row arranged before is this one again.
+                byItem.removeValue(forKey: listed.id)
+                append(.item(titled(listed)))
             }
         }
         // Unplaced rows after the last placed one keep their mapped order at the end.
