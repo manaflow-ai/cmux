@@ -108,6 +108,23 @@ struct MenuGridTests {
         #expect(texts == [MenuMetrics.textX(iconColumn: true)], "the profile menu's rows start their text at \(texts.sorted())")
     }
 
+    /// The footer's profile control shows the App's menu themed, not as AppKit draws it.
+    @Test func theSidebarShowsTheProfileMenuThemed() async throws {
+        let h = try await SidebarBandHideTests().make()
+        defer { h.tearDown() }
+        let menu = NSMenu()
+        let current = menu.addItem(withTitle: "Default", action: #selector(NSText.copy(_:)), keyEquivalent: "")
+        current.image = NSImage(size: NSSize(width: 12, height: 12))
+        menu.addItem(withTitle: "Settings…", action: #selector(NSText.copy(_:)), keyEquivalent: ",")
+        h.sidebar.profileMenuProvider = { menu }
+        var shown: NSMenu?
+        h.sidebar.footerBand.profileMenuPresenter = { menu, _ in shown = menu }
+        #expect(h.sidebar.footerBand.showProfileMenu(from: nil))
+        let rows = try #require(shown).items
+        #expect(rows.allSatisfy { $0.view is ThemedMenuRowView }, "the profile menu is drawn by AppKit")
+        #expect(Set(rows.map { ThemedMenuRowView.columns(of: $0).text }) == [MenuMetrics.textX(iconColumn: true)])
+    }
+
     /// The grid's own sense: a menu's columns read left to right inside its highlight.
     @Test func theGridReadsLeftToRight() {
         #expect(MenuMetrics.highlightInset < MenuMetrics.stateX && MenuMetrics.stateX < MenuMetrics.stateIconX)
