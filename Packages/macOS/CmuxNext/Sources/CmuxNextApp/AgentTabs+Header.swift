@@ -22,12 +22,14 @@ extension AgentTabStore {
         // Watching from the wiring on: a tab rekeyed after the page's first read is wired again,
         // and its new watch must push without waiting for another read.
         watch.read()
+        // The page names the chat's folder once its session summary came; until then (and for a
+        // split beside another split) the chat's exact folder from here (terminalFolder).
         model.header = AgentPaneHeaderHooks(run: { [weak self] id, cwd in
             let chat = self?.resolve(provisional) ?? provisional
-            toggles.open(id, cwd: cwd, chat: chat, store: self?.lookup(chat)?.store, actions: actions)
+            toggles.open(id, cwd: cwd ?? self?.terminalFolder(of: chat), chat: chat, store: self?.lookup(chat)?.store, actions: actions)
         }, toggle: { [weak self] id, cwd in
             let chat = self?.resolve(provisional) ?? provisional
-            toggles.toggle(id, cwd: cwd, chat: chat, store: self?.lookup(chat)?.store, actions: actions)
+            toggles.toggle(id, cwd: cwd ?? self?.terminalFolder(of: chat), chat: chat, store: self?.lookup(chat)?.store, actions: actions)
         }, tabState: {
             // The page reads the state when a chat opens; its changes are pushed.
             watch.read()

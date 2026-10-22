@@ -9,6 +9,8 @@ name: cmux-next web bundle publish
 #   cmux-next-web/<key>/web-bundles-<sha256>.tar.gz   immutable, content-addressed
 #   cmux-next-web/<key>/manifest.json                 written last; its presence
 #                                                     means the key is complete
+#   cmux-next-web/ota/every-merge.json                the signed web update pointer
+#                                                     NIGHTLY apps follow (pointer job)
 # <key> = scripts/cmux-next/web-bundle-key.py . --source. Pushes that change no
 # bundle input do not run this; a key that is already published is skipped.
 on:
@@ -34,6 +36,8 @@ on:
       - "config/vite-plus/**"
       - "schemas/sync-motion/**"
       - "scripts/cmux-next/web-bundle-archive.py"
+      - "scripts/cmux-next/web-ota-pointer.py"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Resources/web-update-keys.json"
       - "Packages/macOS/CmuxNext/Sources/**/*.xcstrings"
       - ".github/workflows/cmux-next-web-bundle-publish.yml"
   workflow_dispatch:
@@ -55,7 +59,7 @@ jobs:
   build:
     if: github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next'
     name: build the web bundles for this source key
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || 'blacksmith-32vcpu-ubuntu-2404' }}
     timeout-minutes: 20
     outputs:
       key: ${{ steps.key.outputs.key }}
@@ -95,7 +99,7 @@ jobs:
         if: steps.key.outputs.published != 'true'
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: "24.11.1"
+          node-version: "24.22.1"
 
       - name: Build the web bundles
         if: steps.key.outputs.published != 'true'
@@ -179,3 +183,62 @@ jobs:
           out="$(scripts/cmux-next/fetch-web-bundles.sh --key "$KEY" --out "$RUNNER_TEMP/web-bundles-fetched")"
           test -d "$out/Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane"
           echo "published https://files.cmux.com/cmux-next-web/$KEY/manifest.json" | tee -a "$GITHUB_STEP_SUMMARY"
+
+  # The every-merge web update channel (plans/cmux-next/web-ota.md): a pointer to this push's
+  # bundles, signed with the ed25519 key the app trusts (CmuxNextUpdater/Resources/web-update-keys.json),
+  # so a NIGHTLY app serves a merged web change minutes later, with no Mac build. Also runs when
+  # the key was already published (a revert to known bundles). Like publish, it runs no bun or
+  # node: only this checkout's scripts touch the signing key. An older run never moves the
+  # pointer back (web-ota-pointer.py newer).
+  pointer:
+    needs: [build, publish]
+    if: ${{ always() && needs.build.result == 'success' && (needs.publish.result == 'success' || needs.publish.result == 'skipped') }}
+    name: sign the every-merge web update pointer
+    environment: artifacts
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Sign and upload the pointer
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          SIGNING_KEY: ${{ secrets.CMUX_WEB_OTA_SIGNING_KEY }}
+          KEY: ${{ needs.build.outputs.key }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$SIGNING_KEY" ]]; then
+            echo "::warning::CMUX_WEB_OTA_SIGNING_KEY is not set in the artifacts environment; no web update pointer"
+            exit 0
+          fi
+          ptr=scripts/cmux-next/web-ota-pointer.py
+          keys=Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Resources/web-update-keys.json
+          dir="$RUNNER_TEMP/web-ota"
+          mkdir -p "$dir" && chmod 700 "$dir"
+          trap 'rm -f "$dir/key.pem"' EXIT
+          (umask 077; printf '%s\n' "$SIGNING_KEY" > "$dir/key.pem")
+          curl -fsS --retry 3 --max-time 60 -o "$dir/manifest.json" "https://files.cmux.com/cmux-next-web/$KEY/manifest.json?pointer=$GITHUB_RUN_ID"
+          # Exit 3 is "nothing to publish"; anything else nonzero fails the job.
+          rc=0
+          python3 "$ptr" payload --manifest "$dir/manifest.json" --abi-file webviews/src/web-abi.json --channel every-merge \
+            --commit "$GITHUB_SHA" --committed-at "$(git show -s --format=%ct HEAD)" --out "$dir/payload.json" || rc=$?
+          if [[ $rc == 3 ]]; then echo "::warning::$KEY has no outputs digest; no web update pointer"; exit 0; fi
+          [[ $rc == 0 ]] || exit "$rc"
+          python3 "$ptr" sign --payload "$dir/payload.json" --key "$dir/key.pem" --keys "$keys" --out "$dir/every-merge.json"
+          rm -f "$dir/key.pem"
+          code="$(curl -sS -o "$dir/current.json" -w '%{http_code}' --retry 3 --max-time 60 "https://files.cmux.com/cmux-next-web/ota/every-merge.json?pointer=$GITHUB_RUN_ID" || true)"
+          [[ "$code" == 200 ]] || rm -f "$dir/current.json"
+          python3 "$ptr" newer --pointer "$dir/every-merge.json" --keys "$keys" --current "$dir/current.json" || rc=$?
+          [[ $rc == 3 ]] && exit 0
+          [[ $rc == 0 ]] || exit "$rc"
+          python3 scripts/ci/upload-r2-object.py --endpoint-url "$R2_ENDPOINT" --bucket cmux-binaries \
+            --cache-control "public, max-age=60, must-revalidate" --file "$dir/every-merge.json" \
+            --key cmux-next-web/ota/every-merge.json --content-type application/json
+          curl -fsS --retry 3 --max-time 60 -o "$dir/check.json" "https://files.cmux.com/cmux-next-web/ota/every-merge.json?check=$GITHUB_RUN_ID"
+          python3 "$ptr" verify --pointer "$dir/check.json" --keys "$keys" --channel every-merge
+          echo "every-merge web update -> $KEY (${GITHUB_SHA:0:12})" | tee -a "$GITHUB_STEP_SUMMARY"
