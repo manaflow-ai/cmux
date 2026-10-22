@@ -69,8 +69,6 @@ public class ArrowCursorView: NSView {
     private struct WeakRow { weak var row: ArrowCursorView? }
     /// Rows in a window, so a move finds the row under the pointer without a view search.
     private static var rows: [WeakRow] = []
-    /// The window server's last answer for the window under the pointer (``WindowUnderPointerMemo``).
-    private static var topWindow = WindowUnderPointerMemo()
 
     /// Call after the app handled a pointer move (`NSApplication.sendEvent`).
     /// While a child window (a Chromium page) has the key, the key window's
@@ -80,8 +78,7 @@ public class ArrowCursorView: NSView {
     /// returns after one property read; otherwise it compares the pointer
     /// with each row's visible rect, returns when the cursor already is the
     /// row's, and only then asks the window server for the window under the
-    /// pointer (at most once per ``WindowUnderPointerMemo/lifetime``). Allocates
-    /// only past the cursor check (the app's window list, `isTopWindow`).
+    /// pointer. No allocation.
     public static func pointerDidMove() {
         guard let key = NSApp.keyWindow, key.parent != nil else { return }
         #if DEBUG
@@ -109,57 +106,10 @@ public class ArrowCursorView: NSView {
     /// Whether `window` is the top window at `location` (screen coordinates). The window server
     /// answers synchronously (`SLSCopyWindowRoutingRecordsForScreenLocation`), which blocked the
     /// main thread for about half of every pointer move over a browser toolbar on a loaded Mac
-    /// (sample of the live app, 2026-10-21); the answer is kept for a moment per window, but only
-    /// while none of the app's other windows is under the pointer (``isCovered(_:excluding:)``).
+    /// (sample of the live app, 2026-10-21): callers ask only when the cursor is not already the
+    /// row's. The answer is never kept, since any window of any app can move over the toolbar.
     fileprivate static func isTopWindow(_ window: NSWindow, at location: NSPoint) -> Bool {
-        topWindow.isTop(window.windowNumber, covered: isCovered(location, excluding: window),
-                        now: ProcessInfo.processInfo.systemUptime) {
-            NSWindow.windowNumber(at: location, belowWindowWithWindowNumber: 0)
-        }
-    }
-
-    /// Whether another visible window of the app has `location` in its frame: a panel over the
-    /// toolbar, or another cmux window. Reads the app's own window list only (no window-server
-    /// query).
-    private static func isCovered(_ location: NSPoint, excluding window: NSWindow) -> Bool {
-        NSApp.windows.contains { $0 !== window && $0.isVisible && $0.frame.contains(location) }
-    }
-}
-
-/// The window server's answer to "is this window the top one under the pointer", kept for
-/// ``lifetime`` per window: a stream of pointer moves over a browser toolbar asks once, not on
-/// every move. While another window of the app is under the pointer (`covered`) it asks every
-/// time, since that window's order can change with no pointer move. Another app's window ordered
-/// over the toolbar within that moment can leave the row's cursor showing over it until the
-/// next answer; nothing else depends on the answer.
-nonisolated struct WindowUnderPointerMemo: Equatable, Sendable {
-    /// How long one answer is reused (seconds of system uptime).
-    static let lifetime: TimeInterval = 0.25
-    /// At most this many windows' answers are kept; the oldest goes first.
-    static let capacity = 4
-
-    private struct Answer: Equatable, Sendable {
-        var windowNumber: Int
-        var top: Bool
-        var askedAt: TimeInterval
-    }
-
-    private var answers: [Answer] = []
-
-    /// Whether the window numbered `windowNumber` is on top: the kept answer for that window while
-    /// it is younger than ``lifetime`` and nothing of the app covers the pointer, else `ask()`
-    /// (the window number on top). A covered answer is never kept.
-    mutating func isTop(_ windowNumber: Int, covered: Bool, now: TimeInterval, ask: () -> Int) -> Bool {
-        if let index = answers.firstIndex(where: { $0.windowNumber == windowNumber }) {
-            let kept = answers[index]
-            if !covered, now >= kept.askedAt, now - kept.askedAt < Self.lifetime { return kept.top }
-            answers.remove(at: index)
-        }
-        let top = ask() == windowNumber
-        guard !covered else { return top }
-        if answers.count >= Self.capacity { answers.removeFirst() }
-        answers.append(Answer(windowNumber: windowNumber, top: top, askedAt: now))
-        return top
+        NSWindow.windowNumber(at: location, belowWindowWithWindowNumber: 0) == window.windowNumber
     }
 }
 
@@ -189,7 +139,7 @@ extension ArrowCursorView {
     /// a child window has the key it returns after one cursor comparison when
     /// the cursor is the one the row under the pointer set last; otherwise
     /// the row under the pointer sets its cursor again (the same checks as
-    /// `pointerDidMove`). Allocates only past the cursor check.
+    /// `pointerDidMove`). No allocation.
     private static func keepCursor() {
         guard let key = NSApp.keyWindow, key.parent != nil else { return }
         let location = NSEvent.mouseLocation
