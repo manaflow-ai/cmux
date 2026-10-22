@@ -160,10 +160,11 @@ fn listed(rpc: &mut Rpc) -> Vec<String> {
 }
 
 /// A closed session with no log is a purged one that a late save wrote back: the daemon
-/// does not load it. A closed chat with its log, and an open one without a log, stay;
-/// the next start finds the same list.
+/// start deletes its record (Lawrence 2026-10-20) and never loads it. A closed chat with
+/// its log, an open chat with its log and an open one without a log stay, on disk and in
+/// the list; the next start finds the same list.
 #[test]
-fn a_start_skips_purged_sessions_a_late_save_wrote_back_and_keeps_every_chat() {
+fn a_start_removes_purged_leftovers_and_keeps_every_chat() {
     let dir = scratch("purged");
     let home = dir.join("home");
     private_dir(&home);
@@ -171,14 +172,27 @@ fn a_start_skips_purged_sessions_a_late_save_wrote_back_and_keeps_every_chat() {
     write_session(&home, "01a15900-0000-7000-8000-000000000001", "closed", false);
     write_session(&home, "01a15900-0000-7000-8000-000000000002", "closed", true);
     write_session(&home, "01a15900-0000-7000-8000-000000000003", "idle", false);
+    write_session(&home, "01a15900-0000-7000-8000-000000000004", "idle", true);
     let kept = vec![
         "01a15900-0000-7000-8000-000000000002".to_owned(),
         "01a15900-0000-7000-8000-000000000003".to_owned(),
+        "01a15900-0000-7000-8000-000000000004".to_owned(),
     ];
     {
         let daemon = Daemon::start(&dir, &home);
         let mut rpc = Rpc::connect(&daemon.socket);
         assert_eq!(listed(&mut rpc), kept);
+    }
+    let sessions = home.join("sessions");
+    assert!(
+        !sessions.join("01a15900-0000-7000-8000-000000000001").exists(),
+        "the purged leftover's record is still on disk"
+    );
+    for id in &kept {
+        assert!(sessions.join(id).join("session.json").exists(), "{id} lost its record");
+    }
+    for id in ["01a15900-0000-7000-8000-000000000002", "01a15900-0000-7000-8000-000000000004"] {
+        assert!(sessions.join(id).join("events/000001.ndjson").exists(), "{id} lost its log");
     }
     let daemon = Daemon::start(&dir, &home);
     let mut rpc = Rpc::connect(&daemon.socket);
