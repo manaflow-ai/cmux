@@ -127,7 +127,7 @@ final class HomeDirectory {
         case FeedServiceError.owner(code: "validation.invalid", _): .invalidName
         case FeedServiceError.owner(code: "selector.not_found", _), FeedServiceError.owner(code: "chief_archived", _): .notFound
         case FeedServiceError.owner(let code, let message): .refused(message.isEmpty ? code : message)
-        case FeedServiceError.badReply: .refused("bad reply")
+        // No answer, or one that could not be read: the card's "try again in a moment".
         default: .noConnection
         }
     }
