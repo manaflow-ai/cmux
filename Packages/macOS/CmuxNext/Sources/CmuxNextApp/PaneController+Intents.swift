@@ -337,7 +337,7 @@ extension PaneController {
         guard let tab, tab.kind == .browser else {
             // Hibernation discards a page; a terminal has none (Restart only once its shell ended).
             // Reload, Mute and Picture in Picture are a page's rows (Chrome's Reload, Mute Site).
-            let pageRows: Set<ActionID> = ["hibernateTab", "wakeTab", "toggleTabAudioMute", "reloadTab", PictureInPictureHandlers.actionID]
+            let pageRows: Set<ActionID> = ["hibernateTab", "wakeTab", "neverHibernateSite", "toggleTabAudioMute", "reloadTab", PictureInPictureHandlers.actionID]
             let entries = ContextMenuCatalog.shared.entries(for: .tab, removing: kept.union(pageRows).union(TabRestart.hiddenMenuItems(tab)).union(CloudMove.hiddenMenuItems(tab)))
             return registry.makeContextMenu(for: .tab, target: target, entries: entries, arguments: arguments)
         }
