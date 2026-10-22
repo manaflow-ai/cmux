@@ -178,10 +178,12 @@ nonisolated extension SidebarLayoutOptions {
     /// second line (including another computer's name and a machine's
     /// stage), the status block, counts and badges; the working spinner,
     /// loading, the progress bar and attention states still show, like the unread mark.
-    func rowContent(_ ws: SidebarWorkspace, machine: String?) -> WorkspaceRowContent {
+    /// `marked` false: the row sits under a header that names its machine (a remote group, a computer's
+    /// section), so it draws no machine mark (remote-groups-per-machine-DESIGN.md R1).
+    func rowContent(_ ws: SidebarWorkspace, machine: String?, marked: Bool = true) -> WorkspaceRowContent {
         var content = baseRowContent(ws, machine: machine)
         content.detailedStatus = detailedStatus
-        content.machine = machines[ws.machineID].map(SidebarMachineMark.init)
+        content.machine = marked ? machines[ws.machineID].map(SidebarMachineMark.init) : nil
         if let sessionTree { content.keycap = keycaps[ws.id] }
         // Leo 2026-10-21, "REMOVE PR INDICATORS BY DEFAULT": every pull request mark on a row (the
         // hook's text and the read badge, tree or not) follows `sidebar.workspaceRow.pullRequest`,

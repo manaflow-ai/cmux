@@ -33,7 +33,17 @@ public nonisolated enum SidebarMachineForm: Hashable, Sendable {
         case .local: self = .thisMac
         case .cloud: self = .cloud
         case .ssh, .server:
-            self = .server
+            let words = name.lowercased()
+            func has(_ any: [String]) -> Bool { any.contains { words.contains($0) } }
+            if has(["mini"]) {
+                self = .macMini
+            } else if has(["macbook", "mbp", "mba", "laptop"]) {
+                self = .laptop
+            } else if has(["imac", "studio", "macpro", "mac-pro"]) {
+                self = .desktop
+            } else {
+                self = .server
+            }
         }
     }
 

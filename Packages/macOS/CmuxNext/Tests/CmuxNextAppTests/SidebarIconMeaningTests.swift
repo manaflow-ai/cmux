@@ -25,17 +25,18 @@ import Testing
         return view
     }
 
-    // MARK: Machine header status dot
+    // MARK: Machine header state
 
-    /// Outside a remote group only a colored dot shows for Connected, Connecting and Offline: the
-    /// tooltip says the state in words, and the label carries it too.
-    @Test func aBareStatusDotNamesItsStateInTheTooltip() {
-        let cases: [(SidebarMachine.Status, String)] = [
-            (.connected, Strings.statusConnected), (.connecting, Strings.statusConnecting), (.offline, Strings.statusOffline),
-        ]
-        for (status, words) in cases {
+    /// A connected machine's header shows its icon and name only: the tooltip says the state in
+    /// words, and the label carries it too. Any other state shows its words after the name, so the
+    /// tooltip does not repeat them (remote-groups-per-machine-DESIGN.md R1).
+    @Test func aConnectedHeaderNamesItsStateInTheTooltip() {
+        let connected = Self.header(SidebarMachine(id: MachineID("box"), name: "build-box", kind: .ssh, status: .connected))
+        #expect(connected.themedToolTip == Strings.statusConnected)
+        #expect(connected.accessibilityLabel() == "build-box, " + Strings.statusConnected)
+        for (status, words) in [(SidebarMachine.Status.connecting, Strings.statusConnecting), (.offline, Strings.statusOffline)] {
             let view = Self.header(SidebarMachine(id: MachineID("box"), name: "build-box", kind: .ssh, status: status))
-            #expect(view.themedToolTip == words, "\(status)")
+            #expect(view.themedToolTip == nil, "\(status)")
             #expect(view.accessibilityLabel() == "build-box, \(words)", "\(status)")
         }
     }

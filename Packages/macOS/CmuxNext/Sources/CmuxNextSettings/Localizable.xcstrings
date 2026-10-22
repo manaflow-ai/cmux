@@ -1,6 +1,268 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.sidebar.showRemoteGroups": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار المجموعات البعيدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži udaljene grupe"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis fjerngrupper"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote-Gruppen einblenden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Remote Groups"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar grupos remotos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher les groupes distants"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra gruppi remoti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートグループを表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញក្រុមពីចម្ងាយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 그룹 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis eksterne grupper"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokaż grupy zdalne"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar grupos remotos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показать удалённые группы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงกลุ่มระยะไกล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uzak Grupları Göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показати віддалені групи"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiện nhóm từ xa"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示远程组"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示遠端群組"
+          }
+        }
+      }
+    },
+    "settings.sidebar.showRemoteGroups.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تظهر كل مجموعة بعيدة كقسم خاص بها تحت أيقونة الكمبيوتر واسمه. عند الإيقاف، تنضم مساحات العمل إلى القائمة الواحدة وتظل تعمل على ذلك الكمبيوتر."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Svaka udaljena grupa prikazuje se kao zaseban odjeljak ispod ikone i imena računara. Isključeno, njeni radni prostori pridružuju se jednoj listi i i dalje rade na tom računaru."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hver fjerngruppe vises som sin egen sektion under computerens ikon og navn. Fra: dens arbejdsområder indgår i den ene liste og kører stadig på den computer."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jede Remote-Gruppe erscheint als eigener Abschnitt unter Symbol und Namen des Computers. Aus: Ihre Arbeitsbereiche stehen in der einen Liste und laufen weiter auf diesem Computer."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Each remote group shows as its own section under the computer's icon and name. Off, its workspaces join the one list and still run on that computer."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cada grupo remoto aparece como su propia sección bajo el icono y el nombre del ordenador. Desactivado, sus espacios de trabajo se unen a la lista única y siguen ejecutándose en ese ordenador."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chaque groupe distant s'affiche comme une section à part sous l'icône et le nom de l'ordinateur. Désactivé, ses espaces de travail rejoignent la liste unique et tournent toujours sur cet ordinateur."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ogni gruppo remoto appare come sezione a sé sotto l'icona e il nome del computer. Disattivato, i suoi spazi di lavoro si uniscono all'elenco unico e continuano a funzionare su quel computer."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各リモートグループは、コンピュータのアイコンと名前の下に独自のセクションとして表示されます。オフにすると、そのワークスペースは1つのリストに統合され、引き続きそのコンピュータで実行されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ក្រុមពីចម្ងាយនីមួយៗបង្ហាញជាផ្នែកផ្ទាល់ខ្លួននៅក្រោមរូបតំណាង និងឈ្មោះកុំព្យូទ័រ។ បិទ៖ កន្លែងធ្វើការរបស់វាចូលក្នុងបញ្ជីតែមួយ ហើយនៅតែដំណើរការលើកុំព្យូទ័រនោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "각 원격 그룹은 컴퓨터 아이콘과 이름 아래에 별도 섹션으로 표시됩니다. 끄면 해당 작업 공간이 하나의 목록에 합쳐지며 계속 그 컴퓨터에서 실행됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hver ekstern gruppe vises som en egen seksjon under datamaskinens ikon og navn. Av: arbeidsområdene havner i den ene listen og kjører fortsatt på den datamaskinen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Każda grupa zdalna jest osobną sekcją pod ikoną i nazwą komputera. Wyłączone: jej obszary robocze dołączają do jednej listy i nadal działają na tym komputerze."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cada grupo remoto aparece como uma seção própria sob o ícone e o nome do computador. Desativado, seus espaços de trabalho entram na lista única e continuam rodando naquele computador."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Каждая удалённая группа показана отдельным разделом под значком и именем компьютера. Если выключено, её рабочие пространства входят в общий список и по-прежнему работают на этом компьютере."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กลุ่มระยะไกลแต่ละกลุ่มแสดงเป็นส่วนของตัวเองใต้ไอคอนและชื่อคอมพิวเตอร์ เมื่อปิด พื้นที่ทำงานจะรวมอยู่ในรายการเดียวและยังทำงานบนคอมพิวเตอร์นั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Her uzak grup, bilgisayarın simgesi ve adı altında kendi bölümü olarak görünür. Kapalıyken çalışma alanları tek listeye katılır ve o bilgisayarda çalışmaya devam eder."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кожна віддалена група показана окремим розділом під значком і назвою комп'ютера. Якщо вимкнено, її робочі простори входять до спільного списку й далі працюють на цьому комп'ютері."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mỗi nhóm từ xa hiện thành một mục riêng dưới biểu tượng và tên máy tính. Khi tắt, các không gian làm việc của nhóm vào chung một danh sách và vẫn chạy trên máy đó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每个远程组在电脑图标和名称下显示为单独的分区。关闭后，其工作区并入同一列表，仍在那台电脑上运行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每個遠端群組在電腦圖示與名稱下顯示為獨立區段。關閉後，其工作區併入同一清單，仍在那台電腦上執行。"
+          }
+        }
+      }
+    },
     "settings.sidebar.style": {
       "extractionState": "manual",
       "localizations": {
