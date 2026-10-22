@@ -9,6 +9,15 @@ use serde_json::{Value, json};
 
 use super::{World, serve_app, shell_words};
 
+/// The browser-import row of `cmux setup status`.
+fn status_check(status: &Value) -> &Value {
+    let checks = status["checks"].as_array().expect("status lists its checks");
+    checks
+        .iter()
+        .find(|check| check["task"] == "browser_import")
+        .unwrap_or_else(|| panic!("{status}"))
+}
+
 /// The app's answer when it stops waiting for a run that goes on.
 fn timed_out() -> Value {
     json!({"code": "timeout", "message": "action.run did not finish within 2 s"})
@@ -193,8 +202,7 @@ fn cmux_setup_browser_import_brings_bookmarks_in_and_its_undo_takes_them_out() {
     let app = FakeBrowserApp::start(&mut world, Vec::new());
 
     let status = world.json(&["setup", "status"]);
-    let check = &status["checks"][6];
-    assert_eq!(check["task"], "browser_import", "{status}");
+    let check = status_check(&status);
     assert_eq!(check["state"], "needs_setup", "{check}");
     let fix = check["fix"].as_str().expect("status names its fix").to_owned();
 
@@ -225,7 +233,8 @@ fn cmux_setup_browser_import_brings_bookmarks_in_and_its_undo_takes_them_out() {
     assert_eq!(again["state"], "ok", "{again}");
     assert_eq!(again["undo"], Value::Null);
     assert_eq!(app.runs().len(), 1, "an ok run imported again");
-    let check = &world.json(&["setup", "status"])["checks"][6];
+    let status = world.json(&["setup", "status"]);
+    let check = status_check(&status);
     assert_eq!((&check["state"], &check["imported"]), (&json!("ok"), &json!(["chrome"])));
 
     // The undo, as the agent's shell runs it: the folder and its bookmarks go.
@@ -326,7 +335,8 @@ fn cmux_setup_browser_import_undoes_only_what_it_imported() {
     let app = FakeBrowserApp::start(&mut world, vec![own.clone(), firefox.clone()]);
     let run = |args: &[&str]| world.json(&[&["setup", "browser-import"][..], args].concat());
 
-    let check = &world.json(&["setup", "status"])["checks"][6];
+    let status = world.json(&["setup", "status"]);
+    let check = status_check(&status);
     assert_eq!((&check["state"], &check["imported"]), (&json!("ok"), &json!(["firefox"])));
     assert_eq!(run(&["--browser", "Firefox"])["state"], "ok");
 
