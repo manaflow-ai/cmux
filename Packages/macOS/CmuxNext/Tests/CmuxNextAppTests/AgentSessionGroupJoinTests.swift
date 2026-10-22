@@ -25,6 +25,21 @@ import Testing
         #expect(AgentSessionWorkspace.group(named: Self.lanes, accepting: WorkspaceID("n"), in: sections) == GroupID("g1"))
     }
 
+    /// Agents name one group in different case or with stray spaces ("agents & routing",
+    /// "Agents & Routing "): it is the same group, never a second one (2026-10-21).
+    @Test func aGroupNamedInAnotherCaseOrWithSpacesIsTheSameGroup() {
+        let sections = [SidebarSection(kind: .machine(Self.local), nodes: [
+            .group(SidebarGroup(id: GroupID("g1"), name: "Agents & routing", workspaces: [Self.row("a")])),
+            .workspace(Self.row("n")),
+        ])]
+        #expect(AgentSessionWorkspace.group(named: " agents & ROUTING ", accepting: WorkspaceID("n"), in: sections) == GroupID("g1"))
+        let lanes = [SidebarSection(kind: .machine(Self.local), nodes: [
+            .group(SidebarGroup(id: GroupID("g1"), name: Self.lanes,
+                                workspaces: [Self.row("p", title: "pane-motion")])),
+        ])]
+        #expect(AgentSessionWorkspace.predecessor(named: "pane-motion", inGroup: "gui push · LANES", in: lanes) == WorkspaceID("p"))
+    }
+
     @Test func aSameNamedGroupThatCannotHoldItIsSkippedNotDuplicated() {
         // The first "GUI push · lanes" holds another machine's rows only; the second can take `n`.
         let sections = [

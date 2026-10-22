@@ -53,6 +53,21 @@ fn every_agent_prompt_groups_workspaces_and_pushes_without_pull_requests() {
             flat.contains("cmux workspace group create --name NAME"),
             "{name}: no way to make a group"
         );
+        // Agents made a second group of one name (Leo, 2026-10-21): they
+        // read the groups first, file by name (find-or-create) and can ask
+        // which workspace and group they are in.
+        assert!(
+            flat.contains("never a second group of the same name"),
+            "{name}: no reuse rule"
+        );
+        assert!(
+            flat.contains("cmux workspace group NAME add --workspace"),
+            "{name}: no find-or-create add"
+        );
+        assert!(
+            flat.contains("cmux --json workspace where"),
+            "{name}: no way to ask which workspace and group it is in"
+        );
         assert!(
             flat.contains("Never close or rename the user's workspaces to group them"),
             "{name}"
@@ -77,6 +92,23 @@ fn every_agent_prompt_counts_work_as_done_only_when_it_landed() {
         assert!(
             flat.contains("sha range"),
             "{name}: report has no landed sha range"
+        );
+    }
+}
+
+/// Agents opened a terminal TUI where the person wanted the app's chat:
+/// every prompt says new agent chats open in the GUI by default.
+#[test]
+fn every_agent_prompt_opens_agent_chats_in_the_gui() {
+    for (name, text) in prompts() {
+        let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(
+            flat.contains("open agent chats in the cmux app (GUI), not a terminal TUI"),
+            "{name}: no GUI-chat rule"
+        );
+        assert!(
+            flat.contains("agents.defaultChatSurface"),
+            "{name}: no setting named"
         );
     }
 }

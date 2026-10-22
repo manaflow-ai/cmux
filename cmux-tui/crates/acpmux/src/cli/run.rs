@@ -13,6 +13,7 @@ use serde_json::{Value, json};
 mod permission;
 pub(crate) use permission::{answer_permission, answer_question};
 
+mod chat_surface;
 mod extra;
 mod launch;
 mod send_async;
