@@ -37,8 +37,37 @@ public nonisolated struct SidebarRailPeek: Hashable, Sendable {
     public init() {}
 
     public mutating func handle(_ event: Event) -> Effect {
-        // Red: not built yet.
-        _ = (event, arming)
-        return .none
+        switch event {
+        case .pointerEnteredRail, .pointerEnteredSidebar:
+            pointerInside = true
+            if isOpen { return .cancelTimers }
+            guard !arming else { return .none }
+            arming = true
+            return .startDwell
+        case .pointerExited:
+            pointerInside = false
+            if arming {
+                arming = false
+                return .cancelTimers
+            }
+            return isOpen ? .startGrace : .none
+        case .dwellElapsed:
+            guard arming else { return .none }
+            arming = false
+            isOpen = pointerInside
+            return .none
+        case let .graceElapsed(busy):
+            guard isOpen, !pointerInside else { return .none }
+            if busy { return .startGrace }
+            isOpen = false
+            return .none
+        case .reveal:
+            arming = false
+            isOpen = true
+            return pointerInside ? .cancelTimers : .startGrace
+        case .reset:
+            (isOpen, arming, pointerInside) = (false, false, false)
+            return .cancelTimers
+        }
     }
 }

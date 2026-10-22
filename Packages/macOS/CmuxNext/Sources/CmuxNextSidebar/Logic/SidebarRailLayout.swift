@@ -70,7 +70,22 @@ public nonisolated struct SidebarRailLayout: Hashable, Sendable {
     ///   - top: The first tick's top, in flipped coordinates (y grows down).
     ///   - available: The height the ticks may use from `top`.
     public init(groups: [[SidebarRailMark]], top: CGFloat, available: CGFloat, metrics: Metrics = Metrics()) {
-        // Red: not built yet.
+        let runs = groups.filter { !$0.isEmpty }
+        let count = runs.reduce(0) { $0 + $1.count }
+        guard count > 0, available > 0 else { return }
+        let natural = CGFloat(count) * metrics.pitch + CGFloat(runs.count - 1) * metrics.groupGap
+        scale = min(1, available / natural)
+        let pitch = metrics.pitch * scale, gap = metrics.groupGap * scale
+        let height = max(1, metrics.tickHeight * scale)
+        var y = top
+        for (index, run) in runs.enumerated() {
+            if index > 0 { y += gap }
+            for mark in run {
+                let width = mark.isSelected ? metrics.selectedTickWidth : metrics.tickWidth
+                ticks.append(Tick(mark: mark, rect: CGRect(x: 0, y: (y + (pitch - height) / 2).rounded(.down), width: width, height: height)))
+                y += pitch
+            }
+        }
     }
 
     /// The tick nearest `y` (flipped), within half a pitch; a click aims at a 2 pt line.

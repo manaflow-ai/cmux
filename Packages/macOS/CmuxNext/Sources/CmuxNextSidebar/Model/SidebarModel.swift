@@ -265,13 +265,20 @@ public final class SidebarModel {
     /// Width the sidebar should occupy for the current presentation.
     public var displayWidth: CGFloat {
         switch presentation {
-        case .shown: width
+        case .shown: style == .rail && !isRailOpen ? SidebarRailLayout.Metrics().railWidth : width
         case .hidden: 0
         }
     }
 
-    /// How far the content sits from the sidebar's window edge (before the gutter).
-    public var contentInset: CGFloat { displayWidth }
+    /// How far the content sits from the sidebar's window edge (before the gutter). The rail's
+    /// full sidebar opens over the content, so the content keeps the rail's width beside it.
+    public var contentInset: CGFloat {
+        switch (presentation, style) {
+        case (.hidden, _): 0
+        case (.shown, .standard): width
+        case (.shown, .rail): SidebarRailLayout.Metrics().railWidth
+        }
+    }
 
     /// Current filter matches, or nil when not filtering.
     public var filterMatches: Set<WorkspaceID>? { SidebarFilter.matches(filterText, in: sections) }
@@ -511,6 +518,7 @@ public final class SidebarModel {
         hidesWorkspaces = !preferences.showProjects
         grouping.by = preferences.groupBy
         groupsByComputer = preferences.groupsByComputer
+        if style != preferences.style { (style, isRailOpen) = (preferences.style, false) }
     }
 
     /// The disclosure on a workspace row: hide its listed tabs, or list them again.
