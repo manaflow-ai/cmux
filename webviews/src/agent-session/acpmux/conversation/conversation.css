@@ -1937,7 +1937,7 @@ pre.cv-math-source {
   -webkit-font-smoothing: antialiased;
 }
 /* Clear of the row's Copy button (28 px at its top right, which takes the pointer even while
-   hidden), so a long preview ends in an ellipsis before it instead of under it. */
+   hidden), so a long name ends in an ellipsis before it instead of under it. */
 .cv-received__line {
   display: flex;
   align-items: center;

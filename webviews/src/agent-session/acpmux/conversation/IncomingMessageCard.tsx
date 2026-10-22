@@ -143,7 +143,7 @@ export function IncomingMessageLine({
     show(!open);
   };
   const openCut = (event: MouseEvent) => {
-    if ((event.target as Element).closest("a, button")) return;
+    if ((event.target as Element).closest("a, button, input, label, summary, video, audio, [role=button]")) return;
     if (getSelection()?.isCollapsed === false) return;
     show(true);
   };
@@ -189,7 +189,7 @@ export function IncomingMessageLine({
         )}
         {actions}
       </div>
-      {/* A click on a cut card opens it, unless it follows a link or ends a selection. */}
+      {/* A click on a cut card opens it, unless it follows a link, presses a control or ends a selection. */}
       {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- the line's chevron is the keyboard's way to open it */}
       <div
         id={bodyId}
