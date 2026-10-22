@@ -236,7 +236,7 @@ enum SidebarDraw {
         case let .emoji(e):
             g.setFillColor(p.groupDisc)
             g.fillEllipse(in: r)
-            emoji(e, in: r, g) // cmux: whole and centered by its drawn box, one share of the disc
+            emoji(e, in: r, g) // cmux: centered by its drawn box, one share of the disc
         case let .group(members):
             g.setFillColor(p.groupDisc)
             g.fillEllipse(in: r)
@@ -263,11 +263,10 @@ enum SidebarDraw {
     /// diameter at every size, so the pinned tile and the row draw one avatar.
     static let emojiShare: CGFloat = 0.6
 
-    /// cmux: `e` centered on the disc `r` by its drawn box, not by its advance. Drawn with a
-    /// flipped text matrix and placed by its advance, the Chief's 🫡 showed its hand and half its
-    /// face, cut by a straight edge, left of center (the user's screenshot, 2026-10-20). The text
-    /// matrix stays upright here and the context is flipped back around the draw, as
-    /// `TabUserIcon` draws emoji.
+    /// cmux: `e` centered on the disc `r` by its drawn box, not by its advance and line height,
+    /// at `emojiShare` of the disc. Set at half the disc, the art of the Chief's 🫡 filled 47 % of
+    /// the tile's disc and 52 % of the row's (the user's screenshot, 2026-10-20: a small emoji in
+    /// a big disc).
     static func emoji(_ e: String, in r: CGRect, _ g: CGContext) {
         let black = CGColor(gray: 0, alpha: 1)
         let probe = drawnBounds(line(e, emojiFont(r.width * 0.5), black))
@@ -276,14 +275,8 @@ enum SidebarDraw {
         // Half points, so the held fonts stay few (cx-qpqs).
         let size = max(1, (r.width * 0.5 * emojiShare * r.width / side * 2).rounded() / 2)
         let l = line(e, emojiFont(size), black)
-        let b = drawnBounds(l)
-        g.saveGState()
-        g.translateBy(x: r.midX, y: r.midY)
-        g.scaleBy(x: 1, y: -1)
-        g.textMatrix = .identity
-        g.textPosition = CGPoint(x: -b.midX, y: -b.midY)
-        CTLineDraw(l, g)
-        g.restoreGState()
+        let b = drawnBounds(l) // y up from the baseline; `draw` puts the baseline at y down
+        draw(l, x: r.midX - b.midX, baseline: r.midY + b.midY, g)
     }
 
     /// cmux: a line's drawn box (glyph bounds, y up from the baseline), else its typographic box.

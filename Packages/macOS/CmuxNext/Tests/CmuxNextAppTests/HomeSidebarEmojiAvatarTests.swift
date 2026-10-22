@@ -2,10 +2,12 @@ import AppKit
 @testable import MessagesLabSidebar
 import Testing
 
-/// The Home list draws an emoji avatar (the Chief's 🫡) whole, centered on its grey disc, and
-/// at one share of the disc on the big pinned tile and on the 40 pt row. The user's screenshot
-/// (2026-10-20) showed 🫡 cut by a straight vertical edge through its face on both, so only the
-/// hand and half the face showed, left of the disc's center.
+/// The Home list draws an emoji avatar (a Chief's 🫡) centered on its grey disc, at one share of
+/// the disc on the big pinned tile and on the 40 pt row. The user's screenshot (2026-10-20)
+/// showed a small emoji in a big disc on the tile and a bigger one on the row. 🫡's own art is
+/// cut at its right on macOS 27 (26A428) whichever way it is drawn (CTLineDraw flipped or upright,
+/// CTFontDrawGlyphs, NSAttributedString.draw: fleet probe 55c5613f7ca6776eb6562124, where 😀 drew
+/// whole every way), so only an emoji drawn whole by the font proves the list does not cut it.
 @MainActor
 struct HomeSidebarEmojiAvatarTests {
     /// The ink of an avatar bitmap: the pixels inside the disc that differ from the disc's grey.
@@ -52,12 +54,14 @@ struct HomeSidebarEmojiAvatarTests {
     }
 
     /// The pinned tile's avatar bitmap (drawn at the largest pin size, then scaled) and the row's.
-    @Test(arguments: [SidebarMetrics.pinMaxAvatar, SidebarMetrics.avatar])
-    func theEmojiIsWholeAndCentered(_ d: CGFloat) throws {
-        let ink = try ink(.emoji("🫡"), diameter: d)
-        let note = "d \(d): ink \(ink.box), edge columns \(ink.edgeColumns), ink height \(ink.heightPixels) px"
-        // Whole: a cut leaves a straight vertical edge as tall as the face; a round edge's outermost column is short.
-        #expect(ink.edgeColumns.left < ink.heightPixels / 3 && ink.edgeColumns.right < ink.heightPixels / 3, "cut: \(note)")
+    @Test(arguments: [SidebarMetrics.pinMaxAvatar, SidebarMetrics.avatar], ["🫡", "😀"])
+    func theEmojiIsCenteredAtItsShare(_ d: CGFloat, _ emoji: String) throws {
+        let ink = try ink(.emoji(emoji), diameter: d)
+        let note = "\(emoji) d \(d): ink \(ink.box), edge columns \(ink.edgeColumns), ink height \(ink.heightPixels) px"
+        // Whole (😀 only, see above): a cut leaves a straight edge as tall as the face; a round edge's outermost column is short.
+        if emoji == "😀" {
+            #expect(ink.edgeColumns.left < ink.heightPixels / 3 && ink.edgeColumns.right < ink.heightPixels / 3, "cut: \(note)")
+        }
         // Centered on the disc, both ways.
         #expect(abs(ink.box.midX - d / 2) <= d * 0.04, "off center: \(note)")
         #expect(abs(ink.box.midY - d / 2) <= d * 0.04, "off center: \(note)")
