@@ -195,3 +195,37 @@ fn codex_state(status: Option<&str>) -> &'static str {
         _ => "running",
     }
 }
+
+#[cfg(test)]
+mod codex_tests {
+    use super::*;
+
+    fn subagents(tree: &mut SubagentTree, update: Value) -> Vec<Value> {
+        let mut params = json!({"sessionId": "s1", "update": update});
+        tree.annotate(&mut params);
+        params.pointer("/_meta/acpmux/subagents").and_then(Value::as_array).cloned().unwrap_or_default()
+    }
+
+    /// Codex runs a `spawnAgent` child in its own thread: it outlives the turn
+    /// that spawned it (the model may end its turn without a `wait`), so it is
+    /// background work, and a client never ends it at the turn's end.
+    #[test]
+    fn codex_spawned_agents_are_background() {
+        let mut tree = SubagentTree::default();
+        let spawn = subagents(
+            &mut tree,
+            json!({"sessionUpdate": "tool_call", "toolCallId": "c1",
+                   "rawInput": {"prompt": "Audit", "agentsStates": {"t1": {"status": "running"}}},
+                   "_meta": {"codex": {"collaboration": {"tool": "spawnAgent", "receiverThreadIds": ["t1"]}}}}),
+        );
+        assert_eq!(spawn.len(), 1);
+        assert_eq!(spawn[0]["background"], json!(true));
+        let activity = subagents(
+            &mut tree,
+            json!({"sessionUpdate": "tool_call_update", "toolCallId": "c2",
+                   "_meta": {"codex": {"subagent": {"threadId": "t1", "path": "/root/auditor", "activity": "working"}}}}),
+        );
+        assert_eq!(activity[0]["state"], json!("running"));
+        assert_eq!(activity[0]["background"], json!(true));
+    }
+}
