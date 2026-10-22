@@ -123,6 +123,7 @@ extension PageWebView {
         page.contentView.frame = bounds
         page.contentView.autoresizingMask = [.width, .height]
         addSubview(page.contentView)
+        applyNativeRects()
         page.setVisible(window != nil && !isHiddenOrHasHiddenAncestor)
         page.load(descriptor.url(route: route))
         let wait = chromiumDeadline
