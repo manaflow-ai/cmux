@@ -5,13 +5,15 @@ import AppKit
 /// and Save As… (``HomeAttachmentSave``). The rows are built from the name alone, so the menu
 /// opens at once; `resolve` fetches the local copy when a row runs.
 struct HomeAttachmentRows {
-    /// Where Copy writes (the general pasteboard; a named one in tests).
-    var pasteboard: NSPasteboard = .general
+    /// Copy: replaces the general pasteboard's contents with the item; tests record it instead
+    /// (the CI Macs' pasteboard server answers inconsistently, and the user's clipboard stays).
+    var copyItem: @MainActor (NSPasteboardItem) -> Bool
     /// The window Save As… is a sheet on.
     weak var window: NSWindow?
 
-    init(pasteboard: NSPasteboard = .general, window: NSWindow? = nil) {
-        self.pasteboard = pasteboard
+    init(copyItem: @escaping @MainActor (NSPasteboardItem) -> Bool = HomeAttachmentPasteboard.writeGeneral,
+         window: NSWindow? = nil) {
+        self.copyItem = copyItem
         self.window = window
     }
 
@@ -39,6 +41,6 @@ struct HomeAttachmentRows {
         guard let file = await resolve() else { return false }
         // The image's bytes are read off the main actor (a large picture would hold a frame).
         let data = await Task.detached(priority: .userInitiated) { HomeAttachmentPasteboard.imageBytes(file) }.value
-        return HomeAttachmentPasteboard().write(file, data: .some(data), to: pasteboard)
+        return copyItem(HomeAttachmentPasteboard().item(for: file, data: .some(data)))
     }
 }

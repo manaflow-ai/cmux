@@ -32,48 +32,46 @@ import UniformTypeIdentifiers
         return file
     }
 
-    private static func pasteboard() -> NSPasteboard { NSPasteboard(name: .init("home-copy-drag-\(UUID().uuidString)")) }
-
-    private static func fileURLs(on pasteboard: NSPasteboard) -> [URL] {
-        (pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL]) ?? []
+    /// The file URL an item carries.
+    private static func fileURL(_ item: NSPasteboardItem) -> URL? {
+        item.string(forType: .fileURL).flatMap(URL.init(string:))?.standardizedFileURL
     }
 
     // MARK: Copy
+    // The item is checked, not a written pasteboard: the CI Macs' pasteboard server answers
+    // writes and reads inconsistently (HomePasteAnywhereTests), and the user's clipboard stays.
 
-    @Test func copyingAnImagePutsTheFileAndItsPixelsOnThePasteboard() throws {
+    @Test func copyingAnImageOffersTheFileAndItsPixels() throws {
         let file = try Self.png()
-        let board = Self.pasteboard()
-        defer { board.releaseGlobally() }
-        #expect(HomeAttachmentPasteboard().write(file, to: board))
-        #expect(Self.fileURLs(on: board).map(\.standardizedFileURL) == [file.standardizedFileURL])
-        #expect(board.data(forType: .png) == (try Data(contentsOf: file)))
+        let item = HomeAttachmentPasteboard().item(for: file)
+        #expect(Self.fileURL(item) == file.standardizedFileURL)
+        #expect(item.data(forType: .png) == (try Data(contentsOf: file)))
         // Apps that read only TIFF (older Cocoa apps, Preview's New from Clipboard) get the image too.
-        let image = try #require(NSImage(pasteboard: board))
-        #expect(image.representations.first?.pixelsWide == 4)
+        let tiff = try #require(item.data(forType: .tiff))
+        #expect(NSImage(data: tiff)?.representations.first?.pixelsWide == 4)
     }
 
-    @Test func copyingAVideoPutsTheFileOnThePasteboard() throws {
+    @Test func copyingAVideoOffersTheFileOnly() throws {
         let file = try Self.folder().appendingPathComponent("clip.mp4")
         try Data("not really a movie".utf8).write(to: file)
-        let board = Self.pasteboard()
-        defer { board.releaseGlobally() }
-        #expect(HomeAttachmentPasteboard().write(file, to: board))
-        #expect(Self.fileURLs(on: board).map(\.standardizedFileURL) == [file.standardizedFileURL])
-        #expect(board.data(forType: .png) == nil)
-        #expect(board.data(forType: .tiff) == nil)
+        let item = HomeAttachmentPasteboard().item(for: file)
+        #expect(Self.fileURL(item) == file.standardizedFileURL)
+        #expect(item.data(forType: .png) == nil)
+        #expect(item.data(forType: .tiff) == nil)
     }
 
     @Test func theAttachmentRowsOfferCopyAndSaveAs() async throws {
         _ = NSApplication.shared
         let file = try Self.png()
-        let board = Self.pasteboard()
-        defer { board.releaseGlobally() }
-        let rows = HomeAttachmentRows(pasteboard: board)
+        var copied: [NSPasteboardItem] = []
+        let rows = HomeAttachmentRows(copyItem: { copied.append($0); return true })
         let titles = rows.items(name: "shot.png", resolve: { file }).compactMap { ($0 as? MenuAction)?.label }
         #expect(titles == [CmuxStrings.copyAttachment, CmuxStrings.saveAttachmentAs])
         #expect(await rows.copy(resolve: { file }))
-        #expect(Self.fileURLs(on: board).map(\.standardizedFileURL) == [file.standardizedFileURL])
+        #expect(copied.map(Self.fileURL) == [file.standardizedFileURL])
+        #expect(copied.first?.data(forType: .png) != nil)
         #expect(!(await rows.copy(resolve: { nil })))
+        #expect(copied.count == 1)
     }
 
     // MARK: Save As…

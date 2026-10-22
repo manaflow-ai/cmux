@@ -26,10 +26,10 @@ struct HomeAttachmentPasteboard {
         return item
     }
 
-    /// Replaces `pasteboard`'s contents with `file` (``item(for:)``); false when it took nothing.
-    @discardableResult
-    func write(_ file: URL, data: Data?? = nil, to pasteboard: NSPasteboard) -> Bool {
-        pasteboard.clearContents()
-        return pasteboard.writeObjects([item(for: file, data: data)])
+    /// Replaces the general pasteboard's contents with `item` (Copy); false when it took nothing.
+    @MainActor @discardableResult
+    static func writeGeneral(_ item: NSPasteboardItem) -> Bool {
+        NSPasteboard.general.clearContents()
+        return NSPasteboard.general.writeObjects([item])
     }
 }
