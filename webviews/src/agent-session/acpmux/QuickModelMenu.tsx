@@ -120,8 +120,9 @@ export function tabExtent(
 }
 
 /// One row of any tab, for the width probe: its label, its secondary value, and whether it opens a
-/// submenu (a chevron) or shows a number key.
-export type ProbeRow = { label: string; value?: string; sub?: boolean; shortcut?: boolean };
+/// submenu (a chevron), shows a number key, or shows the chosen model's check (wider: it has its own
+/// leading padding).
+export type ProbeRow = { label: string; value?: string; sub?: boolean; shortcut?: boolean; check?: boolean };
 
 /// The tallest tab's rows and separators, unseen in the list's grid cell under the real rows, so
 /// switching tabs or typing never changes the menu's height while it is open. `widths` is every
@@ -134,6 +135,7 @@ function QuickMenuSpacer({ rows, separators, widths }: TabExtent & { widths: Pro
           <div key={index} className={`ui-menu-item acpmux-quick-item${row.sub ? " acpmux-quick-sub" : ""}`}>
             <span className="acpmux-menu-label">{row.label}</span>
             {row.value && <span className="acpmux-quick-value">{row.value}</span>}
+            {row.check && <span className="ui-menu-check">✓</span>}
             {row.sub && <span className="ui-submenu-chevron" />}
             {row.shortcut && <span className="ui-menu-shortcut">9</span>}
           </div>
@@ -314,7 +316,13 @@ export function QuickModelMenu({
   const widths: ProbeRow[] = families
     ? [
         ...families.list.flatMap((family): ProbeRow[] => [
-          ...family.models.slice(0, FILTER_ROWS).map((model) => ({ label: model.name, shortcut: true })),
+          ...family.models
+            .slice(0, FILTER_ROWS)
+            .map((model) =>
+              family.id === families.current && model.id === current
+                ? { label: model.name, check: true }
+                : { label: model.name, shortcut: true },
+            ),
           ...(family.note && family.models.length === 0 ? [{ label: family.note }] : []),
           ...(family.note && family.logIn ? [{ label: t("harness.logIn") }] : []),
         ]),
