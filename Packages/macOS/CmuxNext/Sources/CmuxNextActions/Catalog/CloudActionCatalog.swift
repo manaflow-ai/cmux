@@ -223,6 +223,13 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
                 arguments: [CatalogArgument.sizeChoice], targets: [.machine], cliName: "cloud resize-machine"
             ),
             ActionDescriptor(
+                id: "cloudSetIdlePause",
+                title: String(localized: "action.cloudSetIdlePause", defaultValue: "Pause When Idle…", bundle: .module),
+                keywords: ["vm", "cloud tree", "idle", "auto-pause", "pause", "sleep", "timeout"], category: .cloud,
+                symbol: "moon.zzz", surfaces: [.contextMenu],
+                arguments: [CatalogArgument.idlePauseChoice], targets: [.machine], cliName: "cloud set-idle-pause"
+            ),
+            ActionDescriptor(
                 id: "palette.cloud.deleteSnapshot",
                 title: String(localized: "action.palette.cloud.deleteSnapshot", defaultValue: "Delete Cloud Snapshot…", bundle: .module),
                 keywords: ["vm", "snapshot", "delete", "remove"], category: .cloud, symbol: "trash",

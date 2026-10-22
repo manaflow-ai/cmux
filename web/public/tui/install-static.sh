@@ -1,6 +1,42 @@
 #!/bin/sh
 set -eu
 
+# Pairing (acpmux src/pairing): a ticket minted on another machine
+# (`cmux host ticket new`) joins this one to it once cmux is installed:
+#   curl -fsSL https://cmux.com/tui/install-static.sh | sh -s -- <ticket>
+# Also `--join <ticket>` or CMUX_JOIN_TICKET=<ticket>. A daemon-role ticket
+# (the other machine drives this one) also needs `--advertise <wss://...>`
+# or CMUX_JOIN_ADVERTISE: the address the other machine reaches this one at.
+join_ticket="${CMUX_JOIN_TICKET:-}"
+join_advertise="${CMUX_JOIN_ADVERTISE:-}"
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --advertise)
+      if [ "$#" -lt 2 ]; then
+        echo "cmux: --advertise needs a URL" >&2
+        exit 2
+      fi
+      join_advertise="$2"
+      shift 2
+      ;;
+    --advertise=*) join_advertise="${1#--advertise=}"; shift ;;
+    --join)
+      if [ "$#" -lt 2 ]; then
+        echo "cmux: --join needs a ticket" >&2
+        exit 2
+      fi
+      join_ticket="$2"
+      shift 2
+      ;;
+    --join=*) join_ticket="${1#--join=}"; shift ;;
+    cmxt1.*) join_ticket="$1"; shift ;;
+    *)
+      echo "cmux: unknown argument $1 (pass a pairing ticket, cmxt1.…)" >&2
+      exit 2
+      ;;
+  esac
+done
+
 base_url="${CMUX_DOWNLOAD_BASE_URL:-https://files.cmux.com/cmux-tui/latest}"
 base_url="${base_url%/}"
 install_root="${CMUX_INSTALL:-$HOME/.cmux}"
@@ -109,6 +145,23 @@ if [ "${CMUX_HOST:-}" = "1" ]; then
   fi
   if ! "$bin_dir/cmux" host enable "$@"; then
     echo "cmux: installed, but remote hosting is not on; fix the error above, then run: $bin_dir/cmux host enable $*" >&2
+    exit 1
+  fi
+fi
+
+# Join the minting machine. `--serve` also turns remote hosting on when this
+# machine is signed in to Tailscale, unless CMUX_HOST already did (or is 0).
+if [ -n "$join_ticket" ]; then
+  if [ -z "${CMUX_HOST:-}" ]; then
+    set -- --serve
+  else
+    set --
+  fi
+  if [ -n "$join_advertise" ]; then
+    set -- "$@" --advertise "$join_advertise"
+  fi
+  if ! "$bin_dir/cmux" host join "$@" "$join_ticket"; then
+    echo "cmux: installed, but this machine did not join; fix the error above, then run: $bin_dir/cmux host join <ticket> (a new ticket if this one expired)" >&2
     exit 1
   fi
 fi

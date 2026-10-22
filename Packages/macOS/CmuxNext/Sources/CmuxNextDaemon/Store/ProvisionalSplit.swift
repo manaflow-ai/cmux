@@ -24,9 +24,25 @@ import Foundation
     /// Whether the split's daemon pane reached the records and left them before any layout
     /// placed it (its tab moved out and the pane closed, or a terminal split's pane closed): the
     /// daemon made the split and undid it, so the split shows nothing and waits for nothing.
+    /// The pane must be gone when this is read, so a close and re-add in one batch is no close.
+    /// A close and a re-add in two batches does not happen: the pane's public id is minted for
+    /// this one split and sent once, and the daemon takes a client pane id only from that split's
+    /// reservation (`pane_id_exists` refuses one in use); every other pane it makes gets a fresh
+    /// id, and a restart's panes come back in a new connection's snapshot, not as events.
     static func paneGone(_ intent: PendingIntent, in store: DaemonStore) -> Bool {
         guard intent.daemonPaneSeen, case .splitPane(_, _, _, let provisional) = intent.kind else { return false }
         return daemonPane(provisional, in: store) == nil
+    }
+
+    /// A snapshot that holds a pending split's daemon pane counts as its `pane-added`: a split not
+    /// replied to yet can see its pane only through a resync snapshot, and must still settle when
+    /// an event closes that pane later (``paneGone(_:in:)``).
+    static func noteDaemonPanes(in store: DaemonStore) {
+        guard !store.intentLog.isEmpty else { return }
+        for entry in store.intentLog.entries {
+            guard case .splitPane(_, _, _, let provisional) = entry.kind, daemonPane(provisional, in: store) != nil else { continue }
+            store.intentLog.noteDaemonPane(provisional.paneID)
+        }
     }
 
     /// A split stays until the daemon's layout places its pane (cx-ry0y): `pane-added` and the

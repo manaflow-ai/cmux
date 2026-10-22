@@ -8,7 +8,7 @@
 // a small store fed from the session list, so a card never redraws its turn when a session changes.
 import { createContext, useContext, useSyncExternalStore } from "react";
 import type { StringKey, Translate } from "../i18n";
-import type { AcpmuxSessionEntry, SessionWaiting } from "../sessionList";
+import { cloudHost, type AcpmuxSessionEntry, type SessionWaiting } from "../sessionList";
 
 /// What a sub-session is doing: its turn runs, it waits on the person (a permission or a question),
 /// its turn failed or its agent went away, or it is done until it is sent more.
@@ -123,6 +123,17 @@ export class SubsessionStore {
   private readonly listeners = new Set<() => void>();
 
   private entries = new Map<string, AcpmuxSessionEntry>();
+  /// Every listed chat's id by its names (its name, its short name; not its title, which can be
+  /// "New chat"), and its harness by id: another agent's message names its sender, which a card
+  /// opens and marks with its harness. Their readers have their own listeners, so a chat's name
+  /// changing never tells a sub-session card.
+  private named = new Map<string, string>();
+  private harnesses = new Map<string, string>();
+  /// Where each listed chat works, by id: its folder and the other machine it runs on, for the
+  /// files its messages name (IncomingMessageCard.tsx), read with the same listeners.
+  private places = new Map<string, SenderPlace>();
+  private namedKey = "";
+  private readonly nameListeners = new Set<() => void>();
 
   /// Replaces the views with those of the sub-sessions among `sessions`; one whose content did not
   /// change keeps its object. The pane sends the list with every snapshot, reusing the entry of a
@@ -132,6 +143,30 @@ export class SubsessionStore {
     const keys = new Map<string, string>();
     const entries = new Map<string, AcpmuxSessionEntry>();
     let changed = false;
+    const named = new Map<string, string>();
+    const harnesses = new Map<string, string>();
+    // A name a later chat shares never takes an earlier chat's place; a live chat's name comes
+    // before an archived one's.
+    const live = [...sessions].sort((a, b) => Number(Boolean(a.archived)) - Number(Boolean(b.archived)));
+    for (const field of ["name", "shortName"] as const)
+      for (const entry of live) {
+        const name = entry[field]?.trim();
+        if (name && !named.has(name)) named.set(name, entry.sessionId);
+      }
+    for (const entry of sessions) if (entry.harness) harnesses.set(entry.sessionId, entry.harness);
+    const places = new Map<string, SenderPlace>();
+    for (const entry of sessions) {
+      const host = cloudHost(entry);
+      const cwd = entry.cwd?.trim();
+      if (cwd || host) places.set(entry.sessionId, { ...(cwd && { cwd }), ...(host && { host }) });
+    }
+    const namedKey = JSON.stringify([[...named], [...harnesses], [...places]]);
+    const renamed = namedKey !== this.namedKey;
+    this.named = named;
+    this.harnesses = harnesses;
+    if (renamed) this.places = places;
+    this.namedKey = namedKey;
+    if (renamed) for (const listener of this.nameListeners) listener();
     for (const entry of sessions) {
       if (!entry.startedBy) continue;
       const id = entry.sessionId;
@@ -162,6 +197,25 @@ export class SubsessionStore {
     return this.infos.get(sessionId);
   }
 
+  /// The listed chat named `name`, if one is.
+  find(name: string): string | undefined {
+    return this.named.get(name.trim());
+  }
+
+  harness(sessionId: string): string | undefined {
+    return this.harnesses.get(sessionId);
+  }
+
+  /// Where listed chat `sessionId` works: its folder, and the other machine it runs on.
+  place(sessionId: string): SenderPlace | undefined {
+    return this.places.get(sessionId);
+  }
+
+  subscribeNames = (listener: () => void): (() => void) => {
+    this.nameListeners.add(listener);
+    return () => this.nameListeners.delete(listener);
+  };
+
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
@@ -181,4 +235,27 @@ export function useSubsessionInfo(sessionId: string | undefined): SubsessionInfo
   const store = useContext(SubsessionContext)?.store ?? EMPTY;
   const read = () => (sessionId ? store.get(sessionId) : undefined);
   return useSyncExternalStore(store.subscribe, read, read);
+}
+
+/// Where a message's sender works: its folder (`cwd`), and the other machine it runs on (`host`,
+/// undefined for this Mac's).
+export type SenderPlace = { cwd?: string; host?: string };
+
+/// Where the chat a message came from works, while the list has it (subsessions.ts `place`).
+export function useSenderPlace(sessionId: string | undefined): SenderPlace | undefined {
+  const store = useContext(SubsessionContext)?.store ?? EMPTY;
+  const read = () => (sessionId ? store.place(sessionId) : undefined);
+  return useSyncExternalStore(store.subscribeNames, read, read);
+}
+
+/// The chat a message's sender is: its own id when the message gives one, else the listed chat
+/// with its name (a message `acpmux send` sent from a shell names its sender only), and that chat's
+/// harness. Undefined while the list has neither.
+export function useSenderChat(name: string, sessionId: string | undefined): { sessionId?: string; harness?: string } {
+  const store = useContext(SubsessionContext)?.store ?? EMPTY;
+  const readId = () => sessionId ?? store.find(name);
+  const id = useSyncExternalStore(store.subscribeNames, readId, readId);
+  const readHarness = () => (id ? store.harness(id) : undefined);
+  const harness = useSyncExternalStore(store.subscribeNames, readHarness, readHarness);
+  return { ...(id && { sessionId: id }), ...(harness && { harness }) };
 }
