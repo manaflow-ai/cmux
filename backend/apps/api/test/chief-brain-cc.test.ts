@@ -4,6 +4,7 @@ import { importJWK, SignJWT, type JWK } from "jose"
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest"
 import { fireAlarm } from "./setup/alarm.ts"
 import { memberUpsert } from "../src/domains/team-members.ts"
+import { CHIEF_VM_MJS } from "../src/chief-brain-cc/chief-vm-source.ts"
 import { createHash } from "node:crypto"
 
 /**
@@ -66,6 +67,12 @@ const fakeCloud = (answer: (prompt: string, n: number) => string, during?: (s: S
   // Each VM's size (Freestyle's default 4 vCPU / 8 GiB / 32 GB), and every resize asked for.
   const sizes = new Map<string, { cpu: number; memory: number; storage: number }>()
   const resizes: Array<{ vm: string; body: any }> = []
+  // Client sessions (sandbox-access.ts): identities with VM grants and tokens; every sandbox exec's credential.
+  const identities = new Map<string, { grants: Map<string, Array<string> | null> }>()
+  const tokens = new Map<string, { id: string; identity: string; revoked: boolean; expires: number }>()
+  const execAuth: Array<{ vm: string; by: string; user: string | null }> = []
+  const states = new Map<string, string>()
+  const patches: Array<{ vm: string; body: any }> = []
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
     const req = new Request(input, init)
     const url = new URL(req.url)
@@ -84,19 +91,80 @@ const fakeCloud = (answer: (prompt: string, n: number) => string, during?: (s: S
       other.push(req.url)
       return new Response("not this route", { status: 500 })
     }
+    const idToken = req.headers.get("x-freestyle-identity-access-token")
+    // An identity token reaches only a granted VM's exec route; everything else needs the team key.
+    if (idToken !== null) {
+      expect(req.headers.get("authorization")).toBeNull()
+      const ex = /^\/v5\/vms\/([^/]+)\/exec-await$/.exec(url.pathname)
+      if (!ex || req.method !== "POST") return Response.json({ code: "FORBIDDEN", message: "identity tokens reach exec and pty only" }, { status: 403 })
+      const t = tokens.get(idToken)
+      if (!t || t.revoked || t.expires < Date.now() || !identities.has(t.identity)) return Response.json({ code: "UNAUTHORIZED", message: "invalid identity access token" }, { status: 401 })
+      const body = (await req.json()) as { command: string; linuxUser?: string; env?: Record<string, string>; stdin?: string }
+      const allowed = identities.get(t.identity)!.grants.get(ex[1]!)
+      if (allowed === undefined || (allowed !== null && !allowed.includes(body.linuxUser ?? ""))) return Response.json({ code: "FORBIDDEN", message: "no access to this VM as that user" }, { status: 403 })
+      execAuth.push({ vm: ex[1]!, by: `identity:${t.identity}`, user: body.linuxUser ?? null })
+      execs.push({ vm: ex[1]!, command: body.command, stdin: body.stdin ? Uint8Array.from(atob(body.stdin), (c) => c.charCodeAt(0)) : new Uint8Array() })
+      if (/(^|[;( ])poweroff/.test(body.command)) states.set(ex[1]!, "stopped")
+      if (body.command.includes("resize2fs")) return Response.json({ statusCode: 0, stdout: "/dev/vda 63G 1.2G 62G 2% /\n", stderr: "" })
+      if (body.command === "printenv GREETING; cat") return Response.json({ statusCode: 0, stdout: `${body.env?.GREETING ?? ""}\n${body.stdin ? atob(body.stdin) : ""}`, stderr: "" })
+      if (body.command === "whoami") return Response.json({ statusCode: 0, stdout: `${body.linuxUser}\n`, stderr: "" })
+      return Response.json({ statusCode: 0, stdout: body.command.startsWith("echo ") ? `${body.command.slice(5)}\n` : "", stderr: "" })
+    }
     expect(req.headers.get("authorization")).toBe("Bearer test-freestyle-key-not-real")
+    const idn = /^\/v5\/identities(?:\/([^/]+)(?:\/(permissions\/vm|tokens)(?:\/([^/]+))?)?)?$/.exec(url.pathname)
+    if (idn) {
+      const [, who, kind, sub] = idn
+      if (!who && req.method === "POST") {
+        const id = `idn-test${identities.size + 1}`
+        identities.set(id, { grants: new Map() })
+        return Response.json({ id, managed: false })
+      }
+      const it = who ? identities.get(who) : undefined
+      if (!it) return Response.json({ code: "NOT_FOUND", message: "no such identity" }, { status: 404 })
+      if (!kind && req.method === "DELETE") {
+        identities.delete(who!)
+        for (const t of tokens.values()) if (t.identity === who) t.revoked = true
+        return Response.json({})
+      }
+      if (kind === "permissions/vm" && req.method === "POST") {
+        const body = (await req.json()) as { vmId: string; allowedLinuxUsers?: Array<string> | null }
+        it.grants.set(body.vmId, body.allowedLinuxUsers ?? null)
+        return Response.json({ id: `vmp-${body.vmId}`, identityId: who, vmId: body.vmId, allowedLinuxUsers: body.allowedLinuxUsers ?? null })
+      }
+      if (kind === "permissions/vm" && req.method === "DELETE" && sub) return it.grants.delete(sub), Response.json({})
+      if (kind === "tokens" && req.method === "POST") {
+        const body = (await req.json()) as { expiresAt?: string }
+        const id = `tok-test${tokens.size + 1}`
+        const token = `idtok-secret-${tokens.size + 1}-not-real`
+        tokens.set(token, { id, identity: who!, revoked: false, expires: body.expiresAt ? Date.parse(body.expiresAt) : Infinity })
+        return Response.json({ id, token, expiresAt: body.expiresAt ?? null })
+      }
+      if (kind === "tokens" && req.method === "DELETE" && sub) {
+        for (const t of tokens.values()) if (t.id === sub) t.revoked = true
+        return Response.json({})
+      }
+      return new Response("unexpected", { status: 500 })
+    }
+    const life = /^\/v5\/vms\/([^/]+)\/(pause|start)$/.exec(url.pathname)
+    if (req.method === "POST" && life) return states.set(life[1]!, life[2] === "pause" ? "paused" : "running"), Response.json({ id: life[1], state: states.get(life[1]!) })
     if (req.method === "POST" && url.pathname === "/v5/vms") {
       const id = `vm-test${made.length + 1}`
       made.push({ id, body: await req.json() })
-      sizes.set(id, { cpu: 4, memory: 8192, storage: 32768 })
+      // A VM starts at its snapshot's size (the small Ubuntu base is 2 vCPU / 4 GiB / 16 GB).
+      sizes.set(id, made[made.length - 1]!.body.snapshotId === "freestyle/ubuntu-sm" ? { cpu: 2, memory: 4096, storage: 16384 } : { cpu: 4, memory: 8192, storage: 32768 })
       return Response.json({ id })
     }
     const del = /^\/v5\/vms\/([^/]+)$/.exec(url.pathname)
     if (req.method === "DELETE" && del) return deleted.push(del[1]!), Response.json({})
-    if (req.method === "GET" && del) {
+    if ((req.method === "GET" || req.method === "PATCH") && del) {
       const m = made.find((x) => x.id === del[1])
       if (!m || deleted.includes(m.id)) return new Response("no such vm", { status: 404 })
-      return Response.json({ id: m.id, state: "running", ipMode: "dualStack", resources: sizes.get(m.id) })
+      if (req.method === "PATCH") {
+        const body = (await req.json()) as any
+        patches.push({ vm: m.id, body })
+      }
+      const v = Object.assign({}, m.body, ...patches.filter((p) => p.vm === m.id).map((p) => p.body))
+      return Response.json({ id: m.id, state: states.get(m.id) ?? "running", ipMode: "dualStack", resources: sizes.get(m.id), metadata: v.metadata ?? {}, displayName: v.displayName ?? null, idleTimeoutSeconds: v.idleTimeoutSeconds ?? null, ttlSeconds: v.ttlSeconds ?? null })
     }
     const rs = /^\/v5\/vms\/([^/]+)\/resize$/.exec(url.pathname)
     if (req.method === "POST" && rs) {
@@ -134,7 +202,7 @@ const fakeCloud = (answer: (prompt: string, n: number) => string, during?: (s: S
     }
     return new Response("unexpected", { status: 500 })
   })
-  return { made, deleted, boots, started, nets, steps, keys, tags, other, execs, sizes, resizes }
+  return { made, deleted, boots, started, nets, steps, keys, tags, other, execs, sizes, resizes, identities, tokens, execAuth, states, patches }
 }
 const notes = (s: Started, body: unknown, token = s.input.token) => worker.fetch(s.input.notes_url, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(body) })
 const machine = async (s: Started, reply: string) => {
@@ -254,6 +322,8 @@ describe("Cloud Chief on the Claude Code route", { timeout: 120_000 }, () => {
     // The turn machine knows its settings (chief-net show) and the Chief is told about the tool.
     expect(s.input.net).toEqual({ internet: true, dns: true, tailnet: true, local: false, allow: [], deny: [] })
     expect(cloud.nets[0]!.script).toContain("ip daddr 100.64.0.0/10 accept")
+    // The Worker's current chief-vm client is written over the snapshot's before the agent starts.
+    expect(cloud.nets[0]!.script).toContain(`printf %s '${btoa(String.fromCharCode(...new TextEncoder().encode(CHIEF_VM_MJS)))}' | base64 -d > /opt/chief-cc/chief-vm.mjs.new`)
     expect(cloud.tags).toEqual([["tag:agent-cloud"]])
     expect(s.input.system).toContain("chief-net")
   })
@@ -520,6 +590,8 @@ describe("Cloud Chief on the Claude Code route", { timeout: 120_000 }, () => {
         seen.junk = await call(s, { action: "resize", id, memory_mb: "lots" })
         seen.foreign = await call(s, { action: "resize", id: s.vm, cpu: 8 })
         seen.sized = await call(s, { action: "create", cpu: 6, memory_mb: 12288, disk_gb: 48 })
+        seen.tiny = await call(s, { action: "create", disk_gb: 8 })
+        seen.chiefImage = await call(s, { action: "create", image: "chief" })
       }
     )
     const { token, chief } = await enabledChief("chief-cc-sandbox-resize", "cc")
@@ -540,12 +612,208 @@ describe("Cloud Chief on the Claude Code route", { timeout: 120_000 }, () => {
     expect(seen.nothing.status).toBe(400)
     expect(seen.junk.status).toBe(400)
     expect(seen.foreign.status).toBe(404)
-    expect(cloud.resizes.filter((r) => r.vm === id)).toHaveLength(1)
+    // One grow at create (the small default to 4 vCPU / 8 GiB), one asked for; the refused ones never reached Freestyle.
+    expect(cloud.resizes.filter((r) => r.vm === id)).toEqual([{ vm: id, body: { cpu: 4, memory: 8192 } }, { vm: id, body: { cpu: 8, memory: 16384, storage: 65536 } }])
     expect(cloud.resizes.some((r) => r.vm !== id && !cloud.made.some((m) => m.id === r.vm && m.body.metadata?.cmux_chief_sandbox))).toBe(false)
     // create takes the same sizes.
     expect(seen.sized.status).toBe(200)
     expect(seen.sized.body.resources).toMatchObject({ cpu: 6, memory_mb: 12288, disk_gb: 48 })
     expect(cloud.sizes.get(seen.sized.body.vm.id)).toEqual({ cpu: 6, memory: 12288, storage: 49152 })
+    // Small disks by default: the 16 GB Ubuntu base, grown to 4 vCPU / 8 GiB; below the base is refused; image chief is the Chief's own.
+    expect(cloud.made.find((m) => m.id === id)!.body.snapshotId).toBe("freestyle/ubuntu-sm")
+    expect(seen.a.body.resources).toEqual({ cpu: 4, memory_mb: 8192, disk_gb: 16 })
+    expect(seen.tiny.status).toBe(400)
+    expect(seen.tiny.body.error).toMatch(/16 GB/)
+    expect(seen.chiefImage.status, JSON.stringify(seen.chiefImage.body)).toBe(429)
+  })
+
+  it("runs sandbox execs on the Chief's own Freestyle identity: A's token cannot reach B's VM, revoked tokens are refused", async () => {
+    const seen: Record<string, any> = {}
+    const call = async (s: Started, vm: unknown) => {
+      const r = await notes(s, { run: s.run, vm })
+      return { status: r.status, body: await r.json().catch(() => null) }
+    }
+    const cloud = fakeCloud(
+      () => "isolated",
+      async (s, n) => {
+        if (n === 1) {
+          seen.a = await call(s, { action: "create" })
+          seen.aExec = await call(s, { action: "exec", id: seen.a.body?.vm?.id, command: "whoami", user: "chief" })
+          seen.badUser = await call(s, { action: "exec", id: seen.a.body?.vm?.id, command: "whoami", user: "nobody" })
+        } else if (n === 2) {
+          seen.b = await call(s, { action: "create" })
+          seen.bExec = await call(s, { action: "exec", id: seen.b.body?.vm?.id, command: "echo b" })
+        } else {
+          seen.cross = await call(s, { action: "exec", id: seen.b.body?.vm?.id, command: "echo stolen" })
+          for (const action of ["get", "update", "resize", "pause", "start", "stop", "delete"]) seen[`cross-${action}`] = await call(s, { action, id: seen.b.body?.vm?.id, cpu: 8, name: "x" })
+          seen.aDel = await call(s, { action: "delete", id: seen.a.body?.vm?.id })
+        }
+      }
+    )
+    const A = await enabledChief("chief-cc-sandbox-a", "cc")
+    const B = await enabledChief("chief-cc-sandbox-b", "cc")
+    expect((await send(A.token, A.chief.main_conversation, "i1", "make one")).ok).toBe(true)
+    await replies(A.token, A.chief.main_conversation, A.chief.id, 1)
+    expect((await send(B.token, B.chief.main_conversation, "i2", "make one")).ok).toBe(true)
+    await replies(B.token, B.chief.main_conversation, B.chief.id, 1)
+    expect((await send(A.token, A.chief.main_conversation, "i3", "reach theirs")).ok).toBe(true)
+    await replies(A.token, A.chief.main_conversation, A.chief.id, 2)
+    const a = seen.a.body.vm.id as string
+    const b = seen.b.body.vm.id as string
+    expect(seen.aExec).toMatchObject({ status: 200, body: { exit: 0, stdout: "chief\n" } })
+    expect(seen.bExec).toMatchObject({ status: 200, body: { exit: 0, stdout: "b\n" } })
+    expect(seen.badUser.status).toBe(400)
+    // One identity per Chief; each holds a grant only on its own VM, Linux users named (never null).
+    const byVm = (vm: string) => [...cloud.identities.entries()].filter(([, i]) => i.grants.has(vm)).map(([id]) => id)
+    expect(byVm(b)).toHaveLength(1)
+    expect(cloud.identities.get(byVm(b)[0]!)!.grants.get(b)).toEqual(["root", "chief"])
+    // Every sandbox exec ran on the owner's identity token, never the team key.
+    expect(cloud.execAuth.filter((e) => e.vm === b).every((e) => e.by === `identity:${byVm(b)[0]}`)).toBe(true)
+    expect(cloud.execAuth.some((e) => e.vm === a)).toBe(true)
+    // A cannot touch B's VM through any verb, and nothing reached Freestyle for it.
+    expect(seen.cross.status).toBe(404)
+    for (const action of ["get", "update", "resize", "pause", "start", "stop", "delete"]) expect(seen[`cross-${action}`].status, action).toBe(404)
+    expect(cloud.execs.some((e) => e.command === "echo stolen")).toBe(false)
+    // B's only resize is its own create-time grow (the small default); A's cpu: 8 never reached Freestyle.
+    expect(cloud.resizes.filter((r) => r.vm === b)).toEqual([{ vm: b, body: { cpu: 4, memory: 8192 } }])
+    expect(cloud.deleted).not.toContain(b)
+    // A's own token is refused on B's VM at Freestyle too (its grant names only A's VM).
+    const aIdentity = cloud.execAuth.find((e) => e.vm === a)!.by.slice("identity:".length)
+    const aToken = [...cloud.tokens.entries()].find(([, t]) => t.identity === aIdentity && !t.revoked)![0]
+    const direct = await fetch(`https://freestyle.test/v5/vms/${b}/exec-await`, { method: "POST", headers: { "x-freestyle-identity-access-token": aToken, "content-type": "application/json" }, body: JSON.stringify({ command: "echo direct", linuxUser: "root" }) })
+    expect(direct.status).toBe(403)
+    // Deleting A's VM revoked its grant; archiving the Chief deletes its identity, and its token is refused.
+    expect(seen.aDel.status).toBe(200)
+    expect(cloud.identities.get(aIdentity)?.grants.has(a)).toBe(false)
+    // Archive: the Chief's sandboxes pause and its identity goes (its default role moves to another Chief first).
+    const other = (await op(A.token, "chief.create", { display_name: "Other Chief" }, "chief-cc-sandbox-a-other")).value as { id: string; rev: number }
+    const listChiefs = async () => (await http("POST", "/v1/read", A.token, { op: "chief.list", params: {} })).json.value.chiefs as Array<any>
+    const mine = (await listChiefs()).find((c) => c.id === A.chief.id)
+    if (mine.is_default) expect((await op(A.token, "chief.update", { chief: other.id, expected_rev: (await listChiefs()).find((c) => c.id === other.id).rev, is_default: true })).ok).toBe(true)
+    const rec = (await listChiefs()).find((c) => c.id === A.chief.id)
+    const archived = await op(A.token, "chief.archive", { chief: A.chief.id, expected_rev: rec.rev })
+    expect(archived.ok, JSON.stringify(archived)).toBe(true)
+    for (let i = 0; i < 200 && cloud.identities.has(aIdentity); i++) await new Promise((r) => setTimeout(r, 20))
+    expect(cloud.identities.has(aIdentity)).toBe(false)
+    const revoked = await fetch(`https://freestyle.test/v5/vms/${a}/exec-await`, { method: "POST", headers: { "x-freestyle-identity-access-token": aToken, "content-type": "application/json" }, body: JSON.stringify({ command: "echo late", linuxUser: "root" }) })
+    expect(revoked.status).toBe(401)
+    // No token ever reached the turn machine.
+    expect(JSON.stringify(seen)).not.toContain("idtok-secret")
+  })
+
+  it("gives the Chief the VM lifecycle, exec options, its cap and the cost per hour", async () => {
+    const seen: Record<string, any> = {}
+    const call = async (s: Started, vm: unknown) => {
+      const r = await notes(s, { run: s.run, vm })
+      return { status: r.status, body: await r.json().catch(() => null) }
+    }
+    const cloud = fakeCloud(
+      () => "lifecycle",
+      async (s) => {
+        seen.made = await call(s, { action: "create", name: "builder", metadata: { purpose: "ci" }, idle_seconds: 600, ttl_seconds: 7200, snapshot: "freestyle/ubuntu" })
+        const id = seen.made.body?.vm?.id
+        seen.badSnap = await call(s, { action: "create", snapshot: "sh-someone-elses" })
+        seen.reserved = await call(s, { action: "update", id, metadata: { cmux_chief_sandbox: "agent_other" } })
+        seen.get = await call(s, { action: "get", id })
+        seen.update = await call(s, { action: "update", id, name: "builder-2", idle_seconds: 900 })
+        seen.exec = await call(s, { action: "exec", id, command: "printenv GREETING; cat", env: { GREETING: "hi" }, stdin: btoa("from stdin") })
+        seen.badEnv = await call(s, { action: "exec", id, command: "true", env: { "1BAD": "x" } })
+        seen.pause = await call(s, { action: "pause", id })
+        seen.paused = await call(s, { action: "get", id })
+        seen.start = await call(s, { action: "start", id })
+        seen.stop = await call(s, { action: "stop", id })
+        seen.cap = await call(s, { action: "cap" })
+        seen.list = await call(s, { action: "list" })
+        seen.tooBig = await call(s, { action: "resize", id, cpu: 33 })
+        seen.second = await call(s, { action: "create" })
+        seen.third = await call(s, { action: "create" })
+      }
+    )
+    const before = testEnv.CHIEF_CC_SANDBOX_CAPS
+    const { token, chief } = await enabledChief("chief-cc-sandbox-life", "cc")
+    testEnv.CHIEF_CC_SANDBOX_CAPS = `agent_unrelated=9,${chief.id}=2`
+    try {
+      expect((await send(token, chief.main_conversation, "l1", "lifecycle")).ok).toBe(true)
+      await replies(token, chief.main_conversation, chief.id, 1)
+    } finally {
+      before === undefined ? delete testEnv.CHIEF_CC_SANDBOX_CAPS : (testEnv.CHIEF_CC_SANDBOX_CAPS = before)
+    }
+    const id = seen.made.body.vm.id
+    const made = cloud.made.find((m) => m.id === id)!
+    expect(made.body).toMatchObject({ snapshotId: "freestyle/ubuntu", displayName: "builder", idleTimeoutSeconds: 600, ttlSeconds: 7200, metadata: { purpose: "ci", cmux_chief_sandbox: chief.id } })
+    // Cost per hour at list prices: 4 vCPU, 8 GiB, 32 GB running; disk only while paused.
+    expect(seen.made.body.cost).toEqual({ running_usd_per_hour: 0.2672, paused_usd_per_hour: 0.0028 })
+    expect(seen.badSnap.status).toBe(400)
+    expect(seen.reserved.status).toBe(400)
+    expect(seen.get.body.vm).toMatchObject({ id, state: "running", display_name: "builder", resources: { cpu: 4, memory_mb: 8192, disk_gb: 32 }, cost: { running_usd_per_hour: 0.2672 } })
+    expect(seen.update.status).toBe(200)
+    expect(cloud.patches).toContainEqual({ vm: id, body: { displayName: "builder-2", idleTimeoutSeconds: 900 } })
+    expect(seen.exec).toMatchObject({ status: 200, body: { exit: 0, stdout: "hi\nfrom stdin" } })
+    expect(seen.badEnv.status).toBe(400)
+    expect(seen.pause.body).toMatchObject({ state: "paused" })
+    expect(seen.paused.body.vm.state).toBe("paused")
+    expect(seen.start.body).toMatchObject({ state: "running" })
+    expect(seen.stop.body).toMatchObject({ state: "stopped" })
+    expect(cloud.execs.some((e) => e.vm === id && e.command.includes("poweroff"))).toBe(true)
+    expect(seen.cap.body).toMatchObject({ cap: 2, live: 1, plan: { name: "pro", max: { cpu: 32, memory_mb: 65536, disk_gb: 256 } } })
+    expect(seen.list.body.vms[0]).toMatchObject({ id, cost: { running_usd_per_hour: 0.2672 } })
+    expect(seen.tooBig.status).toBe(400)
+    expect(seen.tooBig.body.error).toMatch(/pro plan/)
+    expect(seen.second.status).toBe(200)
+    expect(seen.third.status).toBe(429)
+  })
+
+  it("keeps one sandbox list, cap and identity per Chief across its conversations, adopts older lists, and parallel creates stay in the cap", async () => {
+    const seen: Record<string, any> = {}
+    const call = async (s: Started, vm: unknown) => {
+      const r = await notes(s, { run: s.run, vm })
+      return { status: r.status, body: await r.json().catch(() => null) }
+    }
+    const cloud = fakeCloud(
+      () => "shared",
+      async (s, n) => {
+        if (n === 1) {
+          seen.list1 = await call(s, { action: "list" })
+          seen.burst = await Promise.all([1, 2, 3].map(() => call(s, { action: "create" })))
+        } else {
+          seen.list2 = await call(s, { action: "list" })
+          seen.exec2 = await call(s, { action: "exec", id: "vm-legacy", command: "echo still mine" })
+        }
+      }
+    )
+    const before = testEnv.CHIEF_CC_SANDBOX_CAP
+    testEnv.CHIEF_CC_SANDBOX_CAP = "2"
+    try {
+      const { token, user, chief } = await enabledChief("chief-cc-sandbox-shared", "cc")
+      // A sandbox the main conversation's brain kept before sandboxes moved to the Chief's own object.
+      cloud.made.push({ id: "vm-legacy", body: { metadata: { cmux_chief_sandbox: chief.id } } })
+      cloud.sizes.set("vm-legacy", { cpu: 4, memory: 8192, storage: 32768 })
+      const ns = (testEnv as any).CHIEF_BRAIN_DO as DurableObjectNamespace
+      const mainBrain = ns.get(ns.idFromName(`${chief.id}/${chief.main_conversation}`))
+      await inDO(mainBrain, async (instance) => {
+        instance.sql.exec(`CREATE TABLE IF NOT EXISTS cb_config (name TEXT PRIMARY KEY, value TEXT NOT NULL)`)
+        instance.sql.exec(`INSERT INTO cb_config (name, value) VALUES ('cc_sandboxes', ?) ON CONFLICT (name) DO UPDATE SET value = excluded.value`, JSON.stringify([{ id: "vm-legacy", name: "old", created_at: 1 }]))
+      })
+      expect((await send(token, chief.main_conversation, "s1", "make sandboxes")).ok).toBe(true)
+      await replies(token, chief.main_conversation, chief.id, 1)
+      const created = await op(token, "conversation.create", { title: "Side work", participants: [{ id: user, kind: "human", display_name: "Owner" }, { id: chief.id, kind: "agent", agent_class: "mux", owner_user: user, display_name: "Route Chief" }] })
+      expect(created.ok, JSON.stringify(created)).toBe(true)
+      const side = created.value.conversation.id as string
+      expect((await op(token, "message.send", { conversation: side, client_msg_id: "s2", parts: [{ type: "text", text: "@chief list them", runs: [{ start: 0, length: 6, mention: chief.id }] }] }, "s2")).ok).toBe(true)
+      await replies(token, side, chief.id, 1)
+      // The legacy sandbox was adopted and counts against the cap: of three parallel creates, exactly one fits.
+      expect(seen.list1.body.vms.map((v: any) => v.id)).toEqual(["vm-legacy"])
+      expect(seen.burst.map((r: any) => r.status).sort()).toEqual([200, 429, 429])
+      // Another conversation of the same Chief sees the same two sandboxes and can use them.
+      expect(seen.list2.body.vms.map((v: any) => v.id).sort()).toEqual(["vm-legacy", seen.burst.find((r: any) => r.status === 200).body.vm.id].sort())
+      expect(seen.exec2).toMatchObject({ status: 200, body: { stdout: "still mine\n" } })
+      // One identity for the Chief, and the conversation brain no longer keeps its own list.
+      expect(new Set(cloud.execAuth.map((e) => e.by)).size).toBe(1)
+      const left = await inDO(mainBrain, async (instance) => instance.sql.exec(`SELECT value FROM cb_config WHERE name = 'cc_sandboxes'`).toArray())
+      expect(left).toEqual([])
+    } finally {
+      before === undefined ? delete testEnv.CHIEF_CC_SANDBOX_CAP : (testEnv.CHIEF_CC_SANDBOX_CAP = before)
+    }
   })
 
   it("refuses notes without the running turn's token, and after the turn ended", async () => {
