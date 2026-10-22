@@ -44,6 +44,10 @@ const PANE = `
     <sup class="cv-fnref"><button data-expect="pointer" data-name="footnote mark" type="button">1</button></sup>
   </div>
   <button data-expect="pointer" data-name="tool row" type="button" class="cv-tool is-toggle">Ran a command</button>
+  <div class="cv-tools">
+    <button data-expect="pointer" data-name="Subagent finished row" type="button" class="cv-tool cv-bgtask cv-subagent-done" data-state="completed"><span class="cv-tool__icon"><svg data-expect="pointer" data-name="Subagent finished icon"></svg></span><span data-expect="pointer" data-name="Subagent finished text" class="cv-tool__text">Subagent finished: Fix merge hook · 49m 38s</span></button>
+    <button data-expect="default" data-name="Subagent finished row, nothing to open" type="button" class="cv-tool cv-bgtask cv-subagent-done" disabled>Subagent finished</button>
+  </div>
   <button data-expect="pointer" data-name="started chat row" type="button" class="acpmux-started-row">A chat</button>
   <div class="ui-glass cv-link-preview acpmux-pr-card"><button data-expect="pointer" data-name="hover card Open" type="button" class="cv-link-preview__open">Open</button></div>
   <a data-expect="pointer" data-name="inspector pull request" class="acpmux-chat-inspector-pr__link" href="https://github.com/o/r/pull/3">PR</a>
@@ -160,24 +164,69 @@ function targetsClickable(selector: string, classes: Set<string>): boolean {
 
 const DISABLED = /:disabled|\[disabled|aria-disabled|data-disabled|\[inert/;
 
-test("no stylesheet sets the arrow or auto on a clickable element", () => {
-  const classes = clickableClasses();
-  // Sanity: the classes of the bars and buttons Leo pointed at are known clickable.
-  const known = ["acpmux-pr-dock__bar", "acpmux-send", "acpmux-mic", "cv-chip", "ui-menu-item"];
-  expect(known.filter((name) => !classes.has(name))).toEqual([]);
-  const offenders: string[] = [];
+type Rule = { file: string; line: number; selectors: string[]; body: string };
+
+/// Every style rule of every webview stylesheet, comments blanked so line numbers hold.
+function styleRules(): Rule[] {
+  const rules: Rule[] = [];
   for (const file of new Glob("**/*.css").scanSync(src)) {
     const text = readFileSync(join(src, file), "utf8").replace(/\/\*[\s\S]*?\*\//g, (comment) =>
       comment.replace(/[^\n]/g, " "),
     );
     for (const rule of text.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
       const selectorText = rule[1]!.trim();
-      if (selectorText.startsWith("@") || !/(^|[;\s{])cursor\s*:\s*(default|auto)\b/.test(rule[2]!)) continue;
-      for (const selector of selectorText.split(/,(?![^()]*\))/).map((part) => part.trim())) {
-        if (DISABLED.test(selector) || !targetsClickable(selector, classes)) continue;
-        const line = text.slice(0, rule.index! + rule[0].indexOf(rule[2]!)).split("\n").length;
-        offenders.push(`${relative(src, join(src, file))}:${line} ${selector}`);
-      }
+      if (selectorText.startsWith("@")) continue;
+      const line = text.slice(0, rule.index! + rule[0].indexOf(rule[2]!)).split("\n").length;
+      const selectors = selectorText.split(/,(?![^()]*\))/).map((part) => part.trim());
+      rules.push({ file: relative(src, join(src, file)), line, selectors, body: rule[2]! });
+    }
+  }
+  return rules;
+}
+
+const subjectOf = (selector: string) => selector.split(/\s*[>+~]\s*|\s+(?![^()]*\))/).at(-1) ?? selector;
+const SETS_A_CURSOR = /(^|[;\s{])cursor\s*:\s*(?!default\b|auto\b|inherit\b|unset\b|initial\b|revert)[a-z-]/;
+
+test("no stylesheet sets the arrow or auto on a clickable element", () => {
+  const classes = clickableClasses();
+  // Sanity: the classes of the bars and buttons Leo pointed at are known clickable.
+  const known = ["acpmux-pr-dock__bar", "acpmux-send", "acpmux-mic", "cv-chip", "ui-menu-item", "cv-tool"];
+  expect(known.filter((name) => !classes.has(name))).toEqual([]);
+  const offenders: string[] = [];
+  for (const rule of styleRules()) {
+    if (!/(^|[;\s{])cursor\s*:\s*(default|auto)\b/.test(rule.body)) continue;
+    for (const selector of rule.selectors)
+      if (!DISABLED.test(selector) && targetsClickable(selector, classes))
+        offenders.push(`${rule.file}:${rule.line} ${selector}`);
+  }
+  expect(offenders).toEqual([]);
+});
+
+// `all: unset` resets the cursor to inherit, the page's arrow, and a class rule beats the shared
+// zero-specificity one: "Subagent finished" (.cv-tool) showed the arrow that way. A clickable class
+// reset so sets a cursor again, in that rule or in one whose subject is that class alone (as
+// `:is(button, a[href]).cv-tool`; `.cv-tool.is-toggle` covers only the toggles).
+test("a clickable element whose rule resets every property sets its cursor again", () => {
+  const classes = clickableClasses();
+  const rules = styleRules();
+  const restores = (name: string) =>
+    rules.some(
+      (rule) =>
+        SETS_A_CURSOR.test(rule.body) &&
+        rule.selectors.some((selector) => {
+          const subject = subjectOf(selector);
+          const named = [...subject.matchAll(/\.([A-Za-z][\w-]*)/g)].map((match) => match[1]);
+          return !DISABLED.test(subject) && named.length === 1 && named[0] === name;
+        }),
+    );
+  const offenders: string[] = [];
+  for (const rule of rules) {
+    if (!/(^|[;\s{])all\s*:\s*(unset|initial|revert)/.test(rule.body) || SETS_A_CURSOR.test(rule.body)) continue;
+    for (const selector of rule.selectors) {
+      if (DISABLED.test(selector) || !targetsClickable(selector, classes)) continue;
+      const subject = subjectOf(selector);
+      const named = [...subject.matchAll(/\.([A-Za-z][\w-]*)/g)].map((match) => match[1]!);
+      if (!named.some(restores)) offenders.push(`${rule.file}:${rule.line} ${selector}`);
     }
   }
   expect(offenders).toEqual([]);
