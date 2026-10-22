@@ -43,8 +43,11 @@ extension TabItemMapping {
             } else if let prompt = tab.promptSinceMs {
                 // Counted from when this client saw it when the daemon's clock runs ahead, as `commandStart`
                 // does; with no output since the daemon started or adopted the terminal, from its prompt.
-                let seen = tab.lastOutputSeenAt.map { UInt64($0.timeIntervalSince1970 * 1000) }
-                let at = tab.lastOutputMs.map { min($0, seen ?? $0) } ?? prompt
+                func clamped(_ ms: UInt64, seen: Date?) -> UInt64 {
+                    seen.map { min(ms, UInt64($0.timeIntervalSince1970 * 1000)) } ?? ms
+                }
+                let at = tab.lastOutputMs.map { clamped($0, seen: tab.lastOutputSeenAt) }
+                    ?? clamped(prompt, seen: tab.promptSeenAt)
                 facts.lastOutput = SidebarMapping.date(ms: at)
             }
         case .remoteTerminal, .other:

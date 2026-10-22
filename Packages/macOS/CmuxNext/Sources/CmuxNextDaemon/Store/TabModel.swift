@@ -119,6 +119,8 @@ public final class TabModel: Identifiable {
     /// Since when the shell sits at its prompt (`extra.prompt.since_ms`: OSC 133 A until C), nil while
     /// a command runs and for a shell without integration.
     public internal(set) var promptSinceMs: UInt64?
+    /// This clock's time when `promptSinceMs` arrived: another machine's daemon may run ahead.
+    @ObservationIgnored public private(set) var promptSeenAt: Date?
     /// When the terminal last printed (`extra.last_output.at_ms`).
     public internal(set) var lastOutputMs: UInt64?
     /// This clock's time when `lastOutputMs` arrived: another machine's daemon may run ahead.
@@ -300,7 +302,10 @@ public final class TabModel: Identifiable {
             self.commandSinceMs = commandSinceMs
             commandTimer?.cancel()
         }
-        if self.promptSinceMs != promptSinceMs { self.promptSinceMs = promptSinceMs }
+        if self.promptSinceMs != promptSinceMs {
+            promptSeenAt = promptSinceMs.map { _ in Date() }
+            self.promptSinceMs = promptSinceMs
+        }
         if self.lastOutputMs != lastOutputMs {
             lastOutputSeenAt = lastOutputMs.map { _ in Date() }
             self.lastOutputMs = lastOutputMs
