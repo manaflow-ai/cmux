@@ -21,6 +21,11 @@ export const workingTokens = (t: Translate, language: PaneLanguage, tokens: numb
 /// All the model read: its fresh input, the prompt cache's reads and its writes.
 export const readTokens = (split: TurnTokenSplit) => split.input + split.cacheRead + split.cacheWrite;
 
+/// Whether a split has any tokens to show: an all-zero one (an empty turn_result) draws nothing,
+/// and so takes no separator either.
+export const hasTokens = (split: TurnTokenSplit | undefined): split is TurnTokenSplit =>
+  split !== undefined && split.output + readTokens(split) > 0;
+
 /// The hover: "Output 12.4K · fresh input 1.2K · cache reads 3.8M · cache writes 40K".
 export const tokenDetail = (t: Translate, language: PaneLanguage, split: TurnTokenSplit) =>
   t("turn.tokens.detail", {
@@ -34,7 +39,7 @@ export const tokenDetail = (t: Translate, language: PaneLanguage, split: TurnTok
 export function TurnTokens({ total, split }: { total?: number; split?: TurnTokenSplit }) {
   const t = useT();
   const language = usePaneLanguage();
-  if (split && split.output + readTokens(split) > 0)
+  if (hasTokens(split))
     return (
       <span className="cv-worked__tokens is-split" title={tokenDetail(t, language, split)}>
         <span className="cv-worked__tokens-part">

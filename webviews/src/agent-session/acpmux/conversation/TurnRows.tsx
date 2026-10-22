@@ -17,7 +17,7 @@ import { toolGroups, type ToolGroup } from "./toolGroups";
 import { isFoldedRun } from "./toolRunSummary";
 import { TurnActionsContext } from "./turnActions";
 import { footerLabel, isEmptyFooter, workedLabel } from "./turns";
-import { TimedLabel, TurnTokens } from "./TurnTokens";
+import { hasTokens, TimedLabel, TurnTokens } from "./TurnTokens";
 import { ChevronRight, Retry } from "./icons";
 import { ForkButton, MessageCopy, MessageTime, PinButton, ReadAloudButton, ROW_ICON } from "./MessageActions";
 import { RetryModelMenu } from "./RetryModelMenu";
@@ -56,7 +56,7 @@ export function WorkedFor({
       <span className="cv-worked__label">
         <WorkedLabel row={row} />
       </span>
-      {row.tokens && (
+      {hasTokens(row.tokens) && (
         <span className="cv-worked__count">
           <span className="cv-worked__sep" aria-hidden="true">
             ·
@@ -203,7 +203,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
         {label && (
           <span className="cv-turn-summary">
             {label}
-            {row.tokens && (
+            {hasTokens(row.tokens) && (
               <>
                 <span className="cv-worked__sep" aria-hidden="true">
                   {" · "}

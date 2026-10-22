@@ -58,6 +58,10 @@ test("a finished turn's Worked for says its tokens split, its time in the quiete
   expect(html).toMatch(SPLIT_SPAN);
   // A turn whose result named no tokens: the time alone.
   expect(text(workedMarkup(worked))).toBe("Worked for 1m 16s");
+  // An empty turn_result's all-zero split: no tokens, and no dangling separator.
+  const zero = { output: 0, input: 0, cacheRead: 0, cacheWrite: 0 };
+  expect(text(workedMarkup({ ...worked, tokens: zero }))).toBe("Worked for 1m 16s");
+  expect(workedMarkup({ ...worked, tokens: zero })).not.toContain("cv-worked__sep");
   // A stopped turn keeps its own words.
   expect(text(workedMarkup({ ...worked, status: "cancelled" }))).toBe("You stopped after 1m 16s");
 });

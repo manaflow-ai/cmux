@@ -199,15 +199,16 @@ function callTokenSplit(update: any): TurnTokenSplit | undefined {
   };
 }
 /// A `turn_result`'s tokens (acpmux hub/turn_usage.rs: Claude Code's main loop for the turn), when
-/// it names its output.
+/// it names its output and has any (an all-zero result is an empty turn, with nothing to show).
 function resultTokenSplit(msg: any): TurnTokenSplit | undefined {
   if (typeof msg?.outputTokens !== "number") return undefined;
-  return {
+  const split = {
     output: tokenCount(msg.outputTokens),
     input: tokenCount(msg.inputTokens),
     cacheRead: tokenCount(msg.cacheReadTokens),
     cacheWrite: tokenCount(msg.cacheWriteTokens),
   };
+  return split.output + split.input + split.cacheRead + split.cacheWrite > 0 ? split : undefined;
 }
 const addSplit = (sum: TurnTokenSplit, call: TurnTokenSplit): TurnTokenSplit => ({
   output: sum.output + call.output,
