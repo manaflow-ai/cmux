@@ -232,6 +232,7 @@ if [[ -n "${CMUX_TUI_CLIENT_LOCAL:-}" ]]; then
   done
   verify_probe
   check_acpmux
+  "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cmux-next/write-daemon-capabilities.sh" "$DEST_DIR"
   echo "Installed local cmux-tui client at $DEST"
   exit 0
 fi
@@ -417,6 +418,9 @@ fi
 for arch in "${VERIFY_ARCHS[@]}"; do lipo "$DEST" -verify_arch "$arch"; done
 verify_probe
 check_acpmux
+# bin/daemon-capabilities.json from the client just installed (a build from
+# before `capabilities` leaves none, with a warning).
+"$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cmux-next/write-daemon-capabilities.sh" "$DEST_DIR"
 # Bootstrap payloads share the signed client's exact build. End-user SSH hosts
 # need neither Node/npm nor access to an artifact server, and the client verifies
 # these hashes again before uploading the selected platform executable.

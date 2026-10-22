@@ -8,6 +8,29 @@ mod events;
 mod mailbox;
 mod presets;
 
+/// `_meta.acpmux.disallowedTools`: Claude Code built-in tools the new chat
+/// never gets (`acpmux new --worktree` sends `["AskUserQuestion"]`). Each is
+/// a tool's name, letters, digits and `_`, so none is a permission rule
+/// (`Bash(rm *)`) or a flag; it only takes tools away, from any origin.
+fn disallowed_tools(meta: Option<&Value>) -> Result<Vec<String>, RpcError> {
+    let refused = || RpcError::invalid_params("disallowedTools must be a list of tool names");
+    match meta.and_then(|m| m.get("disallowedTools")) {
+        None | Some(Value::Null) => Ok(Vec::new()),
+        Some(Value::Array(names)) => names
+            .iter()
+            .map(|n| {
+                n.as_str()
+                    .filter(|n| {
+                        !n.is_empty() && n.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+                    })
+                    .map(str::to_owned)
+                    .ok_or_else(refused)
+            })
+            .collect(),
+        Some(_) => Err(refused()),
+    }
+}
+
 /// Subscribe the connection to a session and, when that is new, count it
 /// as attached (remote sessions are not counted; their host does that).
 pub(super) fn attach(hub: &Hub, conn: &Conn, id: &str) {
@@ -157,7 +180,7 @@ async fn dispatch_request(
                     "sessionCapabilities": {"list": {}, "fork": {}, "close": {}, "delete": {}},
                 },
                 "authMethods": [],
-                "_meta": {"acpmux": {"version": VERSION, "build": crate::hub::BUILD,
+                "_meta": {"acpmux": {"version": VERSION, "build": crate::hub::BUILD, "capabilities": crate::capabilities::ids(),
                 // `local`: the unix socket or the proven local app
                 // (`local_app.rs`), which the session pool serves.
                 "origin": match conn.origin { Origin::Web => "remote", Origin::Peer => "peer", _ => "local" },
@@ -378,6 +401,7 @@ async fn dispatch_request(
             {
                 return Err(RpcError::invalid_params(format!("route {r:?} is not a route id")));
             }
+            let disallowed_tools = disallowed_tools(meta)?;
             let asked_policy = policy.is_some();
             // After the request checks above, so a request they refuse makes no worktree.
             let worktree = super::new_worktree::ensure(conn.origin, meta, &mut cwd).await?;
@@ -399,6 +423,7 @@ async fn dispatch_request(
                     .await,
                 route,
                 subsession: None,
+                disallowed_tools,
             };
             let s = hub.new_session(req).await?;
             if conn.origin.web_class() {
@@ -544,6 +569,7 @@ async fn dispatch_request(
                 provenance,
                 agent,
                 after_turn: None,
+                supersede: crate::hub::supersede_key(&params)?,
             };
             let agent_message = opts.provenance.is_some();
             super::agent_messages::person_prompt(hub, conn, &s, agent_message).await;
@@ -667,10 +693,17 @@ async fn dispatch_request(
                 .ok_or_else(|| RpcError::invalid_params("policy is required"))?
                 .parse()
                 .map_err(RpcError::invalid_params)?;
-            let mut cfg = hub.config.write().await;
-            cfg.permission_policy = policy;
-            hub.permission_defaults_changed();
-            cfg.save().map_err(|e| RpcError::internal(format!("save permission policy: {e}")))?;
+            {
+                let mut cfg = hub.config.write().await;
+                cfg.permission_policy = policy;
+                hub.permission_defaults_changed();
+                cfg.save()
+                    .map_err(|e| RpcError::internal(format!("save permission policy: {e}")))?;
+            }
+            // deny-all is a lockdown: every chat without a policy of its own follows it.
+            if policy == PermissionPolicy::DenyAll {
+                hub.follow_default_policy().await;
+            }
             Ok(json!({"policy":policy.to_string()}))
         }
         "_acpmux/peers" => Ok(json!({"peers": hub.peers()})),
@@ -960,7 +993,7 @@ async fn dispatch_request(
             let after = params.get("afterSeq").and_then(Value::as_u64);
             let before = params.get("beforeSeq").and_then(Value::as_u64);
             let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(2000) as usize;
-            let max_bytes = Some(events::page_bytes(&params));
+            let max_bytes = Some(crate::hub::page_bytes(&params));
             let detail = hub.session_detail(&s);
             // afterSeq alone pages forward (oldest first); otherwise the page
             // is the newest `limit` records before beforeSeq (or the end).
@@ -1032,6 +1065,9 @@ async fn dispatch_request(
             let removed = hub.withdraw_queued(&s, prompt_id)?;
             Ok(json!({"sessionId": s.id, "promptId": prompt_id, "removed": removed}))
         }
+        method::MUX_SEND_QUEUE | method::MUX_SEND_STATUS => {
+            super::outbox::handle(hub, conn, m, &params).await
+        }
         method::MUX_PROMPT_WITHDRAW | method::MUX_AGENT_PAIR_RESUME => {
             super::agent_messages::handle(hub, conn, m, &params).await
         }
@@ -1071,7 +1107,6 @@ async fn dispatch_request(
                 .parse()
                 .map_err(RpcError::invalid_params)?;
             hub.set_policy_unless_moving(&s, policy).await?;
-            hub.follow_policy(&s).await;
             Ok(hub.session_summary(&s))
         }
         method::MUX_EXPORT => {

@@ -57,17 +57,18 @@ extension SidebarDocStore {
             move(moving, to: anchored.target, title: title)
         case .reorderGroup(let group, let index):
             guard let section = model.sections.first(where: { $0.nodes.contains { $0.id == .group(group) } }),
-                  let anchored = drag.anchoredTarget(DropPosition(section: section.id, index: index), moving: [group.rawValue], model: model)
+                  let anchored = drag.anchoredTarget(DropPosition(section: section.id, index: index), moving: [item(group: group)], model: model)
             else { return false }
             adopt += anchored.adopt.map { ref -> [String: Any] in ["op": "adopt", "refs": [ref]] }
-            move([group.rawValue], to: anchored.target, title: title)
+            move([item(group: group)], to: anchored.target, title: title)
         case .move(let ids, let group):
-            guard let section = records.items[group.rawValue]?.section else { return false }
-            move(items(ids), to: SidebarDocTarget(section: section, parent: group.rawValue), title: title)
+            let parent = item(group: group)
+            guard let section = records.items[parent]?.section else { return false }
+            move(items(ids), to: SidebarDocTarget(section: section, parent: parent), title: title)
         case .setPinned(let ids, let pinned):
             setPinned(items(ids), pinned)
         case .setGroupPinned(let group, let pinned):
-            setPinned([group.rawValue], pinned)
+            setPinned([item(group: group)], pinned)
         case .dropOnLayoutSection(let ids, let section, let index):
             layoutMove(items(ids), section, index)
         case .layout(.itemMove(let id, let section, let index)):
