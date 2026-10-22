@@ -467,7 +467,7 @@ export function Composer({
         .then((kept) => keptAttachments.write(chat, appendAttachments(kept, chips).slice(0, MAX_ATTACHMENTS)))
         .catch(() => {});
     },
-    carries: () => carryPrompt.current,
+    carries: () => carryPrompt.current || Boolean(switching),
   });
   const attachmentsRef = useRef(attachments);
   attachmentsRef.current = attachments;

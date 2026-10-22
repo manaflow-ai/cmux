@@ -2,7 +2,7 @@
 // pictures in the new tab area but it works in the existing chats"): a chat's composer (Composer.tsx)
 // and the New Tab page's field (newtab/NewTabScreen.tsx) take a pasted or dropped image or file the
 // same way, show it as the same chip, and send it with the prompt.
-import React, { useContext, useEffect, useRef, useState } from "react";
+import React, { useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ContextMenu } from "../../../ui/ContextMenu";
 import { Dialog } from "../../../ui/Dialog";
 import {
@@ -124,7 +124,8 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   const batches = useRef(new Set<{ scope?: string }>());
   const scope = options.scope;
   const lastScope = useRef(scope);
-  useEffect(() => {
+  // Before paint: a carried placeholder never leaves the strip for a frame.
+  useLayoutEffect(() => {
     const from = lastScope.current;
     lastScope.current = scope;
     if (from === scope || (from !== undefined && !live.current.options.carries?.())) return;

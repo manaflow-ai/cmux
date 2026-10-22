@@ -173,6 +173,19 @@ function paste(files: File[]) {
   });
 }
 
+/// The host's kept chips (AgentPaneDraftAttachments.swift), in memory: what each chat holds.
+function keptStore() {
+  const chats = new Map<string, ComposerAttachment[]>();
+  const store: KeptAttachments = {
+    read: async (chat) => chats.get(chat) ?? [],
+    write: async (chat, chips) => {
+      chats.set(chat, chips);
+      return { held: chips.map((chip) => chip.id) };
+    },
+  };
+  return { chats, store };
+}
+
 test("a pasted screenshot shows a chip in the paste's own frame, before its bytes are read", async () => {
   const composer = await openComposer();
   const shot = slowScreenshot();
@@ -224,33 +237,22 @@ test("a prompt sent while its screenshot is still being read goes once the chip 
 
 test("a prompt held for its screenshot never goes to the chat the composer moved to", async () => {
   const sent: { text: string; attachments: ComposerAttachment[] }[] = [];
-  const composer = await openComposer(sent);
+  const { chats, store } = keptStore();
+  const composer = await openComposer(sent, "chat-a", { keptAttachments: store });
   const shot = slowScreenshot();
   paste([shot.file]);
   act(() => {
     composer.current!.send();
   });
-  await openComposer(sent, "chat-b");
+  await openComposer(sent, "chat-b", { keptAttachments: store });
   shot.release();
-  await until(() => placeholders().length === 0, "the read chip");
+  // The read ends (its chip goes to chat-a) with the composer on chat-b.
+  await until(() => (chats.get("chat-a") ?? []).length === 1, "the read chip");
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
   expect(sent).toHaveLength(0);
 });
-
-/// The host's kept chips (AgentPaneDraftAttachments.swift), in memory: what each chat holds.
-function keptStore() {
-  const chats = new Map<string, ComposerAttachment[]>();
-  const store: KeptAttachments = {
-    read: async (chat) => chats.get(chat) ?? [],
-    write: async (chat, chips) => {
-      chats.set(chat, chips);
-      return { held: chips.map((chip) => chip.id) };
-    },
-  };
-  return { chats, store };
-}
 
 test("a screenshot still being read when the composer moves to another chat goes to the chat it was pasted in", async () => {
   const { chats, store } = keptStore();
