@@ -57,6 +57,8 @@ public nonisolated struct ImportCardDeck: Sendable {
             // A finished job past its linger leaves Home and New Tab, and so does its source's card.
             placed.insert(job.id)
             if surface != .settings, job.phase == .done, now.timeIntervalSince(job.updatedAt) > Self.doneLingers { continue }
+            // A classic run that brought nothing has nothing to confirm there; Settings keeps it.
+            if surface != .settings, job.phase == .done, job.opened == 0 { continue }
             cards.append(card(for: job, finding: findings.first { $0.id == job.id }, surface: surface))
         }
         for finding in findings where !placed.contains(finding.id) {
