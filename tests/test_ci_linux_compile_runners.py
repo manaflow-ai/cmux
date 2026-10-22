@@ -6,12 +6,19 @@ C++, Gradle) or runs a web build or test suite, so its manaflow-ai runner is
 `blacksmith-32vcpu-ubuntu-2404`, or `blacksmith-16vcpu-ubuntu-2404` for the
 small ones.
 
-The size must not come from `vars.LINUX_RUNNER`: that shared variable names
-`blacksmith-4vcpu-ubuntu-2404` for every small Linux job (docs/ci-runners.md),
-so `vars.LINUX_RUNNER || 'blacksmith-32vcpu-ubuntu-2404'` would still run on
-4 vCPU. Forks (`repository_owner != 'manaflow-ai'`) and fork pull requests
-keep their own branches of each expression; this test only reads the trusted
-fallback, the last Blacksmith Ubuntu label in the expression.
+The size must not come from `vars.LINUX_RUNNER` while it names a Blacksmith
+label: that shared variable names `blacksmith-4vcpu-ubuntu-2404` for every
+small Linux job (docs/ci-runners.md), so `vars.LINUX_RUNNER ||
+'blacksmith-32vcpu-ubuntu-2404'` would still run on 4 vCPU. But the Blacksmith
+outage switch (scripts/ci/cloud_overflow_switch.py) points `LINUX_RUNNER` at
+`ubuntu-24.04`, and these jobs must follow it there, or the switch's
+force-cancel and rerun sends them straight back to the stalled pool. So each
+trusted fallback ends in exactly
+
+    !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || '<size>'
+
+Forks (`repository_owner != 'manaflow-ai'`) and fork pull requests keep their
+own branches of each expression, unchanged.
 """
 
 from __future__ import annotations
@@ -99,6 +106,67 @@ LINUX_LABEL = re.compile(r"blacksmith-\d+vcpu-ubuntu-\d+(?!-arm)\b")
 SHARED_VARIABLE = re.compile(r"vars\.LINUX_RUNNER(?!\w)")
 
 
+def trusted_fallback(label: str) -> str:
+    """The size, unless the outage switch names a non-Blacksmith runner."""
+    return f"!startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || '{label}'"
+
+
+# What comes before the trusted fallback: the fork and fork pull request
+# branches as they were before the move, byte for byte.
+OWNER = "github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+FORK_PULL_REQUEST = (
+    "github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name"
+    " != github.repository && '{label}' || "
+)
+FORK_PR_4 = OWNER + FORK_PULL_REQUEST.format(label="blacksmith-4vcpu-ubuntu-2404")
+PREFIX: dict[tuple[str, str, str], tuple[str, str]] = {
+    # (prefix, closing) for the selectors that do not take the default
+    # owner + 4 vCPU fork pull request branches.
+    ("cmux-tui-sdks.yml", "conformance", "runs-on"): (
+        OWNER + FORK_PULL_REQUEST.format(label="blacksmith-8vcpu-ubuntu-2404"), ""),
+    ("cmux-tui-artifacts.yml", "macos-cross-shadow", "runs-on"): (OWNER + "vars.LINUX_RUNNER_DARWIN_CROSS || ", ""),
+    ("macos-cross-parity.yml", "linux-build", "runs-on"): (OWNER + "vars.LINUX_RUNNER_DARWIN_CROSS || ", ""),
+    ("cmux-tui-build-package.yml", "plan-build", "env:targets:LINUX_DARWIN_RUNNER"): (
+        OWNER + "vars.LINUX_RUNNER_DARWIN_CROSS || ", ""),
+    ("cmux-tui-build-package.yml", "plan-build", "env:targets:LINUX_BUILD_RUNNER"): (
+        OWNER + "(inputs.linux_runner != '' && inputs.linux_runner || vars.LINUX_BUILD_RUNNER || ", ")"),
+    # Owner-gated jobs with no fork branch.
+    ("cmux-next-terminal.yml", "rust-terminal-linux", "runs-on"): ("", ""),
+    ("cmux-tui-headless-debug.yml", "build", "runs-on"): ("", ""),
+    ("coderouter-release.yml", "build", "matrix:rust_target=x86_64-unknown-linux-gnu:runner"): ("", ""),
+}
+# Selectors with the owner branch and no fork pull request branch.
+OWNER_ONLY = {
+    ("cmux-browser-host-chromium.yml", "chromium"),
+    ("cmux-browser-host-release.yml", "build"),
+    ("cmux-mobile-ffi.yml", "rust"),
+    ("cmux-mobile-ffi.yml", "android"),
+    ("cmux-next-car-guards.yml", "linux"),
+    ("cmux-next-source-archive.yml", "vt-link-graph"),
+    ("cmux-tui-windows-check.yml", "windows-gnu-check"),
+    ("iroh-relay-minter.yml", "test"),
+    ("sdk-publish-crates.yml", "bindings-e2e-rust"),
+    ("sdk-publish-go.yml", "bindings-e2e-go"),
+    ("sdk-publish-java.yml", "bindings-e2e-java"),
+    ("sdk-publish-npm.yml", "bindings-e2e-typescript"),
+    ("sdk-publish-python.yml", "bindings-e2e-python"),
+    ("cmux-next-web-bundle-publish.yml", "build"),
+    ("cmux-next.yml", "web-bundles"),
+    ("gallery-health.yml", "health"),
+    ("presence.yml", "test"),
+    ("sdk-bootstrap-crates.yml", "build"),
+    ("sdk-publish-go.yml", "validate-go-module"),
+    ("sdk-publish-go.yml", "verify-versioned-go-module"),
+}
+
+
+def expected_selector(workflow: str, job_id: str, where: str, label: str) -> str:
+    prefix, closing = PREFIX.get((workflow, job_id, where), (None, ""))
+    if prefix is None:
+        prefix = OWNER if (workflow, job_id) in OWNER_ONLY else FORK_PR_4
+    return "${{ " + prefix + trusted_fallback(label) + closing + " }}"
+
+
 def load(name: str) -> dict:
     return yaml.safe_load((WORKFLOWS / name).read_text(encoding="utf-8"))
 
@@ -135,20 +203,37 @@ class LinuxCompileRunners(unittest.TestCase):
                 labels = LINUX_LABEL.findall(value)
                 self.assertTrue(labels, f"{workflow}:{job_id} {where} names no Blacksmith Ubuntu label: {value}")
                 self.assertEqual(labels[-1], label, f"{workflow}:{job_id} {where}: {value}")
-                self.assertIsNone(
-                    SHARED_VARIABLE.search(value),
-                    f"{workflow}:{job_id} {where} reads vars.LINUX_RUNNER, the 4 vCPU size of the "
-                    f"small jobs, ahead of its {label} fallback: {value}",
+                # vars.LINUX_RUNNER appears only in the outage guard, never as
+                # a plain `vars.LINUX_RUNNER ||` that would pick 4 vCPU.
+                self.assertEqual(
+                    len(SHARED_VARIABLE.findall(value)), 2,
+                    f"{workflow}:{job_id} {where} must read vars.LINUX_RUNNER only in "
+                    f"{trusted_fallback(label)!r}: {value}",
+                )
+
+    def test_each_compile_job_follows_the_blacksmith_outage_switch(self) -> None:
+        # cloud_overflow_switch.py sets LINUX_RUNNER=ubuntu-24.04 when Blacksmith
+        # stalls; the guard sends these jobs there too, and keeps the size otherwise.
+        for workflow, job_id, where, label in EXPECTED:
+            value = selector(load(workflow)["jobs"][job_id], where)
+            with self.subTest(workflow=workflow, job=job_id, where=where):
+                self.assertEqual(value.count(trusted_fallback(label)), 1, f"{workflow}:{job_id} {where}: {value}")
+                self.assertRegex(
+                    value, re.escape(trusted_fallback(label)) + r"\)? \}\}$",
+                    f"{workflow}:{job_id} {where}: the outage guard must be the trusted fallback",
                 )
 
     def test_forks_keep_their_hosted_runner(self) -> None:
-        for workflow, job_id, where, _ in EXPECTED:
+        # The whole selector is pinned: the fork branch and the fork pull
+        # request branch stay exactly as they were before the move.
+        for workflow, job_id, where, label in EXPECTED:
             value = selector(load(workflow)["jobs"][job_id], where)
-            if "${{" not in value:
-                continue
             with self.subTest(workflow=workflow, job=job_id, where=where):
+                self.assertEqual(value, expected_selector(workflow, job_id, where, label))
                 if "repository_owner != 'manaflow-ai'" in value:
                     self.assertRegex(value, r"github\.repository_owner != 'manaflow-ai' && '(ubuntu-24\.04|ubuntu-latest)'")
+                if (workflow, job_id) not in OWNER_ONLY and (workflow, job_id, where) not in PREFIX:
+                    self.assertIn(FORK_PR_4, value, "a fork pull request keeps its 4 vCPU runner")
 
     def test_every_listed_label_is_known_to_actionlint(self) -> None:
         config = yaml.safe_load((ROOT / ".github" / "actionlint.yaml").read_text(encoding="utf-8"))
