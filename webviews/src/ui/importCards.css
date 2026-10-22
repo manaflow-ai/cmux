@@ -24,6 +24,7 @@
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
   font-weight: 600;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 .import-cards-empty {
@@ -31,6 +32,7 @@
   color: var(--import-dim);
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
+  letter-spacing: var(--text-body--letter-spacing);
 }
 
 .import-cards-grid {
@@ -90,6 +92,7 @@
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
+  letter-spacing: var(--text-body--letter-spacing);
 }
 
 .import-card-facts,
@@ -98,6 +101,7 @@
   color: var(--import-faint);
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .import-card[data-state="failed"] .import-card-status {
@@ -110,6 +114,7 @@
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
   font-style: italic;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 .import-card-benefit {
@@ -117,6 +122,7 @@
   color: var(--import-dim);
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 .import-card-progress {
@@ -159,6 +165,7 @@
   font: inherit;
   font-size: var(--text-detail);
   cursor: default;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 .import-card-primary {

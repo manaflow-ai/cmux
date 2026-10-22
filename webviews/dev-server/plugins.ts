@@ -144,7 +144,14 @@ function appHostServer(): Plugin {
               : { protocol: "ws", host: "127.0.0.1", clientPort: port, ...config.server?.ws },
           fs: config.server?.fs?.allow
             ? undefined
-            : { allow: [webviewsRoot, path.join(webviewsRoot, "..", "schemas/settings")] },
+            : {
+                allow: [
+                  webviewsRoot,
+                  path.join(webviewsRoot, "..", "schemas/settings"),
+                  // The UI font's WOFF2 (src/gallery/frame/uiFont.ts).
+                  path.join(webviewsRoot, "..", "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/Fonts"),
+                ],
+              },
         },
       };
     },

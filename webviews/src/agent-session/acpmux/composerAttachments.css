@@ -148,6 +148,7 @@
 .acpmux-attachment-failed-text {
   font-size: var(--text-caption);
   line-height: 1.2;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 /* A pasted or dropped file still being read (composer/attachmentIntake.tsx PendingChip): there in
    the paste's frame, an image as a thumbnail-sized tile with a dimmed picture glyph, so the strip
@@ -183,6 +184,7 @@
   flex: none;
   color: var(--agent-muted);
   font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .acpmux-attachment-document {
   display: grid;
@@ -250,6 +252,7 @@
   left: 24px;
   top: 38px;
   font-size: calc(var(--text-body) * 24 / 13);
+  letter-spacing: var(--text-body--letter-spacing);
 }
 .acpmux-pdf-sheet-lines {
   position: absolute;
@@ -284,6 +287,7 @@
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
   box-shadow: var(--elevation-2);
+  letter-spacing: var(--text-body--letter-spacing);
 }
 .acpmux-pdf-viewer-bar {
   display: flex;
@@ -294,7 +298,7 @@
   border-bottom: 0.5px solid var(--agent-border);
 }
 .acpmux-pdf-viewer-bar .acpmux-image-viewer-title { flex: 1; min-width: 0; font-weight: var(--weight-emphasis); }
-.acpmux-pdf-viewer-bar .acpmux-image-viewer-count { color: var(--agent-muted); font-size: var(--text-detail); line-height: var(--text-detail--line-height); }
+.acpmux-pdf-viewer-bar .acpmux-image-viewer-count { color: var(--agent-muted); font-size: var(--text-detail); line-height: var(--text-detail--line-height); letter-spacing: var(--text-detail--letter-spacing); }
 .acpmux-pdf-viewer-preview {
   display: grid;
   place-items: center;
@@ -328,7 +332,7 @@
 }
 .acpmux-attachment-document-meta > svg { grid-row: 1 / span 2; align-self: center; }
 .acpmux-attachment-document-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.acpmux-attachment-document-pages { color: var(--agent-muted); font-size: var(--text-caption); }
+.acpmux-attachment-document-pages { color: var(--agent-muted); font-size: var(--text-caption); letter-spacing: var(--text-caption--letter-spacing); }
 .acpmux-attachment-document .acpmux-attachment-remove { top: 20px; }
 /* The chat composer's and the New Tab card's (.nt-box): without it the New Tab badge drew as a
    stray button under the thumbnail. */
@@ -369,6 +373,7 @@
   color: var(--agent-muted);
   font-size: var(--text-detail);
   white-space: nowrap;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 /* The prompt's context menu host wraps the field without a box of its own. */
 .acpmux-composer-field-menu {
@@ -412,6 +417,7 @@ button.acpmux-attachment-pasted-open:hover {
 .acpmux-attachment-pasted-lines {
   color: var(--agent-muted);
   font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .acpmux-attachment-pasted .acpmux-attachment-remove {
   top: 14px;

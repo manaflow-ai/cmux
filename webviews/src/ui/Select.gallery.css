@@ -5,7 +5,7 @@
   min-height: 200px;
   padding: 36px 24px;
   color: var(--cmux-text, CanvasText);
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  font-family: var(--font-ui);
   font-size: var(--text-content);
   line-height: var(--text-content--line-height);
 }
@@ -28,4 +28,5 @@
 .select-gallery-receipt {
   color: color-mix(in srgb, currentColor 66%, transparent);
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }

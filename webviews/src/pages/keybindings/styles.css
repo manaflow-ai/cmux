@@ -203,7 +203,7 @@
 }
 
 .keys-cap {
-  font: 12px -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  font: 12px var(--font-ui);
   padding: 1px 6px;
   border-radius: 4px;
   border: 1px solid var(--page-separator);

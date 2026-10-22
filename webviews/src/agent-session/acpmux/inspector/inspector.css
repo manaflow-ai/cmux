@@ -20,6 +20,7 @@
   color: var(--agent-text);
   font-size: var(--text-control);
   line-height: 18px;
+  letter-spacing: var(--text-control--letter-spacing);
 }
 /* Pushed, its left hairline is the edge, so the glass draws no rim of its own (it would line the pane's
    top, right and foot too). */
@@ -304,6 +305,7 @@ button.acpmux-chat-inspector-port:hover,
   color: var(--agent-muted);
   font-size: var(--text-detail);
   font-variant-numeric: tabular-nums;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-chat-inspector-row__end[data-state="failed"] {
   color: var(--agent-danger, var(--agent-muted));
@@ -316,6 +318,7 @@ button.acpmux-chat-inspector-port:hover,
   padding: 4px 8px 6px;
   color: var(--agent-muted);
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-chat-inspector-link {
   padding: 0 2px;
@@ -326,6 +329,7 @@ button.acpmux-chat-inspector-port:hover,
   font: inherit;
   font-size: var(--text-detail);
   cursor: default;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-chat-inspector-link:hover {
   color: var(--agent-text);
@@ -453,6 +457,7 @@ button.acpmux-chat-inspector-port:hover,
   font-size: var(--text-detail);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 /* `repo #N` stays whole (Claude's); the failing checks at the end give way first. */
 .acpmux-chat-inspector-pr__ref {
@@ -509,6 +514,7 @@ button.acpmux-chat-inspector-port:hover,
   line-height: 16px;
   white-space: nowrap;
   text-overflow: ellipsis;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-chat-inspector-pr__more {
   margin-top: 4px;
@@ -592,6 +598,7 @@ button.acpmux-chat-inspector-port:hover,
   min-width: 0;
   color: var(--agent-muted);
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-chat-inspector-port {
   display: inline-flex;
@@ -626,6 +633,7 @@ button.acpmux-chat-inspector-port:focus-visible {
   color: var(--agent-muted);
   font-size: var(--text-detail);
   font-variant-numeric: tabular-nums;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-chat-inspector-task[data-state="failed"] .acpmux-chat-inspector-task__state,
 .acpmux-chat-inspector-task[data-state="lost"] .acpmux-chat-inspector-task__state {
@@ -644,6 +652,7 @@ button.acpmux-chat-inspector-port:focus-visible {
   font: inherit;
   font-size: var(--text-detail);
   cursor: default;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-chat-inspector-fold:hover {
   color: var(--agent-text);
@@ -684,6 +693,7 @@ button.acpmux-chat-inspector-port:focus-visible {
   flex: none;
   color: var(--agent-muted);
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-chat-inspector-subagents__list {
   margin-top: 4px;

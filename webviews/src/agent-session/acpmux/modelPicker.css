@@ -120,6 +120,7 @@
   color: var(--agent-muted);
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .acpmux-quick-menu .ui-separator {
   height: 0;
@@ -138,6 +139,7 @@
   border-radius: 8px;
   color: var(--agent-text);
   font-size: var(--text-control);
+  letter-spacing: var(--text-control--letter-spacing);
 }
 .ui-menu-item.acpmux-quick-item[data-highlighted],
 .ui-menu-item.acpmux-quick-item[data-popup-open] {
@@ -172,6 +174,7 @@
   opacity: 1;
   color: var(--agent-muted);
   font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 /* The harness rail beside the compact list (Leo 2026-10-18): Starred, then each harness, as round
@@ -208,7 +211,7 @@
   background: var(--acpmux-menu-hover);
   color: var(--agent-text);
 }
-.acpmux-quick-rail-initial { font-size: var(--text-control); font-weight: 600; }
+.acpmux-quick-rail-initial { font-size: var(--text-control); font-weight: 600; letter-spacing: var(--text-control--letter-spacing); }
 /* The list's floor gives way to the rail (a 32 px tab, its padding and hairline) in a narrow column. */
 .acpmux-quick-body { flex: 1; min-width: min(200px, calc(var(--available-width, 100vw - 24px) - 45px)); padding: 6px; }
 /* A filtered row names its harness in secondary text. */
