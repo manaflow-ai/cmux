@@ -101,16 +101,19 @@ final class LinkOpener {
 
     /// Where a web link from `source` goes when `source` shows an agent chat (``ChatLinkPlacement``, by
     /// `layout.linkPlacement`): the pane right of the chat the person focused last, else the rightmost,
-    /// else a new split (or column) on its right. A pane that shows an agent chat never gets it. Nil
-    /// when `source` shows no chat or takes no tabs, or the setting is Tab in the Same Pane: the rules
-    /// above. A lone chat under main pane layout still docks left (``MainPaneLayout``), so the link
+    /// else a new split (or column) on its right. A pane that shows an agent chat never gets it. Tab
+    /// in the Same Pane: a tab in the chat's pane, with no docking. A zoomed chat opens a new split,
+    /// which ends the zoom, never a tab in a pane the zoom hides. Nil when `source` shows no chat or
+    /// takes no tabs, or for Tab in the Same Pane in the chat dock: the rules above. A lone chat
+    /// under main pane layout still docks left (``MainPaneLayout``) for a link on the right, so it
     /// lands in the column that slides in on its right.
     func chatLinkTarget(from source: PaneController, mainPane: Bool = true) -> LinkOpenPlacement<LayoutPaneID>.Target? {
         guard let services, source.stripModel.showsNewTabButton, let tab = source.selectedTab,
               ChatColumnPlacement.isChat(tab, services: services), let content = source.workspace,
               let screen = content.layoutModel.screen(containing: source.layoutPaneID) else { return nil }
         let setting = placement()
-        if setting != .samePane, mainPane, case .dockChat? = MainPaneLayout.side(from: source, services: services) {
+        let zoomed = content.workspace.screens.contains { $0.zoomedPane == source.pane.handle }
+        if setting != .samePane, !zoomed, mainPane, case .dockChat? = MainPaneLayout.side(from: source, services: services) {
             return .dockChat(source.layoutPaneID)
         }
         let columns = screen.layout.columns.isEmpty
@@ -121,6 +124,7 @@ final class LinkOpener {
         }
         return ChatLinkPlacement.target(setting, chat: source.layoutPaneID,
                                         right: ChatLinkPlacement.rightSide(of: source.layoutPaneID, in: columns),
+                                        zoomed: zoomed, inChatDock: ChatDockRules.isChatDock(source.pane, services: services),
                                         takesTabs: takesTabs, recency: content.recentPanes)
     }
 

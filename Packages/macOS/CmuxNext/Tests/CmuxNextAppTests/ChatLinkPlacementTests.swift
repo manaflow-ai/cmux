@@ -8,15 +8,17 @@ import Testing
 /// link opened also goes on the left instead of opening a new split", then "open on right by
 /// default". ``ChatLinkPlacement`` decides where a web link from a chat goes, by
 /// `layout.linkPlacement`: on the right (the right pane focused last, else the rightmost, else a new
-/// split), never the chat's pane, another chat or a pane on its left; Tab in the Same Pane keeps it
-/// in the agent pane.
+/// split), never the chat's pane, another chat, a pane on its left or a pane a zoom hides; Tab in
+/// the Same Pane keeps it in the agent pane.
 struct ChatLinkPlacementTests {
     private typealias Target = LinkOpenPlacement<String>.Target
 
     /// `right`: the panes right of "chat", one group per column, left to right.
-    private static func target(_ right: [[String]], _ setting: LinkPlacement = .fallback, takesTabs: (String) -> Bool = { _ in true },
+    private static func target(_ right: [[String]], _ setting: LinkPlacement = .fallback, zoomed: Bool = false,
+                               inChatDock: Bool = false, takesTabs: (String) -> Bool = { _ in true },
                                recency: [String] = []) -> Target? {
-        ChatLinkPlacement.target(setting, chat: "chat", right: right, takesTabs: takesTabs, recency: recency)
+        ChatLinkPlacement.target(setting, chat: "chat", right: right, zoomed: zoomed, inChatDock: inChatDock,
+                                 takesTabs: takesTabs, recency: recency)
     }
 
     @Test func onTheRightIsTheDefault() {
@@ -60,10 +62,27 @@ struct ChatLinkPlacementTests {
         }
     }
 
-    /// Tab in the Same Pane: "in the agent pane", by the rules for any page (nil here).
+    /// Tab in the Same Pane: "in the agent pane", a tab in the chat's own pane whatever is on its
+    /// right or how it is zoomed, never docked or sent to main pane layout's column.
     @Test func samePaneKeepsTheLinkInTheAgentPane() {
-        #expect(Self.target([["opened"]], .samePane) == nil)
-        #expect(Self.target([], .samePane) == nil)
+        #expect(Self.target([["opened"]], .samePane) == .pane("chat"))
+        #expect(Self.target([], .samePane) == .pane("chat"))
+        #expect(Self.target([["opened"]], .samePane, zoomed: true, recency: ["opened"]) == .pane("chat"))
+    }
+
+    /// The chat dock holds only chats, so Tab in the Same Pane there falls back to the rules for
+    /// any page (nil here) rather than a web tab the dock would refuse.
+    @Test func samePaneInTheChatDockFallsBackToThePageRules() {
+        #expect(Self.target([["opened"]], .samePane, inChatDock: true) == nil)
+        #expect(Self.target([["opened"]], inChatDock: true) == .pane("opened"))
+    }
+
+    /// A zoomed chat fills the screen and hides the panes beside it: the link opens a new split (or
+    /// column) on its right, which ends the zoom, never a tab in a hidden pane.
+    @Test func aZoomedChatOpensANewSplitNotAHiddenPane() {
+        #expect(Self.target([["hidden"]], zoomed: true, recency: ["hidden"]) == .splitRight(of: "chat"))
+        #expect(Self.target([["hidden"], ["also-hidden"]], .newColumn, zoomed: true) == .newColumn(rightOf: "chat"))
+        #expect(Self.target([], zoomed: true) == .splitRight(of: "chat"))
     }
 
     /// Right edges come from the split tree: a side-by-side split's right side, both halves of a
