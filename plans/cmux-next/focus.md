@@ -658,7 +658,7 @@ the user."):
   settings; `focus.inactiveTabStyle` overrides the cmux.json key of the same name (`fade` default: text, icons
   and pills fade toward the background; `tonal`: every text tier steps down, the selected
   pill takes the hover fill; `quiet`: no pill, the selection is the text tier);
-  `focus.inactiveTabStrength` (0.6; 0.35 until 2026-10-21, when Leo could not tell which pane Cmd-W would close). Subtle text never drops below 3.5:1 (selected),
+  `focus.inactiveTabStrength` (0.4; 0.35 until 2026-10-21, when Leo could not tell which pane Cmd-W would close, then 0.6 for a few hours, until he found the shift on a focus change jarring). Subtle text never drops below 3.5:1 (selected),
   2.5:1 and 2:1 against the page (`ThemeTokens.subtle*Floor`). Panels and hover cards
   opened from a subtle strip adopt `ThemeScope.fullStrength`, so they draw at full strength.
 - Debug Settings (Focus) `focus.flashOnMove` (off; Leo 2026-10-21, to judge live): when focus moves

@@ -63,6 +63,9 @@ const fakeCloud = (answer: (prompt: string, n: number) => string, during?: (s: S
   const other: Array<string> = []
   // Execs outside the turn machine's own steps (the Chief's sandboxes).
   const execs: Array<{ vm: string; command: string; stdin: Uint8Array }> = []
+  // Each VM's size (Freestyle's default 4 vCPU / 8 GiB / 32 GB), and every resize asked for.
+  const sizes = new Map<string, { cpu: number; memory: number; storage: number }>()
+  const resizes: Array<{ vm: string; body: any }> = []
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
     const req = new Request(input, init)
     const url = new URL(req.url)
@@ -85,6 +88,7 @@ const fakeCloud = (answer: (prompt: string, n: number) => string, during?: (s: S
     if (req.method === "POST" && url.pathname === "/v5/vms") {
       const id = `vm-test${made.length + 1}`
       made.push({ id, body: await req.json() })
+      sizes.set(id, { cpu: 4, memory: 8192, storage: 32768 })
       return Response.json({ id })
     }
     const del = /^\/v5\/vms\/([^/]+)$/.exec(url.pathname)
@@ -92,7 +96,19 @@ const fakeCloud = (answer: (prompt: string, n: number) => string, during?: (s: S
     if (req.method === "GET" && del) {
       const m = made.find((x) => x.id === del[1])
       if (!m || deleted.includes(m.id)) return new Response("no such vm", { status: 404 })
-      return Response.json({ id: m.id, state: "running", ipMode: "dualStack" })
+      return Response.json({ id: m.id, state: "running", ipMode: "dualStack", resources: sizes.get(m.id) })
+    }
+    const rs = /^\/v5\/vms\/([^/]+)\/resize$/.exec(url.pathname)
+    if (req.method === "POST" && rs) {
+      const vm = rs[1]!
+      const body = (await req.json()) as { cpu?: number; memory?: number; storage?: number }
+      resizes.push({ vm, body })
+      const was = sizes.get(vm)
+      if (!was) return Response.json({ code: "NOT_FOUND", message: "no such vm" }, { status: 404 })
+      const next = { cpu: body.cpu ?? was.cpu, memory: body.memory ?? was.memory, storage: body.storage ?? was.storage }
+      if (next.cpu < was.cpu || next.memory < was.memory || next.storage < was.storage) return Response.json({ code: "BAD_REQUEST", message: "grow only" }, { status: 400 })
+      sizes.set(vm, next)
+      return Response.json({ id: vm, state: "running", resources: next })
     }
     const ex = /^\/v5\/vms\/([^/]+)\/exec-await$/.exec(url.pathname)
     if (req.method === "POST" && ex) {
@@ -113,11 +129,12 @@ const fakeCloud = (answer: (prompt: string, n: number) => string, during?: (s: S
         return Response.json({ statusCode: 0, stdout: "started\n" })
       }
       execs.push({ vm, command: body.command, stdin: raw })
+      if (body.command.includes("resize2fs")) return Response.json({ statusCode: 0, stdout: "/dev/vda 63G 1.2G 62G 2% /\n" })
       return Response.json({ statusCode: 0, stdout: body.command.startsWith("echo ") ? `${body.command.slice(5)}\n` : "" })
     }
     return new Response("unexpected", { status: 500 })
   })
-  return { made, deleted, boots, started, nets, steps, keys, tags, other, execs }
+  return { made, deleted, boots, started, nets, steps, keys, tags, other, execs, sizes, resizes }
 }
 const notes = (s: Started, body: unknown, token = s.input.token) => worker.fetch(s.input.notes_url, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(body) })
 const machine = async (s: Started, reply: string) => {
@@ -399,6 +416,52 @@ describe("Cloud Chief on the Claude Code route", { timeout: 120_000 }, () => {
     expect(seen.list.status).toBe(200)
     expect(seen.list.body.vms.map((v: any) => v.id)).toEqual([seen.a.body.vm.id])
     expect(cloud.deleted).not.toContain(seen.a.body.vm.id)
+  })
+
+  it("lets the Chief grow its own sandboxes (grow only, capped, then the guest filesystem grows), and size them at create", async () => {
+    const seen: Record<string, any> = {}
+    const call = async (s: Started, vm: unknown) => {
+      const r = await notes(s, { run: s.run, vm })
+      return { status: r.status, body: await r.json().catch(() => null) }
+    }
+    const cloud = fakeCloud(
+      () => "resized",
+      async (s) => {
+        seen.a = await call(s, { action: "create" })
+        const id = seen.a.body?.vm?.id
+        seen.grow = await call(s, { action: "resize", id, cpu: 8, memory_mb: 16384, disk_gb: 64 })
+        seen.shrink = await call(s, { action: "resize", id, cpu: 2 })
+        seen.huge = await call(s, { action: "resize", id, cpu: 4096 })
+        seen.nothing = await call(s, { action: "resize", id })
+        seen.junk = await call(s, { action: "resize", id, memory_mb: "lots" })
+        seen.foreign = await call(s, { action: "resize", id: s.vm, cpu: 8 })
+        seen.sized = await call(s, { action: "create", cpu: 6, memory_mb: 12288, disk_gb: 48 })
+      }
+    )
+    const { token, chief } = await enabledChief("chief-cc-sandbox-resize", "cc")
+    expect((await send(token, chief.main_conversation, "r1", "grow the sandbox")).ok).toBe(true)
+    await replies(token, chief.main_conversation, chief.id, 1)
+    const id = seen.a.body.vm.id
+    expect(seen.grow.status).toBe(200)
+    expect(seen.grow.body).toMatchObject({ id, resources: { cpu: 8, memory_mb: 16384, disk_gb: 64 } })
+    expect(cloud.resizes).toContainEqual({ vm: id, body: { cpu: 8, memory: 16384, storage: 65536 } })
+    expect(cloud.sizes.get(id)).toEqual({ cpu: 8, memory: 16384, storage: 65536 })
+    // The disk grew, so the guest's root filesystem is grown too and df shows it.
+    expect(cloud.execs.some((e) => e.vm === id && e.command.includes("resize2fs"))).toBe(true)
+    expect(seen.grow.body.df).toContain("63G")
+    // Grow only, within the cap, a number on some axis, and only the Chief's own sandboxes; none reaches Freestyle.
+    expect(seen.shrink.status).toBe(400)
+    expect(seen.shrink.body.error).toMatch(/grow/)
+    expect(seen.huge.status).toBe(400)
+    expect(seen.nothing.status).toBe(400)
+    expect(seen.junk.status).toBe(400)
+    expect(seen.foreign.status).toBe(404)
+    expect(cloud.resizes.filter((r) => r.vm === id)).toHaveLength(1)
+    expect(cloud.resizes.some((r) => r.vm !== id && !cloud.made.some((m) => m.id === r.vm && m.body.metadata?.cmux_chief_sandbox))).toBe(false)
+    // create takes the same sizes.
+    expect(seen.sized.status).toBe(200)
+    expect(seen.sized.body.resources).toMatchObject({ cpu: 6, memory_mb: 12288, disk_gb: 48 })
+    expect(cloud.sizes.get(seen.sized.body.vm.id)).toEqual({ cpu: 6, memory: 12288, storage: 49152 })
   })
 
   it("refuses notes without the running turn's token, and after the turn ended", async () => {
