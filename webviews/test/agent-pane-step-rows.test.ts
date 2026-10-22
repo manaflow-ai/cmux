@@ -123,10 +123,11 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
     await page.evaluate(() => window.cmuxPaintFrame().then(() => window.cmuxPaintFrame()));
     return page;
   };
-  /// Opens the run of the first two commands and the thought between them ("Ran commands",
-  /// conversation/ToolRun.tsx), so each step in it draws its own row.
+  /// Opens the group of the first two commands and the thought between them ("Ran 2 commands",
+  /// conversation/ToolGroupRow.tsx; the thought stays in the group, toolGroups.ts), so each step in
+  /// it draws its own row.
   const openRun = async (page: Page) => {
-    await page.locator(".acpmux-row button.cv-tool", { hasText: "Ran commands" }).click();
+    await page.locator(".acpmux-row button.cv-tool", { hasText: "Ran 2 commands" }).click();
     await page.locator(".cv-thought").waitFor();
     // The fold plays (a Web Animation, fold.ts), then the rows below it place by their drawn heights.
     await page.evaluate(async () => {
