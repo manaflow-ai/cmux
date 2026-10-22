@@ -136,10 +136,11 @@ def main():
 
     env = {"CMUX_MOBILE_STACK_EMAIL": os.environ.get("CMUX_MOBILE_STACK_EMAIL", ""),
            "CMUX_MOBILE_STACK_PASSWORD": os.environ.get("CMUX_MOBILE_STACK_PASSWORD", "")}
-    if not all(env.values()):
-        raise SystemExit("CMUX_MOBILE_STACK_EMAIL / CMUX_MOBILE_STACK_PASSWORD not set")
     udid = find_sim(a.sim) if a.reuse else None
     if udid is None:
+        # Only a new simulator signs in; a reused one is signed in already.
+        if not all(env.values()):
+            raise SystemExit("CMUX_MOBILE_STACK_EMAIL / CMUX_MOBILE_STACK_PASSWORD not set")
         udid = ensure_sim(a.sim, a.runtime)
         sh("xcrun", "simctl", "install", udid, a.app)
         sim = Sim(udid, shots_dir=os.path.join(a.out, "shots"))
@@ -171,8 +172,9 @@ def main():
         sim.shot(f"connect-{n}")
         results.append({"connect": n, "launch_utc": datetime.datetime.fromtimestamp(start, datetime.timezone.utc).isoformat(),
                         "connected_s": round(connected_at - start, 2) if connected_at else None, "lines": seen})
-    json.dump({"udid": udid, "block_udp": a.block_udp, "results": results},
-              open(os.path.join(a.out, "results.json"), "w"), indent=2)
+    with open(os.path.join(a.out, "results.json"), "w") as f:
+        json.dump({"udid": udid, "block_udp": a.block_udp, "results": results}, f, indent=2)
+    logf.close()
 
 
 if __name__ == "__main__":

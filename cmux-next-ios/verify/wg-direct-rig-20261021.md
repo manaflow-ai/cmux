@@ -29,7 +29,7 @@ Answer:
 The first iOS build failed: #23829 left `TransportKind` ambiguous in
 `LiveCoordinator+Links.swift` (`CmuxMobileModel.TransportKind` and
 `CmuxMobileTransport.TransportKind` are both visible), which only an iOS compile sees. The PR
-that adds this note fixes it and adds a CI job that compiles the package for the iOS simulator.
+that adds this note fixes it and adds a CI job that runs the package's tests on an iOS simulator.
 
 ## Numbers
 
@@ -62,7 +62,7 @@ From the Mac's debug log, every connect:
 
 ```
 TRACE cmux_mobile_link::dial::wireguard: UDP send failed error=No route to host (os error 65) target=172.20.21.191:58300
-DEBUG cmux_mobile_link::dial::wireguard: peer confirmed our datagrams reach it direct=Some(Route { carrier: Udp, addr: 104.30.147.177:31372 })
+DEBUG cmux_mobile_link::dial::wireguard: peer confirmed our datagrams reach it direct=Some(Route { carrier: Udp, addr: 104.30.x.x:31372 })
 INFO  cmux_mobile_host::host: link up ... kind=WireGuard path=Turn ... link_ready=75.0ms
 ```
 
