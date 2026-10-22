@@ -135,13 +135,15 @@ test("right-clicking the rail moves it to the right edge and back, and the host 
     expect(rail().style.left).toBe("");
     expect(await written).toEqual([RAIL_SIDE_KEY, "right"]);
 
-    // The card opens on the rail's left: anchored to the right edge, past the rail.
+    // The card opens on the rail's left: it draws outside the scroller (PreviewCard.tsx), counted
+    // from an anchor at the rail box's top-right corner, its right edge 52 px in from it.
     await act(async () => tick(5).focus());
     const card = document.querySelector<HTMLElement>(".acpmux-minimap__card")!;
     expect(card).not.toBeNull();
-    expect(card.style.right).toBe("0px");
-    expect(card.style.left).toBe("auto");
-    expect(card.style.transform).toMatch(/^translate3d\(-52px, /);
+    const anchor = document.querySelector<HTMLElement>(".acpmux-minimap__anchor")!;
+    expect(anchor.style.right).toBe("0px");
+    expect(anchor.style.left).toBe("auto");
+    expect(card.style.transform).toMatch(/^translate3d\(-52px, .*\) translateX\(-100%\)$/);
     await act(async () => tick(5).blur());
 
     // And back: the key goes, so the default holds again.
