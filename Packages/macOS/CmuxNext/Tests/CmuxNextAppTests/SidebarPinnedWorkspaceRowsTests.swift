@@ -199,10 +199,10 @@ struct SidebarPinnedWorkspaceRowsTests {
         let area = try #require(arranged.first { $0.id == .custom(Self.pinned) })
         let pinnedRows = Self.workspaces(area)
         #expect(pinnedRows.map(\.id.rawValue) == ["b/ws-x", "a/ws-x"], "Pinned does not list each machine's row once, in document order")
-        #expect(pinnedRows.allSatisfy(\.pinned))
+        #expect(pinnedRows.allSatisfy { $0.pinned })
         let machineRows = arranged.filter { $0.machine != nil }.flatMap(Self.workspaces)
         #expect(machineRows.map(\.id.rawValue).sorted() == ["a/ws-y", "b/ws-y"], "a pinned row also lists in its machine list")
-        #expect(!machineRows.contains(where: \.pinned), "a machine list row takes the other machine's pin")
+        #expect(!machineRows.contains { $0.pinned }, "a machine list row takes the other machine's pin")
         // The bridge maps each pinned workspace from its own machine's workspaces only.
         let store = DaemonStore()
         store.apply(snapshot: DaemonTree(workspaces: ["ws-x", "ws-y"].enumerated().map { index, id in
