@@ -1823,11 +1823,16 @@ export function VirtualTranscript({
   withdrawn.current = withdrawnSet;
   const dockRef = useRef(dock);
   dockRef.current = dock;
+  const queueSession = useRef(sessionId);
+  queueSession.current = sessionId;
+  /// The chat and the stack `queuedIds` were noted in.
+  const notedIn = useRef<{ sessionId?: string; dock?: HTMLElement | null }>({});
   /// Notes the stack's queued prompts; called first by each size observer (the stack's, and the
   /// view's, for a stack laid out under the transcript), so the render a size change makes knows,
-  /// and by each change of the queue (below). A prompt the queue's fold hides (ComposerQueue `data-folded-ids`) is still queued: closing the
-  /// fold is not its card leaving, and no room is kept under the last row for a prompt that stays
-  /// queued (Leo 2026-10-21: the queue closed left a hole over the stack, then the rows dropped).
+  /// and by each change of the queue (below). A prompt the queue's fold hides (ComposerQueue
+  /// `data-folded-ids`) is still queued: closing the fold is not its card leaving, and no room is
+  /// kept under the last row for a prompt that stays queued (Leo 2026-10-21: the queue closed left a
+  /// hole over the stack, then the rows dropped).
   const noteQueue = useCallback(() => {
     const dock = dockRef.current;
     const now = new Set([
@@ -1836,6 +1841,16 @@ export function VirtualTranscript({
         (list.dataset.foldedIds ?? "").split(" "),
       ),
     ]);
+    // Another chat's queue, or another stack, starts over: the last one's prompts never left this
+    // one, and no room is held for them (#24182: switched to a chat with its own queue, the last
+    // chat's prompts read as cards that left, and a prompt withdrawn later kept room as a sent one).
+    if (notedIn.current.sessionId !== queueSession.current || notedIn.current.dock !== dock) {
+      notedIn.current = { sessionId: queueSession.current, dock };
+      queuedIds.current = now;
+      heldFor.current.clear();
+      queueLeft.current = false;
+      return;
+    }
     const left = [...queuedIds.current].filter((id) => !now.has(id));
     queuedIds.current = now;
     if (!left.length) return;
