@@ -233,6 +233,11 @@ test("with no folder repository, a bare #N links only when the transcript names 
     { folder: "" },
   );
   expect(view.chips()).toEqual([["#5", pr("o/r", 5)]]);
+  // A `#N` inside an address is the address's.
+  const other = await render([user("Search"), assistant("See https://example.com/?q=#12 now.")], [], { folder: "" });
+  expect([...other.element.querySelectorAll("a")].map((link) => link.getAttribute("href"))).toEqual([
+    "https://example.com/?q=#12",
+  ]);
 });
 
 test("rule d: with no evidence and one candidate, the folder's repository, asking nothing", async () => {

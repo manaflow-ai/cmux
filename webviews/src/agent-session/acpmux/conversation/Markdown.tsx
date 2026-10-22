@@ -386,11 +386,11 @@ function linkedGithubText(text: string, key: string, repository?: string, enable
   // transcript names its repository.
   const issues = githubReferences(text, repository ?? NO_REPOSITORY, "pull", true);
   const commits = commitReferences(text, repository);
-  const spans = commits.length ? textLinks(text) : [];
-  const refs = [
-    ...issues,
-    ...commits.filter((commit) => !spans.some((span) => commit.start < span.end && span.start < commit.end)),
-  ]
+  // A commit or a bare `#N` inside a URL or a path (`https://x.test/?q=#12`) is part of it.
+  const spans = commits.length || issues.some((issue) => issue.bare) ? textLinks(text) : [];
+  const outside = (ref: { start: number; end: number }) =>
+    !spans.some((span) => ref.start < span.end && span.start < ref.end);
+  const refs = [...issues.filter((issue) => !issue.bare || outside(issue)), ...commits.filter(outside)]
     .sort((a, b) => a.start - b.start)
     .filter((ref, index, all) => index === 0 || ref.start >= all[index - 1]!.end);
   if (!refs.length) return linkedText(text, key);
