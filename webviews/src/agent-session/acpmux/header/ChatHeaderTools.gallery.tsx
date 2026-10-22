@@ -3,7 +3,8 @@ import { createElement } from "react";
 import type { ReactNode } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play, PlayContext } from "../../../gallery/play";
-import type { ChatMenuItem } from "./ChatHeaderTools";
+import { Icon } from "../icons/Icon";
+import { HEADER_GLYPH, type ChatMenuItem } from "./ChatHeaderTools";
 import type { QuickAction } from "./quickActions";
 
 type HeaderToolsProps = {
@@ -29,6 +30,7 @@ type HeaderToolsProps = {
   readStatus?: () => Promise<unknown>;
   onApplyWorktree?: (key: string) => Promise<unknown>;
   onRemoveWorktree?: (key: string, discard: boolean) => Promise<unknown>;
+  inspector?: ReactNode;
 };
 
 const menuRows = (): ChatMenuItem[] => [
@@ -445,6 +447,23 @@ export default componentEntry<HeaderToolsProps>({
       note: "Continue in opens with ArrowRight; Escape closes the submenu and then the parent menu.",
       props: base,
       play: keyboardSubmenu,
+    },
+    inspector: {
+      note: "The Inspector's toggle, open, leads the top-right tools with Claude's panel glyph, as Claude Code desktop's and ChatGPT's panel toggles do (Leo 2026-10-21).",
+      props: {
+        ...base,
+        summary: null,
+        inspector: (
+          <button
+            type="button"
+            className="acpmux-header-tool acpmux-chat-inspector-toggle"
+            aria-label="Inspector"
+            aria-pressed
+          >
+            <Icon name="view.inspector" size={HEADER_GLYPH} />
+          </button>
+        ),
+      },
     },
     "quick-chat": {
       note: "Quick Chat has no tab to split, so only the summary and chat actions remain.",

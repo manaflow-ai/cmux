@@ -793,6 +793,15 @@
    "replaces": [
     "list.bullet"
    ]
+  },
+  {
+   "name": "view.inspector",
+   "meaning": "The chat Inspector's toggle: the session panel beside the chat (Claude Code desktop's panel button)",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='3.846' y='4.752' width='16.308' height='14.496' rx='2.265'/><path d='M11 10h5.25M11 14h5.25'/><g fill='currentColor' stroke='none'><circle cx='8' cy='10' r='1.1'/><circle cx='8' cy='14' r='1.1'/></g></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-view-inspector' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='#000'><circle cx='8' cy='10' r='1.2'/><circle cx='8' cy='14' r='1.2'/></g><path d='M11 10h5.25M11 14h5.25' stroke='#000' stroke-width='1.6' stroke-linecap='round'/></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' mask='url(#cmxs-view-inspector)'><rect x='3.846' y='4.752' width='16.308' height='14.496' rx='2.265'/></g></svg>",
+   "alts": [],
+   "note": "A card holding a two-row bulleted list, the panel's sections, in the pane frame's geometry (Leo 2026-10-21: Claude's panel glyph).",
+   "replaces": []
   }
  ]
 }

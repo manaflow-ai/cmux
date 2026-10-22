@@ -1995,6 +1995,12 @@
    "family": "view"
   },
   {
+   "name": "view.inspector",
+   "meaning": "The chat Inspector's toggle: the session panel beside the chat (Claude Code desktop's panel button)",
+   "sf": "questionmark.square.dashed",
+   "family": "view"
+  },
+  {
    "name": "view.list",
    "meaning": "List / choices / all",
    "sf": "list.bullet",

@@ -199,7 +199,7 @@ export function useChatInspector({
         title={label}
         onClick={toggle}
       >
-        <Icon name="pane.split.right" size={HEADER_GLYPH} />
+        <Icon name="view.inspector" size={HEADER_GLYPH} />
       </button>
     ),
     panel: (

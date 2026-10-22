@@ -106,7 +106,7 @@ let paneWidth = 0;
 // The running line's counts call this (App.tsx `openAgents` / `openCommands`).
 let reveal: ((section: "subagents" | "tasks") => void) | undefined;
 
-/// The pane's pieces as App.tsx places them: the toggle last in the header's tools, the Inspector
+/// The pane's pieces as App.tsx places them: the toggle first in the header's tools, the Inspector
 /// beside the chat column in the pane's shell.
 function Pane({
   snapshot,

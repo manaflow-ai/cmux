@@ -51,10 +51,6 @@ test("the header strip has no separators and every icon button draws the same gl
     root!.render(
       <header className="acpmux-header">
         <div className="acpmux-handoff-header-tools">
-          <NeedsYouButton
-            items={[]}
-            actions={{ answer: async () => undefined, goTo: noop, ask: async () => undefined }}
-          />
           <ChatHeaderTools
             onTerminal={noop}
             onSplitDown={noop}
@@ -67,6 +63,12 @@ test("the header strip has no separators and every icon button draws the same gl
             onSideTabs={noop}
             summary={<SummaryButton card={card as never} />}
             menu={() => [{ key: "rename", label: "Rename", icon: "action.edit" }]}
+            inbox={
+              <NeedsYouButton
+                items={[]}
+                actions={{ answer: async () => undefined, goTo: noop, ask: async () => undefined }}
+              />
+            }
           />
         </div>
       </header>,

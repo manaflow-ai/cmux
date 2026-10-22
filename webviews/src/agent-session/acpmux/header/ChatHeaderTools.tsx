@@ -111,6 +111,7 @@ export function ChatHeaderTools({
   onApplyWorktree,
   onRemoveWorktree,
   inspector,
+  inbox,
 }: {
   /// Terminal and Browser run their split with the quick action's mode: the App opens it, or for
   /// `toggle` closes the split this button opened when it is still there.
@@ -158,9 +159,11 @@ export function ChatHeaderTools({
   onApplyWorktree?: (key: string) => Promise<unknown>;
   /// Remove on the worktree pill (cx-lyqio.5): `git.worktree.remove` for the chat's session.
   onRemoveWorktree?: (key: string, discard: boolean) => Promise<unknown>;
-  /// The Inspector's toggle (Debug Settings `agent.inspector`, inspector/ChatInspector.tsx): the
-  /// header's last, top-right button, as Claude Code desktop's panel toggle is.
+  /// The Inspector's toggle (Debug Settings `agent.inspector`, inspector/ChatInspector.tsx): the first
+  /// of the top-right tools, as Claude Code desktop's and ChatGPT's panel toggles are (Leo 2026-10-21).
   inspector?: ReactNode;
+  /// The Needs you inbox (needsYou/NeedsYou.tsx), right after the Inspector's toggle.
+  inbox?: ReactNode;
 }) {
   const t = useT();
   const terminalKey = useShortcut(HEADER_ACTIONS.terminal);
@@ -402,6 +405,8 @@ export function ChatHeaderTools({
   );
   return (
     <div className="acpmux-header-tools" onPointerEnter={onPointerEnter}>
+      {inspector}
+      {inbox}
       {worktree && <WorktreePill worktree={worktree} onApply={onApplyWorktree} onRemove={onRemoveWorktree} />}
       {pullRequest && pullRequestChip !== false && (
         <PullRequestChip pullRequest={pullRequest} onMerge={onMergePullRequest} />
@@ -442,7 +447,6 @@ export function ChatHeaderTools({
           expand={expand}
           onExpanded={onExpanded}
         />
-        {inspector}
       </div>
     </div>
   );

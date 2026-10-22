@@ -319,6 +319,7 @@ extension IconName {
         .unreadBadge,
         .unreadDot,
         .viewGrid,
+        .viewInspector,
         .viewList,
         .windowNew,
         .workspace,

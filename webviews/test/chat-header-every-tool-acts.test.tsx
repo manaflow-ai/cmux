@@ -115,10 +115,6 @@ function Header({ calls }: { calls: string[] }) {
           onOpen={environmentOpener(inspector.reveal, record("environment.files"))}
         />
         <div className="acpmux-handoff-header-tools">
-          <NeedsYouButton
-            items={[]}
-            actions={{ answer: async () => undefined, goTo: record("needsYou.goTo"), ask: async () => undefined }}
-          />
           <ChatHeaderTools
             onTerminal={record("terminal")}
             onSplitDown={record("splitDown")}
@@ -132,6 +128,12 @@ function Header({ calls }: { calls: string[] }) {
             summary={inspector.on ? null : <SummaryButton card={card as never} />}
             menu={() => [{ key: "rename", label: "Rename", icon: "action.edit", onSelect: record("rename") }]}
             inspector={inspector.button}
+            inbox={
+              <NeedsYouButton
+                items={[]}
+                actions={{ answer: async () => undefined, goTo: record("needsYou.goTo"), ask: async () => undefined }}
+              />
+            }
           />
         </div>
       </header>
@@ -194,8 +196,10 @@ async function everyItemActs(inspector: boolean, before?: () => void) {
 test("with the Inspector on, every header item acts on a click; the Environment line lights Environment when it is in view", async () => {
   setChatDisplay({});
   const labels = await everyItemActs(true);
+  // The Inspector's toggle leads the top-right tools, as Claude Code desktop's panel toggle does.
   expect(labels).toEqual([
     "Environment",
+    "Inspector",
     "Needs you",
     "Changes",
     "Preview",
@@ -205,7 +209,6 @@ test("with the Inspector on, every header item acts on a click; the Environment 
     "Browser",
     "New tab",
     "Chat actions",
-    "Inspector",
   ]);
 });
 
