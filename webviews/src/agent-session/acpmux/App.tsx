@@ -810,12 +810,15 @@ const MessageRow = memo(
             <>
               <ChiefPromptBubble text={envelope ? envelope.task : (row.text ?? "")} />
               <PromptActions row={row} text={envelope ? envelope.task : (row.text ?? "")} />
+              {/* A Chief's bubble can clip its text, so its Send now keeps a line under it. */}
+              <PendingSteer row={row} send={editQueued} />
             </>
           ) : (
-            <UserBubble row={row} text={row.text ?? ""} />
+            // A waiting steer's Send now sits at the bubble's left, on its row (Claude's queued
+            // prompts; Leo, 2026-10-21): it never takes a line of its own.
+            <UserBubble row={row} text={row.text ?? ""} pending={<PendingSteer row={row} send={editQueued} beside />} />
           )}
           <DeliveryFailure row={row} />
-          <PendingSteer row={row} send={editQueued} />
           {row.status && (
             <div className="cv-user__status">
               <span>{row.status}</span>

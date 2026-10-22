@@ -616,13 +616,17 @@ const META_GAP = 4;
 const META_ROW = 24;
 const MESSAGE_GAP = 8;
 const TURN_GAP = 24;
-/// A prompt's meta row (`.cv-user__actions`, UserBubble.tsx), and the line under a steer the agent
-/// has not read yet (PendingSteer.tsx, `.cv-user__pending`); a read steer draws nothing more.
-/// A Chief's prompt (ChiefPromptBubble.tsx) draws no action row.
-const userMetaHeight = (row: AcpmuxRow) =>
-  (row.text && !row.failed && !row.queued && row.from !== "chief" && !chiefEnvelope(row.text)
-    ? META_GAP + META_ROW
-    : 0) + (row.steer === "waiting" ? USER_STATUS_HEIGHT : 0);
+/// A prompt's meta row (`.cv-user__actions`, UserBubble.tsx). A steer the agent has not read yet
+/// draws its clock and Send now beside the bubble, adding no height (PendingSteer.tsx,
+/// `.cv-user__pending--beside`), except under a Chief's prompt (ChiefPromptBubble.tsx), which draws
+/// no action row and keeps that line under its bubble.
+const userMetaHeight = (row: AcpmuxRow) => {
+  const chief = row.from === "chief" || chiefEnvelope(row.text) !== undefined;
+  return (
+    (row.text && !row.failed && !row.queued && !chief ? META_GAP + META_ROW : 0) +
+    (row.steer === "waiting" && chief ? USER_STATUS_HEIGHT : 0)
+  );
+};
 const chromeHeight = (row: AcpmuxRow) =>
   row.kind === "user" ? USER_BUBBLE_PADDING + userMetaHeight(row) + (row.status ? USER_STATUS_HEIGHT : 0) : 0;
 /// The bubble's share of its row and its side padding, which sits inside that share (border-box).
