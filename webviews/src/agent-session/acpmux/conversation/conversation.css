@@ -1877,7 +1877,40 @@ pre.cv-math-source {
   }
 }
 /* A message to another agent (MessageCard.tsx) is the shared agent message row
-   (AgentMessageRow.css). */
+   (AgentMessageRow.css). Opened, its text grows in place: the card holds only the message,
+   capped near eight lines (20px each) and scrolling past them, the bottom faded while more is
+   below. */
+.cv-message > .cv-agentmsg__card {
+  max-height: none;
+  overflow: visible;
+}
+.cv-message__text {
+  max-height: calc(8 * 20px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.cv-message__text.has-more {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
+}
+/* Copy, at the sent line's end: shown while the message is pointed at or focused, as a received
+   message's row is. Opacity, not display, so the line never reflows under the pointer. */
+.cv-sent-actions {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  margin-inline-start: 4px;
+  opacity: 0;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cv-sent-actions {
+    transition: opacity 120ms ease-out;
+  }
+}
+.cv-message:hover .cv-sent-actions,
+.cv-sent-actions:focus-within {
+  opacity: 1;
+}
 /* Another agent's message (IncomingMessageCard.tsx): one line at the left, drawn as a tool row
    draws (its mark in the icon column, 26px, the rows' font), so it reads among them, never at the
    person's side. The row is a user row (`.acpmux-user` aligns its bubble to the end): the message
