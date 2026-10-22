@@ -1,8 +1,8 @@
 // The context ring's hover card (Leo 2026-10-21, after Claude's and Codex's own): "Context window",
 // "23% used · 111k / 475k", the window as a thin stacked bar (the agent's setup, then the
 // conversation, over the free track), the setup split when the chat reports it, Compact when the
-// agent offers it, and "Details ›", which opens the Inspector at its Context section. It sits on
-// the tooltip's frosted glass, as every link's hover card does (contextCard.css).
+// agent offers it, and "Details ›", which opens the Inspector at its Context section. It is the
+// shared glass hover card (.ui-card.ui-glass), as a session's hover card is (contextCard.css).
 import "./contextCard.css";
 import { useT } from "./i18n";
 

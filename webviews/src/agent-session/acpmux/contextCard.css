@@ -1,33 +1,19 @@
-/* The context ring's hover card (ContextCard.tsx; Leo 2026-10-21). It sits on the tooltip's frosted
-   glass (desktop.css --tooltip-*), as every link's hover card does (.cv-link-preview), with
-   ui-card's solid surface overridden: glass, never opaque. The bar's colors are the Inspector
-   Context meter's (inspector/inspector.css): the theme accent over a faint text-color track. */
+/* The context ring's hover card (ContextCard.tsx; Leo 2026-10-21). It is a glass hover card
+   (.ui-card.ui-glass, pages/shared/desktop.css), as a session's hover card is: its fill, frost, rim
+   and Reduce Transparency fallback are the liquid glass's (ui/glass/glass.css). This sheet sets only
+   its size and type. The bar's colors are the Inspector Context meter's (inspector/inspector.css):
+   the theme accent over a faint text-color track. */
 .acpmux-context-card.ui-card {
   width: 260px;
   max-width: min(260px, calc(100vw - 24px));
   box-sizing: border-box;
   padding: 12px;
-  border: var(--cmux-hairline, 1px) solid
-    var(--cmux-separator, color-mix(in srgb, var(--agent-text) 12%, transparent));
   border-radius: var(--ui-popup-radius, 10px);
-  background: var(--tooltip-tint, var(--surface-popup));
-  -webkit-backdrop-filter: var(--tooltip-blur, blur(20px) saturate(1.4));
-  backdrop-filter: var(--tooltip-blur, blur(20px) saturate(1.4));
-  box-shadow: var(--tooltip-shadow, var(--elevation-2));
   color: var(--agent-text);
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
   pointer-events: auto;
-}
-
-/* Reduce Transparency: the card's solid popup surface, with no blur. */
-@media (prefers-reduced-transparency: reduce) {
-  .acpmux-context-card.ui-card {
-    background: var(--surface-popup);
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
 }
 
 .acpmux-context-card-title {

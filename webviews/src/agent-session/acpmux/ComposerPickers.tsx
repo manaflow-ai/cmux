@@ -1125,7 +1125,8 @@ export function ContextRing({
       </button>
       <AnchoredCard
         anchor={shown ? trigger.current : null}
-        className={`acpmux-context-card${full}`}
+        // AnchoredCard adds ui-card; ui-glass makes it the shared glass hover card.
+        className={`ui-glass acpmux-context-card${full}`}
         side="top"
         interactive
         ariaLabel={t("context.title")}
