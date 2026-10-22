@@ -438,6 +438,15 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 .nt-box {
   --acpmux-composer-edge-focus: color-mix(in srgb, var(--agent-text) 28%, var(--agent-page-bg, var(--acpmux-base)));
 }
+/* Under Increase Contrast the resting edge is already the full text color, so 28% would dim it on
+   focus: keep the resting edge there (the shared ring below marks a focused box). */
+@media (prefers-contrast: more) {
+  .acpmux-composer,
+  .nt-composer,
+  .nt-box {
+    --acpmux-composer-edge-focus: var(--acpmux-composer-edge);
+  }
+}
 :root[data-page-inactive] :is(.acpmux-composer, .nt-composer, .nt-box) {
   --acpmux-composer-edge-focus: var(--acpmux-composer-edge);
 }
