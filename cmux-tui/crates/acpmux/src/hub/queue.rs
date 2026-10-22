@@ -591,7 +591,7 @@ impl Hub {
         let mut unstarted = lost_start::Unstarted::default();
         let scanned =
             self.store.scan_kinds(&session.id, Self::QUEUE_KINDS, &mut |e: EventRecord| {
-                for (prompt_id, turn_id) in unstarted.read(&e, &waiting) {
+                for (prompt_id, turn_id) in unstarted.read(&e, &waiting, &mut order) {
                     waiting.remove_turn(Some(&turn_id));
                     order.remove(&prompt_id);
                 }
@@ -679,9 +679,12 @@ impl Hub {
         }
         // The last reorder holds (a prompt that left the queue for its turn went back ahead of
         // it); a prompt queued after it keeps its place at the end.
-        waiting.sort_by_key(|q| order.key(q.msg.get("promptId")));
+        waiting.sort_by_key(|q| {
+            let id = q.msg.get("promptId");
+            unstarted.key(id).unwrap_or_else(|| order.key(id))
+        });
         // A prompt that left the queue for its turn runs first, as it would have.
-        for id in unstarted.prompts().filter_map(Value::as_str) {
+        for id in unstarted.prompts() {
             held.remove(id);
         }
         let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);

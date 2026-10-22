@@ -82,33 +82,38 @@ impl Waiting {
     }
 }
 
-/// The queue order: each prompt's place, from the last reorder and the prompts put back ahead
-/// of it since (`lost_start.rs` `lead`). A prompt with no place goes after every placed one.
+/// The queue order: each prompt's place, from the last reorder and the prompts that led ahead
+/// of it since (`lost_start.rs`). A prompt with no place goes after every placed one.
 #[derive(Default)]
 pub(super) struct Order {
-    place: HashMap<String, i64>,
-    /// The place before every placed prompt.
-    front: i64,
+    place: HashMap<String, (i64, u64)>,
+    /// How many times the prompts that left the queue for a turn that has not started went to
+    /// its head (`lead`).
+    leads: i64,
 }
 
 impl Order {
     /// A reorder (`queue_order`): these prompts, in this order.
     pub(super) fn set<'a>(&mut self, ids: impl Iterator<Item = &'a Value>) {
         self.place.clear();
-        self.front = 0;
         for (i, id) in ids.enumerate() {
             if let Some(id) = id.as_str() {
-                self.place.entry(id.to_owned()).or_insert(i as i64);
+                self.place.entry(id.to_owned()).or_insert((i as i64, 0));
             }
         }
     }
 
-    /// Puts these prompts ahead of every other, in this order.
-    pub(super) fn lead<'a>(&mut self, ids: impl DoubleEndedIterator<Item = &'a Value>) {
-        for id in ids.rev().filter_map(Value::as_str) {
-            self.front -= 1;
-            self.place.insert(id.to_owned(), self.front);
-        }
+    /// The prompts that left the queue for a turn that has not started went to its head, ahead
+    /// of every placed prompt (`lost_start.rs` `key` keeps them there).
+    pub(super) fn lead(&mut self) {
+        self.leads += 1;
+    }
+
+    /// The prompt `prompt_id`, the `slot`-th to leave the queue for a turn that has not started,
+    /// stays where the last lead put it: behind the ones that still lead, ahead of every prompt
+    /// placed before that lead, in the order they left the queue.
+    pub(super) fn keep_lead(&mut self, prompt_id: &str, slot: u64) {
+        self.place.insert(prompt_id.to_owned(), (-self.leads.max(1), slot));
     }
 
     /// A prompt that left the queue for good: a copy queued again goes where its own records say.
@@ -119,12 +124,12 @@ impl Order {
     }
 
     /// The sort key of the prompt `prompt_id`.
-    pub(super) fn key(&self, prompt_id: Option<&Value>) -> i64 {
+    pub(super) fn key(&self, prompt_id: Option<&Value>) -> (i64, u64) {
         prompt_id
             .and_then(Value::as_str)
             .and_then(|id| self.place.get(id))
             .copied()
-            .unwrap_or(i64::MAX)
+            .unwrap_or((i64::MAX, 0))
     }
 }
 

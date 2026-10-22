@@ -10,18 +10,22 @@
 //!
 //! Only its own turn's start settles it: another turn's (one a daemon that did not restore it
 //! ran, its log load failed) did not run it, and settling it there dropped it unrun.
+//!
+//! The prompts are indexed by prompt, turn and starting turn, so each record costs the same
+//! however many of them a long log holds.
 
 use super::queue_waiting::{Order, Waiting};
 use crate::store::EventRecord;
 use serde_json::Value;
+use std::collections::HashMap;
 
 /// A prompt dequeued for a turn that has not started.
 struct Lost {
-    prompt_id: Value,
-    turn_id: Value,
+    prompt_id: String,
+    turn_id: String,
     /// The turn whose `turn_started` starts it: its own, or the agent message turn it joined
     /// (`joinedTurnId`, `digest.rs` `take_joined`).
-    starts_in: Value,
+    starts_in: String,
 }
 
 /// The prompts dequeued for a turn that has not started, read in log order.
@@ -29,24 +33,37 @@ struct Lost {
 pub(super) struct Unstarted {
     /// A turn started and not settled: a prompt dequeued into it was steered in (`steer_end.rs`).
     open: bool,
-    /// In the order they left the queue.
-    lost: Vec<Lost>,
+    /// In the order they left the queue; `None` once settled or forgotten.
+    lost: Vec<Option<Lost>>,
+    by_prompt: HashMap<String, Vec<usize>>,
+    by_turn: HashMap<String, Vec<usize>>,
+    by_start: HashMap<String, Vec<usize>>,
 }
 
 impl Unstarted {
     /// One record, before `restore_queue` reads it; `waiting` is what it still holds queued.
     /// Returns the `(promptId, turnId)` of the prompts the record settled: they leave the waiting
     /// list and the queue order.
-    pub(super) fn read(&mut self, e: &EventRecord, waiting: &Waiting) -> Vec<(Value, Value)> {
-        let (turn_id, prompt_id) = (e.msg.get("turnId"), e.msg.get("promptId"));
-        let other = |q: &Lost| Some(&q.prompt_id) != prompt_id;
+    pub(super) fn read(
+        &mut self,
+        e: &EventRecord,
+        waiting: &Waiting,
+        order: &mut Order,
+    ) -> Vec<(Value, Value)> {
+        let turn_id = e.msg.get("turnId").and_then(Value::as_str);
+        let prompt_id = e.msg.get("promptId").and_then(Value::as_str);
         match e.kind.as_str() {
             "dequeued" if !self.open => {
-                if let (true, Some(p), Some(t)) = (waiting.has_turn(turn_id), prompt_id, turn_id)
-                    && !self.holds(turn_id)
+                if let (Some(p), Some(t)) = (prompt_id, turn_id)
+                    && waiting.has_turn(e.msg.get("turnId"))
+                    && !self.holds(e.msg.get("turnId"))
                 {
-                    let starts_in = e.msg.get("joinedTurnId").unwrap_or(t).clone();
-                    self.lost.push(Lost { prompt_id: p.clone(), turn_id: t.clone(), starts_in });
+                    let starts_in = e.msg.get("joinedTurnId").and_then(Value::as_str).unwrap_or(t);
+                    self.push(Lost {
+                        prompt_id: p.to_owned(),
+                        turn_id: t.to_owned(),
+                        starts_in: starts_in.to_owned(),
+                    });
                 }
                 Vec::new()
             }
@@ -54,27 +71,41 @@ impl Unstarted {
             // not start it.
             "turn_started" => {
                 self.open = true;
-                self.settle(|q| {
-                    other(q) && Some(&q.starts_in) != turn_id && Some(&q.turn_id) != turn_id
-                })
+                let mut slots = self.of_prompt(prompt_id);
+                for index in [&self.by_start, &self.by_turn] {
+                    slots.extend(turn_id.and_then(|t| index.get(t)).into_iter().flatten());
+                }
+                self.settle(slots)
             }
             "turn_result" => {
                 self.open = false;
-                self.settle(other)
+                self.settle(self.of_prompt(prompt_id))
             }
             // Recorded for its own turn, it still waits for `turn_started`; a steer (or a run
             // under another turn id) settled it.
             "user_message" => {
                 let steer = e.msg.get("steer") == Some(&Value::Bool(true));
-                self.settle(|q| other(q) || (!steer && Some(&q.turn_id) == turn_id))
+                let slots: Vec<usize> = (self.of_prompt(prompt_id).into_iter())
+                    .filter(|&i| {
+                        let q = self.lost[i].as_ref();
+                        steer || q.is_some_and(|q| Some(q.turn_id.as_str()) != turn_id)
+                    })
+                    .collect();
+                self.settle(slots)
             }
             // Refused, withdrawn, or queued again under a new turn id.
-            "prompt_refused" | "queue_removed" | "queued" => self.settle(other),
+            "prompt_refused" | "queue_removed" | "queued" => self.settle(self.of_prompt(prompt_id)),
             // A daemon that put it back moved or held it (an edit only changes its record): it
             // waits as any queued prompt since, in that place, and only what settles a queued
-            // prompt settles it.
-            "queue_order" => self.forget(|q| named(&e.msg, "order", &q.prompt_id)),
-            "queue_paused" => self.forget(|q| named(&e.msg, "held", &q.prompt_id)),
+            // prompt settles it. A reorder places it itself; a hold keeps the place it led from.
+            "queue_order" => {
+                self.forget(&e.msg, "order", None);
+                Vec::new()
+            }
+            "queue_paused" => {
+                self.forget(&e.msg, "held", Some(order));
+                Vec::new()
+            }
             _ => Vec::new(),
         }
     }
@@ -82,36 +113,84 @@ impl Unstarted {
     /// Whether the prompt of `turn_id` left the queue for a turn that has not started: its
     /// `queued` record stays waiting.
     pub(super) fn holds(&self, turn_id: Option<&Value>) -> bool {
-        self.lost.iter().any(|q| Some(&q.turn_id) == turn_id)
+        turn_id.and_then(Value::as_str).is_some_and(|t| self.by_turn.contains_key(t))
     }
 
     /// The prompt ids of the prompts that left the queue for a turn that has not started.
-    pub(super) fn prompts(&self) -> impl DoubleEndedIterator<Item = &Value> {
-        self.lost.iter().map(|q| &q.prompt_id)
+    pub(super) fn prompts(&self) -> impl Iterator<Item = &str> {
+        self.lost.iter().flatten().map(|q| q.prompt_id.as_str())
     }
 
-    /// Puts these prompts at the head of the queue's `order`, as they left it: they run first,
-    /// as they would have. A reorder logged after one left does not name it.
+    /// These prompts go to the head of the queue's `order`, as they left it: they run first, as
+    /// they would have. A reorder logged after one left does not name it. They keep that place
+    /// (`key`); `order` only learns that the ones it holds now led from here.
     pub(super) fn lead(&self, order: &mut Order) {
-        order.lead(self.prompts());
+        order.lead();
     }
 
-    /// Keeps the prompts `keep` accepts; returns the others.
-    fn settle(&mut self, keep: impl Fn(&Lost) -> bool) -> Vec<(Value, Value)> {
-        let (kept, settled): (Vec<_>, Vec<_>) =
-            std::mem::take(&mut self.lost).into_iter().partition(|q| keep(q));
-        self.lost = kept;
-        settled.into_iter().map(|q| (q.prompt_id, q.turn_id)).collect()
+    /// The sort key of the prompt `prompt_id` if it is one of these: ahead of every other, in the
+    /// order they left the queue.
+    pub(super) fn key(&self, prompt_id: Option<&Value>) -> Option<(i64, u64)> {
+        let first = self.by_prompt.get(prompt_id.and_then(Value::as_str)?)?.first()?;
+        Some((i64::MIN, *first as u64))
     }
 
-    /// Stops tracking the prompts `waits` accepts; they stay waiting.
-    fn forget(&mut self, waits: impl Fn(&Lost) -> bool) -> Vec<(Value, Value)> {
-        self.lost.retain(|q| !waits(q));
-        Vec::new()
+    /// The slots of the prompt `prompt_id`.
+    fn of_prompt(&self, prompt_id: Option<&str>) -> Vec<usize> {
+        prompt_id.and_then(|p| self.by_prompt.get(p)).cloned().unwrap_or_default()
     }
-}
 
-/// Whether the record's list `key` names `prompt_id`.
-fn named(msg: &Value, key: &str, prompt_id: &Value) -> bool {
-    msg.get(key).and_then(Value::as_array).is_some_and(|ids| ids.contains(prompt_id))
+    fn push(&mut self, q: Lost) {
+        let i = self.lost.len();
+        for (index, id) in [
+            (&mut self.by_prompt, &q.prompt_id),
+            (&mut self.by_turn, &q.turn_id),
+            (&mut self.by_start, &q.starts_in),
+        ] {
+            index.entry(id.clone()).or_default().push(i);
+        }
+        self.lost.push(Some(q));
+    }
+
+    /// Takes the prompt in slot `i` out of the list and its indexes.
+    fn take(&mut self, i: usize) -> Option<Lost> {
+        let q = self.lost.get_mut(i)?.take()?;
+        for (index, id) in [
+            (&mut self.by_prompt, &q.prompt_id),
+            (&mut self.by_turn, &q.turn_id),
+            (&mut self.by_start, &q.starts_in),
+        ] {
+            if let Some(slots) = index.get_mut(id.as_str()) {
+                slots.retain(|&j| j != i);
+                if slots.is_empty() {
+                    index.remove(id.as_str());
+                }
+            }
+        }
+        Some(q)
+    }
+
+    /// Settles the prompts in these slots; returns them.
+    fn settle(&mut self, slots: Vec<usize>) -> Vec<(Value, Value)> {
+        let mut settled: Vec<(usize, Lost)> =
+            slots.into_iter().filter_map(|i| self.take(i).map(|q| (i, q))).collect();
+        settled.sort_by_key(|(i, _)| *i);
+        settled
+            .into_iter()
+            .map(|(_, q)| (Value::from(q.prompt_id), Value::from(q.turn_id)))
+            .collect()
+    }
+
+    /// Stops tracking the prompts the record's list `key` names; they stay waiting. With `order`,
+    /// each keeps the place it led from there.
+    fn forget(&mut self, msg: &Value, key: &str, mut order: Option<&mut Order>) {
+        let ids = msg.get(key).and_then(Value::as_array).into_iter().flatten();
+        for id in ids.filter_map(Value::as_str) {
+            for i in self.by_prompt.get(id).cloned().unwrap_or_default() {
+                if let (Some(q), Some(order)) = (self.take(i), order.as_deref_mut()) {
+                    order.keep_lead(&q.prompt_id, i as u64);
+                }
+            }
+        }
+    }
 }
