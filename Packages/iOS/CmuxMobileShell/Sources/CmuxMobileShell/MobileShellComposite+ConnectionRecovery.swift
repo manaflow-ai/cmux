@@ -176,7 +176,10 @@ extension MobileShellComposite {
            trigger.reschedulesSecondaryAggregation,
            connectionState == .connected,
            remoteClient != nil,
-           !connectionRecoveryOwner.isRedialingOrValidating {
+           !connectionRecoveryOwner.isActive {
+            // A foreground probe still owns the visible Mac. Starting control
+            // dials while that probe is in flight can admit another saved Mac
+            // before the retained foreground route has settled.
             scheduleSecondaryAggregation()
         }
     }

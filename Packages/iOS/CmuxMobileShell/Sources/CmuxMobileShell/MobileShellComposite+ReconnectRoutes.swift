@@ -471,8 +471,12 @@ extension MobileShellComposite {
         // but the other Macs are a read-only snapshot. Re-aggregate them on
         // foreground so workspaces created on another Mac while backgrounded
         // appear without a manual pull-to-refresh.
+        // Wait for the foreground recovery probe or redial to settle first;
+        // otherwise a secondary admission can race the retained foreground
+        // route during the same lifecycle transition.
         if connectionState == .connected,
-           remoteClient != nil {
+           remoteClient != nil,
+           !connectionRecoveryOwner.isActive {
             self.scheduleSecondaryAggregation(discoverLivePeers: true)
         }
     }
