@@ -18,6 +18,8 @@ import { useEscapeCloses } from "../../../ui/escapeDismiss";
 import { animateScroll, highlightBubble, reducedMotion, settleScroll, stopScroll } from "./scrollMotion";
 import { PreviewCard } from "./PreviewCard";
 import { ScrollMap } from "./ScrollMap";
+import { useRailSide } from "./railSide";
+import { ContextMenu } from "../../../ui/ContextMenu";
 import { threadMinimapLayout } from "./layout.experiment";
 import { experimentArm } from "../../../experiments/experiment";
 import {
@@ -109,6 +111,7 @@ export function ThreadMinimap({
   const [arm] = useState(() => experimentArm(threadMinimapLayout));
   const full = arm === "full";
   const marks = usePromptMarks(sessionId);
+  const { side, inset, menu } = useRailSide();
   const lastTurns = useRef<MinimapTurns | undefined>(undefined);
   const turns = useMemo(() => {
     const next = minimapTurns(rows, sessionId, lastTurns.current);
@@ -519,100 +522,105 @@ export function ThreadMinimap({
       : cardOffset(railTop + cardRow * ROW_PITCH + ROW_PITCH / 2 - listTop, cardHeight, viewportHeight);
   return (
     <div className="acpmux-minimap">
-      <nav
-        ref={rail}
-        className="acpmux-minimap__rail"
-        aria-label={t("minimap.label")}
-        style={{ left: RAIL_LEFT, top: railTop, width: ROW_WIDTH, height }}
-        data-hovering={hovered !== undefined || undefined}
-        data-scrubbing={scrubbing || undefined}
-        data-reduce={reduce || undefined}
-        onPointerLeave={(event) => {
-          if (scrub.current?.moved) return;
-          setHovered(undefined);
-          // Into the card keeps it; anywhere else it goes on this frame.
-          if (!within(card.current, event.relatedTarget)) intend(null);
-        }}
-        onBlur={(event) => {
-          const next = event.relatedTarget as Node | null;
-          if (event.currentTarget.contains(next) || card.current?.contains(next)) return;
-          if (hovered === undefined) intend(null);
-        }}
-      >
-        <div
-          ref={list}
-          className="acpmux-minimap__list"
-          data-fade-top={listTop > 0 || undefined}
-          data-fade-bottom={(overflow && listTop + height < turns.length * ROW_PITCH - 1) || undefined}
-          onScroll={(event) => setListTop(event.currentTarget.scrollTop)}
-          onPointerDown={(event) => {
-            if (event.button !== 0 || event.pointerType === "touch") return;
-            pressing.current = true;
-            swallowClick.current = false;
-            const state = { pointer: event.pointerId, y: event.clientY, moved: false };
-            scrub.current = state;
-            // A press released off the rail (before it moved far enough to capture the pointer) sends
-            // its pointerup elsewhere: the window sees it bubble (after the list's own, which ends a drag)
-            // and ends the press, so a later hover cannot scrub.
-            const page = event.currentTarget.ownerDocument.defaultView ?? window;
-            const released = () => {
-              page.removeEventListener("pointerup", released);
-              page.removeEventListener("pointercancel", released);
-              if (scrub.current !== state) return;
-              scrub.current = undefined;
-              pressing.current = false;
-              if (state.moved) setScrubbing(false);
-            };
-            page.addEventListener("pointerup", released);
-            page.addEventListener("pointercancel", released);
+      {/* Right-click the rail to move it to the other edge (railSide.ts). */}
+      <ContextMenu items={menu}>
+        <nav
+          ref={rail}
+          className="acpmux-minimap__rail"
+          aria-label={t("minimap.label")}
+          style={{ ...inset, top: railTop, width: ROW_WIDTH, height }}
+          data-side={side}
+          data-hovering={hovered !== undefined || undefined}
+          data-scrubbing={scrubbing || undefined}
+          data-reduce={reduce || undefined}
+          onPointerLeave={(event) => {
+            if (scrub.current?.moved) return;
+            setHovered(undefined);
+            // Into the card keeps it; anywhere else it goes on this frame.
+            if (!within(card.current, event.relatedTarget)) intend(null);
           }}
-          onPointerMove={(event) => {
-            const state = scrub.current;
-            if (!state) return;
-            if (!state.moved) {
-              if (Math.abs(event.clientY - state.y) < SCRUB_SLOP) return;
-              state.moved = true;
-              setScrubbing(true);
-              // Captured only once it is a drag, so a plain click still lands on its row.
-              // A synthetic pointer (the gallery's, a test's) has no capture to take.
-              try {
-                event.currentTarget.setPointerCapture?.(state.pointer);
-              } catch {}
-            }
-            const index = indexAt(event.clientY);
-            if (index === state.at) return;
-            state.at = index;
-            setHovered(index);
-            setCardRow(index);
-            jump(index, "scrub");
+          onBlur={(event) => {
+            const next = event.relatedTarget as Node | null;
+            if (event.currentTarget.contains(next) || card.current?.contains(next)) return;
+            if (hovered === undefined) intend(null);
           }}
-          onPointerUp={endScrub}
-          onPointerCancel={endScrub}
         >
-          {turns.map((turn, index) => (
-            <Tick
-              key={turn.key}
-              index={index}
-              last={turns.length - 1}
-              progress={hovered !== undefined ? tickProgress(index - hovered) : index === focused ? 1 : 0}
-              active={index === active}
-              current={index >= onScreen.first && index <= onScreen.last}
-              marked={marks.has(turn)}
-              describedBy={showCard && cardRow === index ? cardId : undefined}
-              label={t(marks.has(turn) ? "minimap.tickBookmarked" : "minimap.tick", {
-                index: index + 1,
-                count: turns.length,
-                prompt: turn.prompt,
-              })}
-              actions={actions}
-            />
-          ))}
-        </div>
-      </nav>
+          <div
+            ref={list}
+            className="acpmux-minimap__list"
+            data-fade-top={listTop > 0 || undefined}
+            data-fade-bottom={(overflow && listTop + height < turns.length * ROW_PITCH - 1) || undefined}
+            onScroll={(event) => setListTop(event.currentTarget.scrollTop)}
+            onPointerDown={(event) => {
+              if (event.button !== 0 || event.pointerType === "touch") return;
+              pressing.current = true;
+              swallowClick.current = false;
+              const state = { pointer: event.pointerId, y: event.clientY, moved: false };
+              scrub.current = state;
+              // A press released off the rail (before it moved far enough to capture the pointer) sends
+              // its pointerup elsewhere: the window sees it bubble (after the list's own, which ends a drag)
+              // and ends the press, so a later hover cannot scrub.
+              const page = event.currentTarget.ownerDocument.defaultView ?? window;
+              const released = () => {
+                page.removeEventListener("pointerup", released);
+                page.removeEventListener("pointercancel", released);
+                if (scrub.current !== state) return;
+                scrub.current = undefined;
+                pressing.current = false;
+                if (state.moved) setScrubbing(false);
+              };
+              page.addEventListener("pointerup", released);
+              page.addEventListener("pointercancel", released);
+            }}
+            onPointerMove={(event) => {
+              const state = scrub.current;
+              if (!state) return;
+              if (!state.moved) {
+                if (Math.abs(event.clientY - state.y) < SCRUB_SLOP) return;
+                state.moved = true;
+                setScrubbing(true);
+                // Captured only once it is a drag, so a plain click still lands on its row.
+                // A synthetic pointer (the gallery's, a test's) has no capture to take.
+                try {
+                  event.currentTarget.setPointerCapture?.(state.pointer);
+                } catch {}
+              }
+              const index = indexAt(event.clientY);
+              if (index === state.at) return;
+              state.at = index;
+              setHovered(index);
+              setCardRow(index);
+              jump(index, "scrub");
+            }}
+            onPointerUp={endScrub}
+            onPointerCancel={endScrub}
+          >
+            {turns.map((turn, index) => (
+              <Tick
+                key={turn.key}
+                index={index}
+                last={turns.length - 1}
+                progress={hovered !== undefined ? tickProgress(index - hovered) : index === focused ? 1 : 0}
+                active={index === active}
+                current={index >= onScreen.first && index <= onScreen.last}
+                marked={marks.has(turn)}
+                describedBy={showCard && cardRow === index ? cardId : undefined}
+                label={t(marks.has(turn) ? "minimap.tickBookmarked" : "minimap.tick", {
+                  index: index + 1,
+                  count: turns.length,
+                  prompt: turn.prompt,
+                })}
+                actions={actions}
+              />
+            ))}
+          </div>
+        </nav>
+      </ContextMenu>
       {showCard && (
         <PreviewCard
           ref={card}
           id={cardId}
+          side={side}
           x={RAIL_LEFT + ROW_WIDTH}
           y={cardTop}
           prompt={cardTurn.prompt}
