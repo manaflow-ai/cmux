@@ -88,9 +88,12 @@ agent pane's session list has no step of its own. Live check:
 `scripts/cmux-next/background-match-e2e.py --tag <tag>` (composited
 capture of the app's own window, alpha included; no Screen Recording
 grant needed; the behind-window blur itself is not in the capture).
-Known gap: a Chromium page (the blank New Tab page included) is an opaque
-child window painted with the theme color, so it cannot show a
-see-through backdrop (browser owner, CEF fork).
+A Chromium page shows the backdrop as its WebKit page does
+(`cmux_tab_set_transparent_background` through the shim, `CEFTab.pageSeeThrough`;
+every cmux page gets it in `PageWebView+Chromium`, while web pages stay opaque
+as in Chrome). Known gap: `backdrop-filter` does not draw over a see-through
+Chromium page, so a glass panel over one reads as tint without the frost it has
+over WebKit.
 
 Per-surface overrides (Lawrence R55, surface-backgrounds.md): with no
 `appearance.surfaces.*` key every surface follows the rule above. A set
