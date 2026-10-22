@@ -289,6 +289,8 @@ struct ChiefMockScript {
             )
             // Chief answers the request inline (an incoming reply quoting an outgoing message).
             if seq == 5 { message.replyToID = "msg_local_4" }
+            // And the user answers one of Chief's inline (an outgoing reply quoting Chief).
+            if seq == 7 { message.replyToID = "msg_local_6" }
             if seq == 6 {
                 message.reactions = [ConversationReactionMark(participantID: identity.meID, reaction: .heart)]
             }
