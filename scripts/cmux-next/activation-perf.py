@@ -103,10 +103,15 @@ class Session:
                 self.action("newTab.page")
             new = wait(lambda: [t for t in self.tabs_of(workspace) if t not in before], 20) or []
             made[kind] += new[:1]
-        hibernated = 0
+        hibernated, refused = 0, None
         for tab in made["chromium"][:hibernate]:
             reply = self.action("hibernateTab", target={"kind": "tab", "id": tab})
-            hibernated += 0 if isinstance(reply, dict) and reply.get("error") else 1
+            if isinstance(reply, dict) and reply.get("error"):
+                refused = refused or reply.get("error")
+            else:
+                hibernated += 1
+        if refused:
+            print(f"activation-perf: hibernateTab refused: {str(refused)[:200]}", flush=True)
         self.action("goToWorkspace", {"workspace": first})
         wait(lambda: self.shown() == first, 20)
         time.sleep(3.0)  # test script: pages finish their first loads before the measured cycles
@@ -114,7 +119,7 @@ class Session:
                 "chat_tabs": len(made["chat"]), "hibernated": hibernated, "build_s": round(time.monotonic() - start, 1)}
 
 
-def cycles(app, count, pid=None, sample_out=None, settle=0.4):
+def cycles(app, count, pid=None, sample_out=None, settle=0.4, window_notices=True):
     """`count` resign/become pairs; per become: observers_ms, drain_ms, round trip and resyncs."""
     app.rpc("debug.hangs", {"clear": True})
     app.rpc("debug.layout_counters", {"reset": True})
@@ -126,11 +131,11 @@ def cycles(app, count, pid=None, sample_out=None, settle=0.4):
         time.sleep(0.5)  # test script: sample attaches before the first cycle
     rows = []
     for _ in range(count):
-        app.rpc("debug.app_activation", {"active": False, "window_notices": True})
+        app.rpc("debug.app_activation", {"active": False, "window_notices": window_notices})
         time.sleep(settle)  # test script: the app sits in the background between Cmd-Tabs
         app.rpc("debug.layout_counters", {"reset": True})
         t0 = time.monotonic()
-        reply = app.rpc("debug.app_activation", {"active": True, "window_notices": True}) or {}
+        reply = app.rpc("debug.app_activation", {"active": True, "window_notices": window_notices}) or {}
         t1 = time.monotonic()
         counters = app.rpc("debug.layout_counters", {"reset": False}) or {}
         t2 = time.monotonic()
@@ -244,6 +249,11 @@ def run(app, opts, pid=None):
     print(f"activation-perf: light {json.dumps(light)}", flush=True)
     sizes = session.build(opts.workspaces, opts.browser, opts.chats, opts.hibernate)
     print(f"activation-perf: session {json.dumps(sizes)}", flush=True)
+    # App notices only (builds before the window_notices parameter post only these): the mode that
+    # compares with older builds. Then with the main window's key and main notices, as Cmd-Tab posts.
+    app_rows, app_hangs = cycles(app, opts.cycles, window_notices=False)
+    heavy_app = summarize(app_rows, app_hangs)
+    print(f"activation-perf: heavy_app_only {json.dumps(heavy_app)}", flush=True)
     sample_out = os.path.join(opts.out, "activation-sample.txt") if opts.sample and pid else None
     heavy_rows, heavy_hangs = cycles(app, opts.cycles, pid=pid, sample_out=sample_out)
     heavy = summarize(heavy_rows, heavy_hangs)
@@ -253,7 +263,8 @@ def run(app, opts, pid=None):
     if worst is not None and worst > opts.max_resyncs:
         failures.append(f"an activation resynced {worst} status indicators in the heavy session (budget {opts.max_resyncs}: "
                         f"the indicators on screen, not every row and tab)")
-    return {"light": light, "session": sizes, "heavy": heavy, "rows": heavy_rows, "failures": failures}
+    return {"light": light, "session": sizes, "heavy_app_only": heavy_app, "heavy": heavy, "rows": heavy_rows,
+            "failures": failures}
 
 
 def add_arguments(parser):
