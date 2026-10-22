@@ -120,6 +120,31 @@ class RemoteDaemonNoticesTest(unittest.TestCase):
             rdn.compose(self.modules, "go1.27.0", self.review)
         self.assertIn("go1.27.0", str(raised.exception))
 
+    def test_a_go_minor_bump_with_an_added_license_file_fails(self) -> None:
+        root = self.go_root()
+        (root / "NOTICE").write_text("an unreviewed notice\n")
+        with self.assertRaises(rdn.NoticeError) as raised:
+            rdn.compose(self.modules, "go1.27.3", self.review, go_root=root)
+        self.assertIn("go1.27.3", str(raised.exception))
+
+    def test_a_failed_review_write_leaves_the_review_whole(self) -> None:
+        review = self.tmp / "review.json"
+        review.write_text("reviewed\n")
+        saved = rdn.os.replace
+
+        def fail(*_args):
+            raise OSError("disk full")
+        rdn.os.replace = fail
+        try:
+            with self.assertRaises(OSError):
+                rdn.write_atomically(review, "rewritten\n")
+        finally:
+            rdn.os.replace = saved
+        self.assertEqual(review.read_text(), "reviewed\n")
+        self.assertEqual(sorted(p.name for p in self.tmp.iterdir() if p.name.startswith("review")), ["review.json"])
+        rdn.write_atomically(review, "rewritten\n")
+        self.assertEqual(review.read_text(), "rewritten\n")
+
     def test_compose_is_deterministic(self) -> None:
         self.assertEqual(rdn.compose(self.modules, "go1.26.8", self.review),
                          rdn.compose(list(reversed(self.modules)), "go1.26.8", self.review))
