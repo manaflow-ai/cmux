@@ -188,12 +188,14 @@ Do not edit `CHANGELOG.md` in feature PRs; release tooling owns it.
   agent review and the relevant checks, then merge. High (auth, socket and relay policy,
   migrations, release/signing/updater, the risk gate and its enforcers (`gh-merge-green`,
   `next_batch.py`), a new delete of user data, a new
-  `pull_request_target` or `workflow_run` trigger) holds `risk evidence` until a collaborator approves the
-  head or a maintainer adds `risk:human-ok`. Any tier is held while it takes back a change
+  `pull_request_target` or `workflow_run` trigger) lands on an independent review receipt
+  `Review (<reviewer>): SHIP at <full head sha>` on the exact head plus a green compile; agents
+  never need a label. A collaborator's approval of the head, or `risk:human-ok` from a maintainer,
+  also counts. Any tier is held while it takes back a change
   merged in the last week, until the description has `Takes back #N: <why>`. Ship
   user-visible high-tier behavior behind a default-off setting; revert with
-  `gh-merge-green --revert` if it breaks nightly-next and the fix misses the next cut. Never add
-  `risk:human-ok` or `risk:waived`; only a maintainer does.
+  `gh-merge-green --revert` if it breaks nightly-next and the fix misses the next cut. Agents never
+  add `risk:human-ok` or `risk:waived`.
 - Before opening a PR and before merging, check it against [REVIEW.md](REVIEW.md) (draft),
   the mistakes our review history keeps catching.
 - Before merging, use a [review subagent](skills/cmux-review/SKILL.md), correctness

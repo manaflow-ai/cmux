@@ -131,23 +131,35 @@ await requireBrowserLane("composer-rim-hairline.test.ts", async () => {
     await page.close();
   });
 
-  // Over art (data-cmux-see-through) the glass card adds a top-lit rim. Under a strip or a queue the
-  // card's ring is drawn once, by the ::before layer round strip and card together
-  // (composerLocation.css), so the card itself must not draw the ring a second time.
-  test("over art a card under a strip or a queue draws the rim but not a second ring", async () => {
-    const page = await open(2);
-    await page.evaluate(() => document.documentElement.setAttribute("data-cmux-see-through", ""));
-    const ring = (id: string) => insets(page, id).then((all) => all.filter(({ spread }) => spread > 0));
-    const shadow = (id: string, pseudo?: string) =>
-      page.evaluate(([id, pseudo]) => getComputedStyle(document.getElementById(id!)!, pseudo).boxShadow, [id, pseudo]);
-    expect((await ring("composer")).length, "a card on its own keeps its ring").toBe(1);
-    for (const id of ["strip-composer", "queue-composer"]) {
-      expect(await ring(id), `${id} draws no ring of its own`).toEqual([]);
-      expect(await shadow(id), `${id} keeps the glass rim`).toContain("0px 1px 0px 0px inset");
-      expect(await shadow(id, "::before"), `${id}'s ring layer`).toMatch(/inset/);
-    }
-    await page.close();
-  });
+  // Over art (data-cmux-see-through) the glass card adds a top-lit rim: the liquid glass's specular
+  // line, one device pixel (--cmux-hairline), and under Plain glass the 1px rim from before the lens.
+  // Under a strip or a queue the card's ring is drawn once, by the ::before layer round strip and
+  // card together (composerLocation.css), so the card itself must not draw the ring a second time.
+  for (const [mode, rim] of [
+    ["lens", "0px 0.5px 0px 0px inset"],
+    ["plain", "0px 1px 0px 0px inset"],
+  ] as const) {
+    test(`over art a card under a strip or a queue draws the ${mode} rim but not a second ring`, async () => {
+      const page = await open(2);
+      await page.evaluate((mode) => {
+        document.documentElement.setAttribute("data-cmux-see-through", "");
+        document.documentElement.setAttribute("data-glass", mode);
+      }, mode);
+      const ring = (id: string) => insets(page, id).then((all) => all.filter(({ spread }) => spread > 0));
+      const shadow = (id: string, pseudo?: string) =>
+        page.evaluate(
+          ([id, pseudo]) => getComputedStyle(document.getElementById(id!)!, pseudo).boxShadow,
+          [id, pseudo],
+        );
+      expect((await ring("composer")).length, "a card on its own keeps its ring").toBe(1);
+      for (const id of ["strip-composer", "queue-composer"]) {
+        expect(await ring(id), `${id} draws no ring of its own`).toEqual([]);
+        expect(await shadow(id), `${id} keeps the glass rim`).toContain(rim);
+        expect(await shadow(id, "::before"), `${id}'s ring layer`).toMatch(/inset/);
+      }
+      await page.close();
+    });
+  }
 
   // Over art the glass card keeps its top-lit rim (#21786) as it rests: focus no longer brightens it
   // (#22114's glass focus rim flashed, Leo 2026-10-19), and the ring keeps its resting tone.
