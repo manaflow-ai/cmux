@@ -330,7 +330,8 @@ impl Peer {
             return Err(RpcError::internal(format!("peer {} connection closed", self.name)));
         }
         // A prompt or a wait answers when the peer's turn ends, however long that is; the
-        // keepalive drops a link that stops answering, which fails it as `peer disconnected`.
+        // keepalive drops a link that stops answering, which fails it as `peer disconnected`,
+        // and a forwarder whose client left drops it (`server/peer_forward.rs`).
         let answer = if waits_on_turn(m) {
             Ok(rx.await)
         } else {
@@ -629,7 +630,7 @@ impl Peer {
 
 /// The requests whose answer waits on the agent's turn, never on the link alone.
 fn waits_on_turn(m: &str) -> bool {
-    matches!(m, method::SESSION_PROMPT | method::MUX_WAIT | method::MUX_MAIL_WAIT)
+    matches!(m, method::SESSION_PROMPT | method::MUX_WAIT)
 }
 
 fn connect_timed_out(after: Duration) -> String {

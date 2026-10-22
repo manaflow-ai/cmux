@@ -177,7 +177,12 @@ async fn forward_inner(
                 }),
             )
         });
-        let result = peer.request(m, p).await;
+        // A client that left takes its request along: a prompt waits on the peer's turn with no
+        // deadline (`peer.rs` `waits_on_turn`), and nobody would read the answer.
+        let result = tokio::select! {
+            result = peer.request(m, p) => result,
+            () = conn.closed() => Err(RpcError::internal("the client closed the connection")),
+        };
         if let (Some(prompt_id), Some(token)) = (&accept, token) {
             hub.peer_accepts.forget(&peer.name, prompt_id, token);
         }

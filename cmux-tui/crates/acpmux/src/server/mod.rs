@@ -147,6 +147,11 @@ impl Conn {
         }
     }
 
+    /// Resolves once nobody reads this connection's replies any more.
+    async fn closed(&self) {
+        self.out.closed().await;
+    }
+
     fn send(&self, msg: &Message) {
         let masked = (!self.raw_text).then(|| peer_text::masked(msg)).flatten();
         let msg = masked.as_ref().unwrap_or(msg);
