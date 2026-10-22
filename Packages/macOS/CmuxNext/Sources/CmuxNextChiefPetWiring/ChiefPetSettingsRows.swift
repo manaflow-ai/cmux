@@ -68,10 +68,14 @@ public final class ChiefPetSettingsRows: NSObject {
         addRow(ChiefPetMascot.pickerTitle, mascot)
         // task-owner: lives as long as the rows (their Home view; deinit cancels it); event-driven (Observation)
         watch = Task { [weak self] in
-            // The rows' Chief comes from `self` (weak): `chief`'s didSet shows a new one at once.
-            for await shown in ObservationStream({ self.flatMap { Self.shown($0.settings(), picks: $0.picks, chief: $0.chief) } }) {
+            // The rows' Chief comes from `self` (weak): `chief`'s didSet shows a new one at once. Every
+            // change is shown (a trigger, not deduplicated against the last value emitted): that value
+            // may be another Chief's, and `show` compares with what it showed.
+            for await shown in ObservationStream({
+                ObservationTrigger(self.flatMap { Self.shown($0.settings(), picks: $0.picks, chief: $0.chief) })
+            }) {
                 guard let self else { return }
-                if let shown { show(shown) }
+                if let shown = shown.value { show(shown) }
             }
         }
     }

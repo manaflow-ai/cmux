@@ -29,7 +29,8 @@ public final class ChiefMascotPicks {
     public init(defaults: UserDefaults?, defaultChief: String) {
         self.defaults = defaults
         self.defaultChief = defaultChief
-        picks = (defaults?.dictionary(forKey: Self.key) as? [String: String] ?? [:])
+        // One entry that is not a character id is dropped, never the others.
+        picks = (defaults?.dictionary(forKey: Self.key) ?? [:]).compactMapValues { $0 as? String }
             .filter { HomeChiefPetSetting.mascots.contains($0.value) }
     }
 
