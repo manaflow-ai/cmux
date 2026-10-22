@@ -101,6 +101,7 @@ final class WindowRecordSaver {
     @discardableResult
     func saveNow() async -> (any Error)? {
         guard let windowState = services.daemon.windowState else { return DaemonError.notConnected }
+        DebugPaneFocus.noteMainWork("record_saves")
         manager.captureGeometry()
         let records = currentRecords()
         // Keys on every machine, plus those whose machine has not loaded yet

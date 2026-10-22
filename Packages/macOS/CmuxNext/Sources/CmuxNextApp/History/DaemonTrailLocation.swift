@@ -10,6 +10,8 @@ extension DaemonHistoryClient {
     @discardableResult
     func recordTrail(window: String, location: HistoryLocation, at time: Date, steps: HistoryStepScope,
                      jump: Bool) async throws -> (id: String?, recorded: Bool?) {
+        // The app target is MainActor by default: this codec runs on the main thread.
+        DebugPaneFocus.noteMainWork("trail_encodes")
         let place = try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(HistoryTrailLocation(location)))
         var params: [String: JSONValue] = [
             "window": .string(window), "location": place, "at_ms": Self.decimal(time), "steps": .string(steps.rawValue),
