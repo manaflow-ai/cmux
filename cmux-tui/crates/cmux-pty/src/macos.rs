@@ -57,7 +57,7 @@ fn descriptor_list_buffer() -> Vec<libc::proc_fdinfo> {
     if bytes == 0 {
         return Vec::new();
     }
-    let entries = bytes / std::mem::size_of::<libc::proc_fdinfo>() + HEADROOM;
+    let entries = bytes / size_of::<libc::proc_fdinfo>() + HEADROOM;
     vec![libc::proc_fdinfo { proc_fd: -1, proc_fdtype: 0 }; entries]
 }
 
@@ -68,8 +68,8 @@ fn descriptor_list_buffer() -> Vec<libc::proc_fdinfo> {
 fn mark_listed_descriptors_close_on_exec(
     listed: &mut [libc::proc_fdinfo],
 ) -> io::Result<Option<usize>> {
-    let entry = std::mem::size_of::<libc::proc_fdinfo>();
-    let Ok(capacity) = libc::c_int::try_from(listed.len() * entry) else { return Ok(None) };
+    let entry = size_of::<libc::proc_fdinfo>();
+    let Ok(capacity) = libc::c_int::try_from(size_of_val(listed)) else { return Ok(None) };
     if capacity == 0 {
         return Ok(None);
     }
