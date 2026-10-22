@@ -115,7 +115,15 @@ struct CmdNInGroupRowSlotTests {
         let loose = seeded.filter { $0 != home }
         try #require(loose.count >= 3, "rows before grouping: \(seeded)")
         let members = Array(loose.prefix(2))
-        controller.sidebar.groupFlow.newGroup(of: members.map(SidebarWorkspaceID.init), name: "grp", byUser: false)
+        // One document change, as the sidebar's New Group sends it; a refusal throws its message here.
+        let doc = try #require(SidebarDocStore.current)
+        await RapidWorkspaceCreateTests.wait(within: .seconds(20)) { members.allSatisfy { SidebarDocWiring.item(workspace: $0, services.machines) != nil } }
+        let items = try members.map { try #require(SidebarDocWiring.item(workspace: $0, services.machines), "no document item for \($0)") }
+        var refused: [String] = []
+        let previousRefused = doc.onRefused
+        doc.onRefused = { refused.append($0); previousRefused($0) }
+        defer { doc.onRefused = previousRefused }
+        try doc.sendChecked(ops: [["op": "group.create", "id": GroupID.make().rawValue, "name": "grp", "color": "blue", "items": items]], title: "New Group")
         // A member of a group: the slot below it resolves inside that group (as `NewWorkspaceDefaultSlot` reads it).
         func group(of id: String) -> GroupID? {
             let sections = SidebarRowSection.withoutPlaceholders(controller.sidebar.model.sections)
@@ -138,7 +146,7 @@ struct CmdNInGroupRowSlotTests {
             }.joined(separator: " | ")
         }
         await RapidWorkspaceCreateTests.wait(within: .seconds(30)) { grouped(members) }
-        try #require(grouped(members), "both members in the group: \(describeSections())")
+        try #require(grouped(members), "both members in the group: \(describeSections()); refused \(refused)")
         let anchor = members[0]
         services.windows.select(anchor, in: state)
         controller.showWorkspace(requested: state.workspaceID)
