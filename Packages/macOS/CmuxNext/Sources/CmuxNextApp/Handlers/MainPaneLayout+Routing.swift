@@ -83,7 +83,7 @@ extension MainPaneLayout {
             }
             // Selected once the store has the chat in its dock: until then the strip leaves the tab out.
             let dock = await movedPane(of: chat.id, from: anchor, services: services)
-            outbound?.finish(moved: true)
+            outbound?.finish(moved: dock != nil)
             reveal(controller, tab)
             // A hidden tab bar was the chat's choice: the pane it left shows its tab bar again.
             if services.paneTabBars.choice(for: controller.paneKey) == false {
@@ -109,7 +109,7 @@ extension MainPaneLayout {
     /// Opens an agent tab (a subagent's or a side chat's pane) that chat `controller` opens beside
     /// itself, where main pane layout's `side` puts it: through `open` as a tab in the strip pane
     /// right of the chat dock, or in the lone chat's pane, which then docks the chat left
-    /// (``dockChat(of:keeping:focus:services:)``). `created` hears the new tab's key once the
+    /// (``dockChat(of:keeping:focus:services:outbound:then:)``). `created` hears the new tab's key once the
     /// tree lists it, `finished` whether it landed beside the chat. With `focus` the tab takes
     /// keyboard focus; else it is only selected there. False when nothing opened.
     @MainActor static func openAgentTab(from controller: PaneController, side: ChatColumnPlacement, focus: Bool, services: AppServices,
@@ -130,6 +130,8 @@ extension MainPaneLayout {
             outbound?.finish(moved: false)
             return false
         }
+        // The stand-in tab shows at once: by its id (and the store's tab that replaces it), not as any new tab.
+        outbound?.made(key: pending.key)
         let locate: TabMirror.Locate = { key in
             services.locateTab(key).map { (pane: $0.1.handle, daemon: services.machines.daemon(forTab: $0.0)) }
         }

@@ -9,13 +9,17 @@ import CmuxNextWakeups
 /// for that round trip, so the tab showed up on the left before its pane came in on the right. Its
 /// pane's strip leaves it out until it has left (or the chat has), so it first shows where it lands.
 /// The daemon's echo can list the tab before its answer names it: until then every tab the pane did
-/// not have when the open began is left out, for at most ``answerLimit``.
+/// not have when the open began is left out (not a stand-in or a tab the pane waits to select), for at
+/// most ``answerLimit``.
 @MainActor
 final class OutboundTab {
     /// How long an open that has not named its tab holds back the pane's new tabs.
     static let answerLimit: Duration = .seconds(2)
     /// How long a landed move keeps the tab out of the source strip for the store to agree.
     static let landLimit: Duration = .seconds(2)
+    /// How long a named tab (or an open never named) stays out without its move finishing: past every
+    /// wait of the opens (30 s), so a hung move never hides a tab for good.
+    static let backstop: Duration = .seconds(60)
 
     /// By pane controller: a static of the open, not a pane property (the godfile limit counts
     /// PaneController's extensions), as `NewTabSuccession` keeps its opens.
@@ -27,6 +31,8 @@ final class OutboundTab {
     private let known: Set<String>
     /// The tab's surface, once the open names it.
     private(set) var surface: SurfaceID?
+    /// Or its id (an agent tab's stand-in, which the store's tab replaces: `AgentTabStore.aliases`).
+    private var named: String?
     /// Left out only while the pane still holds this tab (the chat docking away from the tab).
     private var holding: String?
     private var answering = true
@@ -37,17 +43,22 @@ final class OutboundTab {
         key = ObjectIdentifier(pane)
         known = Set(pane.pane.tabs.map(\.id))
         timer.schedule(after: Self.answerLimit) { @MainActor [weak self] in
-            // An open that never named its tab (refused, or it failed) leaves the pane's tabs alone.
-            guard let self, self.answering, self.surface == nil else { return }
-            self.end()
+            // Not named yet (slow, refused or failed): the pane's new tabs show; a late answer still hides its own.
+            guard let self, self.answering else { return }
+            self.answering = false
+            self.pane?.syncStripFromStore()
+            self.timer.schedule(after: Self.backstop) { @MainActor [weak self] in self?.end() }
         }
     }
 
     /// Whether `tab` of `pane`'s tabs stays out of its strip now.
-    func hides(_ tab: TabModel, among tabs: [TabModel]) -> Bool {
+    func hides(_ tab: TabModel, among tabs: [TabModel], aliases: [String: String]) -> Bool {
         if let holding, !tabs.contains(where: { $0.id == holding }) { return false }
-        if let surface { return tab.surface == surface }
-        return answering && !known.contains(tab.id)
+        if surface != nil || named != nil {
+            return tab.surface == surface || named.map { tab.id == $0 || aliases[$0] == tab.id } == true
+        }
+        guard answering, !known.contains(tab.id), !ProvisionalTab.isProvisional(tab.id) else { return false }
+        return tab.surface != pane?.pendingSelectSurface && tab.id != pane?.pendingSelectTab
     }
 
     /// `opened`, what the open returned, passed on; an open refused at once leaves the pane's tabs alone.
@@ -59,6 +70,18 @@ final class OutboundTab {
     /// The open named its tab: only that one stays out.
     func made(_ surface: SurfaceID) {
         self.surface = surface
+        didName()
+    }
+
+    /// Same, by tab id: an agent tab's stand-in, then the store's tab that replaces it.
+    func made(key: String) {
+        named = key
+        didName()
+    }
+
+    private func didName() {
+        answering = false
+        timer.schedule(after: Self.backstop) { @MainActor [weak self] in self?.end() }
         pane?.syncStripFromStore()
     }
 
@@ -92,7 +115,7 @@ final class OutboundTab {
     /// The ids of `pane`'s tabs that are on their way out.
     static func hidden(in pane: PaneController) -> Set<String> {
         guard let opens = open[ObjectIdentifier(pane)]?.filter({ $0.pane === pane }), !opens.isEmpty else { return [] }
-        let tabs = pane.pane.tabs
-        return Set(tabs.filter { tab in opens.contains { $0.hides(tab, among: tabs) } }.map(\.id))
+        let tabs = pane.pane.tabs, aliases = pane.services.agentTabs.aliases
+        return Set(tabs.filter { tab in opens.contains { $0.hides(tab, among: tabs, aliases: aliases) } }.map(\.id))
     }
 }

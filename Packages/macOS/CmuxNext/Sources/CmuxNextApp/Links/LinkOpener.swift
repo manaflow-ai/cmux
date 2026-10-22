@@ -202,7 +202,7 @@ final class LinkOpener {
         }
     }
 
-    /// Where ``move(_:from:to:focus:)`` takes a new tab.
+    /// Where ``move(_:from:to:focus:outbound:)`` takes a new tab.
     enum Destination {
         /// A new split of the tab's pane on this side.
         case split(PaneEdge)
