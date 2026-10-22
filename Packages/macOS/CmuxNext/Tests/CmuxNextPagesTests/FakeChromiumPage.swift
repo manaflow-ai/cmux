@@ -39,6 +39,9 @@ final class FakeChromiumPage: PageChromiumPage {
     func setZoom(_ zoom: Double) { self.zoom = zoom }
     func setFocused(_ focused: Bool) {}
     func setVisible(_ visible: Bool) {}
+    /// Every set of holes the host gave the page, in order.
+    private(set) var holes: [[CGRect]] = []
+    func setHoles(_ rects: [CGRect]) { holes.append(rects) }
     func close() {
         closed = true
         onClose?()

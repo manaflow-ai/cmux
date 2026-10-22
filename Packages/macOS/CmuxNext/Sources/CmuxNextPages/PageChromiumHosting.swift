@@ -59,8 +59,16 @@ public protocol PageChromiumPage: AnyObject {
     func setFocused(_ focused: Bool)
     /// Shows or hides and pauses the page.
     func setVisible(_ visible: Bool)
+    /// Leaves `rects` (``contentView`` coordinates) out of the page, so native UI under them shows:
+    /// the page draws in a window over the host's (a pane's tab strip over a chat that shares its row).
+    func setHoles(_ rects: [CGRect])
     /// Tears the page down. Idempotent.
     func close()
+}
+
+extension PageChromiumPage {
+    /// A page that draws in the host's own window has nothing to leave out.
+    public func setHoles(_ rects: [CGRect]) {}
 }
 
 /// What a Chromium page reports to the page host.

@@ -78,4 +78,9 @@ extension PaneTabRowSharing where Self: AgentPaneView {
     public var tabRowToolsNeed: CGFloat? { model.tabRow.sharedNeed(zoom: webView.pageZoom) }
     public var onTabRowToolsChange: (() -> Void)? { get { model.tabRow.onChange } set { model.tabRow.onChange = newValue } }
     public func setTabRow(height: CGFloat, trailingInset: CGFloat) { AgentPaneTabRow.offer(points: height, trailingInset: trailingInset, to: self) }
+    /// A chat in Chromium draws in a window over the pane's: it leaves the strip and toolbar out.
+    public func setTabRowHoles(_ holes: [CGRect]) {
+        guard let page else { return }
+        page.nativeHoles = page.isDescendant(of: self) ? holes.map { page.convert($0, from: self) } : holes
+    }
 }

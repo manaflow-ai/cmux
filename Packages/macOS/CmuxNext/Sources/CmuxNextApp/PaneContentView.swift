@@ -178,7 +178,11 @@ final class PaneContentView: NSView, PaneContentChrome {
         }
         layoutParked()
         layoutAgentTag()
-        if hostsContent, let sharing = content as? PaneTabRowSharing { sharing.offerTabRow(height: rowContent == nil ? 0 : shown, trailingInset: tools, in: self) }
+        if hostsContent, let sharing = content as? PaneTabRowSharing {
+            // A chat in a Chromium page draws in a window over this one: it leaves the strip and toolbar out.
+            let chrome = rowContent == nil ? [] : [stripView.frame] + (toolbar.map { [$0.view.frame] } ?? [])
+            sharing.offerTabRow(height: rowContent == nil ? 0 : shown, trailingInset: tools, in: self, chrome: chrome)
+        }
         if hostChanged { onResize?() }
     }
 

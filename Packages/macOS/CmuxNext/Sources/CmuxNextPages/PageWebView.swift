@@ -44,6 +44,12 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public internal(set) var engineDecision: PageEngineDecision
     /// The Chromium page while one shows the document (PageWebView+Chromium.swift).
     var chromiumSession: PageChromiumSession?
+    /// Rects of this view where native UI draws over the page (a pane's tab strip over a chat that
+    /// shares its row). WebKit draws in this window, under that UI; a Chromium page, in a window
+    /// over it, leaves them out (``PageChromiumPage/setHoles(_:)``), now and once it attaches.
+    public var nativeHoles: [CGRect] = [] {
+        didSet { if nativeHoles != oldValue { applyNativeHoles() } }
+    }
     /// The file of the last drag from outside that entered the Chromium page and that ``fileDrop``
     /// takes, with when it entered; the page's drop opens it once.
     var chromiumDragFile: (url: URL, at: Date)?

@@ -83,6 +83,10 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
 
     func setVisible(_ visible: Bool) { tab.setContentVisible(visible) }
 
+    func setHoles(_ rects: [CGRect]) {
+        if tab.occlusionRects != rects { tab.occlusionRects = rects }
+    }
+
     func close() {
         guard !closed else { return }
         closed = true

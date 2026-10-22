@@ -18,6 +18,10 @@ public protocol PaneTabRowSharing: AnyObject {
     /// The row the view may draw its tools in: the top `height` points (0: it does not share the
     /// row now), less `trailingInset` points at the trailing end, where the pane's own toolbar is.
     func setTabRow(height: CGFloat, trailingInset: CGFloat)
+    /// Where the pane's own chrome (its tab strip and toolbar) lies over the view, in the view's
+    /// coordinates; empty while the view does not share the row. A view that draws in a window of its
+    /// own over the pane's (a Chromium page) leaves these out, or it covers the strip's tabs.
+    func setTabRowHoles(_ holes: [CGRect])
 }
 
 extension PaneTabRowSharing {
@@ -29,14 +33,22 @@ extension PaneTabRowSharing {
     /// the leading tools. Tools that never reported are offered the row once, to learn their width.
     public func fitsTabRow(room: CGFloat) -> Bool { (tabRowToolsNeed ?? 0) <= max(0, room / 2) }
 
+    /// A view drawn in the pane's own window: the strip and toolbar already draw over it.
+    public func setTabRowHoles(_ holes: [CGRect]) {}
+
     /// Offers the view the row (`height` 0: none); a change in its tools' width lays `pane` out
     /// again while the view is still in it (a view another pane took gets its row from that pane).
-    public func offerTabRow(height: CGFloat, trailingInset: CGFloat, in pane: NSView) {
+    /// `chrome`: the strip's and toolbar's frames in `pane`, which the view leaves uncovered while
+    /// it lies under the row (``setTabRowHoles(_:)``).
+    public func offerTabRow(height: CGFloat, trailingInset: CGFloat, in pane: NSView, chrome: [CGRect] = []) {
         onTabRowToolsChange = { [weak self, weak pane] in
             guard let pane, let view = self as? NSView, view.isDescendant(of: pane) else { return }
             pane.needsLayout = true
         }
         setTabRow(height: height, trailingInset: height > 0 ? trailingInset : 0)
+        let shown = height > 0 ? chrome.filter { !$0.isEmpty } : []
+        guard let view = self as? NSView else { return setTabRowHoles(shown) }
+        setTabRowHoles(shown.map { view.convert($0, from: pane) })
     }
 }
 
@@ -56,6 +68,11 @@ extension PaneTabRowForwarding {
         set { tabRowSharer?.onTabRowToolsChange = newValue }
     }
     public func setTabRow(height: CGFloat, trailingInset: CGFloat) { tabRowSharer?.setTabRow(height: height, trailingInset: trailingInset) }
+    public func setTabRowHoles(_ holes: [CGRect]) {
+        guard let sharer = tabRowSharer else { return }
+        guard let outer = self as? NSView, let inner = sharer as? NSView else { return sharer.setTabRowHoles(holes) }
+        sharer.setTabRowHoles(holes.map { inner.convert($0, from: outer) }) // in the wrapped view's coordinates
+    }
 }
 
 extension NSView {

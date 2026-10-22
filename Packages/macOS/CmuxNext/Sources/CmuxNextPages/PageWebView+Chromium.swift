@@ -64,6 +64,13 @@ extension PageWebView {
         if let chromiumSession { chromiumSession.page.reload() } else { webView.reload() }
     }
 
+    /// Gives the Chromium page ``nativeHoles``, in its content view's coordinates.
+    func applyNativeHoles() {
+        guard let page = chromiumSession?.page else { return }
+        let content = page.contentView
+        page.setHoles(content.isDescendant(of: self) ? nativeHoles.map { content.convert($0, from: self) } : nativeHoles)
+    }
+
     // MARK: Start
 
     /// Starts the Chromium page and loads the document at ``route`` in it (as it stands once the page
@@ -123,6 +130,7 @@ extension PageWebView {
         page.contentView.frame = bounds
         page.contentView.autoresizingMask = [.width, .height]
         addSubview(page.contentView)
+        applyNativeHoles()
         page.setVisible(window != nil && !isHiddenOrHasHiddenAncestor)
         page.load(descriptor.url(route: route))
         let wait = chromiumDeadline
