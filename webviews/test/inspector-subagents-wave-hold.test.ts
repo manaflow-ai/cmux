@@ -63,8 +63,11 @@ await requireBrowserLane("inspector-subagents-wave-hold.test.ts", async () => {
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady !== undefined, undefined, {
       timeout: 90_000,
     });
-    const root = await page.evaluate(() => ({ ...document.documentElement.dataset }));
-    expect({ ready: root.galleryReady, play: root.galleryPlay }).toEqual({ ready: "1", play: "none" });
+    const root = await page.evaluate(() => {
+      const { galleryReady, galleryPlay } = document.documentElement.dataset;
+      return { ready: galleryReady, play: galleryPlay };
+    });
+    expect(root).toEqual({ ready: "1", play: "none" });
 
     const first = await avatars(page);
     const running = first.filter((avatar) => avatar.wave);
@@ -73,7 +76,10 @@ await requireBrowserLane("inspector-subagents-wave-hold.test.ts", async () => {
     expect(running.length).toBeGreaterThanOrEqual(4);
     expect(running.every((avatar) => avatar.state === "running")).toBe(true);
     expect(first.slice(0, running.length).every((avatar) => avatar.wave)).toBe(true);
-    expect(still.map((avatar) => avatar.state).sort()).toEqual(["completed", "failed"]);
+    expect(still.map((avatar) => avatar.state ?? "").sort((a, b) => a.localeCompare(b))).toEqual([
+      "completed",
+      "failed",
+    ]);
     expect(still.map((avatar) => avatar.opacity)).toEqual([1, 1]);
 
     // Every wave loop is paused at the one shared point, so only its index sets its phase.
