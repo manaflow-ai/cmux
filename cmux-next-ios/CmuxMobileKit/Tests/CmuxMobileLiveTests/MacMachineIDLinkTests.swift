@@ -7,6 +7,7 @@ import Testing
 /// Two cmux builds on one Mac register two devices with one machine id
 /// (PROTOCOL.md "Devices"). The phone lists and links that Mac once; two Macs
 /// that only share a name stay two Macs, each linked.
+@MainActor
 @Suite(.serialized) struct MacMachineIDLinkTests {
     let host = "svc-\(UUID().uuidString.prefix(8).lowercased()).cmuxMobile.test"
     let userID = "user-\(UUID().uuidString)"
