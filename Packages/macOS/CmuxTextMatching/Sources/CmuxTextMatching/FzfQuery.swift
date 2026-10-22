@@ -12,7 +12,8 @@
 ///   substring on word boundaries, `^abc` a prefix, `abc$` a suffix and `^abc$`
 ///   the whole text.
 /// - `!abc` excludes texts containing `abc` (an exact match, as in fzf).
-/// - Each term respects case only when it contains an uppercase letter.
+/// - Each term respects case only when it contains an uppercase letter, unless a
+///   ``PaneContentCaseMode`` other than `.smart` says otherwise.
 ///
 /// The score of a match is the sum of the scores of the terms that matched.
 ///
@@ -31,9 +32,11 @@ public struct FzfQuery: Sendable {
     /// - Parameters:
     ///   - query: The text the user typed.
     ///   - scheme: The fzf scoring scheme.
-    public init(_ query: String, scheme: FzfScheme = .default) {
+    ///   - caseMode: `.smart` is fzf's smart case per term; `.ignore` and `.respect`
+    ///     apply to every term.
+    public init(_ query: String, scheme: FzfScheme = .default, caseMode: PaneContentCaseMode = .smart) {
         self.algorithm = FzfAlgorithm(scheme: scheme)
-        self.termSets = Self.parseTerms(Self.trimmed(query))
+        self.termSets = Self.parseTerms(Self.trimmed(query), caseMode: caseMode)
     }
 
     /// Whether the query has no terms and so matches everything.
@@ -98,8 +101,8 @@ public struct FzfQuery: Sendable {
         return String(text)
     }
 
-    /// fzf's `parseTerms` with `fuzzy` on and smart case.
-    static func parseTerms(_ query: String) -> [[FzfQueryTerm]] {
+    /// fzf's `parseTerms` with `fuzzy` on, and smart case unless `caseMode` overrides it.
+    static func parseTerms(_ query: String, caseMode: PaneContentCaseMode = .smart) -> [[FzfQueryTerm]] {
         let escaped = query.replacingOccurrences(of: "\\ ", with: "\t")
         let tokens = escaped.split(separator: " ", omittingEmptySubsequences: true)
         var sets: [[FzfQueryTerm]] = []
@@ -111,7 +114,12 @@ public struct FzfQuery: Sendable {
             var type = FzfTermType.fuzzy
             var inverse = false
             let lowerText = text.lowercased()
-            let caseSensitive = text != lowerText
+            let caseSensitive: Bool
+            switch caseMode {
+            case .smart: caseSensitive = text != lowerText
+            case .ignore: caseSensitive = false
+            case .respect: caseSensitive = true
+            }
             if !caseSensitive { text = lowerText }
 
             if !set.isEmpty && !afterBar && text == "|" {
