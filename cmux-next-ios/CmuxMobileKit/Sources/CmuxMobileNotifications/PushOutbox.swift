@@ -24,8 +24,11 @@ public struct PushAppGroup: Sendable, Equatable {
 }
 
 /// Replies the content extension hands the app (and replies the app keeps
-/// for a retry): one JSON file per reply, written and read under
-/// `NSFileCoordinator` so the two processes never see half a file. The app
+/// for a retry): one JSON file per reply. Safe across the two processes
+/// without `NSFileCoordinator` (whose daemon stalled reads for seconds in the
+/// simulator): a writer writes atomically (temporary file, then rename), so a
+/// reader never sees half a file, and `take` claims a file by renaming it to a
+/// name of its own first, so two processes never both take one reply. The app
 /// drains it on launch and on every return to the foreground; nothing polls.
 public struct PushOutbox: Sendable {
     /// A reply older than this is dropped unsent: its question has likely moved on.
@@ -49,20 +52,16 @@ public struct PushOutbox: Sendable {
 
     public func put(_ reply: PushReply) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let data = try JSONEncoder().encode(reply)
-        try coordinate(writing: file(reply.id)) { try data.write(to: $0, options: Data.WritingOptions.pushFile) }
+        try JSONEncoder().encode(reply).write(to: file(reply.id), options: Data.WritingOptions.pushFile)
     }
 
-    /// Removes and returns one reply.
+    /// Removes and returns one reply; nil when it is gone or another process took it.
     @discardableResult
     public func take(_ id: UUID) -> PushReply? {
-        let url = file(id)
-        var reply: PushReply?
-        try? coordinate(writing: url) { url in
-            reply = (try? Data(contentsOf: url)).flatMap { try? JSONDecoder().decode(PushReply.self, from: $0) }
-            try? FileManager.default.removeItem(at: url)
-        }
-        return reply
+        let claimed = directory.appendingPathComponent("\(id.uuidString).\(UUID().uuidString).taken")
+        guard (try? FileManager.default.moveItem(at: file(id), to: claimed)) != nil else { return nil }
+        defer { try? FileManager.default.removeItem(at: claimed) }
+        return Self.read(claimed)
     }
 
     /// Every waiting reply, oldest first; expired and unreadable ones are deleted.
@@ -71,12 +70,8 @@ public struct PushOutbox: Sendable {
         var out: [PushReply] = []
         for name in names where name.hasSuffix(".json") {
             let url = directory.appendingPathComponent(name)
-            var reply: PushReply?
-            try? coordinate(reading: url) { url in
-                reply = (try? Data(contentsOf: url)).flatMap { try? JSONDecoder().decode(PushReply.self, from: $0) }
-            }
-            guard let reply, now.timeIntervalSince(reply.createdAt) < Self.maxAge else {
-                try? coordinate(writing: url) { try? FileManager.default.removeItem(at: $0) }
+            guard let reply = Self.read(url), now.timeIntervalSince(reply.createdAt) < Self.maxAge else {
+                try? FileManager.default.removeItem(at: url)
                 continue
             }
             out.append(reply)
@@ -89,22 +84,8 @@ public struct PushOutbox: Sendable {
         all(now: now).compactMap { take($0.id) }
     }
 
-    private func coordinate(writing url: URL, _ body: (URL) throws -> Void) throws {
-        var coordinationError: NSError?
-        var bodyError: (any Error)?
-        NSFileCoordinator().coordinate(writingItemAt: url, options: [.forReplacing], error: &coordinationError) { url in
-            do { try body(url) } catch { bodyError = error }
-        }
-        if let error = coordinationError ?? bodyError { throw error }
-    }
-
-    private func coordinate(reading url: URL, _ body: (URL) throws -> Void) throws {
-        var coordinationError: NSError?
-        var bodyError: (any Error)?
-        NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &coordinationError) { url in
-            do { try body(url) } catch { bodyError = error }
-        }
-        if let error = coordinationError ?? bodyError { throw error }
+    static func read(_ url: URL) -> PushReply? {
+        (try? Data(contentsOf: url)).flatMap { try? JSONDecoder().decode(PushReply.self, from: $0) }
     }
 }
 
