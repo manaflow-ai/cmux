@@ -597,7 +597,7 @@ code {
   height: 14px;
   border-radius: 50%;
   background: var(--page-elevated);
-  transition: transform 0.15s ease;
+  transition: transform var(--cmux-motion-micro) ease;
 }
 
 .apps-switch.on .apps-switch-knob {
@@ -801,7 +801,6 @@ code {
   .apps-chips {
     flex-wrap: nowrap;
     overflow-x: auto;
-    scrollbar-width: none;
     /* 2px left of the first chip for its focus ring (pulled back so it stays on the edge), and room
        past the last one to scroll it clear of the fade. */
     margin-left: -2px;

@@ -294,11 +294,12 @@ extension PaneController {
         })
     }
 
+    /// Asks for the tab's new name as a Cmd-Shift-P step that starts from its title; Return runs
+    /// Rename Tab with it.
     func rename(_ id: StripTabID) {
-        guard let tab = tab(id), let window = view.window else { return }
-        RenamePrompt.run(title: Strings.renameTabTitle, initial: tab.displayTitle, in: window) { [weak self] name in
-            self?.commitRename(id, name: name)
-        }
+        guard let tab = tab(id) else { return }
+        services.registry.ask("renameTab", ActionInvocation(target: ActionTargetRef(kind: .tab, id: id.rawValue)),
+                              ActionArgumentAsk(argument: "name", initialText: tab.displayTitle))
     }
 
     func commitRename(_ id: StripTabID, name: String) {
@@ -333,8 +334,9 @@ extension PaneController {
         let kept = Set(TabPromotion.menuRemovals(keepsTab: keepsTab))
         guard let tab, tab.kind == .browser else {
             // Hibernation discards a page; a terminal has none (Restart only once its shell ended).
-            // Reload and Mute are a page's rows (Chrome's Reload, Mute Site).
-            let entries = ContextMenuCatalog.shared.entries(for: .tab, removing: kept.union(["hibernateTab", "wakeTab", "toggleTabAudioMute", "reloadTab"]).union(TabRestart.hiddenMenuItems(tab)).union(CloudMove.hiddenMenuItems(tab)))
+            // Reload, Mute and Picture in Picture are a page's rows (Chrome's Reload, Mute Site).
+            let pageRows: Set<ActionID> = ["hibernateTab", "wakeTab", "toggleTabAudioMute", "reloadTab", PictureInPictureHandlers.actionID]
+            let entries = ContextMenuCatalog.shared.entries(for: .tab, removing: kept.union(pageRows).union(TabRestart.hiddenMenuItems(tab)).union(CloudMove.hiddenMenuItems(tab)))
             return registry.makeContextMenu(for: .tab, target: target, entries: entries, arguments: arguments)
         }
         // A browser tab offers the engine it is not on.

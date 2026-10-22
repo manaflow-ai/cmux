@@ -25,14 +25,14 @@
   --row-min: calc(28px * var(--settings-scale));
   --card-radius: 10px;
   --sidebar-width: 208px;
-  /* Motion: the app's MotionTunables (hover 80 ms, focus 100 ms, fade in 120 ms, fade out 80 ms),
-     overridable by the host (--cmux-motion-*). Only opacity, transform and a collapsing row's
-     own height animate, so nothing else on the page moves. */
-  --motion-hover: var(--cmux-motion-hover, 80ms);
-  --motion-focus: var(--cmux-motion-focus, 100ms);
-  --motion-in: var(--cmux-motion-in, 120ms);
-  --motion-out: var(--cmux-motion-out, 80ms);
-  --motion-ease: cubic-bezier(0.2, 0, 0, 1);
+  /* Motion: the one motion scale (--cmux-motion-*, pages/shared/desktop.css): hover, focus and
+     anything leaving quick, anything arriving micro, easing out. Only opacity, transform and a
+     collapsing row's own height animate, so nothing else on the page moves. */
+  --motion-hover: var(--cmux-motion-quick, 80ms);
+  --motion-focus: var(--cmux-motion-quick, 80ms);
+  --motion-in: var(--cmux-motion-micro, 120ms);
+  --motion-out: var(--cmux-motion-quick, 80ms);
+  --motion-ease: var(--cmux-ease-out, cubic-bezier(0, 0, 0.58, 1));
   font-size: calc(12.5px * var(--settings-scale));
 }
 
@@ -177,6 +177,41 @@
   box-shadow: none;
 }
 
+/* A glass card (Settings > Chief): the card is liquid glass (.ui-glass, ui/glass/glass.css: the
+   theme surface's translucent tint, never opaque) holding its title, help and rows; the rows drop
+   their own outline and keep the hairlines between them, under one hairline below the header. */
+.group.ui-glass {
+  border-radius: var(--card-radius);
+  padding-top: 10px;
+}
+
+.group.ui-glass > :not(.rows) {
+  margin-inline: var(--row-pad-x);
+}
+
+.group.ui-glass > .rows {
+  border: 0;
+  border-radius: 0 0 var(--card-radius) var(--card-radius);
+  box-shadow: inset 0 1px 0 var(--border);
+}
+
+.group.ui-glass > .rows > .row:first-child {
+  border-radius: 0;
+}
+
+.group.ui-glass > :last-child:not(.rows) {
+  margin-bottom: 12px;
+}
+
+/* A Chief row lays out across (picture, name and role, backend, Locked): `.row` above stacks a
+   row's lines and loads after styles.css's .chiefs-row, so the row drew every part centred down
+   the card. */
+.rows > .chiefs-row {
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+}
+
 .rows > .row:first-child {
   border-top-left-radius: var(--card-radius);
   border-top-right-radius: var(--card-radius);
@@ -307,7 +342,8 @@
   white-space: normal;
 }
 
-.link-button {
+.link-button,
+.channel-link {
   color: var(--accent-text);
 }
 

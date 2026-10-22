@@ -101,7 +101,9 @@ const INSTRUCTIONS: &str = "These tools drive the cmux terminal app and its sess
     *_list tools report; a unique prefix works, and <session>:<id> reaches another session. \
     A change takes idempotency_key: when a call fails with state in_progress, retry it with the \
     key from the error so it cannot apply twice. Tools never move the user's focus unless the \
-    call passes focus: true or the tool's purpose is focus.";
+    call passes focus: true or the tool's purpose is focus. \
+    In a cmux chat reply, show UI rather than describe it: ![alt](/abs/path.png), a bare image \
+    path or an https image address draws as a thumbnail, and two in one paragraph sit side by side.";
 
 /// A catalog entry that is not a tool, and why.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -305,6 +307,15 @@ fn allowed_tools(value: Option<std::ffi::OsString>) -> Option<BTreeSet<String>> 
 pub(super) fn refusal(path: &std::path::Path) -> Option<String> {
     let agent_chat = std::env::var_os(AGENT_SESSION_ENV).is_some_and(|v| !v.is_empty());
     refusal_for(path, agent_chat)
+}
+
+/// The settings file, and whether it turns `serve` on for a client outside
+/// a cmux agent chat (Claude Code or Codex started in a terminal), or why
+/// it cannot be read (`cmux setup mcp`).
+pub(super) fn outside_chats() -> (PathBuf, Result<bool, String>) {
+    let path = config::path();
+    let on = config::setting(&path).map(|setting| setting == Some(true));
+    (path, on)
 }
 
 fn refusal_for(path: &std::path::Path, agent_chat: bool) -> Option<String> {

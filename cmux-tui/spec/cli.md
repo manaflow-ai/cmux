@@ -192,7 +192,8 @@ server, see `cmux help server`):
 cmux daemon start [START OPTIONS]
 cmux daemon status [--session <name>] [--socket <path>]
 cmux daemon stats [--session <name>] [--socket <path>] [--json]
-cmux daemon stop [--session <name>] [--socket <path>] [--force]
+cmux daemon stop [--session <name>] [--socket <path>] [--force] [--end-terminals]
+  [--restore-wait-seconds <n>]
 cmux daemon reload-config [--session <name>] [--socket <path>]
 ```
 
@@ -209,8 +210,19 @@ The owner binds its local socket before it restores its session (registry,
 terminal host adoption). While it restores, the socket accepts connections
 and holds them unanswered; when the restore ends, every held connection is
 served by the normal protocol handler. `identify` then reports
-`lifecycle_ready: false` until the owner finishes startup. Lifecycle commands fail
-fast while this field is `false` and can be retried after the owner is ready. `server ensure` waits for a restoring
+`lifecycle_ready: false` until the owner finishes startup. `daemon stop` waits
+for a restoring owner, through both phases, and then stops it: up to
+`--restore-wait-seconds` (1 to 3600, default 120, the bound `server ensure`
+gives a restore). While it waits it prints a progress line on stderr after the
+first second and then every 5 s (with `--json`, one JSON object per line:
+`progress: "restoring"`, `session`, `phase` (`restoring`: the owner holds the
+connection unanswered; `starting`: it restored and reports
+`lifecycle_ready: false`), `pid` when known, `waited_ms`, `message`). Past the
+bound it fails with `server.stop_restoring` (exit 3, retryable; `details`:
+`reason`, `phase`, `pid`, `waited_ms`, and `retry`, the stop command with a
+longer wait, also named in the message) and leaves the owner running. Other
+lifecycle commands fail fast while `lifecycle_ready` is `false` and can be
+retried after the owner is ready. `server ensure` waits for a restoring
 owner (up to 2 minutes, then `server.restore_timeout`) instead of starting
 another.
 `server ensure --ws-loopback [--ws-allow-origin <origin>[,<origin>...]]` (private app
@@ -422,6 +434,16 @@ cmux workspace create --name build --cwd ~/src/app -- make watch
 cmux workspace create --cwd ~/src/app --shell 'npm install && npm run dev'
 ```
 
+`screen create`, `pane create`, `pane <selector> split` and `tab create
+terminal` take the same exact argv after `--` or `--shell <script>`: the new
+terminal runs it instead of a shell. Apps need `workspace:execute` for these
+too. Text after `--` on a command that starts no terminal is a usage error.
+
+```bash
+cmux tab create terminal --pane current -- htop
+cmux screen create --name logs -- tail -f /var/log/system.log
+```
+
 Both run forms accept `--on-exit <close|keep|shell>`. `close` (the default)
 detaches every view when the process exits and leaves only the durable exit
 receipt. `keep` retains the tab and the final screen next to that receipt
@@ -591,10 +613,12 @@ target terminal and submits with Return); `--window`
 and `--id-format` are accepted and ignored. The target defaults to the caller's own terminal
 (`CMUX_TUI_TERMINAL_ID`, which the daemon injects into every PTY); `--surface
 current` says the same, `--surface <term_id>` names another terminal of this
-session, and `--workspace` alone posts a session-level row with no terminal.
-A machine can only address its own session. `--clear` removes the retained
-rows for that target on the machine (`notification.clear`), so every attached
-client drops them. A reply goes only to the notification's target
+session, `--workspace <ws_id>` posts a row with no terminal that belongs to
+that workspace (`workspace_id`; the app's banner names it), and `--workspace
+current` posts a session-level row. A machine can only address its own
+session. `--clear` removes the retained rows for that target on the machine
+(`notification.clear`), so every attached client drops them; `--clear
+--workspace <ws_id>` removes that workspace's rows and those of its terminals. A reply goes only to the notification's target
 terminal, while that notification is still unread, as text the user typed into its banner, over the same link the
 app's terminal input uses. Every row is bounded because each
 one is pushed to every attached client.

@@ -284,6 +284,20 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
       },
     },
+    "machine-colors": {
+      note: "Another machine keeps one color from its name (machineColor) in the list, so two SSH machines and a Cloud machine tell apart at a glance; this Mac stays quiet.",
+      props: {
+        ...baseProps,
+        environments: true,
+        localName: "office-mac",
+        peers: ["gpu-box", "build-mini", "Cloud machine"],
+        peerKinds: { "gpu-box": "ssh", "build-mini": "ssh", "Cloud machine": "cloud" },
+      },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
+      },
+    },
     "environment-picker-no-cloud": {
       note: "Preview: with no cloud machine yet, New Cloud Machine heads its own Cloud section with what one gives.",
       props: {
@@ -323,6 +337,48 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
           host: "gpu-box",
           peer: "gpu-box",
         },
+      },
+    },
+    "started-move-to-cloud": {
+      note: "Preview, a started chat on this Mac: the picker shows where it runs and Move to Cloud, the tab menu's same action, saying it reuses a Cloud machine or makes one.",
+      props: {
+        ...baseProps,
+        environments: true,
+        started: true,
+        onOffload: () => undefined,
+        offloads: ["move"],
+        summary: {
+          sessionId: "gallery-started-local",
+          harness: "claude",
+          cwd: projects[0]!.cwd,
+          host: "This Mac",
+          hostKind: "local",
+        },
+      },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-env-popover .acpmux-env-new"));
+      },
+    },
+    "started-bring-back": {
+      note: "Preview, a started Cloud chat a move from this Mac put there: the picker shows its machine and Bring Back Local, which merges the machine's changes into the folder here.",
+      props: {
+        ...baseProps,
+        environments: true,
+        started: true,
+        onOffload: () => undefined,
+        offloads: ["bringBack"],
+        summary: {
+          sessionId: "gallery-started-cloud",
+          harness: "claude",
+          cwd: "/home/you/project",
+          host: "Cloud machine",
+          hostKind: "cloud",
+        },
+      },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-env-popover .acpmux-env-new"));
       },
     },
     "started-branch": {

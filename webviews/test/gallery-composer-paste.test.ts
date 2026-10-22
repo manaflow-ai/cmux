@@ -1,7 +1,8 @@
 // The composer's paste gallery states (agent-pane.composer: image-attached, image-pasted-unnamed,
-// image-failed, quick-image-attached, pdf-attached) paste a file into the prompt. Each must reach
-// its state with no page error: a stage that throws while it plays is a broken gallery entry, even
-// when its picture still looks right. (Their play checks' layout-shift limits are another matter.)
+// image-failed, quick-image-attached, pdf-attached) paste a file into the prompt; text-pasted pastes
+// a huge text. Each must reach its state with no page error: a stage that throws while it plays is
+// a broken gallery entry, even when its picture still looks right. (Their play checks' layout-shift
+// limits are another matter.)
 //
 // Before: the plays pasted a stand-in `{ files, types }` as clipboardData, which has no getData, so
 // the prompt's paste handler (MarkdownField.tsx) threw "data.getData is not a function" on every
@@ -12,11 +13,18 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("gallery-composer-paste.test.ts", async () => {
-  const VARIANTS = ["image-attached", "image-pasted-unnamed", "image-failed", "quick-image-attached", "pdf-attached"];
+  const VARIANTS = [
+    "image-attached",
+    "image-pasted-unnamed",
+    "image-failed",
+    "quick-image-attached",
+    "pdf-attached",
+    "text-pasted",
+  ];
   setDefaultTimeout(240_000);
   try {
     await (await chromium.launch({ headless: true })).close();
@@ -30,7 +38,7 @@ await requireBrowserLane("gallery-composer-paste.test.ts", async () => {
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
   const url = (variant: string) =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=agent-pane.composer&variant=${variant}&width=760`;
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame("agent-pane.composer", { variant, width: 760 })}`;
 
   beforeAll(async () => {
     vite = await createServer({
@@ -39,8 +47,8 @@ await requireBrowserLane("gallery-composer-paste.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
+    await warmGalleryFrame(vite, "agent-pane.composer", { browser });
   });
   afterAll(async () => {
     await browser?.close();

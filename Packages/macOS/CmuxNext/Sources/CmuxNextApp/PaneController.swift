@@ -46,6 +46,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// The strip's selected tab as last set, unobserved: a tab switch does not re-run `snapshot()` (I2).
     private(set) var stripSelection: String?
     private var sentFocusPane: FocusTopology.Pane? // this pane's topology part as last sent (I4)
+    private var closeTabs: [(SurfaceID, String)] = [] // the tabs of the last apply: a closed tab's opener picks its successor (BrowserTabOpeners.closeRelations)
     private var remapsViewedTab = false // a newly selected tab lost its attention dot: map the strip once, after the apply
     #if DEBUG
     private var debugSnapshotRuns = 0
@@ -217,7 +218,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
             item.machineBadge = services.remoteTerminals.badge(for: tab)
             item.icon = .icon(.terminal)
         } else if tab.kind != .browser {
-            item.machineBadge = machine
+            (item.machineBadge, item.machineName) = (machine, machine.flatMap { _ in services.machines.machineName(daemon.machineID) })
             item.themeBadge = services.themes.badge(forTerminal: TerminalThemeKey(machine: daemon.machineID, tab: tab))
         } else {
             // A browser tab names the machine whose localhost it sees.
@@ -274,12 +275,11 @@ final class PaneController: SurfacePresenter, PresentablePane {
             pendingSelectTab = nil
             selectNew = true
         }
-        // Members of a collapsed group are hidden: a closed selected tab's
-        // successor skips them while a shown tab survives (close-focus.md).
+        // Members of a collapsed group are hidden: a closed selected tab's successor skips them while a shown tab survives (close-focus.md).
         let collapsed = Set(snapshot.groups.filter(\.isCollapsed).map(\.id))
         let hidden = Set(snapshot.items.filter { $0.groupID.map(collapsed.contains) ?? false }.map(\.id.rawValue))
-        let selected = state?.selection.resolve(pane: paneKey, tabs: snapshot.items.map(\.id.rawValue),
-                                                defaultIndex: snapshot.defaultIndex, hidden: hidden) { services.cache.pageRequests.openers.relations(among: pane.tabs) }
+        let selected = state?.selection.resolve(pane: paneKey, tabs: snapshot.items.map(\.id.rawValue), defaultIndex: snapshot.defaultIndex, hidden: hidden,
+                                                openers: services.cache.pageRequests.openers.closeRelations(among: pane.tabs, last: &closeTabs))
         setStripSelection(selected.map { StripTabID($0) })
         let selectedID = stripModel.selectedID
         if selectNew {

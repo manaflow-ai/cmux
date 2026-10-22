@@ -52,6 +52,8 @@ enum Strings {
     static var showTabs: String { String(localized: "sidebar.workspace.showTabs", defaultValue: "Show Tabs", bundle: .module) }
     static var hideTabs: String { String(localized: "sidebar.workspace.hideTabs", defaultValue: "Hide Tabs", bundle: .module) }
     static func tabCount(_ value: Int) -> String { String(localized: "sidebar.a11y.tabCount", defaultValue: "Tabs: \(value)", bundle: .module) }
+    /// The hover card's machine line on a workspace the Chief started for a subagent.
+    static var startedByChief: String { String(localized: "sidebar.hover.startedByChief", defaultValue: "Started by Chief", bundle: .module) }
     /// Status entries a row folds past its limit.
     static func statusMore(_ value: Int) -> String { String(localized: "sidebar.status.more", defaultValue: "\(value) more", bundle: .module) }
     static var unreadDot: String { String(localized: "sidebar.a11y.unreadDot", defaultValue: "Unread", bundle: .module) }
@@ -103,6 +105,15 @@ enum Strings {
         String(localized: "sidebar.a11y.roomCurrent", defaultValue: "\(name), current space", bundle: .module)
     }
     static var resize: String { String(localized: "sidebar.a11y.resize", defaultValue: "Resize sidebar", bundle: .module) }
+
+    // MARK: Edit mode
+
+    /// An item's ✕ in the sidebar's edit mode (its label and tooltip).
+    static func removeItem(_ name: String) -> String {
+        String(localized: "sidebar.edit.remove", defaultValue: "Remove \(name)", bundle: .module)
+    }
+    static var editAddItems: String { String(localized: "sidebar.edit.addItems", defaultValue: "Add Items", bundle: .module) }
+    static var editDone: String { String(localized: "sidebar.edit.done", defaultValue: "Done", bundle: .module) }
 
     // MARK: Hover card history (u3320)
 
