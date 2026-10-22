@@ -313,6 +313,10 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         if holds, paintHold.kept != nil {
             // The page that never showed leaves; the kept view stays for this hold.
             paintHold.handOff(remove: withdraw)
+            // The hand-off makes the view it took away opaque again (pages are reused): a workspace
+            // it parked at alpha 0 stays unseen.
+            for case let workspace as WorkspaceContentView in contentHost.subviews
+            where workspace.isParkedOffScreen && !workspace.isHidden { workspace.alphaValue = 0 }
         } else {
             // The earlier swap ends now; a view it kept that is shown again
             // stays (no detach of its panes).
@@ -328,9 +332,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
             view.frame = contentHost.bounds
         }
         view.autoresizingMask = [.width, .height]
-        // Unparked while still hidden, so the subtree hears only the unhide.
-        (view as? WorkspaceContentView)?.setParked(false)
-        view.isHidden = false
+        if let workspace = view as? WorkspaceContentView { workspace.showInPlace() } else { view.isHidden = false }
         let paneCards = (view as? WorkspaceContentView)?.layoutView as? any PaneCardSource
         if holds, let outgoing {
             paintHold.begin(outgoing: outgoing, incoming: view, in: contentHost, release: { [weak self] outgoing in
@@ -360,10 +362,28 @@ final class WindowRootView: NSView, WindowSurfacePainting {
             window.endEditing(for: nil)
             window.makeFirstResponder(nil)
         }
-        view.isHidden = true
-        // Parked once hidden: the hidden subtree hears nothing more.
-        (view as? WorkspaceContentView)?.setParked(true)
+        if let workspace = view as? WorkspaceContentView, WorkspaceParkingTunables.parkByAlpha.value,
+           let window, WindowOverlayLayer.contentChildWindows(of: window).isEmpty {
+            // Unhidden at alpha 0: its layers stay in the render server, so the switch back sends
+            // WindowServer nothing new. The parked signal stops its terminals, layout, clicks and AX.
+            // A Chromium page on screen conceals only when hidden, so that workspace hides below.
+            workspace.alphaValue = 0
+            workspace.setParked(true)
+        } else {
+            view.isHidden = true
+            // Parked once hidden: the hidden subtree hears nothing more.
+            (view as? WorkspaceContentView)?.setParked(true)
+        }
         view.autoresizingMask = []
+    }
+
+    /// A Chromium page window appeared: a page conceals only when its view is hidden, so every
+    /// workspace parked at alpha 0 hides now, or a page opening in one would show over this one.
+    func hideAlphaParkedWorkspaces() {
+        for case let workspace as WorkspaceContentView in contentHost.subviews
+        where workspace !== content && !workspace.isHidden && workspace.isParkedOffScreen {
+            workspace.isHidden = true
+        }
     }
 
     /// Paints only this view. The window's opacity and background are set by

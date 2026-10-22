@@ -41,6 +41,17 @@ final class WorkspaceContentView: NSView {
         willSet { if !newValue, isHidden, isParkedOffScreen { isParkedOffScreen = false } }
     }
 
+    /// Not on screen: hidden, or parked at alpha 0 (`WorkspaceParkingTunables.parkByAlpha`).
+    var isOffScreen: Bool { isHidden || isParkedOffScreen }
+
+    /// Puts this workspace on screen in place: unparked first, so a hidden-parked subtree hears only
+    /// the unhide; then unhidden and opaque (it may have been parked either way).
+    func showInPlace() {
+        setParked(false)
+        isHidden = false
+        if alphaValue != 1 { alphaValue = 1 }
+    }
+
     init(layoutView: NSView, bar: TabStripView) {
         self.layoutView = layoutView
         self.bar = bar

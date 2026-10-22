@@ -44,20 +44,20 @@ extension WindowController {
         }
         let host = root.contentHost
         // Companions that left the set go off screen; the ones in it come on.
-        for (id, controller) in parked where views[id] == nil && controller.contentView.superview === host && !controller.contentView.isHidden && id != state.workspaceID {
+        for (id, controller) in parked where views[id] == nil && controller.contentView.superview === host && !controller.contentView.isOffScreen && id != state.workspaceID {
             controller.contentView.isHidden = true
             controller.park(serial: controller.parkedSerial)
         }
         for (id, view) in views {
             // A companion coming on screen draws its attention rings again (parking stopped following them).
-            if view.isHidden || view.superview !== host { parked[id]?.followAttention() }
+            if ((view as? WorkspaceContentView)?.isOffScreen ?? view.isHidden) || view.superview !== host { parked[id]?.followAttention() }
             if view.superview !== host {
                 host.addSubview(view)
                 view.reparentRootedThemeScope()
                 parked[id]?.layoutView.syncWithModel()
             }
             view.autoresizingMask = []
-            view.isHidden = false
+            if let workspace = view as? WorkspaceContentView { workspace.showInPlace() } else { view.isHidden = false }
         }
         let gap = Self.multiViewGap
         host.arrangeContent = { bounds in
@@ -107,7 +107,7 @@ extension WindowController {
         guard let content else { return [] }
         guard let set = state.viewSet else { return [content] }
         return [content] + set.ids.compactMap { id in
-            parked[id].flatMap { $0.contentView.superview === root.contentHost && !$0.contentView.isHidden ? $0 : nil }
+            parked[id].flatMap { $0.contentView.superview === root.contentHost && !$0.contentView.isOffScreen ? $0 : nil }
         }
     }
 
