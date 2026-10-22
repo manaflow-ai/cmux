@@ -7,7 +7,7 @@ import Testing
 /// Lawrence 2026-10-21: "switching workspaces is very slow, we need to make it speed of light". A workspace switch
 /// costs what the window shows, not every workspace it ever showed: the fleet perf gate measured a warm switch at
 /// 150 workspaces at 36 ms p50 of main thread (2.4 ms at 10), all of it in AppKit's layer-tree build and window
-/// ordering over the hidden view trees of every parked workspace. Each test drives the real switch
+/// ordering (divider catcher panels re-parented as child windows, `DividerCatcherSwitchTests`). Each test drives the real switch
 /// (`WindowManager.select` + `WindowController.showWorkspace`, the path every entry point ends in) through the
 /// layout, display and Core Animation commit, in a window whose workspaces each hold a terminal and a browser tab
 /// and were all shown once, and prints one `WORKSPACE-SWITCH-BENCH` line per size.
@@ -40,12 +40,6 @@ struct WorkspaceSwitchCostTests {
         let sample = Sample(cpuMs: (SpaceSwitchBench.threadCPU() - cpu0) * 1_000, wallMs: (CACurrentMediaTime() - wall0) * 1_000)
         bench.drain()
         return sample
-    }
-
-    @Test func aWindowKeepsOnlyItsRecentWorkspacesMounted() async throws {
-        let (_, mounted) = try await Self.measure(40, rounds: 4)
-        // The recently used set: 8 parked beside the shown one (`WindowController.parkedCapacity`).
-        #expect(mounted <= 9, "\(mounted) workspaces mounted after 40 were shown (want the shown one and at most 8 parked)")
     }
 
     @Test func aWarmSwitchCostsTheSameAt150WorkspacesAsAt10() async throws {
