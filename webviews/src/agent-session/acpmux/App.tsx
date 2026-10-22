@@ -4748,7 +4748,7 @@ function AcpmuxPane() {
   /// summary card's switch is on, else in this pane (subagents/subagentPanes.ts).
   const showSubagent = useCallback(
     (id: string, focus = true) =>
-      showSubagentIn(callNative, id, focus, {
+      void showSubagentIn(callNative, id, focus, {
         panes: autoOpenSubagents,
         inSubagentPane: subagentPane.current,
         here: setSubagentView,

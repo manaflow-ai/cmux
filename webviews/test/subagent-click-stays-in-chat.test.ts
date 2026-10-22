@@ -9,7 +9,7 @@ import { showSubagent } from "../src/agent-session/acpmux/subagents/subagentPane
 async function show(options: { panes: boolean; inSubagentPane?: boolean; focus?: boolean; opened?: boolean }) {
   const calls: string[] = [];
   const here: string[] = [];
-  showSubagent(
+  await showSubagent(
     async (method) => {
       calls.push(method);
       return { opened: options.opened ?? true };
@@ -18,8 +18,6 @@ async function show(options: { panes: boolean; inSubagentPane?: boolean; focus?:
     options.focus ?? true,
     { panes: options.panes, inSubagentPane: options.inSubagentPane ?? false, here: (id) => here.push(id) },
   );
-  await Promise.resolve();
-  await Promise.resolve();
   return { calls, here };
 }
 

@@ -70,21 +70,21 @@ export async function openSubagentPane(call: Call, id: string, focus: boolean): 
 }
 
 /// Shows subagent `id`: in a pane of its own (focused with `focus`) only while `panes` (the switch)
-/// is on and this is the chat's pane (`inSubagentPane` false), else in this pane (`here`). A host
-/// that opens no pane shows it here too when the person asked (`focus`).
-export function showSubagent(
+/// is on and this is the chat's pane (`inSubagentPane` false), else in this pane (`here`) when the
+/// person asked (`focus`; a subagent's pane always shows it). A host that opens no pane shows it
+/// here too when the person asked. Settles once it has shown it.
+export async function showSubagent(
   call: Call,
   id: string,
   focus: boolean,
   options: { panes: boolean; inSubagentPane: boolean; here: (id: string) => void },
-) {
+): Promise<void> {
   if (options.inSubagentPane || !options.panes) {
     if (focus || options.inSubagentPane) options.here(id);
     return;
   }
-  void openSubagentPane(call, id, focus).then((opened) => {
-    if (!opened && focus) options.here(id);
-  });
+  const opened = await openSubagentPane(call, id, focus);
+  if (!opened && focus) options.here(id);
 }
 
 /// Opens a pane for each subagent the chat `sessionId` starts from now on (its own, not nested
