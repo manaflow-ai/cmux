@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Point a running Debug or NIGHTLY cmux-next at live web code, without an app build or relaunch
+# Point a running Debug, NIGHTLY or NEXT DEV cmux-next at live web code, without an app build or relaunch
 # (plans/cmux-next/web-live-reload.md). It edits web-dev.json next to cmux-next.json, which the
 # app watches (WebDevOverride.swift); every open page and agent pane reloads on a change.
 #
@@ -10,6 +10,10 @@
 #                        # a remote slot declared in web-dev.json ("slot": {"host": H, "port": N}):
 #                        # tunnel to it; when it does not answer, fall back to --local
 #   web-overlay.sh server URL | off   # any loopback server; off also stops what `server` started
+#   web-overlay.sh follow PR [--port N] [--fork]
+#                        # serve that pull request's head: fetch it with git into a checkout this
+#                        # script keeps, run the dev server there; again moves to the newest push.
+#                        # A head on no branch of the repo (a fork) runs only with --fork
 #   web-overlay.sh fleet [--ref SHA | --working-tree] [--tag T] [--workspace ID] [--submitter LOGIN]
 #                        # build the app on the fleet (cmux-ci; the Linux pool for cmux-next; tag
 #                        # web-overlay, workspace web-overlay:$USER) and install its web bundles
@@ -41,7 +45,8 @@ PANE="Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane"
 PAGES="Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages"
 APP="Resources/markdown-viewer/webviews-app"
 
-usage() { sed -n 2,30p "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+# The comment block at the top of this file, up to `set`.
+usage() { awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit "${1:-0}"; }
 # What `server --local` and `server --slot` started (pid files, the dev server's log).
 state="${CMUX_WEB_SLOT_STATE_DIR:-$HOME/Library/Caches/cmux-next/web-slot}"
 DEFAULT_PORT=4200
@@ -164,7 +169,7 @@ stop_started() {
     fi
     rm -f "$state/$name.pid"
   done
-  rm -f "$state/dev-server.tree"
+  rm -f "$state/dev-server.tree" "$state/follow.pr"
 }
 
 # A field of web-dev.json's "slot" (host or port), empty when unset.
@@ -272,6 +277,47 @@ case "$cmd" in
         ;;
     esac
     ;;
+  follow)
+    # A reviewer runs exactly the head under review: the PR's head ref comes from git (no GitHub
+    # API), into one checkout of this repo that the script keeps; the dev server serves it, so a
+    # later push is a checkout of the files that changed and Vite hot-reloads them.
+    pr="${1:-}"; [[ "$pr" =~ ^[0-9]+$ ]] || usage 1; shift
+    port="$(slot_field port)"; port="${port:-$DEFAULT_PORT}" fork=""
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --port) port="$2"; shift 2 ;;
+        --fork) fork=1; shift ;;
+        *) usage 1 ;;
+      esac
+    done
+    remote="${CMUX_WEB_FOLLOW_REMOTE:-origin}" tree="$state/follow" repo="$ROOT"
+    # Fetch into the repo that owns the checkout, which another clone may have made.
+    [[ -e "$tree/.git" ]] && repo="$tree"
+    git -C "$repo" fetch -q "$remote" "refs/pull/$pr/head"
+    head="$(git -C "$repo" rev-parse FETCH_HEAD)"
+    # The dev server runs the head's own code (its Vite config and dev-server plugins) on this Mac.
+    # A branch of the repo needs push access; a fork's head is anyone's code, so it needs --fork
+    # after reading it.
+    if [[ -z "$fork" ]] && ! git -C "$repo" ls-remote --heads "$remote" | awk '{print $1}' | grep -qx "$head"; then
+      echo "#$pr's head $head is not on a branch of $remote (a fork?): its dev server would run its code here." >&2
+      echo "Read its webviews/ changes, then run \`web-overlay.sh follow $pr --fork\`." >&2
+      exit 1
+    fi
+    if [[ -e "$tree/.git" ]]; then
+      # Only this script writes here; a stray edit would block the move, so the head always wins.
+      git -C "$tree" checkout -q --force --detach "$head"
+    else
+      mkdir -p "$state"
+      git -C "$ROOT" worktree prune  # a deleted checkout stays registered until pruned
+      git -C "$ROOT" worktree add -q --detach "$tree" "$head"
+    fi
+    # A push that changes the lockfile needs its packages (a no-op when they are current).
+    [[ -d "$tree/webviews/node_modules" ]] && (cd "$tree/webviews" && bun install --frozen-lockfile >/dev/null)
+    start_local "$tree" "$port"
+    echo "$pr $head" >"$state/follow.pr"
+    point_at "$port"
+    echo "following #$pr at $head; run \`web-overlay.sh follow $pr\` again after a push"
+    ;;
   install)
     [[ -n "${1:-}" ]] || usage 1
     install_from "$(cd "$1" && pwd)"
@@ -338,6 +384,7 @@ case "$cmd" in
       pid="$(live_pid "$name")"
       [[ -n "$pid" ]] && echo "running: $name (pid $pid)"
     done
+    [[ -n "$(live_pid dev-server)" && -f "$state/follow.pr" ]] && echo "following: #$(cat "$state/follow.pr")"
     echo "web-dev.json: $web_dev"
     cat "$web_dev" 2>/dev/null || echo "(none: the app serves its bundled pages)"
     echo "overlay: $overlay"
