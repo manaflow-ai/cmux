@@ -3,12 +3,14 @@
 // in its panel at the right of a chat: a full chat with every section, its Context and Connectors
 // open, its Changes across repositories with line breakdowns, comments, failing checks and owners
 // (all of them after Show more), its running subagents and chats named one per line with the ended
-// ones folded into one row (and that row open), a busy chat's seventeen running past "Show more",
-// its finished tasks open (a background Bash only the transcript knows
-// among them), a Cloud chat before its first usage report, and the panel over the chat (Overlay). Light and dark come from the gallery's theme switch.
+// ones folded into one row (and that row open), a busy chat's seventeen running past "Show more", the
+// running lines' wave held mid-sweep, its finished tasks open (a background Bash only the transcript
+// knows among them), a Cloud chat before its first usage report, and the panel over the chat
+// (Overlay). Light and dark come from the gallery's theme switch.
 import type { ComponentProps } from "react";
 import { componentEntry } from "../../../gallery/format";
-import type { Play } from "../../../gallery/play";
+import type { Play, PlayContext } from "../../../gallery/play";
+import { WAVE_CLASS, WAVE_KEYFRAMES } from "../../../ui/wave";
 import { activity, chat, CWD, tool } from "../../../gallery/fixtures/acpmux";
 import type { StartedSession } from "../started/startedSessions";
 import type { Subagent } from "../subagents/subagentFold";
@@ -16,7 +18,7 @@ import { sessionSummary } from "../summary/sessionSummary";
 import { ChatInspector, InspectorPanel, type InspectorPlacement } from "./ChatInspector";
 import { DEFAULT_SECTIONS } from "./inspectorState";
 
-type Props = ComponentProps<typeof ChatInspector> & { placement?: InspectorPlacement };
+type Props = ComponentProps<typeof ChatInspector> & { placement?: InspectorPlacement; transcript?: boolean };
 
 const edit = (path: string, oldText: string | undefined, newText: string) =>
   tool(`Edit ${path}`, "edit", "completed", { diffs: [{ path: `${CWD}/${path}`, oldText, newText }] });
@@ -33,9 +35,39 @@ const local = chat([
 ]);
 const made = sessionSummary(local.rows);
 
-function GalleryInspector({ placement = "overlay", ...props }: Props) {
+/// A busy transcript under the panel (prompts, replies, code), so its glass shows what it lies over.
+const TRANSCRIPT = [
+  "Make the Inspector glass, and its cards bordered with no fill.",
+  "The panel paints the chat's page color, so nothing behind it shows. I'll give it the shared glass and drop the cards' fill.",
+  '<aside className="ui-glass acpmux-chat-inspector">\n  {sections}\n</aside>',
+  "Check it over a long transcript in light and dark.",
+  "Over the transcript the text frosts under the panel and the cards keep only their hairline.",
+  "export const tries = 3;\nexport const backoff = 200;\nexport async function retry() {}",
+];
+function Transcript() {
+  return (
+    <div aria-hidden="true" style={{ position: "absolute", inset: 0, overflow: "hidden", padding: "16px 24px" }}>
+      {[0, 1, 2].flatMap((round) =>
+        TRANSCRIPT.map((line, index) =>
+          index % 3 === 0 ? (
+            <div key={`${round}-${index}`} className="acpmux-user" style={{ margin: "12px 0" }}>
+              <div className="acpmux-user-bubble">{line}</div>
+            </div>
+          ) : (
+            <div key={`${round}-${index}`} className="acpmux-markdown" style={{ margin: "12px 0" }}>
+              {index % 3 === 2 ? <pre>{line}</pre> : <p>{line}</p>}
+            </div>
+          ),
+        ),
+      )}
+    </div>
+  );
+}
+
+function GalleryInspector({ placement = "overlay", transcript = false, ...props }: Props) {
   return (
     <div className="acpmux-shell" style={{ display: "flex", justifyContent: "flex-end", height: "100%" }}>
+      {transcript ? <Transcript /> : null}
       <InspectorPanel width={320} placement={placement}>
         <ChatInspector {...props} />
       </InspectorPanel>
@@ -121,6 +153,58 @@ const agents: Subagent[] = Array.from({ length: 43 }, (_, index) => ({
   ...(index < 3 ? { action: "Reading ChatInspector.tsx" } : { endedAt: started - index * 100_000 }),
 }));
 
+/// The running wave (ui/wave.ts, Leo 2026-10-21: "THESE GLIMMER AT DIFFERENT INTERVALS ... it would
+/// look cool if they went in a wave, like how thinking glimmers in ChatGPT"): five running subagents,
+/// then one done and one failed, which stay out of the wave.
+const RUNNING = 5;
+const waveAgents: Subagent[] = Array.from({ length: RUNNING + 2 }, (_, index) => ({
+  id: `wave-${index}`,
+  parent: null,
+  name: NAMES[index]!,
+  task: "Check one part of the change",
+  state: index < RUNNING ? "running" : index === RUNNING ? "completed" : "failed",
+  startedAt: started - (index + 1) * 60_000,
+  ...(index < RUNNING ? { action: "Reading ChatInspector.tsx" } : { endedAt: started - index * 30_000 }),
+}));
+
+/// Where the play holds every wave loop: one point on each loop's own timeline, past its delay (the
+/// delay is never positive, wave.css), so each icon's phase differs only by its index. At 560 ms
+/// the crest (20% of the 1.6 s period) is on the third line: the two before it fall from it, the
+/// two after it rise toward it, so a still reads dim, brighter, crest, brighter, dim.
+const WAVE_HOLD_MS = 560;
+
+/// The page's wave loops (CSS animations of `cmux-wave`).
+const waveLoops = (ctx: PlayContext) =>
+  ctx.document
+    .getAnimations()
+    .filter((animation) => (animation as CSSAnimation).animationName === WAVE_KEYFRAMES) as CSSAnimation[];
+
+/// Holds the wave mid-sweep for a still. A loop is held only once installWave has moved it onto the
+/// shared epoch (its start is a whole number of periods of Unix time): a loop paused before that is
+/// restarted by the realignment, which scrambled the wave. Then all of them pause at one point.
+const holdWave: Play = async (ctx) => {
+  const items = () => ctx.document.querySelectorAll(`.acpmux-chat-inspector-subagents .${WAVE_CLASS}`);
+  await ctx.waitFor(() => items().length === RUNNING);
+  // Reduce Motion, the motion gate or static indicators run no wave: there is nothing to hold.
+  const view = ctx.document.defaultView!;
+  if (view.getComputedStyle(items()[0]!).animationName !== WAVE_KEYFRAMES) return;
+  const origin = view.performance.timeOrigin;
+  const aligned = (animation: CSSAnimation) => {
+    const period = Number(animation.effect?.getTiming().duration);
+    if (!(period > 0) || animation.startTime === null) return false;
+    const phase = (((Number(animation.startTime) + origin) % period) + period) % period;
+    return Math.min(phase, period - phase) < 1;
+  };
+  await ctx.waitFor(() => {
+    const loops = waveLoops(ctx);
+    return loops.length === RUNNING && loops.every((loop) => loop.playState === "running" && aligned(loop));
+  });
+  for (const loop of waveLoops(ctx)) {
+    loop.pause();
+    loop.currentTime = WAVE_HOLD_MS;
+  }
+};
+
 /// Chats the agent started: one waits on the person, one runs on a Cloud VM, one is done.
 const sessions: StartedSession[] = [
   { sessionId: "child-1", title: "Rename the settings keys", state: "waiting", createdAt: started - 600_000 },
@@ -191,6 +275,24 @@ const busySessions: StartedSession[] = LANES.map((title, index) => ({
 }));
 const busy: Props = { ...full, agents: busyAgents, sessions: busySessions };
 
+/// A chat in ~/Projects that worked across several projects, as Claude Code desktop lists them.
+const PROJECTS = "/Users/you/Projects";
+const touched = (path: string) =>
+  tool(`Read ${path}`, "read", "completed", { locations: [{ path: `${PROJECTS}/${path}` }] });
+const projectRows = [
+  activity(
+    [
+      touched("cmux/webviews/src/agent-session/acpmux/App.tsx"),
+      touched("cmux-app-screenshots/index.json"),
+      touched("agent-pane-reference/README.md"),
+      touched("cmuxterm-hq/build-fleet/FLEET-AND-CI.md"),
+      touched("leo-workspace/NOW.md"),
+      touched("glaeda/main.go"),
+    ],
+    6,
+  ),
+];
+
 const text = (ctx: Parameters<Play>[0]) => ctx.document.querySelector(".acpmux-chat-inspector")?.textContent ?? "";
 
 export default componentEntry<Props>({
@@ -202,8 +304,11 @@ export default componentEntry<Props>({
   widths: { narrow: 320, normal: 420 },
   covers: [
     "agent-session/acpmux/inspector/ChatInspector.tsx",
+    "agent-session/acpmux/inspector/chatFolders.ts",
     "agent-session/acpmux/inspector/ChildSessionRows.tsx",
     "agent-session/acpmux/inspector/ChangesSection.tsx",
+    "agent-session/acpmux/inspector/ContextSection.tsx",
+    "agent-session/acpmux/inspector/PullRequestGlyph.tsx",
     "agent-session/acpmux/inspector/EnvironmentSection.tsx",
     "agent-session/acpmux/inspector/InspectorSection.tsx",
     "agent-session/acpmux/inspector/OutputsSection.tsx",
@@ -217,6 +322,16 @@ export default componentEntry<Props>({
     full: {
       note: "A chat on this Mac with every section: its environment with Save and Remote Control, 47% of the context window, one connector to reconnect, eight pull requests across three repositories (five shown, then Show more), a dev server on :5173, three running subagents and two running chats named one per line with the 40 done · 1 failed row under them, background tasks (one only the transcript knows, without Stop) with four finished, and its outputs.",
       props: full,
+    },
+    "environment-folders": {
+      note: "Environment for a chat in ~/Projects that worked across six projects: the machine with Save, its folder with its parent, each project it touched (each opens in Files), the repository and the branch (each opens on GitHub).",
+      props: {
+        ...full,
+        summary: { ...summary, cwd: PROJECTS, branch: "leo/next-backgrounds-batch" },
+        rows: projectRows,
+        onOpenFolder: () => undefined,
+        remoteControl: undefined,
+      },
     },
     "context-connectors-open": {
       note: "Context and Connectors open: the percent used with the tokens, the bar, used and free space with their shares; each MCP server with its status.",
@@ -267,6 +382,11 @@ export default componentEntry<Props>({
         await ctx.waitFor(() => /Show less/.test(text(ctx)));
       },
     },
+    "subagents-wave": {
+      note: "Five running subagents, one per line, share one shimmer that sweeps down their icons, held mid-sweep for the still: dim, brighter, the crest, brighter, dim. The row of the done and the failed one under them stays at full strength.",
+      props: { ...full, agents: waveAgents, sessions: [] },
+      play: holdWave,
+    },
     "tasks-finished": {
       note: "Background tasks: the running watcher with how long it has run and Stop, the transcript's pytest without Stop, then the four finished commands, open.",
       props: full,
@@ -289,8 +409,12 @@ export default componentEntry<Props>({
       },
     },
     push: {
-      note: "Settings > Agent Chat > Inspector set to Push: the panel sits beside the chat and narrows it, instead of lying over it with a shadow.",
+      note: "Settings > Agent Chat > Inspector set to Push: the panel sits beside the chat and narrows it, instead of lying over it with a shadow. It is glass there too, with its left hairline as its only edge.",
       props: { ...full, placement: "push" },
+    },
+    "glass-over-transcript": {
+      note: "The panel over a busy transcript: liquid glass, never opaque, so the prompts, replies and code under it frost through; its cards are hairline borders with no fill. Under Reduce Transparency the panel is the opaque theme surface.",
+      props: { ...full, transcript: true },
     },
   },
 });

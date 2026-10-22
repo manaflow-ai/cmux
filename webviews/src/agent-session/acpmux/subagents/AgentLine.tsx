@@ -6,8 +6,9 @@
 // never a brand color; then its name, a dim detail (what it does now, or its kind), its time and
 // its state. A click opens it. With a `card` (the Inspector's Subagents) a hover card names it and
 // says its state, as Claude Code desktop's session panel does, in place of the plain tooltip.
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
 import { Tooltip } from "../../../ui/Tooltip";
+import { waveProps } from "../../../ui/wave";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import type { SubagentStatus } from "../summary/SubagentStatusList";
@@ -55,10 +56,11 @@ export function AgentLine({
   after?: ReactNode;
   /// The hover card's content (its name, its state, its task); replaces `title`.
   card?: ReactNode;
-  /// Its place among the running lines, for the shared running wave (`acpmux-wave-item`,
-  /// `--wave-index`); none for a line that does not run.
+  /// Its place among the running lines in the one shared running wave (ui/wave.ts); none for a
+  /// line that does not run, which stays still.
   wave?: number;
 }) {
+  const shimmer = waveProps(wave);
   const button = (
     <button
       type="button"
@@ -73,8 +75,8 @@ export function AgentLine({
       onClick={onOpen}
     >
       <span
-        className={wave === undefined ? "acpmux-lineage__icon" : "acpmux-lineage__icon acpmux-wave-item"}
-        style={wave === undefined ? undefined : ({ "--wave-index": wave } as CSSProperties)}
+        className={shimmer.className ? `acpmux-lineage__icon ${shimmer.className}` : "acpmux-lineage__icon"}
+        style={shimmer.style}
         data-state={status}
       >
         <Icon name={icon} size={iconSize} row />
