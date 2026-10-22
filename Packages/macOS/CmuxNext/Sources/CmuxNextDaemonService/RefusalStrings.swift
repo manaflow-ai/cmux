@@ -39,6 +39,8 @@ public nonisolated enum RefusalStrings {
     public static var chromiumUnavailable: String { text("handlers.refusal.chromiumUnavailable", "Chromium is not available in this build.") }
     public static var homeNotReady: String { text("handlers.refusal.homeNotReady", "Home is not ready yet.") }
     /// A promote (new workspace, new window) of a Home tab (`TabPromotion`).
+    /// A tab only the app holds, asked for in Home's dock with nothing beside it (``DockTabHost``).
+    public static var dockTakesNoTabs: String { text("handlers.refusal.dockTakesNoTabs", "Home's column takes no other tabs. Open it beside Home.") }
     public static var homeKeepsItsTabs: String { text("handlers.refusal.homeKeepsItsTabs", "Home's tabs stay in Home.") }
     /// The user's close of a permanent docked column (cmux-tui `dock-column-permanent`).
     public static var columnStaysDocked: String { text("handlers.refusal.columnStaysDocked", "This column stays docked and can't be closed.") }

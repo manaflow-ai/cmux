@@ -423,6 +423,16 @@ impl Mux {
         {
             selectors.pane = Some(pane.as_str().to_string());
         }
+        // A tab asked for in a pinned dock that takes no tabs (Home's dock,
+        // `pinned-dock-v1`), by its pane or its screen, goes to the pane
+        // beside it instead: never into the dock, and not refused (u9415).
+        if matches!(
+            operation,
+            ResourceOperation::TabCreateTerminal | ResourceOperation::TabCreateBrowser
+        ) && let Some(pane) = self.pane_beside_pinned_dock(&selectors)
+        {
+            selectors.pane = Some(pane.as_str().to_string());
+        }
         let commit = match operation {
             ResourceOperation::WorkspaceFocus => {
                 self.resource_focus_workspace(selectors, expected_revision, mutation, &fingerprint)?

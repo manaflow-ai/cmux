@@ -104,6 +104,12 @@ extension PaneController {
     func newTerminalTab(cwd: String? = nil, typing text: String? = nil, typingAhead page: String? = nil, keep: Bool? = nil,
                         fromSelectedTab: Bool = false, daemonResolvesCwd: Bool = false,
                         then: (@MainActor (SurfaceID) -> Void)? = nil) {
+        // The Home dock takes no tab: it opens beside the dock (u9415).
+        let host = daemonTabHost
+        if host !== self {
+            return host.newTerminalTab(cwd: cwd, typing: text, typingAhead: page, keep: keep, fromSelectedTab: fromSelectedTab,
+                                       daemonResolvesCwd: daemonResolvesCwd, then: then)
+        }
         let handle = pane.handle
         // From an agent tab, the agent's cwd (#16620), asked when the tab is made.
         let agent = cwd == nil && fromSelectedTab && !daemonResolvesCwd ? selectedAgentView : nil
@@ -191,7 +197,13 @@ extension PaneController {
     func newBrowserTab(url: URL? = nil, engine requested: String? = nil, inherited: String? = nil,
                        adopting child: (any BrowserTab)? = nil, background: Bool = false, profile: String? = nil,
                        notice: String? = nil, opener: SurfaceID? = nil, then: (@MainActor (SurfaceID) -> Void)? = nil) -> Bool {
-        PaneBrowserTabOpener(controller: self).open(url: url, engine: requested, inherited: inherited, adopting: child, background: background,
+        // The Home dock takes no tab: it opens beside the dock (u9415).
+        let host = daemonTabHost
+        if host !== self {
+            return host.newBrowserTab(url: url, engine: requested, inherited: inherited, adopting: child, background: background,
+                                      profile: profile, notice: notice, opener: opener, then: then)
+        }
+        return PaneBrowserTabOpener(controller: self).open(url: url, engine: requested, inherited: inherited, adopting: child, background: background,
                                                     profile: profile, notice: notice, opener: opener, then: then)
     }
 
