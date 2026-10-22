@@ -79,6 +79,18 @@ import Testing
         #expect(names(label(minimal.rowContent(ws, machine: SidebarLayout.machineLabel(section(vm), options: minimal)))) == 1)
     }
 
+    /// A machine whose name holds the row's separator (`gpu · box`) is still named once.
+    @Test func aNameWithTheSeparatorIsNamedOnce() throws {
+        let dotted = SidebarMachine(id: MachineID("dotted"), name: "gpu · box", kind: .ssh)
+        let o = SidebarModel(sections: [mac, dotted].map(section)).listOptions()
+        let ws = SidebarWorkspace(id: WorkspaceID("w"), machineID: dotted.id, title: "w", directory: "~/code/app")
+        let content = o.rowContent(ws, machine: SidebarLayout.machineLabel(section(dotted), options: o))
+        #expect(content.machine != nil)
+        let text = WorkspaceRowView.accessibilityText(ws, content: content, tabCount: nil, presence: [])
+        #expect(text.hasPrefix("w, gpu · box · "))
+        #expect(text.components(separatedBy: "gpu · box").count - 1 == 1, "\(text)")
+    }
+
     @Test func oneMachineDrawsNoMark() {
         #expect(marks(showsLocalMachine: true, [mac]).isEmpty)
     }

@@ -56,9 +56,10 @@ extension WorkspaceRowView {
         if let text = Strings.activity(content.activity) { parts.append(text) }
         if ws.muted { parts.append(Strings.notificationsMuted) }
         // A one-list row on another computer leads its second line with the computer's name
-        // (`SidebarLayout.machineLabel`): VoiceOver says it once.
+        // (`SidebarLayout.machineLabel`): VoiceOver says it once. The whole name is compared, so a
+        // name with " · " in it still counts.
         if let machine = content.machine,
-           detail?.components(separatedBy: WorkspaceRowContent.separator).first != machine.name {
+           !(detail == machine.name || detail?.hasPrefix(machine.name + WorkspaceRowContent.separator) == true) {
             parts.append(machine.name)
         }
         parts += presence.map(Strings.presenceLine)
