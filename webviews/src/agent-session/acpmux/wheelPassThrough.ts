@@ -28,7 +28,8 @@ function passesThrough(target: Element): boolean {
 
 /// Sends the wheel over Jump to latest, or over a floating stack part's empty room, in `main` to
 /// `scroller`. The scroller first gets a copy of the event, so its own wheel listeners run as for a
-/// wheel over it (the scroll counts as the reader's, a glide or a Jump to latest in flight ends). The
+/// wheel over it (the scroll counts as the reader's, a Jump to latest in flight ends, a mouse wheel's
+/// notch glides instead of jumping). The
 /// listener is passive: a wheel over the transcript itself never waits on it. Returns the remover.
 export function installWheelPassThrough(scroller: HTMLElement, main: HTMLElement): () => void {
   const onWheel = (event: WheelEvent) => {
@@ -36,9 +37,17 @@ export function installWheelPassThrough(scroller: HTMLElement, main: HTMLElement
     if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
     const target = event.target instanceof Element ? event.target : null;
     if (!target || !passesThrough(target) || scroller.contains(target)) return;
-    scroller.dispatchEvent(
-      new WheelEvent("wheel", { deltaX: 0, deltaY: event.deltaY, deltaMode: event.deltaMode, bubbles: false }),
-    );
+    // A mouse wheel's notch glides there (wheelGlide.ts takes the copy, which carries the legacy
+    // delta it reads): the scroll is left to it.
+    const copy = new WheelEvent("wheel", {
+      deltaX: 0,
+      deltaY: event.deltaY,
+      deltaMode: event.deltaMode,
+      bubbles: false,
+      cancelable: true,
+      wheelDeltaY: (event as WheelEvent & { wheelDeltaY?: number }).wheelDeltaY,
+    } as WheelEventInit);
+    if (!scroller.dispatchEvent(copy)) return;
     scroller.scrollTop += wheelPixels(event, scroller.clientHeight);
   };
   main.addEventListener("wheel", onWheel, { passive: true });

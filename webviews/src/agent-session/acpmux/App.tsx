@@ -256,6 +256,7 @@ import {
 import { ArrowDown, ChevronRight } from "./conversation/icons";
 import { CopyButton } from "./conversation/CopyButton";
 import { PreviewCard } from "./conversation/PreviewCard";
+import { installWheelGlide } from "./wheelGlide";
 import { installWheelPassThrough } from "./wheelPassThrough";
 import { turnPreviewUrl } from "./conversation/previewUrl";
 import {
@@ -2207,6 +2208,8 @@ export function VirtualTranscript({
   const seenAnchor = useRef<ScrollAnchor | null | undefined>(undefined);
   /// When the reader last moved the transcript themselves (wheel, pointer, touch or key).
   const readerAt = useRef(Number.NEGATIVE_INFINITY);
+  /// The mouse wheel's glide on the transcript (wheelGlide.ts), while it is mounted.
+  const wheelGlide = useRef<ReturnType<typeof installWheelGlide>>(undefined);
   /// Whether a move off the latest row, to `top` against `latest`, is a stray rather than the reader's.
   const strayFrom = (top: number, latest: number) =>
     latest - top < STRAY_SCROLL_PX && performance.now() - readerAt.current > READER_SCROLL_MS;
@@ -3078,6 +3081,8 @@ export function VirtualTranscript({
     // view back to the match and stops following again.
     revealing.current = undefined;
     revealWindow.current = 0;
+    // A mouse wheel's glide in flight would pull against the jump's.
+    wheelGlide.current?.stop();
     // The room the stack grew while scrolled up comes first, out of view, so following again moves
     // nothing and the glide runs to the end above the card instead of snapping there.
     takeRoom();
@@ -3131,7 +3136,11 @@ export function VirtualTranscript({
     // The chat's own transcript only (a replay's sits in its own screen).
     const main = node?.closest(".acpmux-stage")?.parentElement?.closest<HTMLElement>(".acpmux-main");
     const removeWheel = node && main ? installWheelPassThrough(node, main) : undefined;
+    // A mouse wheel's notch glides the transcript (wheelGlide.ts).
+    wheelGlide.current = node ? installWheelGlide(node) : undefined;
     return () => {
+      wheelGlide.current?.remove();
+      wheelGlide.current = undefined;
       clearTimeout(settle.current);
       for (const name of inputs) node?.removeEventListener(name, reader);
       node?.removeEventListener("click", holdClicked, { capture: true });
