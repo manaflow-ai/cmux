@@ -98,7 +98,7 @@ export function startTurnFold(
     copies?.set(row.id, row.node);
   }
   thread.setAttribute(TURN_FOLD_ATTR, opening ? "open" : "close");
-  return {
+  const fold: TurnFold = {
     id,
     opening,
     sessionId,
@@ -109,6 +109,9 @@ export function startTurnFold(
     copies,
     faded: new Set(),
   };
+  // The state goes when the fold is over even if nothing renders the transcript again by then.
+  setTimeout(() => endTurnFold(thread, fold), ms + FOLD_SETTLE_MS);
+  return fold;
 }
 
 /// Ends `fold`: the thread's state attribute goes. Animations already running finish on their own.

@@ -17,6 +17,8 @@ import {
   promptParts,
 } from "./promptCollapse";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
+import { foldMotion, foldMs } from "./fold";
+import { holdHeader } from "./useAnchoredCollapse";
 
 export function PromptText({
   rowId,
@@ -70,6 +72,36 @@ export function PromptText({
     return () => observer.disconnect();
   }, [parts, long, open]);
   const collapsed = long && !open;
+  // Show more and Show less (Leo 2026-10-21: "these all need animations for expand and collpase"):
+  // the bubble keeps its top where it is drawn and grows or shrinks from there, over the fold's token.
+  const resized = useRef<number | undefined>(undefined);
+  const showMore = (next: boolean) => {
+    const bubble = body.current?.parentElement;
+    if (bubble) {
+      holdHeader(bubble);
+      resized.current = bubble.getBoundingClientRect().height;
+    }
+    setOpen(next);
+  };
+  useLayoutEffect(() => {
+    const from = resized.current;
+    resized.current = undefined;
+    const bubble = body.current?.parentElement;
+    const ms = foldMs(bubble ?? null);
+    if (from === undefined || !bubble || ms <= 0) return;
+    const to = bubble.getBoundingClientRect().height;
+    if (Math.abs(to - from) < 1) return;
+    bubble.animate(
+      [
+        { height: `${from}px`, overflow: "hidden" },
+        { height: `${to}px`, overflow: "hidden" },
+      ],
+      {
+        duration: ms,
+        easing: foldMotion.easing(bubble),
+      },
+    );
+  }, [collapsed]);
   // Find's current match in this prompt opens it; one in a typed part past the fold, or in a paste,
   // needs it open to draw.
   const reveal = useContext(FindReveal);
@@ -111,7 +143,7 @@ export function PromptText({
           aria-expanded={!collapsed}
           aria-controls={id}
           data-find-skip=""
-          onClick={() => setOpen(collapsed)}
+          onClick={() => showMore(collapsed)}
         >
           {t(collapsed ? "message.more" : "message.less")}
         </button>
