@@ -103,6 +103,10 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// cannot connect until the person acts ("Failed to start"; cx-mdo0).
     /// Localized by the model, so the layout stays nonisolated.
     public var machineStatusLabels: [MachineID: String] = [:]
+    /// The machines whose rows carry their mark (SidebarMachineMark), when more than one is
+    /// listed: the others, and this Mac with `sidebar.showLocalMachine`. Empty with one machine,
+    /// where a mark would tell nothing.
+    public var machines: [MachineID: SidebarMachine] = [:]
     /// Include tab rows beneath each visible workspace.
     public var showWorkspaceTabs = false
     /// With `showWorkspaceTabs`, the workspaces whose disclosure hid their tabs.
@@ -151,6 +155,10 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     public var foldsDone = false
     /// The "Done (N)" rows the person opened: their workspaces list below them.
     public var openDoneFolds: Set<SidebarDoneFoldID> = []
+    /// `sidebar.groupRowLimit`: a list longer than this shows its first rows and a "Show N more" row; 0 shows all.
+    public var rowLimit = 0
+    /// The lists whose "Show N more" row the person opened.
+    public var openShowMore: Set<SidebarDoneFoldID> = []
 
     public init() {}
 }
@@ -170,6 +178,7 @@ nonisolated extension SidebarLayoutOptions {
     func rowContent(_ ws: SidebarWorkspace, machine: String?) -> WorkspaceRowContent {
         var content = baseRowContent(ws, machine: machine)
         content.detailedStatus = detailedStatus
+        content.machine = machines[ws.machineID].map(SidebarMachineMark.init)
         if let sessionTree { content.keycap = keycaps[ws.id] }
         content.pullRequests = sessionTree?.pullRequests[ws.id] ?? pullRequests[ws.id]
         if !showsTimestamps { (content.time, content.badgeTime) = (nil, nil) }

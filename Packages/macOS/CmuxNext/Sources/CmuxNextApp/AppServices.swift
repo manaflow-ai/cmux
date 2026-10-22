@@ -75,7 +75,7 @@ final class AppServices {
     /// Add Machine and Check Machine (plans/cmux-next/add-machine-DESIGN.md); each machine's last check.
     private(set) lazy var addMachine = AddMachineCard(services: .app(self))
     let machineHealth = MachineHealthStore()
-    let mobile = MobileHostService(displayName: { await MacName().computerName() })  // phone access; the account layer starts it
+    let mobile = MobileHostService(displayName: { await MacName().displayName() })  // phone access; the account layer starts it
     /// iPhone connections for the cmux-next iPhone app (cmux-next-ios, Settings > Mobile).
     let iphone = IPhoneHostService()
     let registry = ActionRegistry.standard()

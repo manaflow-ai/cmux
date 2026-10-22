@@ -6,6 +6,7 @@
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
+import { machineColor } from "../machineColor";
 import type { AcpmuxSnapshot } from "../model";
 import { homePath, projectLabel } from "../sessionList";
 
@@ -75,7 +76,12 @@ export function EnvironmentSection({
   return (
     <ul className="acpmux-chat-inspector-list" data-section="environment">
       <li className="acpmux-chat-inspector-row" data-machine={machine.kind}>
-        <Icon name={machine.icon} size={ROW_ICON} row />
+        <Icon
+          name={machine.icon}
+          size={ROW_ICON}
+          row
+          color={machine.kind !== "local" && machine.name ? machineColor(machine.name) : undefined}
+        />
         <span className="acpmux-chat-inspector-row__name">{machine.name ?? "—"}</span>
         {onSave && (
           <button type="button" className="acpmux-chat-inspector-link acpmux-chat-inspector-row__end" onClick={onSave}>

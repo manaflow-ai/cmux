@@ -509,16 +509,23 @@ The dev Postgres port is `CMUX_PORT + 10000`, so `CMUX_PORT=10180` maps to `loca
 | `cmux vm new --detach` | yes |
 | `cmux vm attach <id>` | yes |
 | `cmux vm ssh <id>` | yes (cmux-remote alias) |
-| `cmux vm ssh-info <id>` | no (managed API has no SSH credential endpoint) |
+| `cmux vm ssh-info <id>` | no (no web route; agents use the cmux-vm Worker's client sessions) |
 | `cmux vm exec <id> -- ...` | yes |
 | `cmux vm ls / rm` | yes |
 | snapshot / restore | yes |
 
 `cmux vm ssh <id>` is the user-facing interactive alias and opens the same managed workspace path
 as `cmux vm attach <id>`. Freestyle's provider SSH proxy is available outside cmux's managed
-session protocol, but the managed API does not mint or expose its scoped identities. This keeps
-workspace, tab, terminal, and revision state on one authoritative cmux-tui path. Therefore
-`cmux vm ssh-info <id>` and `POST /api/vm/:id/ssh-endpoint` stay unsupported.
+session protocol. The Freestyle driver can mint a scoped identity for it (`openSSH`): a new
+Freestyle identity granted only that VM as the work user `cmux`, with one access token
+(freestyle.sh/docs/vms/client-sessions), never the team key. The identity id is the opaque
+`identityHandle`; destroy, lease revocation and sign-out delete it through
+`revokeSSHIdentity`. SSH is still not an advertised transport (`attachTransports` is
+`cmux-remote` only), so workspace, tab, terminal, and revision state stay on one authoritative
+cmux-tui path, and `cmux vm ssh-info <id>` / `POST /api/vm/:id/ssh-endpoint` have no web route.
+Cloud agents get per-VM provider tokens from the cmux-vm Worker instead
+(`POST /v1/vms/{vmId}/client-session`, workers/cmux-vm/README.md "Agent keys and client
+sessions").
 
 ## Capabilities: the client-visible provider contract
 
