@@ -1,5 +1,6 @@
 import CmuxAgentQuestion
 import CmuxConversationCore
+import CmuxMobileArtifacts
 import CmuxMobileModel
 import Foundation
 import Observation
@@ -73,6 +74,9 @@ public final class ChiefSession {
     public private(set) var control: ChiefControl?
     /// The Mac Chief runs on, for the settings page.
     public var macName: String?
+    /// Reads a file a Chief message links to from Chief's Mac (the link's `file`
+    /// service, inside the folders that Mac shares); nil without a Mac link.
+    @ObservationIgnored public var fileSource: (any ArtifactSource)?
     public let preferences: ChiefPreferences
     /// Chief's avatar text (``ChiefIdentity/avatar``): the Mac's, once its
     /// `chief.engine.get` reply carries one, else "C".

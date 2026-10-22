@@ -34,6 +34,9 @@ public final class ConversationViewController: UIViewController {
     /// Select mode's Forward button. The host presents New Message prefilled
     /// with the draft; when unset, a minimal placeholder sheet stands in.
     public var onForward: ((ConversationForwardDraft) -> Void)?
+    /// A tapped link in a message: return true when the host handled it (a
+    /// file preview); false, or unset, opens it with the system.
+    public var onOpenLink: ((URL) -> Bool)?
     let options: ConversationPresentationOptions
 
     let layout = ConversationTranscriptLayout()

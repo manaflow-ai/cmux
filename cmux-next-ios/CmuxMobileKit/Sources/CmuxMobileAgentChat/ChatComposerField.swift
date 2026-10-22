@@ -63,6 +63,9 @@ struct ChatComposerField: UIViewRepresentable {
         if isFocused != view.isFirstResponder {
             let focus = isFocused
             Task { @MainActor [weak view] in
+                // A field built for this focus (the capsule expanding) joins its
+                // window a turn or two later.
+                for _ in 0..<4 where view?.window == nil { await Task.yield() }
                 guard let view, view.window != nil else { return }
                 if focus, !view.isFirstResponder { view.becomeFirstResponder() } else if !focus, view.isFirstResponder { view.resignFirstResponder() }
             }
