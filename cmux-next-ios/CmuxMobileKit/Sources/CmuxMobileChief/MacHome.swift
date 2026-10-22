@@ -179,7 +179,11 @@ public final class MacHomeFeed {
         }
         self.macID = macID
         self.link = link
+        // Conversations opened on the last link were on its channels.
+        closeSessions()
+        opening = true
         await open(link)
+        opening = false
     }
 
     /// Opens the list's channel on `link` and reads the list; a failure leaves the
@@ -188,7 +192,6 @@ public final class MacHomeFeed {
         generation += 1
         let mine = generation
         problem = nil
-        closeSessions()
         let old = detach()
         await old?.close()
         var opened: DaemonClient?
@@ -228,7 +231,8 @@ public final class MacHomeFeed {
     /// A conversation of the list other than the Mac Chief's, over its own
     /// `chief` channel to this Mac (the channel's filter allows only
     /// conversations between the owner and agents, which is every row). It
-    /// stays open while its screen shows (``release(_:)``).
+    /// stays open (with its outbox) until the link or the Mac changes; a screen
+    /// showing it then asks again (``sessionEpoch``).
     public func session(for route: MacConversationRoute) async throws -> ChiefSession {
         if let session = sessions[route.conversationID] { return session }
         guard let link else { throw LinkError(code: "offline", message: String(localized: "Your Mac isn't connected.")) }
@@ -259,14 +263,15 @@ public final class MacHomeFeed {
         }
     }
 
-    /// The conversation's screen went away: its channel closes.
-    public func release(_ conversationID: String) {
-        sessions.removeValue(forKey: conversationID)?.backend.close()
-    }
+    /// Bumped each time the opened conversations close (a new link or another Mac):
+    /// a conversation's screen asks for its session again.
+    public private(set) var sessionEpoch = 0
 
     private func closeSessions() {
+        guard !sessions.isEmpty else { return }
         for session in sessions.values { session.backend.close() }
         sessions = [:]
+        sessionEpoch += 1
     }
 
     /// Chief on `macID` is not reachable. Its list stays (it is read on its

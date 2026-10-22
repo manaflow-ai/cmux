@@ -553,6 +553,11 @@ struct HomeTile: View, Identifiable {
 /// A conversation of the Mac's Home list other than the Mac Chief's, over
 /// its own `chief` channel to that Mac (``MacHomeFeed/session(for:)``).
 struct MacConversationScreen: View {
+    struct SessionKey: Hashable {
+        let route: MacConversationRoute
+        let epoch: Int
+    }
+
     let route: MacConversationRoute
     let feed: MacHomeFeed
     @State private var session: ChiefSession?
@@ -568,11 +573,11 @@ struct MacConversationScreen: View {
                 ProgressView().accessibilityIdentifier("home.conversation.loading")
             }
         }
-        .task(id: route) {
+        // A new link closes the conversation's channel: the screen takes a new session on it.
+        .task(id: SessionKey(route: route, epoch: feed.sessionEpoch)) {
+            failure = nil
             do { session = try await feed.session(for: route) } catch { failure = MacHomeFeed.reason(error) }
         }
-        // Back on Home: the conversation's channel closes.
-        .onDisappear { feed.release(route.conversationID) }
     }
 }
 

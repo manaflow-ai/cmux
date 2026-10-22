@@ -114,14 +114,17 @@ final class FakeHomeOwner: @unchecked Sendable {
         lock.withLock {
             let object = try! JSONSerialization.jsonObject(with: request.dropLast()) as! [String: Any]
             commands.append(object)
-            let id = object["id"] as! String
+            // A conversation's own requests (cmux.protocol/2 engine reads) get no answer here.
+            guard let id = object["id"] as? String, let cmd = object["cmd"] as? String else { return [] }
             func ok(_ data: [String: Any]) -> Data { line(["id": id, "ok": true, "data": data]) }
-            switch object["cmd"] as! String {
+            switch cmd {
             case "conversation-list":
                 return [ok(["conversations": rows.map { ["id": $0["id"]!, "last_seq": 7, "participants": [
                     ["id": "user_local", "kind": "human"], ["id": $0["chief"] ?? "agent_codex", "kind": "agent"]]] }])]
-            case "subscribe":
+            case "subscribe", "conversation-typing":
                 return [ok([:])]
+            case "conversation-snapshot":
+                return [ok(["conversation": ["id": object["conversation"]!, "participants": []], "messages": []])]
             case "home-inbox":
                 return [ok(["me": "user_local", "cloud": "not_asked", "rows": rows])]
             case "conversation-inbox-op":
@@ -237,6 +240,24 @@ final class FakeHomeOwner: @unchecked Sendable {
         await feed.connect(link: MockMacLink { _, request in owner.respond(request) }, macID: "mac-1")
         #expect(await until { feed.rows?.count == 4 })
         #expect(feed.macChiefID == "conv_chief")
+    }
+
+    /// A conversation opened from Home survives the list channel reopening on the same
+    /// link; a new link closes it and tells its screen to ask again.
+    @Test func openedConversationsFollowTheLink() async throws {
+        let owner = FakeHomeOwner()
+        let link = PushLink { request in owner.respond(request) }
+        let feed = MacHomeFeed()
+        await feed.connect(link: link, macID: "mac-1")
+        #expect(await until { feed.rows?.count == 4 })
+        let route = MacConversationRoute(conversationID: "conv_ops", chief: nil, title: "Ops")
+        let first = try await feed.session(for: route)
+        #expect(try await feed.session(for: route) === first)
+        #expect(first.identity.chiefID == "agent_codex")
+        let epoch = feed.sessionEpoch
+        await feed.connect(link: PushLink { request in owner.respond(request) }, macID: "mac-1")
+        #expect(feed.sessionEpoch == epoch + 1)
+        #expect(try await feed.session(for: route) !== first)
     }
 
     /// Another Mac chosen: its own list, never the last Mac's rows.
