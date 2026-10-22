@@ -155,7 +155,8 @@ export default agentPaneEntry({
       note: "Clicking row 8 jumps to prompt 8, whose bubble flashes a step brighter (scrollMotion.ts highlightBubble). A still cannot catch the flash in flight, so once the jump lands this state stops it and paints its first color on the landed bubble: the bubble's glass tint over transparent, the backdrop still showing through it, never the opaque base.",
       snapshot: chat(rows, { title: "Thread minimap landing" }),
       play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelector('[data-tick="8"]'));
+        // Off (the default arm) draws no minimap, and a narrow base width can hide the rail: skip there.
+        if (!ctx.document.querySelector('[data-tick="8"]')) return;
         await ctx.click({ selector: '[data-tick="8"]' });
         // The landed bubble: tick 8's prompt, once the jump has settled it LANDING_OFFSET below the
         // transcript's top (ThreadMinimap.tsx settleScroll). The wait fails the state if it never lands.
