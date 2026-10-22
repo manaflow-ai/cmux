@@ -12,8 +12,8 @@ public nonisolated enum FocusIndicatorTunables {
         default: .fade, code: "FocusIndicatorTunables.inactiveTabStyle")
     public static let inactiveTabStrength = Tunable<CGFloat>.number(
         "focus.inactiveTabStrength", .focus, "Unfocused tabs strength",
-        help: "How much subtler an unfocused pane's tabs draw (0 is the same as the focused pane). 0.6 since 2026-10-21 (was 0.35): with no ring by default, the tabs are the cue for which pane Cmd-W closes.",
-        default: 0.6, range: 0...1, step: 0.05, unit: .fraction, code: "FocusIndicatorTunables.inactiveTabStrength")
+        help: "How much subtler an unfocused pane's tabs draw (0 is the same as the focused pane). 0.4 since 2026-10-21: 0.35 made the focused pane hard to tell (Cmd-W), 0.6 made the shift on a focus change jarring.",
+        default: 0.4, range: 0...1, step: 0.05, unit: .fraction, code: "FocusIndicatorTunables.inactiveTabStrength")
 
     /// Leo 2026-10-21: a link opened beside his chat moved focus and nothing showed where. Off by
     /// default until Leo judges it live (`PaneOverlayView.flashesFocus`).

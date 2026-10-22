@@ -204,9 +204,7 @@ struct WorkspaceHoverCardContent: Equatable {
             // that is not connected says how, in its color, under it.
             let own = ownIcon(remote.icon)
             let tone = connectionTone(remote.status)
-            // The Chief's subagent workspaces say who started them here, not on their row.
-            let name = remote.id.isLocalChief ? Strings.startedByChief : remote.name
-            facts.append(Fact(icon: hostIcon(remote), text: name, mark: own.mark, image: own.image, kind: "machine",
+            facts.append(Fact(icon: hostIcon(remote), text: remote.name, mark: own.mark, image: own.image, kind: "machine",
                               accessory: .dot(tone)))
             if let word = connectionWord(remote.status) {
                 facts.append(Fact(icon: .statusDisconnected, text: word, kind: "machineStatus", ink: tone))
@@ -297,12 +295,14 @@ struct WorkspaceHoverCardContent: Equatable {
         return HoverCardRowContent(text: line, ink: tone == .secondary ? .secondary : tone, accessory: bars)
     }
 
-    /// A machine's link as a color: green connected, yellow on its way, red when it cannot connect.
+    /// A machine's link as a color: green connected, yellow on its way, red when it cannot connect,
+    /// grey when paused (it resumes on attach).
     static func connectionTone(_ status: SidebarMachine.Status) -> HoverCardTone {
         switch status {
         case .connected, .updateAvailable: .success
         case .connecting, .reconnecting, .installing, .updateRequired, .installRequired: .attention
         case .offline, .authFailed, .unreachable, .failed: .danger
+        case .paused, .pausedIdle: .secondary
         }
     }
 
