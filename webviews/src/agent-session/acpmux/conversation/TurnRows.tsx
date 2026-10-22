@@ -257,7 +257,8 @@ function TurnFailure({
   const offersSwitch =
     switchModel &&
     ["rate-limited", "unreachable", "invalid-key", "proxy-auth", "subscription-login", "auth"].includes(kind);
-  const offersRetry = recovery === "retry" && retry !== undefined;
+  // Retry is the way out, or the second one after Switch model; never for a sign-in or trust failure.
+  const offersRetry = recovery !== undefined && retry !== undefined;
   // The way out goes first and reads as the card's one filled button.
   const switchFirst = offersSwitch && (recovery === "switch-model" || !offersRetry);
   const switchButton = offersSwitch && (
@@ -281,7 +282,11 @@ function TurnFailure({
       <span className="cv-turn-error__actions">
         {switchFirst && switchButton}
         {offersRetry && (
-          <button type="button" className="cv-turn-auth-action cv-turn-error__primary" onClick={retry}>
+          <button
+            type="button"
+            className={`cv-turn-auth-action${switchFirst ? "" : " cv-turn-error__primary"}`}
+            onClick={retry}
+          >
             {t("turn.retry")}
           </button>
         )}

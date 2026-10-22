@@ -41,8 +41,10 @@ const AUTH = /\b40[13]\b|unauthori[sz]ed|forbidden|authenticat|\boauth\b/i;
 /// A full disk, here or on the chat's machine: before every other kind, since what it broke (a
 /// write, a socket, the agent) reads as that kind too.
 const DISK_FULL = /ENOSPC|no space left on device|disk (?:is )?full|out of disk space|disk quota exceeded|EDQUOT/i;
-/// A chat on another machine that its tailnet no longer reaches.
+/// A chat on another machine that its tailnet no longer reaches: the tailnet named, and a sign that
+/// it did not connect. A tailnet host that answered (a 401, a 529) is that answer, not Tailscale.
 const TAILSCALE = /tailscale|tailnet|\.ts\.net\b/i;
+const TAILNET_DOWN = /not connected|logged out|needs login|is (?:down|stopped|offline)|no route|i\/o timeout/i;
 /// The agent's process ended mid-turn (acpmux's "agent process closed", a signal, a broken pipe).
 const AGENT_EXITED =
   /agent process (?:closed|exited|died|ended)|(?:agent|process) exited (?:unexpectedly|with)|exited with (?:code|status|signal)|terminated by signal|\bSIG(?:KILL|TERM|SEGV|ABRT|BUS)\b|broken pipe|\bEPIPE\b/i;
@@ -89,24 +91,24 @@ export function failureKind(message: string | undefined, route?: FailureRoute, c
   // Before capacity and sign-in: neither waiting, another model nor a sign-in fixes it.
   if (NO_TEAM_ACCOUNT.test(message) && ADD_COMMAND.test(message)) return "no-team-account";
   if (DISK_FULL.test(message)) return "disk-full";
-  if (TAILSCALE.test(message)) return "tailscale";
   // Capacity and network first: their messages often mention authentication or keys in passing.
   if (RATE.test(message)) return "rate-limited";
+  if (TAILSCALE.test(message) && (UNREACHABLE.test(message) || TAILNET_DOWN.test(message))) return "tailscale";
   if (UNREACHABLE.test(message)) return "unreachable";
-  // The cause an agent's stderr names (above) says more than that it quit.
-  if (SPAWN_FAILED.test(message)) return "spawn-failed";
-  if (AGENT_EXITED.test(message)) return "agent-exited";
   const via = failureVia(message, route);
   // A signed-out Claude CLI says "Invalid API key · Please run /login": its way out is the login.
   if (INVALID_KEY.test(message) && !(SUBSCRIPTION.test(message) && !via)) return "invalid-key";
   if (AUTH.test(message) && via) return "proxy-auth";
   if (SUBSCRIPTION.test(message)) return "subscription-login";
   if (AUTH.test(message)) return "auth";
+  // Last: the cause an agent's stderr names (above) says more than that it quit.
+  if (SPAWN_FAILED.test(message)) return "spawn-failed";
+  if (AGENT_EXITED.test(message)) return "agent-exited";
   return "other";
 }
 
-/// The way out a failure's card offers first: send the prompt again, or move to another model.
-/// Signing in is the footer's (TurnRows.tsx); a trust answer is its card's.
+/// The way out a failure's card offers first: send the prompt again, or move to another model (with
+/// Retry after it). Signing in is the footer's (TurnRows.tsx); a trust answer is its card's.
 export function failureRecovery(kind: FailureKind): "retry" | "switch-model" | undefined {
   switch (kind) {
     case "rate-limited":
