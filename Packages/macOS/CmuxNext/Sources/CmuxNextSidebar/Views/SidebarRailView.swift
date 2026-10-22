@@ -160,6 +160,21 @@ public final class SidebarRailView: NSView {
         return railLayout.ticks.first { point.y >= $0.rowY && point.y < $0.rowY + railLayout.pitch }
     }
 
+    /// The middle of a mark's row in window coordinates, for a synthetic pointer
+    /// (`debug.pointer_hover {rail: "top" | "middle" | "bottom" | index}`); nil while the rail is hidden.
+    public func rowCenterInWindow(_ which: String) -> CGPoint? {
+        let ticks = railLayout.ticks
+        guard !isHiddenOrHasHiddenAncestor, !ticks.isEmpty else { return nil }
+        let index = switch which {
+        case "top": 0
+        case "middle": ticks.count / 2
+        case "bottom": ticks.count - 1
+        default: min(max(Int(which) ?? 0, 0), ticks.count - 1)
+        }
+        let row = railLayout.row(of: ticks[index], railWidth: bounds.width)
+        return convert(CGPoint(x: row.midX, y: row.midY), to: nil)
+    }
+
     /// `tick`'s hover card anchor: its row as a band across the sidebar column, the list rows' one
     /// rule (`HoverCardEscapeGeometry.rowBand`). Nil out of a window.
     func cardAnchor(_ tick: SidebarRailLayout.Tick) -> CGRect? {

@@ -99,9 +99,7 @@ public nonisolated struct SidebarRailLayout: Hashable, Sendable {
     /// pitch tall around the tick, so a group's rows touch and the pointer never falls between two
     /// of them. A row's hover card puts its top on the row's top.
     public func row(of tick: Tick, railWidth: CGFloat) -> CGRect {
-        // Red: the tick itself, not its row.
-        _ = railWidth
-        return tick.rect
+        CGRect(x: 0, y: tick.rowY, width: railWidth, height: pitch)
     }
 
     /// The tick nearest `y` (flipped), within half a pitch; a click aims at a 2 pt line.
