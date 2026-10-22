@@ -13,10 +13,8 @@ struct AppFeaturesView: View {
         VStack(spacing: 0) {
             chips
             ScrollView {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: Metrics.space4)], spacing: Metrics.space4) {
-                    ForEach(model.featureListings) { AppFeatureCard(model: model, feature: $0) }
-                }
-                .appStoreColumn()
+                AppStoreCardGrid { ForEach(model.featureListings) { AppFeatureCard(model: model, feature: $0) } }
+                    .appStoreWideColumn()
                 .padding(.vertical, Metrics.space4)
                 .thinScrollers()
             }
@@ -42,7 +40,7 @@ struct AppFeaturesView: View {
             .padding(.vertical, Metrics.space3)
             .thinScrollers()
         }
-        .appStoreColumn()
+        .appStoreWideColumn()
     }
 
     private func chip(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
@@ -62,6 +60,7 @@ struct AppFeaturesView: View {
 struct AppFeatureCard: View {
     let model: AppStoreModel
     let feature: AppFeature
+    @State private var hovered = false
     @Environment(\.appSceneColors) private var colors
 
     var body: some View {
@@ -70,9 +69,10 @@ struct AppFeatureCard: View {
             AppFeaturePreviewView(preview: feature.preview)
             VStack(alignment: .leading, spacing: 2) {
                 Text(feature.name).font(Font(Typography.bodyEmphasized)).foregroundStyle(colors.primary).lineLimit(1)
+                // Two lines reserved, so every card's footer sits on the same line.
                 Text(feature.summary)
-                    .font(Font(Typography.caption)).foregroundStyle(colors.secondary).lineLimit(2)
-                    .frame(maxWidth: .infinity, minHeight: 30, alignment: .topLeading)
+                    .font(Font(Typography.caption)).foregroundStyle(colors.secondary).lineLimit(2, reservesSpace: true)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
             }
             HStack(spacing: Metrics.space2) {
                 if on { AppStoreBadge(text: AppsStrings.featureOn, emphasized: true) }
@@ -80,9 +80,11 @@ struct AppFeatureCard: View {
                 Spacer(minLength: 0)
                 AppFeatureButton(model: model, feature: feature, on: on)
             }
+            .frame(height: AppStoreColumn.actionHeight)
         }
         .padding(Metrics.space4)
-        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(colors.hover))
+        .appStoreCard(hovered: hovered)
+        .onHover { hovered = $0 }
         .themedHelp(AppsStrings.featureSetting(feature.setting))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("appStore.feature.\(feature.id)")

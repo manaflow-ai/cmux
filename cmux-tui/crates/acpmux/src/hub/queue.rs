@@ -39,6 +39,9 @@ pub struct QueuedPrompt {
     pub(super) joined: Arc<StdMutex<Option<super::digest::Joined>>>,
     /// Put back once after a failed turn of agent messages (`requeue_joined`): not again.
     pub(super) requeued: bool,
+    /// Times a hold let it go by itself (`digest.rs` `retry_held_agent_messages`): the next
+    /// hold waits longer.
+    pub(super) retries: usize,
 }
 
 /// A queued prompt and the rules it runs under.
@@ -285,6 +288,7 @@ impl Hub {
                 sent_now: false,
                 joined: joined.clone(),
                 requeued: false,
+                retries: 0,
             },
         );
         let order: Vec<String> = queue.iter().map(|q| q.prompt_id.clone()).collect();
@@ -376,9 +380,10 @@ impl Hub {
     }
 
     /// A failed turn holds the prompts that waited behind it: they were written for a turn that
-    /// went well. They wait until a client resumes them (`resume_queue`) or sends one now
-    /// (`put_next`); a prompt sent meanwhile runs ahead of them.
-    pub(super) fn pause_queue(&self, session: &Arc<Session>, turn_id: &str) {
+    /// went well. The person's wait until a client resumes them (`resume_queue`) or sends one now
+    /// (`put_next`); a prompt sent meanwhile runs ahead of them. Agent messages go in again by
+    /// themselves (`digest.rs` `retry_held_agent_messages`).
+    pub(super) fn pause_queue(self: &Arc<Self>, session: &Arc<Session>, turn_id: &str) {
         let held: Vec<String> = {
             let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             queue
@@ -392,6 +397,7 @@ impl Hub {
         };
         if !held.is_empty() {
             self.append(session, "mux", "queue_paused", json!({"turnId": turn_id, "held": held}));
+            self.retry_held_agent_messages(session);
         }
     }
 
@@ -590,12 +596,21 @@ impl Hub {
             self.store.scan_kinds(&session.id, Self::QUEUE_KINDS, &mut |e: EventRecord| {
                 let settled = unstarted.read(&e, &waiting);
                 waiting.retain(|q| q.msg.get("turnId").is_none_or(|t| !settled.contains(t)));
+                let turn_id = e.msg.get("turnId");
+                // Queued or run again under another turn id (a daemon that had not restored it
+                // took its id as new): that copy is the prompt's, so this one does not run too.
+                if matches!(e.kind.as_str(), "queued" | "user_message" | "turn_started")
+                    && let Some(id) = e.msg.get("promptId")
+                {
+                    waiting.retain(|q| {
+                        q.msg.get("promptId") != Some(id) || q.msg.get("turnId") == turn_id
+                    });
+                }
                 if matches!(e.kind.as_str(), "queued" | "user_message")
                     && let Some(id) = e.msg.get("promptId").and_then(Value::as_str)
                 {
                     recorded.insert(id.to_owned());
                 }
-                let turn_id = e.msg.get("turnId");
                 match e.kind.as_str() {
                     "queued" => waiting.push(e),
                     "agent_pair_held"
@@ -707,6 +722,7 @@ impl Hub {
                 sent_now: false,
                 joined: Arc::new(StdMutex::new(None)),
                 requeued: e.msg.get("requeued") == Some(&Value::Bool(true)),
+                retries: 0,
             });
             session.queued.fetch_add(1, Ordering::SeqCst);
             ledger.push_back((prompt_id, Arc::new(tokio::sync::watch::channel(None).0)));
@@ -720,6 +736,8 @@ impl Hub {
         // And what a resumed agent pair still held when the daemon stopped (`agent_pairs.rs`).
         self.resume_agent_pair_drains();
         for session in self.sessions() {
+            // Agent messages a failed turn held before the restart go in again by themselves.
+            self.retry_held_agent_messages(&session);
             let restored: Vec<QueuedPrompt> = session
                 .queue
                 .lock()
@@ -749,12 +767,15 @@ impl Hub {
                     }
                     prompt_ledger::prune(&mut ledger);
                     drop(ledger);
-                    // Refused before its turn (its harness is gone): it leaves the queue, so the
-                    // prompts behind it still run.
+                    // Refused before its turn (its harness is gone, or it may not start under
+                    // the chat's control): it leaves the queue, so the prompts behind it still
+                    // run, and its `prompt_refused` says why, so it never just disappears.
                     if let Err(e) = result
                         && hub.remove_queued(&session, &q.prompt_id)
                     {
                         tracing::warn!(session = %session.id, prompt = %q.prompt_id, "restored prompt refused: {}", e.message);
+                        let msg = json!({"promptId": q.prompt_id, "turnId": q.turn_id, "client": q.client, "error": e.message, "data": e.data});
+                        hub.append(&session, "mux", "prompt_refused", msg);
                     }
                 });
             }

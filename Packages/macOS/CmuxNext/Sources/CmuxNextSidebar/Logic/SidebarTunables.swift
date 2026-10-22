@@ -97,6 +97,12 @@ public nonisolated enum SidebarTunables {
         help: "A workspace row says needs you, done, failed or lost at the right of its name, in the Priority view's words, for the most urgent agent chat in it on this Mac.",
         default: true, code: "SidebarTunables.rowStatus")
 
+    /// Workspaces marked Done fold into one "Done (N)" row at the end of their group or list (`SidebarLayout+DoneFold`).
+    public static let doneFold = Tunable<Bool>.toggle(
+        "sidebar.doneFold", .sidebar, "Fold Done workspaces",
+        help: "Workspaces marked Done move into one Done row at the end of their group or list, in their order; click the row to show them.",
+        default: true, code: "SidebarTunables.doneFold")
+
     /// The workspace hover card says what its agents did since the person last looked at it
     /// (`SidebarLookedStore`): turns done, questions, failures. On by default.
     public static let sinceLooked = Tunable<Bool>.toggle(
@@ -133,10 +139,11 @@ public nonisolated enum SidebarTunables {
 
     /// Leo 2026-10-21 (item D, multi-view): a press on a workspace row selects nothing; the click
     /// (mouse-up on the same row) navigates, and a hold-then-drag moves the row without leaving the
-    /// workspace on screen. Rows of every workspace on screen draw a soft fill (`SidebarModel.onScreen`).
+    /// workspace on screen. Rows of every workspace on screen draw a soft fill (`SidebarModel.onScreen`). A row dropped
+    /// on a pane edge shows its workspace beside the shown one (the App's `WindowController.placeBeside`).
     public static let multiView = Tunable<Bool>.toggle(
         "sidebar.multiView", .sidebar, "Navigate on release (multi-view prototype)",
-        help: "A press on a workspace row changes nothing until the button comes up on that row; holding and dragging moves the row without switching to it. Rows of every workspace on screen get a soft highlight.",
+        help: "A press on a workspace row changes nothing until the button comes up on that row; holding and dragging moves the row without switching to it. A row dropped on a pane edge shows its workspace beside the shown one. Rows of every workspace on screen get a soft highlight.",
         default: false, code: "SidebarTunables.multiView")
 
     /// Sample rows with 1 to 7 pending items (`SidebarSection.rowBadgePreview()`).
@@ -183,6 +190,7 @@ public nonisolated enum SidebarTunables {
         [
             agentMark.descriptor,
             collapseMotion.descriptor,
+            doneFold.descriptor,
             dragThreshold.descriptor,
             evenRowText.descriptor,
             groupEdgeFraction.descriptor,

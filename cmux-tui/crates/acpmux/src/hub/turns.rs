@@ -215,8 +215,7 @@ impl Hub {
         let m = session.meta();
         if !live {
             let cfg = self.config.read().await;
-            super::resolve::session_profile(&cfg, &m.harness, &m.cwd, m.remote_origin)
-                .map_err(RpcError::invalid_params)?;
+            super::resolve::session_profile_checked(&cfg, &m.harness, &m.cwd, m.remote_origin)?;
         }
         let text = prompt_text(&blocks);
         let running = session.turn();
@@ -315,7 +314,9 @@ impl Hub {
         let mut blocks = blocks;
         {
             let mut m = session.meta.lock().unwrap();
-            m.last_prompt = Some(short_text(&text, 200));
+            // Another agent's message leaves its sender and words, not its envelope (`prompt_line.rs`).
+            let line = super::prompt_line::prompt_line(&text, client, provenance.as_ref());
+            m.last_prompt = Some(short_text(&line, 200));
             drafts::clear_sent_draft(&mut m, &text);
             super::titles::set_fallback_title(&mut m, &text);
             m.preview = Some(String::new());
@@ -690,7 +691,7 @@ impl Hub {
 
     /// A turn refused after it was accepted (dispatch check, remote floor): failed unstarted.
     fn refuse_started_turn(
-        &self,
+        self: &Arc<Self>,
         session: &Arc<Session>,
         prompt_id: &str,
         turn_id: &str,
@@ -722,7 +723,7 @@ impl Hub {
     /// A recorded prompt whose agent could not start: the turn ends failed, so every client
     /// sees the prompt settle instead of a turn that never starts.
     fn fail_unstarted_turn(
-        &self,
+        self: &Arc<Self>,
         session: &Arc<Session>,
         prompt_id: &str,
         turn_id: &str,
@@ -799,6 +800,8 @@ impl Hub {
         {
             return Err(super::start_mode::full_access_off());
         }
+        // Nor does a switch out of the mode a narrower policy needs (`policy_mode.rs`).
+        self.refuse_wider_mode(session, m, &params).await?;
         let child = self.child_for(session).await?;
         let sid = session
             .meta()
@@ -986,14 +989,18 @@ impl Hub {
         Ok(())
     }
 
-    pub async fn set_policy(&self, session: &Arc<Session>, policy: PermissionPolicy) {
+    /// Sets `session`'s own policy; its mode follows (`follow_policy`), so a policy acpmux sets
+    /// itself (an aside's, a handoff target's) holds as one a client sets does.
+    pub async fn set_policy(self: &Arc<Self>, session: &Arc<Session>, policy: PermissionPolicy) {
         self.permission_policy_changed(session, |m| m.permission_policy = Some(policy.to_string()));
         self.append(session, "mux", "policy", json!({"policy": policy.to_string()}));
         self.save_meta(session);
+        self.follow_policy(session).await;
     }
 
     /// Stop the child. The log stays. `purge` also deletes the log.
     pub async fn kill(&self, session: &Arc<Session>, purge: bool) -> Result<(), RpcError> {
+        session.closing.store(true, Ordering::SeqCst);
         self.stop_auto_resume(session);
         self.revoke_permission_chat(session);
         self.cancel_pending_permissions(session);
@@ -1022,6 +1029,7 @@ impl Hub {
         crate::agent_tools::remove_mcp_config(&crate::config::home(), &session.id);
         if purge {
             session.purged.store(true, Ordering::SeqCst);
+            let replaced = session.replaced.load(Ordering::SeqCst);
             self.sessions.lock().unwrap().remove(&session.id);
             // Its temporary folder goes with it (`agent/session_tmp.rs`).
             #[cfg(unix)]
@@ -1038,12 +1046,24 @@ impl Hub {
                     at: now_ms(),
                     dir: "mux".into(),
                     kind: "purged".into(),
-                    msg: json!({"sessionId": session.id}),
+                    msg: if replaced {
+                        json!({"sessionId": session.id, "replaced": true})
+                    } else {
+                        json!({"sessionId": session.id})
+                    },
                     host_seq: None,
                 }),
                 remote: None,
             });
             self.store.delete(&session.id).map_err(|e| RpcError::internal(e.to_string()))?;
+            // The files dropped into the chat go with it (`file_uploads.rs`), unless the chat
+            // itself comes back under this id.
+            if !replaced {
+                let id = session.id.clone();
+                let _ =
+                    tokio::task::spawn_blocking(move || super::file_uploads::remove_session(&id))
+                        .await;
+            }
         }
         Ok(())
     }

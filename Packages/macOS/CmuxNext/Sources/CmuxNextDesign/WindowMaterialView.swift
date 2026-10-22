@@ -53,7 +53,7 @@ public final class WindowMaterialView: NSView {
     /// is computed per size and nothing jumps while resizing.
     let artView = NSView()
     /// The art layer's opacity (`WindowBackdrop.artOpacity`), the end of its fade-in.
-    private var artOpacity: Float = 1
+    private(set) var artOpacity: Float = 1
     private var loadedSelection: BackdropSelection?
     private var loadedArt: BackdropArt?
     private var loadedTexture: BackdropTexture?
@@ -65,7 +65,11 @@ public final class WindowMaterialView: NSView {
     private var applied: (backdrop: WindowBackdrop, tint: NSColor)?
     /// A video wallpaper over the art (its poster), playing while seen (``BackdropVideoView``).
     public let videoView: BackdropVideoView
-    private var artImage: NSImage?
+    private(set) var artImage: NSImage?
+    /// A video wallpaper plays over the art (pages get no still of it, `glassSource`).
+    private(set) var showsVideo = false
+    /// The web views lensing this backdrop, told when what they draw changes (`glassSource`).
+    let glassFeeds = NSHashTable<GlassBackdropFeed>.weakObjects()
     private let images: BackdropImageStore
     /// The desktop picture: its color leans the tint (`appearance.wallpaperTint`), and the
     /// Desktop Wallpaper art reloads when it changes.
@@ -73,9 +77,9 @@ public final class WindowMaterialView: NSView {
     /// Loads the art the last `apply` asked for when it was not decoded yet.
     private var artLoad: Task<Void, Never>?
     /// The solid sheet and Reduce Transparency must never expose art.
-    private var hidesArt = false
+    private(set) var hidesArt = false
     /// The blur on the art now (``WindowBackdrop/artBlurRadius``).
-    private var artBlurRadius = 0
+    private(set) var artBlurRadius = 0
 
     /// Creates an opaque backdrop (no material view, no tint).
     ///
@@ -343,7 +347,8 @@ public final class WindowMaterialView: NSView {
             }
         }
         artView.isHidden = hidesArt || artImage == nil
-        videoView.show(hidesArt || shown?.isVideo != true ? nil : shown?.resolvedImageURL(dark: dark))
+        showsVideo = !hidesArt && shown?.isVideo == true
+        videoView.show(showsVideo ? shown?.resolvedImageURL(dark: dark) : nil)
         // Window Glass: the desktop shows through the art. The model value only, so a fade-in in
         // flight runs on to it.
         artOpacity = Float(backdrop.artOpacity)
@@ -386,6 +391,7 @@ public final class WindowMaterialView: NSView {
             }
         }
         updateInactiveTint()
+        noteGlassSourceChange()
     }
 
     /// The desktop picture or its color changed (``DesktopWallpaperWatch``), or
@@ -401,6 +407,7 @@ public final class WindowMaterialView: NSView {
         artImage = image
         artView.layer?.contents = artImage
         artView.isHidden = hidesArt || artImage == nil
+        noteGlassSourceChange()
     }
 
     /// Blurs the art and the video over it by `radius` points (``WindowBackdrop/artBlurRadius``);

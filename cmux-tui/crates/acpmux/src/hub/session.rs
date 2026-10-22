@@ -94,6 +94,13 @@ pub struct Session {
     /// Set once the session is purged, so late events do not recreate its
     /// files while the directory is being removed.
     pub(super) purged: AtomicBool,
+    /// Set before a purge when the same chat, brought back under this id, replaces this copy
+    /// (`transfer_in.rs`): its uploads stay, since the returning chat's prompts name them, and the
+    /// purge record says `replaced` so the app keeps what it holds for the chat too.
+    pub(super) replaced: AtomicBool,
+    /// Set when the chat is closed (`kill`) until its agent starts again: its host may still
+    /// hold its record while it ends, and it is not running (`policy_mode.rs` `follow_policy`).
+    pub(super) closing: AtomicBool,
     /// Bumps on every status, permission and turn change; waits gate on it.
     pub(super) state_seq: AtomicU64,
     /// Clients attached right now (TUI, web, CLI streams).
@@ -112,9 +119,12 @@ pub struct Session {
     /// The seq of the last record that shows the agent doing work: a tool call that is not
     /// messaging, or a file write (`agent_pairs.rs` `progress_record`). 0: none since load.
     pub(super) last_progress: AtomicU64,
-    /// How many messages the agent sent (updates, requests, answers; not its
-    /// host's stderr or exit); a turn that hears none is silent (`silent_turn.rs`).
+    /// How many signs of its model at work the agent sent (what it says or does, its
+    /// requests, its harness's model lines; not its own bookkeeping, `tap.rs`
+    /// `from_the_model`); a turn that hears none is silent (`silent_turn.rs`).
     pub(super) heard: AtomicU64,
+    /// The turn that logged `turn_silent` and has not heard its model since (`silent_turn.rs`).
+    pub(super) silent_turn: StdMutex<Option<String>>,
     /// The hub clock's time (`Hub::clock_now`) of the last record or
     /// attach change; the idle harness exit counts from it (`idle.rs`).
     pub(super) last_active: AtomicU64,

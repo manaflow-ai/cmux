@@ -170,10 +170,14 @@ class PublishTests(unittest.TestCase):
             log = tmp / "gh.jsonl"
             notes = {"build": "100", "items": [{"title": "Tabs keep their order", "author": "Ada", "pr": 11}]}
             out = tmp / "out"
-            # The privacy check runs on text only (no OCR tool is compiled here) and
-            # with a made-up terms list instead of this machine's names.
+            # As inside .github/actions/pr-media-publish: a made-up terms list instead
+            # of this machine's names, and an OCR tool that reads every frame as clean.
+            ocr = tmp / "bin/ocr"
+            ocr.write_text("#!/bin/sh\necho ok\n", encoding="utf-8")
+            ocr.chmod(0o755)
             env = dict(os.environ, PATH=f"{gh.parent}{os.pathsep}{os.environ.get('PATH', '')}", FAKE_GH_LOG=str(log),
-                       GITHUB_ACTIONS="true", PR_MEDIA_PRIVACY_OCR="none", PR_MEDIA_PRIVATE_TERMS='["glow-box"]')
+                       GITHUB_ACTIONS="true", PR_MEDIA_PUBLISH_GATE="1", PR_MEDIA_PRIVACY_OCR=str(ocr),
+                       PR_MEDIA_PRIVATE_TERMS='["glow-box"]')
             done = subprocess.run([sys.executable, str(SCRIPT), "--build", "100",
                                    "--notes", str(write(tmp / "notes.json", notes)), "--allow-unsigned",
                                    "--clips", str(write(tmp / "clips.json", {"11": str(tmp / "a.mp4")})),
