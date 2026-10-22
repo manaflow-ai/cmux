@@ -716,7 +716,7 @@ class Gate:
         # Animation commit that carries it (after AppKit's layout and display), and the frames it missed (0: the
         # first frame it could); the commit's end (an upper bound) is reported.
         switches = own.get("switches") or []
-        phase["switches"] = [{k: round(v, 2) for k, v in row.items()} for row in switches]
+        phase["switches"] = [{k: (round(v, 2) if isinstance(v, (int, float)) else v) for k, v in row.items()} for row in switches]
         if not self.timed_count(switches, ops, f"debug.tab_switch timed {{n}} of {ops} switches", scenario):
             return
         col = lambda name: sorted(row[name] for row in switches)
@@ -756,7 +756,7 @@ class Gate:
         for workspace in [w for w in app.workspace_ids() if w not in before]:
             app.action("closeWorkspace", {"workspace": workspace})
         wait(lambda: len(app.workspace_ids()) <= len(before), 60)
-        rows = [{k: round(v, 2) for k, v in row.items()} for row in own.get("creates") or []]
+        rows = [{k: (round(v, 2) if isinstance(v, (int, float)) else v) for k, v in row.items()} for row in own.get("creates") or []]
         report["phases"][scenario] = {"workspaces_before": counts, "reply_ms": replies, "creates": rows}
         if not self.timed_count(rows, creates, f"debug.new_workspace timed {{n}} of {creates} new workspace rows", scenario):
             return
@@ -786,23 +786,22 @@ class Gate:
 
     # -- workspace_switch --
 
-    def sidebar_row(self, workspace):
-        """The window-local center of `workspace`'s sidebar row when it is drawn in the list's viewport, else None."""
+    def selected_row_key(self):
+        """The sidebar key of the shown workspace's row (the list names rows by its own workspace key, not the
+        topology's public id)."""
         for window in (self.app.rpc("debug.sidebar_rows") or {}).get("windows") or []:
             for row in window.get("rows") or []:
-                key = str(row.get("key", ""))
-                if not key.startswith("workspace(") or workspace not in key or not row.get("in_list"):
-                    continue
-                # A row scrolled out of the viewport sits above 0 or below the window's 800 pt test height.
+                if row.get("selected") and str(row.get("key", "")).startswith("workspace("):
+                    return row["key"]
+        return None
+
+    def sidebar_row(self, key):
+        """The window-local center of the sidebar row `key` when it is drawn in the window, else None."""
+        for window in (self.app.rpc("debug.sidebar_rows") or {}).get("windows") or []:
+            for row in window.get("rows") or []:
                 frame = row.get("window_frame") or {}
-                if frame.get("height", 0) <= 0 or frame.get("y", -1) < 0:
-                    continue
-                return frame["x"] + frame["width"] / 2, frame["y"] + frame["height"] / 2
-        if not getattr(self, "_row_miss_shown", False):
-            self._row_miss_shown = True
-            rows = [r for w in (self.app.rpc("debug.sidebar_rows") or {}).get("windows") or [] for r in w.get("rows") or []]
-            sample = [{k: r.get(k) for k in ("key", "in_list", "window_frame")} for r in rows if "workspace" in str(r.get("key"))][:3]
-            print(f"  no pressable sidebar row for {workspace}: {len(rows)} rows, first workspace rows {sample}", flush=True)
+                if row.get("key") == key and row.get("in_list") and frame.get("height", 0) > 0 and frame.get("y", -1) >= 0:
+                    return frame["x"] + frame["width"] / 2, frame["y"] + frame["height"] / 2
         return None
 
     def fill_workspaces(self, want, made):
@@ -833,8 +832,11 @@ class Gate:
             # The recent set a person moves between: the last 8 shown (warm), then 8 never shown since they were
             # made at an earlier scale (their content is built on the switch: cold).
             recent = ids[-8:]
+            keys = {}
             for target in recent:
                 app.action("goToWorkspace", {"workspace": target})
+                wait(lambda: app.shown_workspace() == target, 10)
+                keys[target] = self.selected_row_key()
             wait(lambda: app.shown_workspace() == recent[-1], 10)
             cold = [w for w in ids[:-8] if w not in recent][: 8]
             app.quiet_counters()
@@ -844,7 +846,7 @@ class Gate:
             presses, wrong, sends, worst = 0, [], [], {}
             plan = [(t, "press") for t in recent * 3] + [(t, "action") for t in cold]
             for target, how in plan:
-                point = self.sidebar_row(target) if how == "press" else None
+                point = self.sidebar_row(keys.get(target)) if how == "press" and keys.get(target) else None
                 if point:
                     presses += 1
                     app.rpc("debug.mouse", {"action": "down", "x": point[0], "y": point[1]})

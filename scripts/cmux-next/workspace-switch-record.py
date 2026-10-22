@@ -22,12 +22,21 @@ perf_gate = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(perf_gate)
 
 
-def sidebar_row(app, workspace):
-    """The window-local center of `workspace`'s drawn sidebar row, else None."""
+def selected_row_key(app):
+    """The sidebar key of the shown workspace's row (the list's own workspace key, not the topology's public id)."""
+    for window in (app.rpc("debug.sidebar_rows") or {}).get("windows") or []:
+        for row in window.get("rows") or []:
+            if row.get("selected") and str(row.get("key", "")).startswith("workspace("):
+                return row["key"]
+    return None
+
+
+def sidebar_row(app, key):
+    """The window-local center of the drawn sidebar row `key`, else None."""
     for window in (app.rpc("debug.sidebar_rows") or {}).get("windows") or []:
         for row in window.get("rows") or []:
             frame = row.get("window_frame") or {}
-            if workspace in str(row.get("key", "")) and row.get("in_list") and frame.get("height", 0) > 0 and frame.get("y", -1) >= 0:
+            if key and row.get("key") == key and row.get("in_list") and frame.get("height", 0) > 0 and frame.get("y", -1) >= 0:
                 return frame["x"] + frame["width"] / 2, frame["y"] + frame["height"] / 2
     return None
 
@@ -58,8 +67,11 @@ def main():
         app.launch()
         ids = fill_workspaces(app, opts.workspaces)
         targets = ids[-opts.clicks:]
+        keys = {}
         for target in targets:
             app.action("goToWorkspace", {"workspace": target})
+            perf_gate.wait(lambda: app.shown_workspace() == target, 10)
+            keys[target] = selected_row_key(app)
             # The shown workspace's focused terminal (goToWorkspace above made it current).
             app.cli("--json", "terminal", "current", "write", "--text", f"clear; printf '\\n\\n   >>> WORKSPACE {target[-4:].upper()} <<<\\n\\n'\r")
         app.action("goToWorkspace", {"workspace": ids[-opts.clicks - 1]})
@@ -71,7 +83,7 @@ def main():
         clicks = []
         time.sleep(0.4)  # recording script: a still lead-in before the first click
         for target in targets:
-            point = sidebar_row(app, target)
+            point = sidebar_row(app, keys.get(target))
             if not point:
                 clicks.append({"to": target, "error": "row not pressable"})
                 continue
