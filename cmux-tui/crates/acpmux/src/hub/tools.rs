@@ -58,17 +58,22 @@ impl Hub {
         m.tools.mutable = claude;
     }
 
-    /// How the session's agent writes question previews.
+    /// How the session's agent writes question previews: as recorded at its
+    /// launch (`note_preview_format`), so an agent adopted after a daemon
+    /// restart keeps the format it was started with.
     pub(super) fn preview_format(session: &Session) -> super::questions::PreviewFormat {
-        super::questions::PreviewFormat::from_flag(session.html_previews.load(Ordering::SeqCst))
+        super::questions::PreviewFormat::from_flag(session.meta.lock().unwrap().html_previews)
     }
 
-    /// How the agent `profile` starts writes its question previews (`questions.rs`).
+    /// Records how the agent `profile` starts writes its question previews:
+    /// the launch's own profile (defaults, preset and session env applied) and
+    /// the value `harness_command` pins it to (`agent::preview_format`).
     pub(super) fn note_preview_format(&self, session: &Session, profile: &HarnessProfile) {
-        let claude = profile.kind == crate::config::HarnessKind::ClaudeStdio;
-        let html = super::questions::PreviewFormat::of(claude, &profile.env)
-            == super::questions::PreviewFormat::Html;
-        session.html_previews.store(html, Ordering::SeqCst);
+        let html = crate::agent::preview_format(profile) == super::questions::PreviewFormat::Html;
+        let was = std::mem::replace(&mut session.meta.lock().unwrap().html_previews, html);
+        if was != html {
+            self.save_meta(session);
+        }
     }
 
     /// Claude Code's system/init (`_meta.claude` of its session_info_update):

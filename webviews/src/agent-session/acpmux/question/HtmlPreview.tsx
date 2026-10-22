@@ -29,8 +29,13 @@ export const HTML_PREVIEW_MAX_HEIGHT = 420;
 const POLICY =
   "default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; form-action 'none'; base-uri 'none'";
 
-/// Elements dropped whole: they run, load, embed or navigate.
-const DROPPED = "script,noscript,template,iframe,frame,frameset,object,embed,applet,portal,meta,base,link,style";
+/// Elements dropped whole, by lowercase name.
+const DROPPED = new Set([
+  // They run, load, embed or navigate.
+  ..."script,noscript,template,iframe,frame,frameset,object,embed,applet,portal,meta,base,link,style".split(","),
+  // SVG animation: it would set an attribute (a link's href) after the cleaning.
+  ..."set,animate,animatemotion,animatetransform,animatecolor,discard".split(","),
+]);
 /// Attributes that name a URL. Only fragment links and data: URLs stay.
 const URL_ATTRIBUTES = ["href", "xlink:href", "src", "srcset", "action", "formaction", "poster", "background", "ping"];
 
@@ -39,8 +44,12 @@ const URL_ATTRIBUTES = ["href", "xlink:href", "src", "srcset", "action", "formac
 /// `inset` is the picture's margin inside the frame, in px.
 export function previewDocument(fragment: string, theme: string, inset = 0): string {
   const parsed = new DOMParser().parseFromString(`<body>${fragment}</body>`, "text/html");
-  for (const element of Array.from(parsed.body.querySelectorAll(DROPPED))) element.remove();
   for (const element of Array.from(parsed.body.querySelectorAll("*"))) {
+    // By name, any case: an SVG element keeps its camelCase name (animateMotion).
+    if (DROPPED.has(element.localName.toLowerCase())) {
+      element.remove();
+      continue;
+    }
     for (const attribute of Array.from(element.attributes)) {
       const name = attribute.name.toLowerCase();
       if (name.startsWith("on")) element.removeAttribute(attribute.name);
@@ -69,14 +78,16 @@ export function HtmlPreview({ html, title }: { html: string; title: string }) {
   // The canvas look is an artboard with the picture inset on it; the others have no edge to clear.
   const srcDoc = useMemo(() => previewDocument(html, renderFrameCSS(), look === "canvas" ? 12 : 0), [html, look]);
   // The height follows the picture: measured when the frame loads and whenever the frame's width
-  // changes (the card or pane resized, which reflows the picture). Stops with the preview: the
-  // observer is disconnected and the load listener removed on unmount or a new fragment.
+  // changes (the card or pane resized, which reflows the picture). The picture's own box, not the
+  // document's scroll height, which never drops below the frame's current height, so a shorter
+  // picture shrinks the frame. Stops with the preview: the observer is disconnected and the load
+  // listener removed on unmount or a new fragment.
   useEffect(() => {
     const element = frame.current;
     if (!element) return;
     const measure = () => {
       const root = element.contentDocument?.documentElement;
-      if (root) setHeight(clampHeight(root.scrollHeight));
+      if (root) setHeight(clampHeight(root.getBoundingClientRect().height));
     };
     element.addEventListener("load", measure);
     const observer = new ResizeObserver(measure);

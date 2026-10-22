@@ -122,16 +122,33 @@ test("the frame's document drops what runs, loads or navigates", () => {
       `<a href="#here">here</a>`,
       `<img src="https://example.com/x.png"><img src="data:image/png;base64,AAAA">`,
       `<svg><a xlink:href="https://example.com"><text>s</text></a></svg>`,
+      // An SVG animation would set the link's href after the cleaning.
+      `<svg><a href="#safe"><set attributeName="href" to="http://127.0.0.1:8080/x"/>`,
+      `<animate attributeName="href" values="http://127.0.0.1:8080/y"/><text>t</text></a></svg>`,
     ].join(""),
     ":root{}",
   );
   const body = doc.slice(doc.indexOf("<body>"));
   expect(body).toContain(`style="color:red"`);
   expect(body).toContain("Card");
-  for (const gone of ["onclick", "<script", "alert(2)", "<meta", "<base", "<link", "<iframe", "javascript:", "_top"])
+  for (const gone of [
+    "onclick",
+    "<script",
+    "alert(2)",
+    "<meta",
+    "<base",
+    "<link",
+    "<iframe",
+    "javascript:",
+    "_top",
+    "<set",
+    "<animate",
+    "127.0.0.1",
+  ])
     expect(body).not.toContain(gone);
   expect(body).not.toContain("example.com");
   expect(body).toContain(`href="#here"`);
+  expect(body).toContain(`href="#safe"`);
   expect(body).toContain(`src="data:image/png;base64,AAAA"`);
   // The policy comes before the fragment, so it governs all of it.
   expect(doc.indexOf("Content-Security-Policy")).toBeLessThan(doc.indexOf("<body>"));

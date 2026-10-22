@@ -311,7 +311,6 @@ impl Hub {
             let all = profile.is_some_and(|p| {
                 crate::agent_tools::lists_all_tools(&meta.harness, p, &env, &meta.cwd)
             });
-            profile.inspect(|p| self.note_preview_format(session, p));
             (all, profile.map(|p| p.kind))
         };
         child.all_tools.store(all, std::sync::atomic::Ordering::Relaxed);
