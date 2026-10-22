@@ -6,8 +6,8 @@ import Testing
 /// card at the sidebar's foot ran off the window's bottom and covered the composer's "+". A
 /// `.beside` card (that popover, a group header's card, a PR badge's card) is top-aligned with its
 /// target, so a target low in the window pushed it out of the window's bottom; the clamp kept it only
-/// on the screen. It now stays inside the parent window too, and a card taller than the window keeps
-/// its top in it.
+/// on the screen. It now stays inside the parent window too, and a card taller than the window's part
+/// of the screen keeps its top in that part, unless that would push it off the screen: the screen wins.
 @MainActor struct HoverCardWindowClampTests {
     private static let margin: CGFloat = 8
     /// A 14-inch notch display: the menu bar band is 37 pt.
@@ -67,5 +67,30 @@ import Testing
         let card = Self.card(anchor, size: CGSize(width: 340, height: 200), window: low)
         #expect(card.minY >= Self.visible.minY + Self.margin)
         #expect(card.maxY <= low.maxY - Self.margin)
+    }
+
+    /// A card taller than the part of a window mostly below the screen (the window's inset part runs
+    /// y=8...312, 304 pt, for a 432 pt card): no place keeps it both on the screen and under the
+    /// window's top, and the screen wins. It sits on the screen's bottom, and its top rises past the
+    /// window's by the 128 pt it must, no further.
+    @Test func aTallCardOverAWindowMostlyBelowTheScreenStaysOnTheScreen() {
+        let low = CGRect(x: 100, y: -400, width: 1100, height: 720)
+        let anchor = CGRect(x: 110, y: 20, width: 216, height: 120)
+        let card = Self.card(anchor, window: low)
+        #expect(card.minY == Self.visible.minY + Self.margin, "the tall card's bottom \(card.minY) is off the screen")
+        #expect(card.maxY == Self.visible.minY + Self.margin + Self.popover.height,
+                "the tall card's top \(card.maxY) rises past the window's further than the screen needs")
+    }
+
+    /// The mirror, a window mostly above the screen: the window's part of the screen is shorter than
+    /// the card too, and the card keeps its top in that part (in the menu bar band the window covers)
+    /// and runs out of the window's bottom, still on the screen.
+    @Test func aTallCardOverAWindowMostlyAboveTheScreenKeepsItsTopInTheWindow() {
+        let high = CGRect(x: 100, y: 700, width: 1100, height: 720)
+        let anchor = CGRect(x: 110, y: 820, width: 216, height: 120)
+        let card = Self.card(anchor, window: high)
+        #expect(card.maxY == Self.screen.maxY - Self.margin,
+                "the tall card's top \(card.maxY) left the window's part of the screen")
+        #expect(card.minY >= Self.visible.minY + Self.margin, "the tall card runs off the screen")
     }
 }
