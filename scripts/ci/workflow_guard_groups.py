@@ -180,6 +180,14 @@ PATH_OWNERS = {
     # tests/test_ci_pr_media_privacy.py imports the gate and reads its workflow;
     # scripts/pr-media.py (tests/test_pr_media.py) runs it before every upload.
     "scripts/ci/pr_media_privacy.py": frozenset(("ci", "preflight")),
+    # tests/test_ci_pr_media_privacy.py (ci) runs the publishing action's
+    # preflight and tesseract tool, and reads the action and its fixtures.
+    "scripts/ci/pr_media_gate.py": frozenset(("ci",)),
+    "scripts/ci/pr_media_ocr_tesseract.py": frozenset(("ci",)),
+    ".github/actions/pr-media-publish/action.yml": frozenset(("ci",)),
+    ".github/actions/pr-media-publish/canary.png": frozenset(("ci",)),
+    "tests/fixtures/pr_media_gate/clean.png": frozenset(("ci",)),
+    "tests/fixtures/pr_media_gate/seeded-private-term.png": frozenset(("ci",)),
     # tests/test_ci_pr_media_privacy.py runs its upload() through the gate.
     "dogfood/fuzz/cmuxfuzz/triage.py": frozenset(("ci",)),
     ".github/workflows/pr-media-privacy.yml": frozenset(("ci",)),

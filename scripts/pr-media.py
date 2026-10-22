@@ -28,6 +28,10 @@ before the first upload, the gif made from an mp4 included: a capture that
 shows a private machine or account name in an agent's pull request is refused
 and nothing is uploaded; in a teammate's it is reported and uploaded.
 `put_file()` runs the same check on each file for the tools that import it.
+In GitHub Actions the check refuses unless the step runs inside
+.github/actions/pr-media-publish, the one publishing step: it brings the
+pr-media environment's private-terms list and an OCR tool, so a CI writer
+never falls back to the built-in patterns with its images unread.
 
 Conversion needs ffmpeg. Everything else needs `gh` with push access to the
 repository. `--dry-run` resolves the whole plan and prints it without running
@@ -40,6 +44,7 @@ import argparse
 import base64
 import importlib.util
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -116,14 +121,42 @@ def privacy_module():
     return _privacy
 
 
+# In GitHub Actions every pr-media write goes through this composite action. It
+# gives the check the pr-media environment's private-terms list and an OCR tool
+# (tesseract on Linux, Vision on macOS) and sets PUBLISH_GATE for its command.
+PUBLISH_ACTION = ".github/actions/pr-media-publish"
+PUBLISH_GATE = "PR_MEDIA_PUBLISH_GATE"
+
+
+def require_publish_gate(privacy, items: list[tuple[str, Path]], env, ocr_given: bool) -> None:
+    """In GitHub Actions, refuse unless the publishing action set this step up.
+
+    Off CI the check reads this machine's terms file and names and Vision, as
+    before. In CI a step that skipped the action would check with the built-in
+    patterns only and skip every image, so it writes nothing instead.
+    """
+    if env.get("GITHUB_ACTIONS") != "true":
+        return
+    if env.get(PUBLISH_GATE) != "1":
+        raise PrivacyError(f"in GitHub Actions pr-media is written only through {PUBLISH_ACTION}, "
+                           "which loads the private-terms list and an OCR tool; this step does not use it")
+    if not env.get("PR_MEDIA_PRIVATE_TERMS", "").strip():
+        raise PrivacyError("no private-terms list (PR_MEDIA_PRIVATE_TERMS): the job needs `environment: pr-media`")
+    media = any(Path(remote).suffix.lower() in privacy.MEDIA_SUFFIXES for remote, _local in items)
+    if media and not ocr_given and privacy.ocr_binary(env) is None:
+        raise PrivacyError("no OCR tool, so images would go unread; nothing is uploaded")
+
+
 def check_privacy(items: list[tuple[str, Path]], repo: str, **options) -> None:
     """Run the shared pre-push check on (path on the branch, local file) pairs.
 
     Raises PrivacyError when a file is refused; the message names paths and kinds,
     never the text it matched. options go to check_upload (env, ocr, lookup,
-    out); tests replace this module-level hook.
+    out); tests replace this module-level hook. In GitHub Actions the step must
+    run inside PUBLISH_ACTION (require_publish_gate).
     """
     privacy = privacy_module()
+    require_publish_gate(privacy, items, options.get("env", os.environ), "ocr" in options)
     try:
         privacy.check_upload(items, repo, **options)
     except privacy.Refused as refused:
