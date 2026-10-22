@@ -1065,6 +1065,9 @@ async fn dispatch_request(
             let removed = hub.withdraw_queued(&s, prompt_id)?;
             Ok(json!({"sessionId": s.id, "promptId": prompt_id, "removed": removed}))
         }
+        method::MUX_SEND_QUEUE | method::MUX_SEND_STATUS => {
+            super::outbox::handle(hub, conn, m, &params).await
+        }
         method::MUX_PROMPT_WITHDRAW | method::MUX_AGENT_PAIR_RESUME => {
             super::agent_messages::handle(hub, conn, m, &params).await
         }
