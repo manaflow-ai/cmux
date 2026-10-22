@@ -184,7 +184,7 @@ def main():
         print(u)
     elif cmd == "log":
         pred = args[1] if len(args) > 1 else 'subsystem == "dev.cmux.mobile"'
-        print(sh("xcrun", "simctl", "spawn", u, "log", "show", "--last", f"{args[0]}s", "--style", "compact",
+        print(sh("xcrun", "simctl", "spawn", u, "log", "show", "--info", "--debug", "--last", f"{args[0]}s", "--style", "compact",
                  "--predicate", pred, timeout=120))
     elif cmd == "shutdown":
         sh("xcrun", "simctl", "shutdown", u, check=False)
