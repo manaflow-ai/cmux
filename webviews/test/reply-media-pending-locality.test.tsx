@@ -4,7 +4,7 @@
 // `{pending: true}`. The page treats that as "wait", not as a failure: no unavailable card, no
 // fallback text, no repeated asks. When the host sends the `locality` event, the page asks again,
 // and a local chat then shows its images and plays its videos.
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", { url: "http://localhost/", pretendToBeVisual: true });
@@ -40,12 +40,20 @@ function fakeHost() {
   const host = {
     locality: "unknown" as "unknown" | "local" | "remote",
     gateInspect: false,
+    /// The next `method` call is answered `reply`, but only on `release()`: an answer that comes
+    /// back after the locality changed.
+    late: undefined as undefined | { method: string; reply: unknown; held?: boolean; release?: () => void },
     calls: [] as Array<{ method: string; params: Record<string, unknown> }>,
     count(method: string, match?: (params: Record<string, unknown>) => boolean) {
       return host.calls.filter((call) => call.method === method && (!match || match(call.params))).length;
     },
     async answer(method: string, params: Record<string, unknown>): Promise<unknown> {
       host.calls.push({ method, params });
+      const late = host.late;
+      if (late && late.method === method && !late.held) {
+        late.held = true;
+        return new Promise((resolve) => (late.release = () => resolve(late.reply)));
+      }
       const paths = (params.paths as string[] | undefined) ?? [];
       if (method === "link.inspect") {
         if (paths.length && host.gateInspect && host.locality === "unknown") return { pending: true, policy: POLICY };
@@ -61,6 +69,13 @@ function fakeHost() {
   return host;
 }
 
+/// Pages a test left mounted (it failed before its unmount): unmounted after it, so they don't ask
+/// the next test's host.
+const mounted = new Set<() => Promise<void>>();
+afterEach(async () => {
+  for (const unmount of mounted) await unmount();
+});
+
 async function setup() {
   const { act, createElement } = await import("react");
   const { createRoot } = await import("react-dom/client");
@@ -75,6 +90,14 @@ async function setup() {
   const container = dom.window.document.createElement("div");
   dom.window.document.body.append(container);
   const root = createRoot(container);
+  const unmount = async () => {
+    mounted.delete(unmount);
+    await act(async () => root.unmount());
+    container.remove();
+    setChipHost(undefined);
+    resetLinkStore();
+  };
+  mounted.add(unmount);
   const settle = async () => {
     for (let i = 0; i < 4; i++) await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   };
@@ -95,17 +118,22 @@ async function setup() {
       );
       await settle();
     },
+    async click(selector: string) {
+      const button = container.querySelector<HTMLButtonElement>(selector);
+      expect(button).not.toBeNull();
+      await act(async () => button!.click());
+      await settle();
+    },
+    async release() {
+      await act(async () => host.late?.release?.());
+      await settle();
+    },
     /// The host's `locality` event, as the shared page host delivers it.
     async locality(value: unknown) {
       await act(async () => applyHostEvent({ kind: "locality", value }));
       await settle();
     },
-    async unmount() {
-      await act(async () => root.unmount());
-      container.remove();
-      setChipHost(undefined);
-      resetLinkStore();
-    },
+    unmount,
   };
 }
 
@@ -122,7 +150,8 @@ describe("media while the chat's locality is pending", () => {
 
     // Waiting: the reply's thumbnail keeps its waiting frame and the video its name; no card says
     // the file is unavailable and nothing fell back to text.
-    expect(container.querySelectorAll(".cv-thumb.is-waiting").length).toBe(1);
+    // Both the reply's thumbnail and the tool's image wait in their frames.
+    expect(container.querySelectorAll(".cv-thumb.is-waiting").length).toBe(2);
     expect(container.querySelector(".cv-image-file")).toBeNull();
     expect(container.querySelector(".cv-media.is-video .cv-media__name")?.textContent).toBe("Clip");
     expect(container.querySelector("img")).toBeNull();
@@ -200,7 +229,14 @@ describe("media while the chat's locality is pending", () => {
     await page.render("![Shot](/tmp/delayed-noise/shot.png)");
     const { host } = page;
     expect(host.count("image.load")).toBe(1);
-    for (const value of [undefined, "local", { locality: "nearby" }, { locality: 1 }, { locality: "unknown" }])
+    for (const value of [
+      undefined,
+      "local",
+      { locality: "nearby" },
+      { locality: 1 },
+      { locality: "local", machine: 123 },
+      { locality: "unknown" },
+    ])
       await page.locality(value);
     expect(host.count("image.load")).toBe(1);
     expect(page.container.querySelector(".cv-thumb.is-waiting")).not.toBeNull();
@@ -236,5 +272,148 @@ describe("media while the chat's locality is pending", () => {
     );
     expect(inspected).toBe(2);
     await page.unmount();
+  });
+});
+
+describe("review fixes (#24346)", () => {
+  const LATE = "data:image/png;base64,TEFURQ==";
+  const LATE_MEDIA = "cmux-agent://pane/__media/late";
+  // Each test has its own web addresses: a clicked image and a granted video stay for the page's life.
+  const webImage = (name: string) => `https://images.example.com/${name}.png`;
+  const webVideo = (name: string) => `https://videos.example.com/${name}.mp4`;
+  beforeEach(async () => {
+    const { applyHostEvent } = await import("../src/agent-session/acpmux/pageHost");
+    applyHostEvent({ kind: "locality", value: { locality: "unknown" } });
+  });
+
+  test("a clicked web image answered after the locality changed is dropped and asked again", async () => {
+    const page = await setup();
+    page.host.late = { method: "image.load", reply: { src: LATE } };
+    await page.render(`![Web](${webImage("t0")})`);
+    await page.click(".cv-image-placeholder__load");
+    page.host.locality = "local";
+    await page.locality({ locality: "local" });
+    await page.release();
+    expect(page.host.count("image.load")).toBe(2);
+    expect(page.container.querySelector(`img[src="${LATE}"]`)).toBeNull();
+    expect(page.container.querySelector(`img[src="${IMAGE}"]`)).not.toBeNull();
+    await page.unmount();
+  });
+
+  test("a web video answered after the locality changed is dropped and asked again", async () => {
+    const page = await setup();
+    page.host.late = { method: "media.load", reply: { src: LATE_MEDIA } };
+    await page.render(`![Clip](${webVideo("t1")})`);
+    await page.click(".cv-media.is-remote .cv-image-placeholder__load");
+    page.host.locality = "local";
+    await page.locality({ locality: "local" });
+    await page.release();
+    expect(page.host.count("media.load")).toBe(2);
+    expect(page.container.querySelector(`video[src="${LATE_MEDIA}"]`)).toBeNull();
+    expect(page.container.querySelector(`video[src="${MEDIA}"]`)).not.toBeNull();
+    await page.unmount();
+  });
+
+  test("a refusal answered after the locality changed is asked again, not a failure", async () => {
+    const page = await setup();
+    page.host.late = { method: "image.load", reply: {} };
+    await page.render("![Late](/tmp/stale-refusal/late.png)");
+    page.host.locality = "local";
+    await page.locality({ locality: "local" });
+    await page.release();
+    expect(page.host.count("image.load")).toBe(2);
+    expect(page.container.querySelector(".cv-image-file")).toBeNull();
+    expect(page.container.querySelector(`img[src="${IMAGE}"]`)).not.toBeNull();
+    await page.unmount();
+  });
+
+  test("a link.inspect answer from before the locality changed keeps no paths, sites or policy", async () => {
+    const page = await setup();
+    const path = "/tmp/stale-inspect/notes.md";
+    page.host.late = {
+      method: "link.inspect",
+      reply: {
+        paths: { [path]: { place: "missing", folder: false } },
+        sites: { "https://example.com/page": { title: "Stale" } },
+        policy: { outsideRoots: "text", remoteImages: "never" },
+      },
+    };
+    await page.render(`See \`${path}\` and https://example.com/page ![Web](${webImage("t3")})`);
+    page.host.locality = "local";
+    await page.locality({ locality: "local" });
+    await page.release();
+    const asked = (key: string, value: string) =>
+      page.host.count("link.inspect", (params) => ((params[key] as string[]) ?? []).includes(value));
+    expect(asked("paths", path)).toBe(2);
+    expect(asked("urls", "https://example.com/page")).toBe(2);
+    // The stale "never" policy would have drawn the web image as its link only.
+    expect(page.container.querySelector(".cv-image-placeholder__load")).not.toBeNull();
+    expect(page.container.querySelector(`.cv-chip.is-path[data-path="${path}"]`)).not.toBeNull();
+    await page.unmount();
+  });
+
+  test("a load the reader started and the host answered pending is asked again on the event", async () => {
+    const page = await setup();
+    await page.render(`![Web](${webImage("t4")})\n\n![Clip](${webVideo("t4")})`);
+    await page.click(".cv-thumb .cv-image-placeholder__load");
+    await page.click(".cv-media.is-remote .cv-image-placeholder__load");
+    expect([page.host.count("image.load"), page.host.count("media.load")]).toEqual([1, 1]);
+    page.host.locality = "local";
+    await page.locality({ locality: "local" });
+    expect([page.host.count("image.load"), page.host.count("media.load")]).toEqual([2, 2]);
+    expect(page.container.querySelector(`img[src="${IMAGE}"]`)).not.toBeNull();
+    expect(page.container.querySelector(`video[src="${MEDIA}"]`)).not.toBeNull();
+    await page.unmount();
+  });
+
+  test("a pending image or video that scrolls away and back waits without asking again", async () => {
+    const page = await setup();
+    const markdown = "![Shot](/tmp/remount/shot.png)\n\n![Clip](/tmp/remount/clip.mp4)";
+    await page.render(markdown);
+    expect([page.host.count("image.load"), page.host.count("media.load")]).toEqual([1, 1]);
+    await page.render("");
+    await page.render(markdown);
+    expect([page.host.count("image.load"), page.host.count("media.load")]).toEqual([1, 1]);
+    expect(page.container.querySelector(".cv-thumb.is-waiting")).not.toBeNull();
+    page.host.locality = "local";
+    await page.locality({ locality: "local" });
+    expect([page.host.count("image.load"), page.host.count("media.load")]).toEqual([2, 2]);
+    await page.unmount();
+  });
+
+  test("a tool's image waits in its frame while pending, never as its file name", async () => {
+    for (const gateInspect of [false, true]) {
+      const page = await setup();
+      page.host.gateInspect = gateInspect;
+      await page.render("", [`/tmp/tool-wait-${gateInspect}/shot.png`]);
+      const strip = page.container.querySelector(".cv-tool-images")!;
+      expect(strip.querySelector(".cv-thumb.is-waiting")).not.toBeNull();
+      expect(strip.querySelector(".cv-chip-plain")).toBeNull();
+      await page.unmount();
+    }
+  });
+
+  test("the image viewer closes when the chat leaves this Mac", async () => {
+    const { act, createElement } = await import("react");
+    const { createRoot } = await import("react-dom/client");
+    const { applyHostEvent } = await import("../src/agent-session/acpmux/pageHost");
+    const { useImageView } = await import("../src/agent-session/acpmux/conversation/useImageView");
+    let view: ReturnType<typeof useImageView> | undefined;
+    const rows = () => [];
+    function Probe() {
+      view = useImageView(rows, "session-1");
+      return null;
+    }
+    const root = createRoot(dom.window.document.createElement("div"));
+    await act(async () => root.render(createElement(Probe)));
+    const open = () => act(async () => view!.openImage(IMAGE, "Shot", "/tmp/viewer/shot.png"));
+    const event = (locality: string) => act(async () => applyHostEvent({ kind: "locality", value: { locality } }));
+    await open();
+    await event("local");
+    expect(view!.imageView?.images[0]?.src).toBe(IMAGE);
+    await open();
+    await event("remote");
+    expect(view!.imageView).toBeUndefined();
+    await act(async () => root.unmount());
   });
 });
