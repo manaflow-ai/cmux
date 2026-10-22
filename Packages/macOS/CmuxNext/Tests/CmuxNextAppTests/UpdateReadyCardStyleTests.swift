@@ -96,6 +96,27 @@ import Testing
         #expect(knob.isHidden)
     }
 
+    /// The card's first configure (Automatic Updates on, the control fresh at off) puts the knob
+    /// in place: it never slides in from the row's corner.
+    @Test func theSwitchSlidesOnlyOnceLaidOutAndShown() {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 40), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let control = SidebarUpdateToggle(frame: .zero)
+        control.fixedLook = .switchControl
+        window.contentView?.addSubview(control)
+        #expect(!control.canSlide, "a switch with no laid-out track would slide in from the corner")
+        control.configure(title: "Automatic Updates", isOn: true)
+        let knob = control.layer?.sublayers?.dropFirst().first
+        #expect(knob?.animationKeys() == nil, "the first configure animated the knob")
+        control.frame = NSRect(x: 0, y: 0, width: 180, height: SidebarUpdateToggle.height)
+        control.layoutSubtreeIfNeeded()
+        #expect(control.canSlide)
+        control.isHidden = true
+        #expect(!control.canSlide, "a hidden switch slides")
+    }
+
     @Test func restartToUpdateIsThePrimaryButton() {
         #expect(SidebarTunables.updateCardButton.defaultValue == .primary)
         let button = SidebarUpdateButton(frame: NSRect(x: 0, y: 0, width: 180, height: SidebarUpdateButton.height))

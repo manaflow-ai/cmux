@@ -70,7 +70,9 @@ final class SidebarUpdateToggle: NSView {
         label.stringValue = title
         let changed = isOn != self.isOn
         self.isOn = isOn
-        if changed, window != nil, look == .switchControl { slideSwitch() }
+        // Only a switch already on screen slides: the card's first configure (isOn starts false,
+        // the track has no frame yet) or a hidden card puts the knob in place with no motion.
+        if changed, canSlide { slideSwitch() }
         setAccessibilityLabel(title)
         setAccessibilityValue(isOn ? 1 : 0)
         setAccessibilitySubrole(look == .switchControl ? .switch : nil)
@@ -80,6 +82,11 @@ final class SidebarUpdateToggle: NSView {
 
     /// The label as drawn.
     var title: String { label.stringValue }
+
+    /// The switch has a laid-out track (set by `layout()`'s switch case).
+    private(set) var hasLaidOutSwitch = false
+    /// A state change animates: the switch has been laid out and is visible in a window.
+    var canSlide: Bool { look == .switchControl && hasLaidOutSwitch && window != nil && !isHiddenOrHasHiddenAncestor }
 
     /// The switch follows a new state: the knob slides and the track fills on the sidebar's
     /// selection spring (`Motion.sidebar`); with animation off it lands in one frame. Layout and
@@ -120,6 +127,7 @@ final class SidebarUpdateToggle: NSView {
                 ?? (midY - track.height / 2).rounded()
             let trackFrame = CGRect(x: max(0, b.width - track.width), y: trackY, width: track.width, height: track.height)
             box.frame = trackFrame
+            hasLaidOutSwitch = !trackFrame.isEmpty
             box.cornerRadius = track.height / 2
             knob.frame = Self.knobFrame(in: trackFrame, isOn: isOn)
             knob.cornerRadius = knob.frame.height / 2
