@@ -10,8 +10,8 @@ import Testing
 /// Leo 2026-10-21, item D, the window half (Debug Settings `sidebar.multiView`): a window shows several
 /// workspaces side by side. A sidebar row held and dragged onto a pane edge of the shown workspace goes on that
 /// side of it, whole, instead of merging its tabs in; `SidebarModel.onScreen` is exactly the workspaces whose
-/// content is on screen, frame by frame; a click on a row off screen, or a shown workspace closing, returns to
-/// one; the window's record brings the set back. With the toggle off an edge drop still merges.
+/// content is on screen, frame by frame; a click on a row off screen returns to one, and a shown workspace closing
+/// leaves the others on screen; the window's record brings the set back. With the toggle off an edge drop still merges.
 /// Each workspace `k0`...`k3` has one pane with a terminal and a browser tab; the window shows `k0`.
 /// The drags need a display: on a host without one the window is clamped to its minimum size and the drop zones
 /// resolve differently (the fleet's display-less minis), so the suite runs where there is a screen.
