@@ -2,8 +2,8 @@
 import { defineExperiment } from "../../experiments/experiment";
 
 /// How What's New draws a nightly's reel before it plays (Leo 2026-10-22, ask-76f83a7020: "this
-/// watch is kind aass"). Every look plays in place with the video's own controls; they differ only
-/// at rest. The gallery shows each as its own `ledger-update-reel*` variant.
+/// watch is kind aass"). Every look plays in place with the video's own controls; Row plays as the
+/// card, Poster stays edge to edge. The gallery shows each as its own `ledger-update-reel*` variant.
 export const reelLook = defineExperiment({
   id: "whats-new-reel-look",
   title: "What's New reel card",

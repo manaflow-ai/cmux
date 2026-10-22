@@ -148,7 +148,7 @@ test("the card shows the reel's length, and a press plays it in place with contr
   expect(element.tabIndex).toBe(0);
 });
 
-test("the look comes from the whats-new-reel-look experiment, and every look plays as the card", async () => {
+test("the look comes from the whats-new-reel-look experiment, and every look plays in place", async () => {
   const { reelLook } = await import("../src/pages/changelog/reelLook.experiment");
   expect(Object.keys(reelLook.arms)).toEqual(["card", "row", "poster"]);
   const card = async () => {

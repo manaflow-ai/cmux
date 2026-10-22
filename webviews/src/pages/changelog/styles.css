@@ -269,8 +269,8 @@ html[data-cmux-page="changelog"] body {
   pointer-events: none;
 }
 .cl-reel-title { margin: 10px 4px 0; font-size: var(--text-body); font-weight: 600; color: var(--page-text); }
-/* The other looks at rest (reelLook.experiment.ts); playing, each is the card above. Row: a small
-   thumbnail with the title beside it. */
+/* The other looks (reelLook.experiment.ts). Row: a small thumbnail with the title beside it at
+   rest; playing, it is the card above. */
 .cl-reel-card[data-look="row"]:not([data-playing]) {
   display: grid;
   grid-template-columns: 168px 1fr;
@@ -284,7 +284,7 @@ html[data-cmux-page="changelog"] body {
   height: 16px;
   padding: 9px 8px 9px 10px;
 }
-/* Poster: the frame edge to edge, the title on a dark band at its foot. */
+/* Poster: the frame edge to edge, playing too; the title on a dark band at its foot until it plays. */
 .cl-reel-card[data-look="poster"] { position: relative; padding: 0; overflow: hidden; }
 .cl-reel-card[data-look="poster"] .cl-reel-stage { border-radius: 0; }
 .cl-reel-card[data-look="poster"]:not([data-playing]) .cl-reel-title {
