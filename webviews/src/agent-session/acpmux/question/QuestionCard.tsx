@@ -4,6 +4,7 @@ import { COMPOSER_READY_EVENT } from "../composerFocus";
 import { Check, ChevronDown } from "../conversation/icons";
 import { usePaneLanguage, useT, type Translate } from "../i18n";
 import { Keycap } from "../Keycap";
+import { NativeError } from "../nativeError";
 import { errorMessage, isHostRefusal } from "../transportErrors";
 import {
   activeItem,
@@ -112,6 +113,16 @@ function PendingAsk({ question, onReply }: { question: AgentQuestion; onReply: R
 /// The prompt's typed text, without the placeholder MarkdownField keeps beside the editor.
 const composerText = (composer: Element) => composer.querySelector(".acpmux-md-root")?.textContent?.trim() ?? "";
 
+/// A refused reply's message when it is already in the person's language: the app's reply
+/// (NativeError's userMessage) or the pane's own words for a lost or timed-out request
+/// (`native.*`, direct.ts). Any other message is acpmux's English, meant for its CLI.
+function localizedMessage(error: unknown): string | undefined {
+  if (!(error instanceof Error) || !error.message) return undefined;
+  const { code } = error as { code?: unknown };
+  const local = error instanceof NativeError || (typeof code === "string" && code.startsWith("native."));
+  return local ? error.message : undefined;
+}
+
 /// Whether a card that just arrived may take the keyboard: nothing in the page has it, or the
 /// composer has it, and either way the composer holds no draft. A half-written (or restored)
 /// prompt keeps it, so a typed digit or Enter never answers the ask by surprise.
@@ -152,8 +163,9 @@ function PendingQuestion({
   // second click or key must not answer it again. A refused reply clears it for a retry.
   const [sentFor, setSentFor] = useState<string | undefined>();
   // The last reply's refusal, shown until the next try: the pane's words for a refusal it knows
-  // (transportErrors.ts), else none and the card's own sentence. acpmux's English is for its CLI.
-  const [refused, setRefused] = useState<{ text?: string } | undefined>();
+  // (transportErrors.ts) alone, else the card's sentence followed by a message already in the
+  // person's language (the app's or the pane's own). acpmux's English is for its CLI.
+  const [refused, setRefused] = useState<{ text?: string; reason?: string } | undefined>();
   // A new snapshot of the same ask keeps the person's choices; another ask starts fresh.
   let state = stored;
   if (stored.question !== question) {
@@ -172,7 +184,9 @@ function PendingQuestion({
     Promise.resolve(onReply(sentReply)).catch((error: unknown) => {
       // The ask stays pending: say why on the card and take input again.
       setSentFor((current) => (current === askId ? undefined : current));
+      const reason = localizedMessage(error);
       if (isHostRefusal(error)) setRefused({ text: errorMessage(error) });
+      else if (reason) setRefused({ reason });
       else {
         console.warn("agent pane: an answer was refused", error);
         setRefused({});
@@ -398,6 +412,8 @@ function PendingQuestion({
       {refused && (
         <p className="acpmux-question-error" role="alert">
           {refused.text || t("question.replyFailed")}
+          {refused.reason && " "}
+          {refused.reason && <span className="acpmux-question-error-reason">{refused.reason}</span>}
         </p>
       )}
       <div className="acpmux-question-actions">
