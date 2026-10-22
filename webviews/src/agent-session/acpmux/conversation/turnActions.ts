@@ -49,7 +49,7 @@ export type TurnActions = {
   };
   /// Continue a turn the reader stopped (the last turn's footer, when `resumable`): sends
   /// `CONTINUE_PROMPT` through the composer's send path, so it queues and shows as a prompt.
-  resume?: () => void;
+  resume?: () => Promise<void>;
   /// Re-run the current harness's declared login command after an authentication failure.
   reauthenticate?: () => void;
   /// Who serves this chat's turns, for failure copy (cx-w10a): the harness profile's display name and id.
@@ -69,10 +69,13 @@ export const CONTINUE_PROMPT = "Continue";
 
 /// The footer's Continue: `CONTINUE_PROMPT` through the composer's send (`chat.send`), so it shows as
 /// the reader's prompt and starts the next turn, or queues behind a prompt already sent. A send that
-/// fails says so on its own row.
+/// fails says so on its own row. Settles once the send does (when that turn ends, or it failed).
 export const resumeThrough =
-  (callNative: (method: string, params: Record<string, unknown>) => Promise<unknown>) => (): void =>
-    void callNative("chat.send", { text: CONTINUE_PROMPT }).catch(() => undefined);
+  (callNative: (method: string, params: Record<string, unknown>) => Promise<unknown>) => (): Promise<void> =>
+    callNative("chat.send", { text: CONTINUE_PROMPT }).then(
+      () => undefined,
+      () => undefined,
+    );
 
 /// The command that signs the chat's harness in, for Sign in again: its profile's `auth.login`, else
 /// the one acpmux's health check names (a CLI found on PATH has no profile, cx-gz0dz).

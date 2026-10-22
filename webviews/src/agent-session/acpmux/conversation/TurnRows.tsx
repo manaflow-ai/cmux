@@ -169,6 +169,8 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   // The last turn, stopped and not yet followed by a prompt, offers Continue (Codex's): it sends the
   // continue prompt as the composer would, and the button goes once that prompt shows (turns.ts).
   const resumable = row.resumable === true && resume !== undefined;
+  // One click sends one prompt: the button waits until its pending prompt row takes it away.
+  const [resuming, setResuming] = useState(false);
   // A failure reads as the turn's answer does: its own block above the footer row, never squeezed
   // into it (Codex, Claude desktop). The row is one quiet line under the answer's left edge; it
   // shows on hover or keyboard focus, and always for a failed turn (VirtualTranscript marks the
@@ -182,14 +184,22 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
             ? "cv-turn-actions cv-turn-actions--failed"
             : resumable
               ? "cv-turn-actions cv-turn-actions--resumable"
-              : isEmptyFooter(row)
+              : isEmptyFooter(row) && !row.resumable
                 ? "cv-turn-actions cv-turn-actions--empty"
                 : "cv-turn-actions"
         }
       >
         {label && <span className="cv-turn-summary">{label}</span>}
         {resumable && (
-          <button type="button" className="cv-iconbtn cv-turn-continue" onClick={resume}>
+          <button
+            type="button"
+            className="cv-iconbtn cv-turn-continue"
+            disabled={resuming}
+            onClick={() => {
+              setResuming(true);
+              void resume().finally(() => setResuming(false));
+            }}
+          >
             {t("turn.continue")}
             <ArrowRight size={ROW_ICON} aria-hidden="true" />
           </button>

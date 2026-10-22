@@ -2370,7 +2370,6 @@ button.cv-received__name:focus-visible {
   height: 20px;
   border-radius: 5px;
 }
-/* Retry's model menu (TurnRows.tsx): a narrow chevron that sits against Retry. */
 /* Continue on a stopped last turn (TurnRows.tsx): a quiet text button with the footer's icon-button
    hover pill, its label then an arrow. */
 .cv-turn-actions .cv-iconbtn.cv-turn-continue {
@@ -2380,6 +2379,11 @@ button.cv-received__name:focus-visible {
   margin-inline-start: -2px;
   white-space: nowrap;
 }
+.cv-iconbtn.cv-turn-continue:disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+/* Retry's model menu (TurnRows.tsx): a narrow chevron that sits against Retry. */
 .cv-iconbtn.cv-turn-retry-menu {
   width: 14px;
   min-width: 0;

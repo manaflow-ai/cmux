@@ -12,7 +12,7 @@ import { translate } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { CONTINUE_PROMPT, resumeThrough, TurnActionsContext } from "./turnActions";
 import { TurnFooter } from "./TurnRows";
-import { turnView } from "./turns";
+import { isEmptyFooter, turnView } from "./turns";
 
 const prompt = (id: string, at: number, fields: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
   id,
@@ -89,7 +89,7 @@ test("the footer's version changes when Continue comes or goes, so memoized rows
 test("the footer draws Continue only with the action, and shows at rest", () => {
   const row = footers(stoppedTurn)[0]!;
   const withResume = renderToStaticMarkup(
-    <TurnActionsContext.Provider value={{ resume: () => undefined }}>
+    <TurnActionsContext.Provider value={{ resume: async () => undefined }}>
       <TurnFooter row={row} />
     </TurnActionsContext.Provider>,
   );
@@ -103,7 +103,7 @@ test("the footer draws Continue only with the action, and shows at rest", () => 
   const done = footers([prompt("p1", 1_000), answer("a1", 30_000), summary("s1", 41_000)])[0]!;
   expect(
     renderToStaticMarkup(
-      <TurnActionsContext.Provider value={{ resume: () => undefined }}>
+      <TurnActionsContext.Provider value={{ resume: async () => undefined }}>
         <TurnFooter row={done} />
       </TurnActionsContext.Provider>,
     ),
@@ -166,6 +166,46 @@ test("clicking Continue sends the continue prompt through chat.send", async () =
 
 test("a refused continue send is swallowed; its row says why", async () => {
   const resume = resumeThrough(() => Promise.reject(new Error("refused")));
-  expect(() => resume()).not.toThrow();
-  await Promise.resolve();
+  await expect(resume()).resolves.toBeUndefined();
+});
+
+test("a second click while the first send is in flight sends nothing more", async () => {
+  const calls: string[] = [];
+  let settle: () => void = () => undefined;
+  const resume = resumeThrough((method) => {
+    calls.push(method);
+    return new Promise<void>((resolve) => (settle = resolve));
+  });
+  const container = await render(
+    <TurnActionsContext.Provider value={{ resume }}>
+      <TurnFooter row={footers(stoppedTurn)[0]!} />
+    </TurnActionsContext.Provider>,
+  );
+  const button = container.querySelector<HTMLButtonElement>(".cv-turn-continue")!;
+  await act(async () => button.click());
+  await act(async () => button.click());
+  expect(calls).toEqual(["chat.send"]);
+  expect(button.disabled).toBe(true);
+  await act(async () => settle());
+  expect(button.disabled).toBe(false);
+});
+
+test("a stopped last turn whose work folds keeps its line for Continue", () => {
+  const rows = [
+    prompt("p1", 1_000),
+    {
+      id: "w1",
+      version: 1,
+      at: 2_000,
+      kind: "activity",
+      items: [
+        { kind: "tool", text: "Read a.ts", tool: { id: "t1", title: "Read a.ts", kind: "read", status: "completed" } },
+      ],
+    } as AcpmuxRow,
+    summary("s1", 41_000, { status: "cancelled" }),
+  ];
+  const row = footers(rows)[0]!;
+  expect(row.folded).toBe(true);
+  expect(row.resumable).toBe(true);
+  expect(isEmptyFooter(row)).toBe(false);
 });
