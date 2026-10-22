@@ -38,10 +38,24 @@ import Testing
                                                 timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
                                                 context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
             }
-            NSApp.postEvent(try event(.leftMouseUp), atStart: false)
+            Self.post(try event(.leftMouseUp))
             document.mouseDown(with: try event(.leftMouseDown))
             // A list that did not track the press leaves its mouse-up queued: drop it.
             while NSApp.nextEvent(matching: .leftMouseUp, until: Date(), inMode: .default, dequeue: true) != nil {}
+        }
+
+        /// Queues `event` for the list's press-and-drag loop. `NSApp.postEvent` stops the run loop
+        /// running when it is called, to wake an event wait; from a test's main-actor job that is
+        /// the test process's outermost loop, whose return ends the process. Posted from a pass of
+        /// a mode of its own, the stop ends that pass, and the pass runs nothing else. The wake
+        /// ends the pass as soon as the event is queued, should AppKit not stop it.
+        private static func post(_ event: NSEvent) {
+            let mode = CFRunLoopMode("com.cmuxterm.next.tests.post-event" as CFString)
+            CFRunLoopPerformBlock(CFRunLoopGetMain(), mode.rawValue) {
+                MainActor.assumeIsolated { NSApp.postEvent(event, atStart: false) }
+                CFRunLoopWakeUp(CFRunLoopGetMain())
+            }
+            CFRunLoopRunInMode(mode, 1, true)
         }
 
         /// A key-down on the list's document view (`keyCode` for arrows, `characters` for Return).
