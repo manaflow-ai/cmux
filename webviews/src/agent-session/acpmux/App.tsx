@@ -1401,10 +1401,10 @@ const RowFrame = React.memo(function RowFrame({
       aria-label={speaker(kind, t)}
       aria-posinset={index + 1}
       aria-setsize={setSize}
-      // `top`, not a transform: WebKit at a page zoom other than 1 (the app's UI scale) hit-tests
-      // text in a translated row off by the zoomed part of the translation, so a drag selected
-      // words above the pointer (user 2026-10-21).
-      style={{ top }}
+      // `top`, not a transform: in the app (the page at its UI-scale zoom) a drag over a row placed
+      // by `translateY` selected the line above the pointer (user 2026-10-21). A set `top` counts
+      // from the thread's padding edge, not where an unset one sat, so it adds the padding.
+      style={{ top: top + THREAD_TOP }}
       onFocus={() => onFocus(row.id)}
     >
       {copyable && (
@@ -1455,8 +1455,8 @@ const currentRegistry = (): NativeRegistry => ({
   ...(window.cmuxAcpmuxRegistry as unknown as NativeRegistry | undefined),
 });
 
-/// The thread's top padding (styles.css `.acpmux-thread`): rows draw this far below their places,
-/// so the transcript ends this far past their total height.
+/// The thread's top padding (styles.css `.acpmux-thread`): rows draw this far below their places
+/// (each row's `top` adds it), so the transcript ends this far past their total height.
 const THREAD_TOP = 16;
 /// Small layout changes arrive constantly while a reply streams. Treat the bottom as a short
 /// resting zone so every token does not write a new fractional scroll offset (and make the thumb

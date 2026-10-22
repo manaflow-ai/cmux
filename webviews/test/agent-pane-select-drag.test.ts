@@ -167,6 +167,12 @@ await requireBrowserLane("agent-pane-select-drag.test.ts", async () => {
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
     await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${SESSION}`);
     await page.getByText(REPLY.slice(0, 20), { exact: false }).waitFor();
+    // Rows sit at their `top` plus the thread's 16 px top padding, where the earlier translate put them.
+    const firstRowInset = await page.evaluate(() => {
+      const thread = document.querySelector(".acpmux-thread")!.getBoundingClientRect().top;
+      return Math.round(document.querySelector(".acpmux-row")!.getBoundingClientRect().top - thread);
+    });
+    expect(firstRowInset).toBe(16);
     await page.evaluate((zoom) => {
       document.documentElement.style.zoom = String(zoom);
     }, zoom);
