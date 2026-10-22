@@ -56,8 +56,9 @@ const thought = (n: number): AcpmuxActivity => ({
 /// Reads with a thought after each but the last: read0, thought0, read1, thought1, ...
 const items = (reads: number) =>
   Array.from({ length: reads }, (_, n) => (n < reads - 1 ? [read(n), thought(n)] : [read(n)])).flat();
-const row = (list: AcpmuxActivity[]): AcpmuxRow => ({
-  id: "activity",
+/// Each test draws its own row id: ThoughtRow keeps the reader's choices by id for the whole module.
+const row = (list: AcpmuxActivity[], id: string): AcpmuxRow => ({
+  id,
   version: list.length,
   at: 1,
   kind: "activity",
@@ -70,11 +71,11 @@ const command: AcpmuxActivity = {
   tool: { id: "cmd", title: "ls", kind: "execute", command: "ls", status: "completed" },
 };
 
-async function draw(list: AcpmuxActivity[]) {
+async function draw(list: AcpmuxActivity[], id = "activity") {
   const { createRoot } = await import("react-dom/client");
   const { ToolRows } = await import("../src/agent-session/acpmux/conversation/TurnRows");
   root ??= createRoot(host);
-  await act(async () => root!.render(<ToolRows row={row(list)} sessionId="thought-state" />));
+  await act(async () => root!.render(<ToolRows row={row(list, id)} sessionId="thought-state" />));
 }
 
 const toggles = () => [...host.querySelectorAll<HTMLButtonElement>("button.cv-thought")];
@@ -110,12 +111,12 @@ test("an opened thought stays open when the call after it finishes and joins it 
   const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosure");
   resetTranscriptDisclosure();
   // A live run leaves out the read still running (turns.ts codexRuns): the thought draws on its own.
-  await draw([command, read(0), read(1), thought(0)]);
+  await draw([command, read(0), read(1), thought(0)], "joins");
   expect(toggles().length).toBe(1);
   await click(toggles()[0]!);
   expect(opened()).toHaveLength(1);
   // The read finishes: the thought now sits inside "Read 3 files", still open.
-  await draw([command, read(0), read(1), thought(0), read(2)]);
+  await draw([command, read(0), read(1), thought(0), read(2)], "joins");
   expect(host.querySelector(".cv-tool-group")).not.toBeNull();
   expect(opened()).toHaveLength(1);
   expect(opened()[0]).toContain("Thought number 0:");
@@ -126,13 +127,13 @@ test("one activity shown twice in a group keeps two thoughts' states apart", asy
   resetTranscriptDisclosure();
   const same = thought(9);
   const list = [read(0), same, read(1), same, read(2)];
-  await draw(list);
+  await draw(list, "twice");
   expect(toggles().length).toBe(2);
   await click(toggles()[0]!);
   expect(toggles().map((node) => node.getAttribute("aria-expanded"))).toEqual(["true", "false"]);
   // Drawn again from scratch, each thought reads its own saved choice.
   act(() => root?.unmount());
   root = undefined;
-  await draw(list);
+  await draw(list, "twice");
   expect(toggles().map((node) => node.getAttribute("aria-expanded"))).toEqual(["true", "false"]);
 });
