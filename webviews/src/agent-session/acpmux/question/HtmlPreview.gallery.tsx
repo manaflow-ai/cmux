@@ -16,10 +16,7 @@ type Props = { question: AgentQuestion; look: HtmlPreviewLook };
 function HtmlPreviewInPane({ question, look }: Props) {
   return (
     <HtmlPreviewLookContext.Provider value={look}>
-      <div
-        className="acpmux-shell"
-        style={{ flexDirection: "column", justifyContent: "flex-end", paddingTop: 16 }}
-      >
+      <div className="acpmux-shell" style={{ flexDirection: "column", justifyContent: "flex-end", paddingTop: 16 }}>
         <div className="acpmux-permission">
           <div className="acpmux-asks-stack">
             <QuestionCard question={question} onReply={() => undefined} />
@@ -59,6 +56,10 @@ export default componentEntry({
     },
     canvas: variant("canvas", "The mockup on an inset artboard in the page colour, with an edge."),
     bleed: variant("bleed", "No box: the mockup fills the preview column."),
-    monospace: variant("framed", "Unchanged: a markdown-mode preview in its monospace box.", pendingPreview as unknown as AgentQuestion),
+    monospace: variant(
+      "framed",
+      "Unchanged: a markdown-mode preview in its monospace box.",
+      pendingPreview as unknown as AgentQuestion,
+    ),
   },
 });
