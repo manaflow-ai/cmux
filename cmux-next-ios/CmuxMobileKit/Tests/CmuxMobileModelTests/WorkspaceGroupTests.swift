@@ -131,8 +131,23 @@ import Testing
         func moveToNewGroup(_ workspace: Workspace, name: String, color: WorkspaceColor) async throws {
             try record("new \(workspace.id) \(name) \(color.rawValue)")
         }
+        /// Group updates wait here until a test resumes them (a Mac round trip in flight).
+        var holds = false
+        var held: [CheckedContinuation<Void, Never>] = []
+        /// Only a collapse (true) or an expand (false) is refused.
+        var refuseCollapsed: Bool?
         func updateGroup(_ group: MacWorkspaceGroup, on macID: String, name: String?, color: WorkspaceColor?, collapsed: Bool?) async throws {
+            if holds { await withCheckedContinuation { held.append($0) } }
+            if let refuseCollapsed, collapsed == refuseCollapsed {
+                calls.append("refused \(group.id) \(refuseCollapsed)")
+                throw WorkspaceCreationError("no")
+            }
             try record("update \(group.id) \(name ?? "-") \(color?.rawValue ?? "-") \(collapsed.map(String.init) ?? "-")")
+        }
+
+        /// Waits until `count` updates are in flight.
+        func waitHeld(_ count: Int) async {
+            while held.count < count { await Task.yield() }
         }
         func deleteGroup(_ group: MacWorkspaceGroup, on macID: String) async throws { try record("delete \(group.id)") }
     }
@@ -225,6 +240,85 @@ import Testing
         await creator.settle()
         #expect(ws(store, "b").group == nil)
         #expect(recorder.calls == ["delete grp_r", "delete grp_r"])
+    }
+
+    /// What a background refresh publishes while the Mac's arrangement is
+    /// still the cached one: every member with the group as it was.
+    private func staleRefresh(_ store: AppStore, mac: String, collapsed: Bool = false) {
+        var group = red
+        group.isCollapsed = collapsed
+        let rows = store.workspaces.filter { $0.macID == mac }.map { ws -> Workspace in
+            var ws = ws
+            if ws.id != "a" { ws.group = group }
+            return ws
+        }
+        store.replaceWorkspaces(macID: mac, with: rows)
+    }
+
+    /// "Disclosure groups not being properly closable": a terminal title or
+    /// agent event refreshes the list while the collapse is on its way to the
+    /// Mac, from the arrangement cached before it; the group must stay closed.
+    @Test func aRefreshDuringACollapseKeepsTheGroupClosed() async {
+        let (store, creator, recorder, mac) = setup()
+        recorder.holds = true
+        creator.setGroupCollapsed(red, on: mac, true)
+        await recorder.waitHeld(1)
+        staleRefresh(store, mac: mac)
+        #expect(ws(store, "b").group?.isCollapsed == true && ws(store, "c").group?.isCollapsed == true)
+        recorder.held.removeFirst().resume()
+        await creator.settle()
+        // The Mac said yes, but a refresh can still carry the old arrangement.
+        staleRefresh(store, mac: mac)
+        #expect(ws(store, "b").group?.isCollapsed == true)
+        // The Mac's list shows it closed: the edit is confirmed.
+        staleRefresh(store, mac: mac, collapsed: true)
+        #expect(ws(store, "b").group?.isCollapsed == true)
+        // From then on the Mac's state wins (another device expanded it).
+        staleRefresh(store, mac: mac, collapsed: false)
+        #expect(ws(store, "b").group?.isCollapsed == false)
+    }
+
+    @Test func anUnconfirmedEditGivesWayToTheMacAfterAWhile() async {
+        let (store, creator, _, mac) = setup()
+        var now = Date(timeIntervalSince1970: 1_000)
+        store.now = { now }
+        creator.setGroupCollapsed(red, on: mac, true)
+        await creator.settle()
+        staleRefresh(store, mac: mac)
+        #expect(ws(store, "b").group?.isCollapsed == true)
+        now += 30
+        staleRefresh(store, mac: mac)
+        #expect(ws(store, "b").group?.isCollapsed == false)
+    }
+
+    /// Two quick taps: the second one is what shows, whatever the first one's answer.
+    @Test func quickTapsEndOnTheLastTap() async {
+        let (store, creator, recorder, mac) = setup()
+        recorder.holds = true
+        recorder.refuseCollapsed = true
+        creator.setGroupCollapsed(red, on: mac, true)
+        creator.setGroupCollapsed(ws(store, "b").group!, on: mac, false)
+        #expect(ws(store, "b").group?.isCollapsed == false)
+        await recorder.waitHeld(2)
+        // The expand lands first, then the collapse is refused: its rollback
+        // must not undo the later tap.
+        recorder.held.removeLast().resume()
+        await recorder.waitHeld(1)
+        recorder.held.removeFirst().resume()
+        await creator.settle()
+        #expect(ws(store, "b").group?.isCollapsed == false && ws(store, "c").group?.isCollapsed == false)
+        staleRefresh(store, mac: mac, collapsed: true)
+        #expect(ws(store, "b").group?.isCollapsed == false)
+    }
+
+    @Test func aRefusedCollapseOpensAgainAndARefreshKeepsIt() async {
+        let (store, creator, recorder, mac) = setup()
+        recorder.refuseCollapsed = true
+        creator.setGroupCollapsed(red, on: mac, true)
+        await creator.settle()
+        #expect(ws(store, "b").group?.isCollapsed == false)
+        staleRefresh(store, mac: mac)
+        #expect(ws(store, "b").group?.isCollapsed == false)
     }
 
     @Test func aRefusedRenameComesBack() async {
