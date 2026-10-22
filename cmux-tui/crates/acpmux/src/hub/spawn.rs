@@ -192,6 +192,29 @@ impl Hub {
         }
         Ok((p, digest, account_home))
     }
+
+    /// `spawn` with OpenCode asked to ask as `session`'s policy stands now (`policy_mode.rs`),
+    /// or `None` when it already is: `ensure_child` reads it again under the spawn lock, so a
+    /// narrowing after `spawn_profile` read the policy (`ask_opencode` then finds no agent
+    /// running) still holds for this start.
+    pub(super) async fn opencode_ask_now(&self, session: &Session, spawn: &Spawn) -> Option<Spawn> {
+        let default = self.config.read().await.permission_policy;
+        let asks = super::policy_mode::asks_opencode(&session.meta(), &spawn.profile, default);
+        if asks == spawn.env.contains_key(crate::opencode_ask::MARKER) {
+            return None;
+        }
+        let mut profile = spawn.profile.clone();
+        if asks {
+            profile.env.insert(crate::opencode_ask::MARKER.to_owned(), "1".to_owned());
+        } else {
+            profile.env.remove(crate::opencode_ask::MARKER);
+        }
+        Some(Spawn {
+            profile,
+            preset_digest: spawn.preset_digest.clone(),
+            account_home: spawn.account_home.clone(),
+        })
+    }
 }
 
 /// A session's spawn: the profile as it is spawned, and the approval digest
