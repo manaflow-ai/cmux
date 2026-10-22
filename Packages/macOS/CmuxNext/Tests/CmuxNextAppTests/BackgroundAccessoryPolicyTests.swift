@@ -87,10 +87,12 @@ struct BackgroundAccessoryPolicyTests {
         try #require(windows.controllers.count == 1, "no launch window")
         _ = launch.services.registry.perform("closeAllWindows", invocation: ActionInvocation(origin: .user))
         #expect(windows.controllers.isEmpty)
+        launch.presented.policies = []
         await Self.wait(within: .seconds(90)) { windows.restored && !windows.registry.isLaunching }
         try #require(windows.restored, "the restore never finished")
         // A reopened window would land on the next main-actor turns; test-only wait.
         try? await Task.sleep(for: .milliseconds(500))
+        #expect(launch.presented.policies.isEmpty, "the restore presented a closed window, even if only for a moment")
         #expect(windows.controllers.isEmpty, "the restore opened \(windows.controllers.count) window(s) after the user closed the launch window")
         await launch.shutDown()
     }

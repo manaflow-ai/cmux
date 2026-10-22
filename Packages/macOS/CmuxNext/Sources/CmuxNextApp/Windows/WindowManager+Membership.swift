@@ -365,8 +365,10 @@ extension WindowManager {
         let dead = Set(members.filter(isDead))
         let fallback = launchWindowID ?? closedLaunchWindowID ?? UUID().uuidString.lowercased()
         transition(select: preferred) { registry in
-            registry.reconcile(live: live, dead: dead, placements: placements, held: held, behind: behindWindows,
-                               fallbackWindow: fallback)
+            let changes = registry.reconcile(live: live, dead: dead, placements: placements, held: held, behind: behindWindows,
+                                             fallbackWindow: fallback)
+            keepClosedDuringRestore(&registry)
+            return changes
         }
         // A workspace that changed profile leaves no trace in membership.
         if registry.value == before, preferred.isEmpty { repairSelections(previous: [:]) }

@@ -228,15 +228,11 @@ final class WindowManager {
         if !restoredRegistry.windows.isEmpty {
             registry.apply { registry in
                 registry = restoredRegistry
+                keepClosedDuringRestore(&registry)
                 return WindowRegistry.Changes()
             }
         }
         reconcileMembership()
-        // A window the person closed before this finished stays closed, even the last one: no window
-        // open is the background mode, not a launch to recover.
-        for id in closedDuringRestore where registry.value.window(id)?.isOpen == true {
-            registry.apply { $0.setRestored(id, open: false); return WindowRegistry.Changes() }
-        }
         // Every remaining window closed (the open ones lost their workspaces while the app was
         // not running): the most recent one opens, so the app never starts with no window.
         if closedDuringRestore.isEmpty, !registry.value.windows.isEmpty, !registry.value.windows.contains(where: \.isOpen),
@@ -289,6 +285,13 @@ final class WindowManager {
             launch.window?.setFrame(WindowPlacementFallback.visible(frame, display: restored.window(front)?.display), display: true)
         }
         return launch
+    }
+
+    /// A window the person closed before the restore finished stays closed, even the last one: no
+    /// window open is the background mode, not a launch to recover. Applied in the registry step
+    /// itself, so no sync ever opens (and presents) it in between.
+    func keepClosedDuringRestore(_ registry: inout WindowRegistry) {
+        for id in closedDuringRestore where registry.window(id)?.isOpen == true { registry.setRestored(id, open: false) }
     }
 
     /// The frontmost saved window that can show a workspace now; one whose
