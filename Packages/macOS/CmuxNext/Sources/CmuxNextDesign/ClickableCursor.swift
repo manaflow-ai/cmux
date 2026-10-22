@@ -17,7 +17,20 @@ open class ClickableButton: NSButton {
     public var hoverCursor: NSCursor? { Self.hoverCursor(isEnabled: isEnabled) }
 
     override open var isEnabled: Bool {
-        didSet { if isEnabled != oldValue { window?.invalidateCursorRects(for: self) } }
+        didSet {
+            guard isEnabled != oldValue else { return }
+            window?.invalidateCursorRects(for: self)
+            // AppKit rebuilds cursor rects only in the key window: a host that sets the cursor
+            // itself (a toolbar row while a child window has the key) sets it again now.
+            var ancestor = superview
+            while let view = ancestor {
+                if let host = view as? any ClickableCursorHost {
+                    host.clickableStateDidChange(self)
+                    return
+                }
+                ancestor = view.superview
+            }
+        }
     }
 
     override open func resetCursorRects() {
@@ -33,6 +46,14 @@ open class ClickableButton: NSButton {
         let rect = view.visibleRect
         return rect.isEmpty ? nil : rect
     }
+}
+
+/// A view that sets the cursor over its clickable subviews itself (on pointer moves), not only
+/// through their cursor rects: a `ClickableButton` inside it tells it when it is enabled or
+/// disabled, so a still pointer shows the new cursor at once.
+@MainActor
+public protocol ClickableCursorHost: AnyObject {
+    func clickableStateDidChange(_ view: NSView)
 }
 
 extension View {

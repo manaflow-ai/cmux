@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesign
 
 /// A toolbar row that shows the arrow over its whole frame, the I-beam over
 /// the omnibar's text area and the pointing hand over an enabled button
@@ -25,7 +26,7 @@ public import AppKit
 /// from `displayCycleUpdateStructuralRegions`). After each run loop pass the
 /// row under the pointer sets its cursor again when another one shows
 /// (`keepCursor`).
-public class ArrowCursorView: NSView {
+public class ArrowCursorView: NSView, ClickableCursorHost {
     private var cursorArea: NSTrackingArea?
     /// Owns the row's cursor tracking area, so the area's events end there
     /// and never travel up the responder chain (a tracking area keeps its
@@ -33,6 +34,9 @@ public class ArrowCursorView: NSView {
     private let cursorTracker = RowCursorTracker()
     /// The cursor the row last set on a pointer move (`debug.omnibar`).
     private(set) var trackedCursor: OmnibarPointer.Cursor?
+    /// Where the pointer was, in window coordinates, when the row last set its cursor; nil once
+    /// it left the row.
+    private(set) var pointerPoint: NSPoint?
 
     public override func resetCursorRects() {
         addCursorRect(bounds, cursor: OmnibarPointer.cursor(.toolbar).cursor)
@@ -54,6 +58,7 @@ public class ArrowCursorView: NSView {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        pointerPoint = nil
         Self.rows.removeAll { $0.row == nil || $0.row === self }
         if window != nil {
             Self.rows.append(WeakRow(row: self))
@@ -61,10 +66,21 @@ public class ArrowCursorView: NSView {
         }
     }
 
-    fileprivate func setCursor(at point: NSPoint) {
+    func setCursor(at point: NSPoint) {
         let cursor = OmnibarPointer.cursor(atWindowPoint: point, in: self)
+        pointerPoint = point
         trackedCursor = cursor
         cursor.cursor.set()
+    }
+
+    fileprivate func pointerDidLeave() { pointerPoint = nil }
+
+    /// A button under a still pointer was enabled or disabled (Back running out of history while a
+    /// Chromium page has the key): the row's rule gives the new cursor at once, where
+    /// `keepCursor` would keep the one it set last and the button's rects wait for the key.
+    public func clickableStateDidChange(_ view: NSView) {
+        guard let point = pointerPoint, window != nil, !isHiddenOrHasHiddenAncestor else { return }
+        setCursor(at: point)
     }
 
     // MARK: After a move, while a child window has the key
@@ -162,5 +178,5 @@ private final class RowCursorTracker: NSResponder {
 
     override func mouseEntered(with event: NSEvent) { row?.setCursor(at: event.locationInWindow) }
     override func mouseMoved(with event: NSEvent) { row?.setCursor(at: event.locationInWindow) }
-    override func mouseExited(with event: NSEvent) {}
+    override func mouseExited(with event: NSEvent) { row?.pointerDidLeave() }
 }

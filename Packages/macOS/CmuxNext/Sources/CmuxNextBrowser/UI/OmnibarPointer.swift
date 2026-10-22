@@ -12,12 +12,13 @@ import CmuxNextDesign
 ///   2026-10-13). The same rectangle takes the press that focuses the
 ///   field, so wherever the I-beam shows, a click focuses.
 /// - The pointing hand over an enabled button (`ClickableButton`: Back,
-///   Forward, Reload, the toolbar and extension buttons), as over every other
+///   Forward, Reload, the toolbar and extension buttons) and the bookmark
+///   star, as over every other
 ///   clickable control in the app's chrome (Leo 2026-10-21: "STOP BUTTON, I
 ///   HOVER OVER IT, MY CURSOR SHOULD ALSO SEE IT AS CLICKABLE"). A disabled
 ///   button keeps the arrow.
 /// - Arrow everywhere else in the toolbar: the bar beside the chip and the
-///   badges, the page-info chip, the badges and the star.
+///   badges, the page-info chip and the badges.
 /// - The toolbar row sets the arrow over its whole frame, so a cursor the
 ///   page set (a link's hand, a text I-beam) never stays when the pointer
 ///   moves up into the toolbar, and no edge between two rects shows a stale
@@ -48,9 +49,9 @@ enum OmnibarPointer {
         case bar
         /// The bar outside the text area (beside the chip and the badges).
         case barEdge
-        /// An enabled button (`ClickableButton`).
+        /// An enabled button (`ClickableButton`) or the bookmark star.
         case button
-        /// A chip, badge, star or disabled button.
+        /// A chip, badge or disabled button.
         case control
         /// The toolbar row outside the bar and its buttons.
         case toolbar
@@ -79,12 +80,18 @@ enum OmnibarPointer {
         }
     }
 
-    /// The enabled button `view` is or sits in, below `row`: the row's own pointer moves give it
-    /// the pointing hand, as its cursor rect does in the key window.
+    /// The clickable control `view` is or sits in, below `row`: an enabled button
+    /// (`ClickableButton`) or the bookmark star. The row's own pointer moves give it the pointing
+    /// hand, as its cursor rect does in the key window.
     @MainActor
-    static func enabledButton(at view: NSView, below row: NSView) -> ClickableButton? {
-        sequence(first: view, next: \.superview).prefix(while: { $0 !== row })
-            .lazy.compactMap { $0 as? ClickableButton }.first { $0.isEnabled }
+    static func clickable(at view: NSView, below row: NSView) -> NSView? {
+        sequence(first: view, next: \.superview).prefix(while: { $0 !== row }).first { isClickable($0) }
+    }
+
+    @MainActor
+    static func isClickable(_ view: NSView) -> Bool {
+        if let button = view as? ClickableButton { return button.isEnabled }
+        return view is BookmarkStarButton
     }
 }
 
@@ -95,7 +102,7 @@ extension OmnibarPointer {
     @MainActor
     static func cursor(atWindowPoint point: NSPoint, in row: NSView) -> Cursor {
         guard let parent = row.superview, let hit = row.hitTest(parent.convert(point, from: nil)) else { return cursor(.toolbar) }
-        if enabledButton(at: hit, below: row) != nil { return cursor(.button) }
+        if clickable(at: hit, below: row) != nil { return cursor(.button) }
         let bar = sequence(first: hit, next: \.superview).prefix(while: { $0 !== row }).lazy.compactMap { $0 as? AddressBarView }.first
         guard let bar else { return cursor(.toolbar) }
         return bar.textArea.contains(bar.convert(point, from: nil)) ? cursor(.bar) : cursor(.barEdge)
