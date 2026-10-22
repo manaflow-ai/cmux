@@ -39,7 +39,10 @@ struct ChiefHomeAcpmux {
     ///     (``ChiefHome/usesAppAcpmux``) attaches its tabs there.
     ///   - ensureHost: starts the Chief brain host when none runs
     ///     (`ChiefBrainKeeper.ensure`), after a heal stopped the stale one.
-    init(home: ChiefHome, local: any AgentPaneHostProviding, ensureHost: @escaping @Sendable () async -> Void) {
+    ///   - ownHost: the pane host of the Chief home's own acpmux (its environment) for a Chief
+    ///     on the app's acpmux: the daemon its subagents ran on before the move.
+    init(home: ChiefHome, local: any AgentPaneHostProviding, ensureHost: @escaping @Sendable () async -> Void,
+         ownHost: @escaping @Sendable (AcpmuxEnvironment?) -> any AgentPaneHostProviding = { AcpmuxHost(environment: $0) }) {
         host = Self.host(muxHome: home.muxHome)
         // One daemon: the Chief's sessions are this Mac's, so its tabs attach like any chat and
         // the app's own handoff heals that daemon (no Chief heal, no routing by `mux.parent`).
