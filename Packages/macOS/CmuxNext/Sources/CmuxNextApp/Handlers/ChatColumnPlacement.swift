@@ -88,8 +88,16 @@ extension ChatColumnPlacement {
                 return nil
             })
         case .browser(let url, let engine, let profileID)? where !isNewTabAddress(url, services: services):
-            // The daemon makes a browser tab aimed at the lone dock in a new column right of it.
-            controller.newBrowserTab(url: URL(string: url), engine: engine.rawValue, profile: profileID)
+            // Closed to tabs, the daemon makes a browser tab aimed at the lone dock in a new column
+            // right of it; Home's dock takes tabs, so the tab is made there and moves to the right.
+            let opener = services.linkOpener
+            var beside: (@MainActor (SurfaceID) -> Void)?
+            if controller.isOpenPinnedDockPane {
+                beside = { [weak controller] surface in
+                    if let controller { opener.moveBeside(surface, from: controller, focus: true) }
+                }
+            }
+            controller.newBrowserTab(url: URL(string: url), engine: engine.rawValue, profile: profileID, then: beside)
         case .browser?, nil:
             NewTabPage.split(controller, edge: .right)
         }

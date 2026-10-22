@@ -185,8 +185,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
                          hidesStrip: hidesTabBar || ownWorkspace?.app != nil || homeChief,
                          fullWidthTab: services.paneFullWidthTabs.contains(paneKey),
                          keepsFirstTab: pinned && tabs.first?.id == pane.tabs.first?.id,
-                         // What Home's pinned dock opens goes beside it (ChatColumnPlacement), and a
-                         // link from it never lands in it (LinkOpener), so its strip has no +.
+                         // What Home's pinned dock opens goes beside it (ChatColumnPlacement, and
+                         // LinkOpener for links), so its strip has no +.
                          takesNewTabs: !pinned)
     }
 

@@ -64,6 +64,16 @@ struct PinnedHomeDockTests {
         #expect(NewChatPlacement.resolve(from: "dock", columns: columns(allowsTabs: true), isLoneChat: false) == .dock("p1"))
     }
 
+    /// A tool dragged into a chat dock is refused ("holds only agent chats"), except into Home's
+    /// pinned dock while it takes tabs (Leo 2026-10-21): any tab drags into it.
+    @Test func homesDockTakesAnyDraggedTabOtherChatDocksOnlyChats() {
+        #expect(ChatDockRules.takesOnlyChats(DockColumn(edge: .left, role: .agentChat)))
+        #expect(ChatDockRules.takesOnlyChats(DockColumn(edge: .left, role: .agentChat, isPinned: true)), "closed to tabs")
+        #expect(!ChatDockRules.takesOnlyChats(DockColumn(edge: .left, role: .agentChat, isPinned: true, allowsTabs: true)))
+        #expect(!ChatDockRules.takesOnlyChats(DockColumn(edge: .right)))
+        #expect(!ChatDockRules.takesOnlyChats(nil))
+    }
+
     @Test func refusedCloseOfHomeSaysHomeStays() {
         #expect(RefusedCloseNotice.reason(codes: ["dock-column-pinned"]) == RefusalStrings.homeTabStays)
         #expect(RefusedCloseNotice.reason(codes: ["dock-column-permanent"]) == RefusalStrings.columnStaysDocked)

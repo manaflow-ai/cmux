@@ -61,6 +61,10 @@ extension PaneController {
     /// Home's dock takes tabs (Leo 2026-10-21), so this is only a dock the person closed to tabs.
     var isClosedPinnedDockPane: Bool { pinnedDock.map { !$0.takesTabs } ?? false }
 
+    /// A pane of Home's pinned dock while it takes tabs: a tab made there stays there, so what Home
+    /// opens beside itself is made there and then moved to a column on its right.
+    var isOpenPinnedDockPane: Bool { pinnedDock?.allowsTabs == true }
+
     /// The pinned dock this pane is in, if any.
     private var pinnedDock: DockColumn? {
         let column = daemon.store.workspace(containing: pane.handle)?.screens.lazy.flatMap(\.columns)

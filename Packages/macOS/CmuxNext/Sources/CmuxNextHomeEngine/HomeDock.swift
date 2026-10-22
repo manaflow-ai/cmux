@@ -132,7 +132,7 @@ public final class HomeDock {
         if !chiefs.isEmpty, stays || !docked { try await connection.closeTabs(Array(chiefs), endTerminals: false) }
         if docked {
             let pinned = try await pin(connection, store: store, workspace: workspace)
-            let tabs = try await allowTabs(connection, store: store, workspace: workspace, fresh: pinned != nil)
+            let tabs = await allowTabsLogged(connection, store: store, workspace: workspace, fresh: pinned != nil)
             let cleared = alone ? try await closePlaceholder(connection, workspace: workspace) : nil
             let steps = [pinned, tabs, cleared].compactMap { $0 }
             return steps.isEmpty ? "home dock present" : steps.joined(separator: ", ")
@@ -147,7 +147,7 @@ public final class HomeDock {
         // Held until the tree shows the dock (or this run is cancelled), so a connect meanwhile reads it.
         _ = await shown { workspace().flatMap(Self.pageTab(in:)).flatMap { Self.isDocked($0.pane, on: $0.screen) ? true : nil } }
         _ = try await pin(connection, store: store, workspace: workspace)
-        _ = try await allowTabs(connection, store: store, workspace: workspace, fresh: true)
+        _ = await allowTabsLogged(connection, store: store, workspace: workspace, fresh: true)
         return "home dock made"
     }
 
@@ -174,8 +174,20 @@ public final class HomeDock {
     /// tab dragged onto it joins it and drags out again. The daemon still keeps the pinned page tab
     /// first and in the column. New tabs, splits and chats opened from Home still open beside it
     /// (`ChatColumnPlacement`, `NewChatPlacement`). A dock made or pinned now (`fresh`) always gets it;
-    /// a dock pinned before gets it once (``dockTakesTabsKey``), so a person's later
-    /// `allow_tabs: false` stays. Nil when there is nothing to do.
+    /// a dock pinned before gets it once (``dockTakesTabsKey``, kept per app install, not per
+    /// daemon), so a person's later `allow_tabs: false` stays. Nil when there is nothing to do.
+    /// ``allowTabs``, with a failure logged and returned as the step, so the rest of the connect
+    /// (the placeholder check) still runs; the next connect tries again.
+    private func allowTabsLogged(_ connection: DaemonConnection, store: DaemonStore,
+                                 workspace: @MainActor @Sendable () -> WorkspaceModel?, fresh: Bool) async -> String? {
+        do {
+            return try await allowTabs(connection, store: store, workspace: workspace, fresh: fresh)
+        } catch {
+            logger.error("home dock allow_tabs: \(String(describing: error), privacy: .public)")
+            return "home dock allow_tabs failed: \(String(describing: error))"
+        }
+    }
+
     private func allowTabs(_ connection: DaemonConnection, store: DaemonStore,
                            workspace: @MainActor @Sendable () -> WorkspaceModel?, fresh: Bool) async throws -> String? {
         guard store.supports(DaemonCapabilities.shared.pinnedDock), fresh || !defaults.bool(forKey: Self.dockTakesTabsKey),

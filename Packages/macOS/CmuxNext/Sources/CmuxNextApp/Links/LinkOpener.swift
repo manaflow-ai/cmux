@@ -115,8 +115,13 @@ final class LinkOpener {
                 self.move(surface, from: source, to: .besideColumn, focus: !background)
             }
         case .besideDock:
-            // The daemon makes a tab aimed at a lone pinned dock in a new column right of it.
-            return make(source, nil)
+            // A lone pinned dock closed to tabs: the daemon makes a tab aimed at it in a new column
+            // right of it. Home's dock takes tabs, so the tab is made there and moves to the right.
+            guard source.isOpenPinnedDockPane else { return make(source, nil) }
+            return make(source) { [weak self, weak source] surface in
+                guard let self, let source else { return }
+                self.moveBeside(surface, from: source, focus: !background)
+            }
         case .dockChat:
             return make(source) { [weak source] surface in
                 guard let source else { return }
@@ -247,6 +252,12 @@ final class LinkOpener {
     /// Moves the new tab on `surface` out of `source` to `destination` (a new split, column or dock)
     /// once the store lists it, then focuses it unless not `focus`. A failed move selects it where
     /// it is, so it never stays hidden.
+    /// Moves new tab `surface`, made in `source`, to a new column right of it (Home's dock, which
+    /// takes tabs, opens its tools beside itself this way).
+    func moveBeside(_ surface: SurfaceID, from source: PaneController, focus: Bool) {
+        move(surface, from: source, to: .besideColumn, focus: focus)
+    }
+
     private func move(_ surface: SurfaceID, from source: PaneController, to destination: Destination, focus: Bool) {
         let services = source.services, store = source.daemon.store
         let intent = focus ? source.workspace?.beginFocusIntent() : nil
