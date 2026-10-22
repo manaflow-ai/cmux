@@ -15,20 +15,29 @@ import os
 /// and is the process listening on the home's socket (`LOCAL_PEERPID`) is ever signalled, and
 /// each pid at most once, and at most `perLaunch` times per home in one app launch (a daemon that
 /// wedges again after every start is left for a person). That process is known by its pid and
-/// start time (``Daemon``), read before those checks and again after them and before each signal:
-/// a pid the kernel gave to another process meanwhile is never signalled (``signal(_:_:process:)``
-/// puts a kernel exit watch on the process before that check), and the exit wait is on the
-/// process before its SIGTERM, so it never follows the pid to a successor. The
+/// start time and its audit token (``Daemon``), read before those checks and again after them and
+/// before each signal: a pid the kernel gave to another process meanwhile is never signalled
+/// (``signal(_:_:process:)`` puts a kernel exit watch on the process before that check, and the
+/// signal goes by audit token, so the kernel refuses it once the pid names another process), and
+/// the exit wait is on the process before its SIGTERM, so it never follows the pid to a successor. The
 /// `agent.restartUnresponsiveAcpmux` Debug Settings toggle turns it off.
 nonisolated final class AcpmuxUnresponsiveWatch: Sendable {
     static let shared = AcpmuxUnresponsiveWatch(clock: ContinuousClock())
 
-    /// One process: its pid and its start time (`proc_bsdinfo`). A pid the kernel gives to another
-    /// process later has another start time.
+    /// One process: its pid, its start time (`proc_bsdinfo`) and its audit token (`TASK_AUDIT_TOKEN`).
+    /// A pid the kernel gives to another process later has another start time and another pid
+    /// version in its token (`val.7`), the one field besides the pid (`val.5`) the kernel checks
+    /// before it signals by token.
     struct Daemon: Equatable, Sendable {
         var pid: Int32
         var startSeconds: UInt64
         var startMicroseconds: UInt64
+        var token: audit_token_t
+
+        static func == (lhs: Daemon, rhs: Daemon) -> Bool {
+            lhs.pid == rhs.pid && lhs.startSeconds == rhs.startSeconds && lhs.startMicroseconds == rhs.startMicroseconds
+                && lhs.token.val.5 == rhs.token.val.5 && lhs.token.val.7 == rhs.token.val.7
+        }
     }
 
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.acpmux")
@@ -151,11 +160,12 @@ nonisolated final class AcpmuxUnresponsiveWatch: Sendable {
     /// Sends `signal` to `daemon`: nil when sent (wait for the exit), else whether it is gone.
     /// A kernel exit watch (kqueue `EVFILT_PROC`) goes on the pid first, registered before
     /// `kevent` returns, and the identity check after it proves the watch is on `daemon` itself;
-    /// an exit that watch saw by the moment before `kill` means nothing is sent. What is left is
-    /// the instant between that look and `kill`, and the pid could only name another process
-    /// there if the daemon exited, launchd reaped it and the kernel handed the pid out again in
-    /// it; XNU hands pids out in order and reaches one again only after wrapping past
-    /// `PID_MAX`. Without a watch (no kqueue) nothing is sent.
+    /// an exit that watch saw by the moment before the signal means nothing is sent. The signal
+    /// goes by `daemon`'s audit token (`proc_signal_with_audittoken`): the kernel looks the pid up,
+    /// holds that process and refuses with `ESRCH` unless its pid version is the token's, so
+    /// however long this thread stops between the look and the signal (a debugger, say), a pid
+    /// handed to another process meanwhile is never signalled. Without a watch (no kqueue) or a
+    /// look at it (`kevent` fails) nothing is sent.
     static func signal(_ daemon: Daemon, _ signal: Int32, process: (Int32) -> Daemon?) -> Bool? {
         let pid = daemon.pid
         let queue = kqueue()
@@ -170,16 +180,43 @@ nonisolated final class AcpmuxUnresponsiveWatch: Sendable {
         guard process(pid) == daemon else { return true }
         var seen = kevent()
         var now = timespec(tv_sec: 0, tv_nsec: 0)
-        if Darwin.kevent(queue, nil, 0, &seen, 1, &now) > 0 { return true }
-        return kill(pid, signal) == 0 ? nil : !agentPaneProcessIsRunning(pid)
+        let looked = Darwin.kevent(queue, nil, 0, &seen, 1, &now)
+        guard looked == 0 else { return looked > 0 }
+        var token = daemon.token
+        // libproc returns the error itself (0 when sent), not -1 and errno.
+        let failure = proc_signal_with_audittoken(&token, signal)
+        return failure == 0 ? nil : failure == ESRCH
     }
 
-    /// The process `pid` names now (its start time from `proc_pidinfo`), nil when none or unreadable.
+    /// The process `pid` names now (its start time from `proc_pidinfo`, its audit token from its
+    /// task name port), nil when none or unreadable. The start time is read before the token and
+    /// again after it, so both are one process's.
     static func kernelProcess(pid: Int32) -> Daemon? {
-        var info = proc_bsdinfo()
-        let size = Int32(MemoryLayout<proc_bsdinfo>.size)
-        guard pid > 0, proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size else { return nil }
-        return Daemon(pid: pid, startSeconds: info.pbi_start_tvsec, startMicroseconds: info.pbi_start_tvusec)
+        func start() -> (UInt64, UInt64)? {
+            var info = proc_bsdinfo()
+            let size = Int32(MemoryLayout<proc_bsdinfo>.size)
+            guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size else { return nil }
+            return (info.pbi_start_tvsec, info.pbi_start_tvusec)
+        }
+        guard pid > 0, let before = start(), let token = auditToken(pid: pid), let after = start(), before == after,
+              token.val.5 == UInt32(bitPattern: pid) else { return nil }
+        return Daemon(pid: pid, startSeconds: before.0, startMicroseconds: before.1, token: token)
+    }
+
+    /// The audit token of the process `pid` names now (`task_name_for_pid`, which a process of the
+    /// same user may call, then `TASK_AUDIT_TOKEN` on that name port), nil when unreadable.
+    static func auditToken(pid: Int32) -> audit_token_t? {
+        var name = mach_port_name_t(MACH_PORT_NULL)
+        guard task_name_for_pid(mach_task_self_, pid, &name) == KERN_SUCCESS else { return nil }
+        defer { mach_port_deallocate(mach_task_self_, name) }
+        var token = audit_token_t()
+        var count = mach_msg_type_number_t(MemoryLayout<audit_token_t>.size / MemoryLayout<natural_t>.size)
+        let read = withUnsafeMutablePointer(to: &token) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                task_info(name, task_flavor_t(TASK_AUDIT_TOKEN), $0, &count)
+            }
+        }
+        return read == KERN_SUCCESS ? token : nil
     }
 
     /// `environment`'s own daemon (``daemonPID(_:)``), known by its start time read before those

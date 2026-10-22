@@ -226,6 +226,22 @@ struct AcpmuxUnresponsiveIdentityTests {
         #expect(answer == true, "an exit after the check is seen and nothing is sent")
     }
 
+    /// Review of #23199: after the last look the thread can stop for any time (a debugger), and
+    /// the pid can name another process when it resumes. The token here is the child's with
+    /// another pid version, as a later process with that pid would have; the identity stand-in
+    /// still passes it, so only the kernel's token check is left.
+    @Test func aSignalForAnotherProcessWithThePidIsRefused() async throws {
+        let child = try await child(ignoresTerm: false)
+        defer { kill(child.processIdentifier, SIGKILL) }
+        var earlier = try #require(AcpmuxUnresponsiveWatch.kernelProcess(pid: child.processIdentifier))
+        #expect(earlier.token.val.5 == UInt32(bitPattern: child.processIdentifier))
+        earlier.token.val.7 &+= 1
+
+        let answer = AcpmuxUnresponsiveWatch.signal(earlier, SIGTERM) { _ in earlier }
+        #expect(answer == true, "the kernel refuses it (ESRCH): the process of that token is gone")
+        #expect(agentPaneProcessIsRunning(child.processIdentifier), "the process that has the pid now was signalled")
+    }
+
     @Test func theProcessItFoundGetsSigtermThenSigkill() async throws {
         let child = try await child(ignoresTerm: true)
         defer { kill(child.processIdentifier, SIGKILL) }
