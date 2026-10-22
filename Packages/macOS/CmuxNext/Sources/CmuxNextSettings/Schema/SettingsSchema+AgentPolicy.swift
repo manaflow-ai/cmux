@@ -55,7 +55,7 @@ extension SettingsSchema {
         "sidebar.showLocalMachine",
         "sidebar.groupHeader.memberCount", "sidebar.groupHeader.unreadCount",
         "sidebar.numbering", "sidebar.cmd9", "sidebar.stepping", "sidebar.steppingWraps",
-        "sidebar.side",
+        "sidebar.side", "sidebar.style",
         "sidebar.spacesPosition", "sidebar.spacesVisibility",
         "tabs.newTabTemplate",
         "tabs.newTabPosition",
@@ -220,6 +220,8 @@ extension SettingsSchema {
         // box types only what the person writes.
         "home.chiefPetEnabled",
         "home.chiefPetMascot",
+        // Needs you in the agent chat header (an App Store item): a display the person can hide again.
+        "agentPane.needsYou.enabled",
         "updates.notify",
         "updates.showWhatsNew",
         "announcements.enabled",
