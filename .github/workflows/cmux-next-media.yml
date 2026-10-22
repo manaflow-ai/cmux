@@ -1,7 +1,8 @@
 name: cmux-next media
 
-# Screenshots and a short video of each cmux-next UI pull request, posted in
-# the `tour` part of the PR's status comment (scripts/cmux-next/media/publish.py).
+# Screenshots and a short video of each cmux-next UI merge, and of a pull
+# request on demand, posted in the `tour` part of the PR's status comment
+# (scripts/cmux-next/media/publish.py).
 # The tour builds the merge base and head as separate tagged dev apps on an
 # owned Mac's gui runner, launches each, drives them through the bundled cmux CLI
 # (scripts/cmux-next/media/tour.py), and captures every affected step. Path
@@ -28,28 +29,32 @@ name: cmux-next media
 
 # WHEN IT RUNS: the tour holds an owned Mac's gui runner (one per mini) for up
 # to two hours. Run on every push of every UI pull request, it had 32 queued
-# and 8 running jobs on 2026-10-14 and saturated those runners. It now runs:
+# and 8 running jobs on 2026-10-14 and saturated those runners; on every push
+# of a labeled pull request, and on unlabeled Swift UI a tour covered, it was
+# still second in queued minutes. Since 2026-10-21 (Leo: only on a merge or on
+# demand, never on every pull request push) it runs:
 #   - on a merge: a push to feat-cmux-next that touches the UI paths tours
 #     that merge (the previous head against the new one) and comments on the
 #     merged pull request. Every merge gets its own run and is never
 #     cancelled: tours run side by side in a Mac's slots (#22046) and queue
 #     for a gui runner otherwise. A merge that changes nothing a Mac tours
 #     takes no Mac and finishes in the route job.
-#   - on a pull request labeled `media-tour` (add the label to get a tour;
-#     every later push of that pull request tours again).
-#   - on a pull request without the label whose Swift UI change
-#     (Packages/macOS/CmuxNext/Sources) a specific tour covers: any tour in
-#     path_map.py other than the catch-all core tour
-#     (scripts/ci/media_auto_tour.py; not drafts, and never with the
-#     `no-media-tour` label). Over the 300 merges before 2026-10-21 that was
-#     21, against 118 that touched UI paths.
+#   - once per `media-tour` label: the `labeled` event that adds it tours the
+#     pull request's head at that moment (scripts/ci/media_auto_tour.py; never
+#     with the `no-media-tour` label). A later push does not tour again, and
+#     no pull request tours without the label. To tour a newer head, remove
+#     and re-add the label, or run `cmux-ci capture` (stills for the
+#     description, which pr-capture-check accepts).
+#   - on a workflow_dispatch with base_sha: the batch queue's group tours, or
+#     by hand on a branch; it posts no comment, the tour is the run's artifact.
 # The route job decides; when no tour is wanted it takes no Mac and the PR
 # gets no comment.
 # Either way a change with nothing for a Mac to tour takes no Mac: no UI
 # paths, or only webview code, whose look the gallery advisory run checks in
 # Linux Chromium on the pull request (a webview-only merge gets no capture of
 # its own). Native-bridge, glass and theme webview files still tour. Add the
-# `media-tour-mac` label (with `media-tour`) to tour a webview change on a Mac.
+# `media-tour-mac` label, then add (or re-add) `media-tour`, to tour a webview
+# change on a Mac; `media-tour-mac` alone starts no tour.
 # Classic main has no cmux-next UI, and a nightly schedule would run only
 # from main's copy of this file, so neither has a tour.
 on:
@@ -65,7 +70,8 @@ on:
       - 'scripts/cmux-next/media/tours/**'
   pull_request:
     branches: [feat-cmux-next]
-    types: [opened, synchronize, reopened, ready_for_review, labeled]
+    # Only adding a label starts a run: no push of a pull request tours.
+    types: [labeled]
     paths:
       - 'Packages/macOS/CmuxNext/Sources/**'
       - 'Packages/macOS/CmuxNext/Resources/**'
@@ -90,24 +96,22 @@ on:
 
 permissions: {}
 
-# A pull request run (not a label event for another label) shares the pull
-# request's group and replaces its older tour; whether it tours is the route
-# job's call, and that depends on the whole pull request's diff, so a later
-# push of a toured pull request tours again. Adding `no-media-tour` joins it too,
-# so it cancels a running tour. A label event for another label
+# Adding `media-tour` shares the pull request's group, so re-adding it
+# replaces the older tour. Adding `no-media-tour` joins it too, so it cancels a
+# running tour. A label event for another label
 # gets a group of its own, so it cancels nothing.
 # Each merge run gets a group of its own. One shared merge group made every
 # merge wait behind the running tour, and a newer merge then replaced the
 # waiting run: 95 of 100 cancelled runs on 2026-10-20 were such zero-job
 # replacements, and each replaced merge lost its tour and its PR comment.
 concurrency:
-  group: ${{ github.event_name == 'push' && format('cmux-next-media-merge-{0}', github.sha) || github.event_name == 'pull_request' && (github.event.action != 'labeled' || github.event.label.name == 'media-tour' || github.event.label.name == 'no-media-tour') && format('cmux-next-media-{0}', github.event.pull_request.number) || format('cmux-next-media-idle-{0}', github.run_id) }}
+  group: ${{ github.event_name == 'push' && format('cmux-next-media-merge-{0}', github.sha) || github.event_name == 'pull_request' && github.event.action == 'labeled' && (github.event.label.name == 'media-tour' || github.event.label.name == 'no-media-tour') && format('cmux-next-media-{0}', github.event.pull_request.number) || format('cmux-next-media-idle-{0}', github.run_id) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   route:
     name: Pick the tour runner
-    if: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch' && inputs.base_sha != '' || github.event.pull_request.head.repo.full_name == github.repository && (github.event.action != 'labeled' || github.event.label.name == 'media-tour' || github.event.label.name == 'no-media-tour')) }}
+    if: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch' && inputs.base_sha != '' || github.event.pull_request.head.repo.full_name == github.repository && github.event.action == 'labeled' && (github.event.label.name == 'media-tour' || github.event.label.name == 'no-media-tour')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
@@ -136,6 +140,7 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
           LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
           ACTION: ${{ github.event.action }}
+          LABEL: ${{ github.event.label.name }}
           DRAFT: ${{ github.event.pull_request.draft }}
         run: |
           set -euo pipefail
@@ -144,8 +149,16 @@ jobs:
             echo "a merge to feat-cmux-next or a batch dispatch tours"
             exit 0
           fi
-          # The files API lists at most 3000; past that the label decides.
-          if ! gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files?per_page=100" --jq '.[].filename' \
+          # The changed paths from git, not the files API (a call per 100
+          # files on every push): the event's merge commit against its first
+          # parent, the base, fetched without blobs. With rename detection
+          # this is the files API's `.filename` set, less a change the base
+          # already carries. The files API is the fallback; it lists at most
+          # 3000, and past that the label decides.
+          if git fetch --no-tags --quiet --depth=2 --filter=blob:none origin "$GITHUB_SHA" \
+            && git diff --name-only -z -M "$GITHUB_SHA^1" "$GITHUB_SHA" | tr '\0' '\n' > "$RUNNER_TEMP/changed.txt"; then
+            echo "listed=true" >> "$GITHUB_OUTPUT"
+          elif ! gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files?per_page=100" --jq '.[].filename' \
             > "$RUNNER_TEMP/changed.txt"; then
             echo "::warning::could not list the pull request's files; only the media-tour label tours"
             : > "$RUNNER_TEMP/changed.txt"
@@ -166,8 +179,17 @@ jobs:
           # the event, or the push's before and after.
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
           HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          LISTED: ${{ steps.decide.outputs.listed }}
         run: |
           set -euo pipefail
+          # A pull request whose merge commit the step above diffed: the same
+          # diff with every rename as both paths, and no 300-file cap.
+          if [ "$LISTED" = true ] && git diff --no-renames --name-only -z "$GITHUB_SHA^1" "$GITHUB_SHA" \
+            | tr '\0' '\n' | sort -u > "$RUNNER_TEMP/changed-paths.txt"; then
+            echo "$(wc -l < "$RUNNER_TEMP/changed-paths.txt") changed path(s)"
+            exit 0
+          fi
+          rm -f "$RUNNER_TEMP/changed-paths.txt"
           listing="$RUNNER_TEMP/changed-files.json"
           gh api "repos/$GITHUB_REPOSITORY/compare/$BASE...$HEAD" --jq '[.files[] | {filename, previous_filename}]' > "$listing"
           python3 - "$listing" "$RUNNER_TEMP/changed-paths.txt" <<'PY'
@@ -314,7 +336,7 @@ jobs:
         if: steps.scope.outputs.is_ui == 'true'
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: "24.11.1"
+          node-version: "24.22.1"
 
       # Tours run side by side on a Mac's session runners, each capturing only
       # its own app's window. Each claims a slot of its own: its tag's
@@ -542,6 +564,32 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/media"
           cp "$RUNNER_TEMP/tour-scope.json" "$RUNNER_TEMP/media/capture-receipt.json"
+
+      # Whatever happened above. A cancel can land while the app starts, after
+      # tour.py's own cleanup ran: run 39199091515's chief host and acpmux
+      # daemon outlived the job by days and held 10 GiB of DerivedData open on
+      # cmux10s, which the prune keeps while it is open. This ends both apps'
+      # daemons and every process run from either bundle. A head branched
+      # before --stop takes tour.py from the run's commit.
+      - name: Stop this tour's apps and daemons
+        if: ${{ always() && env.TOUR_TAG != '' }}
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          tour=scripts/cmux-next/media/tour.py
+          if ! grep -q -- '--stop' "$tour" 2>/dev/null; then
+            git cat-file -e "$GITHUB_SHA^{commit}" 2>/dev/null || git fetch --no-tags origin "$GITHUB_SHA"
+            tour="$RUNNER_TEMP/media-stop/tour.py"
+            mkdir -p "${tour%/*}"
+            git show "$GITHUB_SHA:scripts/cmux-next/media/tour.py" > "$tour"
+          fi
+          shopt -s nullglob
+          args=()
+          for app in "$HOME/Library/Developer/Xcode/DerivedData/cmux-${TOUR_TAG}"-{base,head}/Build/Products/*/*.app; do
+            args+=(--stop "$app")
+          done
+          [ "${#args[@]}" -gt 0 ] || { echo "no app built under ${TOUR_TAG}; nothing to stop"; exit 0; }
+          python3 "$tour" "${args[@]}"
 
       - name: Keep the media for the publish job
         if: ${{ always() }}

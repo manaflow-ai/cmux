@@ -162,6 +162,8 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
             mode: !!card.querySelector(".acpmux-access"),
           },
           mode: text(root.querySelector(".acpmux-composer-foot .acpmux-mode-text")),
+          // The mode button leads with its symbol, then its name (Leo 2026-10-21: Codex's "(!) Full access").
+          modeSymbol: rect(root.querySelector(".acpmux-composer-foot .acpmux-access-trigger > svg:first-child")),
           model: text(root.querySelector(".acpmux-composer-foot .acpmux-model .acpmux-picker-button > span")),
           effort: text(
             root.querySelector(
@@ -203,13 +205,19 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
         if (stage.sendAtRest) expect(at.send, "Send is in the box").not.toBeNull();
         else expect(at.send, "no Send with an empty draft").toBeNull();
         if (stage.plus) expect(at.plus, "+ is in the box").not.toBeNull();
-        // The mode on the left, on the prompt's text edge (16 px in from the box, Claude Code's). A
-        // New Tab page before its chat starts may have no mode yet; the model button stays right.
+        // The mode on the left, its pill on the box's left edge (Leo 2026-10-21: no inset of the row's
+        // own, composer-side-inset.test.ts), so its symbol sits the chip's hover inset in; its name
+        // after it. A New Tab page before its chat starts may have no mode yet; the model button stays
+        // right.
         if (stage.plus) expect(at.mode, "the mode names itself").not.toBeNull();
         if (at.mode) {
-          expect(Math.abs(at.mode.left - (at.box.left + 16)), "the mode's text on the 16 px edge").toBeLessThanOrEqual(
-            3,
-          );
+          expect(at.modeSymbol, "the mode draws its symbol").not.toBeNull();
+          expect(at.modeSymbol!.left, "the mode's symbol inside the box").toBeGreaterThanOrEqual(at.box.left);
+          expect(
+            at.modeSymbol!.left - at.box.left,
+            "the mode's symbol a chip's inset from the box's edge",
+          ).toBeLessThanOrEqual(10);
+          expect(at.mode.left, "the mode's name follows its symbol").toBeGreaterThan(at.modeSymbol!.right);
           expect(at.model!.left, "the model is right of the mode").toBeGreaterThan(at.mode.right + 40);
         }
         expect(at.model!.left, "the model sits in the row's right half").toBeGreaterThan(

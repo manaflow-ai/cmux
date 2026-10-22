@@ -108,6 +108,16 @@ struct PaletteNavigationTests {
         #expect(item.keywords.contains("Backend"))
     }
 
+    /// Machine identity: with workspaces on more than one machine, a row leads with its machine,
+    /// and typing the machine's name finds its workspaces.
+    @Test func workspaceRowsNameTheirMachine() {
+        let workspaces = Workspaces()
+        workspaces.workspaces = [PaletteWorkspace(id: "w1", title: "api", directory: "/srv/api", groupName: "Backend", machineName: "gpu-box")]
+        let item = WorkspacePaletteProvider(source: workspaces, showsItemsForEmptyQuery: true).makeItems()[0]
+        #expect(item.subtitle == "gpu-box · Backend · /srv/api")
+        #expect(item.keywords.contains("gpu-box"))
+    }
+
     // MARK: Ranking
 
     @Test func emptyQueryListsWorkspacesAndTypingFindsEverything() async {

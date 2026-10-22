@@ -49,6 +49,24 @@ describe("chief records", { timeout: 60_000 }, () => {
     expect(list.chiefs.map((c: { id: string; is_default: boolean }) => [c.id, c.is_default])).toEqual([[second.id, true], [first.value.id, false]])
   })
 
+  // The Mac's Chief card renames a cloud Chief with chief.update; its main conversation (the
+  // header's title, the Chief's name on its messages) follows through the UserDO outbox.
+  it("renaming a chief renames its main conversation and its name there", async () => {
+    const t = await sessionToken("chief-rename")
+    const user = (await op(t, "user.ensure", {})).json.value.id as string
+    const chief = (await op(t, "chief.create", {}, "chief-default")).json.value
+    const renamed = (await op(t, "chief.update", { chief: chief.id, expected_rev: 1, display_name: "  Ada  " })).json
+    expect(renamed.value).toMatchObject({ display_name: "Ada", rev: 2 })
+    const userDO = testEnv.USER_DO.get(testEnv.USER_DO.idFromName(user))
+    let conversation: { title?: string; participants?: Array<{ id: string; display_name: string }> } = {}
+    for (let i = 0; i < 20 && conversation.title !== "Ada"; i++) {
+      await fireAlarm(userDO)
+      conversation = (await op(t, "dm.open", { peer: chief.id })).json.value?.conversation ?? {}
+    }
+    expect(conversation.title).toBe("Ada")
+    expect(conversation.participants?.find((p) => p.id === chief.id)?.display_name).toBe("Ada")
+  })
+
   it("a new chief's MuxDO is bound to its owner and receives the user's level", async () => {
     const t = await sessionToken("chief-mux")
     const user = (await op(t, "user.ensure", {})).json.value.id as string
