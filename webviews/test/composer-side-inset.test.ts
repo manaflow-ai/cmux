@@ -154,9 +154,10 @@ await requireBrowserLane("composer-side-inset.test.ts", async () => {
           ).toBeLessThanOrEqual(1);
           // The Default template and the Classic page have no quiet row.
           if (Number.isFinite(at.last))
-            expect(Math.abs(at.box.right - at.last), "the row's last control on the box's right edge").toBeLessThanOrEqual(
-              0.5,
-            );
+            expect(
+              Math.abs(at.box.right - at.last),
+              "the row's last control on the box's right edge",
+            ).toBeLessThanOrEqual(0.5);
         });
   }
 });
