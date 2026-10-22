@@ -510,6 +510,8 @@ mod tests {
         assert_eq!(family_of("app.settings.set"), "app.settings");
         assert_eq!(family_of("fs.pick"), "fs");
         assert!(FAMILIES.contains(&family_of("agent_cli.list")));
+        // The Priority View app's chats (`chat.list`), answered on the Mac.
+        assert!(FAMILIES.contains(&family_of("chat.list")));
         let mut params = json!({ "provider": "github" });
         normalize_method(&mut params);
         assert_eq!(params["method"], "GET");

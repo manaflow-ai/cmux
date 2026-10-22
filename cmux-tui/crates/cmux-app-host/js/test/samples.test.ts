@@ -28,38 +28,38 @@ describe("samples", () => {
     expect([focus.params, focus.options.gesture]).toEqual([{ tab: "tab_9" }, "g7"])
   })
 
-  test("priority-view ranks needs-you first, hides idle, and one rename sends one update op", async () => {
-    const now = Date.now()
+  test("priority-view draws chat.list in the Mac's rank order, idle hidden, one change one update op", async () => {
     let value = [
-      { ...agents[0]!, id: "agent_w", state: "working", source_session: "w", updated_at_ms: String(now) },
-      { ...agents[0]!, id: "agent_i", state: "idle", source_session: "i", updated_at_ms: String(now) },
-      { ...agents[0]!, id: "agent_d", state: "done", source_session: "d", updated_at_ms: String(now - 5) },
-      { ...agents[0]!, id: "agent_b", state: "blocked", source_session: "b", updated_at_ms: String(now - 9) }
+      { id: "s_b", title: "b", project: "web", machine: null, state: "needs_you", unread: true, pinned: false },
+      { id: "s_d", title: "d", project: null, machine: "cmux17", state: "done", unread: true, pinned: true },
+      { id: "s_w", title: "w", project: null, machine: null, state: "working", unread: false, pinned: false },
+      { id: "s_i", title: "i", project: null, machine: null, state: "idle", unread: false, pinned: false }
     ]
     const host = new FakeHost(load("priority-view"), { app: { id: "cmux/priority-view", version: "0.1.0" }, settings: {} })
-    host.handlers["agent.list"] = () => ({ ok: true, body: { value } })
+    host.handlers["chat.list"] = () => ({ ok: true, body: { value: { chats: value } } })
     expect(host.mount("m", "renderPriority", { contribution: "cmux/priority-view#priority", surface: "sidebarSection" })).toBe("")
     await host.settle()
-    const rowTitles = () => {
+    const rows = () => {
       const { root, nodes } = host.tree("m")
-      const out: unknown[] = []
+      const out: Array<Record<string, unknown>> = []
       const walk = (id: string) => {
         const n = nodes.get(id)
         if (!n) return
-        if (n.type === "Row") out.push(n.props.title)
+        if (n.type === "Row") out.push(n.props)
         n.children.forEach(walk)
       }
       walk(root)
       return out
     }
-    expect(rowTitles()).toEqual(["b", "d", "w"])
+    expect(rows().map((r) => r.title)).toEqual(["b", "d", "w"])
+    expect(rows().map((r) => r.subtitle)).toEqual(["Needs you · web", "Finished · cmux17", "Working"])
     const before = host.batches("m").length
-    value = value.map((a) => (a.id === "agent_w" ? { ...a, extra: { name: "w2" } } : a))
-    host.emit("agent.changed")
+    value = value.map((c) => (c.id === "s_w" ? { ...c, title: "w2" } : c))
+    host.emit("chat.changed")
     await host.settle()
     const sent = host.batches("m").slice(before).flat()
     expect(sent.map((op) => op.op)).toEqual(["update"])
-    expect(rowTitles()).toEqual(["b", "d", "w2"])
+    expect(rows().map((r) => r.title)).toEqual(["b", "d", "w2"])
   })
 
   test("agent-status summarizes", async () => {
