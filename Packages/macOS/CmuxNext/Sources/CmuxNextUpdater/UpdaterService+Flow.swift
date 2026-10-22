@@ -88,7 +88,7 @@ extension UpdaterService {
 
     /// Feeds ``indicatorPhase`` to the gate when it moved.
     func syncFlowPhase() {
-        dropStaleStagedUpdate()
+        stagedRefresh.dropStale(updater: self)
         let phase = indicatorPhase
         guard phase != flow.phase else { return }
         if userCheckRunning, phase != .checking { userCheckRunning = false }
@@ -104,6 +104,7 @@ extension UpdaterService {
         let clickedInstall = flow.installRequested
         send(.sparkle(phase))
         followStagedUpdate(phase)
+        stagedRefresh.follow(phase, updater: self)
         switch phase {
         case .ready:
             recordStagedUpdate()
@@ -157,6 +158,7 @@ extension UpdaterService {
             controller?.idleInstallWaitCap = .seconds(idleInstall.maxWait)
         }
         downloadSetting = (downloadAutomatically, metered)
+        stagedRefresh.schedule = (checkAutomatically, checkInterval)
         if automaticUpdates != downloadAutomatically { automaticUpdates = downloadAutomatically }
         guard let controller else { return }
         controller.setSchedule(automaticChecks: checkAutomatically, interval: checkInterval)

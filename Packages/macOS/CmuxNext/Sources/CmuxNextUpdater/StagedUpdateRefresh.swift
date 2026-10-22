@@ -1,25 +1,139 @@
 import CmuxNextWakeups
 import CmuxUpdater
 import Foundation
+@preconcurrency import Sparkle
 
-/// Lets a staged update give way to a newer build of the followed ring.
+/// Keeps the staged update the right one: a staged build that is not newer than the running one
+/// has its installer cancelled (``dropStale(updater:)``), and a staged build gives way to a newer
+/// build of the followed ring (Leo 2026-10-22: "how are the dev build hot swaps? like the update
+/// ready i want the latest dev builds to be able to show up").
+///
+/// Sparkle never reads the feed while an update waits: its scheduled check is skipped while the
+/// held ready reply keeps the session open, and a check answers with the waiting update. So a Dev
+/// build published after the staged one would wait for a restart. While an update waits, this
+/// probes the feed (the read-only probe, filtered by the ring as Sparkle filters) once per
+/// `updates.checkIntervalSeconds`, and at once when the person checks or picks a ring. When the
+/// ring has a strictly newer build, it cancels the staged installer (Skip on Sparkle's held reply,
+/// which records no skipped version and touches no file of the person's) and starts Sparkle's
+/// background check, which downloads the newer build and stages it for the card.
+///
+/// Never during an install: only the Update Ready phase arms or runs it, and a click to install
+/// ends it. Stop condition and cleanup: the one-shot ``timer`` is armed only in Update Ready with
+/// `updates.checkAutomatically` on, and is cancelled when the phase leaves it (install, relaunch,
+/// swap, cancel); one probe runs at a time, and the next waits a whole interval. The timer cancels
+/// its sleep when this object goes; a probe in flight ends with its 15-second fetch deadline.
 @MainActor
 final class StagedUpdateRefresh {
     /// Whether this app's driver holds the staged installer and found updates download by
-    /// themselves (``UpdateController/canCancelStagedUpdate``, `downloadsUpdatesInBackground`).
-    var replaceable: () -> Bool = { false }
-    /// Sparkle's scheduled background check, now (``UpdateController/checkInBackground()``).
-    var checkInBackground: () -> Void = {}
+    /// themselves; nil reads the driver (``UpdateController/canCancelStagedUpdate``).
+    var replaceable: (() -> Bool)?
+    /// Sparkle's scheduled background check; nil runs the driver's (``UpdateController/checkInBackground()``).
+    var checkInBackground: (() -> Void)?
+    /// How long a fresh update that lists no deltas waits for them; nil reads the driver's
+    /// ``UpdateController/pendingDeltaWindow``.
+    var deltaWindow: TimeInterval?
     /// `updates.checkAutomatically` and `updates.checkIntervalSeconds`.
     var schedule: (automatic: Bool, interval: TimeInterval) = (true, 3600)
-    /// How long a fresh update that lists no deltas waits for them (``UpdateController/pendingDeltaWindow``).
-    var deltaWindow: TimeInterval?
     /// The probe in flight, if any.
     private(set) var task: Task<Void, Never>?
-    weak var updater: UpdaterService?
     let timer: DemandTimer
 
     init(clock: any Clock<Duration>) {
         timer = DemandTimer(owner: "UpdaterService.stagedRefresh", clock: clock)
+    }
+
+    /// Follows the flow's phase: an update waiting arms the next probe; anything else ends it.
+    func follow(_ phase: UpdateIndicatorPhase, updater: UpdaterService) {
+        guard case .ready = phase else { return timer.cancel() }
+        arm(updater)
+    }
+
+    /// Schedules the next probe one interval from now, unless one is pending or running.
+    private func arm(_ updater: UpdaterService) {
+        guard schedule.automatic, schedule.interval > 0, task == nil, !timer.isScheduled,
+              case .ready = updater.flow.phase else { return }
+        timer.schedule(after: .seconds(schedule.interval)) { @MainActor [weak self, weak updater] in
+            guard let self, let updater, self.run(reason: "scheduled check", updater: updater) == nil else { return }
+            self.arm(updater)
+        }
+    }
+
+    /// Probes the ring for a build newer than the staged one, and swaps it in. Joins a probe in
+    /// flight; nil when nothing waits that this app can replace (then nothing is read).
+    @discardableResult
+    func run(reason: String, updater: UpdaterService) -> Task<Void, Never>? {
+        if let task { return task }
+        guard case .ready = updater.flow.phase, !updater.flow.installRequested, updater.disabledReason == nil,
+              isReplaceable(updater), let staged = updater.stagedBuild(), !staged.isEmpty else { return nil }
+        timer.cancel()
+        updater.log.append("\(reason) while build \(staged) waits: looking for a newer \(updater.ring.rawValue) build")
+        let probe = updater.probe()
+        let task = Task { [weak self, weak updater] in
+            let failure = await probe.value
+            guard let self, let updater else { return }
+            self.finish(staged: staged, failure: failure, updater: updater)
+        }
+        self.task = task
+        return task
+    }
+
+    private func isReplaceable(_ updater: UpdaterService) -> Bool {
+        if let replaceable { return replaceable() }
+        guard let controller = updater.controller else { return false }
+        return controller.canCancelStagedUpdate && controller.downloadsUpdatesInBackground
+    }
+
+    private func finish(staged: String, failure: String?, updater: UpdaterService) {
+        task = nil
+        guard let newer = newerBuild(than: staged, failure: failure, updater: updater) else { return arm(updater) }
+        guard updater.cancelStaged() else {
+            updater.log.append("build \(newer) is newer than staged build \(staged), but no installer was held to cancel")
+            return arm(updater)
+        }
+        updater.log.append("build \(newer) on the \(updater.ring.rawValue) ring is newer than staged build \(staged): staging it instead")
+        if let checkInBackground { checkInBackground() } else { updater.controller?.checkInBackground() }
+    }
+
+    /// The build to stage instead of `staged`, or nil (the reason is logged).
+    private func newerBuild(than staged: String, failure: String?, updater: UpdaterService) -> String? {
+        guard failure == nil else { return nil }
+        // The person installed, or another build was staged, while the probe ran.
+        guard case .ready = updater.flow.phase, !updater.flow.installRequested,
+              updater.stagedBuild() == staged, isReplaceable(updater) else { return nil }
+        guard case .updateAvailable(let item)? = updater.lastProbe?.outcome,
+              AppcastSelector.isOlder(staged, than: item.version) else {
+            updater.log.append("staged build \(staged) is the newest \(updater.ring.rawValue) build")
+            return nil
+        }
+        // Sparkle's scheduled check holds a fresh build that lists no deltas yet once (PendingDeltaWait):
+        // swapping now would leave nothing staged until the next check, so this waits an interval too.
+        if let window = deltaWindow ?? updater.controller?.pendingDeltaWindow, let date = item.date,
+           abs(updater.now().timeIntervalSince(date)) < window {
+            updater.log.append("build \(item.version) is fresh and its deltas may still come: next check")
+            return nil
+        }
+        return item.version
+    }
+
+    /// Ends the install session of a staged build that is not newer instead
+    /// of only hiding it: left open, Sparkle installs that build again when
+    /// the app quits, and Check for Updates is ignored behind it. This replies
+    /// Skip to Sparkle's held ready prompt, which cancels the installer and
+    /// records no skipped version, so the next check runs normally.
+    ///
+    /// Only a known `sparkle:version` at or below `CFBundleVersion` proves the
+    /// build is not newer. An update of unknown version, or known only by its
+    /// display version, may be a newer build the user asked for, so it stays
+    /// hidden (``UpdaterService/offersStagedUpdate(version:)``) and keeps its installer.
+    /// Sparkle's own silent driver hands over only an install block (nothing
+    /// to cancel), and it stages only builds newer than `CFBundleVersion`.
+    /// The log line is written only when an installer was cancelled, so at
+    /// most once per staged item.
+    func dropStale(updater: UpdaterService) {
+        let running = updater.identity.build
+        guard case .ready = updater.sourcePhase, let build = updater.stagedBuild(), !build.isEmpty,
+              SUStandardVersionComparator.default.compareVersion(build, toVersion: running) != .orderedDescending,
+              updater.cancelStaged() else { return }
+        updater.log.append("staged build \(build) is not newer than build \(running): cancelling its installer")
     }
 }
