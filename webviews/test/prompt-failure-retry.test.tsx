@@ -105,6 +105,8 @@ describe("Retry on a prompt that did not get there", () => {
 
   test("a turn that failed after acpmux took the prompt keeps Retry", () => {
     expect(buttons(failedRow({ hop: "agent" }), open)).toEqual([RETRY, ...OTHERS]);
+    // Its reason is the turn's, not a refusal of the prompt.
+    expect(buttons(failedRow({ hop: "agent", reason: "agent.exited" }), open)).toEqual([RETRY, ...OTHERS]);
   });
 
   test("a failed row with no record of its send (an older session's) offers no Retry: nothing is left to send", () => {
