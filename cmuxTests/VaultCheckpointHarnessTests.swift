@@ -15,6 +15,7 @@ private func makeEntry(agent: SessionAgent, fileURL: URL?, registeredID: String?
     switch agent {
     case .claude: specifics = .claude(model: nil, permissionMode: nil, configDirectoryForResume: nil)
     case .codex: specifics = .codex(model: nil, approvalPolicy: nil, sandboxMode: nil, effort: nil)
+    case .cursor: specifics = .cursor
     case .grok: specifics = .grok(model: nil, permissionMode: nil, sandboxMode: nil, grokHome: nil)
     case .opencode: specifics = .opencode(providerModel: nil, agentName: nil)
     case .rovodev: specifics = .rovodev

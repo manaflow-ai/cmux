@@ -27,7 +27,7 @@ enum VaultCheckpointHarness: Equatable, Sendable {
             return entry.fileURL != nil ? .codex : .timelineOnly
         case .grok:
             return entry.fileURL != nil ? .grok : .timelineOnly
-        case .opencode, .rovodev, .hermesAgent:
+        case .cursor, .opencode, .rovodev, .hermesAgent:
             return .timelineOnly
         case .registered(let agent):
             if piFamilyIDs.contains(agent.id), entry.fileURL != nil {
