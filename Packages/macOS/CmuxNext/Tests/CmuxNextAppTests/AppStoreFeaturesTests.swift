@@ -16,7 +16,7 @@ import Testing
     /// Keys whose PR has not landed: the tab hides their cards until the schema lists them
     /// (tabs.newTabWidgets.*, #22674 and #22775).
     static let pendingKeys: Set<String> = [
-        "tabs.newTabWidgets.projects", "tabs.newTabWidgets.actions", "tabs.newTabWidgets.chats", "tabs.newTabWidgets.modeSwitch",
+        "tabs.newTabWidgets.projects", "tabs.newTabWidgets.actions", "tabs.newTabWidgets.chats",
         "tabs.newTabWidgets.weather", "tabs.newTabWidgets.machines",
     ]
 

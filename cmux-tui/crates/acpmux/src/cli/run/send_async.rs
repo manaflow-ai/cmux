@@ -14,6 +14,7 @@ pub(super) async fn queue(
     text: &str,
     steer: bool,
     prompt_id: &PromptId,
+    superseding: bool,
     json_out: bool,
 ) -> Result<()> {
     let key = orchestrate::expand_session_key(session)?;
@@ -41,7 +42,8 @@ pub(super) async fn queue(
     let steered = status.pointer("/accepted/steer") == Some(&json!(true));
     if json_out {
         let session_id = status.pointer("/accepted/sessionId").cloned().unwrap_or(json!(key));
-        print_json(&json!({
+        let accepted = status.get("accepted").cloned().unwrap_or(Value::Null);
+        let mut out = json!({
             "deliveryId": id,
             "target": key,
             "sessionId": session_id,
@@ -49,10 +51,22 @@ pub(super) async fn queue(
             "status": state,
             "queued": !steered,
             "steered": steered,
-            "accepted": status.get("accepted"),
-        }));
+            "accepted": accepted,
+        });
+        if superseding {
+            // null until delivered, or when the target's daemon predates the key.
+            out["replaced"] = accepted.get("replaced").cloned().unwrap_or(Value::Null);
+            out["replacedPromptIds"] =
+                accepted.get("replacedPromptIds").cloned().unwrap_or(Value::Null);
+        }
+        print_json(&out);
     } else if state == "delivered" {
-        println!("{} (delivery {id})", if steered { "steered" } else { "queued" });
+        let accepted = status.get("accepted").cloned().unwrap_or(Value::Null);
+        let mut lines = sent_lines(&accepted, superseding);
+        lines[0].push_str(&format!(" (delivery {id})"));
+        for line in lines {
+            println!("{line}");
+        }
     } else {
         println!("queued for delivery {id} (acpmux send --status {id})");
     }

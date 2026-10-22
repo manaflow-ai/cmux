@@ -195,10 +195,16 @@ public extension PageDescriptor {
 
     /// The changelog page (R114): signed release notes, read only. Its only native op runs a
     /// highlight's "Try it", and only for an action in ``changelogTryItActions``: the signed
-    /// notes may name an action id, never a command or a URL.
+    /// notes may name an action id, never a command or a URL. Its one network source is the
+    /// nightly reels' folder (``changelogReelSource``), so the update's reel plays in the page.
     static let changelog = PageDescriptor(
         id: "cmux.changelog", resource: "changelog", namespaces: ["cmux.changelog."],
-        nativeOps: [PageNativeOp.actionRun], actions: changelogTryItActions)
+        nativeOps: [PageNativeOp.actionRun], actions: changelogTryItActions,
+        csp: PageCSP(media: [changelogReelSource]))
+
+    /// Where the nightly publishes each build's reel (`ReleaseMediaStore.reelBase`): the changelog
+    /// page's `media-src`, a folder, so nothing else on that host plays.
+    static let changelogReelSource = "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/nightly-next/"
 
     /// The actions a changelog "Try it" may run (compiled in, reviewed with each addition).
     static let changelogTryItActions: Set<String> = [

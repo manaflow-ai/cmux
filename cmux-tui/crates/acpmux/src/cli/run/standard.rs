@@ -528,6 +528,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             prompt_id,
             from,
             status,
+            supersede,
         } => {
             let client = connect(true).await?;
             if let Some(delivery) = status {
@@ -536,12 +537,20 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             let session = session.ok_or_else(|| anyhow!("a session is required"))?;
             let mut prompt_id = PromptId::new(prompt_id);
             prompt_id.from_agent = from;
+            let superseding = supersede.is_some();
+            prompt_id.supersede = supersede;
             // A message (--no-wait) steers; a send that waits for its reply queues.
             let steer = send_steers(steer, no_steer, no_wait);
             let text = arg_or_stdin(&prompt)?;
             if no_wait {
                 return super::send_async::queue(
-                    &client, &session, &text, steer, &prompt_id, json_out,
+                    &client,
+                    &session,
+                    &text,
+                    steer,
+                    &prompt_id,
+                    superseding,
+                    json_out,
                 )
                 .await;
             }
