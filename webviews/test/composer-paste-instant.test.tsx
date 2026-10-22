@@ -256,22 +256,22 @@ test("a prompt held for its screenshot never goes to the chat the composer moved
 
 test("a screenshot still being read when the composer moves to another chat goes to the chat it was pasted in", async () => {
   const { chats, store } = keptStore();
-  const composer = await openComposer([], "chat-a", { keptAttachments: store });
+  await openComposer([], "chat-a", { keptAttachments: store });
   const shot = slowScreenshot();
   paste([shot.file]);
   expect(placeholders()).toHaveLength(1);
-  await openComposer([], "chat-b", { keptAttachments: store });
+  const onB = await openComposer([], "chat-b", { keptAttachments: store });
   // Its placeholder stays with chat-a.
   expect(placeholders()).toHaveLength(0);
   shot.release();
   await until(() => (chats.get("chat-a") ?? []).length === 1, "chat-a keeping the read chip");
   expect(chats.get("chat-a")![0]!.kind).toBe("image");
-  expect(composer.current!.wakeState().attachments ?? []).toEqual([]);
+  expect(onB.current!.wakeState().attachments ?? []).toEqual([]);
   expect(chips()).toHaveLength(0);
   // Back on chat-a, the chip is there.
-  await openComposer([], "chat-a", { keptAttachments: store });
-  await until(() => (composer.current!.wakeState().attachments ?? []).length === 1, "chat-a's chip back");
-  expect(composer.current!.wakeState().attachments![0]!.kind).toBe("image");
+  const onA = await openComposer([], "chat-a", { keptAttachments: store });
+  await until(() => (onA.current!.wakeState().attachments ?? []).length === 1, "chat-a's chip back");
+  expect(onA.current!.wakeState().attachments![0]!.kind).toBe("image");
 });
 
 test("⌘Return in the Quick Composer while a screenshot is being read sends it with the image, then opens the window", async () => {
