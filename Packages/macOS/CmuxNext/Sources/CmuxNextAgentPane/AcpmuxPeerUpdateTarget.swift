@@ -171,7 +171,8 @@ extension DaemonUpdatePolicy {
     private nonisolated static let started = OSAllocatedUnfairLock(initialState: false)
 
     /// Once per launch, in the background, after the app's acpmux is up (``AcpmuxHost/prewarm()``):
-    /// offers the acpmux ssh peers of the app's daemon to ``shared``. `download` fetches a published
+    /// offers the acpmux ssh peers of the app's daemon to ``shared``, and arms
+    /// ``AcpmuxPeerReconnects`` for the peers that connect later. `download` fetches a published
     /// artifact of the bundled build next to `executable` (the app wires
     /// `RemoteInstaller.download(artifact:nextTo:)`).
     public nonisolated static func startOnce(
@@ -191,6 +192,7 @@ extension DaemonUpdatePolicy {
                 return
             }
             let peers = AcpmuxPeerUpdateSource.live(acpmux, directory: DaemonUpdatePolicy.defaultDirectory, download: download)
+            await MainActor.run { AcpmuxPeerReconnects.shared.source = peers }
             for target in await peers.targets() {
                 await DaemonUpdatePolicy.shared.offer(target)
             }

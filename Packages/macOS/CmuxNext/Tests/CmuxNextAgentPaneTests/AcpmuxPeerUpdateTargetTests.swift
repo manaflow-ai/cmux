@@ -219,6 +219,50 @@ import Testing
         #expect(ledger.targets == ["acpmux-peer:huge-blue": "updated"])
     }
 
+    /// A peer offline when the launch looked is updated once it connects: its sessions change on
+    /// the app's watch (``AcpmuxPeerReconnects``), one status read finds it connected and the shared
+    /// queue updates it. Later changes read nothing; a drop and a reconnect offer it again, and the
+    /// ledger keeps that to one update per build.
+    @Test @MainActor func aPeerThatConnectsLaterIsUpdated() async throws {
+        let fixture = try StandInAcpmux()
+        defer { fixture.remove() }
+        try fixture.reply("huge-blue", nil, #"{"updated":[{"peer":"huge-blue","outcome":"updated","ok":true,"build":"abc123def 2026-10-20"}],"peers":[]}"#)
+        let connected = Mutex(false)
+        let reads = Mutex(0)
+        let source = fixture.source(peers: [], status: {
+            reads.withLock { $0 += 1 }
+            return AcpmuxPeerUpdateStatus(build: Self.local, peers: [Self.peer("huge-blue", connected: connected.withLock { $0 }),
+                                                                     Self.peer("websocket", url: "ws://10.0.0.2:47811")])
+        })
+        let policy = DaemonUpdatePolicy(DaemonUpdatePolicy.Dependencies(
+            bundledBuild: { Self.local }, targets: { await source.targets() }, enabled: { true }, report: { _ in },
+            directory: fixture.root.appendingPathComponent("state"), clock: PolicyTestClock()))
+        let reconnects = AcpmuxPeerReconnects(offer: { await policy.offer($0) }, enabled: { true })
+        #expect(reconnects.note(peer: "huge-blue", stale: false) == nil, "nothing before the launch's discovery arms it")
+        reconnects.source = source
+        await policy.run()
+        #expect(fixture.calls.isEmpty, "offline at launch")
+
+        // Its cached rows change while it is still down: one read, nothing offered.
+        let before = reads.withLock { $0 }
+        await reconnects.note(peer: "huge-blue", stale: false)?.value
+        #expect(reads.withLock { $0 } == before + 1)
+        #expect(fixture.calls.isEmpty)
+
+        connected.withLock { $0 = true }
+        await reconnects.note(peer: "huge-blue", stale: false)?.value
+        await policy.drained()
+        #expect(fixture.calls.count == 1, "updated once it connected")
+        #expect(reconnects.note(peer: "huge-blue", stale: false) == nil, "more changes while connected read nothing")
+        await reconnects.note(peer: "websocket", stale: false)?.value
+        #expect(reconnects.note(peer: "websocket", stale: false) == nil, "not an ssh peer: read once, never offered")
+
+        #expect(reconnects.note(peer: "huge-blue", stale: true) == nil)
+        await reconnects.note(peer: "huge-blue", stale: false)?.value
+        await policy.drained()
+        #expect(fixture.calls.count == 1, "offered again after a reconnect; the ledger has it updated on this build")
+    }
+
     @Test func updateArgumentsDropIfIdleOnlyWhileBusy() {
         let binaries = URL(fileURLWithPath: "/tmp/binaries/abc123def")
         let base = ["--json", "host", "update", "cmux16", "--binary-dir", "/tmp/binaries/abc123def"]
@@ -284,14 +328,16 @@ nonisolated private final class StandInAcpmux: Sendable {
     var downloads: [String] { downloadLog.withLock { $0 } }
 
     /// The acpmux side with this stand-in CLI and a local daemon on ``AcpmuxPeerUpdateTargetTests/local``
-    /// whose `peers` are connected ssh peers on an older build.
-    func source(peers: [String], downloadFails: Bool = false) -> AcpmuxPeerUpdateSource {
+    /// whose `peers` are connected ssh peers on an older build; `status`, when given, is the
+    /// local daemon's status instead.
+    func source(peers: [String], downloadFails: Bool = false,
+                status read: (@Sendable () async -> AcpmuxPeerUpdateStatus?)? = nil) -> AcpmuxPeerUpdateSource {
         let local = AcpmuxPeerUpdateTargetTests.local
         let status = AcpmuxPeerUpdateStatus(build: local, peers: peers.map { AcpmuxPeerUpdateTargetTests.peer($0) })
         let root = root
         let commit = (DaemonBuildCommit(local)?.hash ?? "") + String(repeating: "0", count: 31)
         return AcpmuxPeerUpdateSource(
-            status: { status },
+            status: read ?? { status },
             bundledBuild: { local },
             command: AcpmuxPeerUpdateCommand(executable: root.appendingPathComponent("acpmux"),
                                              environment: ["PATH": "/usr/bin:/bin"], deadline: .seconds(30)),
