@@ -2351,7 +2351,7 @@ fn run_server(
     // auto-vacuum, ledger quarantine). Route fd 2 into the bounded client log
     // before the registry opens; an owner run by hand in a terminal keeps
     // its stderr.
-    if headless && !io::stderr().is_terminal() {
+    if args.headless && !io::stderr().is_terminal() {
         crate::client_log::redirect_stderr_into_log();
     }
     // Bind and serve the session socket before the restore below (registry
