@@ -6,6 +6,8 @@
 // - The New Tab page shows two dots under it, Claude then Codex, Claude checked by default. The
 //   second dot gives the page's composer Codex's look (data-composer-look="codex"): the model sits in
 //   the box's own row, no quiet row under it. The pick is remembered across a reload.
+// - On another page style (Classic) the look dots switch the look only: the page keeps its style,
+//   whose own dot (Minimal among them) stays marked, and draws the look; Cards draws Codex's tray.
 // - In a chat the same two dots sit in the composer's bottom area, unseen until the pointer is over
 //   that area. The second dot switches the chat composer's look: the form takes
 //   data-composer-look="codex", the mode and model move into the box, and the quiet row goes; the
@@ -105,6 +107,38 @@ await requireBrowserLane("composer-look-dots.test.ts", async () => {
     await ready(page);
     await page.waitForSelector('.nt-composer[data-composer-look="codex"]');
     expect((await dots(page, ".nt-style")).find((dot) => dot.checked)?.value).toBe("codex");
+    await context.close();
+  });
+
+  test("on another page style the look dots switch the look only, and Classic and Cards draw it", async () => {
+    const context = await browser.newContext({ viewport: { width: 760, height: 600 } });
+    const page = await context.newPage();
+    await open(page, "agent-pane.new-tab", "template-classic");
+    // The looks, then the page's styles (Minimal among them), each marking its own pick.
+    expect(await dots(page, ".nt-look-dots")).toEqual([
+      { value: "claude", name: "Claude", checked: true },
+      { value: "codex", name: "Codex", checked: false },
+    ]);
+    expect(await page.$(".nt-style:not(.nt-look-dots) input[value=classic]:checked")).not.toBeNull();
+    expect(await page.$(".nt-style:not(.nt-look-dots) input[value=minimal]")).not.toBeNull();
+    expect(await page.$(".acpmux-newtab[data-composer-look]")).toBeNull();
+
+    // Codex's dot on Classic: the page stays Classic, its box takes Codex's look.
+    await pickDot(page, ".nt-look-dots", "codex");
+    await page.waitForSelector('.acpmux-newtab[data-composer-look="codex"]');
+    expect(await page.$(".nt-screen")).toBeNull();
+    expect(await page.$(".nt-style:not(.nt-look-dots) input[value=classic]:checked")).not.toBeNull();
+    expect((await dots(page, ".nt-look-dots")).find((dot) => dot.checked)?.value).toBe("codex");
+
+    // The saved look holds when Classic opens again, and on Cards: the strip is Codex's tray over
+    // the box, the model in the box's row, not Cards' pill.
+    await page.reload();
+    await ready(page);
+    await page.waitForSelector('.acpmux-newtab[data-composer-look="codex"]');
+    await open(page, "agent-pane.new-tab", "template-cards");
+    await page.waitForSelector('.nt-composer[data-composer-look="codex"] > .nt-above');
+    expect(await page.$(".nt-composer .nt-toolbar")).toBeNull();
+    expect(await page.$(".nt-composer .nt-box .acpmux-model")).not.toBeNull();
     await context.close();
   });
 
