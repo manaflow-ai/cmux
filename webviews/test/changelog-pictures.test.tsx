@@ -75,6 +75,16 @@ test("a digest entry with no picture shows its highlight file's picture", () => 
   expect(items[0]!.media?.alt).toBe("Groups with colored labels");
 });
 
+test("in another language the highlight file and its digest entry stay one change", () => {
+  const notes = nightly();
+  notes.whatsNew!.entries[0]!.title.ja = "グループのラベルは帯の色を保つ";
+  notes.whatsNew!.entries[0]!.summary.ja = "ラベルは帯の色のままです。";
+  const view = releaseView(notes, "ja");
+  const items = [view.hero, ...view.groups.flatMap((g) => g.items)].filter((i) => i !== undefined);
+  expect(items.map((i) => i.title)).toEqual(["グループのラベルは帯の色を保つ"]);
+  expect(items[0]!.media?.light).toBe(picture);
+});
+
 test("a change's picture opens enlarged on a click, and Close closes it", async () => {
   const { MockChangelogProvider } = await import("../src/pages/changelog/mockProvider");
   const { mountChangelogPage } = await import("../src/pages/changelog/main");

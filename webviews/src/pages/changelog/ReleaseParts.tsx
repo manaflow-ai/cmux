@@ -50,7 +50,9 @@ export function Media({ media, className, strings }: { media: MediaRef; classNam
         <button
           type="button"
           className="cl-media-open"
-          aria-label={`${strings.t("changelog.page.enlarge")}: ${media.alt}`}
+          aria-label={
+            media.alt ? `${strings.t("changelog.page.enlarge")}: ${media.alt}` : strings.t("changelog.page.enlarge")
+          }
           onClick={() => setOpen(true)}
         >
           {picture}
