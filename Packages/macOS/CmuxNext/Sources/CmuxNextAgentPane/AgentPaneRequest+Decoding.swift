@@ -32,6 +32,12 @@ extension AgentPaneRequest {
         switch method {
         case "ready":
             self = params?["reconnect"] as? Bool == true ? .reconnect : .ready
+        case "chat.missing":
+            if let session = params?["session"] as? String, !session.isEmpty {
+                self = .missingChat(session: session, reason: params?["reason"] as? String ?? "unknown")
+            } else {
+                self = .unsupported(method)
+            }
         case "chat.persistSession":
             if let id = params?["sessionId"] as? String, !id.isEmpty {
                 self = .persistSession(id)
@@ -168,10 +174,12 @@ extension AgentPaneRequest {
             }
         case "newTab.setTemplate":
             if let template = params?["template"] as? String, !template.isEmpty, template.count <= 32 {
-                self = .setNewTabTemplate(template)
+                self = .editNewTab(.template(template))
             } else {
                 self = .unsupported(method)
             }
+        case "newTab.editWidgets":
+            self = AgentPaneNewTabEdit(widgetParams: params).map(AgentPaneRequest.editNewTab) ?? .unsupported(method)
         case "nowPlaying.command":
             if let command = AgentPaneNowPlaying.Command(params) { self = .nowPlaying(command) } else { self = .unsupported(method) }
         case "importCards.act":

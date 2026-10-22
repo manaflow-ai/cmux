@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextCloud
 import CmuxNextDaemon
+import CmuxNextSidebar
 
 // Per-machine actions: open, terminal, rename, kill, pause/resume, copy,
 // resize, status, ports, tools, handoff, snapshot, promote to template,
@@ -13,14 +14,17 @@ extension CloudHandlers {
             let session = try machine(invocation, context)
             // An app link waits for the user after it ended: opening the
             // machine connects it (a live link stays as it is), as `user`
-            // only for the user's own gesture.
-            if session.appLink != nil { session.connect(origin: connectOrigin(for: invocation)) }
-            run("open machine", context) { show(try await firstWorkspace(on: session, context), context) }
+            // only for the user's own gesture. A paused machine resumes first.
+            run("open machine", context) {
+                try await attached(session, invocation)
+                show(try await firstWorkspace(on: session, context), context)
+            }
         }
         bind("cloudSSH", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
-            guard session.daemon.connection != nil else { throw ActionFailure(message: CloudStrings.notConnected) }
+            guard attachable(session) else { throw ActionFailure(message: CloudStrings.notConnected) }
             runTracked("open Cloud SSH terminal", context) {
+                try await attachedAndConnected(session, invocation)
                 let anchor = try await terminalAnchor(on: session, context)
                 guard let connection = session.daemon.connection else { throw ActionFailure(message: CloudStrings.notConnected) }
                 let created = try await connection.newTab(in: anchor.pane.handle, options: SpawnOptions(workspace: anchor.key))
@@ -124,11 +128,16 @@ extension CloudHandlers {
         }
         bind("cloudNewTerminal", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
-            guard session.daemon.connection != nil else { throw ActionFailure(message: CloudStrings.notConnected) }
+            guard attachable(session) else { throw ActionFailure(message: CloudStrings.notConnected) }
             // A CLI or agent run gets the new workspace's id, and the window keeps what it shows
             // unless the run asked for focus.
             guard origin(of: invocation) == .user else {
-                return result("new terminal on machine", context) {
+                // A paused machine resumes first: answer `pending` if that outlasts the run's deadline.
+                let pending: [String: ActionResultValue] = session.machine.status == .paused
+                    ? ["machine_id": .string(session.machineID), "resuming": .bool(true)]
+                    : ["machine_id": .string(session.machineID)]
+                return result("new terminal on machine", context, pendingAfter: .seconds(30), pending: pending) {
+                    try await attachedAndConnected(session, invocation)
                     guard let id = await context.services.windows.createWorkspace(on: session.daemon) else {
                         throw ActionFailure(message: CloudStrings.notConnected)
                     }
@@ -137,6 +146,7 @@ extension CloudHandlers {
                 }
             }
             run("new terminal on machine", context) {
+                try await attachedAndConnected(session, invocation)
                 guard let id = await context.services.windows.createWorkspace(on: session.daemon) else {
                     throw ActionFailure(message: CloudStrings.notConnected)
                 }
@@ -183,6 +193,11 @@ extension CloudHandlers {
                 throw ActionFailure(message: CloudStrings.sizeMustBeOneOf(sizes.keys.sorted().joined(separator: ", ")))
             }
             run("resize machine", context) { try await cloud.api.resize(session.machineID, cpu: cpu, memoryMb: memory) }
+        }
+        // The idle auto-pause (web/services/vms/idlePause.ts): cmux Cloud pauses the machine
+        // after this many minutes with nothing attached, running or forwarded; `off` never.
+        bind("cloudSetIdlePause", registry, reason: reason) { invocation in
+            try setIdlePause(invocation, context) { try await cloud.setIdlePause($0, minutes: $1) }
         }
         bind("palette.cloud.status", registry, reason: reason) { invocation in
             let session = try machine(invocation, context); guard session.machine.allows(.stats) else { throw operationUnavailable }
@@ -307,13 +322,43 @@ extension CloudHandlers {
         return path
     }
 
+    /// `cloud set-idle-pause --target machine:<id> --minutes off|15|30|60|120`. A CLI, agent or
+    /// script run gets `machine_id` and `idle_pause_minutes` back as its result (#23155); a
+    /// person's run reports a failure in a sheet. `set` stores it (`CloudService.setIdlePause`).
+    static func setIdlePause(_ invocation: ActionInvocation, _ context: AppActionContext,
+                             set: @escaping @MainActor (String, Int) async throws -> Void) throws {
+        let session = try machine(invocation, context)
+        let minutes = try idlePauseMinutes(invocation)
+        let machineID = session.machineID
+        guard origin(of: invocation) == .user else {
+            return result("set idle pause", context) {
+                try await set(machineID, minutes)
+                return ["machine_id": .string(machineID), "idle_pause_minutes": .int(minutes)]
+            }
+        }
+        runTracked("set idle pause", context) { try await set(machineID, minutes) }
+    }
+
+    /// The `minutes` argument of `cloud set-idle-pause`: `off` (0) or one of
+    /// ``CloudMachine/idlePauseChoices``, as text or a number.
+    static func idlePauseMinutes(_ invocation: ActionInvocation) throws -> Int {
+        let value = invocation["minutes"]
+        let text = (value?.stringValue ?? value?.intValue.map(String.init))?.trimmingCharacters(in: .whitespaces).lowercased()
+        let minutes = text == "off" ? 0 : text.flatMap { Int($0) }
+        guard let minutes, CloudMachine.idlePauseChoices.contains(minutes) else {
+            throw ActionFailure(message: CloudStrings.idlePauseMustBeOneOf(
+                (["off"] + CloudMachine.idlePauseChoices.filter { $0 > 0 }.map(String.init)).joined(separator: ", ")))
+        }
+        return minutes
+    }
+
     static func port(_ invocation: ActionInvocation) throws -> Int {
         guard let port = invocation["port"]?.intValue, (1...65535).contains(port) else { throw ActionFailure(message: CloudStrings.invalidPort) }
         return port
     }
 
     /// `describe`'s facts as `action.run` result fields.
-    static func statusFields(_ session: CloudMachineSession, _ stats: CloudMachineStats) -> [String: ActionResultValue] {
+    static func statusFields(_ session: CloudMachineSession, _ stats: CloudMachineStats, now: Date = Date()) -> [String: ActionResultValue] {
         var fields: [String: ActionResultValue] = [
             "machine_id": .string(session.machineID), "title": .string(session.machine.title),
             "state": .string(stats.state), "status": .string(session.effectiveStatus.rawValue),
@@ -325,15 +370,29 @@ extension CloudHandlers {
         if let used = stats.diskUsedMb { fields["disk_used_mb"] = .double(used) }
         if let total = stats.diskTotalMb { fields["disk_total_mb"] = .double(total) }
         if let address = session.machine.address?.ipv4 { fields["address"] = .string(address) }
+        fields.merge(costFields(session.machine, now: now)) { _, new in new }
         return fields
     }
 
-    static func describe(_ session: CloudMachineSession, _ stats: CloudMachineStats) -> String {
+    /// The machine's cost as `action.run` fields, from server facts: `hourly_rate_usd`,
+    /// `running_since` (ISO 8601) and `estimated_cost_usd` (rate x time running). A
+    /// paused machine has no `running_since` or estimate.
+    static func costFields(_ machine: CloudMachine, now: Date) -> [String: ActionResultValue] {
+        guard let cost = CloudCreationRows.cost(machine, limits: nil) else { return [:] }
+        var fields: [String: ActionResultValue] = [:]
+        if let rate = cost.hourlyRateUsd { fields["hourly_rate_usd"] = .double(rate) }
+        if let since = cost.runningSince { fields["running_since"] = .string(since.ISO8601Format()) }
+        if let spent = cost.estimatedCostUsd(now: now) { fields["estimated_cost_usd"] = .double((spent * 10_000).rounded() / 10_000) }
+        return fields
+    }
+
+    static func describe(_ session: CloudMachineSession, _ stats: CloudMachineStats, now: Date = Date()) -> String {
         var lines = ["\(session.machine.title) (\(session.machineID))", "state: \(stats.state), status: \(session.effectiveStatus.rawValue)"]
         if let cpus = stats.cpus { lines.append("cpus: \(cpus)" + (stats.cpuPercent.map { String(format: ", %.0f%%", $0) } ?? "")) }
         if let used = stats.memoryUsedMb, let total = stats.memoryTotalMb { lines.append(String(format: "memory: %.0f / %.0f MB", used, total)) }
         if let used = stats.diskUsedMb, let total = stats.diskTotalMb { lines.append(String(format: "disk: %.0f / %.0f MB", used, total)) }
         if let address = session.machine.address?.ipv4 { lines.append("address: \(address)") }
+        if let usage = CloudCreationRows.cost(session.machine, limits: nil).flatMap({ $0.usage(now: now) }) { lines.append(usage) }
         return lines.joined(separator: "\n")
     }
 }

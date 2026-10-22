@@ -468,6 +468,13 @@ export class SettingsStore {
     await this.refreshHost();
   }
 
+  /** Updates > Web UI: Check Now or Roll Back, then re-read the host lists; false when the host refused. */
+  async runWebUpdates(action: "check" | "rollback"): Promise<boolean> {
+    const reply = await this.request(`cmux.settings.web_updates.${action}` as const, {});
+    await this.refreshHost();
+    return reply.ok;
+  }
+
   /** Settings > Chief > Voice input: turn the message box's mic on or off, then re-read the host lists. */
   async setVoiceInput(on: boolean): Promise<void> {
     await this.request("cmux.settings.voice_input.set", { on });
