@@ -60,6 +60,14 @@ export interface ApiKeyRecord {
   readonly resourceAllowlist: ReadonlyArray<string> | null;
   /** When the key stops working; null for no expiry. */
   readonly expiresAt: Date | null;
+  /** Set for an agent key (migration 0016): the labels it is confined to and its budget. */
+  readonly agent: AgentKeyRecord | null;
+}
+
+export interface AgentKeyRecord {
+  readonly labels: Readonly<Record<string, string>>;
+  readonly maxVms: number;
+  readonly maxUsdPerHour: number;
 }
 
 export interface OwnershipStoreService {
@@ -145,6 +153,9 @@ const ApiKeyRow = Schema.Struct({
   scopes: words,
   resource_allowlist: words,
   expires_at: Schema.NullOr(Schema.Union(Schema.DateFromSelf, Schema.Date)),
+  agent_labels: Schema.NullOr(Schema.parseJson(Schema.Record({ key: Schema.String, value: Schema.String }))),
+  agent_max_vms: Schema.NullOr(Schema.Union(Schema.Number, Schema.NumberFromString)),
+  agent_max_usd_per_hour: Schema.NullOr(Schema.Union(Schema.Number, Schema.NumberFromString)),
 });
 
 const decodeRows = <A, I>(schema: Schema.Schema<A, I>, operation: string) => (rows: ReadonlyArray<unknown>) =>
@@ -299,7 +310,7 @@ export const sqlStoresLayer: Layer.Layer<OwnershipStore | ApiKeyStore | AuditSto
                     array_to_string(scopes, ' ') AS scopes,
                     CASE WHEN resource_allowlist IS NULL THEN NULL
                          ELSE array_to_string(resource_allowlist, ' ') END AS resource_allowlist,
-                    expires_at`;
+                    expires_at, agent_labels::text AS agent_labels, agent_max_vms, agent_max_usd_per_hour`;
     const toKeyRecord = (operation: string) => (rows: ReadonlyArray<unknown>) =>
       decodeRows(ApiKeyRow, operation)(rows).pipe(
         Effect.map((decoded) =>
@@ -309,6 +320,10 @@ export const sqlStoresLayer: Layer.Layer<OwnershipStore | ApiKeyStore | AuditSto
             scopes: row.scopes ?? [],
             resourceAllowlist: row.resource_allowlist,
             expiresAt: row.expires_at,
+            agent:
+              row.agent_labels === null || row.agent_max_vms === null || row.agent_max_usd_per_hour === null
+                ? null
+                : { labels: row.agent_labels, maxVms: row.agent_max_vms, maxUsdPerHour: row.agent_max_usd_per_hour },
           })),
         ),
       );
