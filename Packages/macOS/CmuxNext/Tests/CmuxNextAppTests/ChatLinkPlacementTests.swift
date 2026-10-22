@@ -12,8 +12,8 @@ import Testing
 struct ChatLinkPlacementTests {
     private typealias Target = LinkOpenPlacement<String>.Target
 
-    private static func target(_ setting: ChatLinkTarget = .fallback, chat: String = "chat", _ columns: [[String]],
-                               takesTabs: @escaping (String) -> Bool = { _ in true }, recency: [String] = []) -> Target? {
+    private static func target(_ columns: [[String]], _ setting: ChatLinkTarget = .fallback, chat: String = "chat",
+                               takesTabs: (String) -> Bool = { _ in true }, recency: [String] = []) -> Target? {
         ChatLinkPlacement.target(setting, chat: chat, columns: columns, chatColumn: columns.firstIndex { $0.contains(chat) },
                                  takesTabs: takesTabs, recency: recency)
     }
@@ -51,7 +51,7 @@ struct ChatLinkPlacementTests {
 
     /// A pane that takes no new tabs (a pinned dock) is skipped; with nothing else on the right the
     /// chat gets a split.
-    @Test func paneThatTakeNoTabsAreSkipped() {
+    @Test func panesThatTakeNoTabsAreSkipped() {
         let takes: (String) -> Bool = { $0 != "pinned" }
         #expect(Self.target([["chat"], ["strip"], ["pinned"]], takesTabs: takes) == .pane("strip"))
         #expect(Self.target([["left"], ["chat"], ["pinned"]], takesTabs: takes) == .splitRight(of: "chat"))
@@ -65,14 +65,14 @@ struct ChatLinkPlacementTests {
 
     @Test func newSplitAlwaysSplitsRightOfTheChat() {
         for columns in [[["chat"]], [["browser"], ["chat"]], [["chat"], ["opened"]]] {
-            #expect(Self.target(.newSplit, columns) == .splitRight(of: "chat"))
+            #expect(Self.target(columns, .newSplit) == .splitRight(of: "chat"))
         }
     }
 
     /// Same Tab keeps the old rules (a tab in the chat's pane, or main pane layout's column).
     @Test func sameTabLeavesItToThePageRules() {
-        #expect(Self.target(.sameTab, [["browser"], ["chat"]]) == nil)
-        #expect(Self.target(.sameTab, [["chat"], ["opened"]]) == nil)
+        #expect(Self.target([["browser"], ["chat"]], .sameTab) == nil)
+        #expect(Self.target([["chat"], ["opened"]], .sameTab) == nil)
     }
 
     /// Whatever the setting, a link from a chat never lands in a pane left of the chat, nor as a tab
@@ -81,7 +81,7 @@ struct ChatLinkPlacementTests {
     func neverTheLeftNorTheChat(_ setting: ChatLinkTarget) {
         let layouts: [[[String]]] = [[["chat"]], [["l1"], ["chat"]], [["l1", "l2"], ["chat"], ["r"]], [["l1"], ["chat", "below"]]]
         for columns in layouts {
-            let target = Self.target(setting, columns, recency: ["l1", "l2"])
+            let target = Self.target(columns, setting, recency: ["l1", "l2"])
             #expect(target != .pane("chat"))
             #expect(target != .pane("l1"))
             #expect(target != .pane("l2"))
