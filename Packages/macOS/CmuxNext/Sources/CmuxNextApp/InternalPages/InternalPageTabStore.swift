@@ -288,15 +288,6 @@ final class InternalPageTabStore {
         watch(store)
     }
 
-    /// The strip tab that shows provider key `key` now (a page closing its own tab): the store tab a
-    /// pane of its window lists, else the app-only tab itself; nil once it is gone.
-    func tabID(showing key: String) -> String? {
-        for pane in windows[key]?.content?.panes.values.map({ $0 }) ?? [] {
-            if let tab = pane.pane.tabs.first(where: { storeKeys[$0.id] == key }) { return tab.id }
-        }
-        return tabsByPane.entries.contains { $0.value.contains(key) } ? key : nil
-    }
-
     /// The tab closed: drop its view and tell its provider.
     func close(_ key: String) {
         for (pane, tabs) in tabsByPane.entries where tabs.contains(key) {

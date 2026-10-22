@@ -38,10 +38,12 @@ import Testing
         #expect(HomeTunables.newChiefSheet.descriptor.key == "home.newChiefSheet")
         #expect(HomeTunables.newChiefSheet.value == false, "the page tab is the default")
         #expect(HomeTunables.all.contains { $0.key == "home.newChiefSheet" }, "Debug Settings lists the toggle")
-        #expect(NewChiefPage.opensAsPage(sheetToggle: false, classic: false, channels: false))
-        #expect(!NewChiefPage.opensAsPage(sheetToggle: true, classic: false, channels: false), "the toggle keeps the sheet")
-        #expect(!NewChiefPage.opensAsPage(sheetToggle: false, classic: true, channels: false), "classic Home keeps its sheet")
-        #expect(!NewChiefPage.opensAsPage(sheetToggle: false, classic: false, channels: true), "Channels keeps its page route")
+        #expect(NewChiefPage.opensAsPage(sheetToggle: false, classic: false, channels: false, holdsTab: true))
+        #expect(!NewChiefPage.opensAsPage(sheetToggle: true, classic: false, channels: false, holdsTab: true), "the toggle keeps the sheet")
+        #expect(!NewChiefPage.opensAsPage(sheetToggle: false, classic: true, channels: false, holdsTab: true), "classic Home keeps its sheet")
+        #expect(!NewChiefPage.opensAsPage(sheetToggle: false, classic: false, channels: true, holdsTab: true), "Channels keeps its page route")
+        #expect(!NewChiefPage.opensAsPage(sheetToggle: false, classic: false, channels: false, holdsTab: false),
+                "a window with no pane for the tab keeps the sheet")
     }
 
     @Test func thePageIsTheNewChiefTab() throws {
@@ -99,7 +101,8 @@ import Testing
         #expect(recorder.shown == [ConversationID("chief-2")])
     }
 
-    /// Closed while its create ran (Cmd-W): the Chief still shows, and no other tab is closed.
+    /// Its tab closed while its create ran and the card lived on: the create closes no other tab.
+    /// (In the app Cmd-W frees the card, so its run ends quietly and Home lists the new Chief.)
     @Test func aCreateThatEndsAfterItsTabClosedClosesNothing() async throws {
         let recorder = Recorder()
         let page = NewChiefPage(host: recorder.host)

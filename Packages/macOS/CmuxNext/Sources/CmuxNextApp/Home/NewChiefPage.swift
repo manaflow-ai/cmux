@@ -63,8 +63,10 @@ extension NewChiefPage {
                 await services?.home.createChief(named: name, backend: backend) ?? .offline
             },
             close: { [weak services] key in
-                guard let services, let tab = services.pages.tabID(showing: key) else { return }
-                _ = services.registry.perform("closeTab", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab), origin: .script))
+                // The pane's own close, as Debug Settings closes its tabs: it takes app-only and store tabs alike.
+                guard let services, let pane = services.paneController(showingTab: key),
+                      let id = services.pages.stripID(showing: key, in: pane) else { return }
+                pane.close([id])
             },
             show: { [weak services] id in
                 guard let services else { return }
@@ -85,10 +87,12 @@ extension NewChiefPage {
     }
 
     /// Whether New Chief… with no name opens the page tab: wherever it would show the sheet (the
-    /// docked Home with Channels off), unless the Debug toggle keeps the sheet. Classic Home keeps its
-    /// sheet (its one top page would leave Home for a tab nobody sees), and Channels its own page route.
-    static func opensAsPage(sheetToggle: Bool, classic: Bool, channels: Bool) -> Bool {
-        !sheetToggle && !classic && !channels
+    /// docked Home with Channels off) and the active window can show a tab (`holdsVisiblePageTab`),
+    /// unless the Debug toggle keeps the sheet. Classic Home keeps its sheet (its one top page would
+    /// leave Home for a tab nobody sees), Channels its own page route, and a window with no pane to
+    /// hold the tab (or no window) the sheet, since a top page's card could not close after Create.
+    static func opensAsPage(sheetToggle: Bool, classic: Bool, channels: Bool, holdsTab: Bool) -> Bool {
+        !sheetToggle && !classic && !channels && holdsTab
     }
 }
 
