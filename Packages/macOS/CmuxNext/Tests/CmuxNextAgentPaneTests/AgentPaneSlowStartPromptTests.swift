@@ -105,4 +105,34 @@ struct AgentPaneSlowStartPromptTests {
         // The credit went into the ticket: a second ticket needs a new gesture.
         #expect(pane.transport.reserveGesture(intent) == nil)
     }
+
+    /// Leo 2026-10-21 (P0): every prompt sent while the folder's trust question is open waits in
+    /// the pane with a ticket its own send reserved (webviews trustHeld.ts), and all of them go
+    /// after Trust. One `session/prompt` ticket per connection let the second held prompt's reserve
+    /// revoke the first's, which then came back `transport.gesture_required`.
+    @Test func everyPromptHeldForTrustKeepsItsOwnTicket() async throws {
+        let pane = try await Self.pane()
+        defer { pane.server.stop(); try? FileManager.default.removeItem(atPath: pane.folder) }
+        #expect(await Self.start(pane, id: 1) == nil)
+
+        func intent(_ promptId: String) throws -> AgentPaneGestureIntent {
+            let request: [String: Any] = ["method": "session/prompt", "params": ["promptId": promptId] as [String: Any]]
+            return try #require(AgentPaneGestureIntent(gestureParams: ["intent": request]))
+        }
+        // Two Enters while the question is open: each send's gesture becomes its prompt's ticket.
+        pane.transport.gestures.record()
+        let first = try #require(pane.transport.reserveGesture(try intent("p-1")))
+        pane.transport.gestures.record()
+        let second = try #require(pane.transport.reserveGesture(try intent("p-2")))
+        // One ticket per gesture.
+        #expect(pane.transport.reserveGesture(try intent("p-3")) == nil)
+
+        // The person answers Trust two minutes later; both prompts go, in order.
+        pane.clock.now += 120
+        for (id, promptId, ticket) in [(2, "p-1", first), (3, "p-2", second)] {
+            let frame = Self.prompt(id: id, promptId: promptId)
+                .replacingOccurrences(of: #""_meta":{"#, with: #""_meta":{"cmuxGesture":"\#(ticket)","#)
+            #expect(await pane.transport.send(connection: pane.id, frames: [frame]) == nil, "\(promptId) lost its ticket")
+        }
+    }
 }
