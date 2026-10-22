@@ -9,6 +9,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("model-picker-round-rail.test.ts", async () => {
@@ -63,15 +64,32 @@ await requireBrowserLane("model-picker-round-rail.test.ts", async () => {
       timeout: 120_000,
     });
     await page.evaluate(() => document.fonts.ready);
+    await installPaintedFrames(page);
     return page;
   };
+  /// Waits for the page to come to rest: its finite animations and transitions have finished, then
+  /// two frames have painted, so what is read next is laid out as drawn.
+  const atRest = (page: Page) =>
+    page.evaluate(async () => {
+      const finite = () =>
+        document
+          .getAnimations()
+          .filter(
+            (animation) =>
+              animation.playState === "running" && Number.isFinite(animation.effect?.getComputedTiming().endTime),
+          );
+      for (let moving = finite(); moving.length > 0; moving = finite())
+        await Promise.allSettled(moving.map((animation) => animation.finished));
+      await window.cmuxPaintFrame();
+      await window.cmuxPaintFrame();
+    });
   /** A real press and release at the centre of `selector`. */
   const press = async (page: Page, selector: string) => {
     const box = (await page.locator(selector).first().boundingBox())!;
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.mouse.down();
     await page.mouse.up();
-    await page.waitForTimeout(300);
+    await atRest(page);
   };
 
   for (const [engine] of engines)

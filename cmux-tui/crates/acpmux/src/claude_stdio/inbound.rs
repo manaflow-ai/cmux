@@ -10,15 +10,9 @@ impl Translator {
         self.end_background_asks(false, |_, deadline| deadline.is_some_and(|d| d <= now)).await;
         let kind = line.get("type").and_then(Value::as_str).unwrap_or("");
         let sub = line.get("subtype").and_then(Value::as_str).unwrap_or("");
-        // A subagent's lines carry its Agent tool call's id and stream under
-        // its own session (ACP draft #1992).
+        // A subagent's lines stream under its own session, ended or not (`subagent_route`).
         let parent = line.get("parent_tool_use_id").and_then(Value::as_str);
-        let mut sid = self.acp_session_id.clone();
-        if let Some(p) = parent
-            && let Some(child) = self.subagents.lock().await.get(p)
-        {
-            sid = child.clone();
-        }
+        let sid = self.line_session(parent);
         let upd = |u: Value| {
             Message::notification(method::SESSION_UPDATE, json!({"sessionId": sid, "update": u}))
         };
@@ -131,6 +125,9 @@ impl Translator {
                         let d = ev.get("delta").cloned().unwrap_or(Value::Null);
                         match d.get("type").and_then(Value::as_str) {
                             Some("text_delta") => {
+                                if let Some(p) = parent {
+                                    self.streamed_subagents.lock().await.insert(p.to_owned());
+                                }
                                 let mut chunk = json!({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": d.get("text").and_then(Value::as_str).unwrap_or("")}});
                                 if let Some(id) =
                                     self.message_ids.lock().await.get(parent.unwrap_or(""))
@@ -140,6 +137,9 @@ impl Translator {
                                 out.push(upd(chunk));
                             }
                             Some("thinking_delta") => {
+                                if let Some(p) = parent {
+                                    self.streamed_subagents.lock().await.insert(p.to_owned());
+                                }
                                 let t = d.get("thinking").and_then(Value::as_str).unwrap_or("");
                                 if !t.is_empty() {
                                     out.push(upd(json!({"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": t}})));
@@ -179,6 +179,37 @@ impl Translator {
                 }
             }
             "assistant" => {
+                // A subagent's text and thinking, which Claude Code sends only
+                // in its whole lines (Leo: "why subagents have so little
+                // talking?"), go to its session before the line's tool calls.
+                // The chat's own, and a subagent's that streams, came as
+                // stream events already.
+                if let Some(p) = parent
+                    && !self.streamed_subagents.lock().await.contains(p)
+                {
+                    let id = line.pointer("/message/id").and_then(Value::as_str);
+                    for c in line
+                        .pointer("/message/content")
+                        .and_then(Value::as_array)
+                        .into_iter()
+                        .flatten()
+                    {
+                        let (kind, key) = match c.get("type").and_then(Value::as_str) {
+                            Some("text") => ("agent_message_chunk", "text"),
+                            Some("thinking") => ("agent_thought_chunk", "thinking"),
+                            _ => continue,
+                        };
+                        let text = c.get(key).and_then(Value::as_str).unwrap_or("");
+                        if text.is_empty() {
+                            continue;
+                        }
+                        let mut chunk = json!({"sessionUpdate": kind, "content": {"type": "text", "text": text}});
+                        if let (Some(id), "agent_message_chunk") = (id, kind) {
+                            chunk["messageId"] = json!(id);
+                        }
+                        out.push(upd(chunk));
+                    }
+                }
                 for c in line
                     .pointer("/message/content")
                     .and_then(Value::as_array)
@@ -856,7 +887,7 @@ impl Translator {
     /// names an agent; a workflow, which always runs in the background, is
     /// named by its saved name until its launch names the run.
     async fn spawn_subagent(&self, tool_use_id: &str, tool: &str, input: &Value) -> Value {
-        let child = format!("{}/{tool_use_id}", self.acp_session_id);
+        let child = self.line_session(Some(tool_use_id));
         self.subagents.lock().await.insert(tool_use_id.to_owned(), child.clone());
         let workflow = tool == "Workflow";
         if workflow {

@@ -27,8 +27,7 @@ struct SidebarNothingToDoRefusalTests {
         #expect(!offered, "the palette offers Move Section to Bottom, which never runs")
     }
 
-    @Test(.enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"),
-          .disabled("blocked: the test app's sidebar never shows a new group (GroupHeaderNewWorkspaceTests.groupHeaderPlusMakesTheNewWorkspaceInThatGroup fails the same way)"))
+    @Test(.enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
     func groupMovesAtTheEdgeSayWhy() async throws {
         try await WorkspaceNothingToDoRefusalTests.withGroupedApp { services, _, group in
             // The window's only row: it is at the top and at the bottom.

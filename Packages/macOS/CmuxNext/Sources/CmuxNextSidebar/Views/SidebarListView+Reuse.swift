@@ -48,7 +48,8 @@ extension SidebarListViewComponents {
             view.isEditing = groupEditor.shownGroup == id
             view.isKeyboardFocused = showsFocusRing && focusedGroup == id
         case let (.section(sectionID), view as SectionHeaderRowView):
-            if case let .machine(machine) = sectionID {
+            // The Chief's group holds the workspaces it starts: no + of its own.
+            if case let .machine(machine) = sectionID, !machine.isLocalChief {
                 view.allowsAdd = true
                 view.onAdd = { [weak self] in self?.model.send(.newWorkspace(machine: machine, group: nil)) }
             } else {

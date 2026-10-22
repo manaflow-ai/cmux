@@ -77,6 +77,38 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
   const prompts: Record<string, unknown>[] = [];
   const cancels: Record<string, unknown>[] = [];
   let mainSocket: { send(data: string): void } | undefined;
+  /// The socket that last spoke to the daemon, and the chat it attached to.
+  let lastSocket: { send(data: string): void } | undefined;
+  let lastSession = MAIN;
+  /// `_acpmux/events` reads: a lag resync's refetch.
+  let eventReads = 0;
+
+  /// The waits on what the daemon heard: each message it takes wakes them.
+  const waiting = new Set<() => void>();
+  /// Resolves once `condition` holds, checked as the daemon hears each message; fails naming `what`.
+  const until = (condition: () => boolean, what: string, timeout = 5_000) =>
+    new Promise<void>((resolve, reject) => {
+      const check = () => {
+        if (!condition()) return;
+        waiting.delete(check);
+        clearTimeout(timer);
+        resolve();
+      };
+      const timer = setTimeout(() => {
+        waiting.delete(check);
+        reject(new Error(`the daemon never saw ${what} within ${timeout} ms`));
+      }, timeout);
+      waiting.add(check);
+      check();
+    });
+  /// Returns once the page has answered a lag notice sent now (its refetch reached the daemon), so
+  /// it has handled what came before, and a call it made before (a prompt, a /btw) has reached the daemon.
+  async function settled(): Promise<void> {
+    const before = eventReads;
+    const notice = { jsonrpc: "2.0", method: "_acpmux/lagged", params: { sessionIds: [lastSession] } };
+    lastSocket?.send(JSON.stringify(notice));
+    await until(() => eventReads > before, "the lag resync's refetch");
+  }
 
   function answer(method: string, params: Record<string, any>): { result?: unknown; error?: unknown } {
     switch (method) {
@@ -89,6 +121,7 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
           ? { result: { session: side, lastSeq: 0, events: [] } }
           : { result: { session: main, lastSeq: opening.length, events: opening } };
       case "_acpmux/events":
+        eventReads += 1;
         return { result: { events: [], hasMore: false, lastSeq: params.sessionId === SIDE ? 0 : seq } };
       case "_acpmux/btw":
         btws.push(params);
@@ -130,9 +163,12 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
           if (message.method === "session/prompt") prompts.push(params);
           if (message.method === "session/cancel") cancels.push(params);
           if (message.method === "_acpmux/attach" && params.sessionId !== SIDE) mainSocket = ws;
+          if (message.method === "_acpmux/attach") lastSession = String(params.sessionId);
+          lastSocket = ws;
           // A prompt mid-turn gets no reply until its turn; this stand-in never gives it one.
-          if (message.id === undefined || message.method === "session/prompt") return;
-          ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, ...answer(message.method, params) }));
+          if (message.id !== undefined && message.method !== "session/prompt")
+            ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, ...answer(message.method, params) }));
+          for (const wake of waiting) wake();
         },
       },
     });
@@ -263,7 +299,8 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
     test("with Side sessions off, /btw starts no side session", async () => {
       const page = await openChat(MAIN, false);
       await type(page, `/btw ${QUESTION}`);
-      for (let i = 0; i < 40 && prompts.length === 0; i++) await page.waitForTimeout(50);
+      // Sent as a plain prompt; a /btw call would have come before it.
+      await until(() => prompts.length > 0, "the prompt");
       expect(btws).toEqual([]);
       expect(await sideChats(page)).toEqual([]);
       await page.close();
@@ -279,7 +316,7 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
       );
       // Enter again sends nothing: a retry can't start a second side session.
       await page.keyboard.press("Enter");
-      await page.waitForTimeout(300);
+      await settled();
       expect(btws).toEqual([{ sessionId: MAIN, question: QUESTION }]);
       expect(prompts).toEqual([]);
       await page.close();
@@ -301,7 +338,8 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
         "Reply in this session…",
       );
       await type(page, "/btw another question");
-      for (let i = 0; i < 40 && prompts.length === 0; i++) await page.waitForTimeout(50);
+      // Sent as a plain prompt; a /btw call would have come before it.
+      await until(() => prompts.length > 0, "the prompt");
       expect(btws).toEqual([]);
       expect(await sideChats(page)).toEqual([]);
       await page.close();
@@ -332,7 +370,7 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
           "sideQuestion",
         ),
       );
-      await page.waitForTimeout(300);
+      await settled();
       expect(await composerText(page)).toBe("");
       await page.close();
     });

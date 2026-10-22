@@ -196,7 +196,7 @@ struct MachineIconTests {
             #expect(menu.items.filter { !$0.isSeparatorItem }.count >= background.items.filter { !$0.isSeparatorItem }.count,
                     "the sidebar's own rows stay")
             return allItems(menu.items).compactMap { ActionRegistry.menuRun(of: $0) }
-                .filter { $0.id.rawValue.hasPrefix("machine.") }.map { (id: $0.id, target: $0.target) }
+                .filter { $0.id.rawValue.hasPrefix("machine.") && $0.id.rawValue.hasSuffix("Icon") }.map { (id: $0.id, target: $0.target) }
         }
         Self.record(services, icon: nil)
         let plain = try iconRuns()
@@ -273,7 +273,7 @@ struct MachineIconTests {
             let menu = try #require(SidebarContextMenus.menu(for: .section(.machine(.local)), model: model, services: services,
                                                              scope: ThemeScope(level: .room)))
             func all(_ items: [NSMenuItem]) -> [NSMenuItem] { items.flatMap { [$0] + ($0.submenu.map { all($0.items) } ?? []) } }
-            return all(menu.items).compactMap { ActionRegistry.menuRun(of: $0)?.id }.filter { $0.rawValue.hasPrefix("machine.") }
+            return all(menu.items).compactMap { ActionRegistry.menuRun(of: $0)?.id }.filter { $0.rawValue.hasPrefix("machine.") && $0.rawValue.hasSuffix("Icon") }
         }
         let local = CmuxNextSidebar.SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)), nodes: [])
         let cloud = CmuxNextSidebar.SidebarSection(kind: .machine(SidebarMachine(id: CmuxNextSidebar.MachineID("vm-1"), name: "cloud-a1", kind: .cloud)),

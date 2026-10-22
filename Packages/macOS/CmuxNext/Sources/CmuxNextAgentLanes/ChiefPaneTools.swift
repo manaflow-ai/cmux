@@ -122,6 +122,8 @@ public final class ChiefPaneTools: NSView {
 enum ChiefToolStrings {
     static var subagents: String { String(localized: "chief.tools.subagents", defaultValue: "Subagents", bundle: .module) }
     static var actions: String { String(localized: "chief.tools.actions", defaultValue: "Chief Actions", bundle: .module) }
+    /// A Chief subagent's row or menu item before its chat has a title.
+    nonisolated static var subagent: String { String(localized: "chief.subagent.untitled", defaultValue: "Subagent", bundle: .module) }
     /// Open Chief Subagent's refusal when its run names no subagent row.
     static var noSubagent: String {
         String(localized: "chief.openSubagent.noSubagent", defaultValue: "Choose a subagent from the Subagents menu or the sidebar.", bundle: .module)

@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("new-tab-list-motion.test.ts", async () => {
@@ -58,6 +59,7 @@ await requireBrowserLane("new-tab-list-motion.test.ts", async () => {
    * CSS transitions), so a short fade that ends before the test reads is still counted. */
   async function recordingPage() {
     const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
+    await installPaintedFrames(page);
     await page.addInitScript(() => {
       type Started = { target: Element; properties: string[] };
       const started: Started[] = [];
@@ -86,6 +88,19 @@ await requireBrowserLane("new-tab-list-motion.test.ts", async () => {
     await ready(page);
     await page.locator(".nt-screen").first().waitFor();
     return page;
+  }
+
+  /** Once the rows' motion so far has started (a painted frame after they drew) and run out. */
+  async function rowsSettle(page: Page) {
+    await page.evaluate(async () => {
+      await window.cmuxPaintFrame();
+      await Promise.all(
+        document
+          .getAnimations()
+          .filter((animation) => Number.isFinite(Number(animation.effect?.getComputedTiming().endTime)))
+          .map((animation) => animation.finished.catch(() => undefined)),
+      );
+    });
   }
 
   /** Forgets the motion started so far. */
@@ -134,7 +149,7 @@ await requireBrowserLane("new-tab-list-motion.test.ts", async () => {
     const page = await open(false);
     try {
       await closed(page, ["a", "b", "c", "d"]);
-      await page.waitForTimeout(400); // the first rows settle
+      await rowsSettle(page);
       await forget(page);
       await closed(page, ["e", "a", "b", "c", "d"]);
       expect(await motion(page)).toEqual({
@@ -153,7 +168,7 @@ await requireBrowserLane("new-tab-list-motion.test.ts", async () => {
     const page = await open(true);
     try {
       await closed(page, ["a", "b", "c", "d"]);
-      await page.waitForTimeout(400); // the first rows settle
+      await rowsSettle(page);
       await forget(page);
       await closed(page, ["e", "a", "b", "c", "d"]);
       expect(await motion(page)).toEqual({

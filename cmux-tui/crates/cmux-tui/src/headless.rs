@@ -33,27 +33,32 @@ where
     // re-check these flags.
     mux.set_daemon_shutdown_waker(wake_headless);
     #[cfg(unix)]
-    {
+    let signal_wait = {
         // Peek, not read: other shutdown waiters (remote runtime, browser
         // proxy) consume the same wake byte. Record the session shutdown
         // start here, before the loop wakes and teardown begins, so a
         // shell that dies of the same logout signal is a host loss
         // (`session-shutdown`).
         let signalled = Arc::downgrade(mux);
-        let _ = std::thread::Builder::new().name("headless-signal-wait".into()).spawn(move || {
-            wait_for_shutdown_signal_peek();
-            if shutdown_requested()
-                && let Some(mux) = signalled.upgrade()
-            {
-                mux.begin_session_shutdown();
-                // Name who stopped this owner (cx-0tgl LA).
-                if let Some((signal, sender, uid)) = signal_sender::shutdown_signal() {
-                    mux.record_daemon_signal(signal, sender, uid);
+        std::thread::Builder::new()
+            .name("headless-signal-wait".into())
+            .spawn(move || {
+                wait_for_shutdown_signal_peek();
+                if shutdown_requested()
+                    && let Some(mux) = signalled.upgrade()
+                {
+                    mux.begin_session_shutdown();
+                    // Name who stopped this owner (cx-0tgl LA).
+                    if let Some((signal, sender, uid)) = signal_sender::shutdown_signal() {
+                        mux.record_daemon_signal(signal, sender, uid);
+                    }
                 }
-            }
-            wake_headless();
-        });
-    }
+                wake_headless();
+            })
+            .ok()
+    };
+    #[cfg(not(unix))]
+    let signal_wait: Option<std::thread::JoinHandle<()>> = None;
     // DEV builds only: stop an orphaned app owner; its terminals keep
     // running (dev_orphan_exit.rs).
     #[cfg(unix)]
@@ -64,6 +69,17 @@ where
         generation = wake.wait(generation).unwrap();
     }
     drop(generation);
+    // Another waiter (the remote runtime) can wake the loop on the same
+    // signal before the signal thread has recorded the shutdown start and
+    // the sender; teardown and exit then raced that record and left a cut
+    // `daemon_signal` line. A signal stop waits for the record (the thread
+    // returns once the signal is seen); any other stop leaves the thread
+    // parked on the wake descriptor.
+    if shutdown_requested()
+        && let Some(signal_wait) = signal_wait
+    {
+        let _ = signal_wait.join();
+    }
     if let Some(chief_brains) = chief_brains {
         chief_brains.stop();
     }

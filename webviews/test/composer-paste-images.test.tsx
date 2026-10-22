@@ -5,7 +5,7 @@
 // `data:` URI (it goes as an ACP image block), and a bubble never draws one.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { act, createRef } from "react";
+import { act, createRef, type RefObject } from "react";
 import type { Root } from "react-dom/client";
 import { noChat } from "../src/gallery/fixtures/acpmux";
 import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
@@ -103,10 +103,25 @@ const dataUri = `data:image/png;base64,${pngBase64}`;
 const imageHtml = (count: number) =>
   Array.from({ length: count }, (_, index) => `<img src="${dataUri}" alt="Screenshot · 778×69${index}">`).join("");
 
+/// Yields to React until `ready()` holds; fails after 2 s with what it waited for.
+async function until(ready: () => boolean, what: string) {
+  const deadline = performance.now() + 2_000;
+  while (!ready()) {
+    if (performance.now() > deadline) throw new Error(`timed out waiting for ${what}`);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  }
+}
+
+/// The open composer's handle, for `paste` to read its chips.
+let opened: RefObject<ComposerHandle | null> | undefined;
+
 async function openComposer(sent: { text: string; attachments: ComposerAttachment[] }[] = []) {
   const { createRoot } = await import("react-dom/client");
   const { Composer } = await import("../src/agent-session/acpmux/Composer");
   const handle = createRef<ComposerHandle>();
+  opened = handle;
   const snapshot = noChat([], {
     sessionId: "chat-a",
     summary: { sessionId: "chat-a", harness: "codex", cwd: "/Users/you/src/app", turnCount: 0 },
@@ -153,10 +168,8 @@ async function paste(clipboard: { files?: File[]; html?: string; plain?: string 
   await act(async () => {
     field().dispatchEvent(event);
   });
-  // The chips are read from the files after the event.
-  await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  });
+  // The chips are read from the files after the event, all of one paste's at once.
+  await until(() => (opened!.current!.wakeState().attachments ?? []).length > 0, "the pasted chips");
 }
 
 const screenshot = (index: number) => new File([PNG], "image.png", { type: "image/png", lastModified: index });
@@ -322,8 +335,8 @@ test("an image copied as HTML into a plain text field comes in as a chip and the
   });
   await act(async () => {
     host.querySelector("textarea")!.dispatchEvent(event);
-    await new Promise((resolve) => setTimeout(resolve, 50));
   });
+  await until(() => held.length > 0, "the pasted chip");
   // The textarea's own paste still inserts the text; the spacer GIF is no chip.
   expect(event.defaultPrevented).toBe(false);
   expect(held.map((chip) => chip.kind)).toEqual(["image"]);
@@ -361,8 +374,8 @@ test("the same text pasted into a plain text field leaves its text there without
   });
   await act(async () => {
     textarea.dispatchEvent(event);
-    await new Promise((resolve) => setTimeout(resolve, 50));
   });
+  await until(() => held.length > 0, "the pasted chip");
   expect(event.defaultPrevented).toBe(true);
   expect(textarea.value).toBe("see:  ok");
   expect(held.map((chip) => chip.kind)).toEqual(["image"]);

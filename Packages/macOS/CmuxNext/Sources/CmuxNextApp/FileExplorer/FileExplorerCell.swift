@@ -16,6 +16,8 @@ final class FileExplorerCell: NSTableCellView {
         self.identifier = identifier
         name.font = Typography.body
         name.lineBreakMode = .byTruncatingMiddle
+        // Rename makes the name editable; its caret shows focus, not a ring.
+        name.focusRingType = .none
         badge.font = Typography.caption
         badge.alignment = .right
         for view in [arrow, icon, name, badge] as [NSView] {

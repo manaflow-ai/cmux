@@ -25,6 +25,14 @@ fn is_mirrored_session(summary: &Value) -> bool {
     summary.get("peer").and_then(Value::as_str).is_some()
 }
 
+/// The link's own `_acpmux/attach` of a peer's session `id`: it subscribes and reads no history,
+/// and names its byte limit all the same, as `bound_page` does for a client's attach. A peer on an
+/// older build reads `limit: 0` as no limit and has none of its own, so it answers with the whole
+/// log in one frame, and one of 32.8 MB reset the link with its 29 chats (2026-10-21).
+pub fn hidden_attach(id: &str) -> Value {
+    json!({"sessionId": id, "limit": 0, "visible": false, "maxBytes": crate::hub::page_bytes(&json!({}))})
+}
+
 /// What the hub receives from a peer, tagged with the peer's name and
 /// generation so notices from a replaced or removed peer can be dropped.
 #[derive(Debug)]
@@ -72,6 +80,8 @@ pub struct Peer {
     person_instance: StdMutex<Option<String>>,
     /// Whether the peer advertised the folder-trust gate in initialize.
     trust_gate: AtomicBool,
+    /// Whether the peer takes `_acpmux/file_put` (`hub/file_uploads.rs`).
+    file_put: AtomicBool,
     /// The peer token was held back: the transport is plain `ws://` to a
     /// host that is not loopback (`carries_peer_token`). Logged once.
     withheld: AtomicBool,
@@ -116,6 +126,7 @@ impl Peer {
             served_as: StdMutex::new(None),
             person_instance: StdMutex::new(None),
             trust_gate: AtomicBool::new(false),
+            file_put: AtomicBool::new(false),
             withheld: AtomicBool::new(false),
             attached: StdMutex::new(HashSet::new()),
             notices,
@@ -265,6 +276,11 @@ impl Peer {
         self.trust_gate.load(Ordering::SeqCst)
     }
 
+    /// Whether the peer said at its last handshake that it takes `_acpmux/file_put`.
+    pub fn supports_file_put(&self) -> bool {
+        self.file_put.load(Ordering::SeqCst)
+    }
+
     pub fn summary(&self) -> Value {
         let link = self.link();
         json!({
@@ -277,6 +293,7 @@ impl Peer {
             "localBuild": crate::hub::BUILD,
             "servedAs": self.served_as.lock().unwrap_or_else(|e| e.into_inner()).clone(),
             "peerTokenWithheld": self.withheld.load(Ordering::SeqCst),
+            "canonicalEndpoint": canonical_endpoint(&self.url),
             "outdated": self.remote_version.lock().unwrap().as_ref().map(|(_, b)| b != crate::hub::BUILD).unwrap_or(false),
             "state": link.state().as_str(),
             "lastSeen": link.last_seen,
@@ -302,7 +319,9 @@ impl Peer {
         // A request that times out, or whose caller stops waiting, takes its
         // entry with it rather than leaving it until the connection drops.
         let _forget = ForgetPending { pending: self.pending.clone(), key: Some(key) };
-        if self.out.send(Message::request(id, m, params).to_line()).await.is_err() {
+        // One frame larger than the peer reads with would drop the link and every chat on it.
+        let line = Message::request(id, m, params).bounded_line().map_err(RpcError::too_large)?;
+        if self.out.send(line).await.is_err() {
             return Err(RpcError::internal(format!("peer {} connection closed", self.name)));
         }
         match tokio::time::timeout(Duration::from_secs(600), rx).await {
@@ -315,8 +334,9 @@ impl Peer {
     }
 
     pub async fn notify(&self, m: &str, params: Value) -> Result<(), RpcError> {
+        let line = Message::notification(m, params).bounded_line().map_err(RpcError::too_large)?;
         self.out
-            .send(Message::notification(m, params).to_line())
+            .send(line)
             .await
             .map_err(|_| RpcError::internal(format!("peer {} connection closed", self.name)))
     }
@@ -464,6 +484,13 @@ impl Peer {
                     |features| features.iter().any(|f| f.as_str() == Some("trustGate")),
                 ) || init.pointer("/_meta/acpmux/trustGate").and_then(Value::as_bool) == Some(true);
             me.trust_gate.store(advertised, Ordering::SeqCst);
+            let file_put = init
+                .pointer("/_meta/acpmux/features")
+                .and_then(Value::as_array)
+                .is_some_and(|features| {
+                    features.iter().any(|f| f.as_str() == Some(crate::hub::FILE_PUT_FEATURE))
+                });
+            me.file_put.store(file_put, Ordering::SeqCst);
             let watch = me.request(method::MUX_WATCH, json!({"enabled": true})).await?;
             let sessions = watch
                 .get("sessions")
@@ -481,8 +508,7 @@ impl Peer {
             let _ = me.notices.send((me.name.clone(), me.generation, PeerNotice::Connected)).await;
             let attached: Vec<String> = me.attached.lock().unwrap().iter().cloned().collect();
             for sid in attached {
-                let attach = json!({"sessionId": sid, "limit": 0, "visible": false});
-                let _ = me.request(method::MUX_ATTACH, attach).await;
+                let _ = me.request(method::MUX_ATTACH, hidden_attach(&sid)).await;
             }
             Ok::<(), RpcError>(())
         });
@@ -642,6 +668,17 @@ pub fn ssh_target(url: &str) -> Result<SshTarget, &'static str> {
         None => host.to_owned(),
     };
     Ok(SshTarget { destination, port })
+}
+
+/// A peer's canonical endpoint (hq plans/cmux-next/acpmux-one-daemon.md):
+/// `ssh://HOST`, the ssh config's user and the machine's one daemon on
+/// [`SSH_PEER_PORT`]. Some(it) when `url` is an `ssh://` URL that names a user
+/// or another port, so a listing can say where it should point; None when it
+/// already is canonical or is not an `ssh://` peer. It never re-points one.
+pub fn canonical_endpoint(url: &str) -> Option<String> {
+    let t = ssh_target(url).ok()?;
+    let host = t.destination.rsplit_once('@').map_or(t.destination.as_str(), |(_, h)| h);
+    (t.destination != host || t.port != SSH_PEER_PORT).then(|| format!("ssh://{host}"))
 }
 
 fn check_ssh_part(part: &str, what: &'static str) -> Result<(), &'static str> {
@@ -808,6 +845,15 @@ impl Drop for ForgetPending {
 #[cfg(test)]
 mod remote_config_tests {
     use super::*;
+
+    #[test]
+    fn the_links_own_attach_names_its_byte_limit() {
+        let attach = hidden_attach("s");
+        assert_eq!(attach["sessionId"], "s");
+        assert_eq!(attach["limit"], 0);
+        assert_eq!(attach["visible"], false);
+        assert_eq!(attach["maxBytes"], crate::hub::page_bytes(&json!({})));
+    }
 
     #[test]
     fn a_remote_config_gives_its_token_and_listen_address() {

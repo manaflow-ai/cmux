@@ -157,6 +157,11 @@ export type BackgroundCommand = {
   endedAt?: number;
 };
 
+/// The key a command enters its list under (ui/presence.ts `useArrivals`): the call that started it,
+/// which stays when the registry lists a command only the transcript knew (its id becomes the
+/// registry's).
+export const arrivalKey = (command: BackgroundCommand) => command.toolCallId ?? command.id;
+
 /// A registry state as a command's: `exited` finished, `killed` stopped.
 const PROCESS_STATE: Record<string, BackgroundCommand["state"]> = {
   running: "running",

@@ -38,7 +38,10 @@ fn command(dir: &Path) -> Command {
 
 /// Starts a headless owner and waits for it to exit (or to serve), capturing
 /// its output. A healthy owner keeps running; one that cannot open its
-/// registry exits on its own.
+/// registry exits on its own. The owner binds its socket before it opens
+/// the registry (d674e3164cc, cx-n3bs), so the socket file alone does not
+/// mean it serves: it serves once `server status` gets its answer, which a
+/// restoring owner holds until its restore is done.
 fn start_owner(dir: &Path, session: &str) -> (Option<Output>, bool) {
     let socket = dir.join("mux.sock");
     // A stopped owner can leave its socket file behind; only a new one counts.
@@ -56,7 +59,7 @@ fn start_owner(dir: &Path, session: &str) -> (Option<Output>, bool) {
         if child.try_wait().unwrap().is_some() {
             return (Some(child.wait_with_output().unwrap()), false);
         }
-        if socket.exists() {
+        if socket.exists() && answers_status(dir, session, &socket) {
             stop_and_reap(dir, session, &mut child);
             return (None, true);
         }
@@ -65,35 +68,45 @@ fn start_owner(dir: &Path, session: &str) -> (Option<Output>, bool) {
     }
 }
 
-/// Stops a serving owner and waits for it to exit, bounded. The socket file
-/// appears when the owner binds, which can be before it accepts: a stop sent in
-/// that window is refused, and an unbounded `wait` then hung until the harness
-/// timeout (120 s) on a loaded box. So the stop is repeated until the owner
-/// exits; after 30 s the owner is killed and the test fails with that reason.
+/// Whether the owner at `socket` answers `server status` (it has restored).
+fn answers_status(dir: &Path, session: &str, socket: &Path) -> bool {
+    command(dir)
+        .args(["server", "status", "--session", session, "--socket"])
+        .arg(socket)
+        .stdin(Stdio::null())
+        .output()
+        .is_ok_and(|output| output.status.success())
+}
+
+/// Stops a serving owner and waits for it to exit, bounded. The owner
+/// answered `server status`, so it serves; the stop must succeed (it waits
+/// for an owner that still restores). After 30 s the owner is killed and the
+/// test fails with that reason.
 fn stop_and_reap(dir: &Path, session: &str, child: &mut Child) {
+    let stopped = stop_owner(dir, session);
+    assert!(
+        stopped.status.success(),
+        "`server stop` of {session} failed: {}",
+        String::from_utf8_lossy(&stopped.stderr)
+    );
     let deadline = Instant::now() + Duration::from_secs(30);
-    loop {
-        stop_owner(dir, session);
-        let retry = Instant::now() + Duration::from_secs(1);
-        while Instant::now() < retry {
-            if child.try_wait().unwrap().is_some() {
-                return;
-            }
-            std::thread::sleep(Duration::from_millis(50));
-        }
+    while child.try_wait().unwrap().is_none() {
         if Instant::now() >= deadline {
             let _ = child.kill();
             let _ = child.wait();
-            panic!("the owner of {session} did not stop within 30 s of `server stop`");
+            panic!("the owner of {session} did not exit within 30 s of `server stop`");
         }
+        std::thread::sleep(Duration::from_millis(50));
     }
 }
 
-fn stop_owner(dir: &Path, session: &str) {
-    let _ = command(dir)
+fn stop_owner(dir: &Path, session: &str) -> Output {
+    command(dir)
         .args(["server", "stop", "--session", session, "--end-terminals", "--socket"])
         .arg(dir.join("mux.sock"))
-        .output();
+        .stdin(Stdio::null())
+        .output()
+        .unwrap()
 }
 
 /// The session directory a first, healthy start created.

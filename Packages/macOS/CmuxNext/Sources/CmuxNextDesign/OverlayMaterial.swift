@@ -49,6 +49,9 @@ public final class ReduceTransparency {
         changes: NSWorkspace.shared.notificationCenter
     )
 
+    /// Always opaque: for a card floating over content that must not show through it.
+    public static let alwaysOpaque = ReduceTransparency(system: { true }, changes: NotificationCenter())
+
     /// Pins the state (tests, Debug); nil follows `system`. Changing it
     /// redraws every live surface at once.
     public var override: Bool? {

@@ -28,7 +28,12 @@ extension CEFTab {
             } else if !loading, state.isLoading, let navigation {
                 machine.apply(.finished(navigation))
             }
-            if !loading { clearTitleBeforeCommit() }
+            if !loading {
+                clearTitleBeforeCommit()
+                // A load that ends without OnLoadEnd (stopped, aborted) also
+                // leaves the page area to its document.
+                documentDidSettle()
+            }
         case .loadStart(_, let url, let fromPost):
             if navigation == nil || !state.isLoading {
                 let id = makeNavigationID()
@@ -43,9 +48,15 @@ extension CEFTab {
             committedURL = URL(string: url)
             pageInfoDocumentCommitted(URL(string: url))
             resetPageBackdrop()
+            // The document that just committed is the only one that can hear
+            // `prefers-color-scheme`, and after a renderer restart it never did
+            // (`rendererTerminated` forgets what the dead one was told). Costs
+            // nothing on an ordinary navigation: the memo already matches.
+            reapplyColorScheme()
             if PageBackground.isRealPage(URL(string: url)) { reachedFirstRealPage() }
         case .loadEnd:
             if let navigation { machine.apply(.finished(navigation)) }
+            documentDidSettle()
             samplePageBackdrop()
             restored.documentLoaded()
             // Mixed content shows up while the page loads subresources.
@@ -68,6 +79,10 @@ extension CEFTab {
                 committedURL = failing
                 // Chromium's interstitial commits with no OnLoadStart: it ends
                 // the New Tab page's hole, as a committed page does (cx-2nfi).
+                // The interstitial has not committed yet, so the page area
+                // keeps the theme base until `.loadingState` ends the load:
+                // handing it back here would show white until the error page
+                // paints, the very flash this stands in for.
                 if error.engineShowsPage { reachedFirstRealPage() }
             }
         case .address(_, let url):

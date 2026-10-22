@@ -40,10 +40,10 @@ enum SidebarStyle {
     /// As tall as the status glyph beside it (`Metrics.statusMarkSize`).
     static var badgeHeight: CGFloat { Metrics.statusMarkSize }
     static var searchHeight: CGFloat { Metrics.sidebarRowHeight }
-    /// The profile control's circle at compact density (the icon box). The
-    /// avatar lives in the row-height square, so its click target scales with
-    /// the display density.
-    static var avatarDiameter: CGFloat { iconBox }
+    /// The profile control's circle: its row-height square but a hairline, so the avatar reads as
+    /// big as the Search button's glyph beside it (Leo 2026-10-21: "make the icon slightly
+    /// bigger"; 22 pt at compact). It scales with the sidebar's density, as its square does.
+    static var avatarDiameter: CGFloat { SidebarDensityTokens.rowHeight - Metrics.space1 }
     static var footerHeight: CGFloat { Metrics.sidebarRowHeightWithSubtitle - Metrics.space2 }
     /// The margin under everything the sidebar draws (Leo 2026-10-20: the account row, the last
     /// rows and the scroller sat on the window's bottom edge): space4, as the agent composer's.
@@ -64,8 +64,9 @@ enum SidebarStyle {
     /// and every title in the primary text color ("All titles primary"):
     /// unread shows by the badge, selection by the fill.
     static var titleFont: NSFont { Typography.body }
-    /// Length of the fade that ends a clipped row title (no ellipsis).
-    static var titleFadeWidth: CGFloat { Metrics.space6 }
+    /// Length of the fade that ends a clipped row title (no ellipsis): 24 pt at Compact. At
+    /// 16 pt the fade ended at a word gap and read as a hard cut.
+    static var titleFadeWidth: CGFloat { Metrics.space6 + Metrics.space4 }
     static var subtitleFont: NSFont { Typography.caption }
     /// One detail line under a row's title (the folder, branch or agent line), as its label lays it out.
     static var detailLineHeight: CGFloat {

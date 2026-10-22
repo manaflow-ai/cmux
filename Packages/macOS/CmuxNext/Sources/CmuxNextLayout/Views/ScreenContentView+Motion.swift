@@ -129,6 +129,10 @@ extension ScreenContentView {
             let hidden = (scrolls && !geometry.dock.isEmpty && view.frame.intersection(uncovered).width < 0.5)
                 || areaWindow(of: kind).map { !$0.contains(CGPoint(x: view.frame.midX, y: view.frame.midY)) } == true
             if view.isHidden != hidden { view.isHidden = hidden }
+            // Shown, its cursor and click catcher still stop at a dock and at its area's window.
+            var pointerClip: CGRect? = scrolls && !geometry.dock.isEmpty ? uncovered : nil
+            if let area = areaWindow(of: kind) { pointerClip = pointerClip.map { $0.intersection(area) } ?? area }
+            view.cursorClip = pointerClip
         }
         updateScrollbar()
         refreshDividerHover()

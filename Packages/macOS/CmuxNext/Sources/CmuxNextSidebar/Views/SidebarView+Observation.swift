@@ -13,6 +13,8 @@ extension SidebarViewComponents {
         var sectionsRevision: UInt64
         var selection: Set<WorkspaceID>
         var selected: SidebarItem?
+        /// `SidebarModel.onScreen` while `sidebar.multiView` is on: a change repaints the rows' fills only.
+        var onScreen: Set<WorkspaceID>
         var profiles: [SidebarProfile]
         var activeProfile: ProfileKey?
         var filter: String
@@ -32,12 +34,23 @@ extension SidebarViewComponents {
         var cards: SidebarBottomCards
         /// The session tree (`sidebar.sessionTree`): nesting, pull requests, keycaps.
         var tree: SidebarSessionTreeState?
+        /// Every row's pull request badge, tree or not.
+        var pullRequests: [WorkspaceID: SidebarPullRequestBadge]
         /// The session tree's chat history: Pinned and Earlier.
         var history: SidebarChatHistoryState?
+        /// Workspaces as tabs (`SidebarTunables.workspacesAsTabs`): one-line rows.
+        var workspacesAsTabs: Bool
+        /// Group by Status (`SidebarTunables.groupByStatus`, Debug, off by default).
+        var groupsByStatus: Bool
+        /// The "Done (N)" fold (`SidebarTunables.doneFold`): turning it on or off lays the list out again.
+        var foldsDone: Bool
+        /// The row limit (`SidebarTunables.groupRowLimit`): changing it lays the list out again.
+        var rowLimit: Int
         init(_ model: SidebarModel, _ design: DesignSettings) {
             sectionsRevision = model.observedStructureRevision
             selection = model.selection
             selected = model.selectedItem
+            onScreen = SidebarTunables.multiView.value ? model.onScreen : []
             profiles = model.profiles
             activeProfile = model.activeProfileID
             filter = model.filterText
@@ -53,8 +66,13 @@ extension SidebarViewComponents {
             fontSize = Typography.body.pointSize
             titlebarHeight = Metrics.titlebarHeight
             cards = SidebarBottomCards(update: model.updateCard, nowPlaying: model.nowPlaying, updated: model.updatedCard, notice: model.noticeCard)
-            tree = SidebarSessionTree.shared.state
+            tree = SidebarSessionTree.shared.drawn
+            pullRequests = SidebarSessionTree.shared.pullRequests
             history = SidebarChatHistory.shared.state
+            workspacesAsTabs = SidebarTunables.workspacesAsTabs.value
+            groupsByStatus = SidebarTunables.groupByStatus.value
+            foldsDone = SidebarTunables.doneFold.value
+            rowLimit = SidebarTunables.rowLimit
         }
     }
     func observe() {
@@ -87,10 +105,17 @@ extension SidebarViewComponents {
         let selectionChanged = lastState?.selection != state.selection || lastState?.selected != state.selected
         let rowsChanged = lastState?.sectionsRevision != state.sectionsRevision || lastState?.filter != state.filter || chromeChanged || profileChanged
             || state.preferences.changesList(from: lastState?.preferences) || lastState?.tree != state.tree
+            || lastState?.pullRequests != state.pullRequests
             || lastState?.history != state.history
+            || lastState?.workspacesAsTabs != state.workspacesAsTabs || lastState?.foldsDone != state.foldsDone
+            || lastState?.groupsByStatus != state.groupsByStatus
+            || lastState?.rowLimit != state.rowLimit
         let listChanged = rowsChanged || selectionChanged
+        // A selected session never hides in a fold (a notification, the palette or Cmd-number chose it).
+        if selectionChanged { state.selection.forEach(SidebarSessionTree.shared.reveal) }
         let previous = lastState == nil ? nil : lastSections
         model.applyListPreferences(state.preferences)
+        model.groupByStatus(state.groupsByStatus)
         // Minimal mode or an item's control changed: show or hide the chosen bands now.
         if lastState?.preferences.minimalMode != state.preferences.minimalMode || lastState?.itemInfo != state.itemInfo {
             setChromeRevealed(isChromeRevealed)
@@ -122,6 +147,7 @@ extension SidebarViewComponents {
             }
             lastSections = model.sections
         }
+        if lastState?.onScreen != state.onScreen { list.syncRowStates() }
         if lastState?.cards != state.cards { cardSlot.show(state.cards); needsLayout = true }
         if chromeChanged || profilesChanged { bandsDirty = true; needsLayout = true }
         lastState = state

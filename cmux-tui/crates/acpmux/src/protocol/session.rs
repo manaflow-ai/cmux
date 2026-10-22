@@ -73,6 +73,11 @@ pub struct SessionSummary {
     pub turn: Option<TurnSummary>,
     pub queue: Vec<QueuedPromptSummary>,
     pub pending_permissions: u64,
+    /// What it waits on the person for: `question` (an agent question) or
+    /// `permission`; null while nothing is pending. Only the person allows a permission.
+    pub waiting_on: Option<String>,
+    /// The first prompt of the question it waits on, cut to 120 characters.
+    pub waiting_prompt: Option<String>,
     /// Since when it waits on the person (`lane`); null while it does not.
     pub input_since: Option<u64>,
     #[schemars(with = "Option<String>")]
@@ -259,6 +264,11 @@ pub struct TurnSummary {
     pub turn_id: String,
     pub prompt_id: String,
     pub turn_seq: u64,
+    /// What the turn does right now: its latest tool call's title; null
+    /// until it calls one (`hub/activity.rs`).
+    pub activity: Option<String>,
+    /// Its plan's entry in progress; null without one.
+    pub plan_step: Option<String>,
 }
 
 /// A prompt waiting for the running turn to end.

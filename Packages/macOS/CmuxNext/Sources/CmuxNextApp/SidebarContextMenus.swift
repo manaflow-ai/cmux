@@ -38,6 +38,7 @@ enum SidebarContextMenus {
             MenuIdentityHeader.install(in: menu, registry: registry, target: target, name: selection ? nil : model.workspace(first)?.title ?? "",
                                        rename: "renameWorkspace")
             if selection { nameSelection(menu, ids, services) }
+            if !selection, let starter = model.workspace(first)?.machineID.startedBy { note(startedBy: starter, in: menu) }
             menu.themeRows(in: scope)
             return menu
         case .group(let id):
@@ -80,9 +81,21 @@ enum SidebarContextMenus {
                                                 arguments: [PictureInPictureHandlers.cardArgument: .bool(true)])
             menu.themeRows(in: scope)
             return menu
+        case .priorityChat(let id):
+            // A Priority row: the actions its hover buttons run, on its chat.
+            return registry.makeContextMenu(for: .priorityRow, target: SidebarPriorityRowActions.target(id)).themeRows(in: scope)
         case .layoutItem, .layoutSection:
             return nil
         }
+    }
+
+    /// A Chief subagent's workspace says who started it at the end of its menu, as its hover card
+    /// does, since its row no longer does (Leo 2026-10-21).
+    private static func note(startedBy starter: String, in menu: NSMenu) {
+        let note = NSMenuItem(title: starter, action: nil, keyEquivalent: "")
+        note.isEnabled = false
+        if !menu.items.isEmpty { menu.addItem(.separator()) }
+        menu.addItem(note)
     }
 
     /// A multi-selection's menu says what its rows do to every selected row: Pin pins them when

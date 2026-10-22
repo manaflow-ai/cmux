@@ -293,7 +293,7 @@ ENCODE = ["-an", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", str(publish.VID
 
 def ffmpeg(argv: list[str], cwd: Path) -> None:
     done = subprocess.run(["ffmpeg", "-nostdin", "-loglevel", "error", "-y", *argv],
-                          cwd=cwd, capture_output=True, text=True)
+                          cwd=cwd, capture_output=True, text=True, env=pr_media.tool_env())
     if done.returncode != 0:
         raise RuntimeError(done.stderr.strip()[-500:] or "ffmpeg failed")
 
@@ -471,7 +471,11 @@ def main(argv: list[str] | None = None) -> int:
         (args.out / "index.html").write_text(render_html(args.build, args.repo, entries, reel), encoding="utf-8")
         print(args.out / ("reel.mp4" if reel else "index.html"))
     if args.publish:
-        publish_build(args)
+        try:
+            publish_build(args)
+        except pr_media.MediaError as error:
+            # A privacy refusal names paths and kinds only, never what it matched.
+            raise SystemExit(f"the reel was not published: {error}") from None
     return 0
 
 
@@ -479,13 +483,15 @@ def publish_build(args: argparse.Namespace) -> None:
     """Upload the reel (when there is one), the report and the page to nightly-next/<build>/.
 
     The page goes last: a failed upload leaves no page linking a missing reel.
+    All three pass scripts/pr-media.py's privacy check before the first upload;
+    nightly-next/ is a bot's folder, so any private name refuses the lot.
     """
-    for name in ("reel.mp4", "reel.json", "index.html"):
-        local = args.out / name
-        if not local.is_file():
-            continue
-        remote = f"nightly-next/{args.build}/{name}"
-        pr_media.put_file(args.repo, pr_media.BRANCH, remote, local, f"cmux NEXT nightly reel for build {args.build}")
+    files = [(f"nightly-next/{args.build}/{name}", args.out / name)
+             for name in ("reel.mp4", "reel.json", "index.html") if (args.out / name).is_file()]
+    pr_media.check_privacy(files, args.repo)
+    for remote, local in files:
+        pr_media.put_file(args.repo, pr_media.BRANCH, remote, local, f"cmux NEXT nightly reel for build {args.build}",
+                          checked=True)
         print(pr_media.raw_url(args.repo, pr_media.BRANCH, remote))
 
 

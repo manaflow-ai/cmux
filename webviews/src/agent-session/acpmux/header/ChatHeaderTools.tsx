@@ -30,6 +30,10 @@ import {
   type QuickActionMode,
 } from "./quickActions";
 
+/// Every header button's glyph (header.css): Claude Code desktop's top strip draws one size for all of
+/// them, the Needs you inbox and the Inspector toggle included.
+export const HEADER_GLYPH = 16;
+
 /// The app actions the header runs on its tab (CmuxNextAgentPane AgentPaneModel.headerActions).
 export const HEADER_ACTIONS = {
   terminal: "splitRight",
@@ -154,8 +158,8 @@ export function ChatHeaderTools({
   onApplyWorktree?: (key: string) => Promise<unknown>;
   /// Remove on the worktree pill (cx-lyqio.5): `git.worktree.remove` for the chat's session.
   onRemoveWorktree?: (key: string, discard: boolean) => Promise<unknown>;
-  /// The Inspector's toggle (Debug Settings `agent.inspector`, inspector/ChatInspector.tsx): the
-  /// header's last, top-right button, as Claude Code desktop's panel toggle is.
+  /// The Inspector's toggle (Debug Settings `agent.inspector`, inspector/ChatInspector.tsx): with it,
+  /// the right-side panel's toggle in the summary's place, the first of the icons.
   inspector?: ReactNode;
 }) {
   const t = useT();
@@ -298,7 +302,7 @@ export function ChatHeaderTools({
             title={t(sideTabs ? "header.hideTabs" : "header.newTab")}
             onClick={onSideTabs}
           >
-            <Icon name={sideTabs ? "tunable.sidebar" : "action.add"} size={15} />
+            <Icon name={sideTabs ? "tunable.sidebar" : "action.add"} size={HEADER_GLYPH} />
           </button>
         ) : id === "changes" ? (
           // Hidden, not disabled, without changes (cx-qom0); an open diff keeps it, to close it here.
@@ -313,7 +317,7 @@ export function ChatHeaderTools({
               {...tooltipProps(t("header.changes"), changesKey)}
               onClick={() => onChanges(mode)}
             >
-              <Icon name="diff.file" size={15} />
+              <Icon name="diff.file" size={HEADER_GLYPH} />
             </button>
           ) : null
         ) : id === "files" ? (
@@ -328,7 +332,7 @@ export function ChatHeaderTools({
               title={t("header.files")}
               onClick={() => onFiles(mode)}
             >
-              <Icon name="folder" size={15} />
+              <Icon name="folder" size={HEADER_GLYPH} />
             </button>
           ) : null
         ) : id === "preview" ? (
@@ -346,7 +350,7 @@ export function ChatHeaderTools({
               }
               onClick={() => onPreview(previewUrl, mode)}
             >
-              <Icon name="media.play" size={15} />
+              <Icon name="media.play" size={HEADER_GLYPH} />
             </button>
           ) : null
         ) : id === "splitDown" ? (
@@ -361,7 +365,7 @@ export function ChatHeaderTools({
               {...tooltipProps(t("header.splitDown"), splitDownKey)}
               onClick={() => onSplitDown(mode)}
             >
-              <Icon name="pane.split.down" size={15} />
+              <Icon name="pane.split.down" size={HEADER_GLYPH} />
             </button>
           ) : null
         ) : id === "terminal" ? (
@@ -375,7 +379,7 @@ export function ChatHeaderTools({
             {...tooltipProps(t("header.terminal"), terminalKey)}
             onClick={() => onTerminal(mode)}
           >
-            <Icon name="terminal" size={15} />
+            <Icon name="terminal" size={HEADER_GLYPH} />
           </button>
         ) : (
           <button
@@ -390,7 +394,7 @@ export function ChatHeaderTools({
               : tooltipProps(t("header.browser"), browserKey))}
             onClick={() => browserRun(mode)}
           >
-            <Icon name="browser" size={15} />
+            <Icon name="browser" size={HEADER_GLYPH} />
           </button>
         ),
       )}
@@ -402,6 +406,9 @@ export function ChatHeaderTools({
       {pullRequest && pullRequestChip !== false && (
         <PullRequestChip pullRequest={pullRequest} onMerge={onMergePullRequest} />
       )}
+      {/* The panel toggle leads the icons, as in Claude and ChatGPT desktop. */}
+      {inspector}
+      {summary}
       {buttons ? (
         <div className="acpmux-header-tool-group acpmux-header-tool-group-actions">
           {onCustomize ? (
@@ -429,18 +436,13 @@ export function ChatHeaderTools({
           )}
         </div>
       ) : null}
-      {buttons ? <hr className="acpmux-header-separator" aria-orientation="vertical" /> : null}
-      <div className="acpmux-header-tool-group acpmux-header-tool-group-meta">
-        {summary}
-        <ChatMenu
-          items={rows}
-          disabled={rows().length === 0}
-          onOpen={onMenuOpen}
-          expand={expand}
-          onExpanded={onExpanded}
-        />
-        {inspector}
-      </div>
+      <ChatMenu
+        items={rows}
+        disabled={rows().length === 0}
+        onOpen={onMenuOpen}
+        expand={expand}
+        onExpanded={onExpanded}
+      />
     </div>
   );
 }
@@ -586,7 +588,7 @@ function ChatMenu({
   return (
     <Menu open={open} onOpenChange={onOpenChange}>
       <MenuButton className="acpmux-header-tool" label={label} disabled={disabled}>
-        <Icon name="action.more" size={15} />
+        <Icon name="action.more.vertical" size={HEADER_GLYPH} />
       </MenuButton>
       <MenuPopup className="acpmux-chat-menu-popover" align="end">
         {children

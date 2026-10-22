@@ -66,6 +66,7 @@ await requireBrowserLane("new-tab-first-frame-project.test.ts", async () => {
           if (message.method === "initialize")
             result = { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
           else if (message.method === "_acpmux/watch") {
+            // fixed-wait: the chat list arriving late is the state under test, not a wait for one
             if (listDelay) await Bun.sleep(listDelay);
             result = { sessions };
           } else if (message.method === "_acpmux/sessions") result = { sessions: [] };
@@ -99,8 +100,17 @@ await requireBrowserLane("new-tab-first-frame-project.test.ts", async () => {
       ({ endpoint, cwd, home, handshakeDelay }) => {
         const newTab = { kind: "agent", hotkeys: {}, home, projects: [], host: "cosmic-gray", ...(cwd ? { cwd } : {}) };
         (window as unknown as Record<string, unknown>).__cmuxNewTabContext = newTab;
-        const later = (ms: number, value: unknown) =>
-          new Promise((resolve) => setTimeout(() => resolve({ ok: true, value }), ms));
+        // The host's answers still on their way; each comes `ms` late.
+        const w = window as unknown as { __hostPending: number };
+        w.__hostPending = 0;
+        const later = (ms: number, value: unknown) => {
+          w.__hostPending += 1;
+          // fixed-wait: the stand-in host answers late on purpose; the label must hold through it
+          return new Promise((resolve) => setTimeout(() => resolve({ ok: true, value }), ms)).then((answer) => {
+            w.__hostPending -= 1;
+            return answer;
+          });
+        };
         const answer = (method: string): unknown => {
           switch (method) {
             case "ready":
@@ -157,11 +167,22 @@ await requireBrowserLane("new-tab-first-frame-project.test.ts", async () => {
       },
       { endpoint, cwd, home: HOME, handshakeDelay },
     );
+    // The daemon's chat list reaching the page.
+    const listed = new Promise<void>((resolve) =>
+      page.on("websocket", (socket) =>
+        socket.on("framereceived", (frame) => {
+          if (String(frame.payload).includes('"sessions":[{')) resolve();
+        }),
+      ),
+    );
     const { port } = vite!.httpServer!.address() as { port: number };
     await page.goto(`http://127.0.0.1:${port}/`);
     await page.locator(".nt-location").getByText(settle).waitFor();
-    // Past the handshake, the daemon's list and the projects list.
-    await page.waitForTimeout(Math.max(handshakeDelay, listDelay) + 600);
+    // Past the handshake, the daemon's list and the projects list (the second one goes out before
+    // the daemon is asked for its chats), and a painted frame after them.
+    await listed;
+    await page.waitForFunction(() => (window as unknown as { __hostPending: number }).__hostPending === 0);
+    await page.evaluate(() => window.cmuxPaintFrame());
     const painted = await page.evaluate(() => (window as unknown as { __painted: string[] }).__painted);
     await page.close();
     console.info(`painted: ${JSON.stringify(painted)}`);

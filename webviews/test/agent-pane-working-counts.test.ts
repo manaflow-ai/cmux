@@ -1,6 +1,7 @@
 // l10n-allow-file: test fixture prompts, replies, commands and subagent names, not shipped UI.
 // The running turn's line counts the work still going in the background, after Claude's phone
-// app ("Working… · 5 running tasks"): "Working for 42s · 2 agents · 1 command". It counts only
+// app ("Working… · 5 running tasks"): "Read app.ts 3s · 2 agents · 1 command", on the turn's one
+// live line at its bottom. It counts only
 // subagents still running and background shells that have not ended, each count opens what it
 // counts, and a count never moves the line or the rows under it. That is the presentation with the
 // running tray off (Debug Settings agentPane.debug.subagentTray); with the tray on, the default, the
@@ -178,9 +179,9 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
       await page.evaluate(() => (window as any).cmuxAcpmuxBridge.applyTheme({ isDark: true, subagentTray: false }));
     return page;
   };
-  // The running line reads the turn's time ("Working for 1m 30s", WorkingFor.tsx): the read in
-  // flight has its own tool row, which names it (#23090).
-  const line = (page: Page) => page.locator(".cv-worked", { hasText: "Working for" });
+  // The running turn's one live line at its bottom (Thinking.tsx, Debug toggles codexToolRuns and
+  // liveLineBelow, on by default): it names the read in flight, then the counts.
+  const line = (page: Page) => page.locator(".cv-worked.is-below");
   beforeAll(async () => {
     daemon = Bun.serve({
       port: 0,
@@ -223,10 +224,10 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
   test("the line counts the subagents and background shells still running", async () => {
     const page = await open(BUSY);
     // The Linter finished and the watcher stopped: neither counts.
-    expect((await line(page).innerText()).replace(/\s+/g, " ")).toMatch(/^Working for [^·]+ · 2 agents · 1 command$/);
+    expect((await line(page).innerText()).replace(/\s+/g, " ").trim()).toMatch(/^Read [^·]+ · 2 agents · 1 command$/);
     await page.close();
     const plain = await open(QUIET);
-    expect((await line(plain).innerText()).replace(/\s+/g, " ").trim()).toMatch(/^Working for [^·]+$/);
+    expect((await line(plain).innerText()).replace(/\s+/g, " ").trim()).toMatch(/^Read [^·]+$/);
     await plain.close();
   });
 
@@ -236,7 +237,7 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
     await tray.waitFor({ timeout: 5_000 });
     const lines = await tray.locator(".acpmux-agent-line .acpmux-summary-agent__name").allInnerTexts();
     expect(lines).toEqual(["Reviewer", "Tester", "npm run dev"]);
-    expect((await line(page).innerText()).replace(/\s+/g, " ").trim()).toMatch(/^Working for [^·]+$/);
+    expect((await line(page).innerText()).replace(/\s+/g, " ").trim()).toMatch(/^Read [^·]+$/);
     await page.close();
   });
 
@@ -245,7 +246,7 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
       const measure = async (session: string) => {
         const page = await open(session, width);
         const box = await line(page).evaluate((node) => {
-          const label = node.querySelector(".cv-worked__label")!.getBoundingClientRect();
+          const label = node.querySelector(".cv-thinking")!.getBoundingClientRect();
           const row = node.getBoundingClientRect();
           return { height: row.height, labelLeft: label.left - row.left, labelHeight: label.height };
         });
@@ -254,8 +255,9 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
       };
       const busyBox = await measure(BUSY);
       expect(busyBox).toEqual(await measure(QUIET));
-      // One line, even in a narrow pane.
-      expect(busyBox.height).toBe(27);
+      // One 20px line, even in a narrow pane: the line's box holds one line (a second would make
+      // it 44px or more).
+      expect(busyBox.height).toBeLessThan(40);
       expect(busyBox.labelHeight).toBe(20);
     }
   });
@@ -272,7 +274,17 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
         const box = node.getBoundingClientRect();
         return box.top >= 0 && box.bottom <= window.innerHeight;
       });
-    for (let tries = 0; tries < 50 && !(await inView()); tries++) await page.waitForTimeout(100);
+    // The scroll can glide: wait for the row to come into view, then check it is.
+    await page
+      .waitForFunction(
+        (node) => {
+          const box = node!.getBoundingClientRect();
+          return box.top >= 0 && box.bottom <= window.innerHeight;
+        },
+        await row.elementHandle(),
+        { timeout: 5_000 },
+      )
+      .catch(() => undefined);
     expect(await inView()).toBe(true);
     await page.close();
   });

@@ -51,6 +51,12 @@ pub async fn spawn_within(
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
         .kill_on_drop(false);
+    // Debug builds only: the hello-stall test seam (`host.rs`) names a folder
+    // of marker files and carries no authority; release builds have no seam.
+    #[cfg(debug_assertions)]
+    if let Some(dir) = std::env::var_os(super::host::HELLO_STALL_DIR_ENV) {
+        cmd.env(super::host::HELLO_STALL_DIR_ENV, dir);
+    }
     // SAFETY: setsid is async-signal-safe and touches no Rust state. The host
     // leads its own session so it outlives the controller and its group.
     unsafe {
