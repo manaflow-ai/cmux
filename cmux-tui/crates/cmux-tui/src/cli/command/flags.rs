@@ -21,6 +21,9 @@ pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "approve",
     "decline",
     "collapse",
+    // `workspace group create --allow-duplicate`: make a new group even when
+    // one has that name (the default reuses it, workspace-group-reuse-v1).
+    "allow-duplicate",
     "patch",
     "candidates",
     "catalog",

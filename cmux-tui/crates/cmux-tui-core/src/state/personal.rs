@@ -132,7 +132,7 @@ fn group_named(
     tx: &Transaction<'_>,
     name: &str,
     room: Option<&str>,
-) -> anyhow::Result<Option<serde_json::Value>> {
+) -> anyhow::Result<Option<Value>> {
     let wanted = name.trim().to_lowercase();
     Ok(personal::workspace_group_snapshots(tx, room)?.into_iter().find(|group| {
         group["name"].as_str().is_some_and(|named| named.trim().to_lowercase() == wanted)
