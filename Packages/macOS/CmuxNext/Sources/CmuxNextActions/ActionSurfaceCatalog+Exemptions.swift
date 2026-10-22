@@ -41,7 +41,7 @@ nonisolated extension ActionSurfaceCatalog {
         "workspaceGroup.sortByLastUsed", "workspaceGroup.sortByDirectory",
         "fileEditor.importEditorSettings",
         "space.newWindow", "space.newWorkspace", "space.newGroup", "space.rename", "space.setColor", "space.clearColor",
-        "space.setIcon", "space.clearIcon", "space.setDefaults", "space.delete", "space.moveLeft",
+        "space.setIcon", "space.clearIcon", "space.setDefaults", "space.clearDefaults", "space.delete", "space.moveLeft",
         "space.moveRight", "space.move", "space.switch", "workspace.moveToSpace", "workspace.duplicateToSpace",
         "workspaceGroup.moveToSpace", "space.setTheme", "space.clearTheme",
         "space.newWindow", "space.newWorkspace", "space.rename", "space.setColor",
