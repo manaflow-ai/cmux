@@ -217731,6 +217731,798 @@
           }
         }
       }
+    },
+    "subagents.stopReason.user" : {
+      "comment" : "Agent pane: why a subagent stopped, after its 'Subagent stopped: {name}' line and ' · ' (subagents/SubagentDoneLine.tsx): the person stopped it (Stop on the turn or on the subagent); lowercase, as a phrase in the line",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "أوقفته أنت"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "zaustavili ste vi"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "stoppet af dig"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "von dir gestoppt"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "stopped by you"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "detenido por ti"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "arrêté par vous"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "interrotto da te"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "あなたが停止"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "បានបញ្ឈប់ដោយអ្នក"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "직접 중지함"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "stoppet av deg"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "zatrzymany przez ciebie"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "parado por você"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "остановлен вами"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "คุณหยุดไว้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "sizin tarafınızdan durduruldu"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "зупинено вами"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "do bạn dừng"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "由你停止"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "由你停止"
+          }
+        }
+      }
+    },
+    "subagents.stopReason.sendNow" : {
+      "comment" : "Agent pane: why a subagent stopped, after its 'Subagent stopped: {name}' line and ' · ' (subagents/SubagentDoneLine.tsx): a prompt sent with Send now (steer.sendNow, the same words) interrupted its turn; lowercase, as a phrase in the line",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "قاطعه «أرسل الآن»"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "prekinuto opcijom „Pošalji sada”"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "afbrudt af Send nu"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "durch „Jetzt senden“ unterbrochen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "interrupted by Send now"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "interrumpido por Enviar ahora"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "interrompu par Envoyer maintenant"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "interrotto da Invia ora"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「今すぐ送信」で中断"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ត្រូវបានរំខានដោយ ផ្ញើឥឡូវ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "지금 보내기로 중단됨"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "avbrutt av Send nå"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "przerwany przez Wyślij teraz"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "interrompido por Enviar agora"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "прерван кнопкой «Отправить сейчас»"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ถูกขัดจังหวะด้วย ส่งเลย"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Şimdi gönder ile kesildi"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "перервано кнопкою «Надіслати зараз»"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "bị ngắt bởi Gửi ngay"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "被“立即发送”中断"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "被「立即傳送」中斷"
+          }
+        }
+      }
+    },
+    "subagents.restart" : {
+      "comment" : "Agent pane: the hover button on a stopped or failed subagent's transcript line that runs it again (subagents/SubagentDoneLine.tsx); its name and tooltip",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "إعادة التشغيل"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pokreni ponovo"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Genstart"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Neu starten"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restart"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reiniciar"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Relancer"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Riavvia"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "再実行"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ចាប់ផ្ដើមឡើងវិញ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "다시 시작"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Start på nytt"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uruchom ponownie"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reiniciar"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Перезапустить"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "เริ่มใหม่"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yeniden başlat"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Перезапустити"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Khởi động lại"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重新运行"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重新執行"
+          }
+        }
+      }
+    },
+    "subagents.restartDetail" : {
+      "comment" : "Agent pane: the second line of the Restart button's tooltip on a subagent's transcript line (subagents/SubagentDoneLine.tsx): what it does",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "اطلب من الوكيل تشغيل هذا الوكيل الفرعي مرة أخرى بالمطالبة نفسها"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zatražite od agenta da ponovo pokrene ovog podagenta s istim upitom"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bed agenten køre denne underagent igen med samme prompt"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Den Agenten bitten, diesen Subagenten mit demselben Prompt erneut auszuführen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ask the agent to run this subagent again with the same prompt"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pedir al agente que ejecute este subagente de nuevo con la misma instrucción"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Demander à l’agent de relancer ce sous-agent avec la même consigne"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chiedi all’agente di eseguire di nuovo questo subagente con lo stesso prompt"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "同じプロンプトでこのサブエージェントをもう一度実行するようエージェントに頼みます"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "សុំឱ្យភ្នាក់ងារដំណើរការភ្នាក់ងាររងនេះម្តងទៀតជាមួយប្រអប់បញ្ចូលដដែល"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "같은 프롬프트로 이 하위 에이전트를 다시 실행하도록 에이전트에게 요청합니다"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Be agenten kjøre denne underagenten på nytt med samme ledetekst"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Poproś agenta o ponowne uruchomienie tego podagenta z tym samym poleceniem"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pedir ao agente que execute este subagente de novo com o mesmo prompt"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Попросить агента снова запустить этого субагента с тем же запросом"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ขอให้เอเจนต์เรียกใช้เอเจนต์ย่อยนี้อีกครั้งด้วยพรอมต์เดิม"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ajandan bu alt ajanı aynı istemle yeniden çalıştırmasını iste"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Попросити агента знову запустити цього субагента з тим самим запитом"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yêu cầu tác tử chạy lại tác tử con này với cùng lời nhắc"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "让代理用相同的提示再次运行这个子代理"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "請代理以相同的提示再次執行這個子代理"
+          }
+        }
+      }
+    },
+    "subagents.restartPrompt" : {
+      "comment" : "Agent pane: the prompt Restart sends the chat's agent to run a stopped subagent again (subagents/restart.ts); {name} is the subagent's name, {prompt} the prompt it was given, kept as is on the lines after",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "شغّل الوكيل الفرعي \"{name}\" مرة أخرى بالمطالبة نفسها:\n\n{prompt}"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ponovo pokreni podagenta \"{name}\" s istim upitom:\n\n{prompt}"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kør underagenten \"{name}\" igen med samme prompt:\n\n{prompt}"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Führe den Subagenten \"{name}\" mit demselben Prompt erneut aus:\n\n{prompt}"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Run the subagent \"{name}\" again with the same prompt:\n\n{prompt}"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ejecuta de nuevo el subagente \"{name}\" con la misma instrucción:\n\n{prompt}"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Relance le sous-agent \"{name}\" avec la même consigne :\n\n{prompt}"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esegui di nuovo il subagente \"{name}\" con lo stesso prompt:\n\n{prompt}"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "サブエージェント「{name}」を同じプロンプトでもう一度実行してください:\n\n{prompt}"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ដំណើរការភ្នាក់ងាររង \"{name}\" ម្តងទៀតជាមួយប្រអប់បញ្ចូលដដែល៖\n\n{prompt}"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "하위 에이전트 \"{name}\"을(를) 같은 프롬프트로 다시 실행해 주세요:\n\n{prompt}"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kjør underagenten \"{name}\" på nytt med samme ledetekst:\n\n{prompt}"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uruchom ponownie podagenta \"{name}\" z tym samym poleceniem:\n\n{prompt}"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Execute de novo o subagente \"{name}\" com o mesmo prompt:\n\n{prompt}"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Снова запусти субагента \"{name}\" с тем же запросом:\n\n{prompt}"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "เรียกใช้เอเจนต์ย่อย \"{name}\" อีกครั้งด้วยพรอมต์เดิม:\n\n{prompt}"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "\"{name}\" alt ajanını aynı istemle yeniden çalıştır:\n\n{prompt}"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Знову запусти субагента \"{name}\" з тим самим запитом:\n\n{prompt}"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chạy lại tác tử con \"{name}\" với cùng lời nhắc:\n\n{prompt}"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请用相同的提示再次运行子代理“{name}”：\n\n{prompt}"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "請以相同的提示再次執行子代理「{name}」：\n\n{prompt}"
+          }
+        }
+      }
+    },
+    "subagents.restartPromptKind" : {
+      "comment" : "Agent pane: the prompt Restart sends the chat's agent to run a stopped subagent again (subagents/restart.ts); {kind} is the subagent's type as the harness names it (Explore, general-purpose), kept as is; {name} is its name, {prompt} the prompt it was given, kept as is on the lines after",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "شغّل الوكيل الفرعي \"{name}\" من النوع {kind} مرة أخرى بالمطالبة نفسها:\n\n{prompt}"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ponovo pokreni podagenta \"{name}\" tipa {kind} s istim upitom:\n\n{prompt}"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kør underagenten \"{name}\" af typen {kind} igen med samme prompt:\n\n{prompt}"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Führe den Subagenten \"{name}\" vom Typ {kind} mit demselben Prompt erneut aus:\n\n{prompt}"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Run the {kind} subagent \"{name}\" again with the same prompt:\n\n{prompt}"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ejecuta de nuevo el subagente \"{name}\" de tipo {kind} con la misma instrucción:\n\n{prompt}"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Relance le sous-agent \"{name}\" de type {kind} avec la même consigne :\n\n{prompt}"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esegui di nuovo il subagente \"{name}\" di tipo {kind} con lo stesso prompt:\n\n{prompt}"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{kind} サブエージェント「{name}」を同じプロンプトでもう一度実行してください:\n\n{prompt}"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ដំណើរការភ្នាក់ងាររង {kind} \"{name}\" ម្តងទៀតជាមួយប្រអប់បញ្ចូលដដែល៖\n\n{prompt}"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{kind} 하위 에이전트 \"{name}\"을(를) 같은 프롬프트로 다시 실행해 주세요:\n\n{prompt}"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kjør underagenten \"{name}\" av typen {kind} på nytt med samme ledetekst:\n\n{prompt}"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uruchom ponownie podagenta \"{name}\" typu {kind} z tym samym poleceniem:\n\n{prompt}"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Execute de novo o subagente \"{name}\" do tipo {kind} com o mesmo prompt:\n\n{prompt}"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Снова запусти субагента \"{name}\" типа {kind} с тем же запросом:\n\n{prompt}"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "เรียกใช้เอเจนต์ย่อย {kind} \"{name}\" อีกครั้งด้วยพรอมต์เดิม:\n\n{prompt}"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{kind} türündeki \"{name}\" alt ajanını aynı istemle yeniden çalıştır:\n\n{prompt}"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Знову запусти субагента \"{name}\" типу {kind} з тим самим запитом:\n\n{prompt}"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chạy lại tác tử con {kind} \"{name}\" với cùng lời nhắc:\n\n{prompt}"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请用相同的提示再次运行 {kind} 子代理“{name}”：\n\n{prompt}"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "請以相同的提示再次執行 {kind} 子代理「{name}」：\n\n{prompt}"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

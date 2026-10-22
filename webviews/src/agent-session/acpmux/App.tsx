@@ -324,6 +324,7 @@ import { type ChatAccounts, ChatAccountsContext, readChatAccounts } from "./chat
 import { HostError } from "./HostError";
 import { SHELL_ROW, ShellRuns, shellContextAttachments, withShellRows } from "./shell/shellRuns";
 import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
+import { restartPrompt } from "./subagents/restart";
 import {
   SUBAGENT_DONE,
   SUBAGENT_OF,
@@ -4488,6 +4489,12 @@ function AcpmuxPane() {
               text: prompt,
               attachments: (await directClient.current?.promptAttachments(rowId)) ?? [],
             }))().catch(() => undefined),
+      }),
+      ...(connected && {
+        restartSubagent: (agent: Subagent) => {
+          const text = restartPrompt(agent, translate);
+          if (text) void callNative("chat.send", { text }).catch(() => undefined);
+        },
       }),
       ...(connected &&
         retryModels.length > 1 && {
