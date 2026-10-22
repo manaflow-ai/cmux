@@ -189,4 +189,59 @@ struct AgentPaneRelayedAllowTests {
             }
         }
     }
+
+    static func pendingQuestion() -> String {
+        #"{"jsonrpc":"2.0","method":"_acpmux/permission_pending","params":{"sessionId":"s","permissionId":"p1","decisionNonce":"\#(nonce)","personInstance":"\#(instance)","request":{"options":[{"optionId":"yes","kind":"allow_once"},{"optionId":"no","kind":"reject_once"}],"toolCall":{"_meta":{"acpmux":{"question":{"items":[{"id":"q1","prompt":"Which one?"}]}}}}}}}"#
+    }
+
+    /// Leo 2026-10-21: an agent's question answered in the pane for a chat on another machine was
+    /// refused there as "accepted only from the cmux app". The answer's proof covers its answers
+    /// (acpmux `decision_answers_proof`), so that machine counts it as the person's.
+    @Test func anAnswerToAnotherMachinesQuestionCarriesTheProofOverItsAnswers() async throws {
+        let machine = "machine-\(UUID().uuidString)"
+        let key = try #require(AcpmuxSecretKey())
+        AcpmuxRemotePersonKeys.shared.bind(machine: machine, instance: Self.instance, key: key)
+        defer { AcpmuxRemotePersonKeys.shared.drop(machine: machine) }
+        let approvals = AgentPaneRemoteApprovals(machineID: machine, label: "host") { nil }
+        let wire = RemoteWire()
+        let route = AgentPaneRemoteRoute(machine: "host", approvals: approvals) { wire }
+        let inbox = PageInbox()
+        let transport = AgentPaneTransport()
+        transport.deliver = { event, done in inbox.deliver(event.frames); done() }
+        let id = try await transport.open(.remote(route))
+        _ = await transport.send(connection: id, frames: [#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{}}"#])
+        _ = await inbox.frame(containing: "\"origin\":\"remote\"")
+        transport.sessions.add("s")
+        wire.push(Self.pendingQuestion())
+        _ = await inbox.frame(containing: "permission_pending")
+
+        transport.gestures.record(click: true)
+        let ticket = try #require(transport.reserveGesture(try #require(Self.intent(option: "yes"))))
+        let answer = #"{"jsonrpc":"2.0","id":7,"method":"_acpmux/permission_respond","params":{"sessionId":"s","permissionId":"p1","optionId":"yes","answers":{"Which one?":"B"},"_meta":{"cmuxGesture":"\#(ticket)"}}}"#
+        let error = await transport.send(connection: id, frames: [answer])
+        #expect(error == nil, "\(String(describing: error))")
+        let sent = await wire.sent(containing: "permission_respond")
+        let object = try JSONSerialization.jsonObject(with: Data(sent.utf8)) as? [String: Any]
+        let params = try #require(object?["params"] as? [String: Any])
+        let acpmux = (params["_meta"] as? [String: Any])?["acpmux"] as? [String: Any]
+        #expect(acpmux?["decisionNonce"] as? String == Self.nonce)
+        let expected = key.decisionProof(instance: Self.instance, session: "s", permission: "p1", option: "yes", nonce: Self.nonce,
+                                         answers: ["Which one?": "B"])
+        #expect(expected != nil)
+        #expect(acpmux?["personDecision"] as? String == expected, "the answer went without the proof over its answers: \(sent)")
+        #expect(acpmux?["personDecision"] as? String
+            != key.decisionProof(instance: Self.instance, session: "s", permission: "p1", option: "yes", nonce: Self.nonce))
+    }
+
+    /// The same bytes acpmux checks (`the_answers_decision_proof_matches_the_apps_vector` in
+    /// cmux-tui/crates/acpmux/tests/person_allow.rs): key order by UTF-8 bytes, acpmux's escapes.
+    @Test func theAnswersProofMatchesAcpmuxsVector() throws {
+        let key = try #require(AcpmuxSecretKey(hex: "5e1f0c2a9b8d7e6f5a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f"))
+        let answers = try JSONSerialization.jsonObject(
+            with: Data(#"{"Which one?":"B","Pick a color\n(one)":["red","blue"],"é":"\u0001"}"#.utf8))
+        #expect(AcpmuxSecretKey.canonicalJSON(answers) == "{\"Pick a color\\n(one)\":[\"red\",\"blue\"],\"Which one?\":\"B\",\"é\":\"\\u0001\"}")
+        #expect(key.decisionProof(instance: "0123456789abcdef", session: "sess-1", permission: "perm-1", option: "allow_once",
+                                  nonce: "nonce-1", answers: answers)
+            == "3b11c2af201d95772c106a4c8463a54b94e615f85e88eac0700f7d657c24f0e9")
+    }
 }
