@@ -10,7 +10,7 @@ extension SidebarRow {
     /// only a nested group's rows step in (remote-groups-DESIGN.md slice 2).
     var groupGutter: CGFloat {
         switch key {
-        case .workspace, .tab, .item, .doneFold, .showMore: group == nil ? 0 : SidebarStyle.groupOffset(depth: depth)
+        case .workspace, .tab, .item, .doneFold, .showMore, .emptyGroup: group == nil ? 0 : SidebarStyle.groupOffset(depth: depth)
         case .group: SidebarStyle.groupOffset(depth: depth)
         default: 0
         }
