@@ -13,8 +13,6 @@ import Observation
 /// as Ghostty overrides (`GhosttyRuntime.themeOverride`, `fontOverride`,
 /// `backgroundOverride`) and a config reload, so terminals and chrome
 /// follow live. The Ghostty config file itself never changes.
-/// `ui.reducedBackgrounds` overrides the window background and hides the
-/// pictures here, the one place both are applied.
 @MainActor
 final class TerminalThemeSetting {
     static let path = AppThemeSetting().configPath
@@ -38,8 +36,7 @@ final class TerminalThemeSetting {
         init(_ snapshot: CmuxConfigSnapshot) {
             self.init(theme: snapshot.appTheme,
                       font: GhosttyRuntime.FontOverride(family: snapshot.terminalFontFamily, size: snapshot.terminalFontSize),
-                      background: ReducedBackgroundsSetting.drawn(snapshot.windowBackground, reduced: snapshot.reducedBackgrounds),
-                      terminalOverridden: snapshot.surfaceBackgrounds.overridesTerminal)
+                      background: snapshot.windowBackground, terminalOverridden: snapshot.surfaceBackgrounds.overridesTerminal)
             edits = snapshot.themeEdits
         }
     }
@@ -111,9 +108,6 @@ final class TerminalThemeSetting {
     private func take(_ snapshot: CmuxConfigSnapshot, theme: String?, edits: ThemeEdits, background: WindowBackgroundOverride,
                       art: BackdropSelection?, shuffle: BackdropShuffle?, tuning: AppearanceTuning) {
         shuffling = shuffle
-        // `ui.reducedBackgrounds`: the plain theme background; the person's picks are kept.
-        let reduced = snapshot.reducedBackgrounds
-        backdropScope.setBackdropsHidden(reduced)
         if shuffle != nil {
             showShuffledArt()
         } else {
@@ -124,11 +118,11 @@ final class TerminalThemeSetting {
         // Per-surface backgrounds (R55): every owner repaints from them.
         backdropScope.setSurfaceBackgrounds(snapshot.surfaceBackgrounds)
         // Over a picture the Opacity the user set is the window's tint (unset: the work's own).
-        backdropScope.setWindowBackdropTint(reduced ? nil : background.opacity)
+        backdropScope.setWindowBackdropTint(background.opacity)
         var state = State(snapshot)
         state.theme = theme
         state.edits = edits
-        state.background = ReducedBackgroundsSetting.drawn(background, reduced: reduced)
+        state.background = background
         apply(state)
     }
 
