@@ -429,10 +429,16 @@ export function ComposerPickers({
     if (!wanted) return;
     // Dropped on a session switch, or once the session moves off the picked model (or never reaches it).
     const away = current !== wanted.model && (current !== wanted.from || wanted.reached);
-    if (wanted.sessionId !== summary?.sessionId || away) {
+    // A New Tab starts its deferred chat with an empty session id. Keep its queued combo until
+    // the new session reports its real id; otherwise a model+effort pick loses the effort between
+    // `chat.new {deferred}` and the first acpmux snapshot. Once a real id is known, changes still
+    // invalidate a pending combo exactly as they do in an already-started chat.
+    const sessionChanged = wanted.sessionId !== undefined && wanted.sessionId !== summary?.sessionId;
+    if (sessionChanged || away) {
       pending.current = undefined;
       return;
     }
+    if (!summary?.sessionId) return;
     if (current === wanted.model) wanted.reached = true;
     if (current !== wanted.model || !effortId || !effortValues.split("\u0000").includes(wanted.effort)) return;
     pending.current = undefined;
@@ -448,7 +454,12 @@ export function ComposerPickers({
     if (harness && remembers) rememberPick({ harness, model: pickedModel }, folder ?? summary?.cwd);
     if (pickedModel !== shown) {
       pending.current = pickedEffort
-        ? { sessionId: summary?.sessionId, from: current, model: pickedModel, effort: pickedEffort }
+        ? {
+            sessionId: summary?.sessionId || undefined,
+            from: current,
+            model: pickedModel,
+            effort: pickedEffort,
+          }
         : undefined;
       onModel(pickedModel);
     } else if (
@@ -480,7 +491,7 @@ export function ComposerPickers({
     // The model already runs: fast mode changes now; else once the agent reports the model.
     if (picked.model === current && fastMode) {
       if (fastMode.currentValue !== fastMode.onValue) fastMode.onPick(fastMode.onValue);
-    } else fastWanted.current = { sessionId: summary?.sessionId, model: picked.model };
+    } else fastWanted.current = { sessionId: summary?.sessionId || undefined, model: picked.model };
   };
   const switchFailed = snapshot.switching?.phase === "failed";
   useEffect(() => {
@@ -506,11 +517,13 @@ export function ComposerPickers({
   useEffect(() => {
     const wanted = fastWanted.current;
     if (!wanted) return;
-    if (wanted.sessionId !== summary?.sessionId) {
+    // As with effort, an empty id is the New Tab's pre-session placeholder. Hold the fast pick
+    // until that deferred chat reports its id instead of dropping it on the transition.
+    if (wanted.sessionId !== undefined && wanted.sessionId !== summary?.sessionId) {
       fastWanted.current = undefined;
       return;
     }
-    if (current !== wanted.model || !fastMode) return;
+    if (!summary?.sessionId || current !== wanted.model || !fastMode) return;
     fastWanted.current = undefined;
     if (fastValue !== fastMode.onValue) fastMode.onPick(fastMode.onValue);
   });
