@@ -22,7 +22,8 @@ on a slower one estimated per frame from the interval and the main thread's work
 `NSView.layout()` calls and window layout passes per frame (`LayoutPassGuard`). Also: hangs and run-loop gaps
 of 8.3 ms or more (`debug.hangs`), the busiest layout view classes (`debug.layers`), sidebar and layout work
 counters (`debug.sidebar_perf`, `debug.layout_counters`), and the app's own press-to-commit ms for new-top
-(`debug.new_workspace`) and switch (`debug.tab_switch`).
+(`debug.new_workspace`) and switch (`debug.tab_switch`). The tag's daemon keeps workspaces across launches, so
+the run first closes any an earlier run left and starts from the one it shows.
 
 The summary pools every round's frames per scenario; totals are medians over rounds. It prints a Markdown
 table (--markdown writes it to a file) and a REPORT-JSON line. Slow numbers are data, not failures. The run
@@ -324,6 +325,22 @@ def switch(count, bench):
             time.sleep(0.3)  # test harness: idle between switches
 
 
+def reset(bench):
+    """The tag's daemon keeps its workspaces across launches: an earlier run's leave the app holding more than
+    the bench workspace. Closes them (untimed) so the fill starts from one; False when one will not close."""
+    extra = [w for w in workspace_ids() if w != bench]
+    if extra:
+        print(f"closing {len(extra)} workspaces an earlier run left", flush=True)
+    for workspace in extra:
+        go(workspace, settle=0.1)
+        reply = action("closeWorkspace", {"confirm": True})
+        if not wait(lambda: workspace not in workspace_ids(), 10):
+            print(f"workspace {workspace} did not close ({error_of(reply)})", flush=True)
+            return False
+    go(bench, settle=0.5)
+    return workspace_ids() == [bench]
+
+
 def fill(count, bench):
     """The app holds `count` workspaces and the bench workspace shows; False when the app stops making them."""
     for _ in range(count * 2):  # bounded: a create that never lands must not hang the step
@@ -528,10 +545,13 @@ def main():
         return False
     time.sleep(5)  # test harness: launch work settles
     bench = wait(shown_workspace, 30)
-    if opts.scrollback:
-        action("terminal.sendText", {"text": f"seq 1 {opts.scrollback}\r"}, settle=1.5)
     wanted = [s for s in opts.scenarios.split(",") if s]
     failures = REPORT.setdefault("failures", [])
+    if not bench or not reset(bench):
+        failures.append(f"the app does not start from one workspace (it holds {len(workspace_ids())})")
+        return False
+    if opts.scrollback:
+        action("terminal.sendText", {"text": f"seq 1 {opts.scrollback}\r"}, settle=1.5)
     failures += [f"unknown scenario {s}" for s in wanted if s not in SCENARIOS]
     counts = sorted(int(v) for v in opts.workspaces.split(",") if v)
     for count in counts:
