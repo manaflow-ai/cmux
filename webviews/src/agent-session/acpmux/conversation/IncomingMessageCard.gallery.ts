@@ -19,6 +19,8 @@ const message = (
 });
 
 const gridFix = "The grid fix is on cmux/grid-fix; tests pass.";
+const openedText =
+  "The grid fix is on cmux/grid-fix; tests pass.\n\nOpened manaflow-ai/cmux#23727 at 3b01de6; the follow-up is hq#2505. The grid now reserves its height before the images load, so nothing below it moves.";
 
 export default agentPaneEntry({
   id: "agent-pane.incoming-message",
@@ -103,18 +105,13 @@ export default agentPaneEntry({
       ),
     },
     opened: {
-      note: "› opens the message under its line, set off by a hairline.",
+      note: "› opens the message under its line as a glass card; its PR, HQ and commit references are links.",
       snapshot: chat([
         user("Split the grid fix into its own chat and report back", 9),
         assistant("Started Grid fix; it will message this chat when done.", 8.5),
         summary(8.5, { status: "completed" }),
-        user("The grid fix is on cmux/grid-fix; tests pass.", 6, {
-          incoming: message(
-            "Grid fix",
-            "The grid fix is on cmux/grid-fix; tests pass.\n\nThe grid now reserves its height before the images load, so nothing below it moves.",
-            undefined,
-            "child-3",
-          ),
+        user(openedText, 6, {
+          incoming: message("Grid fix", openedText, undefined, "child-3"),
           untyped: true,
         }),
         assistant("Merged cmux/grid-fix into this branch.", 5.5),

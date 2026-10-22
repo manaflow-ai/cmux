@@ -134,7 +134,8 @@ pub enum Command {
     /// Send a prompt and stream the reply until the turn ends.
     #[command(alias = "prompt", alias = "send-keys")]
     Send {
-        session: String,
+        #[arg(required_unless_present = "status")]
+        session: Option<String>,
         /// Prompt text. Reads stdin when omitted or "-".
         prompt: Vec<String>,
         /// Send this message into the running turn when the agent supports steering. On by
@@ -144,9 +145,15 @@ pub enum Command {
         /// Queue behind the running turn even with --no-wait.
         #[arg(long)]
         no_steer: bool,
-        /// Return as soon as the prompt is steered in or queued.
+        /// Hand the message to this daemon and return at once, for a session here or on a
+        /// peer: it prints the delivery id, and the daemon delivers it in the background,
+        /// trying again while the peer is down (`acpmux send --status ID`).
         #[arg(long)]
         no_wait: bool,
+        /// Print the state of a delivery `--no-wait` printed: queued, delivering, delivered or
+        /// failed.
+        #[arg(long, value_name = "ID", conflicts_with_all = ["session", "no_wait"])]
+        status: Option<String>,
         /// Do not stream; print only the final assistant text.
         #[arg(long, short)]
         quiet: bool,
@@ -168,6 +175,10 @@ pub enum Command {
         /// named without it.
         #[arg(long, value_name = "NAME")]
         from: Option<String>,
+        /// Replace your prompt still queued under KEY: a correction is never read after the
+        /// order it corrects. Prints how many it replaced. A prompt whose turn started stays.
+        #[arg(long, value_name = "KEY")]
+        supersede: Option<String>,
     },
     /// List sessions on every host.
     #[command(alias = "list", alias = "list-sessions")]
@@ -350,6 +361,8 @@ pub enum Command {
     },
     #[command(hide = true)]
     RestartAgent { session: String },
+    #[command(hide = true)]
+    ResumeQueue { session: String },
     #[command(hide = true, alias = "rename-session")]
     Rename { session: String, new_name: String },
     #[command(hide = true)]
@@ -612,6 +625,9 @@ pub enum SessionCmd {
     Restart { session: String },
     /// Rename a session.
     Rename { session: String, new_name: String },
+    /// Run the queued prompts a failed turn held. An agent or a script may resume a
+    /// queue; only answering a permission or a question needs the cmux app.
+    Resume { session: String },
     /// Fork a session into a new one that shares the history so far.
     Fork {
         session: String,
@@ -999,6 +1015,7 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Stop { session, purge } => Command::Kill { session, purge },
             SessionCmd::Restart { session } => Command::RestartAgent { session },
             SessionCmd::Rename { session, new_name } => Command::Rename { session, new_name },
+            SessionCmd::Resume { session } => Command::ResumeQueue { session },
             SessionCmd::Fork { session, name, cwd } => Command::Fork { session, name, cwd },
             SessionCmd::Set { session, assignment } => Command::Set { session, assignment },
             SessionCmd::Allow { session, option } => Command::Allow { session, option },
