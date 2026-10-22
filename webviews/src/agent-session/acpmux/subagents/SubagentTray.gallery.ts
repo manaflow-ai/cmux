@@ -4,7 +4,8 @@
 // history, in a turn and after it ("Running in background · …"): one running is its line alone;
 // several get a header ("3 subagents running · 1 command") with a line each; past three they start
 // folded to the header. The transcript has no "Running in background" row. A subagent that ended leaves one line where it ended
-// (SubagentDoneLine.tsx), a failure in the danger color. The tray's lines are the summary card's
+// (SubagentDoneLine.tsx), a failure in the danger color, a stopped one with why when known, and
+// Restart on hover for one that did not finish. The tray's lines are the summary card's
 // Subagents rows (AgentLine.tsx). The group card and the agents pill this replaces are
 // subagents.gallery.ts, under Debug Settings agentPane.debug.subagentTray off.
 import { agentPaneEntry } from "../../../gallery/format";
@@ -113,6 +114,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/subagents/SubagentTray.tsx",
     "agent-session/acpmux/subagents/AgentLine.tsx",
     "agent-session/acpmux/subagents/SubagentDoneLine.tsx",
+    "agent-session/acpmux/subagents/restart.ts",
   ],
   variants: {
     "one-running": {
@@ -281,21 +283,60 @@ export default agentPaneEntry({
       ]),
     },
     "failed-line": {
-      note: "A subagent that failed says so in the danger color; one the person stopped says Stopped.",
+      note: "A subagent that failed says so in the danger color. A stopped one says why when the pane knows: the person stopped it (Stop), or a Send now interrupted its turn; one stopped for a reason the pane cannot know (another client's cancel, Claude's own TaskStop) says none rather than guess. One that did not finish offers Restart on hover.",
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector('.cv-subagent-done[data-state="failed"]'));
+        const texts = [...ctx.document.querySelectorAll(".cv-subagent-done")].map((line) => line.textContent ?? "");
+        if (!texts.some((text) => text.includes("stopped by you")))
+          throw new Error("a subagent the person stopped says so");
+        if (!texts.some((text) => text.includes("interrupted by Send now")))
+          throw new Error("a subagent a Send now stopped says so");
       },
       snapshot: chat([
         user(prompt, 12),
         group(
           [
-            agent("Run the update tests", 11.8, "failed", { ran: 0.8 }),
-            agent("Check the docs", 11.8, "cancelled", { ran: 1.6 }),
+            agent("Run the update tests", 11.8, "failed", { ran: 0.8, prompt: "Run the updater's tests" }),
+            agent("Check the docs", 11.8, "cancelled", {
+              ran: 1.6,
+              stopReason: "user",
+              prompt: "Check docs/updates.md",
+            }),
+            agent("Read the release script", 11.8, "cancelled", {
+              ran: 1.9,
+              stopReason: "sendNow",
+              kind: "Explore",
+              prompt: "Read scripts/release.sh",
+            }),
+            agent("Find the channel name", 11.8, "cancelled", { ran: 2.2 }),
           ],
           11.8,
         ),
-        assistant("The update tests failed to start; the docs check was stopped.", 9),
+        assistant("The update tests failed to start; the other checks were stopped.", 9),
         summary(9, { status: "completed", durationMs: 180_000 }),
+      ]),
+    },
+    "restart-on-hover": {
+      note: "Restart on a stopped subagent's line, shown on hover or keyboard focus (focused here): the hover row's compact button, its name and what it does on hover. It asks the chat to run the subagent again with its prompt.",
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-subagent-restart"));
+        (ctx.document.querySelector(".cv-subagent-restart") as HTMLButtonElement).focus();
+      },
+      snapshot: chat([
+        user(prompt, 12),
+        group(
+          [
+            agent("Check the docs", 11.8, "cancelled", {
+              ran: 1.6,
+              stopReason: "user",
+              kind: "Explore",
+              prompt: "Check docs/updates.md",
+            }),
+          ],
+          11.8,
+        ),
+        assistant("Stopped the docs check.", 9),
+        summary(9, { status: "cancelled", durationMs: 110_000 }),
       ]),
     },
   },
