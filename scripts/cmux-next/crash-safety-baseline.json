@@ -23,7 +23,7 @@
    "cmux-tui-platform": 1,
    "cmux-tui-remote-access": 1,
    "cmux-tui-util": 1,
-   "cmux-wg": 15
+   "cmux-wg": 3
   },
   "panic_macro": {
    "acpmux": 2,
