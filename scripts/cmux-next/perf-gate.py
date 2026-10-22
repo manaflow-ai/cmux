@@ -58,6 +58,10 @@ warnings only.
                  ACTIVATION_MAX_RESYNCS status indicators re-checked (the ones a window shows, never every
                  row and tab of the session; host-independent, blocks); the main-thread time of the
                  become notices over ACTIVATION_BUDGET_MS p95 is a warning.
+  hover_card     the 16 x 3 tab grid's workspace row hovered through the real hover path
+                 (debug.hover_sweep): its card lists the workspace's tabs (8 rows, a pane header per
+                 pane, "40 more"; u9696) from the row's cached tabs, so the hover does 0 applies,
+                 0 topology sends, 0 pane snapshots, 0 sidebar list reloads and 0 row configures. The card's show past its hover delay over one 120 Hz frame is a warning.
   status         4 background workspaces print OSC 7501 progress 4 times a second for 5 s:
                  0 applies, 0 topology sends, 0 pane snapshots, 0 sidebar list reloads (I1-I3).
 
@@ -99,6 +103,10 @@ BUDGET = {
     # surfaces, so the daemon's confirm sends none); snapshots: the new pane's mount and the shell's
     # titles (0-1.5, the shell's timing); the confirm re-runs only that tab's strip item.
     "split": {"workspace_applies": 2, "topology_sends": 2, "pane_snapshots": 3},
+    # One workspace card shown over the 48-tab grid (u9696): the card reads the row's cached tabs;
+    # the hover maps, applies and reloads nothing. In-process floor and timings:
+    # WorkspaceHoverCardTabsBench (150 workspaces x 20 tabs, p95 under one 120 Hz frame).
+    "hover_card": {"workspace_applies": 0, "topology_sends": 0, "pane_snapshots": 0, "list_reloads": 0, "row_configures": 0},
     # Whole status window (4 tickers x 4 ticks/s x 5 s).
     "status": {"workspace_applies": 0, "topology_sends": 0, "pane_snapshots": 0, "list_reloads": 0},
     # Per pane focus move (16 panes x 3 tabs): the old pane loses its ring, the new pane gets it; nothing
@@ -131,7 +139,9 @@ NEW_ROW_BUDGET_MS = FRAME_BUDGET_MS
 # session per activation (user 2026-10-21, msg 9674/9682).
 ACTIVATION_MAX_RESYNCS = 64
 ACTIVATION_BUDGET_MS = 8
-SCENARIOS = ["workspaces", "theme", "drag", "tabs", "pane_focus", "split", "relaunch", "new_workspaces", "activation", "status"]
+SCENARIOS = ["workspaces", "theme", "drag", "tabs", "pane_focus", "split", "relaunch", "new_workspaces", "activation", "hover_card", "status"]
+# The workspace card's show past its hover delay (u9696): one 120 Hz frame, a warning.
+HOVER_CARD_BUDGET_MS = 1000 / 120
 
 ROOT = os.path.abspath(os.path.join(HERE, "../.."))
 # The source guard's rule lives in check-perf-source-guard.py, which CI and the pre-push gate run alone.
@@ -1006,6 +1016,42 @@ class Gate:
         if p95 is not None and p95 > ACTIVATION_BUDGET_MS:
             warn(f"activation notices p95 {p95} ms (over {ACTIVATION_BUDGET_MS} ms; light session "
                  f"{result['light']['observers_ms']['p95']} ms)", "activation")
+
+    def hover_card(self):
+        app = self.app
+        if not getattr(self, "grid", None):
+            self.build_grid()
+        app.rpc("debug.hover_cards", {"dismiss": True})
+        app.rpc("debug.pointer_hover", {"point": [5, 5]})  # off every row, so the card shows anew
+        windows = (app.rpc("debug.window_list") or {}).get("windows") or []
+        main = next((w for w in windows if w.get("kind") == "main" and w.get("visible")), None)
+        rows = ((app.rpc("debug.sidebar_rows") or {}).get("windows") or [{}])[0].get("rows") or []
+        row = next((r for r in rows if r.get("selected")), None)
+        height = ((main or {}).get("frame") or {}).get("height")
+        if not check(bool(height and row), "a main window with the grid's selected workspace row", "hover_card"):
+            return
+        frame = row["window_frame"]
+        point = [frame["x"] + frame["width"] / 2, height - (frame["y"] + frame["height"] / 2)]
+        app.quiet_counters()
+        sweep = app.rpc("debug.hover_sweep", {"point": point}, timeout=30) or {}
+        measured = app.counters()
+        cards = app.rpc("debug.hover_cards") or {}
+        lines = [line for line in (cards.get("card_text") or "").split("\n") if line]
+        delay = float(cards.get("delay_ms") or 0)
+        shown_ms = sweep.get("first_show_ms")
+        report["phases"]["hover_card"] = {"counters": {k: v for k, v in measured.items() if k != "sources"},
+                                          "sources": measured["sources"], "first_show_ms": shown_ms, "delay_ms": delay,
+                                          "card_lines": len(lines)}
+        check(bool(sweep.get("shown")), f"the workspace card shows ({sweep.get('error') or sweep.get('shown')})", "hover_card")
+        check(any(line.startswith("Pane ") for line in lines) and len(lines) >= 8,
+              f"the card lists the workspace's tabs by pane ({len(lines)} lines)", "hover_card")
+        check(not over(measured, BUDGET["hover_card"]),
+              f"one card show: {breach_text(over(measured, BUDGET['hover_card']), measured['sources']) or 'all 0'}"
+              f" (budget {BUDGET['hover_card']})", "hover_card")
+        if isinstance(shown_ms, (int, float)) and shown_ms - delay > HOVER_CARD_BUDGET_MS:
+            warn(f"the card showed {shown_ms - delay:.1f} ms after its {delay:.0f} ms delay (budget {HOVER_CARD_BUDGET_MS:.1f} ms)",
+                 "hover_card")
+        app.rpc("debug.hover_cards", {"dismiss": True})
 
     def status(self):
         app = self.app
