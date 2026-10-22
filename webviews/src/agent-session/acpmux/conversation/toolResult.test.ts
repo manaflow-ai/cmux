@@ -374,3 +374,30 @@ test("a text with an exact ID is kept beside structured content that rounded it"
   const result = toolResult(output);
   expect(result.text).toContain("9007199254740993");
 });
+
+test("a resource link keeps its title and description", () => {
+  // Codex review 7 finding 1: a link was reduced to its name and URI.
+  const output = JSON.stringify([
+    {
+      type: "resource_link",
+      uri: "docs://restore",
+      name: "restore",
+      title: "Restore a backup",
+      description: "Supports point-in-time recovery for the last seven days.",
+    },
+  ]);
+  expect(toolResult(output).text).toBe(
+    "Restore a backup: docs://restore\nSupports point-in-time recovery for the last seven days.",
+  );
+});
+
+test("images past the strip's limit stay in the result as JSON", () => {
+  // Codex review 7 finding 2: the strip showed four, and the rest were gone.
+  const images = Array.from({ length: 6 }, (_, i) => ({ type: "image", data: `${PNG}${i}`, mimeType: "image/png" }));
+  const output = JSON.stringify([{ type: "text", text: "Six shots" }, ...images]);
+  const result = toolResult(output);
+  expect(result.images).toHaveLength(4);
+  expect(result.text.startsWith("Six shots\n\n")).toBe(true);
+  expect(result.text.match(/"type": "image"/g)).toHaveLength(2);
+  expect(toolImages({ id: "c1", title: "mcp__shots__take", status: "completed", output })).toHaveLength(4);
+});

@@ -7,12 +7,12 @@
 import type { AcpmuxActivity } from "./model";
 import { editedPaths } from "./toolPaths";
 import { cleanText } from "./conversation/mcpCalls";
-import { envelopeImages } from "./conversation/toolResult";
+import { envelopeImages, MAX_TOOL_IMAGES } from "./conversation/toolResult";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
-/// The most images one call shows.
-export const MAX_TOOL_IMAGES = 4;
+/// The most images one call shows (toolResult.ts keeps an envelope's images past it as JSON).
+export { MAX_TOOL_IMAGES };
 const IMAGE_FILE = /\.(png|jpe?g|gif|webp|svg|heic|tiff?|bmp|pdf|mp4|m4v|mov|webm)$/i;
 /// An absolute image path in output text, ended by space, a quote or a bracket.
 const IMAGE_PATH = /(?<![\w./:~-])\/[^\s"'`()<>[\]]+\.(?:png|jpe?g|gif|webp|svg|pdf|mp4|m4v|mov|webm)(?![\w-])/gi;

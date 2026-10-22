@@ -21,6 +21,8 @@ export type ToolResult = {
 
 /// Outputs longer than this are shown as they are: parsing them would stall the pane.
 const MAX_PARSE_CHARS = 2_000_000;
+/// The most images one call's strip shows (toolImages.ts); an envelope's images past it stay JSON.
+export const MAX_TOOL_IMAGES = 4;
 /// The largest image block kept (its base64 text), as for a call's ACP image blocks (direct.ts).
 const MAX_IMAGE_CHARS = 8 * 1024 * 1024;
 /// Envelopes inside envelopes (JSON text in a text block that is itself a result) are peeled this deep.
@@ -111,8 +113,10 @@ function peelBlock(block: Block, into: Peeled) {
       peelBlock(block.content as Block, into);
       return;
     case "image": {
+      // Past the strip's MAX_TOOL_IMAGES, an image stays JSON in the text, so none is lost.
       const type = String(block.mimeType);
-      if (/^image\/(png|jpeg|gif|webp)$/.test(type) && (block.data as string).length <= MAX_IMAGE_CHARS)
+      const fits = into.images.length < MAX_TOOL_IMAGES && (block.data as string).length <= MAX_IMAGE_CHARS;
+      if (/^image\/(png|jpeg|gif|webp)$/.test(type) && fits)
         into.images.push(`data:${type};base64,${block.data as string}`);
       else into.rest.push(residual(block));
       return;
@@ -124,13 +128,16 @@ function peelBlock(block: Block, into: Peeled) {
       else into.rest.push(residual(block));
       return;
     }
-    case "resource_link":
+    case "resource_link": {
+      // Its title (else its name) and link, then its description on the next line.
+      const uri = String(block.uri);
+      const label = typeof block.title === "string" ? block.title : typeof block.name === "string" ? block.name : "";
+      const line = label && label !== uri ? `${label}: ${uri}` : uri;
       into.texts.push(
-        typeof block.name === "string" && block.name !== block.uri
-          ? `${block.name}: ${block.uri as string}`
-          : String(block.uri),
+        typeof block.description === "string" && block.description ? `${line}\n${block.description}` : line,
       );
       return;
+    }
     default:
       into.rest.push(residual(block));
   }
