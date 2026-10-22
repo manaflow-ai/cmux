@@ -3,6 +3,7 @@
 //! Called by `_acpmux/reload_config`, `cmux harness reload` and the profile
 //! watcher (`harness_watch.rs`).
 
+use crate::no_panic::LockExt;
 use super::*;
 
 impl Hub {
@@ -26,7 +27,7 @@ impl Hub {
         let (harnesses, default_harness, retained) = {
             let mut current = self.config.write().await;
             let mut retained = Vec::new();
-            for session in self.sessions.lock().unwrap().values() {
+            for session in self.sessions.lock_or_recover().values() {
                 let name = session.meta().harness;
                 if !next.harnesses.contains_key(&name)
                     && let Some(old) = current.harnesses.get(&name)
@@ -48,8 +49,7 @@ impl Hub {
             // Keep cached models until fresh probes finish, invalidating only
             // changed/removed profiles. Listeners, peers, store and policy stay put.
             self.known_models
-                .lock()
-                .unwrap()
+                .lock_or_recover()
                 .retain(|name, _| current.harnesses.get(name) == next.harnesses.get(name));
             current.harnesses = next.harnesses;
             current.default_harness = next.default_harness;

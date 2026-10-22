@@ -5,14 +5,16 @@ use super::*;
 
 /// The agent name, or `agent-N` for the first N not taken in `sessions`.
 pub(super) fn unique_name_among(sessions: &HashMap<String, Arc<Session>>, agent: &str) -> String {
-    let taken: Vec<String> = sessions.values().map(|s| s.meta().name).collect();
-    for n in 0.. {
-        let candidate = if n == 0 { agent.to_owned() } else { format!("{agent}-{n}") };
-        if !taken.contains(&candidate) {
-            return candidate;
-        }
+    let taken: std::collections::HashSet<String> = sessions.values().map(|s| s.meta().name).collect();
+    if !taken.contains(agent) {
+        return agent.to_owned();
     }
-    unreachable!()
+    // At most `taken.len()` names are taken, so one of the first
+    // `taken.len() + 1` suffixes is free.
+    (1..=taken.len().saturating_add(1))
+        .map(|n| format!("{agent}-{n}"))
+        .find(|candidate| !taken.contains(candidate))
+        .unwrap_or_else(|| format!("{agent}-{}", taken.len().saturating_add(1)))
 }
 
 /// Whether the harness takes its model on the command line or in env.

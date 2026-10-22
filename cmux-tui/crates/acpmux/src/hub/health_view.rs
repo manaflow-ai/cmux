@@ -1,6 +1,7 @@
 //! Part of `Hub`; see `hub/mod.rs`. Agent CLI health (`harness_health`):
 //! `_acpmux/harness/health` and the daemon's periodic check.
 
+use crate::no_panic::JsonExt;
 use super::*;
 
 use crate::harness_health::{REFRESH_EVERY, Subject};
@@ -124,10 +125,10 @@ impl Hub {
                 };
                 let mut out = json!({"id": id, "ok": ok});
                 if let Some(v) = version(&id) {
-                    out["version"] = json!(v);
+                    out.set("version", json!(v));
                 }
                 if let Some(e) = error {
-                    out["error"] = json!(e);
+                    out.set("error", json!(e));
                 }
                 out
             })

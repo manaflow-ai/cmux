@@ -21,6 +21,7 @@
 //!   accepted offer's `childSessionId`, sends: a parent's own turns send nothing for it.
 //! - The person may accept after the child's first turn ended: the answer sends it then.
 
+use crate::no_panic::JsonExt;
 use super::{Hub, PromptOptions, Session};
 use crate::rpc::method;
 use crate::store::EventRecord;
@@ -111,8 +112,8 @@ impl Hub {
                 }
                 "session_offer_decision"
                     if started.is_none()
-                        && e.msg["outcome"] == "accepted"
-                        && e.msg["childSessionId"] == child =>
+                        && e.msg.at("outcome") == "accepted"
+                        && e.msg.at("childSessionId") == child =>
                 {
                     let offer_id = text(&e, "offerId");
                     let title = titles.remove(&offer_id).unwrap_or_default();
@@ -121,8 +122,8 @@ impl Hub {
                 "user_message" | "queued" => {
                     let p = e.msg.pointer("/_meta/provenance");
                     if let (Some(s), Some(p)) = (started.as_mut(), p)
-                        && p["kind"] == "offer_result"
-                        && p["offerId"] == s.offer_id.as_str()
+                        && p.at("kind") == "offer_result"
+                        && p.at("offerId") == s.offer_id.as_str()
                     {
                         s.sent = true;
                         return false;

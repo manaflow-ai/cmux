@@ -315,7 +315,7 @@ pub(super) fn message_body(text: &str) -> &str {
     }
     let Some(start) = text.find("\n---\n").map(|i| i + 5) else { return text };
     let end = text.rfind("\n--- end of message").filter(|e| *e >= start).unwrap_or(text.len());
-    &text[start..end]
+    text.get(start..end).unwrap_or(text)
 }
 
 /// The message's words: lowercase, without digits or punctuation.

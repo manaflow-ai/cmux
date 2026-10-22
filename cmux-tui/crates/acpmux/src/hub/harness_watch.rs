@@ -20,6 +20,7 @@
 //! during a burst ends both cleanly: the task stops with the runtime or when
 //! the hub's watch state drops, and the thread ends when the watcher drops.
 
+use crate::no_panic::JsonExt;
 use super::*;
 
 use std::path::{Path, PathBuf};
@@ -181,7 +182,7 @@ impl Hub {
                 let _ = self
                     .harness_watch
                     .changes
-                    .send(json!({"harnesses": reply["harnesses"], "diagnostics": diagnostics}));
+                    .send(json!({"harnesses": reply.at("harnesses"), "diagnostics": diagnostics}));
                 true
             }
             Err(e) => {

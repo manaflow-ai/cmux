@@ -4,6 +4,8 @@
 //! replayed entries are in the log, then rebuild the turn and permission
 //! state that died with the previous daemon from that complete log.
 
+use crate::no_panic::JsonExt;
+use crate::no_panic::LockExt;
 use super::*;
 use crate::agent::Attached;
 use crate::agent_host::{self, Liveness};
@@ -241,7 +243,7 @@ impl Hub {
     }
 
     fn session_by_id(&self, id: &str) -> Option<Arc<Session>> {
-        self.sessions.lock().unwrap().get(id).cloned()
+        self.sessions.lock_or_recover().get(id).cloned()
     }
 
     fn mark_unadoptable(&self, session: &Arc<Session>, detail: Value) {
@@ -549,7 +551,7 @@ impl Hub {
                 ("in", kind)
                     if current && e.msg.get("id").is_some() && e.msg.get("method").is_some() =>
                 {
-                    let id = e.msg["id"].clone();
+                    let id = e.msg.at("id").clone();
                     let params = e.msg.get("params").cloned();
                     requests.push((id, kind.to_owned(), params, e.host_seq));
                 }
@@ -607,7 +609,7 @@ impl Hub {
                     self.save_meta(session);
                 }
                 (Some(request_id), answer) => {
-                    *session.turn.lock().unwrap() = Some(TurnInfo {
+                    *session.turn.lock_or_recover() = Some(TurnInfo {
                         started_at: now_ms(),
                         client,
                         masked_preview: crate::secret_scan::mask(&prompt),
@@ -732,7 +734,7 @@ impl Hub {
         super::questions::normalize(&mut request);
         let (tx, rx) = oneshot::channel();
         let decision_nonce = super::person::new_nonce();
-        session.permissions.lock().unwrap().pending.insert(
+        session.permissions.lock_or_recover().pending.insert(
             permission_id.clone(),
             PendingPermission {
                 // The agent's own ask, judged like a fresh one (a re-adopted AskUserQuestion).
@@ -767,7 +769,7 @@ impl Hub {
                 json!({"permissionId": permission_id, "outcome": outcome}),
             );
             {
-                let state = s.permissions.lock().unwrap();
+                let state = s.permissions.lock_or_recover();
                 if state.pending.is_empty()
                     && s.status() == SessionStatus::Waiting
                     && !hub.secrets.waiting_in(&s.id)
@@ -820,9 +822,9 @@ async fn turn_answer(
 
 fn permission_answer(outcome: Value) -> Value {
     let mut out = json!({"outcome": outcome});
-    if let Some(m) = out["outcome"].get("_meta").cloned() {
-        out["_meta"] = m;
-        if let Some(o) = out["outcome"].as_object_mut() {
+    if let Some(m) = out.at("outcome").get("_meta").cloned() {
+        out.set("_meta", m);
+        if let Some(o) = out.get_mut("outcome").and_then(Value::as_object_mut) {
             o.remove("_meta");
         }
     }
@@ -965,7 +967,7 @@ impl Hub {
             "hostBuild": record.host_build.clone()
         });
         if meta.remote_origin {
-            started["remoteEnvPolicy"] = crate::agent::REMOTE_ENV_POLICY_ID.into();
+            started.set("remoteEnvPolicy", crate::agent::REMOTE_ENV_POLICY_ID.into());
         }
         self.append(session, "mux", "host_started", started);
         let attached = ChildAgent::attach_hosted(

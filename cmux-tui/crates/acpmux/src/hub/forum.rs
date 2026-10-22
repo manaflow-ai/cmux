@@ -29,6 +29,7 @@
 //! - Sessions that get no cmux tools (remote origin, `ACPMUX_AGENT_TOOLS=0`
 //!   such as a compactor, Claude Code with `--strict-mcp-config`) get no rules.
 
+use crate::no_panic::JsonExt;
 use super::*;
 use crate::forum::{Author, Forum, Kind, MAX_BODY_BYTES, MAX_KEY_BYTES, Post, RULES_TOPIC};
 
@@ -109,10 +110,11 @@ fn neutral_tags(text: &str) -> String {
     let lower = text.to_ascii_lowercase();
     let mut out = String::with_capacity(text.len());
     for (i, c) in text.char_indices() {
-        let rest = &lower[i..];
+        // `<` is one byte, so `after` starts on a character boundary.
+        let after = lower.get(i + 1..).unwrap_or_default();
         if c == '<'
-            && (rest[1..].starts_with(CONTEXT_TAG)
-                || rest[1..].strip_prefix('/').is_some_and(|r| r.starts_with(CONTEXT_TAG)))
+            && (after.starts_with(CONTEXT_TAG)
+                || after.strip_prefix('/').is_some_and(|r| r.starts_with(CONTEXT_TAG)))
         {
             out.push_str("&lt;");
         } else {
@@ -333,7 +335,7 @@ impl Hub {
         blocks: &mut [Value],
         provenance: &mut Option<Value>,
     ) -> Option<String> {
-        if provenance.as_ref().is_none_or(|p| p["kind"] != PROVENANCE_KIND) {
+        if provenance.as_ref().is_none_or(|p| p.at("kind") != PROVENANCE_KIND) {
             return None;
         }
         let id = prompt_id.strip_prefix(PUSH_PREFIX)?;
@@ -347,8 +349,8 @@ impl Hub {
             *block = json!({"type": "text", "text": push_text(&current)});
         }
         if let Some(p) = provenance.as_mut() {
-            p["postId"] = json!(current.id);
-            p["author"] = json!(current.author);
+            p.set("postId", json!(current.id));
+            p.set("author", json!(current.author));
         }
         Some(current.id)
     }

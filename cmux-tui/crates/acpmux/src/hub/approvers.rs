@@ -68,7 +68,7 @@ impl ApproverSet {
                 .get("publicKey")
                 .and_then(Value::as_str)
                 .and_then(unhex)
-                .filter(|k| k.len() == 65 && k[0] == 4)
+                .filter(|k| k.len() == 65 && k.first() == Some(&4))
                 .ok_or_else(|| {
                     RpcError::invalid_params(
                         "publicKey must be a 65-byte uncompressed P-256 point as hex",
@@ -254,7 +254,7 @@ fn canonical_string(s: &str, out: &mut String) {
 /// The first 8 bytes of the key's SHA-256, as hex.
 pub fn fingerprint(key: &[u8]) -> String {
     use sha2::Digest;
-    hex(&sha2::Sha256::digest(key)[..8])
+    hex(sha2::Sha256::digest(key).get(..8).unwrap_or_default())
 }
 
 fn valid_id(s: &str) -> bool {
@@ -272,7 +272,7 @@ fn unhex(s: &str) -> Option<Vec<u8>> {
     {
         return None;
     }
-    (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).ok()).collect()
+    (0..s.len()).step_by(2).map(|i| u8::from_str_radix(s.get(i..i + 2)?, 16).ok()).collect()
 }
 
 /// Seconds since the Unix epoch.

@@ -26,16 +26,16 @@
  ],
  "crates": {
   "acpmux": {
-   "unwrap_used": 191,
-   "expect_used": 24,
-   "panic": 2,
-   "unreachable": 2,
+   "unwrap_used": 74,
+   "expect_used": 18,
+   "panic": 0,
+   "unreachable": 1,
    "todo": 0,
    "unimplemented": 0,
-   "indexing_slicing": 800,
-   "string_slice": 99,
+   "indexing_slicing": 632,
+   "string_slice": 81,
    "panic_in_result_fn": 0,
-   "arithmetic_side_effects": 978,
+   "arithmetic_side_effects": 969,
    "cast_possible_truncation": 113
   },
   "bindings-rust": {

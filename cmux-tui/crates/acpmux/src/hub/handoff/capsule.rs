@@ -33,11 +33,11 @@ fn tail(s: &str, max: usize) -> &str {
     if s.len() <= max {
         return s;
     }
-    let mut start = s.len() - max;
+    let mut start = s.len().saturating_sub(max);
     while !s.is_char_boundary(start) {
-        start += 1;
+        start = start.saturating_add(1);
     }
-    &s[start..]
+    s.get(start..).unwrap_or_default()
 }
 
 fn kb(bytes: usize) -> String {
@@ -60,7 +60,7 @@ impl Hub {
         let mut summary: Option<(u64, String)> = None;
         let flush = |assistant: &mut Option<Entry>, entries: &mut Vec<Entry>| {
             if let Some(a) = assistant.take()
-                && !a.text[ASSISTANT.len()..].trim().is_empty()
+                && !a.text.get(ASSISTANT.len()..).unwrap_or_default().trim().is_empty()
             {
                 entries.push(a);
             }
@@ -159,9 +159,10 @@ impl Hub {
                 kept.push(&e.text);
                 from_seq = e.from_seq;
             }
-            if kept.is_empty() {
+            if kept.is_empty()
+                && let Some(last) = entries.last()
+            {
                 // Even the newest message is over budget: keep its end.
-                let last = &entries[entries.len() - 1];
                 let cut = tail(&last.text, budget);
                 used = cut.len();
                 kept.push(cut);

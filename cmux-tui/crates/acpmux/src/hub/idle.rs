@@ -13,12 +13,13 @@
 //! CPU. Activity only moves deadlines later, so the task wakes at most once
 //! per idle period per live child.
 
+use crate::no_panic::LockExt;
 use super::*;
 
 impl Hub {
     /// The hub clock's time, as stored in `Session::last_active`.
     pub(super) fn clock_now(&self) -> u64 {
-        self.clock.lock().unwrap().now().as_nanos() as u64
+        self.clock.lock_or_recover().now().as_nanos() as u64
     }
 
     /// Something happened in `session`: its idle period starts again.
@@ -64,7 +65,7 @@ impl Hub {
         loop {
             let (next, clock) = {
                 let Some(hub) = weak.upgrade() else { return };
-                let clock = hub.clock.lock().unwrap().clone();
+                let clock = hub.clock.lock_or_recover().clone();
                 (hub.next_idle_deadline(), clock)
             };
             match next {
@@ -83,7 +84,7 @@ impl Hub {
 
     /// When the first live child's idle period ends, on the hub clock.
     fn next_idle_deadline(&self) -> Option<std::time::Duration> {
-        let idle = (*self.idle_child.lock().unwrap())?;
+        let idle = (*self.idle_child.lock_or_recover())?;
         self.sessions()
             .iter()
             .filter(|s| s.child.try_lock().map(|c| c.is_some()).unwrap_or(true))
@@ -98,7 +99,7 @@ impl Hub {
         if self.stopping.load(Ordering::SeqCst) {
             return;
         }
-        let Some(idle) = *self.idle_child.lock().unwrap() else { return };
+        let Some(idle) = *self.idle_child.lock_or_recover() else { return };
         let now = self.clock_now();
         let idle = idle.as_nanos() as u64;
         for session in self.sessions() {

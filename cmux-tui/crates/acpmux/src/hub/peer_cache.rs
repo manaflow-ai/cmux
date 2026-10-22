@@ -4,6 +4,7 @@
 //! a request for one is refused as `peer_unreachable`, not `no_session`.
 
 use super::*;
+use crate::no_panic::JsonExt;
 
 /// While a peer's sessions change, at most one save this often; a fresh
 /// list and the first drop are saved at once.
@@ -26,9 +27,9 @@ fn cache_path(dir: &std::path::Path, peer: &str) -> Option<std::path::PathBuf> {
 /// the row changed.
 pub(super) fn mark_stale(summary: &mut Value, last_seen: Option<u64>) -> bool {
     let before = summary.clone();
-    summary["status"] = Value::String("unreachable".into());
-    summary["stale"] = Value::Bool(true);
-    summary["lastSeen"] = json!(last_seen);
+    summary.set("status", Value::String("unreachable".into()));
+    summary.set("stale", Value::Bool(true));
+    summary.set("lastSeen", json!(last_seen));
     super::views::decide(summary);
     *summary != before
 }

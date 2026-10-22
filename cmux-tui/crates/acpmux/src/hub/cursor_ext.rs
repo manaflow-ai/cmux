@@ -14,6 +14,7 @@
 //! path, like Grok's (xai.rs). Cursor's notifications (`cursor/update_todos`,
 //! `cursor/task`, `cursor/generate_image`) need no reply.
 
+use crate::no_panic::JsonExt;
 use super::*;
 use std::collections::HashSet;
 
@@ -55,16 +56,16 @@ struct Asked {
 /// both an id and a label (Cursor's answer holds option ids only, so a free
 /// answer would be lost).
 fn asked(params: &Value) -> Result<Vec<Asked>, &'static str> {
-    let questions = params["questions"]
+    let questions = params.at("questions")
         .as_array()
         .filter(|q| !q.is_empty())
         .ok_or("questions must be a non-empty array")?;
     let mut keys = HashSet::new();
     let mut out = Vec::new();
     for q in questions {
-        let id = q["id"].as_str().ok_or("every question needs an id")?;
+        let id = q.get("id").and_then(Value::as_str).ok_or("every question needs an id")?;
         let key = id.trim();
-        let prompt = q["prompt"].as_str().map(str::trim).filter(|p| !p.is_empty());
+        let prompt = q.get("prompt").and_then(Value::as_str).map(str::trim).filter(|p| !p.is_empty());
         let prompt = prompt.ok_or("every question needs a prompt")?;
         if key.is_empty() {
             return Err("every question needs an id");
@@ -74,10 +75,10 @@ fn asked(params: &Value) -> Result<Vec<Asked>, &'static str> {
         }
         let mut labels = HashSet::new();
         let mut options = Vec::new();
-        for o in q["options"].as_array().into_iter().flatten() {
+        for o in q.get("options").and_then(Value::as_array).into_iter().flatten() {
             let (Some(label), Some(option_id)) = (
-                o["label"].as_str().map(str::trim).filter(|l| !l.is_empty()),
-                o["id"].as_str().filter(|i| !i.trim().is_empty()),
+                o.get("label").and_then(Value::as_str).map(str::trim).filter(|l| !l.is_empty()),
+                o.get("id").and_then(Value::as_str).filter(|i| !i.trim().is_empty()),
             ) else {
                 continue;
             };
@@ -96,7 +97,7 @@ fn asked(params: &Value) -> Result<Vec<Asked>, &'static str> {
             id: id.to_owned(),
             key: key.to_owned(),
             prompt: prompt.to_owned(),
-            multi: q["allowMultiple"].as_bool().unwrap_or(false),
+            multi: q.get("allowMultiple").and_then(Value::as_bool).unwrap_or(false),
             options,
         });
     }
@@ -118,10 +119,10 @@ fn question_request(params: &Value, questions: &[Asked]) -> Value {
         .collect();
     let items = super::questions::items_by_id(&raw);
     let title =
-        params["title"].as_str().map(str::trim).filter(|t| !t.is_empty()).unwrap_or("Question");
+        params.get("title").and_then(Value::as_str).map(str::trim).filter(|t| !t.is_empty()).unwrap_or("Question");
     json!({
         "toolCall": {
-            "toolCallId": params["toolCallId"].as_str().unwrap_or("cursor/ask_question"),
+            "toolCallId": params.get("toolCallId").and_then(Value::as_str).unwrap_or("cursor/ask_question"),
             "title": title,
             "kind": "other",
             "status": "pending",
@@ -183,17 +184,17 @@ fn question_reply(questions: &[Asked], outcome: &Value) -> Value {
 
 /// The permission request that approves `params`' plan.
 fn plan_request(params: &Value) -> Value {
-    let plan = params["plan"].as_str().map(str::trim).unwrap_or("");
-    let name = params["name"].as_str().map(str::trim).filter(|n| !n.is_empty());
+    let plan = params.get("plan").and_then(Value::as_str).map(str::trim).unwrap_or("");
+    let name = params.get("name").and_then(Value::as_str).map(str::trim).filter(|n| !n.is_empty());
     let mut tool = json!({
-        "toolCallId": params["toolCallId"].as_str().unwrap_or("cursor/create_plan"),
+        "toolCallId": params.get("toolCallId").and_then(Value::as_str).unwrap_or("cursor/create_plan"),
         "title": name.unwrap_or("Ready to code?"),
         "kind": "switch_mode",
         "status": "pending",
-        "rawInput": {"plan": plan, "todos": params["todos"]},
+        "rawInput": {"plan": plan, "todos": params.at("todos")},
     });
     if !plan.is_empty() {
-        tool["content"] = json!([{"type": "content", "content": {"type": "text", "text": plan}}]);
+        tool.set("content", json!([{"type": "content", "content": {"type": "text", "text": plan}}]));
     }
     json!({
         "toolCall": tool,
@@ -238,7 +239,7 @@ impl Hub {
             CursorRequest::CreatePlan => plan_request(&params),
         };
         // The agent's own session id, as in its session/request_permission.
-        request["sessionId"] = json!(session.meta().agent_session_id);
+        request.set("sessionId", json!(session.meta().agent_session_id));
         let outcome =
             self.handle_permission_for(session, request, epoch, turn_id, None, None).await;
         Ok(match kind {

@@ -7,6 +7,7 @@
 mod activity;
 mod adoption;
 mod agent_pairs;
+use crate::no_panic::LockExt;
 pub use agent_pairs::PairGuard;
 mod aside;
 pub(crate) mod auto_resume;
@@ -537,13 +538,13 @@ impl Hub {
 
     /// Drive lifecycle timers from `clock` (tests pass a `ManualClock`).
     pub fn set_clock(&self, clock: Arc<dyn crate::clock::Clock>) {
-        *self.clock.lock().unwrap() = clock;
+        *self.clock.lock_or_recover() = clock;
         self.idle_wake.notify_one();
     }
 
     /// How long an unused session harness lives; None keeps it forever.
     pub fn set_idle_child(&self, idle: Option<std::time::Duration>) {
-        *self.idle_child.lock().unwrap() = idle;
+        *self.idle_child.lock_or_recover() = idle;
         self.idle_wake.notify_one();
     }
 
@@ -585,7 +586,7 @@ impl Hub {
                 return;
             }
         };
-        let mut sessions = self.sessions.lock().unwrap();
+        let mut sessions = self.sessions.lock_or_recover();
         *self.waiting_at_load.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = metas
             .iter()
             .filter(|m| m.status == SessionStatus::Waiting)
@@ -626,13 +627,14 @@ impl Hub {
         // Debug builds only: a test makes the load fail as a corrupt log could
         // (`durable_agents.rs`). Release builds have no seam.
         #[cfg(debug_assertions)]
+        #[allow(clippy::panic, reason = "debug-build test seam: the test asks for this panic, like a corrupt log")]
         if std::env::var_os("ACPMUX_TEST_PANIC_IN_LOAD_LOGS").is_some() {
             // crash-allow: debug-build test seam; the test asks for this panic, like a corrupt log
             panic!("ACPMUX_TEST_PANIC_IN_LOAD_LOGS");
         }
         let sessions = self.sessions();
         self.on_every_core(&sessions, |session| self.catch_up(session));
-        let waiting = std::mem::take(&mut *self.waiting_at_load.lock().unwrap());
+        let waiting = std::mem::take(&mut *self.waiting_at_load.lock_or_recover());
         // A turn whose agent host still runs is not lost: the host is adopted.
         let hosted = Self::live_host_sessions();
         self.mark_lost_waits(&waiting, &hosted);
@@ -678,11 +680,11 @@ impl Hub {
         if session.caught_up.swap(true, Ordering::SeqCst) {
             return;
         }
-        let last_seq = session.meta.lock().unwrap().last_seq;
+        let last_seq = session.meta.lock_or_recover().last_seq;
         if let Ok((extra, last)) = self.store.tail_after(&session.id, last_seq)
             && extra > 0
         {
-            let mut meta = session.meta.lock().unwrap();
+            let mut meta = session.meta.lock_or_recover();
             meta.event_count += extra;
             meta.last_seq = last;
             // The log ran ahead of the saved session (a hard stop): a newer command list may be
@@ -779,12 +781,12 @@ impl Hub {
     // ------------------------------------------------------------ lookup
 
     pub fn sessions(&self) -> Vec<Arc<Session>> {
-        let v: Vec<_> = self.sessions.lock().unwrap().values().cloned().collect();
+        let v: Vec<_> = self.sessions.lock_or_recover().values().cloned().collect();
         newest_first(v)
     }
 
     fn resolve_here(&self, key: &str) -> Result<Arc<Session>, RpcError> {
-        let sessions = self.sessions.lock().unwrap();
+        let sessions = self.sessions.lock_or_recover();
         // A qualified id is authoritative for new routing. The old bare id,
         // name and prefix forms below remain compatible.
         if let Some((host, mux_id)) = SessionReceipt::split_qualified_id(key)
@@ -813,8 +815,11 @@ impl Hub {
             .cloned()
             .collect();
         match by_prefix.len() {
-            1 => Ok(by_prefix.into_iter().next().unwrap()),
             0 => Err(RpcError::not_found(format!("no session matches {key:?}"))),
+            1 => by_prefix
+                .into_iter()
+                .next()
+                .ok_or_else(|| RpcError::not_found(format!("no session matches {key:?}"))),
             n => Err(RpcError::invalid_params(format!("{key:?} matches {n} sessions; use the id"))),
         }
     }
@@ -892,7 +897,7 @@ impl Hub {
             }
         };
         {
-            let mut m = session.meta.lock().unwrap();
+            let mut m = session.meta.lock_or_recover();
             m.last_seq = seq;
             m.event_count += 1;
             m.updated_at = record.at;
@@ -1171,7 +1176,7 @@ impl Hub {
 
     pub(super) fn set_status(&self, session: &Session, status: SessionStatus) {
         let (was, link) = {
-            let mut m = session.meta.lock().unwrap();
+            let mut m = session.meta.lock_or_recover();
             let was = m.status;
             m.status = status;
             m.updated_at = now_ms();
@@ -1225,7 +1230,8 @@ pub(crate) fn merge_mux_meta(v: &mut Value, fields: Value) {
     if !meta.is_object() {
         *meta = json!({});
     }
-    let mux = meta.as_object_mut().unwrap().entry("acpmux").or_insert_with(|| json!({}));
+    let Some(meta) = meta.as_object_mut() else { return };
+    let mux = meta.entry("acpmux").or_insert_with(|| json!({}));
     if !mux.is_object() {
         *mux = json!({});
     }

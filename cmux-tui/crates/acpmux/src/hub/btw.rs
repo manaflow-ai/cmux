@@ -445,13 +445,14 @@ fn neutralize_close(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut rest = text;
     while let Some(at) = rest.find('<') {
-        out.push_str(&rest[..=at]);
-        rest = &rest[at + 1..];
+        let (head, tail) = rest.split_at_checked(at + 1).unwrap_or((rest, ""));
+        out.push_str(head);
+        rest = tail;
         let after_open = rest.trim_start();
         let Some(after_slash) = after_open.strip_prefix('/') else { continue };
         let name = after_slash.trim_start();
         if name.get(..NAME.len()).is_some_and(|n| n.eq_ignore_ascii_case(NAME)) {
-            out.push_str(&rest[..rest.len() - after_open.len()]);
+            out.push_str(rest.get(..rest.len().saturating_sub(after_open.len())).unwrap_or_default());
             out.push_str("\\/");
             rest = after_slash;
         }
@@ -465,9 +466,9 @@ fn newest(text: &str, max: usize) -> (bool, &str) {
     if text.len() <= max {
         return (false, text);
     }
-    let mut start = text.len() - max;
+    let mut start = text.len().saturating_sub(max);
     while !text.is_char_boundary(start) {
-        start += 1;
+        start = start.saturating_add(1);
     }
-    (true, &text[start..])
+    (true, text.get(start..).unwrap_or_default())
 }

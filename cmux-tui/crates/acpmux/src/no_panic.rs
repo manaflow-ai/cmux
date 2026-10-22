@@ -44,6 +44,11 @@ pub trait JsonExt {
     fn set(&mut self, key: &str, value: Value) -> bool;
     /// The object map, creating it from null. `None` for any other non-object.
     fn object_mut(&mut self) -> Option<&mut Map<String, Value>>;
+    /// `key`'s value, or null: what `value["key"]` reads, without the index lint.
+    fn at(&self, key: &str) -> &Value;
+    /// `key`'s value for writing, inserted as null when absent (a null `self`
+    /// becomes an object first); `None` when `self` is not an object.
+    fn at_mut(&mut self, key: &str) -> Option<&mut Value>;
 }
 
 impl JsonExt for Value {
@@ -61,5 +66,12 @@ impl JsonExt for Value {
             *self = Value::Object(Map::new());
         }
         self.as_object_mut()
+    }
+    fn at(&self, key: &str) -> &Value {
+        static NULL: Value = Value::Null;
+        self.get(key).unwrap_or(&NULL)
+    }
+    fn at_mut(&mut self, key: &str) -> Option<&mut Value> {
+        Some(self.object_mut()?.entry(key).or_insert(Value::Null))
     }
 }

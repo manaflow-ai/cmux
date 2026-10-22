@@ -10,6 +10,7 @@
 //! and masked before its cut for the sub-session tools (`subsession_row`), so
 //! a secret across the cut leaves no head there.
 
+use crate::no_panic::JsonExt;
 use super::*;
 
 /// Longest activity or plan step kept, in characters.
@@ -32,8 +33,8 @@ impl TurnActivity {
     /// Puts the masked lines in `turn`, a summary's running turn, for the
     /// sub-session tools.
     pub(super) fn mask_into(&self, turn: &mut Value) {
-        turn["activity"] = json!(self.masked_activity);
-        turn["planStep"] = json!(self.masked_plan_step);
+        turn.set("activity", json!(self.masked_activity));
+        turn.set("planStep", json!(self.masked_plan_step));
     }
 }
 
@@ -62,13 +63,13 @@ fn masked_activity_of(update: &Value) -> Option<Activity> {
 fn activity_cut(update: &Value, cut: fn(&str, usize) -> String) -> Option<Activity> {
     let line = |v: &Value| v.as_str().map(|t| cut(t, ACTIVITY_CHARS)).filter(|t| !t.is_empty());
     match update.get("sessionUpdate").and_then(Value::as_str)? {
-        "tool_call" | "tool_call_update" => line(&update["title"]).map(Activity::Tool),
+        "tool_call" | "tool_call_update" => line(update.at("title")).map(Activity::Tool),
         "plan" => {
             let entries = update.get("entries").and_then(Value::as_array)?;
             let step = entries
                 .iter()
-                .find(|e| e["status"] == "in_progress")
-                .and_then(|e| line(&e["content"]));
+                .find(|e| e.at("status") == "in_progress")
+                .and_then(|e| line(e.at("content")));
             Some(Activity::PlanStep(step))
         }
         _ => None,

@@ -26,14 +26,14 @@
    "cmux-wg": 15
   },
   "panic_macro": {
-   "acpmux": 2,
+   "acpmux": 1,
    "chatmux-relay": 1,
    "cmux-remote": 11,
    "cmux-tui": 33,
    "cmux-tui-core": 26
   },
   "unwrap": {
-   "acpmux": 140,
+   "acpmux": 67,
    "chatmux-relay": 7,
    "cmux-remote": 25,
    "cmux-terminal-client": 30,

@@ -1,6 +1,7 @@
 //! Part of `Hub`; see `hub/mod.rs`. The "did you mean" hint for a `-m`
 //! head that names a model, not a harness.
 
+use crate::no_panic::LockExt;
 use super::*;
 
 impl Hub {
@@ -18,7 +19,7 @@ impl Hub {
             Some(m) => format!("{head}/{m}"),
             None => head.to_owned(),
         };
-        let known = self.known_models.lock().unwrap();
+        let known = self.known_models.lock_or_recover();
         let mut hits: Vec<String> = Vec::new();
         for (name, p) in &cfg.harnesses {
             let mut ids: Vec<String> = p.models.iter().map(|m| m.id().to_owned()).collect();

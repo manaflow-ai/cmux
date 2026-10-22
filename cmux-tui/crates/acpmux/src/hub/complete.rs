@@ -3,6 +3,7 @@
 //! harness's own login, profile env and bound route, the way the live-model
 //! probe runs it (`hub/live_models.rs`), never a chat session.
 
+use crate::no_panic::JsonExt;
 use super::*;
 use crate::complete::{
     self, CompleteError, Request,
@@ -24,18 +25,18 @@ static RUNNING: std::sync::LazyLock<tokio::sync::Semaphore> =
 /// `refused`: only those its backend refused, else only those it did not.
 fn offered_ids(models: &Value, name: &str, refused: bool) -> Vec<String> {
     let Some(entry) =
-        models["harnesses"].as_array().and_then(|list| list.iter().find(|h| h["harness"] == name))
+        models.get("harnesses").and_then(serde_json::Value::as_array).and_then(|list| list.iter().find(|h| h.at("harness") == name))
     else {
         return Vec::new();
     };
     let mut ids = Vec::new();
-    for model in entry["models"].as_array().into_iter().flatten() {
+    for model in entry.get("models").and_then(serde_json::Value::as_array).into_iter().flatten() {
         // A model its backend refused (`model_availability.rs`).
         if model.get("unavailable").is_some() != refused {
             continue;
         }
-        ids.extend(model["id"].as_str().map(str::to_owned));
-        for alias in model["aliases"].as_array().into_iter().flatten() {
+        ids.extend(model.get("id").and_then(serde_json::Value::as_str).map(str::to_owned));
+        for alias in model.get("aliases").and_then(serde_json::Value::as_array).into_iter().flatten() {
             ids.extend(alias.as_str().map(str::to_owned));
         }
     }
@@ -101,7 +102,7 @@ impl Hub {
         match &reply {
             Ok(v) => tracing::info!(
                 agent = %name,
-                model = %v["model"].as_str().unwrap_or_default(),
+                model = %v.get("model").and_then(serde_json::Value::as_str).unwrap_or_default(),
                 ms,
                 "complete"
             ),

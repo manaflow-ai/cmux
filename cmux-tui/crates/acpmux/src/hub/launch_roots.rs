@@ -121,9 +121,9 @@ fn expand_spawn_root(entry: &str, env: &BTreeMap<String, String>, home: &Path) -
     let mut rest = entry;
     let mut named = false;
     while let Some(start) = rest.find("${") {
-        out.push_str(&rest[..start]);
-        let end = rest[start..].find('}')? + start;
-        let inner = &rest[start + 2..end];
+        out.push_str(rest.get(..start)?);
+        let end = rest.get(start..)?.find('}')? + start;
+        let inner = rest.get(start + 2..end)?;
         let (key, default) = match inner.split_once(":-") {
             Some((k, d)) => (k, Some(d)),
             None => (inner, None),
@@ -135,7 +135,7 @@ fn expand_spawn_root(entry: &str, env: &BTreeMap<String, String>, home: &Path) -
             }
             None => out.push_str(default?),
         }
-        rest = &rest[end + 1..];
+        rest = rest.get(end + 1..)?;
     }
     out.push_str(rest);
     if !named {

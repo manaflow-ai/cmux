@@ -44,6 +44,7 @@
 //! `_meta.acpmux.fromAgent` (`acpmux send --from`). Naming yourself an agent only puts you
 //! later, so it needs no proof. Every other prompt is the person's, as before.
 
+use crate::no_panic::JsonExt;
 use super::queue::{Answer, PromptRun, QueuedPrompt};
 use super::*;
 use std::sync::atomic::Ordering;
@@ -133,7 +134,7 @@ pub(super) fn digest_provenance(parts: &[Part]) -> Value {
         .map(|part| {
             let mut m = json!({"promptId": part.prompt_id, "from": part.sender});
             if let Some(p) = &part.run.provenance {
-                m["provenance"] = p.clone();
+                m.set("provenance", p.clone());
             }
             m
         })
@@ -201,7 +202,8 @@ impl Hub {
             let delays = delays
                 .filter(|d| !d.is_empty())
                 .unwrap_or_else(|| super::auto_resume::DEFAULT_DELAYS_MS.to_vec());
-            let delay = delays[retries.min(delays.len() - 1)];
+            // `delays` is not empty: an empty list became the default above.
+            let delay = delays.get(retries).or(delays.last()).copied().unwrap_or_default();
             tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
             if session.meta().status == SessionStatus::Closed {
                 return;
@@ -258,8 +260,7 @@ impl Hub {
             let unclaimed = session.restored.lock().unwrap_or_else(|e| e.into_inner()).clone();
             let mut taken = Vec::new();
             let mut i = 0;
-            while i < queue.len() {
-                let q = &queue[i];
+            while let Some(q) = queue.get(i) {
                 if q.held {
                     i += 1;
                     continue;
@@ -344,11 +345,11 @@ impl Hub {
             let text = prompt_text(&q.run.blocks);
             let mut queued = json!({"text": text, "client": q.client, "position": position, "promptId": q.prompt_id, "turnId": q.turn_id, "prompt": q.run.blocks, "control": q.run.control.as_str(), "trustGate": q.run.trust_gate, "requeued": true});
             if let Some(agent) = &q.run.agent {
-                queued["fromAgent"] = json!(agent);
+                queued.set("fromAgent", json!(agent));
             }
             let images = super::prompt_images::keep(&q.run.blocks);
             if !images.is_empty() {
-                queued["images"] = Value::Array(images);
+                queued.set("images", Value::Array(images));
             }
             super::session::mark_pasted(&mut queued, &q.run.blocks);
             let queued = crate::prompt_provenance::marked(queued, q.run.provenance.as_ref());
@@ -460,7 +461,7 @@ mod tests {
             .as_array()
             .unwrap()
             .iter()
-            .map(|m| m["from"].as_str().unwrap())
+            .map(|m| m.get("from").and_then(Value::as_str).unwrap())
             .collect();
         assert_eq!(senders, ["lane-a", "lane-b", "lane-a"]);
     }
