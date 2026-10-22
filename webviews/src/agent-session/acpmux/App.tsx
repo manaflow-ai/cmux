@@ -4967,6 +4967,7 @@ function AcpmuxPane() {
         scopedAgent.isolated ? 1 : 0,
         scopedAgent.worktree?.path ?? "",
         scopedAgent.worktree?.branch ?? "",
+        scopedAgent.agents ? `${scopedAgent.agents.done}/${scopedAgent.agents.started}` : "",
       ].join("\u0000")
     : "";
   const scopedRows = shownSubagent === undefined ? undefined : snapshot.subagentViews?.[shownSubagent];
@@ -4998,12 +4999,15 @@ function AcpmuxPane() {
   const showCall = useCallback((toolCallId: string) => showCallRef.current(toolCallId), []);
   // A subagent's edited files are in its own rows, which the chat's diff (openOutput) never reads:
   // they open the Changes viewer beside the chat on the subagent's folder, its worktree when it has
-  // one (a chat on this Mac; another machine's folders are not here).
-  const subagentChanges =
-    inspectorSubagent && inspectorLocal ? subagentChangesFolder(inspectorSummary, inspectorSubagent) : undefined;
-  const openSubagentOutput = subagentChanges
-    ? () => ignoreFailure(callNative("pane.action", { id: HEADER_ACTIONS.changes, cwd: subagentChanges, mode: "open" }))
-    : undefined;
+  // one (a chat on this Mac; another machine's folders are not here). The folder is found on the
+  // click, not on every render: finding it reads the subagent's rows.
+  const openSubagentOutput =
+    inspectorSubagent && inspectorLocal
+      ? () => {
+          const cwd = subagentChangesFolder(inspectorSummary, inspectorSubagent);
+          if (cwd) ignoreFailure(callNative("pane.action", { id: HEADER_ACTIONS.changes, cwd, mode: "open" }));
+        }
+      : undefined;
   const inspector = useChatInspector({
     snapshot,
     machineName,

@@ -8,8 +8,9 @@
 // - Connectors: the MCP servers its harness loaded, with how many need reconnecting.
 // - Changes: the pull requests it opened, touched or named, in any repository (ChangesSection).
 // - Servers: the dev servers it runs in the background (ServersSection).
-// - Subagents: an avatar row with live counts that opens into the list: the harness's subagents and
-//   the chats its agent started, a Cloud VM's or another machine's included (SubagentsSection).
+// - Subagents: each running subagent and started chat on its own line, the ended ones folded into
+//   one row: the harness's subagents and the chats its agent started, a Cloud VM's or another
+//   machine's included (SubagentsSection).
 // - Background tasks: its other background commands, the ones only the transcript knows included,
 //   and its wakeups (TasksSection).
 // - Outputs: the files, artifacts and links it produced (OutputsSection).
@@ -375,8 +376,8 @@ function InspectorPresence({
   );
   const scopedAgent = scope?.agent;
   const summary = useMemo(
-    () => (scopedAgent ? subagentSummary(snapshot.summary, scopedAgent, rows) : snapshot.summary),
-    [scopedAgent, snapshot.summary, rows],
+    () => (drawn && scopedAgent ? subagentSummary(snapshot.summary, scopedAgent, rows) : snapshot.summary),
+    [drawn, scopedAgent, snapshot.summary, rows],
   );
   const chatRows = snapshot.rows;
   const transcriptTasks = useMemo(
@@ -385,8 +386,8 @@ function InspectorPresence({
   );
   const allProcesses = registry?.processes;
   const processes = useMemo(
-    () => (scope && allProcesses ? subagentProcesses(allProcesses, rows) : allProcesses),
-    [scope, allProcesses, rows],
+    () => (drawn && scope && allProcesses ? subagentProcesses(allProcesses, rows) : allProcesses),
+    [drawn, scope, allProcesses, rows],
   );
   const waiting = useMemo(
     () => (drawn && asks ? waitingSubagents(asks, views) : new Set<string>()),
