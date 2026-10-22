@@ -15,9 +15,7 @@ import { NeedsYouPanel, type NeedsYouMode } from "../src/agent-session/acpmux/ne
 
 const css = fs.readFileSync(path.resolve(import.meta.dir, "../src/agent-session/acpmux/needsYou/needsYou.css"), "utf8");
 /** The sheet's top-level rules: comments and `@media` blocks (a touch screen's, Reduce Motion's) dropped. */
-const topLevel = css
-  .replace(/\/\*[\s\S]*?\*\//g, "")
-  .replace(/@media[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/g, "");
+const topLevel = css.replace(/\/\*[\s\S]*?\*\//g, "").replace(/@media[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/g, "");
 /** Every top-level declaration block whose selector list names `selector` exactly (a whole selector,
  * not a part); a comma inside `:is(...)` or `:has(...)` does not split the list. */
 const rules = (selector: string) =>
