@@ -58,13 +58,15 @@ enum CloudCreationRows {
 
     /// The automatic update's state (``CloudMachineUpdates``) in a machine header's detail: while it
     /// runs or retries it replaces "Update it to turn on every feature"; a result follows the rest.
-    /// A failure goes once the machine runs a current build (Update Machine fixed it).
+    /// A failure goes once the machine runs the build the update was to (Update Machine fixed it),
+    /// not merely one that serves every capability: an older build can, and is still not the app's.
     static func withUpdate(_ detail: String?, _ event: DaemonUpdateEvent?, compatibility: DaemonCompatibility?) -> String? {
         guard let event else { return detail }
         let line = DaemonUpdateBoard.line(event.state)
         switch event.state {
         case .updating, .retrying: return line
-        case .failed where compatibility?.level == .current: return detail
+        case .failed where event.build.map { build in DaemonBuildCommit(compatibility?.buildCommit)?.sameCommit(build) == true } == true:
+            return detail
         case .updated, .failed: return [detail, line].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n")
         case .cleared: return detail
         }

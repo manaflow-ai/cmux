@@ -224,7 +224,7 @@ struct CloudMachineUpdateTargetTests {
     }
 
     /// The header shows the update's line while it runs or retries; a failure stays until the machine is current.
-    @Test func theHeaderShowsTheUpdateState() {
+    @Test func theHeaderShowsTheUpdateState() throws {
         let limited = "This machine runs cmux-tui 0.1.0 (a9b104f3cb7d). Update it to turn on every feature of this app."
         let event = { (state: DaemonUpdateEvent.State) in DaemonUpdateEvent(id: "cloud:vm-1", displayName: "Leo VM", state: state) }
         #expect(CloudCreationRows.withUpdate(limited, nil, compatibility: nil) == limited)
@@ -233,6 +233,18 @@ struct CloudMachineUpdateTargetTests {
         let failed = DaemonUpdateEvent.State.failed(reason: "disk full", rolledBack: false)
         #expect(CloudCreationRows.withUpdate(limited, event(failed), compatibility: nil) == limited + "\n" + DaemonUpdateBoard.line(failed))
         #expect(CloudCreationRows.withUpdate(nil, event(.updated(build: Self.bundled)), compatibility: nil) == DaemonUpdateBoard.line(.updated(build: Self.bundled)))
+
+        // A failure stays while the machine runs another build than the update's, also one that
+        // serves every capability; it goes once the machine runs that build.
+        var running = try #require(DaemonCompatibility(refusal: .unsupportedProtocol(11)))
+        running.level = .current
+        running.buildCommit = Self.older
+        var failure = event(failed)
+        failure.build = try #require(DaemonBuildCommit(Self.bundled)).hash
+        #expect(CloudCreationRows.withUpdate(nil, failure, compatibility: running) == DaemonUpdateBoard.line(failed),
+                "an older build that serves every capability still shows the failure")
+        running.buildCommit = Self.bundled + "0123456789abcdef0123456789"
+        #expect(CloudCreationRows.withUpdate(nil, failure, compatibility: running) == nil, "the machine reached the build")
     }
 }
 

@@ -103,16 +103,20 @@ public nonisolated struct DaemonUpdateEvent: Sendable, Equatable {
     public var state: State
     /// Show a notice: a failure recorded for this build, which happens once per target and build.
     public var notify: Bool
+    /// The bundled build's commit (``DaemonBuildCommit/hash``) a final outcome is about, so a
+    /// surface can tell whether the target reached it since; nil for the other states.
+    public var build: String?
 
-    public init(id: String, displayName: String, sshHost: String? = nil, state: State, notify: Bool = false) {
+    public init(id: String, displayName: String, sshHost: String? = nil, state: State, notify: Bool = false, build: String? = nil) {
         self.id = id
         self.displayName = displayName
         self.sshHost = sshHost
         self.state = state
         self.notify = notify
+        self.build = build
     }
 
-    public init(_ target: any DaemonUpdateTarget, _ state: State, notify: Bool = false) {
-        self.init(id: target.id, displayName: target.displayName, sshHost: target.sshHost, state: state, notify: notify)
+    public init(_ target: any DaemonUpdateTarget, _ state: State, notify: Bool = false, build: String? = nil) {
+        self.init(id: target.id, displayName: target.displayName, sshHost: target.sshHost, state: state, notify: notify, build: build)
     }
 }

@@ -297,18 +297,19 @@ public actor DaemonUpdatePolicy {
         }
     }
 
-    /// The board's state after a final outcome. Only a recorded failure notifies: it is recorded
-    /// once per target and build, so its notice shows once.
+    /// The board's state after a final outcome, with the build it was about. Only a recorded
+    /// failure notifies: it is recorded once per target and build, so its notice shows once.
     nonisolated static func event(_ target: any DaemonUpdateTarget, _ outcome: DaemonUpdateOutcome,
                                   local: DaemonBuildCommit) -> DaemonUpdateEvent {
-        switch outcome {
-        case .updated(let build): DaemonUpdateEvent(target, .updated(build: build ?? local.hash))
-        case .current: DaemonUpdateEvent(target, .updated(build: local.hash))
+        let build = local.hash
+        return switch outcome {
+        case .updated(let reported): DaemonUpdateEvent(target, .updated(build: reported ?? build), build: build)
+        case .current: DaemonUpdateEvent(target, .updated(build: build), build: build)
         case .busy: DaemonUpdateEvent(target, .retrying)
-        case .needsBinary(let triple): DaemonUpdateEvent(target, .failed(reason: "no build for \(triple)", rolledBack: false))
-        case .rolledBack(let reason): DaemonUpdateEvent(target, .failed(reason: reason, rolledBack: true), notify: true)
+        case .needsBinary(let triple): DaemonUpdateEvent(target, .failed(reason: "no build for \(triple)", rolledBack: false), build: build)
+        case .rolledBack(let reason): DaemonUpdateEvent(target, .failed(reason: reason, rolledBack: true), notify: true, build: build)
         case .handledElsewhere: DaemonUpdateEvent(target, .cleared)
-        case .failed(let reason): DaemonUpdateEvent(target, .failed(reason: reason, rolledBack: false), notify: true)
+        case .failed(let reason): DaemonUpdateEvent(target, .failed(reason: reason, rolledBack: false), notify: true, build: build)
         }
     }
 }
