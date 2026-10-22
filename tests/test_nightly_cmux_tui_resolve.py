@@ -79,6 +79,37 @@ exempt = {"decide", RESOLVE, "refresh-compilation-cache", "refresh-test-compilat
 # publish-nightly checks out the build it selected: this run's resolved build
 # commit, or a recovered earlier build's own build commit.
 SELECTED_SHA = "${{ steps.source.outputs.build_sha }}"
+
+def tooling_checkout(body: str) -> "str | None":
+    """The publication-tooling checkout of a job: `ref: github.sha` into .publish-tooling whose
+    whole sparse-checkout value names only paths under scripts/, nothing else (a `/*` line would
+    be the whole tree at the workflow's commit). The text to drop before the build-ref check."""
+    match = re.search(r"^(\s+)ref: \$\{\{ github\.sha \}\}\n\1path: \.publish-tooling\n\1sparse-checkout: (.*)\n", body, re.MULTILINE)
+    if not match:
+        return None
+    indent, value = match.group(1), match.group(2).strip()
+    text, rest = match.group(0), body[match.end():]
+    if value == "|":
+        paths = []
+        for line in rest.splitlines(keepends=True):
+            if not line.startswith(indent + "  "):
+                break
+            paths.append(line.strip())
+            text += line
+    else:
+        paths = [value]
+    if not paths or not all(re.fullmatch(r"scripts(/(?!\.+(/|$))[\w.-]+)*", path) for path in paths):
+        return None
+    return text
+
+
+for bad in ("scripts/ci/x.py\n            /*", "/*", "scripts/../Sources"):
+    sample = ("          ref: ${{ github.sha }}\n          path: .publish-tooling\n          sparse-checkout: |\n"
+              + "".join(f"            {p}\n" for p in bad.split("\n            ")))
+    check(tooling_checkout(sample) is None, f"a tooling checkout of {bad!r} must not be exempt")
+check(tooling_checkout("          ref: ${{ github.sha }}\n          path: .publish-tooling\n          sparse-checkout: scripts\n") is not None,
+      "publish-nightly's `sparse-checkout: scripts` is the tooling checkout")
+
 shipping = [name for name, body in blocks.items() if name not in exempt and "actions/checkout@" in body]
 for name in ("build-nightly-app", "build-sign-notarize-nightly", "publish-nightly", "build-nightly-ghostty-cli-helper"):
     check(name in shipping, f"{name} must check out the source (guard setup)")
@@ -90,12 +121,11 @@ for name in shipping:
     # The publication tooling (not shipped source) comes from the workflow's own
     # commit, so a recovered older build runs this workflow's scripts. It is a
     # sparse checkout of scripts into .publish-tooling, never the build tree.
-    tooling = re.search(r"ref: \$\{\{ github\.sha \}\}\n\s+path: \.publish-tooling\n"
-                        r"\s+sparse-checkout: (?:scripts\n|\|\n(?:\s+scripts/[\w./-]+\n)+)", body)
+    tooling = tooling_checkout(body)
     if name == "publish-nightly":
         check(tooling is not None, "publish-nightly must check out its publication tooling at github.sha into .publish-tooling")
     if tooling:
-        body = body.replace(tooling.group(0), "")
+        body = body.replace(tooling, "")
     if name in {"build-nightly-app", "build-sign-notarize-nightly"}:
         # Unsigned recovery restores bytes instead of compiling them, using
         # this workflow's controls. Its separate source checkout stays pinned.
