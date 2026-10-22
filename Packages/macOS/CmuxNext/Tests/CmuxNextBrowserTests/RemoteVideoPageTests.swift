@@ -22,19 +22,34 @@ import Testing
             window.close()
         }
         let intents = Intents()
-        let page = WebKitEngine().makeWebKitTab()
+        let engine = WebKitEngine()  // the tab holds its engine weakly
+        let page = engine.makeWebKitTab()
         defer { page.close() }
         page.delegate = intents
         window.contentView = page.contentView
-        let reel = server.url("/reel.mp4")
-        page.load(reel)
+        func title() async -> BrowserJSValue? { try? await page.evaluate("document.readyState === 'complete' && document.title", world: .page) }
 
-        try await Self.until("the video has its metadata") {
-            let ready = try? await page.evaluate("(document.querySelector('video')?.readyState ?? 0) >= 1", world: .page)
-            return ready == .bool(true)
+        // Two pages, then the second's link to the video.
+        page.load(server.url("/a"))
+        try await Self.until("a loads") { await title() == .string("a") }
+        _ = try await page.evaluate("document.querySelector('a').click(); true", world: .page)
+        try await Self.until("b loads") { await title() == .string("b") }
+        _ = try await page.evaluate("document.querySelector('a').click(); true", world: .page)
+
+        try await Self.until("the video plays") {
+            let time = try? await page.evaluate("document.querySelector('video')?.currentTime ?? 0", world: .page)
+            if case .number(let seconds)? = time { return seconds > 0 }
+            return false
         }
+        let reel = server.url("/reel.mp4")
         #expect(page.state.url == reel, "the tab shows \(page.state.url?.absoluteString ?? "nothing")")
         #expect(!intents.downloaded, "the video downloaded")
+
+        // The player has its own place in the back list: Back shows b, Forward the video again.
+        page.goBack()
+        try await Self.until("Back shows b") { await title() == .string("b") }
+        page.goForward()
+        try await Self.until("Forward shows the video") { page.state.url == reel }
     }
 
     @Test func onlyWebVideosPlayInTheTab() throws {
@@ -46,8 +61,8 @@ import Testing
         #expect(RemoteVideoPage.html(for: try #require(URL(string: "https://e.com/a.mp4?a=1&b=2"))).contains("a.mp4?a=1&amp;b=2"))
     }
 
-    /// One second of a 64-pixel H.264 video, as an .mp4.
-    private static func makeVideo() async throws -> Data {
+    /// One second of a 64-pixel H.264 video, as an .mp4. Off the main actor: it writes and reads a file.
+    private nonisolated static func makeVideo() async throws -> Data {
         let file = FileManager.default.temporaryDirectory
             .appendingPathComponent("cn-remote-video-\(UUID().uuidString.prefix(8).lowercased()).mp4")
         defer { try? FileManager.default.removeItem(at: file) }
@@ -89,8 +104,8 @@ import Testing
         }
     }
 
-    /// Serves `video` at any path the way raw.githubusercontent.com does: a generic file, never
-    /// sniffed, in byte ranges on request.
+    /// Serves `/a`, which links to `/b`, which links to `/reel.mp4`; and `video` at `/reel.mp4` the
+    /// way raw.githubusercontent.com does: a generic file, never sniffed, in byte ranges on request.
     nonisolated final class VideoServer: @unchecked Sendable {
         private let listener: NWListener
         private let video: Data
@@ -149,6 +164,12 @@ import Testing
             connection.start(queue: queue)
             connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { [self] data, _, _, _ in
                 let request = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+                let path = request.split(separator: " ").dropFirst().first.map(String.init) ?? "/"
+                if let page = ["/a": "<title>a</title><a href='/b'>b</a>", "/b": "<title>b</title><a href='/reel.mp4'>reel</a>"][path] {
+                    let head = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: \(page.utf8.count)\r\nConnection: close\r\n\r\n"
+                    connection.send(content: Data((head + page).utf8), completion: .contentProcessed { _ in connection.cancel() })
+                    return
+                }
                 let part = range(request)
                 let bytes = part.map { video.subdata(in: $0.lowerBound..<($0.upperBound + 1)) } ?? video
                 var head = part.map { "HTTP/1.1 206 Partial Content\r\nContent-Range: bytes \($0.lowerBound)-\($0.upperBound)/\(video.count)\r\n" }
