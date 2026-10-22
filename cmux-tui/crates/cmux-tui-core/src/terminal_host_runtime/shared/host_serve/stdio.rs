@@ -90,7 +90,7 @@ pub fn serve_terminal_host_stdio(
         owner_token: encode_hex(bootstrapped.owner_token().as_bytes()),
         host_pid: std::process::id(),
         host_start_nonce: encode_hex(start_nonce.as_bytes()),
-        workspace_key: String::new(),
+        workspace_key: launch.workspace_key.clone(),
         supports_set_defaults: true,
         supports_clear_history: true,
         supports_terminate_ack: true,
@@ -107,7 +107,12 @@ pub fn serve_terminal_host_stdio(
         .parent()
         .ok_or_else(|| anyhow::anyhow!("terminal-host record has no parent directory"))?;
     let _publication_lock = acquire_terminal_host_publication_lock(record_root)?;
-    let lease = HostLivenessLease::acquire(liveness_path(Path::new(&launch.record_path), &record))?;
+    // The lease's and the record directory's syncs run after Ready (below),
+    // off the new terminal's first output (new-terminal-100x).
+    let (lease, unsynced_lease) = HostLivenessLease::acquire_deferring_sync(liveness_path(
+        Path::new(&launch.record_path),
+        &record,
+    ))?;
     crate::debug_spans::mark("host.lease_acquired");
     let mut guard = HostServiceGuard {
         shared: shared.clone(),
@@ -122,7 +127,7 @@ pub fn serve_terminal_host_stdio(
     // The PTY owner publishes its own adoption record before Ready. A
     // daemon killed immediately after launch acknowledgement can never
     // leave behind an undiscoverable terminal process.
-    write_record(Path::new(&launch.record_path), &record)?;
+    write_record_deferring_dir_sync(Path::new(&launch.record_path), &record)?;
     guard.published = true;
     host_signals::set_breadcrumb_path(
         Path::new(&launch.record_path).with_extension("signals"),
@@ -159,6 +164,17 @@ pub fn serve_terminal_host_stdio(
     // independently adoptable shell; a replacement daemon discovers the
     // record and connects through the already-listening Unix socket.
     let _ = write_frame(writer, &response);
+    // The discovery files' remaining syncs, after Ready: they only order
+    // the files on disk for a power cut, which also ends this host.
+    let record_dir = Path::new(&launch.record_path).parent().map(Path::to_path_buf);
+    let _ = thread::Builder::new().name("terminal-host-publication-sync".into()).spawn(move || {
+        if let Some(lease) = unsynced_lease {
+            let _ = sys::barrier_sync(&lease);
+        }
+        if let Some(record_dir) = record_dir {
+            let _ = sys::barrier_sync_dir(&record_dir);
+        }
+    });
 
     let launch_owner_deadline = Instant::now() + HOST_LAUNCH_OWNER_TIMEOUT;
     let mut backoff = host_accept::AcceptBackoff::new();
