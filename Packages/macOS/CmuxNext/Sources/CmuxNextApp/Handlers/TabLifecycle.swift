@@ -356,7 +356,9 @@ enum TabLifecycle {
             // once: its pane may have no controller yet, and the old pane still has the focus): the
             // creation it focuses closes, never the old pane's tab (CancelledCreation).
             if let content = ctx.focusedContent, case .tab(let id)? = content.focus.state.expectation?.key, content.daemon.cancelCreation(tab: id) { return ctx.services.keyRouter.creationInputCoordinator.drop(tab: id, in: content.contentView.window) }
-            guard let (pane, id) = ctx.tab(invocation) else { return }
+            guard let (pane, selected) = ctx.tab(invocation) else { return }
+            // A Cmd-W while the last one's close still asks the daemon closes the next tab (TabCloseGuard).
+            guard let id = invocation.origin == .user ? TabCloseGuard.cmdWTarget(selected, in: pane.stripModel) : selected else { return }
             // The user's Cmd-W closes a pinned tab, as Chrome's does, unless `tabs.cmdWClosesPinnedTabs`
             // is off (then it keeps it, PINNED-ITEMS-END-TO-END P3); the tab menu, the CLI and MCP close it either way.
             if invocation.origin == .user {

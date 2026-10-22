@@ -771,9 +771,13 @@ impl Hub {
     /// One family row for the tools: the session's place, state and last reply.
     pub fn subsession_row(&self, s: &Session, with_reply: bool) -> Value {
         let mut summary = self.session_summary(s);
-        // Masked before its cut (`TurnInfo::masked_preview`), for `turn.prompt` and `doing`.
+        // Masked before their cut (`TurnInfo::masked_preview`, `doing`), for `turn` and `doing`.
         if let Some(t) = s.turn().filter(|t| summary["turn"]["turnId"] == t.turn_id.as_str()) {
             summary["turn"]["prompt"] = json!(t.masked_preview);
+            t.doing.mask_into(&mut summary["turn"]);
+        }
+        if summary["waitingPrompt"].is_string() {
+            summary["waitingPrompt"] = json!(super::subsession_send::masked_waiting_prompt(s));
         }
         let pick = |k: &str| summary.get(k).cloned().unwrap_or(Value::Null);
         let mut row = json!({
@@ -811,20 +815,15 @@ impl Hub {
                 row[key] = json!(crate::secret_scan::mask(text));
             }
         }
-        // The last turn's text, and the running turn's prompt again (a turn that changed
-        // between the two reads above): a parent may have pasted a key into it.
-        for pointer in ["/lastTurn/errorText", "/lastTurn/prompt", "/turn/prompt"] {
+        // The last turn's text, and the running turn's again (a turn that changed between the
+        // two reads above): a parent may have pasted a key into it, and what it does now is a
+        // tool call's title, often a command with its arguments.
+        let turn_text = ["/turn/prompt", "/turn/activity", "/turn/planStep"];
+        for pointer in ["/lastTurn/errorText", "/lastTurn/prompt"].into_iter().chain(turn_text) {
             if let Some(slot) = row.pointer_mut(pointer)
                 && let Some(text) = slot.as_str()
             {
                 *slot = json!(crate::secret_scan::mask(text));
-            }
-        }
-        // What the running turn does now is a tool call's title, often a command with its
-        // arguments.
-        for key in ["activity", "planStep"] {
-            if let Some(text) = row["turn"][key].as_str() {
-                row["turn"][key] = json!(crate::secret_scan::mask(text));
             }
         }
         row
