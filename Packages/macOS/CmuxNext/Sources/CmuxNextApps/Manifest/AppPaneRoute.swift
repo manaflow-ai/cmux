@@ -8,6 +8,8 @@ public nonisolated enum AppPaneRoute: Sendable, Hashable {
     case scene(AppImplementation)
     /// cmux draws the pane: the internal page with this id (`home` is the Home page).
     case native(String)
+    /// A web page the app ships draws the pane.
+    case web(AppWebPane)
     /// The app has no page to open.
     case none
 

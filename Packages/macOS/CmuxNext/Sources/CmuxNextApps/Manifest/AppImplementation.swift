@@ -20,17 +20,20 @@ public nonisolated struct AppImplementation: Sendable, Hashable, Identifiable {
     public var export: String?
     /// A pane cmux draws itself (`native`, for example `home`): no scene.
     public var native: String?
+    /// A web page the app ships (`web`, for example `web/index.html`), relative to its bundle.
+    public var web: String?
     /// `options` (v2) or the whole entry (v1): `defaultRegion`, `maxRows`, `placement`.
     public var options: [String: AppJSON]
 
     public init(interface: String, id: String? = nil, title: AppLocalizedText? = nil, symbol: String? = nil,
-                export: String? = nil, native: String? = nil, options: [String: AppJSON] = [:]) {
+                export: String? = nil, native: String? = nil, web: String? = nil, options: [String: AppJSON] = [:]) {
         self.interface = interface
         self.id = id ?? interface
         self.title = title
         self.symbol = symbol
         self.export = export
         self.native = native
+        self.web = web
         self.options = options
     }
 

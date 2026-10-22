@@ -76,6 +76,7 @@ public nonisolated struct AppManifest: Sendable, Hashable, Identifiable {
             return implements.sorted { $0.key < $1.key }.map { interface, entry in
                 AppImplementation(interface: interface, title: AppLocalizedText(json: entry["title"]), symbol: entry["symbol"]?.stringValue,
                                   export: entry["export"]?.stringValue, native: entry["native"]?.stringValue,
+                                  web: entry["web"]?.stringValue,
                                   options: entry["options"]?.objectValue ?? [:])
             }
         }
