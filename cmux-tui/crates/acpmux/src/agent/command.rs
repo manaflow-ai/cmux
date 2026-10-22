@@ -220,8 +220,8 @@ pub(crate) fn harness_command(
     // own default for this entrypoint.
     if profile.kind == crate::config::HarnessKind::ClaudeStdio {
         cmd.env(
-            crate::hub::PREVIEW_FORMAT_ENV,
-            crate::hub::PreviewFormat::of(true, &profile.env).claude_value(),
+            crate::hub::questions::PREVIEW_FORMAT_ENV,
+            crate::hub::questions::PreviewFormat::of(true, &profile.env).claude_value(),
         );
     }
     // A Claude agent's sign-in inputs, for a clear message if it has none.
