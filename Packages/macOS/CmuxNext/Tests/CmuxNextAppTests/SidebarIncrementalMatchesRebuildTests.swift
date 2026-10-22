@@ -234,8 +234,9 @@ import Testing
     /// Lets the list's completions run (a landing's end, a deferred reload) and, with motion on, its springs and fades
     /// end (a rebuild draws ends, not flights), then compares it with a fresh rebuild. A row's spring
     /// (`NSAnimationContext` with a SwiftUI spring) writes its frame on each display frame and leaves no layer
-    /// animation to see, so the list has settled when two looks 50 ms apart agree, no layer animation runs and no
-    /// row fades (at most 3 s: a list stuck mid-flight still differs).
+    /// animation to see, so the list waits until it equals the rebuild, no layer animation runs and no row fades
+    /// (at most 10 s: a list stuck mid-flight still differs). Two equal looks 50 ms apart are no sign of an end: on a
+    /// loaded runner a spring can miss every display frame between them and stop half a point short.
     static func expectMatchesRebuild(_ sidebar: SidebarView, _ when: String) async {
         let list = sidebar.list
         for _ in 0..<3 {
@@ -243,16 +244,13 @@ import Testing
             sidebar.renderNow()
             try? await Task.sleep(for: .milliseconds(30))
         }
-        var last = snapshot(list)
-        for _ in 0..<60 {
-            try? await Task.sleep(for: .milliseconds(50))
-            let now = snapshot(list)
-            if now == last, !animates(list), list.fadingRows.isEmpty { break }
-            last = now
-        }
         let (fresh, window) = rebuilt(from: list.model, design: sidebar.design)
         defer { window.close() }
-        let mine = snapshot(list), theirs = snapshot(fresh.list)
+        let theirs = snapshot(fresh.list)
+        for _ in 0..<200 where snapshot(list) != theirs || animates(list) || !list.fadingRows.isEmpty {
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        let mine = snapshot(list)
         #expect(mine == theirs, "\(when): the list differs from a fresh rebuild (+ only on screen, - only in the rebuild):\n\(mine.diff(theirs))")
     }
 
