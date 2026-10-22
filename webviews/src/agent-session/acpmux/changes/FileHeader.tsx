@@ -5,7 +5,7 @@ import type { DiffEdit, DiffHunk, TurnFile } from "../diff";
 import { ChevronDown, Code, Eye, OpenTab } from "../changeIcons";
 import { FileTypeIcon } from "./FileTypeIcon";
 import { useT, type StringKey } from "../i18n";
-import { fileKind, type FileKind } from "../../../fileKinds";
+import type { FileKind } from "../../../fileKinds";
 import { Counts } from "./Counts";
 import { FileMenu } from "./FileMenu";
 import { openFileKeys, type HunkDecision, type HunkReview } from "./hunkReview";
@@ -38,6 +38,7 @@ export type FileActions = {
 
 export function FileHeader({
   file,
+  kind = "code",
   edit,
   index,
   view,
@@ -45,6 +46,8 @@ export function FileHeader({
   review,
 }: {
   file: TurnFile;
+  /// The file's kind (fileKinds.ts); anything but code gets a label, as in the diff viewer.
+  kind?: FileKind;
   edit: DiffEdit;
   index: number;
   view: FileView;
@@ -56,8 +59,6 @@ export function FileHeader({
   const open = review ? openFileKeys(file, review.decisions) : [];
   const decideFile = (decision: HunkDecision) => open.forEach((key) => review?.decide(key, decision));
   const slash = file.displayPath.lastIndexOf("/");
-  // The whole path: a turn's display path drops the folder its files share (DiffPanel.tsx).
-  const kind = fileKind(file.path);
   const additions = edit.hunks.reduce((sum, hunk) => sum + hunk.lines.filter((line) => line.type === "add").length, 0);
   const deletions = edit.hunks.reduce((sum, hunk) => sum + hunk.lines.filter((line) => line.type === "del").length, 0);
   return (

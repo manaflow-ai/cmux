@@ -57,6 +57,11 @@ function store(key: string, value: string) {
 
 type Tool = "collapse" | "wrap" | "split" | "tree";
 
+/// The path a file's kind (fileKinds.ts) is read from: a git scope's from the repository's top, a
+/// turn's whole path, since a turn's display path drops the folder its files share (one file
+/// under `tests/` shows as `helpers.py`).
+const kindPath = (scope: ChangeScope, file: TurnFile) => (scope === "lastTurn" ? file.path : file.displayPath);
+
 export function bindDiffPanelEscape(panel: HTMLElement, onClose: () => void): () => void {
   const ownerDocument = panel.ownerDocument;
   const ownerWindow = ownerDocument.defaultView;
@@ -148,11 +153,9 @@ export function DiffPanel({
   }, [gitIntent, git, commitOpen, onGitIntentHandled]);
   const scopeFiles = useMemo(() => (load.state === "loaded" ? changeSetFiles(load.changeSet) : []), [load]);
   // The delineated diff, as the diff viewer and the pull request card read a change
-  // (fileKinds.ts): code first, then tests, mocks, docs, evals and generated files. A kind is
-  // read from the whole path, since a turn's display path drops the folder its files share
-  // (one file under `tests/` shows as `helpers.py`).
+  // (fileKinds.ts): code first, then tests, mocks, docs, evals and generated files.
   const files = useMemo(
-    () => [...orderByKind(scope === "lastTurn" ? turnFiles : scopeFiles, (file) => file.path)],
+    () => [...orderByKind(scope === "lastTurn" ? turnFiles : scopeFiles, (file) => kindPath(scope, file))],
     [scope, turnFiles, scopeFiles],
   );
   const threadsByPath = useMemo(() => {
@@ -195,7 +198,8 @@ export function DiffPanel({
         ? "empty"
         : load.state;
   // Code changed and no test did: the pull request card's warning, in its words.
-  const noTests = !scopeState && missingTests(files);
+  const noTests =
+    !scopeState && missingTests(files.map((file) => ({ path: kindPath(scope, file) })));
   const [layout, setLayout] = useState<DiffLayout>(() => (stored(LAYOUT_KEY) === "split" ? "split" : "unified"));
   const [wrap, setWrap] = useState(() => stored(WRAP_KEY) === "on");
   const [showTree, setShowTree] = useState(() => stored(TREE_KEY) !== "off");
@@ -204,8 +208,8 @@ export function DiffPanel({
   // one from its header or the tree. Each file folds once, so one the reader opened stays open,
   // and the file the view was opened on is never folded.
   const generated = useMemo(
-    () => files.filter((file) => fileKind(file.path) === "generated").map((file) => file.path),
-    [files],
+    () => files.filter((file) => fileKind(kindPath(scope, file)) === "generated").map((file) => file.path),
+    [files, scope],
   );
   const [folded, setFolded] = useState<ReadonlySet<string>>(() => new Set());
   const unfolded = generated.filter((path) => !folded.has(path));
@@ -578,6 +582,7 @@ export function DiffPanel({
                   <EditBlock
                     key={`${file.path}\u0000${edit.toolId}\u0000${index}`}
                     file={file}
+                    kind={fileKind(kindPath(scope, file))}
                     edit={edit}
                     index={index}
                     layout={layout}

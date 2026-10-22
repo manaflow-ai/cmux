@@ -156,6 +156,34 @@ test("a generated file the reader opens stays open", async () => {
   }
 });
 
+test("a git scope reads each file's kind from the repository's top, not the folders above it", async () => {
+  const patch = (path: string) =>
+    `diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n@@ -1 +1 @@\n-one\n+two\n`;
+  const listed = (path: string) => ({ path, status: "modified", additions: 1, deletions: 1, patch: patch(path) });
+  // The repository sits in a folder named `tests`; its files are still code and docs.
+  const source = {
+    diff: async () => ({ root: "/home/me/tests/repo", files: [listed("README.md"), listed("src/a.ts")] }),
+  };
+  const container = dom.window.document.getElementById("root")!;
+  const root = createRoot(container);
+  await act(async () => root.render(<DiffPanel files={[]} onClose={() => {}} source={source} />));
+  await act(async () => container.querySelector<HTMLButtonElement>(".acpmux-diff-scope")!.click());
+  await settle();
+  const unstaged = [...dom.window.document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(
+    (item) => item.textContent === "Unstaged",
+  )!;
+  await act(async () => unstaged.click());
+  await settle();
+  try {
+    const blocks = [...container.querySelectorAll<HTMLElement>(".acpmux-diff-file")];
+    expect(blocks.map((block) => block.querySelector(".acpmux-fh-name")?.textContent)).toEqual(["src/a.ts", "README.md"]);
+    expect(blocks.map((block) => block.querySelector(".acpmux-fh-kind")?.textContent ?? "")).toEqual(["", "Docs"]);
+    expect(container.querySelector(".acpmux-diff-no-tests")?.textContent).toBe("Code changed with no test.");
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
 test("orderByKind sorts by kind and hands back a list of one kind untouched", () => {
   const items = ["src/a.ts", "src/b.ts"];
   expect(orderByKind(items, (path) => path)).toBe(items);
