@@ -1436,6 +1436,8 @@ let package = Package(
                 "CmuxNextHome",
                 "CmuxNextHomeEngine",
                 "CmuxNextHostedChief",
+                "CmuxNextImportCards",
+                "CmuxNextImportSuggestions",
                 "CmuxNextLayout",
                 "CmuxNextNowPlaying",
                 "CmuxNextProcessEnvironment",
