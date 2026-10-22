@@ -111,12 +111,14 @@ pub(super) async fn wait(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcErr
     // Only the chats it waits on: summarizing every chat on every record any chat logs
     // kept huge-blue's daemon at 6 to 8 cores and 4.5 GB with 13 waits open (2026-10-22).
     let evaluate = |hub: &Hub| -> (Vec<Value>, Vec<Value>) {
-        let mut summaries = hub.session_summaries_of(&ids);
+        let summaries = hub.session_summaries_of(&ids);
         let mut rows = Vec::new();
         let mut resolved = Vec::new();
         for id in &ids {
+            // `get`, not `remove`: two keys can name one chat (its name and its id).
             let s = summaries
-                .remove(id)
+                .get(id)
+                .cloned()
                 .unwrap_or_else(|| json!({"sessionId": id, "status": "closed", "missing": true}));
             let seq_ok = after
                 .get(id)
