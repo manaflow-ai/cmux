@@ -28,6 +28,8 @@ final class ShellModel {
     let auth: CmuxMobileAuthModel
     let settings: SettingsStore
     @ObservationIgnored let terminalTabs = GhosttyTerminalTabContent()
+    /// The Mac filter Workspaces and Home share (remembered per team).
+    @ObservationIgnored let macFilter = MacFilter()
     let sidebar: SidebarModel
     /// New workspaces: the linked Mac's daemon once live data starts; before
     /// that nothing can be created (the mock only in DEBUG mock mode).
@@ -233,6 +235,9 @@ final class ShellModel {
             tab = .home
             return true
         }
+        // The notification's Mac: its link opens now if it was idle, so the
+        // chat and the Feed's answers reach that Mac (not the chosen one).
+        if let mac = route.mac, !mac.isEmpty, live?.canLink(macID: mac) == true { live?.touch(mac) }
         guard let destination = live?.destination(sessionID: route.sessionID, workspaceID: route.workspaceID, tabID: route.tabID) else {
             // The Feed lists the event meanwhile.
             tab = .feed
