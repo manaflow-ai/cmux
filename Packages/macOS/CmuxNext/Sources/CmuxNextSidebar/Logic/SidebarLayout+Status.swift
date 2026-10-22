@@ -4,13 +4,14 @@ import Foundation
 /// Group by Status (Debug `sidebar.groupByStatus`, off by default): every computer's rows, Chrome groups dissolved,
 /// under the Priority view's states (`SidebarStatusSection`), each in manual order. A header names its section and
 /// count; a folded section keeps the count (Needs you never folds). Rows move as their state changes, except the
-/// active row (`SidebarGrouping.held`). The list draws every row of a section: no row hides behind a fold of its own.
+/// active row (`SidebarGrouping.held`). The list draws every row of a section: the Done fold (`SidebarLayout+DoneFold`,
+/// `sidebar.doneFold`) does not apply inside status sections, so a workspace marked Done shows under its state.
 nonisolated extension SidebarLayout {
     /// The rows of `sections`' computers (the pinned area and the document's sections lay out as before), from `y`;
     /// `spaced` puts the section spacing above them.
     static func statusRows(
         _ sections: [SidebarSection], spaced: Bool, chats: inout SidebarChatHistoryPlacement,
-        options o: SidebarLayoutOptions, metrics m: SidebarLayoutMetrics, visible: (SidebarWorkspace) -> Bool, y: inout CGFloat
+        options o: SidebarLayoutOptions, metrics m: SidebarLayoutMetrics, y: inout CGFloat
     ) -> [SidebarRow] {
         let machines = sections.filter { $0.machine != nil }
         guard let first = machines.first else { return [] }
@@ -24,7 +25,7 @@ nonisolated extension SidebarLayout {
                 case let .group(group): group.workspaces
                 case .item: []
                 }
-                for ws in workspaces where visible(ws) {
+                for ws in workspaces where o.visible(ws) {
                     members[o.grouping.section(ws), default: []].append((ws, section, index))
                 }
             }
@@ -47,7 +48,7 @@ nonisolated extension SidebarLayout {
                     key: .workspace(member.ws.id), y: y, height: h, section: member.section.id,
                     group: nil, siblingIndex: member.index, parentIndex: nil, isLastInGroup: false,
                     isCollapsed: false, childCount: 0, groupColor: nil,
-                    tabDisclosure: o.tabDisclosure(member.ws), content: content
+                    tabDisclosure: o.disclosure(member.ws), content: content
                 ))
                 y += h + m.rowSpacing
                 guard o.listsTabs(member.ws) else { continue }
@@ -69,16 +70,4 @@ nonisolated extension SidebarLayout {
 nonisolated extension SidebarLayoutOptions {
     /// Group by Folder (`SidebarGrouping.groupsByFolder`): never while Group by Status is on.
     public var groupsByFolder: Bool { grouping.groupsByFolder }
-
-    /// `showWorkspaceTabs` lists every workspace's tabs, except those the user collapsed with the row's disclosure.
-    func listsTabs(_ ws: SidebarWorkspace) -> Bool {
-        showWorkspaceTabs && !collapsedWorkspaces.contains(ws.id)
-    }
-
-    /// The row's control for its listed tabs, when tabs are listed.
-    func tabDisclosure(_ ws: SidebarWorkspace) -> SidebarTabDisclosure? {
-        guard showWorkspaceTabs else { return nil }
-        if ws.tabs.isEmpty { return .empty }
-        return collapsedWorkspaces.contains(ws.id) ? .collapsed : .expanded
-    }
 }

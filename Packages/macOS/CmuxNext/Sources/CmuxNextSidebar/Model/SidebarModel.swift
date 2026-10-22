@@ -513,7 +513,7 @@ public final class SidebarModel {
         var o = SidebarLayoutOptions()
         o.filterMatches = filterMatches
         // Workspaces as tabs lists no tab rows under a workspace, as minimal mode.
-        o.workspacesAsTabs = SidebarTunables.workspacesAsTabs.value
+        (o.workspacesAsTabs, o.foldsDone) = (SidebarTunables.workspacesAsTabs.value, SidebarTunables.doneFold.value)
         o.showWorkspaceTabs = showWorkspaceTabs && !o.workspacesAsTabs
         o.collapsedWorkspaces = collapsedWorkspaces
         o.activeWorkspaceID = activeWorkspaceID

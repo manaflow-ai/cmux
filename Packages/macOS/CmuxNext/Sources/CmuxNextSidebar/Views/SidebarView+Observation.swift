@@ -42,6 +42,8 @@ extension SidebarViewComponents {
         var workspacesAsTabs: Bool
         /// Group by Status (`SidebarTunables.groupByStatus`, Debug, off by default).
         var groupsByStatus: Bool
+        /// The "Done (N)" fold (`SidebarTunables.doneFold`): turning it on or off lays the list out again.
+        var foldsDone: Bool
         init(_ model: SidebarModel, _ design: DesignSettings) {
             sectionsRevision = model.observedStructureRevision
             selection = model.selection
@@ -67,6 +69,7 @@ extension SidebarViewComponents {
             history = SidebarChatHistory.shared.state
             workspacesAsTabs = SidebarTunables.workspacesAsTabs.value
             groupsByStatus = SidebarTunables.groupByStatus.value
+            foldsDone = SidebarTunables.doneFold.value
         }
     }
     func observe() {
@@ -101,7 +104,8 @@ extension SidebarViewComponents {
             || state.preferences.changesList(from: lastState?.preferences) || lastState?.tree != state.tree
             || lastState?.pullRequests != state.pullRequests
             || lastState?.history != state.history
-            || lastState?.workspacesAsTabs != state.workspacesAsTabs || lastState?.groupsByStatus != state.groupsByStatus
+            || lastState?.workspacesAsTabs != state.workspacesAsTabs || lastState?.foldsDone != state.foldsDone
+            || lastState?.groupsByStatus != state.groupsByStatus
         let listChanged = rowsChanged || selectionChanged
         let previous = lastState == nil ? nil : lastSections
         model.applyListPreferences(state.preferences)

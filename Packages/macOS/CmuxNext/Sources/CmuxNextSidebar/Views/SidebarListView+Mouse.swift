@@ -73,7 +73,7 @@ extension SidebarListViewComponents {
                 press.activatedOnPress = true
                 model.send(.activateItem(id, opensWorkspace: event.modifierFlags.contains(.option)))
             }
-        case .section, .emptySection, .folder, .status, .block:
+        case .section, .emptySection, .folder, .block, .doneFold, .status:
             break
         }
         self.press = press
@@ -143,6 +143,8 @@ extension SidebarListViewComponents {
             model.send(.activateItem(LayoutItemID(item), opensWorkspace: event.modifierFlags.contains(.option)))
         case let .status(section):
             model.toggleStatusSection(section)
+        case let .doneFold(fold):
+            if openDoneFolds.remove(fold) == nil { openDoneFolds.insert(fold) }
         case .emptySection, .folder, .block:
             break
         }

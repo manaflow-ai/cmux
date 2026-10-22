@@ -45,6 +45,12 @@ nonisolated struct RustRowKey: Codable {
             id = status.rawValue
             section = nil
             workspace = nil
+        case let .doneFold(fold):
+            // Never sent: `RustRow.resolvable` leaves "Done (N)" rows out.
+            kind = "folder"
+            id = nil
+            section = RustSectionID(fold.section)
+            workspace = nil
         case let .item(item), let .block(item):
             // Never sent: `RustRow.resolvable` leaves document rows out.
             kind = "item"
@@ -95,12 +101,13 @@ nonisolated struct RustRowKey: Codable {
 }
 
 nonisolated struct RustRow: Codable {
-    /// The rows the drop resolver reads: Group by Folder's headers are
-    /// labels only (no drop target), so they stay out.
+    /// The rows the drop resolver reads: Group by Folder's headers and
+    /// "Done (N)" rows are labels only (no drop target), so they stay out.
     static func resolvable(_ rows: [SidebarRow]) -> [RustRow] {
         rows.compactMap { row in
             if case .folder = row.key { return nil }
             if case .status = row.key { return nil }
+            if case .doneFold = row.key { return nil }
             if case .item = row.key { return nil }
             if case .custom = row.section { return nil } // the older resolver knows Pinned and machines only
             return RustRow(row)

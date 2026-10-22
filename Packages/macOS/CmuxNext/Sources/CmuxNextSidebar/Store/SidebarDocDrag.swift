@@ -81,7 +81,7 @@ public struct SidebarDocDrag {
                 if let last = slots.last, last.kind == .row, item(.workspace(owner)) == last.item {
                     slots[slots.count - 1].frame.size.height = max(last.frame.height, row.maxY - last.frame.minY)
                 }
-            case .folder, .status:
+            case .folder, .status, .doneFold:
                 continue
             }
         }

@@ -105,6 +105,12 @@ public nonisolated enum SidebarTunables {
         help: "Lists every computer's rows under the Priority view's states (Needs you, Done, Failed, CI failing, Working, Idle) with counts, in your order inside each. Rows move as their state changes; the active row stays put until another row is active.",
         default: false, code: "SidebarTunables.groupByStatus")
 
+    /// Workspaces marked Done fold into one "Done (N)" row at the end of their group or list (`SidebarLayout+DoneFold`).
+    public static let doneFold = Tunable<Bool>.toggle(
+        "sidebar.doneFold", .sidebar, "Fold Done workspaces",
+        help: "Workspaces marked Done move into one Done row at the end of their group or list, in their order; click the row to show them.",
+        default: true, code: "SidebarTunables.doneFold")
+
     /// The workspace hover card says what its agents did since the person last looked at it
     /// (`SidebarLookedStore`): turns done, questions, failures. On by default.
     public static let sinceLooked = Tunable<Bool>.toggle(
@@ -192,6 +198,7 @@ public nonisolated enum SidebarTunables {
         [
             agentMark.descriptor,
             collapseMotion.descriptor,
+            doneFold.descriptor,
             dragThreshold.descriptor,
             evenRowText.descriptor,
             groupByStatus.descriptor,

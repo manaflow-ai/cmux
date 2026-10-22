@@ -20,6 +20,8 @@ public nonisolated enum SidebarRowKey: Hashable, Sendable {
     /// A document section's items in its own arrangement (tiles, a grid, a
     /// line, item rows), drawn by one region: the section id.
     case block(String)
+    /// The "Done (N)" row that holds a list's workspaces marked Done (`SidebarLayout+DoneFold`).
+    case doneFold(SidebarDoneFoldID)
 }
 
 /// A workspace row's control for its inline tabs (`sidebar.showWorkspaceTabs`).
