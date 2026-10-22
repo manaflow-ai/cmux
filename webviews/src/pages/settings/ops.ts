@@ -108,6 +108,8 @@ export type HostLists = {
   import_suggestions?: unknown;
   /** Updates > Web UI: the web UI served between app updates; null unless the bundle takes them (NIGHTLY). */
   web_updates?: WebUpdatesState | null;
+  /** Settings > Chief > Voice input: the Debug toggle home.voiceInput; null where it does not exist (Release). */
+  voice_input?: { on: boolean } | null;
   /**
    * Wallpaper choices; thumbnails at `backdrop/<id>` on the page's own origin. Each carries its
    * picker collection (`darkArt`, `museumIcons`, `calm`, `dore`, `yours`, `apple`, `video`) and
@@ -500,6 +502,8 @@ export type SettingsOps = {
   "cmux.settings.web_updates.check": [Record<string, never>, Record<string, never>];
   /** Native: Updates > Web UI's Roll Back (updates.web.rollback), from the next safe point. */
   "cmux.settings.web_updates.rollback": [Record<string, never>, Record<string, never>];
+  /** Native: Settings > Chief > Voice input's switch writes home.voiceInput (the person's gesture only). */
+  "cmux.settings.voice_input.set": [{ on: boolean }, Record<string, never>];
   /** Native: the Accounts part (providers, linked accounts, forms). */
   "cmux.settings.accounts.state": [Record<string, never>, AccountsState];
   /** Native: one Accounts gesture; a failed Keychain save answers its message. */

@@ -284,6 +284,20 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
       },
     },
+    "machine-colors": {
+      note: "Another machine keeps one color from its name (machineColor) in the list, so two SSH machines and a Cloud machine tell apart at a glance; this Mac stays quiet.",
+      props: {
+        ...baseProps,
+        environments: true,
+        localName: "office-mac",
+        peers: ["gpu-box", "build-mini", "Cloud machine"],
+        peerKinds: { "gpu-box": "ssh", "build-mini": "ssh", "Cloud machine": "cloud" },
+      },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
+      },
+    },
     "environment-picker-no-cloud": {
       note: "Preview: with no cloud machine yet, New Cloud Machine heads its own Cloud section with what one gives.",
       props: {

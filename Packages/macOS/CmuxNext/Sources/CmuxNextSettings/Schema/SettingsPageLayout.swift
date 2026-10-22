@@ -21,6 +21,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
         case channels
         /// The web UI served now, its last check and Roll Back (plans/cmux-next/web-ota.md); NIGHTLY only.
         case webUpdates
+        /// Settings > Chief's Voice input row: the Debug toggle home.voiceInput, only where it exists.
+        case voiceInput
     }
 
     /// A group card as the layout states it: the rows of a schema group
@@ -177,7 +179,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
         // version; its All Chief Settings link opens this): Chiefs lists every Chief, each opening
         // its editor (name, picture, backend; u2586); the Chief Pet card (ChatGPT's Mini & Pets)
         // draws the preview, Show/Hide and the characters from its group's two rows; then the
-        // chat's look.
+        // chat's look. Voice input (the message box's mic) shows only in builds with Debug Settings.
         CategorySpec(
             id: "chief", title: SettingsText.keyed("settings.category.chief", "Chief"), symbol: "crown",
             groups: [
@@ -186,7 +188,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 // The Chief pet floating over every app, and its character.
                 group("settings.group.chiefPet"),
             ],
-            lead: [.chiefs, .chiefPet]),
+            lead: [.chiefs, .chiefPet, .voiceInput]),
         // A core cmux feature: banners, sounds, the attention ring and the
         // feed for agents, terminal programs and `cmux notify`.
         CategorySpec(
