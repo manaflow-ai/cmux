@@ -111,15 +111,25 @@ final class StagedUpdateRefresh {
             if run(reason: "\(updater.ring.rawValue) ring picked", updater: updater) == nil { arm(updater) }
             return
         }
-        guard let newer = newerBuild(than: staged, failure: failure, asked: probed?.asked ?? false, updater: updater) else {
-            return arm(updater)
+        let asked = probed?.asked ?? false
+        guard let newer = newerBuild(than: staged, failure: failure, asked: asked, updater: updater) else {
+            return keep(updater, asked: asked)
         }
         guard updater.cancelStaged() else {
             updater.log.append("build \(newer) is newer than staged build \(staged), but no installer was held to cancel")
-            return arm(updater)
+            return keep(updater, asked: asked)
         }
         updater.log.append("build \(newer) on the \(updater.ring.rawValue) ring is newer than staged build \(staged): staging it instead")
         if let startCheck { startCheck() } else { updater.controller?.checkForUpdates() }
+        // The person's own check (a check or a ring pick) now runs in Sparkle: another one joins it.
+        if asked { updater.userCheckRunning = true }
+    }
+
+    /// The staged build stays: the person's check is answered by its card (the next check is not
+    /// theirs), and the next probe is an interval away.
+    private func keep(_ updater: UpdaterService, asked: Bool) {
+        if asked { updater.flow.askAnswered() }
+        arm(updater)
     }
 
     /// The build to stage instead of `staged`, or nil (the reason is logged).
