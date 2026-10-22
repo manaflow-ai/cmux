@@ -290,6 +290,13 @@ The daemon never removes a group because it is empty, pinned or not; the pin
 tells clients to keep an empty group as a saved group (closing its
 workspaces leaves it collapsed and empty, and opening it restores them)
 instead of hiding it. Older daemons omit the field (not pinned).
+`workspace-group-reuse-v1` makes a create by name find-or-create:
+`workspace_group.create {name, reuse_existing: true}` answers the personal
+group already named `name` (trimmed, any case; in `room` when given),
+unchanged, and makes none; only when no group has that name is a group made.
+Without `reuse_existing` a create always makes a new group. The CLI's
+`workspace group create` and `workspace group <name> add` send it, so agents
+filing workspaces by group name never make two groups of one name.
 `workspace.agent_folder.set {workspace, path}` (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE,
 capability `workspace-agent-folder-v1`) sets the folder new agent chats of the workspace start in, for every client.
 `path` is an absolute path of an existing directory in canonical form (the
