@@ -699,5 +699,11 @@
     "arguments": [
       1
     ]
+  },
+  "importSuggestions.status.importedSessions": {
+    "source": "Imported %lld sessions",
+    "arguments": [
+      1
+    ]
   }
 }

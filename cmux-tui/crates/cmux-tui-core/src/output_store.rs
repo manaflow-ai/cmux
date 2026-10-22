@@ -360,7 +360,7 @@ impl OutputStore {
         let drained = overflow.min(state.tail.len());
         state.tail.drain(..drained);
         state.tail_start += overflow as u64 + skipped;
-        state.tail.extend(&bytes[bytes.len() - keep..]);
+        state.tail.extend(bytes.get(bytes.len().saturating_sub(keep)..).unwrap_or_default());
         state.last_output = Instant::now();
         if self.full.enabled() {
             if state.pending.is_empty() {
@@ -443,9 +443,9 @@ impl OutputStore {
         let available = usize::try_from(end - start).unwrap_or(usize::MAX);
         let take = available.min(budget);
         let bytes = if from_pending {
-            state.pending[skip..skip + take].to_vec()
+            state.pending.get(skip..skip.saturating_add(take))?.to_vec()
         } else {
-            state.tail.range(skip..skip + take).copied().collect()
+            state.tail.iter().skip(skip).take(take).copied().collect()
         };
         Some(OutputWindow {
             start_offset: start,

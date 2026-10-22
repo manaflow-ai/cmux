@@ -35,13 +35,12 @@ import {
   type ComposerPermissionAccess,
 } from "./ComposerPickers";
 import { FileSearch } from "./FileSearch";
-import { FastToggle, SpeedToggleHost, type SpeedTiers } from "./FastToggle";
-import { ComposerFoot } from "./ComposerFoot";
+import { ComposerBox, type ComposerBoxHandle } from "./ComposerBox";
 import { Icon } from "./icons/Icon";
 import { Spinner } from "./conversation/icons";
 import { MentionMenu, mentionQuery, mentionResults, useMentionSearch } from "./MentionMenu";
 import { hasOtherChats, mentionInsert, mentionItems, mentionSelection, type MentionItem } from "./mentionItems";
-import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
+import type { ContextMenuItem } from "../../ui/ContextMenu";
 import { openChipMenu } from "./composerChipMenu";
 import type { Choice } from "./ComposerPickers";
 import type { FileSearchSource } from "./fileSearchModel";
@@ -57,26 +56,22 @@ import {
   useDraftActionsVersion,
   writePersistedDraft,
 } from "./composerDraft";
-import { MarkdownField, type MarkdownFieldHandle } from "./MarkdownField";
+import type { MarkdownFieldHandle } from "./MarkdownField";
 import { type StringKey, useT } from "./i18n";
 import { remoteComposer } from "./remoteEditing";
-import { ChromeArea } from "../../ui/HideableChrome";
 import { useComposerChrome } from "./composerChrome";
 import { useQueueing } from "./queueing";
 import { useMenuPressGuard } from "./menuPressGuard";
-import { useRowFit } from "./composerRowFit";
 import { useComposerSettings } from "./composerSettings";
 import { useEscapeStop } from "./escapeStop";
 import { usePromptHistory } from "./composer/promptHistory";
 import {
   appendAttachments,
-  AttachmentStrip,
   attachmentErrorText,
   useAttachmentIntake,
   useSendWhenAttached,
 } from "./composer/attachmentIntake";
 import { type KeptAttachments, useKeptAttachments } from "./composer/keptAttachments";
-import { isPasteAsPlainTextKey, usePastedChips } from "./composer/pastedChips";
 import { usePasteAnywhere } from "./composer/pasteAnywhere";
 import { DropOverlay } from "./composer/DropOverlay";
 import type { SendBlock } from "./useFolderTrustAsk";
@@ -90,11 +85,6 @@ const STOP_GUARD_MS = 600;
 
 /// How long typing pauses before a new chat's text goes to the host (`onUnsentDraft`).
 const UNSENT_DRAFT_SETTLE_MS = 300;
-
-/// What keeps its own press inside the composer card (`focusFromCard`): the text, controls, the menus
-/// and dialogs the card opens, and attachments.
-const CARD_OWN_PRESS =
-  '.ProseMirror, button, a[href], input, textarea, select, label, summary, [contenteditable="true"], [role="button"], [role="link"], [role="menuitem"], [role="option"], [role="checkbox"], [role="radio"], [role="switch"], [role="slider"], [role="tab"], [role="textbox"], [role="combobox"], [role="listbox"], [role="menu"], [role="dialog"], .ui-popup, .acpmux-attachment';
 
 export type ComposerEditCommand = "cut" | "copy" | "paste" | "pasteAsPlainText";
 
@@ -428,15 +418,9 @@ export function Composer({
   const locationSlotSession = useRef<string | undefined>(undefined);
   const locationSlotWasShown = useRef(false);
   const sendButton = useRef<HTMLButtonElement>(null);
-  // The controls row swaps whole units as it narrows (composerRowFit.ts).
-  const bar = useRef<HTMLDivElement>(null);
-  // Codex's speed option, which the chips hand up: the bolt left of the mic (FastToggle.tsx). Claude
-  // Code's Fast mode stays a row of the model button's menu, so its chips hand up none.
-  const [speed, setSpeed] = useState<SpeedTiers | undefined>(undefined);
   // Debug Settings' plain footer look (composerSettings.ts plainFooter, composerLocation.css), and
   // whether Esc stops a turn on a double press (escapeStop.ts).
   const { plainFooter, showContextUsage, escapeDoublePress } = useComposerSettings();
-  useRowFit(bar, plainFooter);
   const usage = snapshot.summary?.usage;
   /// Set while the host has not yet taken a prompt the composer still holds: Enter sends no copy.
   const sending = useRef(false);
@@ -486,8 +470,8 @@ export function Composer({
   attachmentsRef.current = attachments;
   // A prompt sent while a pasted screenshot is still being read goes once its chip is ready.
   const holdForAttachments = useSendWhenAttached(pending.length, sessionId);
-  // A huge paste is a chip; Paste as Plain Text keeps it raw (composer/pastedChips.ts).
-  const pastedChips = usePastedChips(attachmentsRef, setAttachments, field);
+  // The box makes a huge paste a chip; Paste as Plain Text keeps it raw (composer/pastedChips.ts).
+  const box = useRef<ComposerBoxHandle>(null);
   // A paste anywhere in the pane outside a text field goes into the prompt, after what is already
   // there (composer/pasteAnywhere.ts).
   usePasteAnywhere(() => {
@@ -991,7 +975,6 @@ export function Composer({
     // Every key belongs to the input method while it composes, not only Enter.
     if (event.isComposing || event.keyCode === 229) return;
     if (interrupt(event)) return;
-    if (isPasteAsPlainTextKey(event)) pastedChips.plainPaste();
     const plain = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
     // Tab takes the suggested prompt into the field; the next Tab moves focus on as usual. Esc puts
     // it away for this chat (and still does whatever Esc does there).
@@ -1308,29 +1291,8 @@ export function Composer({
   const runEdit = (command: ComposerEditCommand) => {
     if (shell) shellField.current?.focus();
     else field.current?.focus();
-    if (command === "pasteAsPlainText") pastedChips.plainPaste();
+    if (command === "pasteAsPlainText") box.current?.plainPaste();
     onEdit?.(command);
-  };
-  // A press on the card around the text (the field's padding, the gap around the button row, the
-  // card's edge) focuses the prompt where its caret was, as in Codex and Claude Code, whose whole
-  // input card is the text area. The text keeps its own press (caret, selection), and the card's
-  // controls and attachments keep theirs.
-  const focusFromCard = (event: React.MouseEvent<HTMLDivElement>) => {
-    // A Control-press opens the context menu on macOS.
-    if (event.button !== 0 || event.ctrlKey) return;
-    const target = event.target as Element;
-    // React hands up presses from what the card portals elsewhere (a menu, a dialog, a backdrop).
-    if (!event.currentTarget.contains(target) || target.closest(CARD_OWN_PRESS)) return;
-    // A long prompt's scrollbar (the field scrolls past eight lines) keeps its drag.
-    if (
-      target instanceof HTMLElement &&
-      target.scrollHeight > target.clientHeight &&
-      event.nativeEvent.offsetX >= target.clientWidth
-    )
-      return;
-    event.preventDefault();
-    if (shell) shellField.current?.focus();
-    else field.current?.focus();
   };
   const fieldMenu: ContextMenuItem[] = [
     { id: "undo", label: t(COMPOSER_LABELS.undo), disabled: !fieldHistory.undo, onSelect: () => runField("undo") },
@@ -1508,98 +1470,61 @@ export function Composer({
       {dropHost && (
         <DropOverlay state={drop} onLanded={dropLanded} container={dropHost} landingTarget={landingTarget} />
       )}
-      {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- A pointer convenience only: the prompt inside is the control and takes the keyboard itself. */}
-      <div ref={setComposerBox} className="ui-glass acpmux-composer-box" onMouseDown={focusFromCard}>
-        <input
-          ref={importInput}
-          className="acpmux-import-input"
-          type="file"
-          accept=".jsonl,.json,text/plain,application/json"
-          // The /import picker: never shown or focused; the label is the command's language-neutral name.
-          hidden
-          aria-label="/import"
-          onChange={(event) => {
-            const file = event.currentTarget.files?.[0];
-            event.currentTarget.value = "";
-            if (file) void onImportFile?.(file);
-          }}
-        />
-        {/* Anchored to the field, like the picker menus, so a queue above it never pushes the menu up. */}
-        {open && (
-          <SlashMenu
-            matches={matches}
-            active={selected}
-            empty={!commands?.length ? t(COMPOSER_LABELS.noCommands) : t(COMPOSER_LABELS.noMatchingCommands)}
-            onHover={setActive}
-            onPick={pick}
-          />
-        )}
-        {mentionAt && (
-          <MentionMenu
-            state={searchFiles ? mentionSearch : undefined}
-            items={mentions}
-            active={mentionSelected}
-            onHover={(index) => setMentionActive(mentions[index]?.key)}
-            onPick={pickMention}
-          />
-        )}
-        <AttachmentStrip
-          attachments={attachments}
-          pending={pending}
-          {...(attachError ? { error: attachError } : {})}
-          codex={snapshot.summary?.family === "codex" || snapshot.summary?.harness === "codex"}
-          onRemove={(id) => {
-            setAttachments((current) => current.filter((item) => item.id !== id));
-            field.current?.focus();
-          }}
-          onExpand={pastedChips.expand}
-        />
-        {/* The prompt's own right-click menu (POLISH.md right-click contract); WebKit's never shows. */}
-        <ContextMenu className="acpmux-composer-field-menu" items={fieldMenu} selection="menu" onOpen={noteSelection}>
-          {/* An editable prompt that drives a listbox: a native combobox cannot hold a multi-line prompt. */}
-          <MarkdownField
-            ref={fieldRef}
-            className={
-              shell ? "acpmux-composer-prompt is-hidden" : `acpmux-composer-prompt${dictating ? " is-dictating" : ""}`
-            }
-            value={text}
-            selectionKey={sessionId}
-            placeholder={dictating ? t("dictation.listening") : (suggested ?? placeholderText)}
-            placeholderKey={suggested && !dictating ? t(COMPOSER_LABELS.suggestionKey) : undefined}
-            attributes={{
-              "aria-description": suggested ? `${suggested}. ${t(COMPOSER_LABELS.suggestionHint)}` : undefined,
-              role: "combobox",
-              "aria-label": t(COMPOSER_LABELS.prompt),
-              "aria-multiline": "true",
-              "aria-expanded": String(open || Boolean(mentionAt)),
-              "aria-controls": open ? "acpmux-slash-menu" : mentionAt ? "acpmux-mention-menu" : undefined,
-              "aria-autocomplete": "list",
-              "aria-activedescendant":
-                open && matches.length > 0
-                  ? `acpmux-slash-${selected}`
-                  : mentionAt && mentionSelected >= 0
-                    ? `acpmux-mention-${mentionSelected}`
-                    : undefined,
-            }}
-            onBeforeInput={(data, state) => {
-              // A huge paste is a chip, the prompt as it was (pastedText.ts); a chip's own text going
-              // back in is the person's to edit, never shell mode.
-              if (state.paste && !state.composing && pastedChips.take(data)) return true;
-              if (pastedChips.expanding.current) return false;
-              // `!` first: shell mode, in place. A pasted `!cmd` keeps what follows the `!`.
-              if (!onShell || state.composing || !state.empty || !data.startsWith("!")) return false;
-              enterShell(data.slice(1));
-              return true;
-            }}
-            onChange={(markdown, at) => edit(markdown, at)}
-            onCaret={setCaret}
-            onKeyDown={keyDown}
-            onReturnInput={returnInput}
-            onCompositionChange={(value) => {
-              composing.current = value;
-            }}
-          />
-          {shell && (
+      <ComposerBox
+        handle={box}
+        boxRef={setComposerBox}
+        fieldRef={fieldRef}
+        field={{
+          className: shell
+            ? "acpmux-composer-prompt is-hidden"
+            : `acpmux-composer-prompt${dictating ? " is-dictating" : ""}`,
+          value: text,
+          selectionKey: sessionId,
+          placeholder: dictating ? t("dictation.listening") : (suggested ?? placeholderText),
+          placeholderKey: suggested && !dictating ? t(COMPOSER_LABELS.suggestionKey) : undefined,
+          attributes: {
+            "aria-description": suggested ? `${suggested}. ${t(COMPOSER_LABELS.suggestionHint)}` : undefined,
+            role: "combobox",
+            "aria-label": t(COMPOSER_LABELS.prompt),
+            "aria-multiline": "true",
+            "aria-expanded": String(open || Boolean(mentionAt)),
+            "aria-controls": open ? "acpmux-slash-menu" : mentionAt ? "acpmux-mention-menu" : undefined,
+            "aria-autocomplete": "list",
+            "aria-activedescendant":
+              open && matches.length > 0
+                ? `acpmux-slash-${selected}`
+                : mentionAt && mentionSelected >= 0
+                  ? `acpmux-mention-${mentionSelected}`
+                  : undefined,
+          },
+          onBeforeInput: (data, state) => {
+            // `!` first: shell mode, in place. A pasted `!cmd` keeps what follows the `!`.
+            if (!onShell || state.composing || !state.empty || !data.startsWith("!")) return false;
+            enterShell(data.slice(1));
+            return true;
+          },
+          onChange: (markdown, at) => edit(markdown, at),
+          onCaret: setCaret,
+          onKeyDown: keyDown,
+          onReturnInput: returnInput,
+          onCompositionChange: (value) => {
+            composing.current = value;
+          },
+        }}
+        attachments={attachments}
+        pending={pending}
+        setAttachments={setAttachments}
+        attachmentsRef={attachmentsRef}
+        attachError={attachError}
+        codex={snapshot.summary?.family === "codex" || snapshot.summary?.harness === "codex"}
+        onRemoveAttachment={(id) => {
+          setAttachments((current) => current.filter((item) => item.id !== id));
+          field.current?.focus();
+        }}
+        fieldMenu={fieldMenu}
+        onFieldMenuOpen={noteSelection}
+        fieldOverlay={
+          shell && (
             <div className="acpmux-shell-prompt">
               <span className="acpmux-shell-glyph" aria-hidden="true">
                 !
@@ -1619,18 +1544,48 @@ export function Composer({
                 onKeyDown={shellKeyDown}
               />
             </div>
-          )}
-        </ContextMenu>
-        {/* The button row: a right-click here shows a control hidden from its own (composerChrome.tsx). */}
-        <ChromeArea className="acpmux-chrome-area" items={chrome.all}>
-          {/* Claude Code's split (Leo 2026-10-19), the plain footer's default: the box keeps +, the
-              prompt, the mic and Send or Stop; the mode, model and effort sit in a quiet row under
-              it (ComposerFoot below). The other look keeps them all in this row. */}
-          <div
-            ref={plainFooter ? undefined : bar}
-            className={plainFooter ? "acpmux-composer-bar acpmux-composer-inner" : "acpmux-composer-bar"}
-            data-footer-look={plainFooter ? "plain" : undefined}
-          >
+          )
+        }
+        top={
+          <>
+            <input
+              ref={importInput}
+              className="acpmux-import-input"
+              type="file"
+              accept=".jsonl,.json,text/plain,application/json"
+              // The /import picker: never shown or focused; the label is the command's language-neutral name.
+              hidden
+              aria-label="/import"
+              onChange={(event) => {
+                const file = event.currentTarget.files?.[0];
+                event.currentTarget.value = "";
+                if (file) void onImportFile?.(file);
+              }}
+            />
+            {/* Anchored to the field, like the picker menus, so a queue above it never pushes the menu up. */}
+            {open && (
+              <SlashMenu
+                matches={matches}
+                active={selected}
+                empty={!commands?.length ? t(COMPOSER_LABELS.noCommands) : t(COMPOSER_LABELS.noMatchingCommands)}
+                onHover={setActive}
+                onPick={pick}
+              />
+            )}
+            {mentionAt && (
+              <MentionMenu
+                state={searchFiles ? mentionSearch : undefined}
+                items={mentions}
+                active={mentionSelected}
+                onHover={(index) => setMentionActive(mentions[index]?.key)}
+                onPick={pickMention}
+              />
+            )}
+          </>
+        }
+        onCardPress={() => (shell ? shellField.current?.focus() : field.current?.focus())}
+        leading={
+          <>
             <input
               ref={chooser}
               className="acpmux-attach-input"
@@ -1721,96 +1676,74 @@ export function Composer({
                 ]}
               />
             )}
-            {/* The granted-permission status gets no slot of its own in this row (hq#1957 item 15
-                compact row): grants live in the permission mode's Access menu, one lock. */}
-            {/* The chips hand up Codex's speed option, the bolt before the mic (FastToggle.tsx). */}
-            {!plainFooter && (
-              <SpeedToggleHost.Provider value={setSpeed}>
-                <Chips snapshot={snapshot} permissionAccess={permissionAccess} />
-              </SpeedToggleHost.Provider>
+          </>
+        }
+        chips={<Chips snapshot={snapshot} permissionAccess={permissionAccess} />}
+        // Claude Code ends the quiet row on the context ring. It keeps its place before the chat
+        // reports usage (inert, ContextRing), so the first report moves nothing in the row
+        // (hq#1957: the composer holds still while a turn runs); the context-usage setting
+        // hides it (showContextUsage).
+        ring={showContextUsage && <ContextRing used={usage?.used} size={usage?.size} working={snapshot.isWorking} />}
+        actionsLead={
+          <>
+            {steerable && (
+              <button
+                key="steer"
+                type="button"
+                className="acpmux-send acpmux-send-ready acpmux-steer-now"
+                aria-label={t("composer.steerLabel")}
+                // tooltip-allow: names the icon-only control, what it does and its key.
+                title={t("composer.steerTooltip")}
+                // Keep focus and the caret in the prompt, as the mic does.
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => {
+                  send(false, true);
+                  field.current?.focus();
+                }}
+              >
+                <ReturnIcon />
+              </button>
             )}
-            <span className="acpmux-composer-actions">
-              {/* While a turn runs, a typed prompt gets one icon control, not a word (Leo
-                  2026-10-20): ↵ puts it into the turn now, as Return does; ⌘Return queues it. It
-                  comes in at the cluster's leading edge, so Stop and the mic keep their places
-                  (hq#1957). */}
-              {steerable && (
-                <button
-                  key="steer"
-                  type="button"
-                  className="acpmux-send acpmux-send-ready acpmux-steer-now"
-                  aria-label={t("composer.steerLabel")}
-                  // tooltip-allow: names the icon-only control, what it does and its key.
-                  title={t("composer.steerTooltip")}
-                  // Keep focus and the caret in the prompt, as the mic does.
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => {
-                    send(false, true);
-                    field.current?.focus();
-                  }}
-                >
-                  <ReturnIcon />
-                </button>
-              )}
-              {plainFooter && stopButton}
-              {/* Codex's bolt, just left of the mic (Leo 2026-10-21), in either footer look. */}
-              {speed && <FastToggle speed={speed} />}
-              {/* The mic stays at every width; the prompt shrinks instead (composerRowFit.ts). */}
-              {accessory && (
-                <span className="acpmux-fit-mic" data-fit-part="mic" data-fit-forms="full">
-                  {accessory}
-                </span>
-              )}
-              {!plainFooter && stop ? (
-                stopButton
-              ) : remote.canSend && (!plainFooter || shell || (hasDraft && !(running && steerable))) ? (
-                // Claude desktop's box (Leo 2026-10-20): no Send until there is a draft, the mic
-                // alone on the right; Send comes in after it with the first letter. Mid-turn it
-                // queues the draft, unless the ↵ control is there to put it into the turn.
-                <button
-                  key="send"
-                  ref={sendButton}
-                  type="submit"
-                  disabled={Boolean(blocked) && !shell}
-                  className={`acpmux-send${(shell ? shellText.trim() : !blocked && hasDraft) ? " acpmux-send-ready" : ""}`}
-                  aria-label={shell ? t("composer.shellRun") : t(COMPOSER_LABELS.send)}
-                  title={
-                    shell
-                      ? t("composer.shellRun")
-                      : blocked?.reason
-                        ? t(blocked.reason)
-                        : t(
-                            !snapshot.isWorking
-                              ? "composer.sendTooltip"
-                              : steersAlways
-                                ? "composer.steerTooltip"
-                                : returnSteers
-                                  ? "composer.queueLaterTooltip"
-                                  : "composer.queueTooltip",
-                          )
-                  }
-                >
-                  <ArrowUpIcon />
-                </button>
-              ) : null}
-            </span>
-          </div>
-        </ChromeArea>
-      </div>
-      {plainFooter && (
-        <ChromeArea className="acpmux-chrome-area" items={chrome.all}>
-          <ComposerFoot ref={bar}>
-            <SpeedToggleHost.Provider value={setSpeed}>
-              <Chips snapshot={snapshot} permissionAccess={permissionAccess} />
-            </SpeedToggleHost.Provider>
-            {/* Claude Code ends the row on the context ring. It keeps its place before the chat
-                reports usage (inert, ContextRing), so the first report moves nothing in the row
-                (hq#1957: the composer holds still while a turn runs); the context-usage setting
-                hides it (showContextUsage). */}
-            {showContextUsage && <ContextRing used={usage?.used} size={usage?.size} working={snapshot.isWorking} />}
-          </ComposerFoot>
-        </ChromeArea>
-      )}
+            {plainFooter && stopButton}
+          </>
+        }
+        accessory={accessory}
+        trailing={
+          !plainFooter && stop ? (
+            stopButton
+          ) : remote.canSend && (!plainFooter || shell || (hasDraft && !(running && steerable))) ? (
+            // Claude desktop's box (Leo 2026-10-20): no Send until there is a draft, the mic
+            // alone on the right; Send comes in after it with the first letter. Mid-turn it
+            // queues the draft, unless the ↵ control is there to put it into the turn.
+            <button
+              key="send"
+              ref={sendButton}
+              type="submit"
+              disabled={Boolean(blocked) && !shell}
+              className={`acpmux-send${(shell ? shellText.trim() : !blocked && hasDraft) ? " acpmux-send-ready" : ""}`}
+              aria-label={shell ? t("composer.shellRun") : t(COMPOSER_LABELS.send)}
+              title={
+                shell
+                  ? t("composer.shellRun")
+                  : blocked?.reason
+                    ? t(blocked.reason)
+                    : t(
+                        !snapshot.isWorking
+                          ? "composer.sendTooltip"
+                          : steersAlways
+                            ? "composer.steerTooltip"
+                            : returnSteers
+                              ? "composer.queueLaterTooltip"
+                              : "composer.queueTooltip",
+                      )
+              }
+            >
+              <ArrowUpIcon />
+            </button>
+          ) : null
+        }
+        chromeItems={chrome.all}
+      />
     </form>
   );
 }

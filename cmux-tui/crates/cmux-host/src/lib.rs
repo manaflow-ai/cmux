@@ -43,6 +43,7 @@ pub mod cli;
 pub mod cloud;
 pub mod config;
 pub mod daemon_spec;
+mod json;
 #[cfg(target_os = "linux")]
 pub mod linux;
 pub mod machine;

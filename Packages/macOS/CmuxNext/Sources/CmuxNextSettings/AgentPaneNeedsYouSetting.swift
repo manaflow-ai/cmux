@@ -3,7 +3,8 @@
 /// needsYou/NeedsYou.tsx). An App Store item, off by default (Leo 2026-10-22: "app store maybe?").
 /// The App gives it to new agent pages (`AgentPaneTunables.needsYouInstalled`); off, a page gets
 /// `needs-you="off"` whatever Debug Settings' `agentPane.debug.needsYou` says.
-public nonisolated enum AgentPaneNeedsYouSetting {
+public nonisolated struct AgentPaneNeedsYouSetting {
+    public nonisolated init() {}
     public static let enabledPath = ["agentPane", "needsYou", "enabled"]
     /// Off until the person gets it from the App Store or Settings.
     public static let fallback = false

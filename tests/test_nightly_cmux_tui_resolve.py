@@ -79,6 +79,59 @@ exempt = {"decide", RESOLVE, "refresh-compilation-cache", "refresh-test-compilat
 # publish-nightly checks out the build it selected: this run's resolved build
 # commit, or a recovered earlier build's own build commit.
 SELECTED_SHA = "${{ steps.source.outputs.build_sha }}"
+
+def tooling_checkout(body: str) -> "tuple[int, int] | None":
+    """The publication-tooling checkout of a job: `ref: github.sha` into .publish-tooling whose
+    whole sparse-checkout value names only paths under scripts/, nothing else (a `/*` line would
+    be the whole tree at the workflow's commit). Its span, the one stretch to drop before the build-ref check."""
+    match = re.search(r"^( +)ref: \$\{\{ github\.sha \}\}\n\1path: \.publish-tooling\n\1sparse-checkout: (.*)\n", body, re.MULTILINE)
+    if not match:
+        return None
+    indent, value = match.group(1), match.group(2).strip()
+    rest = body[match.end():]
+    # The value runs to the first non-blank line indented no deeper than its key; blank lines
+    # inside it are part of it, so a later `/*` is still read. That holds for a `|` block and
+    # for a plain scalar continued on deeper lines alike.
+    lines = rest.splitlines(keepends=True)
+    end = next((i for i, line in enumerate(lines) if line.strip() and not line.startswith(indent + " ")), len(lines))
+    while end and not lines[end - 1].strip():
+        end -= 1
+    continuation = [line.strip() for line in lines[:end] if line.strip()]
+    if value == "|":
+        paths = continuation
+    elif continuation:
+        return None
+    else:
+        paths = [value]
+    if not paths or not all(re.fullmatch(r"scripts(/(?!\.+(/|$))[\w.-]+)*", path) for path in paths):
+        return None
+    return match.start(), match.end() + len("".join(lines[:end]))
+
+
+for bad in ("scripts/ci/x.py\n            /*", "/*", "scripts/../Sources"):
+    sample = ("          ref: ${{ github.sha }}\n          path: .publish-tooling\n          sparse-checkout: |\n"
+              + "".join(f"            {p}\n" for p in bad.split("\n            ")))
+    check(tooling_checkout(sample) is None, f"a tooling checkout of {bad!r} must not be exempt")
+check(tooling_checkout("          ref: ${{ github.sha }}\n          path: .publish-tooling\n          sparse-checkout: |\n"
+                       "            scripts/ci/x.py\n\n            /*\n") is None,
+      "a `/*` after a blank line in the sparse list must not be exempt")
+check(tooling_checkout("          ref: ${{ github.sha }}\n          path: .publish-tooling\n          sparse-checkout: scripts\n\n"
+                       "            /*\n          sparse-checkout-cone-mode: false\n") is None,
+      "a `/*` continuing the inline sparse value must not be exempt")
+check(tooling_checkout("\n  ref: ${{ github.sha }}\n\n  path: .publish-tooling\n\n  sparse-checkout: scripts\n\n    /*\n"
+                       "  sparse-checkout-cone-mode: false\n") is None,
+      "blank lines between the keys must not hide a `/*` continuation")
+check(tooling_checkout("          ref: ${{ github.sha }}\n          path: .publish-tooling\n          sparse-checkout: scripts\n"
+                       "          sparse-checkout-cone-mode: false\n") is not None,
+      "a sibling key after the inline sparse value ends it")
+safe = "          ref: ${{ github.sha }}\n          path: .publish-tooling\n          sparse-checkout: |\n            scripts/ci/x.py\n"
+twice = safe + "      - uses: actions/checkout@v4\n        with:\n" + safe + "            /*\n"
+start, end = tooling_checkout(twice)
+check("${{ github.sha }}" in twice[:start] + twice[end:],
+      "dropping the tooling checkout must leave a second checkout that shares its text but adds `/*`")
+check(tooling_checkout("          ref: ${{ github.sha }}\n          path: .publish-tooling\n          sparse-checkout: scripts\n") is not None,
+      "publish-nightly's `sparse-checkout: scripts` is the tooling checkout")
+
 shipping = [name for name, body in blocks.items() if name not in exempt and "actions/checkout@" in body]
 for name in ("build-nightly-app", "build-sign-notarize-nightly", "publish-nightly", "build-nightly-ghostty-cli-helper"):
     check(name in shipping, f"{name} must check out the source (guard setup)")
@@ -87,12 +140,14 @@ for name in shipping:
     needs = re.search(r"^    needs: (.*)$", body, re.MULTILINE)
     check(bool(needs) and RESOLVE in needs.group(1), f"{name} must need {RESOLVE}")
     allowed = {BUILD_SHA, SELECTED_SHA} if name == "publish-nightly" else {BUILD_SHA}
+    # The publication tooling (not shipped source) comes from the workflow's own
+    # commit, so a recovered older build runs this workflow's scripts. It is a
+    # sparse checkout of scripts into .publish-tooling, never the build tree.
+    tooling = tooling_checkout(body)
     if name == "publish-nightly":
-        # The publication tooling (not shipped source) comes from the workflow's
-        # own commit, so a recovered older build runs this workflow's scripts.
-        tooling = re.search(r"ref: \$\{\{ github\.sha \}\}\n\s+path: \.publish-tooling\n", body)
         check(tooling is not None, "publish-nightly must check out its publication tooling at github.sha into .publish-tooling")
-        body = body.replace(tooling.group(0), "") if tooling else body
+    if tooling:
+        body = body[:tooling[0]] + body[tooling[1]:]
     if name in {"build-nightly-app", "build-sign-notarize-nightly"}:
         # Unsigned recovery restores bytes instead of compiling them, using
         # this workflow's controls. Its separate source checkout stays pinned.

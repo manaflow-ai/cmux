@@ -11,7 +11,9 @@ Findings, in tracked Swift files under Packages/macOS:
   2. An allowlist entry for a file that no longer imports SwiftUI, or no
      longer exists: delete the line, so the list only shrinks.
   3. With --base REF: an allowlist entry that the allowlist at REF did not
-     have. The allowlist only shrinks; a new screen is AppKit.
+     have. The allowlist only shrinks; a new screen is AppKit. A file moved
+     since REF (a git rename of an entry REF allowed) keeps its entry under
+     its new path.
 
 The allowlist is scripts/cmux-next/no-swiftui-allowlist.txt, one
 repo-relative path per line, sorted; `#` starts a comment.
@@ -70,6 +72,21 @@ def parse_allowlist(text: str) -> list[str]:
     return entries
 
 
+def renamed_since(root: pathlib.Path, base: str) -> dict[str, str]:
+    """New path -> old path for every file git sees as renamed from `base` to the work tree."""
+    try:
+        out = subprocess.run(["git", "-C", str(root), "diff", "--find-renames", "--name-status", base, "--", SCOPE],
+                             check=True, capture_output=True, text=True).stdout
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return {}
+    moves = {}
+    for line in out.splitlines():
+        parts = line.split("\t")
+        if len(parts) == 3 and parts[0].startswith("R"):
+            moves[parts[2]] = parts[1]
+    return moves
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--base", help="the commit the allowlist may only shrink from")
@@ -96,7 +113,11 @@ def main() -> int:
         try:
             old = subprocess.run(["git", "-C", str(root), "show", f"{args.base}:{ALLOWLIST}"],
                                  check=True, capture_output=True, text=True).stdout
-            for f in sorted(allowed_set - set(parse_allowlist(old))):
+            old_allowed = set(parse_allowlist(old))
+            moves = renamed_since(root, args.base)
+            for f in sorted(allowed_set - old_allowed):
+                if moves.get(f) in old_allowed:
+                    continue
                 findings.append(f"{ALLOWLIST}: {f} is new since {args.base}; the allowlist only shrinks")
         except subprocess.CalledProcessError:
             print(f"note: no {ALLOWLIST} at {args.base}; growth check skipped", file=sys.stderr)

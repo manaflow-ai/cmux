@@ -109,6 +109,18 @@ public nonisolated struct SidebarDragGeometry: Sendable {
         return Hit(slot: slot, zone: zone, target: nil, refusal: accepted?.refusal ?? "refused")
     }
 
+    /// A drop right before or after the slot keyed `key` (a section's slot: first in it), if accepted there.
+    ///
+    /// A dragged group's reorder uses it (`SidebarGroupReorder`): the drop goes beside a whole top-level block's
+    /// first row, never into a group or beside one of its members, whatever the acceptance table would take there
+    /// (since nested groups, a group may land among another group's members, which a reorder must not do).
+    public func beside(_ key: String, after: Bool) -> Hit? {
+        guard let slot = lines.lazy.flatMap({ $0 }).first(where: { $0.key == key }) else { return nil }
+        let zone: Zone = slot.kind == .section ? .into : after ? .after : .before
+        guard allows(slot, zone) else { return nil }
+        return Hit(slot: slot, zone: zone, target: Self.target(slot, zone), refusal: nil)
+    }
+
     /// Whether a drop at `zone` of `slot` is accepted.
     private func allows(_ slot: Slot, _ zone: Zone) -> Bool {
         guard let table = acceptance[slot.key] ?? slot.item.flatMap({ acceptance[$0] }) else {

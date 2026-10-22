@@ -253,6 +253,16 @@
 .acpmux-empty-glyph{color:var(--acpmux-composer-placeholder)}
 .acpmux-empty-title{margin:0;max-width:560px;font-size:20px;line-height:28px;font-weight:400;color:var(--agent-text);overflow-wrap:anywhere}
 .acpmux-empty-project{text-decoration:underline;text-decoration-color:var(--acpmux-composer-placeholder);text-underline-offset:4px;text-decoration-thickness:1px}
+/* A tab's chat that is not here (ChatUnavailableState.tsx): the hero's place and type, a muted line
+   under it and one quiet button. */
+.acpmux-unavailable{gap:10px}
+.acpmux-unavailable-detail{margin:0;max-width:420px;color:var(--agent-muted);font-size:var(--text-body);line-height:var(--text-body--line-height);overflow-wrap:anywhere}
+.acpmux-unavailable-actions{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin-top:6px}
+.acpmux-unavailable-action{height:28px;padding:0 12px;border:0;border-radius:8px;background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text);font:inherit;font-size:var(--text-body);cursor:default}
+.acpmux-unavailable-action:hover{background:color-mix(in srgb,var(--agent-text) 12%,transparent)}
+.acpmux-unavailable-action:active{background:color-mix(in srgb,var(--agent-text) 18%,transparent)}
+.acpmux-unavailable-action:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
+@media (prefers-reduced-motion:no-preference){.acpmux-unavailable-action{transition:background-color var(--agent-motion-hover,80ms) var(--agent-ease-out,ease-out)}}
 /* A remote connection showing a chat acpmux will not let it drive (remoteEditing.ts). On the
    column's edge: in the composer form, which stands there already; elsewhere in the bottom stack,
    at the column's inset. */

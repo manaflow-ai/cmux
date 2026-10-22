@@ -685,12 +685,13 @@ final class ChatController: NSObject, NSTextViewDelegate {
         if picker != nil { closePicker(); return }
         // cmux: Esc while dictating drops the words and leaves the draft as it was.
         if voice.cancel() { return }
-        // In the field a working agent stops first (one Esc), as before threads; then the
-        // thread view. The pane's Esc monitor (focus on the transcript) only closes the view.
-        if isWorking { onStop?(); return }
-        // cmux: Reply to Selection: an empty field's Esc takes the quote off first, the next one closes the thread.
+        // Innermost first. cmux: Reply to Selection: an empty field's Esc takes the quote off
+        // first, the next one closes the thread.
         if replyQuote != nil, store?.state.ui.draft.text.isEmpty != false { replyQuote = nil; return }
-        _ = thread.escape()
+        // cmux: an open reply or thread view closes before a working Chief stops (Lawrence 2026-10-21).
+        if thread.escape() { return }
+        // In the main chat a working agent stops (one Esc).
+        if isWorking { onStop?() }
     }
 
     // MARK: Clicks
@@ -778,6 +779,9 @@ final class ChatController: NSObject, NSTextViewDelegate {
         guard p.y > host.titlebarHeight, !demo.compose.fieldRect.insetBy(dx: 0, dy: -2).contains(p) else { focusCompose(); return }
         // cmux: the Chief's status line opens its turn's details.
         if let line = demo.statusLineFrame(), line.contains(p) { intents?.statusLineClicked(line, in: host); return }
+        // cmux: a long message's "Show all N lines" band expands it, "Show less" folds it again
+        // (the vendored handler had no caller here: the band took no click, Lawrence 2026-10-21).
+        if demo.longTextBandHit(p) { return }
         if let hit = demo.hit(p) {
             // cmux: a link (re-checked at click time, MarkdownLinkPolicy) opens in PaneLinks.
             if openLink(hit, at: p) { return }

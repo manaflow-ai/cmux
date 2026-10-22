@@ -4,6 +4,7 @@
 //! this machine's acpmux socket, as the local unix-socket client acpmux
 //! requires for `_acpmux/prompt_withdraw`, and never starts acpmux.
 
+use crate::panic_free::JsonFields;
 use std::sync::mpsc::sync_channel;
 use std::time::Duration;
 
@@ -43,7 +44,8 @@ impl crate::mux::Mux {
     /// running turn when its agent steers; delivered once
     /// acpmux accepts it (`_acpmux/prompt_accepted`) or answers its turn.
     pub(crate) fn acp_prompt_message(&self, message: &Value, recipient: &str) -> Handover {
-        let (Some(session), Some(id)) = (recipient.strip_prefix("acp:"), message["id"].as_str())
+        let (Some(session), Some(id)) =
+            (recipient.strip_prefix("acp:"), message.field("id").as_str())
         else {
             return Handover::Unreachable;
         };
@@ -75,7 +77,7 @@ impl crate::mux::Mux {
         // (`_meta.acpmux.interrupt`, or the queue's `interrupt` op, `queue_edit.rs`) does.
         let mut meta = json!({"steer": true, "promptId": id, "resend": true});
         if let Some(provenance) = provenance(message, recipient) {
-            meta["provenance"] = provenance;
+            meta.insert("provenance", provenance);
         }
         let text = render(std::slice::from_ref(message));
         let params = json!({
