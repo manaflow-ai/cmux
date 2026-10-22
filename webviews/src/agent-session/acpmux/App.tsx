@@ -1576,6 +1576,8 @@ const WITHDRAWN_HOLD_MS = 250;
 /// else the chat opens at its latest message.
 const OPEN_AT_PAGE_MS = 1500;
 const OPEN_AT_SEEK_MS = 8000;
+/// How soon the transcript asks again for an older page after an ask that brought nothing.
+const OLDER_RECHECK_MS = 500;
 /// Scrolls `scroller` so `range` sits a third of the way down it, when it is not already in view
 /// above the `inset` px at its foot that the bottom stack covers.
 function scrollRangeIn(scroller: HTMLElement, range: Range, inset = 0) {
@@ -3131,6 +3133,12 @@ export function VirtualTranscript({
   // A read that drew no row above the first (records that draw nothing) moves historyFrom: ask again.
   const olderLoadKey = `${sessionKey}\u0000${rows[0]?.id ?? ""}\u0000${historyFrom ?? ""}`;
   const olderLoadRequested = useRef<string | undefined>(undefined);
+  /// An older page asked for has not settled yet; and the check that follows one that brought nothing.
+  const olderAsking = useRef(false);
+  const olderRecheck = useRef<ReturnType<typeof setTimeout>>(undefined);
+  /// The latest ask: only its settling re-arms the check, so a late answer to an earlier one (a
+  /// chat switched away from) cannot cancel the recheck of the ask that followed it.
+  const olderAsk = useRef(0);
   // The check reads the scroller's live offset, and runs on every scroll event as well as after
   // each commit: a page that lands moves the view down (the anchoring above) and the reader's
   // scroll back to the top could land in the same frame, so the rendered offset never changed
@@ -3149,11 +3157,26 @@ export function VirtualTranscript({
       return;
     }
     if (olderLoadRequested.current === olderLoadKey) return;
-    olderLoadRequested.current = olderLoadKey;
-    onLoadOlder().catch(() => {
-      // Keep transient transport failures retryable without turning every render into a request.
-      if (olderLoadRequested.current === olderLoadKey) olderLoadRequested.current = undefined;
-    });
+    const asked = olderLoadKey;
+    olderLoadRequested.current = asked;
+    olderAsking.current = true;
+    const ask = ++olderAsk.current;
+    // A page that lands changes the key in the commit it brings, and the check after it asks for
+    // the next. An ask that brought nothing (a read that failed, or one the client dropped) leaves
+    // the key as it was: ask once more a moment later, as long as the view is still near the top.
+    // At the very top no scroll event comes to ask for it, and a check on every render would ask
+    // on every streamed chunk (Leo 2026-10-21: a 720-turn chat stopped paging for good).
+    const settled = () => {
+      if (ask !== olderAsk.current) return;
+      olderAsking.current = false;
+      clearTimeout(olderRecheck.current);
+      olderRecheck.current = setTimeout(() => {
+        if (olderLoadRequested.current !== asked) return;
+        olderLoadRequested.current = undefined;
+        checkOlderNow.current();
+      }, OLDER_RECHECK_MS);
+    };
+    onLoadOlder().then(settled, settled);
   };
   useLayoutEffect(() => {
     checkOlderNow.current = checkOlder;
@@ -3161,6 +3184,14 @@ export function VirtualTranscript({
   useEffect(() => {
     checkOlderNow.current();
   }, [canLoadOlder, height, onLoadOlder, olderLoadKey, renderScroll.top]);
+  useEffect(() => () => clearTimeout(olderRecheck.current), []);
+  // A wheel up with the view already at the top moves nothing, so no scroll event says the reader
+  // wants more: it asks itself, unless an ask is still out.
+  const onWheel = (event: React.WheelEvent<HTMLDivElement>) => {
+    if (event.deltaY >= 0 || event.currentTarget.scrollTop > 0 || olderAsking.current) return;
+    olderLoadRequested.current = undefined;
+    checkOlderNow.current();
+  };
   const pointAt = (target: EventTarget | null) => {
     const row = target instanceof Element ? target.closest<HTMLElement>(".acpmux-row") : null;
     const rowId = row?.dataset.rowId;
@@ -3184,6 +3215,7 @@ export function VirtualTranscript({
         role="feed"
         aria-label={t("transcript.label")}
         onScroll={onScroll}
+        onWheel={onWheel}
         // Soft edges (conversation.css): the top once scrolled from the start, the bottom while more
         // lies below. A followed reply has nothing below it, even while its growth outruns the offset.
         data-seeking={seeking || undefined}
