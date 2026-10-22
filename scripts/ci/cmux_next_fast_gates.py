@@ -106,11 +106,23 @@ def checks_needed(repo: Path, event: str, base: str, merge: str) -> bool:
 
 
 def fetch_for_merge(repo: Path, remote: str, pr: str, base: str) -> None:
-    """Fetch the PR head and the branch tip shallowly, then deepen until BASE is here and meets the head."""
+    """Fetch the PR head and the branch tip shallowly, then deepen until BASE is here and meets the head at its
+    true merge base."""
     refspecs = [f"+refs/pull/{pr}/head:{HEAD_REF}", f"+refs/heads/{BRANCH}:{BASE_REF}"]
 
     def met() -> bool:
-        return bool(rev(repo, base)) and git(repo, "merge-base", HEAD_REF, base, check=False).returncode == 0
+        if not rev(repo, base):
+            return False
+        bases = git(repo, "merge-base", "--all", HEAD_REF, base, check=False).stdout.split()
+        if not bases:
+            return False
+        # A cut commit shows no parents, so a merge base found here can be an older common ancestor than the
+        # true one, hidden past the cut on one side (#24250: spurious conflicts in files the PR never touched).
+        # The found bases are the true ones once every cut either side reaches lies behind one of them.
+        shallow = Path(git(repo, "rev-parse", "--path-format=absolute", "--git-path", "shallow").stdout.strip())
+        cuts = set(shallow.read_text().split()) if shallow.exists() else set()
+        ahead = git(repo, "rev-list", HEAD_REF, base, "--not", *bases).stdout.split()
+        return not cuts.intersection(ahead)
 
     # A depth flag only in a checkout that is already shallow (the CI checkout): in a full clone it would make
     # every worktree sharing it shallow (tests/test_ci_no_shallow_dev_fetch.py), so there it fetches whole.
