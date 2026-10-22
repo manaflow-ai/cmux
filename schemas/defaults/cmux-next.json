@@ -290,6 +290,7 @@
     "setting.appearance.hue": 0.5,
     "setting.appearance.inactiveWindowDim": 0,
     "setting.appearance.interfaceScale": null,
+    "setting.appearance.machineColors": {},
     "setting.appearance.metrics.chromeFontSize": null,
     "setting.appearance.metrics.columnGap": null,
     "setting.appearance.metrics.sidebarWidth": null,
