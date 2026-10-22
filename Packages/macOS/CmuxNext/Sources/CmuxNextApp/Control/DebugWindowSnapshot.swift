@@ -172,8 +172,8 @@ enum DebugWindowSnapshot {
             if base.method == .composited {
                 // A Chromium page image covered the panels, popovers and menus over its page:
                 // their pixels come back from the window server's composite, the page under them.
-                if !layers.isEmpty, let overlays = window.overlaysSnapshot(includeChild: { !WindowOverlayHost.isPageWindow($0) }) {
-                    layers.append(.overlay(base.image, coverage: overlays))
+                if !layers.isEmpty, let overlays = window.overlays(cutFrom: base.image, includeChild: { !WindowOverlayHost.isPageWindow($0) }) {
+                    layers.append(.window(overlays))
                 }
             } else {
                 if let panels = window.childWindowsSnapshot(includeChild: { !WindowOverlayHost.isPageWindow($0) }) {

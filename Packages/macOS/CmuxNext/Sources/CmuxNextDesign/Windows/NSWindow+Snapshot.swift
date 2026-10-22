@@ -128,15 +128,31 @@ extension NSWindow {
         return (image, floating.count)
     }
 
-    /// The window's overlays alone: its visible child windows `includeChild` accepts and the app's
-    /// windows over it, composited on a transparent image the size of this window, or nil without
-    /// one. Their alpha says where they cover the window: a page image painted over a
-    /// ``compositedSnapshotWithOverlays()`` gives those pixels back to them.
-    public func overlaysSnapshot(includeChild: (NSWindow) -> Bool) -> CGImage? {
+    /// `composite` (this window's ``compositedSnapshotWithOverlays()``) kept only where its overlays
+    /// cover the window, transparent elsewhere: the visible child windows `includeChild` accepts
+    /// and the app's windows over it. Nil without any. A page image painted over the composite
+    /// covers the popovers and menus over its page; this, painted over the page image, gives
+    /// them back, with the window's blur under them.
+    public func overlays(cutFrom composite: CGImage, includeChild: (NSWindow) -> Bool) -> CGImage? {
         let numbers = visibleChildWindows.filter(includeChild).map(\.windowNumber) + floatingWindowNumbers()
-        guard !numbers.isEmpty, let image = Self.windowServerImage(ofNumbers: Self.frontToBack(numbers), croppedTo: self),
-              image.width > 0, image.height > 0, !Self.isBlank(image) else { return nil }
-        return image
+        guard !numbers.isEmpty, let coverage = Self.windowServerImage(ofNumbers: Self.frontToBack(numbers), croppedTo: self),
+              coverage.width > 0, coverage.height > 0, !Self.isBlank(coverage) else { return nil }
+        return Self.masked(composite, by: coverage)
+    }
+
+    /// `image` kept where `mask` is opaque and faded where it is translucent (premultiplied:
+    /// `image` times the mask's alpha), at `image`'s size.
+    nonisolated static func masked(_ image: CGImage, by mask: CGImage) -> CGImage? {
+        let width = image.width, height = image.height
+        guard width > 0, height > 0, let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                                      space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        let whole = CGRect(x: 0, y: 0, width: width, height: height)
+        context.interpolationQuality = .high
+        context.draw(mask, in: whole)
+        context.setBlendMode(.sourceIn)
+        context.draw(image, in: whole)
+        return context.makeImage()
     }
 
     /// From `above` (the windows the window server shows above a window, topmost first), the
