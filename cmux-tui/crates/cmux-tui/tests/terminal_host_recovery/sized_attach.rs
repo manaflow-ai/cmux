@@ -293,10 +293,14 @@ fn attach_leased_phone(
 }
 
 fn lease_harness(name: &str, lease_ms: &str) -> (RecoveryHarness, u64) {
+    lease_harness_with_hold(name, lease_ms, "60000")
+}
+
+fn lease_harness_with_hold(name: &str, lease_ms: &str, hold_ms: &str) -> (RecoveryHarness, u64) {
     let mut harness = RecoveryHarness::start_unstarted(name);
     harness.extra_env.push(("CMUX_TUI_TEST_SIZE_LEASE_MS".into(), lease_ms.into()));
     // The grid hold is long, so a test that passes is not the hold ending.
-    harness.extra_env.push(("CMUX_TUI_TEST_DEPARTED_GRID_HOLD_MS".into(), "60000".into()));
+    harness.extra_env.push(("CMUX_TUI_TEST_DEPARTED_GRID_HOLD_MS".into(), hold_ms.into()));
     harness.restart();
     let created = request(
         &harness.socket,
@@ -472,6 +476,43 @@ fn a_dropped_leased_phone_holds_the_grid_only_until_its_lease_ends() {
         "the grid grew {:?} after the claim, before its lease ended",
         claimed.elapsed()
     );
+
+    close_terminal_surface(&harness.socket, surface, 50);
+    wait_for_no_host_records(&harness.host_root());
+}
+
+/// An earlier connection's lease ending never ends the hold a later
+/// connection's drop set (a phone that reattached and dropped again): that
+/// hold runs to its own lease (PR #24226 review, finding 3).
+#[test]
+fn an_earlier_connections_lease_never_ends_a_later_drops_hold() {
+    let (harness, surface) = lease_harness_with_hold("size-lease-two-drops", "2000", "6000");
+    let (_mac_writer, _mac_reader, _) = attach_sized(&harness.socket, surface, 120, 39, 2);
+    let (first_writer, first_reader) = attach_leased_phone(&harness.socket, surface, 53, 42, 3);
+    wait_for_vt_size(&harness.socket, surface, 53, 39);
+    let start = Instant::now();
+    drop(first_writer);
+    drop(first_reader);
+    std::thread::sleep(Duration::from_millis(1200));
+    // The phone is back on a new connection, then drops again.
+    let (second_writer, second_reader) = attach_leased_phone(&harness.socket, surface, 53, 42, 4);
+    let second_claim = Instant::now();
+    drop(second_writer);
+    drop(second_reader);
+    // The first lease ends (~2 s after start); the second drop's hold stays.
+    while second_claim.elapsed() < Duration::from_millis(1600) {
+        let state =
+            request(&harness.socket, serde_json::json!({"cmd": "vt-state", "surface": surface}));
+        assert_eq!(
+            (state["cols"].as_u64(), state["rows"].as_u64()),
+            (Some(53), Some(39)),
+            "the grid grew {:?} after the first drop: the first lease ended the second drop's hold",
+            start.elapsed()
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    // The second lease ends: its hold ends with it.
+    wait_for_vt_size(&harness.socket, surface, 120, 39);
 
     close_terminal_surface(&harness.socket, surface, 50);
     wait_for_no_host_records(&harness.host_root());

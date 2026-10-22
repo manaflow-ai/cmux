@@ -65,6 +65,9 @@ public final class TerminalSizeClaimer<C: Clock> where C.Duration == Duration {
         self.clock = clock
         self.apply = apply
         debounce = TerminalSizeClaimDebounce(delay: delay)
+        // A session starts claiming; a page that is never shown gives it up
+        // after the delay (its page's appearance sets it shown first).
+        recheck()
     }
 
     public var claims: Bool { debounce.claims }

@@ -280,7 +280,8 @@ public final class DaemonTerminalSession: TerminalSession {
         // gone). The size is released first and answered, so the Mac never
         // reads the close as a dropped link (which holds its grid for 30 s).
         if let client {
-            let release = attached && sizeClaimed
+            // A claimed size, or a release still waiting behind another request.
+            let release = attached && (sizeClaimed || outbox.contains { if case .release = $0 { true } else { false } })
             let surface = surface
             Task {
                 if release {
@@ -497,6 +498,11 @@ public final class DaemonTerminalSession: TerminalSession {
             pendingSize = nil
             outbox.removeAll { if case .release = $0 { true } else { false } }
             if attachedWithSize != nil { sizeClaimed = true }
+            // Hidden while the attach was out: the size it carried goes back.
+            if !claimsSize, sizeClaimed {
+                outbox.insert(.release, at: 0)
+                sizeClaimed = false
+            }
             if claimsSize, let size = lastSize, attachedWithSize.map({ $0.columns != size.columns || $0.rows != size.rows }) ?? true {
                 outbox.removeAll { if case .size = $0 { true } else { false } }
                 outbox.insert(.size(columns: size.columns, rows: size.rows), at: 0)

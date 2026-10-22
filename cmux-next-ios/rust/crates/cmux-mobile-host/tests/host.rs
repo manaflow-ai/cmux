@@ -61,6 +61,26 @@ fn fake_daemon(dir: &std::path::Path) -> Arc<std::sync::Mutex<Vec<serde_json::Va
                 while let Ok(Some(line)) = lines.next_line().await {
                     let request: serde_json::Value = serde_json::from_str(&line).unwrap();
                     recorded.lock().unwrap().push(request.clone());
+                    // A busy terminal: an attach streams output until the socket closes.
+                    if request["cmd"] == "attach-surface" && request["busy"] == true {
+                        let answer = serde_json::json!({"id": request["id"], "ok": true, "data": {}});
+                        write.write_all(format!("{answer}\n").as_bytes()).await.unwrap();
+                        let (mut out, mut lines_left) = (write, lines);
+                        let surface = request["surface"].clone();
+                        tokio::spawn(async move {
+                            loop {
+                                let event = serde_json::json!({"event": "output", "surface": surface, "data": "eA=="});
+                                if out.write_all(format!("{event}\n").as_bytes()).await.is_err() {
+                                    return;
+                                }
+                                tokio::task::yield_now().await;
+                            }
+                        });
+                        while let Ok(Some(line)) = lines_left.next_line().await {
+                            recorded.lock().unwrap().push(serde_json::from_str(&line).unwrap());
+                        }
+                        return;
+                    }
                     let answer = serde_json::json!({"id": request["id"], "ok": true,
                         "data": {"cmd": request["cmd"], "host": request["agent_session"]["host"]}});
                     write.write_all(format!("{answer}\n").as_bytes()).await.unwrap();
@@ -1111,6 +1131,33 @@ async fn a_terminal_channel_the_phone_closes_releases_its_sizes() {
             break;
         }
         assert!(std::time::Instant::now() < deadline, "no releases after the phone closed: {lines:?}");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+/// The same on a busy terminal: output keeps coming while the phone closes,
+/// so the Mac's send to the phone fails first; the release still goes out.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_busy_terminal_channel_the_phone_closes_still_releases_its_size() {
+    let fixture = fixture(FakeOptions::default()).await;
+    let connected = connect(&fixture, TransportKind::WebRtc).await.expect("dial");
+    let mut daemon = connected.link.open("daemon", serde_json::json!({})).await.unwrap();
+    daemon
+        .send(Bytes::from_static(
+            b"{\"id\":1,\"cmd\":\"attach-surface\",\"surface\":7,\"cols\":53,\"rows\":42,\"busy\":true}\n",
+        ))
+        .await
+        .unwrap();
+    let mut buffer = Vec::new();
+    next_line(&mut daemon, &mut buffer).await;
+    daemon.close("eof", "").await;
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        let lines = fixture.daemon_lines.lock().unwrap().clone();
+        if lines.iter().any(|line| line["cmd"] == "release-surface-size" && line["surface"] == 7) {
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline, "no release after a busy channel closed: {lines:?}");
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
 }

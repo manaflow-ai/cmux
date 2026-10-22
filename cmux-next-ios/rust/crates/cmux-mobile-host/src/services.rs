@@ -420,6 +420,24 @@ async fn splice(
             line = lines_rx.recv() => match line {
                 Some(line) => {
                     if sender.send(Bytes::from(line)).await.is_err() {
+                        // The phone is gone (its close frame, a removed phone). Its
+                        // close reaches the phone-to-daemon task, which releases its
+                        // sizes: let that finish (bounded) instead of aborting it,
+                        // or the daemon reads end of file first and holds the grid.
+                        if claims {
+                            let _ = tokio::time::timeout(
+                                crate::size_release::RELEASE_WAIT + std::time::Duration::from_millis(300),
+                                async {
+                                    loop {
+                                        tokio::select! {
+                                            _ = &mut to_daemon => return,
+                                            line = lines_rx.recv() => if line.is_none() { return },
+                                        }
+                                    }
+                                },
+                            )
+                            .await;
+                        }
                         break;
                     }
                 }

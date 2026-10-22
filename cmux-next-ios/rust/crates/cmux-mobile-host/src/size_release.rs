@@ -130,7 +130,11 @@ impl PendingReleases {
             return false;
         }
         let mut ids = self.ids.lock().unwrap_or_else(PoisonError::into_inner);
-        ids.remove(id);
+        // Only hostd's own pending releases: a phone's id with the same
+        // prefix is the phone's answer.
+        if !ids.remove(id) {
+            return false;
+        }
         if ids.is_empty() {
             self.answered.notify_waiters();
         }
@@ -265,6 +269,8 @@ mod tests {
             pending.add(id.clone());
         }
         assert!(!pending.answer(br#"{"id":"m1","ok":true,"data":{}}"#), "the phone's own answer");
+        let lookalike = serde_json::json!({"id": format!("{RELEASE_ID_PREFIX}phone"), "ok": true});
+        assert!(!pending.answer(lookalike.to_string().as_bytes()), "a phone id with hostd's prefix");
         let answer = serde_json::json!({"id": lines[0].0, "ok": true, "data": {"outcome": "applied"}});
         assert!(pending.answer(answer.to_string().as_bytes()));
         // Answered: the wait ends at once.

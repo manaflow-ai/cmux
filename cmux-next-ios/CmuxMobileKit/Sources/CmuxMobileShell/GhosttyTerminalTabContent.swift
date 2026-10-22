@@ -56,9 +56,18 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         ) { [weak self] _ in
             MainActor.assumeIsolated {
                 // The background (or the lock screen) releases every
-                // terminal's size at once, before iOS suspends the app.
+                // terminal's size at once. A short background task keeps the
+                // app running for the releases to reach the Mac (bounded:
+                // the Mac's size lease covers a release that never lands).
+                let task = UIApplication.shared.beginBackgroundTask(withName: "terminal-size-release")
                 self?.setAppActive(false)
                 self?.saveFrames()
+                if task != .invalid {
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .seconds(2))
+                        UIApplication.shared.endBackgroundTask(task)
+                    }
+                }
             }
         }
         foregroundObserver = NotificationCenter.default.addObserver(

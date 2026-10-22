@@ -105,6 +105,33 @@ import Testing
         #expect(commands(daemon, "resize-surface").count == 0)
     }
 
+    /// Review finding: hidden while its sized attach was out, the attach's
+    /// size was never released.
+    @Test func aTerminalHiddenDuringItsAttachReleasesTheSizeTheAttachCarried() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.initialSize = true
+        nonisolated(unsafe) var hide: (@MainActor @Sendable () -> Void)?
+        let link = MockMacLink { service, line in
+            // The page leaves while the sized attach is on its way to the Mac.
+            if String(decoding: line, as: UTF8.self).contains("\"attach-surface\""), let run = hide {
+                hide = nil
+                if Thread.isMainThread { MainActor.assumeIsolated { run() } } else { DispatchQueue.main.sync { MainActor.assumeIsolated { run() } } }
+            }
+            return daemon.respond(service, line)
+        }
+        let session = DaemonTerminalSession(surface: 7, clientInfo: ["device_kind": "iphone"]) {
+            DaemonClient(channel: try await link.openChannel(service: "daemon", args: [:]))
+        }
+        hide = { session.setClaimsSize(false) }
+        session.resize(columns: 54, rows: 42)
+        session.start { _ in }
+        try await waitUntil { session.isAttached }
+        let attach = try #require(commands(daemon, "attach-surface").first)
+        #expect(attach["cols"] as? Int == 54, "the attach carried the size")
+        try await waitUntil { commands(daemon, "release-surface-size").count == 1 }
+        #expect(commands(daemon, "resize-surface").isEmpty)
+    }
+
     @Test func theChannelOptsIntoTheSizeLease() async throws {
         let daemon = FakeTerminalDaemon()
         let session = session(daemon)

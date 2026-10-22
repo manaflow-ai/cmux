@@ -95,6 +95,14 @@ import Testing
         #expect(told == [false, true, false])
     }
 
+    @Test func aClaimerWhosePageNeverShowsReleases() async throws {
+        var told: [Bool] = []
+        let claimer = TerminalSizeClaimer(clock: ContinuousClock(), delay: .milliseconds(50)) { told.append($0) }
+        for _ in 0..<100 where told.isEmpty { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(told == [false])
+        _ = claimer
+    }
+
     @Test func aQuickSwitchBackSendsNothing() async throws {
         var told: [Bool] = []
         let claimer = TerminalSizeClaimer(clock: ContinuousClock(), delay: .milliseconds(80)) { told.append($0) }

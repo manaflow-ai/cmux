@@ -12,12 +12,22 @@
 //! lease is the safety net for a phone that can no longer say so: a
 //! suspended app whose link has not timed out yet, or a bug that never
 //! releases. A dead phone can never pin a Mac's grid for longer than the
-//! lease: a view that left without releasing ends the departed-view grid
-//! hold of that terminal when its lease would have ended.
+//! lease: when a connection that left without releasing reaches its lease's
+//! end, the departed-view grid hold its departure set ends too (a later
+//! departure's hold runs on).
+//!
+//! One worker thread serves every lease of the daemon. It runs while any
+//! lease exists and waits for the earliest deadline; renewals wake it. An
+//! expiry and its release happen under the sizing lifecycle lock, and a
+//! report renews its lease before its size applies, so an expiry never
+//! releases a size reported after it.
 
 use super::*;
 use std::collections::HashMap;
+use std::sync::Condvar;
 use std::sync::Mutex;
+use std::sync::PoisonError;
+use std::sync::Weak;
 use std::time::Duration;
 use std::time::Instant;
 
@@ -47,101 +57,171 @@ fn size_lease() -> Duration {
     SIZE_LEASE
 }
 
-/// Each leased (connection, terminal placement) and when its lease ends.
+#[derive(Clone, Copy)]
+struct Lease {
+    until: Instant,
+    /// When its connection left without releasing (the departed-view hold
+    /// that departure set ends with the lease).
+    left_at: Option<Instant>,
+}
+
+#[derive(Default)]
+struct LeaseState {
+    leases: HashMap<(u64, SurfaceId), Lease>,
+    worker: bool,
+}
+
+/// Each leased (connection, terminal placement).
 #[derive(Default)]
 pub(crate) struct SizeLeases {
-    deadlines: Mutex<HashMap<(u64, SurfaceId), Instant>>,
+    state: Mutex<LeaseState>,
+    changed: Condvar,
+}
+
+/// What an expired lease does.
+enum Expired {
+    /// The connection is still here: release its size.
+    Release(u64, SurfaceId),
+    /// It left at this instant: end the hold its departure set.
+    EndHold(SurfaceId, Instant),
 }
 
 impl SizeLeases {
-    /// Renews the lease; true when none was running (start its timer).
+    fn lock(&self) -> std::sync::MutexGuard<'_, LeaseState> {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Renews the lease; true when the worker must be started.
     fn renew(&self, client: u64, surface: SurfaceId, until: Instant) -> bool {
-        self.deadlines
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .insert((client, surface), until)
-            .is_none()
+        let mut state = self.lock();
+        state.leases.insert((client, surface), Lease { until, left_at: None });
+        self.changed.notify_all();
+        !std::mem::replace(&mut state.worker, true)
     }
 
-    fn deadline(&self, client: u64, surface: SurfaceId) -> Option<Instant> {
-        self.deadlines
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .get(&(client, surface))
-            .copied()
-    }
-
-    /// Ends the lease without releasing (the client released, or left).
+    /// Ends the lease without releasing (the client released on purpose).
     pub(super) fn end(&self, client: u64, surface: SurfaceId) {
-        self.deadlines
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .remove(&(client, surface));
+        self.lock().leases.remove(&(client, surface));
     }
 
-    /// Takes the lease when it ended by `now` (the timer then releases).
-    fn take_expired(&self, client: u64, surface: SurfaceId, now: Instant) -> bool {
-        let mut deadlines =
-            self.deadlines.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        match deadlines.get(&(client, surface)) {
-            Some(until) if *until <= now => {
-                deadlines.remove(&(client, surface));
-                true
+    /// `client` disconnected: its leases now end the holds its departure set.
+    pub(super) fn client_left(&self, client: u64) {
+        let now = Instant::now();
+        let mut state = self.lock();
+        for ((owner, _), lease) in state.leases.iter_mut() {
+            if *owner == client {
+                lease.left_at = Some(now);
             }
-            _ => false,
+        }
+    }
+
+    /// Removes and returns the leases that ended by `now`.
+    fn take_expired(&self, now: Instant) -> Vec<Expired> {
+        let mut state = self.lock();
+        let expired = state
+            .leases
+            .iter()
+            .filter(|(_, lease)| lease.until <= now)
+            .map(|(key, lease)| (*key, *lease))
+            .collect::<Vec<_>>();
+        expired
+            .into_iter()
+            .map(|((client, surface), lease)| {
+                state.leases.remove(&(client, surface));
+                match lease.left_at {
+                    Some(left_at) => Expired::EndHold(surface, left_at),
+                    None => Expired::Release(client, surface),
+                }
+            })
+            .collect()
+    }
+
+    /// Waits until the earliest lease ends (or a renewal changes it). False
+    /// when no lease is left: the worker stops.
+    fn wait_for_expiry(&self) -> bool {
+        let mut state = self.lock();
+        loop {
+            let Some(next) = state.leases.values().map(|lease| lease.until).min() else {
+                state.worker = false;
+                return false;
+            };
+            let now = Instant::now();
+            if next <= now {
+                return true;
+            }
+            state = self
+                .changed
+                .wait_timeout(state, next - now)
+                .unwrap_or_else(PoisonError::into_inner)
+                .0;
         }
     }
 }
 
-/// `client` reported a size of `surface` that was applied: renew its lease,
-/// when it opted in.
+/// `client` is about to report a size of `surface`: renew its lease, when
+/// it opted in.
 pub(super) fn renew_size_lease(mux: &Arc<Mux>, client: u64, surface: SurfaceId) {
     if !mux.control_clients.supports_capability(client, SIZE_LEASE_CAPABILITY) {
         return;
     }
     let until = Instant::now() + size_lease();
     if !mux.control_clients.size_leases.renew(client, surface, until) {
-        return; // Its timer is running and reads the new deadline.
+        return; // The worker is running and reads the new deadline.
     }
     let weak = Arc::downgrade(mux);
-    let spawned = std::thread::Builder::new().name("terminal-size-lease".into()).spawn(move || {
-        // The lease's own bounded wait: sleep to the deadline, read it again
-        // (a refresh moves it), release once it passed unrenewed.
-        loop {
-            let Some(mux) = weak.upgrade() else { return };
-            let Some(until) = mux.control_clients.size_leases.deadline(client, surface) else {
-                return;
-            };
-            let now = Instant::now();
-            if until > now {
-                drop(mux);
-                std::thread::sleep(until - now);
-                continue;
-            }
-            if !mux.control_clients.size_leases.take_expired(client, surface, now) {
-                continue;
-            }
-            if !mux.control_clients.contains(client) {
-                // The view left without releasing (its link dropped, hostd
-                // was killed): the departed-view hold it set ends with its
-                // lease, so a phone that can no longer refresh never pins
-                // the grid past it. A reattach inside the lease is a new
-                // connection with its own claim.
-                mux.release_terminal_grid_holds(&[surface]);
-                return;
-            }
-            eprintln!(
-                "cmux-tui: client {client}'s size of surface {surface:?} was not refreshed for {:?}: released",
-                size_lease()
-            );
-            if let Err(error) = cmd_sizing::release_surface_size(&mux, client, surface) {
-                eprintln!("cmux-tui: releasing client {client}'s expired size of {surface:?}: {error:#}");
-            }
+    let spawned = std::thread::Builder::new()
+        .name("terminal-size-lease".into())
+        .spawn(move || run_worker(&weak));
+    if spawned.is_err() {
+        // No timer can run: no leases (sizes stay until their views leave).
+        let mut state = mux.control_clients.size_leases.lock();
+        state.leases.clear();
+        state.worker = false;
+    }
+}
+
+fn run_worker(mux: &Weak<Mux>) {
+    loop {
+        let Some(owner) = mux.upgrade() else { return };
+        // The lease's own bounded wait, on a condition variable that
+        // renewals signal; not a synchronization sleep.
+        if !owner.control_clients.size_leases.wait_for_expiry() {
             return;
         }
-    });
-    if spawned.is_err() {
-        // No timer can run: no lease (the size stays until the view leaves).
-        mux.control_clients.size_leases.end(client, surface);
+        expire(&owner);
+    }
+}
+
+fn expire(mux: &Arc<Mux>) {
+    let mut holds = Vec::new();
+    {
+        // Expire and release in one step: a report waits for this lock to
+        // apply, and renewed its lease before (renew_size_lease).
+        let _lifecycle = mux.lock_client_sizing_lifecycle();
+        for expired in mux.control_clients.size_leases.take_expired(Instant::now()) {
+            match expired {
+                Expired::Release(client, surface) => {
+                    if !mux.control_clients.contains(client) {
+                        continue;
+                    }
+                    eprintln!(
+                        "cmux-tui: client {client}'s size of surface {surface:?} was not refreshed for {:?}: released",
+                        size_lease()
+                    );
+                    if let Err(error) =
+                        cmd_sizing::release_surface_size_locked(mux, client, surface)
+                    {
+                        eprintln!(
+                            "cmux-tui: releasing client {client}'s expired size of {surface:?}: {error:#}"
+                        );
+                    }
+                }
+                Expired::EndHold(surface, left_at) => holds.push((surface, left_at)),
+            }
+        }
+    }
+    // Takes the lifecycle lock itself.
+    for (surface, left_at) in holds {
+        mux.end_terminal_grid_hold_of_departure(surface, left_at);
     }
 }
