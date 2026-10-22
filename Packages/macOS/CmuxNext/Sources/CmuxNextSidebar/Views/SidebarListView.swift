@@ -24,6 +24,11 @@ final class SidebarListView: NSView {
     var workspaces: [WorkspaceID: SidebarWorkspace] = [:]
     var tabs: [TabID: SidebarTab] = [:]
     var groups: [GroupID: SidebarGroup] = [:]
+    /// `sidebar.groupLineJoinsHeader`: a group's members' line runs into its header bar; off, it
+    /// starts a small cut below it (`SidebarGroupLine.lines`).
+    var groupLineJoinsHeader = false
+    /// Joined, each open group's line length below its header bar (`joinHeaders`).
+    var joinedLineLengths: [GroupID: CGFloat] = [:]
     /// Each group and the groups under it, in document order (`reload`): a section lists a subgroup
     /// after its parent, not inside it, so a parent's card reads its members through this.
     var groupSubtrees: [GroupID: [GroupID]] = [:]

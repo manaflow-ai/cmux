@@ -54,6 +54,7 @@ extension SettingsSchema {
         "sidebar.minimalMode", "sidebar.minimal", "sidebar.density", "sidebar.detailedStatusIcons", "sidebar.showTimestamps",
         "sidebar.showLocalMachine",
         "sidebar.groupHeader.memberCount", "sidebar.groupHeader.unreadCount",
+        "sidebar.groupLineJoinsHeader",
         "sidebar.numbering", "sidebar.cmd9", "sidebar.stepping", "sidebar.steppingWraps",
         "sidebar.side",
         "sidebar.spacesPosition", "sidebar.spacesVisibility",

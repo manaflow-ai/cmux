@@ -572,6 +572,7 @@
     "setting.sidebar.groupByComputer": false,
     "setting.sidebar.groupHeader.memberCount": false,
     "setting.sidebar.groupHeader.unreadCount": false,
+    "setting.sidebar.groupLineJoinsHeader": false,
     "setting.sidebar.hoverCards.delay": 250,
     "setting.sidebar.hoverCards.enabled": true,
     "setting.sidebar.hoverCards.groups.delay": 600,

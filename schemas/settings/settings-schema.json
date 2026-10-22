@@ -43,11 +43,6 @@
               "tabs.cmdWClosesPinnedTabs",
               "tabs.swapCmdTAndCmdN",
               "tabs.newTabNowPlaying",
-              "tabs.newTabWidgets.greeting",
-              "tabs.newTabWidgets.projects",
-              "tabs.newTabWidgets.actions",
-              "tabs.newTabWidgets.chats",
-              "tabs.newTabWidgets.styleDots",
               "sidebar.showChats"
             ],
             "title" : {
@@ -185,6 +180,24 @@
             }
           },
           {
+            "key" : "settings.group.updates",
+            "rows" : [
+              "updates.channel",
+              "updates.checkAutomatically",
+              "updates.checkIntervalSeconds",
+              "updates.downloadAutomatically",
+              "updates.meteredNetwork",
+              "updates.installOnQuit",
+              "updates.notify",
+              "updates.keepPreviousVersions",
+              "updates.showWhatsNew"
+            ],
+            "title" : {
+              "key" : "settings.group.updates",
+              "text" : "Updates"
+            }
+          },
+          {
             "key" : "settings.group.announcements",
             "rows" : [
               "announcements.enabled"
@@ -218,58 +231,6 @@
         },
         "trail" : [
           "spaces"
-        ]
-      },
-      {
-        "actions" : [
-
-        ],
-        "aliases" : [
-
-        ],
-        "groups" : [
-          {
-            "key" : "settings.group.updates",
-            "rows" : [
-              "updates.channel",
-              "updates.checkAutomatically",
-              "updates.checkIntervalSeconds",
-              "updates.downloadAutomatically",
-              "updates.meteredNetwork",
-              "updates.web",
-              "updates.installOnQuit",
-              "updates.notify",
-              "updates.keepPreviousVersions",
-              "updates.showWhatsNew"
-            ],
-            "title" : {
-              "key" : "settings.group.updates",
-              "text" : "Updates"
-            }
-          },
-          {
-            "key" : "updates.1",
-            "rows" : [
-              "updates.idleInstallMaxWaitSeconds",
-              "updates.idleInstallQuietSeconds"
-            ],
-            "title" : {
-              "key" : "settings.pageGroup.updatesAdvanced",
-              "text" : "Updates: Advanced"
-            }
-          }
-        ],
-        "id" : "updates",
-        "lead" : [
-
-        ],
-        "symbol" : "icloud.and.arrow.down",
-        "title" : {
-          "key" : "settings.category.updates",
-          "text" : "Updates"
-        },
-        "trail" : [
-          "channels"
         ]
       },
       {
@@ -461,8 +422,8 @@
               "sidebar.minimal",
               "sidebar.density",
               "sidebar.detailedStatusIcons",
+              "sidebar.groupLineJoinsHeader",
               "sidebar.showTimestamps",
-              "sidebar.showLocalMachine",
               "sidebar.groupHeader.memberCount",
               "sidebar.groupHeader.unreadCount",
               "sidebar.minimalMode",
@@ -900,8 +861,7 @@
         "id" : "chief",
         "lead" : [
           "chiefs",
-          "chiefPet",
-          "voiceInput"
+          "chiefPet"
         ],
         "symbol" : "crown",
         "title" : {
@@ -2105,7 +2065,6 @@
     },
     {
       "accepts" : [
-        "minimal",
         "cards",
         "default",
         "composer",
@@ -2117,13 +2076,6 @@
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.newTabTemplateMinimal",
-            "text" : "Minimal"
-          },
-          "value" : "minimal"
-        },
         {
           "title" : {
             "key" : "settings.choice.newTabTemplateCards",
@@ -2177,7 +2129,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "minimal",
+      "default" : "cards",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.tabs",
@@ -2194,8 +2146,6 @@
         "template",
         "layout",
         "page",
-        "minimal",
-        "greeting",
         "terminal",
         "classic",
         "composer",
@@ -3988,80 +3938,6 @@
     },
     {
       "accepts" : [
-        "every-merge",
-        "nightly",
-        "off"
-      ],
-      "agent_refusal" : "network",
-      "agent_settable" : false,
-      "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.updatesWebEveryMerge",
-            "text" : "Every Merge"
-          },
-          "value" : "every-merge"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.updatesWebNightly",
-            "text" : "With Nightly"
-          },
-          "value" : "nightly"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.updatesWebOff",
-            "text" : "Off"
-          },
-          "value" : "off"
-        }
-      ],
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : "every-merge",
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.updates",
-        "text" : "Updates"
-      },
-      "help" : {
-        "key" : "settings.updates.web.help",
-        "text" : "Every Merge: changes to the web UI arrive minutes after they land, without waiting for the next app update. Off: the web UI this app shipped with."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "updates.web",
-      "keywords" : [
-        "update",
-        "web",
-        "ota",
-        "hot reload",
-        "bundle",
-        "nightly",
-        "merge"
-      ],
-      "kind" : "choice",
-      "page_hidden" : false,
-      "path" : [
-        "updates",
-        "web"
-      ],
-      "refuses" : [
-        "__not_a_choice__",
-        1,
-        true
-      ],
-      "section" : "general",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.updates.web",
-        "text" : "Web UI Updates"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
         true,
         false
       ],
@@ -4266,120 +4142,6 @@
       "title" : {
         "key" : "settings.updates.showWhatsNew",
         "text" : "Show What's New After Updates"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        60,
-        7200,
-        3630
-      ],
-      "agent_refusal" : "userOnly",
-      "agent_settable" : false,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : 900,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.updates",
-        "text" : "Updates"
-      },
-      "help" : {
-        "key" : "settings.updates.idleInstallMaxWait.help",
-        "text" : "A downloaded nightly installs by itself once agents and commands finish and you stop typing, and never waits longer than this. Terminals and agents carry on after the restart."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "updates.idleInstallMaxWaitSeconds",
-      "keywords" : [
-        "update",
-        "install",
-        "idle",
-        "wait",
-        "automatic",
-        "nightly"
-      ],
-      "kind" : "number",
-      "page_hidden" : false,
-      "path" : [
-        "updates",
-        "idleInstallMaxWaitSeconds"
-      ],
-      "range" : {
-        "max" : 7200,
-        "min" : 60,
-        "placeholder" : 60,
-        "step" : 60,
-        "unit" : "seconds"
-      },
-      "refuses" : [
-        -7080,
-        14340,
-        "1"
-      ],
-      "section" : "general",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.updates.idleInstallMaxWait",
-        "text" : "Install Within"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        5,
-        600,
-        302.5
-      ],
-      "agent_refusal" : "userOnly",
-      "agent_settable" : false,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : 60,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.updates",
-        "text" : "Updates"
-      },
-      "help" : {
-        "key" : "settings.updates.idleInstallQuiet.help",
-        "text" : "How long the keyboard and mouse must be idle before a downloaded nightly installs by itself."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "updates.idleInstallQuietSeconds",
-      "keywords" : [
-        "update",
-        "install",
-        "idle",
-        "quiet",
-        "typing",
-        "nightly"
-      ],
-      "kind" : "number",
-      "page_hidden" : false,
-      "path" : [
-        "updates",
-        "idleInstallQuietSeconds"
-      ],
-      "range" : {
-        "max" : 600,
-        "min" : 5,
-        "placeholder" : 5,
-        "step" : 5,
-        "unit" : "seconds"
-      },
-      "refuses" : [
-        -590,
-        1195,
-        "1"
-      ],
-      "section" : "general",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.updates.idleInstallQuiet",
-        "text" : "Quiet Time Before Installing"
       },
       "validation" : "portable"
     },
@@ -21521,6 +21283,58 @@
         "text" : "Sidebar"
       },
       "help" : {
+        "key" : "settings.sidebar.groupLineJoinsHeader.help",
+        "text" : "The line beside a group's workspaces runs into the group's header as one shape. Off, the line starts just below the header, with a small gap."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.groupLineJoinsHeader",
+      "keywords" : [
+        "sidebar",
+        "group",
+        "groups",
+        "line",
+        "header",
+        "join",
+        "connect",
+        "gap",
+        "chrome"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "groupLineJoinsHeader"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.groupLineJoinsHeader",
+        "text" : "Join Group Lines to Headers"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
         "key" : "settings.sidebar.showTimestamps.help",
         "text" : "Workspace rows show when they last changed: a time today, else an age such as 3d. Off, rows show no times; the hover card still does."
       },
@@ -21555,58 +21369,6 @@
       "title" : {
         "key" : "settings.sidebar.showTimestamps",
         "text" : "Show Timestamps"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : false,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.sidebar",
-        "text" : "Sidebar"
-      },
-      "help" : {
-        "key" : "settings.sidebar.showLocalMachine.help",
-        "text" : "With workspaces on more than one computer, a workspace on another computer shows that computer's icon in its color. On, this Mac's workspaces show its icon too."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "sidebar.showLocalMachine",
-      "keywords" : [
-        "sidebar",
-        "machine",
-        "computer",
-        "this mac",
-        "local",
-        "icon",
-        "color",
-        "remote",
-        "identity"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "sidebar",
-        "showLocalMachine"
-      ],
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "appearance",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.sidebar.showLocalMachine",
-        "text" : "Mark This Mac's Workspaces"
       },
       "validation" : "portable"
     },
@@ -23562,253 +23324,6 @@
       "title" : {
         "key" : "settings.tabs.newTabNowPlaying",
         "text" : "Show Now Playing on New Tab"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : true,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.tabs",
-        "text" : "Tabs"
-      },
-      "help" : {
-        "key" : "settings.tabs.newTabWidgets.greeting.help",
-        "text" : "A short greeting over the composer."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "tabs.newTabWidgets.greeting",
-      "keywords" : [
-        "new tab",
-        "widget",
-        "greeting",
-        "hello"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "tabs",
-        "newTabWidgets",
-        "greeting"
-      ],
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "general",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.tabs.newTabWidgets.greeting",
-        "text" : "Show Greeting on New Tab"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : false,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.tabs",
-        "text" : "Tabs"
-      },
-      "help" : {
-        "key" : "settings.tabs.newTabWidgets.projects.help",
-        "text" : "A card of this Mac and its recent projects over the composer."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "tabs.newTabWidgets.projects",
-      "keywords" : [
-        "new tab",
-        "widget",
-        "project",
-        "folder",
-        "machine",
-        "environment"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "tabs",
-        "newTabWidgets",
-        "projects"
-      ],
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "general",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.tabs.newTabWidgets.projects",
-        "text" : "Show Projects on New Tab"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : false,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.tabs",
-        "text" : "Tabs"
-      },
-      "help" : {
-        "key" : "settings.tabs.newTabWidgets.actions.help",
-        "text" : "Chats that need you, and New Terminal, New Browser Tab and New Chat."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "tabs.newTabWidgets.actions",
-      "keywords" : [
-        "new tab",
-        "widget",
-        "actions",
-        "new terminal",
-        "new browser tab",
-        "new chat"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "tabs",
-        "newTabWidgets",
-        "actions"
-      ],
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "general",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.tabs.newTabWidgets.actions",
-        "text" : "Show Quick Actions on New Tab"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : false,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.tabs",
-        "text" : "Tabs"
-      },
-      "help" : {
-        "key" : "settings.tabs.newTabWidgets.chats.help",
-        "text" : "Your recent chats under the composer. The palette finds any chat."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "tabs.newTabWidgets.chats",
-      "keywords" : [
-        "new tab",
-        "widget",
-        "chats",
-        "recent",
-        "history",
-        "all chats"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "tabs",
-        "newTabWidgets",
-        "chats"
-      ],
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "general",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.tabs.newTabWidgets.chats",
-        "text" : "Show Recent Chats on New Tab"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : false,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.tabs",
-        "text" : "Tabs"
-      },
-      "help" : {
-        "key" : "settings.tabs.newTabWidgets.styleDots.help",
-        "text" : "Dots under the page that switch its template."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "tabs.newTabWidgets.styleDots",
-      "keywords" : [
-        "new tab",
-        "widget",
-        "template",
-        "style",
-        "dots"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "tabs",
-        "newTabWidgets",
-        "styleDots"
-      ],
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "general",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.tabs.newTabWidgets.styleDots",
-        "text" : "Show Template Dots on New Tab"
       },
       "validation" : "portable"
     },
