@@ -586,8 +586,12 @@ export function ChatInspector({
   const mcp = summary?.mcpServers ?? [];
   const reconnect = mcp.filter((server) => server.status === "failed").length;
   const runningTasks = commands.filter((command) => command.state === "running").length;
-  // Subagents shows the running limit even before the agent starts a chat, so it can be set up front.
+  // Subagents shows only for a chat that has had subagents or sub-sessions, or whose running limit
+  // someone set (its own, an ancestor's, the workspace's or the settings'): a chat that never used
+  // them, at acpmux's default, shows nothing.
   const limits = summary?.subsessionLimits;
+  const limitSet =
+    limits !== undefined && limits.maxRunningSource !== undefined && limits.maxRunningSource !== "default";
   const chatId = summary?.sessionId;
   // A chat on another machine: its sub-sessions live on that machine's acpmux, which takes the
   // limit only from its own person, so the line only reads.
@@ -687,7 +691,7 @@ export function ChatInspector({
           <ServersSection servers={servers} onStop={onStopProcess} onOpenUrl={onOpenUrl} />
         </InspectorSection>
       )}
-      {(agents.length + sessions.length > 0 || limits) && (
+      {(agents.length + sessions.length > 0 || limitSet) && (
         <InspectorSection
           id="subagents"
           title={t("summary.subagents")}

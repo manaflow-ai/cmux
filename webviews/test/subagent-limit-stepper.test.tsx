@@ -4,7 +4,9 @@
 // for a slot, and − / + that set the chat's own limit one lower or higher, 1 to 1000, through
 // `_acpmux/subsession/limits` (Leo, 2026-10-21: "increase or decrease subagent amounts ad hoc").
 // The number moves at once and acpmux's answer then holds; an acpmux without the limit draws
-// nothing. Subagents shows the limit before any chat starts, so a cap can be set up front.
+// nothing. Subagents shows for a chat that has had subagents or sub-sessions, or whose limit someone
+// set (any source but acpmux's default), even before any chat starts; a chat that never used them,
+// at the default, shows no Subagents card.
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -195,11 +197,29 @@ test("a value asked for one chat never shows on another", async () => {
   expect(line()).toBe("Running 0 / 16 max");
 });
 
-test("Subagents shows the limit before the agent starts a chat, and sets it for that chat", async () => {
+test("Subagents shows a set limit before the agent starts a chat, and sets it for that chat", async () => {
   const sent: [string, number | null][] = [];
+  // Never used, at acpmux's default: no Subagents card.
   await render(
     <ChatInspector
       summary={{ sessionId: "chat-1", subsessionLimits: { maxRunning: 16, maxRunningSource: "default" } }}
+      onSetRunningLimit={async (sessionId, value) => void sent.push([sessionId, value])}
+    />,
+  );
+  expect(host.querySelector(".acpmux-subagent-limit")).toBeNull();
+  // At the default but with a chat it started: the card and its limit show.
+  await render(
+    <ChatInspector
+      summary={{ sessionId: "chat-1", subsessionLimits: { maxRunning: 16, maxRunningSource: "default" } }}
+      sessions={[child("kid", "running")]}
+      onSetRunningLimit={async (sessionId, value) => void sent.push([sessionId, value])}
+    />,
+  );
+  expect(line()).toBe("Running 1 / 16 max");
+  // No chats yet, but the settings set the limit: the card shows only the limit.
+  await render(
+    <ChatInspector
+      summary={{ sessionId: "chat-1", subsessionLimits: { maxRunning: 16, maxRunningSource: "settings" } }}
       onSetRunningLimit={async (sessionId, value) => void sent.push([sessionId, value])}
     />,
   );
@@ -211,7 +231,11 @@ test("Subagents shows the limit before the agent starts a chat, and sets it for 
   // A chat on another machine: its acpmux takes the limit only from its own person, so it only reads.
   await render(
     <ChatInspector
-      summary={{ sessionId: "chat-1", peer: "build-01", subsessionLimits: { maxRunning: 16 } }}
+      summary={{
+        sessionId: "chat-1",
+        peer: "build-01",
+        subsessionLimits: { maxRunning: 16, maxRunningSource: "workspace" },
+      }}
       onSetRunningLimit={async (sessionId, value) => void sent.push([sessionId, value])}
     />,
   );

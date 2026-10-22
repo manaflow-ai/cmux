@@ -392,9 +392,17 @@ export default componentEntry<Props>({
         ],
       },
     },
-    "subagent-limit-up-front": {
-      note: "Before the agent starts any chat: Subagents shows only the running limit, so a cap can be set up front.",
+    "subagent-limit-hidden-default": {
+      note: "A chat that never started a subagent or a chat, at acpmux's default running limit: no Subagents card at all.",
       props: { summary, machineName: "Studio", onSetRunningLimit: async () => undefined },
+    },
+    "subagent-limit-set-no-rows": {
+      note: "No subagents or chats yet, but the settings set the running limit to 4: Subagents shows only that limit, with − and +.",
+      props: {
+        summary: { ...summary, subsessionLimits: { maxRunning: 4, maxRunningSource: "settings" } },
+        machineName: "Studio",
+        onSetRunningLimit: async () => undefined,
+      },
     },
     "subagents-busy": {
       note: "A busy coordinator: the first five of seventeen running subagents and chats, the one waiting on the person first, then Show 12 more and the 94 done · 1 failed row.",
