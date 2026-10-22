@@ -178,10 +178,19 @@ test("a step of only quiet thoughts takes no room, estimated or drawn", () => {
   expect(estimated).toBe(0);
   // Its latest thought may still stream while the turn runs; a long one draws its row.
   expect(heightsOf([{ ...step, live: true }])[0]!).toBeGreaterThan(0);
-  const long = { kind: "thought", text: "Reading the batch script before running it, step by step.", startedAt: 0, endedAt: 4_000 };
+  const long = {
+    kind: "thought",
+    text: "Reading the batch script before running it, step by step.",
+    startedAt: 0,
+    endedAt: 4_000,
+  };
   expect(heightsOf([{ ...step, items: [quiet, long] }])[0]!).toBeGreaterThan(0);
 
-  const tool = { kind: "tool", text: "", tool: { id: "c", title: "ls", kind: "execute", status: "completed", command: "ls" } };
+  const tool = {
+    kind: "tool",
+    text: "",
+    tool: { id: "c", title: "ls", kind: "execute", status: "completed", command: "ls" },
+  };
   const run = { id: "b", version: 1, at: 0, kind: "activity", items: [tool, tool, tool, tool, tool, tool] };
   const reply = { id: "r", version: 1, at: 0, kind: "assistant", text: "Done." };
   const estimate = layoutConversation([run, reply] as never, 720);

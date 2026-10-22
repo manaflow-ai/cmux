@@ -128,7 +128,13 @@ await requireBrowserLane("transcript-fold-no-blank-space-browser.test.ts", async
     row("a2", "activity", undefined, { items: [edit("e1"), command("c5", "bash /tmp/batch32.sh", 200)] }),
     row("a3", "activity", undefined, { items: quiet(6) }),
     row("a4", "activity", undefined, {
-      items: [read("r1"), command("c6", "cat /private/tmp/out.log", 80), render("p1"), render("p2", "p1"), render("p3", "p1")],
+      items: [
+        read("r1"),
+        command("c6", "cat /private/tmp/out.log", 80),
+        render("p1"),
+        render("p2", "p1"),
+        render("p3", "p1"),
+      ],
     }),
     row("a5", "activity", undefined, { items: quiet(4) }),
     row("ans1", "assistant", "The batch ran. It changed three files:\n\n- one\n- two\n- three"),
@@ -219,7 +225,11 @@ await requireBrowserLane("transcript-fold-no-blank-space-browser.test.ts", async
     const rows = await drawnRows(page);
     const gaps = rows
       .slice(1)
-      .map((row, index) => ({ after: rows[index]!.id, before: row.id, gap: row.top - rows[index]!.top - rows[index]!.height }))
+      .map((row, index) => ({
+        after: rows[index]!.id,
+        before: row.id,
+        gap: row.top - rows[index]!.top - rows[index]!.height,
+      }))
       .filter((each) => Math.abs(each.gap) > 1)
       .map((each) => `${Math.round(each.gap)}px between ${each.after} and ${each.before}`);
     const empty = rows

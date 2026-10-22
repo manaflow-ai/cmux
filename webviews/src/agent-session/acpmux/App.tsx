@@ -2019,8 +2019,7 @@ export function VirtualTranscript({
             for (const entry of entries ?? []) {
               const target = entry.target as HTMLElement;
               const row = rowsRef.current[Number(target.getAttribute("aria-posinset")) - 1];
-              if (row && row.id === target.dataset.rowId)
-                reportDrawn(row.id, row.version, drawnHeightOf(target));
+              if (row && row.id === target.dataset.rowId) reportDrawn(row.id, row.version, drawnHeightOf(target));
             }
             // A late size change (a font loading) must not paint a frame of overlap first. Sizes
             // that did not change render nothing: a synchronous render here for nothing was the
