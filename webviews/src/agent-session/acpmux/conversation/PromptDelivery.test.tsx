@@ -174,9 +174,9 @@ test("a machine that cannot be reached and a full disk there are their own cause
   };
   expect(sendCause(unreached)).toBe("unreached");
   expect(sendCause(full)).toBe("storage-full");
-  expect(failedSendText({ code: unreached.code, message: unreached.error }, false)).toBe(
-    translate("prompt.notSent", { reason: unreached.error }),
-  );
+  // As direct.ts hands it over: an Error with acpmux's data.code copied on.
+  const refused = Object.assign(new Error(unreached.error), { code: unreached.code });
+  expect(failedSendText(refused, false)).toBe(translate("prompt.notSent", { reason: unreached.error }));
   const container = await render(transcript([failed("a", "ship it", unreached), failed("b", "and this", full)], {}));
   const causes = [...container.querySelectorAll<HTMLElement>("[data-failure-cause]")].map(
     (node) => node.dataset.failureCause,
