@@ -41,7 +41,7 @@ extension AppActions {
             guard let name = invocation["name"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty else {
                 if NewChiefPage.opensAsPage(sheetToggle: HomeTunables.newChiefSheet.value, classic: services.home.dock.isClassic,
                                             channels: HomeDockView.Mode.channels.isEnabled,
-                                            holdsTab: services.windows.active?.holdsVisiblePageTab ?? false) {
+                                            holdsTab: NewChiefPage.holdsTab(in: services.windows.active)) {
                     if !NewChiefPage.open(services, focus: invocation.allowsViewChange) { registry.refuse(RefusalStrings.noWindowOpen) }
                     return
                 }

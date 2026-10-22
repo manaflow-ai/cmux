@@ -17,4 +17,14 @@ extension WorkspaceContentController {
         }
         return focused
     }
+
+    /// Whether the pane a new page tab opens in (`pageTabPane`, as `openNew` picks it) takes it: false
+    /// on a pinned dock that takes no other tab, the strip's own rule (`Snapshot.takesNewTabs`). Home's
+    /// Chief dock alone (`pinned-dock-alone-v1`) is one: a page tab there would cover the Chief.
+    var pageTabPaneTakesTabs: Bool {
+        guard let pane = pageTabPane ?? panes.values.first else { return false }
+        let handle = pane.pane.handle
+        let dock = workspace.screens.lazy.flatMap(\.columns).first { $0.layout.paneIDs.contains(handle) }?.dock
+        return dock?.isPinned != true || dock?.allowsTabs == true
+    }
 }

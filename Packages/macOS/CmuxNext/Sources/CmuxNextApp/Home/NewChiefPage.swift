@@ -87,12 +87,19 @@ extension NewChiefPage {
     }
 
     /// Whether New Chief… with no name opens the page tab: wherever it would show the sheet (the
-    /// docked Home with Channels off) and the active window can show a tab (`holdsVisiblePageTab`),
+    /// docked Home with Channels off) and the active window can show a tab (`holdsTab(in:)`),
     /// unless the Debug toggle keeps the sheet. Classic Home keeps its sheet (its one top page would
     /// leave Home for a tab nobody sees), Channels its own page route, and a window with no pane to
     /// hold the tab (or no window) the sheet, since a top page's card could not close after Create.
     static func opensAsPage(sheetToggle: Bool, classic: Bool, channels: Bool, holdsTab: Bool) -> Bool {
         !sheetToggle && !classic && !channels && holdsTab
+    }
+
+    /// Whether `window` shows the New Chief tab: it shows a workspace pane (`holdsVisiblePageTab`)
+    /// whose page-tab pane takes it. Home's Chief dock alone takes no tab, so there the sheet stays.
+    static func holdsTab(in window: WindowController?) -> Bool {
+        guard let window, window.holdsVisiblePageTab else { return false }
+        return window.workspaceContent?.pageTabPaneTakesTabs == true
     }
 }
 
