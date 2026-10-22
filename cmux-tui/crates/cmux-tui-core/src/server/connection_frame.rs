@@ -2,10 +2,10 @@
 //! dispatch with its cancellation, and the VT-state command reply. Moved out of
 //! server.rs unchanged (cx-6so.3).
 
-#[cfg(unix)]
-mod machine_catalog;
 /// The socket line decode path for cmux-tui/fuzz (crate::fuzz_entry).
 pub(crate) mod fuzz;
+#[cfg(unix)]
+mod machine_catalog;
 
 use super::*;
 
