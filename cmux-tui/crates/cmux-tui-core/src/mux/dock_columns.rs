@@ -438,18 +438,24 @@ pub(crate) fn ensure_permanent_columns_kept(
 /// one. A terminal that exited still closes, and closing the whole workspace
 /// (or its last screen) is no removal; a tab or pane close that empties the
 /// workspace still may not take a pinned tab with it.
+///
+/// `operation` is the single close whose rule applies; `name` is the
+/// operation the refusal names. A batch close (`close-tabs`, `layout.bulk`,
+/// a stash) passes the single close it stands for, so every close path keeps
+/// one rule.
 pub(crate) fn close_keeping_permanent(
     operation: ResourceOperation,
+    name: &str,
     before: &State,
     after: State,
 ) -> anyhow::Result<State> {
     if !matches!(operation, ResourceOperation::TerminalClose | ResourceOperation::WorkspaceClose) {
-        ensure_permanent_columns_kept(operation.wire_name(), &permanent_columns(before), &after)?;
+        ensure_permanent_columns_kept(name, &permanent_columns(before), &after)?;
         let pinned = pinned_columns(before);
         if matches!(operation, ResourceOperation::TabClose | ResourceOperation::PaneClose) {
-            ensure_pinned_tabs_not_closed(operation.wire_name(), &pinned, &after)?;
+            ensure_pinned_tabs_not_closed(name, &pinned, &after)?;
         } else {
-            ensure_pinned_columns_kept(operation.wire_name(), &pinned, &after)?;
+            ensure_pinned_columns_kept(name, &pinned, &after)?;
         }
     }
     Ok(after)

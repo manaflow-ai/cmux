@@ -676,14 +676,23 @@ export function dpkgChanges(before: Map<string, string>, after: Map<string, stri
   return changed;
 }
 
-/** Problems when the packages an install added differ from the lock's exact set (extra, missing, or other version). */
-export function aptClosureProblems(expected: Readonly<Record<string, string>>, added: Map<string, string>): string[] {
+/**
+ * Problems when the packages an install added differ from the lock's exact set (extra, missing, or other version).
+ * A locked package that `base` (the dpkg list before the install) already has at the locked version is satisfied:
+ * apt has nothing to add for it, and the lock keeps it so the bake still installs it if the base drops it.
+ */
+export function aptClosureProblems(expected: Readonly<Record<string, string>>, added: Map<string, string>, base?: Map<string, string>): string[] {
   const problems: string[] = [];
   for (const [name, version] of added) {
     if (!(name in expected)) problems.push(`apt installed ${name}=${version}, which is not in the lock`);
     else if (expected[name] !== version) problems.push(`apt installed ${name}=${version}, the lock says ${expected[name]}`);
   }
-  for (const name of Object.keys(expected)) if (!added.has(name)) problems.push(`lock package ${name} was not installed`);
+  for (const [name, version] of Object.entries(expected)) {
+    if (added.has(name)) continue;
+    const had = base?.get(name);
+    if (had === version) continue;
+    problems.push(had === undefined ? `lock package ${name} was not installed` : `lock package ${name}=${version} was not installed (the base has ${had})`);
+  }
   return problems;
 }
 

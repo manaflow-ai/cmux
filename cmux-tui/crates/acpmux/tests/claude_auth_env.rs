@@ -678,6 +678,34 @@ async fn an_rc_file_the_shell_rewrites_stops_being_read_again() {
     );
 }
 
+/// The first health answer counts a Claude sign-in the login shell exports
+/// (hq#2569 #2), even when it is asked before the shell has answered: the
+/// health call waits for the daemon's startup, as its own check does,
+/// instead of reading an environment without the login shell. (A slow
+/// shell, 1.5 s here, is the case of a loaded machine or a heavy ~/.zshrc.)
+#[tokio::test]
+async fn the_first_health_answer_counts_a_sign_in_from_a_slow_login_shell() {
+    let dir = scratch("hl", "sleep 1.5\nexport ANTHROPIC_API_KEY=from-login-shell\n");
+    // A Claude CLI by path (no PATH harness finds it).
+    std::fs::create_dir_all(dir.join("bin")).unwrap();
+    write_executable(
+        &dir.join("bin/claude"),
+        "#!/bin/sh\n[ \"$1\" = --version ] && echo '2.1.0 (Claude Code)'\nexit 0\n",
+    );
+    let config = json!({"harnesses": {"cl": {"argv": [dir.join("bin/claude")]}},
+        "defaultHarness": "cl", "permissionPolicy": "approve-all"});
+    let d = start_config(&dir, config, &[]).await;
+    let mut rpc = Rpc::connect(&d.socket).await;
+    let health = rpc.call("_acpmux/harness/health", json!({})).await;
+    let row = health["harnesses"]
+        .as_array()
+        .and_then(|rows| rows.iter().find(|row| row["id"] == "cl"))
+        .unwrap_or_else(|| panic!("no cl row: {health}"))
+        .clone();
+    assert_eq!(row["auth"], "signedIn", "{health}");
+    assert_eq!(row["authDetail"], "an API key (ANTHROPIC_API_KEY)", "{health}");
+}
+
 /// A login shell that hangs: the daemon stops waiting after 3 s, and
 /// agents start without it (falling back to the daemon's environment).
 #[tokio::test]

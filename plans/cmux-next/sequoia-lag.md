@@ -134,8 +134,8 @@ Before to after, on every version and both window configurations:
   `STRESS_BUDGET_MAX_MS` (1500) or its summed stalls `STRESS_BUDGET_TOTAL_MS`
   (6000). The process count is exact; the time budgets only catch a large
   regression, because VM stall times swing about 2x with host load.
-- `.github/workflows/macos-matrix-fuzz.yml` (nightly, 14, 15 and 26) fails on
-  `STRESS-FAIL` and prints the budget line per version.
+- The nightly `macos-matrix-fuzz.yml` workflow that failed on `STRESS-FAIL` was
+  retired with Tart (2026-10-21); run `scripts/fuzz/macos-matrix/vm.sh` on a Tart host.
 
 ## Left for the owners
 

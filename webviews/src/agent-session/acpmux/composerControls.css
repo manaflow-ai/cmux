@@ -11,8 +11,6 @@
   padding: var(--ui-popup-padding);
   border: 0;
   border-radius: var(--ui-popup-radius);
-  background-color: var(--surface-popup);
-  box-shadow: var(--acpmux-popup-elevation);
   color: var(--agent-text);
 }
 .ui-menu-item.acpmux-effort-item {

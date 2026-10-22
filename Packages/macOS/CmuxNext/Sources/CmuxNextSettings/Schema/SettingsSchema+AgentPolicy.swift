@@ -52,9 +52,10 @@ extension SettingsSchema {
         "tabs.barPosition", "tabs.barOrder", "tabs.toolbarButtons", "browser.toolbarPosition",
         "navigation.historyScope", "navigation.history.scope",
         "sidebar.minimalMode", "sidebar.minimal", "sidebar.density", "sidebar.detailedStatusIcons", "sidebar.showTimestamps",
+        "sidebar.showLocalMachine",
         "sidebar.groupHeader.memberCount", "sidebar.groupHeader.unreadCount",
         "sidebar.numbering", "sidebar.cmd9", "sidebar.stepping", "sidebar.steppingWraps",
-        "sidebar.side",
+        "sidebar.side", "sidebar.style",
         "sidebar.spacesPosition", "sidebar.spacesVisibility",
         "tabs.newTabTemplate",
         "tabs.newTabPosition",
@@ -88,6 +89,7 @@ extension SettingsSchema {
         "appearance.appTheme",
         "appearance.accent",
         "appearance.themeEdits",
+        "appearance.machineColors", // the color of each machine's marks (looks only)
         "appearance.backdropArt",
         "appearance.backgroundOpacity",
         "appearance.backgroundBlur",
@@ -174,7 +176,7 @@ extension SettingsSchema {
         "sidebar.hoverCards.groups.delay", "sidebar.hoverCards.groups.order", "sidebar.hoverCards.groups.maxMembers",
         "sidebar.hoverCards.groups.sections.status", "sidebar.hoverCards.groups.sections.members",
         "sidebar.hoverCards.groups.sections.activity", "sidebar.hoverCards.groups.sections.git",
-        "sidebar.hoverCards.groups.sections.ports", "sidebar.nowPlaying.enabled", "tabs.newTabNowPlaying", "sidebar.showProjects", "sidebar.showSpaces", "sidebar.showProfileControl", "sidebar.showSearchButton", "sidebar.groupBy",
+        "sidebar.hoverCards.groups.sections.ports", "sidebar.nowPlaying.enabled", "tabs.newTabNowPlaying", "tabs.newTabWidgets.greeting", "tabs.newTabWidgets.projects", "tabs.newTabWidgets.actions", "tabs.newTabWidgets.chats", "tabs.newTabWidgets.styleDots", "tabs.newTabWidgets.order", "sidebar.showProjects", "sidebar.showSpaces", "sidebar.showProfileControl", "sidebar.showSearchButton", "sidebar.groupBy",
         "sidebar.priorityView.enabled", "sidebar.priorityView.shown",
         "browser.defaultEngine",
         "browser.siteEngines",
@@ -219,6 +221,8 @@ extension SettingsSchema {
         // box types only what the person writes.
         "home.chiefPetEnabled",
         "home.chiefPetMascot",
+        // Needs you in the agent chat header (an App Store item): a display the person can hide again.
+        "agentPane.needsYou.enabled",
         "updates.notify",
         "updates.showWhatsNew",
         "announcements.enabled",
@@ -295,6 +299,11 @@ extension SettingsSchema {
         "updates.meteredNetwork": .network,
         // Which builds this Mac installs (a faster ring runs less-tested code): the person's call.
         "updates.channel": .userOnly,
+        // Web UI updates download and run new page code from files.cmux.com.
+        "updates.web": .network,
+        // How long a nightly waits before it restarts into an update: the person's call.
+        "updates.idleInstallMaxWaitSeconds": .userOnly,
+        "updates.idleInstallQuietSeconds": .userOnly,
         "announcements.fetch": .network,
         // On, cmux starts a helper that sees and controls other apps; only the person turns it on.
         // What a new chat may do without asking: an agent must not widen its own approvals.

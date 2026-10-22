@@ -61,6 +61,11 @@ nonisolated enum UpdaterStrings {
     static var rollbackStoresUnknown: String {
         text("updater.rollback.storesUnknown", "The running cmux-tui cannot report its data formats, so cmux cannot check a rollback.")
     }
+    // The question every rollback entrypoint asks (UpdateDropBack.confirmation)
+    static var rollbackConfirmTitle: String { text("updater.rollback.confirm.title", "Roll Back to the Previous Version?") }
+    static var rollbackConfirmBody: String {
+        text("updater.rollback.confirm.body", "cmux quits and reopens the build this Mac kept. Your terminals and agents keep running.")
+    }
 
     // Test feed
     static var testFeedRefused: String {
