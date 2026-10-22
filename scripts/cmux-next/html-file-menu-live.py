@@ -234,17 +234,40 @@ def run_menu():
     say("rows after send:", json.dumps(drive("rows"))[:1500])
 
 
-def run_text():
-    t = open_index()
-    if not t:
-        row("index.html opens in a tab", False, None)
+def run_held():
+    """The bug's moment: the menu (and its darker area) is open while a message lands and moves the rows."""
+    rows = drive("rows")
+    row_ = next((r for r in reversed(rows.get("rows", [])) if r.get("outgoing") and r.get("kind") == "part"), None)
+    if not row_:
+        row("an attachment row for the held menu", False, rows)
         return
-    reply = rpc("action.run", {"action": "file.openAsText", "target": f"tab:{tab_id(t)}", "focus": True, "origin": "user"})
-    say("Open as Text:", json.dumps(reply)[:300])
+    b = row_["balloon"]
+    x, y = b["x"] + b["width"] / 2, rows["windowHeight"] - (b["y"] + b["height"] / 2)
+    rpc("debug.mouse", {"x": x, "y": y, "action": "click", "button": "right"}, timeout=5)
+    time.sleep(1.0)  # test harness: the menu opens and the highlight fades in
+    # A reply from the Chief lands while the menu is open: the rows move up.
+    say("stream:", json.dumps(rpc("debug.home.drive", {"action": "stream", "text": "Got it, opening the page now.", "done": True})))
+    time.sleep(1.2)  # test harness: the row lands and the transcript moves
+    cap = os.environ.get("NX_CAPTURE")
+    if cap:
+        r = subprocess.run(["bash", cap, "shot", "--pid", str(launched[0].pid), "--with-popups", "--out",
+                            os.path.join(opts.out, "held-1-menu-open-after-reply.png")], capture_output=True, text=True, timeout=60)
+        say("capture held:", r.returncode, r.stderr.strip()[:200])
+    cua("get_desktop_state", {"screenshot_out_file": os.path.join(opts.out, "held-1-menu-open-after-reply-desktop.png")})
+    rpc("debug.key", {"key": "escape"}, timeout=5)
+    time.sleep(0.8)  # test harness: the menu closes
+    snapshot("held-2-closed")
+
+
+def run_text():
+    """The code editor page with index.html's source: the page Open as Text opens (FilePageOpener.route
+    asText -> .editor). The socket's open of a web page by a script takes the same editor route."""
+    reply = rpc("action.run", {"action": "file open", "args": {"path": INDEX, "where": "tab"}, "focus": True, "origin": "script"})
+    say("file open (script, editor route):", json.dumps(reply)[:300])
     editor = wait(lambda: next((x for x in (rpc("debug.filepages") or {}).get("tabs", [])
-                                if x.get("kind") == "editor" and x.get("file") == INDEX and x.get("has_page")), None), 20)
-    row("Open as Text opens index.html in the code editor", editor is not None, editor)
-    time.sleep(1.5)  # test harness: Monaco paints
+                                if x.get("kind") == "editor" and x.get("file") == INDEX and x.get("has_page")), None), 30)
+    row("index.html shows as text in the code editor", editor is not None, editor)
+    time.sleep(2)  # test harness: Monaco paints
     snapshot("text-editor")
 
 
@@ -264,6 +287,8 @@ make_fixture()
 launch()
 if "menu" in ONLY:
     run_menu()
+if "held" in ONLY:
+    run_held()
 if "text" in ONLY:
     run_text()
 finish(0 if all(r["ok"] for r in ROWS) else 1)
