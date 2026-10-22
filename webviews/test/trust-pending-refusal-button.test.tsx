@@ -136,3 +136,27 @@ test("trust.pending for another spelling of the folder trusts the folder acpmux 
   const cwd = "/Users/you/src/link";
   await refusedThenTrusted(async () => ({ cwd, level: "unknown" }), cwd, "chat-link", "/Users/you/src/real");
 });
+
+test("a chat keeps its trust.pending question and its own prompt across a chat switch", async () => {
+  const cwd = "/Users/you/src/shared";
+  const trust = source(async () => ({ cwd, level: "trusted", decided: false, auto: "root" }));
+  const sent: string[] = [];
+  const show = (sessionId: string) =>
+    act(async () => root.render(<Pane trust={trust.source} sessionId={sessionId} cwd={cwd} />));
+  await show("chat-a");
+  await act(async () => {
+    shown!.refused(pending(cwd), () => sent.push("a"));
+  });
+  // Another chat in the same folder, which acpmux never refused: no question there.
+  await show("chat-b");
+  const askedInB = trustButton() !== undefined;
+  expect(askedInB).toBe(false);
+  await show("chat-a");
+  const button = trustButton();
+  const askedInA = button !== undefined;
+  expect(askedInA).toBe(true);
+  await act(async () => {
+    button!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+  });
+  expect(sent).toEqual(["a"]);
+});
