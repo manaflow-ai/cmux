@@ -174,6 +174,8 @@ type Listener = (snapshot: AcpmuxSnapshot) => void;
 
 /// A hint that a harness is likely next, so acpmux can warm its adapter (cmux-tui acpmux lane).
 export const PREWARM_METHOD = "_acpmux/prewarm";
+/// Reconnects a Claude Code chat's MCP server (reconnectMcp); listed in `initialize` where served.
+export const MCP_RECONNECT_METHOD = "_acpmux/mcp/reconnect";
 
 /// The slash commands are not transcript, so the pane asks for their updates by kind.
 /// How long Stop waits for the turn to end before the pane stops showing it as working. It is
@@ -2158,7 +2160,7 @@ export class AcpmuxDirectClient {
   /// The app's pane relay must allow `_acpmux/mcp/reconnect` (cmux-agent-pane-policy) first.
   reconnectMcp(server: string): Promise<unknown> {
     if (!this.selectedSessionId) return Promise.reject(new Error());
-    return this.request("_acpmux/mcp/reconnect", { sessionId: this.selectedSessionId, server }, 35_000);
+    return this.request(MCP_RECONNECT_METHOD, { sessionId: this.selectedSessionId, server }, 35_000);
   }
 
   /// Stops one of the selected session's running subagents (a Claude agent or workflow); acpmux
@@ -3794,6 +3796,7 @@ export class AcpmuxDirectClient {
       ...(this.drewKeptTail ? { drewKeptTail: true as const } : {}),
       ...(this.chatRead() ? { chatRead: true as const } : {}),
       ...(this.extensions.includes("acp.trust.set") ? { answersTrust: true } : {}),
+      ...(this.extensions.includes(MCP_RECONNECT_METHOD) ? { reconnectsMcp: true } : {}),
       sessionId: this.selectedSessionId,
       // A replayed turn is history: no live "Working for" clock.
       isWorking:
