@@ -229,7 +229,13 @@ impl Hub {
         if steer_now && session.moving().is_some() {
             return Err(super::queue::moving_error());
         }
-        if steer_now {
+        // During a tool call the agent reads no steer: it waits in the queue, where it can still
+        // be edited or taken back, until the call ends (`steer_hold.rs`). Send now does not wait.
+        let after_step = steer_now
+            && !opts.steer_only
+            && !opts.interrupt
+            && super::steer_hold::mid_step(session);
+        if steer_now && !after_step {
             let turn_id = running.map(|t| t.turn_id).unwrap_or_default();
             let opts = PromptOptions { prompt_id: Some(prompt_id), on_accepted: None, ..opts };
             return self.steer_turn(session, blocks, client, &turn_id, opts, &mut accept).await;
@@ -250,6 +256,7 @@ impl Hub {
             interrupt: opts.interrupt,
             provenance: opts.provenance.as_ref(),
             agent: agent.as_deref(),
+            after_step,
         };
         let (turn_id, waiting, guard, run) = match self.queue_slot(session, slot, &mut accept).await
         {

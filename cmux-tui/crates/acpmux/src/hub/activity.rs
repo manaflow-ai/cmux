@@ -26,6 +26,8 @@ pub struct TurnActivity {
     pub masked_activity: Option<String>,
     /// `plan_step` with its secrets masked before its cut.
     pub masked_plan_step: Option<String>,
+    /// Its tool calls still running: a steer waits until none is (`steer_hold.rs`).
+    pub open_calls: std::collections::HashSet<String>,
 }
 
 impl TurnActivity {

@@ -213,6 +213,7 @@ impl Hub {
                     && super::forum::slash_command(&q.run.blocks).is_none()
                     && !unclaimed.iter().any(|(id, _)| *id == q.prompt_id)
                     && !q.steer
+                    && !q.after_step
                     && !q.sent_now
                     && q.run.control == head.control
                     && q.run.trust_gate == head.trust_gate

@@ -30,6 +30,9 @@ pub struct QueuedPrompt {
     pub(super) resume: bool,
     /// Send now into the running turn (`queue_edit.rs`): its waiting task steers it.
     pub(super) steer: bool,
+    /// A steer sent during a tool call (`steer_hold.rs`): its waiting task steers it once no
+    /// call runs, or it runs next when the turn ends first.
+    pub(super) after_step: bool,
     /// Waited behind a turn that failed (`pause_queue`): it waits until the queue is resumed.
     pub(super) held: bool,
     /// Sent now (`put_next`): a turn that fails as it stops does not hold it.
@@ -68,6 +71,8 @@ pub(super) struct Slot<'a> {
     pub(super) provenance: Option<&'a Value>,
     /// Another agent's name when it is that agent's message (`digest.rs`).
     pub(super) agent: Option<&'a str>,
+    /// A steer that waits for the agent's tool call to end (`steer_hold.rs`).
+    pub(super) after_step: bool,
 }
 
 /// What a prompt's `session/prompt` answers.
@@ -193,8 +198,11 @@ impl Hub {
                     return Err(answer);
                 }
                 Wait::Steer => {
+                    // Sent now, it goes in at once; a steer that waited for a tool call goes in
+                    // as the steer it was, or runs next when the turn ended (`steer_hold.rs`).
+                    let now = session.queue().iter().any(|q| q.turn_id == turn_id && q.steer);
                     let run = self.take_queued(session, p.prompt_id, &turn_id).map_err(Ok)?;
-                    let answer = self.steer_queued(session, run, p.client, p.prompt_id).await;
+                    let answer = self.steer_queued(session, run, p.client, p.prompt_id, now).await;
                     // Refused: logged, so a restart does not queue it again (`lost_start.rs`).
                     if let Err(e) = &answer {
                         let msg = json!({"promptId": p.prompt_id, "turnId": turn_id, "client": p.client, "error": e.message, "data": e.data});
@@ -208,14 +216,16 @@ impl Hub {
         Ok((turn_id, true, guard, run))
     }
 
-    /// Runs a queued prompt sent now (`queue_edit.rs` `send_now`) as a steer under its own prompt
-    /// id, so its `session/prompt` answers how it ran. A turn that ended meanwhile leaves it next.
+    /// Runs a queued prompt sent now (`queue_edit.rs` `send_now`, `now`) or a steer whose tool
+    /// call ended (`steer_hold.rs`) as a steer under its own prompt id, so its `session/prompt`
+    /// answers how it ran. A turn that ended meanwhile leaves it next.
     pub(super) async fn steer_queued(
         self: &Arc<Self>,
         session: &Arc<Session>,
         run: Arc<PromptRun>,
         client: &str,
         prompt_id: &str,
+        now: bool,
     ) -> Answer {
         let (control, trust_gate) = (run.control, run.trust_gate);
         let (prompt_id, provenance) = (Some(prompt_id.to_owned()), run.provenance.clone());
@@ -223,7 +233,7 @@ impl Hub {
             prompt_id,
             control,
             trust_gate,
-            interrupt: true,
+            interrupt: now,
             provenance,
             agent: run.agent.clone(),
             ..Default::default()
@@ -281,6 +291,7 @@ impl Hub {
                 restored: false,
                 resume: false,
                 steer: false,
+                after_step: p.after_step,
                 held: false,
                 sent_now: false,
                 joined: joined.clone(),
@@ -334,12 +345,16 @@ impl Hub {
             let moved = session.queue_moved.notified();
             tokio::pin!(moved);
             moved.as_mut().enable();
+            // A steer sent during a tool call goes in once none runs (`steer_hold.rs`).
+            let step_ended = session.turn().is_some()
+                && session.steering.load(Ordering::SeqCst)
+                && !super::steer_hold::mid_step(session);
             let steer = session
                 .queue
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .iter()
-                .any(|q| q.turn_id == turn_id && q.steer);
+                .any(|q| q.turn_id == turn_id && (q.steer || (q.after_step && step_ended)));
             // A chat being moved sends nothing into its turn; an abort lets it steer again.
             if steer && session.moving().is_none() {
                 return Wait::Steer;
@@ -712,6 +727,8 @@ impl Hub {
                 restored: true,
                 resume: true,
                 steer: false,
+                // A steer that waited across a restart runs as the next prompt.
+                after_step: false,
                 held: held.iter().any(|id| id.as_str() == Some(&prompt_id)),
                 sent_now: false,
                 joined: Arc::new(StdMutex::new(None)),

@@ -80,6 +80,7 @@ pub(crate) mod start_mode;
 mod start_mode_state;
 mod startup;
 mod steer_end;
+mod steer_hold;
 mod stream;
 mod tags;
 mod tap;
