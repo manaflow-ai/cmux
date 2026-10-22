@@ -26,6 +26,7 @@ while IFS= read -r remote; do
                     scripts/install-git-hooks.sh
                     scripts/git-hooks/pre-commit
                     scripts/git-hooks/post-merge
+                    scripts/git-hooks/prepare-commit-msg
                     scripts/git-hooks/check-git-remotes.sh
                     scripts/merge-xcstrings.py
                     scripts/merge-pbxproj.py

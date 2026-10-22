@@ -62,6 +62,8 @@ class FakeGitHub:
         # runs of workflow 7 at the base tip.
         self.stale: set[str] = set()
         self.tip_runs: list[dict] = []
+        # Completed workflow_dispatch runs of workflow 7 on the base (the tip Swift suite).
+        self.dispatch_runs: list[dict] = []
 
     def json(self, route, *, paginate=False):
         self.routes.append(route)
@@ -87,6 +89,9 @@ class FakeGitHub:
             return {"workflow_runs": copy.deepcopy(self.pr_runs)}
         if "/actions/workflows/7/runs?" in route and "head_sha=" in route:
             return {"workflow_runs": copy.deepcopy(self.tip_runs)}
+        if "/actions/workflows/7/runs?" in route and "event=workflow_dispatch" in route:
+            assert "branch=feat-cmux-next" in route and "status=completed" in route, route
+            return {"workflow_runs": copy.deepcopy(self.dispatch_runs)}
         if "/actions/runs/" in route and route.endswith("/jobs?filter=latest&per_page=100"):
             run = int(route.split("/actions/runs/", 1)[1].split("/", 1)[0])
             return [{"jobs": [copy.deepcopy(job) for job in self.jobs.values() if job["run_id"] == run]}]
@@ -121,6 +126,16 @@ class Excusing(unittest.TestCase):
         self.assertIn("writesTheRequestAfterTheReadyMarkerAndReturnsTheReply()", text)
         # The cancelled run 21 has no verdict; the newest run with one decides.
         self.assertNotIn("run 21", text)
+
+    def test_a_job_pushes_skip_is_judged_by_the_newest_dispatched_base_run(self):
+        # cmux-next swift test is skipped on feat-cmux-next pushes; its base verdict comes from the
+        # scheduled tip Swift suite dispatch, older than the newest twenty push runs.
+        self.gh.base_runs = [{"id": 21, "event": "push", "head_branch": "feat-cmux-next", "status": "completed",
+                              "conclusion": "success", "created_at": "2026-10-21T20:00:00Z"}]
+        self.gh.dispatch_runs = [{"id": 20, "event": "workflow_dispatch", "head_branch": "feat-cmux-next",
+                                  "status": "completed", "conclusion": "failure", "head_sha": BASE_SHA,
+                                  "created_at": "2026-10-21T17:00:00Z"}]
+        self.assertIn("run 20", "\n".join(self.judge()))
 
     def test_counts_do_not_matter_only_names(self):
         # The base fails one more test than the head; the head's are all on the base.

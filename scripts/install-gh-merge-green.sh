@@ -13,6 +13,11 @@
 # switches or a dirty tree in the source checkout never reach the snapshot:
 # it is built from git objects, not from anyone's working tree.
 #
+# A Mac that runs no test suites (build role submitter-only, Leo's Macs) skips
+# the local run and installs a commit only after main's "CI fast guards" check
+# passed for it, read through glaeda-gh; until then it keeps the current
+# install. GH_MERGE_GREEN_TESTS=local|ci overrides the choice.
+#
 # usage:
 #   install-gh-merge-green.sh install [--repo DIR] [--ref REF] [--bin DIR] [--skip-tests] [--force]
 #   install-gh-merge-green.sh update [--background] [--if-stale SECONDS]
@@ -29,8 +34,12 @@ SELF="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)/$(basename -- "${BA
 # unchanged needs no new snapshot.
 PINNED_PATHS=(scripts/gh-merge-green scripts/ci scripts/gh-merge-green-pinned scripts/install-gh-merge-green.sh)
 SPARSE_PATTERNS=(/scripts/ /tests/ /.github/)
-DEFAULT_TESTS="tests.test_gh_merge_green tests.test_gh_merge_green_revert tests.test_base_red_excuse tests.test_merge_fast_gate tests.test_merge_freeze tests.test_pr_proof_section tests.test_install_gh_merge_green"
+DEFAULT_TESTS="tests.test_gh_merge_green tests.test_gh_merge_green_revert tests.test_base_red_excuse tests.test_merge_fast_gate tests.test_merge_check_paths tests.test_review_receipt tests.test_merge_freeze tests.test_pr_proof_section tests.test_install_gh_merge_green"
 KEEP_SNAPSHOTS=3
+# Leo's Macs run no test suites (their local build guards give them the
+# submitter-only build role). There a main commit is installed once its main
+# push passed this check, the job that runs the gh-merge-green tests in CI.
+CI_TESTS_CHECK="CI fast guards / CI fast guards"
 
 say() { printf 'install-gh-merge-green: %s\n' "$*" >&2; }
 die() { say "error: $*"; exit 1; }
@@ -90,6 +99,16 @@ release_lock() {
 
 saved() { cat "$GMG_HOME/$1" 2>/dev/null || true; }
 
+exclude_spotlight_marker() { # REPO: Spotlight's marker is not a change, in any worktree of REPO
+  local exclude
+  exclude="$(git -C "$1" rev-parse --path-format=absolute --git-common-dir)/info/exclude"
+  mkdir -p "${exclude%/*}"
+  grep -qxF .metadata_never_index "$exclude" 2>/dev/null && return 0
+  # A last line without its newline would swallow the new pattern.
+  if [ -s "$exclude" ] && [ -n "$(tail -c 1 "$exclude")" ]; then printf '\n' >> "$exclude"; fi
+  printf '.metadata_never_index\n' >> "$exclude"
+}
+
 set_files_writable() { # SNAPSHOT MODE(+w|-w)
   local snap="$1" mode="$2" path
   for path in "${PINNED_PATHS[@]}"; do
@@ -119,6 +138,29 @@ run_tests() { # SNAPSHOT
   [ "${#modules[@]}" -gt 0 ] || { say "no gh-merge-green tests found in $snap"; return 1; }
   say "running ${#modules[@]} test modules in $snap"
   (cd "$snap" && PYTHONPATH="$snap/tests${PYTHONPATH:+:$PYTHONPATH}" GH_MERGE_GREEN_NO_AUTO_UPDATE=1 python3 -m unittest "${modules[@]}")
+}
+
+tests_where() { # local, or ci on a Mac that runs no test suites
+  case "${GH_MERGE_GREEN_TESTS:-}" in local|ci) echo "$GH_MERGE_GREEN_TESTS"; return 0 ;; esac
+  local role="${CMUX_LOCAL_BUILD_GUARDS_DIR:-$HOME/.local/lib/cmux-local-build-guards}/build-role"
+  if [ -f "$role" ] && [ "$(cat "$role")" = submitter-only ]; then echo ci; else echo local; fi
+}
+
+ci_tests_verdict() { # SHA: success, failure or pending, read once through glaeda-gh
+  local out
+  out="$("${GH_MERGE_GREEN_GLAEDA:-glaeda-gh}" checks manaflow-ai/cmux "$1" \
+    --consumer gh-merge-green-install --json 2>/dev/null)" || { echo pending; return 0; }
+  printf '%s' "$out" | python3 -c 'import json, sys
+try:
+    state = json.load(sys.stdin)["heads"][sys.argv[1]]["found"][sys.argv[2]]
+except (ValueError, KeyError, TypeError):
+    state = None
+if state and state[0] == "completed" and state[1] == "success":
+    print("success")
+elif state and state[0] == "completed" and state[1] in ("failure", "timed_out"):
+    print("failure")
+else:
+    print("pending")' "$1" "$CI_TESTS_CHECK"
 }
 
 prune_snapshots() { # REPO: keep current and the newest others, never one younger than an hour
@@ -177,6 +219,7 @@ cmd_install() {
   mkdir -p "$GMG_HOME/snapshots"
   printf '%s\n' "$repo" > "$GMG_HOME/repo"
   printf '%s\n' "$bin" > "$GMG_HOME/bin"
+  exclude_spotlight_marker "$repo"
 
   git -C "$repo" fetch --quiet origin main || die "cannot fetch origin main in $repo"
   touch "$GMG_HOME/last-check"
@@ -201,13 +244,27 @@ cmd_install() {
     return 0
   fi
 
+  local where=skip
+  [ "$skip_tests" = 1 ] || where="$(tests_where)"
+  if [ "$where" = ci ]; then
+    case "$(ci_tests_verdict "$sha")" in
+      success) say "${sha:0:10} passed \"$CI_TESTS_CHECK\" on main, which runs the gh-merge-green tests; this Mac runs no test suites" ;;
+      failure)
+        printf '%s\n' "$sha" > "$GMG_HOME/failed"
+        die "\"$CI_TESTS_CHECK\" failed at ${sha:0:10}; kept the current install" ;;
+      *)
+        say "\"$CI_TESTS_CHECK\" has not passed at ${sha:0:10} yet; kept the current install, the next update checks again"
+        return 0 ;;
+    esac
+  fi
+
   # A fresh directory every time: the live snapshot is never removed or rebuilt
   # in place, so a failed or forced install leaves the working command alone.
   snap="$GMG_HOME/snapshots/$sha-$(date +%Y%m%d%H%M%S)-$$"
   git -C "$repo" worktree add --quiet --detach --no-checkout "$snap" "$sha"
   git -C "$snap" sparse-checkout set --no-cone "${SPARSE_PATTERNS[@]}"
   git -C "$snap" checkout --quiet --detach "$sha"
-  if [ "$skip_tests" = 0 ] && ! run_tests "$snap"; then
+  if [ "$where" = local ] && ! run_tests "$snap"; then
     remove_snapshot "$repo" "$snap"
     printf '%s\n' "$sha" > "$GMG_HOME/failed"
     die "gh-merge-green tests failed at ${sha:0:10}; kept the current install"
