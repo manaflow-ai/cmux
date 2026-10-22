@@ -74,11 +74,11 @@ const turn = (paths: string[]) =>
 
 const settle = () => act(async () => void (await new Promise((resolve) => setTimeout(resolve, 0))));
 
-/// `folder`: the chat's folder, which App.tsx passes as `root`.
-async function render(files: ReturnType<typeof turn>, folder: string | undefined = "/repo") {
+/// `folder`: the chat's folder, which App.tsx passes as `root`; null renders with none known.
+async function render(files: ReturnType<typeof turn>, folder: string | null = "/repo") {
   const container = dom.window.document.getElementById("root")!;
   const root = createRoot(container);
-  await act(async () => root.render(<DiffPanel files={files} root={folder} onClose={() => {}} />));
+  await act(async () => root.render(<DiffPanel files={files} {...(folder === null ? {} : { root: folder })} onClose={() => {}} />));
   await settle();
   const blocks = () => [...container.querySelectorAll<HTMLElement>(".acpmux-diff-file")];
   return {
@@ -220,7 +220,7 @@ test("a Last turn file's kind ignores the folders above the chat's folder", asyn
 });
 
 test("with no folder known, a Last turn file is read by its name", async () => {
-  const view = await render(turn(["/repo/tests/helpers.py", "/repo/src/a.ts"]), undefined);
+  const view = await render(turn(["/repo/tests/helpers.py", "/repo/src/a.ts"]), null);
   try {
     expect(view.kinds()).toEqual(["", ""]);
     expect(view.noTests()).toBe("Code changed with no test.");
