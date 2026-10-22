@@ -30,6 +30,9 @@ export type Subagent = {
   agents?: { done: number; started: number };
   /// The harness runs it in the background: it outlives its turn's stop.
   background?: boolean;
+  /// The id Claude Code's Agent call answered with (`agentId: …`), which a SendMessage to it
+  /// names (conversation/agentNames.ts).
+  agentId?: string;
 };
 
 export type Event = { seq: number; at: number; msg?: any };
@@ -42,6 +45,8 @@ export class SubagentFold {
   private readonly agents = new Map<string, Subagent>();
   private readonly groupOf = new Map<string, Group>();
   private readonly spawnCalls = new Set<string>();
+  /// The subagent each spawning call started, by call id.
+  private readonly spawnedBy = new Map<string, string>();
   /// Codex's `wait` and `closeAgent` calls between its subagents, by call id: a later update of
   /// the same call may come without its `_meta`, and must draw no row either.
   private readonly collabCalls = new Set<string>();
@@ -54,6 +59,16 @@ export class SubagentFold {
   private readonly versions = new Map<string, number>();
   /// The subagents spawned since the current turn started, which its stop ends.
   private turn = new Set<string>();
+  /// The subagents whose end the harness reported (not one ``stopRunning`` guessed): a progress
+  /// report that trails it (Claude's last task_progress) does not run one again.
+  private readonly ended = new Set<string>();
+  /// Each subagent's newest tool call, and every call it made: an update to an older one does not
+  /// take its action back.
+  private readonly latestCall = new Map<string, string>();
+  private readonly calls = new Set<string>();
+  /// The subagents a tool call started (Claude's Agent call, which its turn waits on): only these
+  /// end with a completed turn. Codex's native children have none and outlive their turn.
+  private readonly called = new Set<string>();
 
   /// Folds one session/update record; true when it belongs to subagents and draws no row.
   reduce(event: Event, update: any): boolean {
@@ -64,17 +79,31 @@ export class SubagentFold {
     for (const change of events) this.apply(change, event, spawn);
     const owner = typeof mux?.subagent === "string" ? this.agents.get(mux.subagent) : undefined;
     if (owner) {
-      if ((update?.sessionUpdate === "tool_call" || update?.sessionUpdate === "tool_call_update") && update.title)
-        owner.action = String(update.title);
+      // What it does now is its newest call: a later update of an older call (its end) keeps it.
+      const call = typeof update?.toolCallId === "string" ? update.toolCallId : undefined;
+      // A call met first through its update (a harness that sends no tool_call) is new too.
+      const tool = update?.sessionUpdate === "tool_call" || update?.sessionUpdate === "tool_call_update";
+      if (tool && call && (update.sessionUpdate === "tool_call" || !this.calls.has(`${owner.id}\u0000${call}`))) {
+        this.calls.add(`${owner.id}\u0000${call}`);
+        this.latestCall.set(owner.id, call);
+      }
+      const newest = call === undefined || (this.latestCall.get(owner.id) ?? call) === call;
+      if (tool && update.title && newest) owner.action = String(update.title);
       const kind = update?.sessionUpdate;
-      if (kind !== "subagent_spawned" && kind !== "subagent_state_update") this.record(owner.id, { event, update });
+      // The Agent call that spawned it is the parent's, not a step of its own.
+      const spawnCall = typeof update?.toolCallId === "string" && this.spawnCalls.has(update.toolCallId);
+      if (kind !== "subagent_spawned" && kind !== "subagent_state_update" && !spawnCall)
+        this.record(owner.id, { event, update });
       this.touch(owner);
       return true;
     }
     const kind = update?.sessionUpdate;
     if (kind === "subagent_spawned" || kind === "subagent_state_update" || kind === "subagent_progress") return true;
     const call = typeof update?.toolCallId === "string" ? update.toolCallId : undefined;
-    if (call && this.spawnCalls.has(call)) return true;
+    if (call && this.spawnCalls.has(call)) {
+      this.readAgentId(call, update);
+      return true;
+    }
     // Codex's own bookkeeping between its subagents (`wait` for them, `closeAgent`): the group
     // row already shows who is working and who is done, so these draw no row of their own.
     if (call && this.collabCalls.has(call)) return true;
@@ -100,6 +129,7 @@ export class SubagentFold {
     for (const agent of this.agents.values()) {
       if (agent.state !== "running") continue;
       if (left.turn && (!this.turn.has(agent.id) || agent.background)) continue;
+      if (left.state === "completed" && !this.called.has(agent.id)) continue;
       agent.state = left.state;
       agent.endedAt = at;
       this.touch(agent);
@@ -160,7 +190,10 @@ export class SubagentFold {
 
   private apply(change: any, event: Event, spawn = true): void {
     if (typeof change?.id !== "string") return;
-    if (typeof change.toolCallId === "string") this.spawnCalls.add(change.toolCallId);
+    if (typeof change.toolCallId === "string") {
+      this.spawnCalls.add(change.toolCallId);
+      this.spawnedBy.set(change.toolCallId, change.id);
+    }
     let agent = this.agents.get(change.id);
     if (!agent) {
       const parent = typeof change.parent === "string" ? change.parent : null;
@@ -176,6 +209,7 @@ export class SubagentFold {
       };
       this.agents.set(agent.id, agent);
       if (spawn) this.turn.add(agent.id);
+      if (typeof change.toolCallId === "string") this.called.add(agent.id);
       if (parent === null) {
         this.open ??= { id: `${SUBAGENTS}-${event.seq}`, at: event.at, version: 0, ids: [] };
         this.open.ids.push(agent.id);
@@ -194,7 +228,11 @@ export class SubagentFold {
     const started = count(change.agents?.started);
     if (done !== undefined && started !== undefined) agent.agents = { done, started };
     const state = text(change.state);
-    if (state && state !== agent.state) {
+    // An end the harness reported holds against a progress report that trails it; a spawn or a
+    // state update saying it runs again still does.
+    if (state && state !== "running" && spawn) this.ended.add(agent.id);
+    else if (state === "running" && spawn) this.ended.delete(agent.id);
+    if (state && state !== agent.state && !(state === "running" && !spawn && this.ended.has(agent.id))) {
       agent.state = state;
       agent.endedAt = state === "running" ? undefined : event.at;
     }
@@ -202,6 +240,21 @@ export class SubagentFold {
   }
 
   /// Redraws the group row a subagent is listed in, or its parent's view.
+  /// The agentId in a spawning call's result (Claude Code's Agent call), on the subagent it started.
+  private readAgentId(call: string, update: any): void {
+    const id = this.spawnedBy.get(call);
+    const agent = id ? this.agents.get(id) : undefined;
+    if (!agent || agent.agentId || !Array.isArray(update?.content)) return;
+    for (const part of update.content) {
+      const text = part?.content?.text;
+      const found = typeof text === "string" ? agentIdIn(text) : undefined;
+      if (!found) continue;
+      agent.agentId = found;
+      this.touch(agent);
+      return;
+    }
+  }
+
   private touch(agent: Subagent): void {
     if (agent.parent !== null) this.bump(agent.parent);
     const group = this.groupOf.get(agent.id);
@@ -211,18 +264,26 @@ export class SubagentFold {
   }
 }
 
+/// The agentId a Claude Code Agent call's result names (`agentId: a39e817af38ddf5e7 (…)`).
+export function agentIdIn(text: string): string | undefined {
+  return /\bagentId:\s*([A-Za-z0-9_-]+)/.exec(text)?.[1];
+}
+
 /// Which running subagents nothing will end any more, and how they read: `turn` only the
 /// current turn's foreground ones, else every one.
-export type SubagentsLeft = { state: "cancelled" | "disconnected"; turn: boolean };
+export type SubagentsLeft = { state: "completed" | "cancelled" | "disconnected"; turn: boolean };
 
 /// Whom acpmux's record `kind` leaves running with no one to end them: a stopped turn's
-/// foreground subagents (`cancelled`; the harness keeps background ones running), a turn the
+/// foreground subagents (`cancelled`; the harness keeps background ones running), a completed
+/// turn's foreground ones whose end the harness never sent (`completed`: the turn waited on them;
+/// they read running for good, Leo's Inspector counted 5 running with about 3 live), a turn the
 /// daemon lost (`outcome_unknown`), or, when the agent process behind the chat went away or
 /// started again (an exit or stop, a reopen or resume, a new or ended host), every one, as
 /// acpmux's own process table reads those records (hub/processes.rs).
 export function subagentsLeft(kind: string, msg: any): SubagentsLeft | undefined {
   if (kind === "turn_result" && msg?.detail === "outcome_unknown") return { state: "disconnected", turn: true };
   if (kind === "turn_result" && msg?.status === "cancelled") return { state: "cancelled", turn: true };
+  if (kind === "turn_result" && msg?.status === "completed") return { state: "completed", turn: true };
   return HARNESS_GONE.has(kind) ? { state: "disconnected", turn: false } : undefined;
 }
 const HARNESS_GONE = new Set(["exited", "stopped", "reopened", "resumed", "host_started", "host_ended"]);
