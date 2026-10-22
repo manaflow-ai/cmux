@@ -242,6 +242,7 @@ class RemoteDaemonNoticesTest(unittest.TestCase):
             "a comment under the copyright": MIT.replace("Copyright (c) 2011 Keith Rarick\n", "Copyright (c) 2011 Keith Rarick\n# Redistribution forbidden.\n", 1),
             "a sentence after the holder": MIT.replace("Keith Rarick", "Keith Rarick. Redistribution forbidden", 1),
             "a restriction posing as a title": "Commercial use prohibited. License\n\n" + MIT,
+            "terms after a dash": MIT.replace("Keith Rarick", "Example - Publication requires payment", 1),
         }.items():
             with self.subTest(name):
                 self.assertIsNone(rdn.allowed_license(text))
@@ -250,6 +251,8 @@ class RemoteDaemonNoticesTest(unittest.TestCase):
         for name, text, spdx in (
             ("a title", "The MIT License (MIT)\n\n" + MIT, "MIT"),
             ("two copyright lines", MIT.replace("Keith Rarick\n", "Keith Rarick\nCopyright (c) 2020 Example Inc. All rights reserved.\n", 1), "MIT"),
+            ("a (c) line", MIT.replace("Copyright (c) 2011 Keith Rarick", "(c) 2026 Example", 1), "MIT"),
+            ("a \u00a9 line", MIT.replace("Copyright (c) 2011 Keith Rarick", "\u00a9 2026 Example", 1), "MIT"),
             ("of the theme", BSD3.replace("source and binary forms,", "source and binary forms of the theme,", 1), "BSD-3-Clause"),
         ):
             with self.subTest(name):
@@ -278,6 +281,19 @@ class RemoteDaemonNoticesTest(unittest.TestCase):
             rdn.compose(self.modules, "go1.26.8", approved)
         finally:
             rdn.ALLOWED = saved
+
+    def test_a_person_approval_stays_with_the_go_texts_it_approved(self) -> None:
+        review = copy.deepcopy(self.review)
+        review["go"]["approved"] = "a person, for the old texts"
+        _, entry, _ = rdn.go_entry("go1.27.3", review, self.go_root(LICENSE=BSD3.replace("Google LLC", "Example Inc").encode()))
+        self.assertNotIn("approved", entry)
+        _, same, _ = rdn.go_entry("go1.27.3", review, self.go_root())
+        self.assertEqual(same["approved"], "a person, for the old texts")
+
+    def test_an_automatic_approval_names_the_copyright_lines_it_let_through(self) -> None:
+        notes: list = []
+        rdn.compose([*self.modules, self.module("example.com/mit", LICENSE=MIT)], "go1.26.8", self.review, notes=notes)
+        self.assertIn("copyright (c) 2011 keith rarick", "\n".join(notes))
 
     def test_a_go_patch_release_under_another_license_fails(self) -> None:
         with self.assertRaises(rdn.NoticeError) as raised:
