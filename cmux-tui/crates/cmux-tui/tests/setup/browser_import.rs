@@ -372,7 +372,8 @@ fn cmux_setup_browser_import_undoes_only_what_it_imported() {
 
 /// A named profile is matched by the source keys the app's import would
 /// use, never by the folder's title, which is localized and the person may
-/// rename. When the import writes another folder than the one the app's
+/// rename; a profile the browser no longer has is still matched by the
+/// folder in its stored source key. When the import writes another folder than the one the app's
 /// sources named (the browser's profiles changed in between), the app
 /// refreshes that folder in place: `changed` with the folder in
 /// `after.refreshed`, no undo (setup's remove would take the person's
@@ -384,11 +385,16 @@ fn cmux_setup_browser_import_reports_a_folder_refreshed_in_place() {
         "source_key": "chrome/Default"});
     let japanese = json!({"id": "ja", "kind": "folder", "parent": "bar",
         "title": "Google Chrome (Work) から読み込み", "source_key": "chrome/Profile 1"});
-    let app = FakeBrowserApp::start(&mut world, vec![renamed, japanese]);
+    // Imported from a profile Chrome no longer has: still `ok` by its folder.
+    let gone = json!({"id": "old", "kind": "folder", "parent": "bar",
+        "title": "Imported from Google Chrome (Old)", "source_key": "chrome/Profile 9"});
+    let app = FakeBrowserApp::start(&mut world, vec![renamed, japanese, gone]);
     let run = |args: &[&str]| world.json(&[&["setup", "browser-import"][..], args].concat());
 
     assert_eq!(run(&["--browser", "chrome:Work"])["state"], "ok");
     assert_eq!(run(&["--browser", "chrome:Person 1"])["state"], "ok");
+    let old = run(&["--browser", "chrome:profile 9"]);
+    assert_eq!(old["state"], "ok", "{old}");
     let gone = run(&["--browser", "chrome:Nobody"]);
     assert_eq!(gone["user_action"]["kind"], "browser", "{gone}");
     assert!(app.runs().is_empty(), "{:?}", app.runs());
@@ -404,7 +410,7 @@ fn cmux_setup_browser_import_reports_a_folder_refreshed_in_place() {
     assert_eq!(app.runs().len(), 1, "{:?}", app.runs());
     // The folder kept its id: it is the person's, with the new bookmarks in it.
     let ids = app.bookmarks.lock().unwrap().iter().map(|n| n["id"].clone()).collect::<Vec<_>>();
-    assert_eq!(ids, [json!("mine"), json!("ja"), json!("mine_1")]);
+    assert_eq!(ids, [json!("mine"), json!("ja"), json!("old"), json!("mine_1")]);
 }
 
 /// Before the app has its stored bookmarks, `bookmark.list` is empty and not
