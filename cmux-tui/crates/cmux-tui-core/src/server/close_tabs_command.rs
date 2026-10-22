@@ -8,6 +8,7 @@ use super::{
     resolve_tab_refs, validate_client_transaction, workspace_mutation,
 };
 use crate::mux::CloseReason;
+use crate::panic_free::JsonFields;
 use serde_json::{Value, json};
 
 pub(crate) const CLOSE_REASON_CAPABILITY: &str = "close-reason-v1";
@@ -42,10 +43,10 @@ pub(super) fn run(
     // The closed groups this close stored (absent on a replay of a close
     // committed before they were reported).
     if let Some(ids) = outcome.result.get("closed_ids") {
-        reply["closed_ids"] = ids.clone();
+        reply.insert("closed_ids", ids.clone());
     }
     if let Some(transaction) = transaction {
-        reply["transaction"] = json!(transaction);
+        reply.insert("transaction", json!(transaction));
     }
     Ok(reply)
 }

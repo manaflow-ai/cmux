@@ -39,6 +39,7 @@
 //! as `cmux acp` does) and connects again; otherwise
 //! `agent_session.acpmux_unavailable`.
 
+use crate::panic_free::JsonFields;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -408,12 +409,12 @@ fn start_and_bind(
     }
     let mut meta = json!({"policy": "ask"});
     if let Some(harness) = &params.harness {
-        meta["harness"] = json!(harness);
+        meta.insert("harness", json!(harness));
     }
     // The workspace of the tab, read here and never taken from the client:
     // acpmux gives the session that workspace's display (none without it).
     if let Some(workspace) = mux.surface_workspace_key(params.surface) {
-        meta["workspaceId"] = json!(workspace);
+        meta.insert("workspaceId", json!(workspace));
     }
     // The folder acpmux checked (its canonical path), so a symlink changed
     // after the trust answer cannot move the agent elsewhere.
