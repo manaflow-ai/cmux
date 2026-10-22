@@ -1,4 +1,5 @@
 import CmuxMobileAuth
+import CmuxMobileChief
 import CmuxMobileModel
 import CmuxMobileShell
 import CmuxMobileVoice
@@ -24,6 +25,13 @@ struct CmuxMobileApp: App {
         // or Demo install left in this container, before anything reads them.
         DeveloperOptions.removeStoredValues()
         #endif
+        // Audio messages to Chief carry a transcript made on this phone (the
+        // audio never leaves it for recognition; without an on-device model
+        // the message goes as audio only).
+        let locale = Locale.current
+        ChiefSession.shared.audioTranscriber = { url in
+            try? await OnDeviceSpeechTranscriber(locale: locale).transcribe(fileAt: url)
+        }
         _auth = State(initialValue: CmuxMobileAuthModel.live(
             environment: ProcessInfo.processInfo.environment,
             bundleIdentifier: Bundle.main.bundleIdentifier

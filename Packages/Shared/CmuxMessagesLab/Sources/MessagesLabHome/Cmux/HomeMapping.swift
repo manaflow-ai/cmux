@@ -325,12 +325,13 @@ enum HomeMapping {
     }
 
     /// MessagesLab's attachment kind (its row drawing): image and video
-    /// bubbles, the audio row, else the file row.
+    /// bubbles, Messages' audio message bubble (play, waveform, length: an
+    /// iPhone's recording, or any audio file the owner takes), else the file row.
     static func kind(of ref: AttachmentRef) -> String {
-        let type = ref.mimeType.lowercased()
+        let type = HomeAttachmentPolicy.canonicalMimeType(ref.mimeType.lowercased())
         if type.hasPrefix("image/") { return "image" }
         if type.hasPrefix("video/") { return "video" }
-        if type.hasPrefix("audio/") { return "audio" }
+        if type.hasPrefix("audio/") { return "voiceMemo" }
         return "file"
     }
 
@@ -341,7 +342,7 @@ enum HomeMapping {
     static func attachment(_ ref: AttachmentRef, picture: String?, progress: Double?) -> Attachment {
         let kind = kind(of: ref)
         return Attachment(id: ref.hash, kind: kind, fileName: ref.name, mimeType: ref.mimeType, byteSize: ref.byteCount,
-                          asset: kind == "image" ? picture : nil, poster: kind == "video" ? picture : nil,
+                          asset: kind == "image" || kind == "voiceMemo" ? picture : nil, poster: kind == "video" ? picture : nil,
                           width: ref.width, height: ref.height, durationSeconds: ref.durationMs.map { Double($0) / 1000 },
                           transfer: progress.map { .uploading($0) } ?? .done)
     }

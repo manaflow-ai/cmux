@@ -355,3 +355,20 @@ struct ChiefImageSize {
         self.height = height
     }
 }
+
+/// The sample Chief keeps a recording in memory, so demo and UI-test runs
+/// send and play audio messages like the Mac's Chief does.
+extension ChiefMockBackend: ConversationAudioBackend {
+    public func uploadAudioRecording(_ data: Data, mimeType: String, info: ConversationAudioInfo) async throws -> ConversationAttachment {
+        await engine.upload(ConversationAttachment(id: "", kind: .audio, width: 0, height: 0, url: nil, localData: data, audio: info))
+    }
+
+    public func keepAudioMessage(messageID: String) async throws -> ConversationMessage {
+        guard let message = await engine.history(beforeSeq: nil, limit: .max).messages.first(where: { $0.id == messageID }) else {
+            throw ConversationBackendError(code: -4, message: "no such message")
+        }
+        return message
+    }
+
+    public func markAudioPlayed(messageID: String) async {}
+}
