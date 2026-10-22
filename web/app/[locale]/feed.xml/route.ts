@@ -1,9 +1,10 @@
 import { routing, type Locale } from "../../../i18n/routing";
+import { prerenderLocales } from "../../../i18n/prerender";
 import { buildLocalizedBlogRssFeed } from "../../lib/localized-blog-feed";
 
 
 export function generateStaticParams() {
-  return routing.locales
+  return prerenderLocales()
     .filter((locale) => locale !== routing.defaultLocale)
     .map((locale) => ({ locale }));
 }
