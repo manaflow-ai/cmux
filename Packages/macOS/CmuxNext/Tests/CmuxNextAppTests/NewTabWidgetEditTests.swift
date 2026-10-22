@@ -3,6 +3,7 @@
 import CmuxNextActions
 @testable import CmuxNextApps
 import CmuxNextDesign
+import CmuxNextSettingsWindow
 @testable import CmuxNextSettings
 import Foundation
 import Testing
@@ -100,36 +101,10 @@ import Testing
         await #expect(throws: SettingNotInSchema.self) { try await settings.removeNewTabWidget("weatherCity") }
     }
 
-    /// `cmux action run appStore.show --tab features --category newTab`, and the page's +.
-    @Test func plusOpensAppStoreFeaturesOnNewTab() {
-        #expect(AppFeature.Category(argument: "newTab") == .newTab)
-        #expect(AppFeature.Category(argument: " NEWTAB ") == .newTab)
-        #expect(AppFeature.Category(argument: "labs") == nil)
-        let model = AppStoreModel(client: AppsClient(transport: EditModeOfflineAppsTransport()))
-        model.query = "glass"
-        model.present(appID: nil, tab: nil, category: .newTab)
-        #expect(model.tab == .features)
-        #expect(model.featureCategory == .newTab)
-        #expect(model.query.isEmpty, "a search would hide the category's cards")
+    /// The page's + opens Settings on the widget rows: the anchor exists.
+    @Test func plusOpensTheWidgetSettings() {
+        #expect(SettingsAnchor(key: "tabs.newTabWidgets.greeting") != nil)
+        // The sidebar edit mode's Add Items opens Settings on the sidebar's rows.
+        #expect(SettingsAnchor(key: "sidebar.showProjects") != nil)
     }
-}
-
-/// An app supervisor that is never reachable (the Features tab does not need one).
-private final class EditModeOfflineAppsTransport: AppsTransport {
-    var availability: AppsAvailability { .unavailable(.notConnected) }
-    var onEvent: ((AppsTransportEvent) -> Void)?
-    private static var offline: AppsTransportError { AppsTransportError(message: "offline", connectionLost: true) }
-
-    func start() {}
-    func list() async throws(AppsTransportError) -> AppsListReply { throw Self.offline }
-    func set(app: String, change: AppChange, origin: AppOrigin, idempotencyKey: String) async throws(AppsTransportError) -> AppRecord {
-        throw Self.offline
-    }
-    func mount(app: String, interface: String, mountID: String, context: AppJSON) async throws(AppsTransportError) { throw Self.offline }
-    func unmount(mountID: String) async throws(AppsTransportError) { throw Self.offline }
-    func dispatch(mountID: String, node: String, event: String, payload: AppJSON) async throws(AppsTransportError) { throw Self.offline }
-    func run(app: String, op: String, args: AppJSON, origin: AppOrigin, idempotencyKey: String) async throws(AppsTransportError) -> AppJSON {
-        throw Self.offline
-    }
-    func logs(app: String, follow: Bool) async throws(AppsTransportError) -> [AppLogLine] { throw Self.offline }
 }

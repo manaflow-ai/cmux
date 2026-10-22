@@ -81,6 +81,29 @@ const groupedShellRows = [
   summary(2.4, { id: "gallery-shell-group-summary", status: "completed", toolCount: 2 }),
 ];
 
+const LONG_CP =
+  "cp /private/tmp/claude-501/-Users-leo-Projects/scratch/transcript/before-after/ellipsis-before.png /Users/leo/Projects/cmux/docs/media/ellipsis-after.png";
+const LONG_SEND =
+  "acpmux send --no-wait coord-deputy '[transcript-parity] tool rows use the full width and end in an ellipsis at the right edge'";
+const longCommandRows = [
+  user("Copy the screenshots over and tell the coordinator", 3, { id: "gallery-long-commands-user" }),
+  activity(
+    [LONG_CP, LONG_SEND].map((command, at) =>
+      tool("Run", "execute", "completed", {
+        command,
+        output: "",
+        exitCode: 0,
+        startedAt: minutesAgo(2.9 - at * 0.1),
+        endedAt: minutesAgo(2.85 - at * 0.1),
+      }),
+    ),
+    2.8,
+    { id: "gallery-long-commands-activity" },
+  ),
+  assistant("Copied both screenshots and sent the coordinator the merge.", 2.6, { id: "gallery-long-commands-answer" }),
+  summary(2.6, { id: "gallery-long-commands-summary", status: "completed", toolCount: 2 }),
+];
+
 /// One call in the gallery's log: a host bridge call, or `acpmux <method>` for a request the page
 /// sent to the in-page mock daemon (mock.ts).
 type GalleryCall = {
@@ -129,7 +152,7 @@ const openSingleShell = async (ctx: PlayContext) => {
   await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-shell__command")));
 };
 
-/// Opens a finished run's folded line ("Ran 2 commands", "Read files, ran commands").
+/// Opens a finished run's folded line ("Ran 2 commands", "Read 2 files, ran 3 commands").
 const openFoldedRun = async (ctx: PlayContext) => {
   await ctx.click({ selector: ".cv-tools > .cv-tool.is-toggle" });
   await ctx.waitFor(
@@ -533,6 +556,49 @@ const envShell = (command: string) =>
     endedAt: minutesAgo(1.88),
   });
 
+/// An ended turn with one call per run, none a shell: a finished fetch and a failed one (Leo,
+/// 2026-10-21: "only show the green/red checkmark + time on hover for ours"). A running call keeps
+/// its spinner (transcript-codex-turn.test.tsx).
+const loneToolCalls = () =>
+  chat([
+    user("Read the API docs and the reference.", 3),
+    activity(
+      [
+        tool("Fetch https://example.com/docs", "fetch", "completed", {
+          startedAt: minutesAgo(2.9),
+          endedAt: minutesAgo(2.88),
+        }),
+      ],
+      2.9,
+    ),
+    assistant("The docs page loaded; the API reference is next.", 2.8),
+    activity(
+      [
+        tool("Fetch https://example.com/api", "fetch", "failed", {
+          startedAt: minutesAgo(2.7),
+          endedAt: minutesAgo(2.69),
+        }),
+      ],
+      2.7,
+    ),
+    assistant("The reference page is gone; the docs cover what we need.", 2.6),
+    summary(2.6, { status: "completed", toolCount: 2, durationMs: 24_000 }),
+  ]);
+
+/// Opens the turn's Worked for and its folded run ("Searched the web"). At rest the finished
+/// call's check and time are hidden and keep their room; the failure's red word shows.
+const loneToolMetaAtRest = async (ctx: PlayContext) => {
+  await openGroupedRun(ctx);
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-tool .cv-command__ok"));
+  const view = ctx.document.defaultView!;
+  for (const node of ctx.document.querySelectorAll(".cv-tool .cv-command__ok, .cv-tool .cv-command__time"))
+    if (view.getComputedStyle(node).opacity !== "0") throw new Error("a finished call's check or time shows at rest");
+  const failed = ctx.find({ selector: ".cv-tool__failed" });
+  const style = view.getComputedStyle(failed);
+  if (style.opacity !== "1" || style.color === view.getComputedStyle(failed.parentElement!).color)
+    throw new Error("the failed call's mark is not red at rest");
+};
+
 /// A quiet turn under a second with no answer, a sub-second answer, then a 5s one (sub-second-turns).
 const subSecondTurns = () =>
   chat([
@@ -599,6 +665,68 @@ const MCP_READ = mcpTool(
     ],
   }),
 );
+
+/// A render call (renderCall.ts); one with `update` redraws the card it names and draws nothing itself.
+function renderTool(page: string, update?: string) {
+  return tool("mcp__cmux__render", "other", "completed", {
+    inputSummary: JSON.stringify({ html: `<title>Batch report</title><p>${page}</p>`, ...(update && { id: update }) }),
+    output: '{"rendered": true}',
+  });
+}
+
+/// Short thoughts that draw no row once done (thoughts.ts isQuietThought).
+const quietThoughts = (count: number) => Array.from({ length: count }, () => thought("ok"));
+
+/// A long turn among turns opened by what the person never typed (incomingMessage.ts): a background
+/// task's notification, a system reminder alone (no row) and another agent's message.
+const foldNoBlankRows = [
+  user("<task-notification><summary>Background build finished</summary></task-notification>", 9, {
+    incoming: { kind: "notice", text: "Background build finished" },
+  }),
+  assistant("The background build finished cleanly.", 8.9),
+  summary(8.9, { status: "completed", durationMs: 4_000 }),
+  user("<system-reminder>bookkeeping</system-reminder>", 8, { incoming: { kind: "hidden" } }),
+  activity([tool("git status", "execute", "completed", { command: "git status", output: "clean" })], 7.9),
+  assistant("The tree is clean.", 7.8),
+  summary(7.8, { status: "completed", toolCount: 1, durationMs: 6_000 }),
+  user("[coord-deputy] The batch is next.", 7, {
+    incoming: {
+      kind: "message",
+      message: { name: "coord-deputy", text: "The batch is next.", raw: "[coord-deputy] The batch is next." },
+    },
+  }),
+  user("Run the batch and report what it changed", 6, { id: "fold-no-blank-user" }),
+  activity(
+    [
+      thought("Check how the batch script is laid out before running it, then run it once."),
+      tool("ls /tmp/batch", "execute", "completed", { command: "ls /tmp/batch", output: "batch32.sh\nout.log" }),
+      tool("cat /tmp/batch/batch32.sh", "execute", "completed", {
+        command: "cat /tmp/batch/batch32.sh",
+        output: "set -e",
+      }),
+    ],
+    5.8,
+  ),
+  activity(quietThoughts(6), 5.6),
+  activity(
+    [
+      tool("Edit batch32.sh", "edit", "completed", {
+        diffs: [{ path: "/tmp/batch/batch32.sh", oldText: "set -e\n", newText: "set -e\necho one\necho two\n" }],
+      }),
+      tool("bash /tmp/batch/batch32.sh", "execute", "completed", {
+        command: "bash /tmp/batch/batch32.sh",
+        output: Array.from({ length: 40 }, (_, index) => `step ${index + 1}: ok`).join("\n"),
+      }),
+      renderTool("first page"),
+      renderTool("second page", "batch-report"),
+      renderTool("third page", "batch-report"),
+    ],
+    4,
+  ),
+  activity(quietThoughts(4), 3.2),
+  assistant("The batch ran. It changed three files:\n\n- one\n- two\n- three", 3),
+  summary(3, { status: "completed", toolCount: 6, durationMs: 132_000 }),
+];
 
 // A Claude Bash call's permission as claude-agent-acp sends it: its title is the command line (so
 // its first line reads "bash -c '"), its description says what it does, and the script runs long.
@@ -1239,7 +1367,7 @@ export default agentPaneEntry({
       ),
     },
     "dense-live-run": {
-      note: "A running turn folds its finished calls into one summary line (Read files, ran commands) and names the running MCP call on the live line, never a growing stack of rows.",
+      note: "A running turn folds its finished calls into one counted summary line (Read a file, ran 7 commands) and names the running MCP call on the live line, never a growing stack of rows.",
       snapshot: chat(
         [
           user("Find why the sidebar drag drops tabs, and hand the fix to a sub-session.", 3),
@@ -1251,6 +1379,75 @@ export default agentPaneEntry({
               tool("mcp__cmux-subsessions__start_session", "other", "in_progress", {
                 inputSummary: JSON.stringify({ name: "sidebar-drag-bugs", prompt: "Fix the sidebar drag bugs" }),
               }),
+            ],
+            2.8,
+          ),
+        ],
+        { isWorking: true },
+      ),
+    },
+    "consolidated-run": {
+      note: "An opened Worked for: reads, searches and commands with thoughts between them fold into one counted line (Read 3 files, ran a search, ran 2 commands, 1 failed); the edit stays in sight between the lines, and the reply stays below the fold.",
+      snapshot: chat(
+        [
+          user(prompt, 6),
+          activity(
+            [
+              tool("Read client.ts", "read", "completed", { locations: [{ path: "src/net/client.ts" }] }),
+              thought("The helper throws on any non-2xx status, so the retry has to sit around fetchJson itself."),
+              tool("Search for fetchJson", "search", "completed"),
+              tool("Read errors.ts", "read", "completed", { locations: [{ path: "src/net/errors.ts" }] }),
+              thought("Check whether any caller already retries before adding a second layer of backoff."),
+              tool("grep -rn retry src/net", "execute", "completed", {
+                command: "grep -rn retry src/net",
+                exitCode: 1,
+              }),
+              tool("Read client.test.ts", "read", "completed", { locations: [{ path: "src/net/client.test.ts" }] }),
+              tool("bun test src/net", "execute", "completed", { command: "bun test src/net", exitCode: 0 }),
+              tool("Edit client.ts", "edit", "completed", {
+                locations: [{ path: "src/net/client.ts" }],
+                diffs: [
+                  {
+                    path: "src/net/client.ts",
+                    oldText: "export async function fetchJson(url: string) {\n  return request(url);\n}\n",
+                    newText:
+                      "export async function fetchJson(url: string) {\n  return withRetry(() => request(url), { attempts: 3 });\n}\n",
+                  },
+                ],
+              }),
+              tool("Read retry.ts", "read", "completed", { locations: [{ path: "src/net/retry.ts" }] }),
+              thought("Run the focused tests again, then the type check, before answering."),
+              tool("bun test src/net", "execute", "completed", { command: "bun test src/net", exitCode: 0 }),
+              tool("bun run typecheck", "execute", "completed", { command: "bun run typecheck", exitCode: 0 }),
+            ],
+            5.8,
+          ),
+          assistant("fetchJson now retries three times with backoff on 5xx; the net tests and the type check pass.", 5),
+          summary(5, { status: "completed", toolCount: 10 }),
+        ],
+        {},
+      ),
+      play: openWorked,
+    },
+    "consolidated-live-run": {
+      note: "A running turn with a message to another agent in its run: the card stays in sight and the calls on each side of it still fold into counted lines, with thoughts between calls kept inside them.",
+      snapshot: chat(
+        [
+          user("Check the fleet sessions and tell the coordinator what is stuck.", 3),
+          activity(
+            [
+              ...["acpmux ls", "acpmux status --json", "acpmux ls --peers"].map((command) => shellTool(command)),
+              thought("Two sessions show no heartbeat; read their logs before telling anyone."),
+              shellTool("grep -l chief /tmp/l*.txt"),
+              tool("Read session.log", "read", "completed", { locations: [{ path: "/tmp/session.log" }] }),
+              tool("Run", "execute", "completed", {
+                command: 'tell-coordinator "fleet: two sessions stuck on build-box, restarting them"',
+                output: "delivered to coord-deputy\n",
+              }),
+              shellTool("acpmux restart stuck-1"),
+              thought("The first restart came back; do the second one the same way."),
+              shellTool("acpmux restart stuck-2"),
+              tool("acpmux ls", "execute", "in_progress", { command: "acpmux ls" }),
             ],
             2.8,
           ),
@@ -1320,7 +1517,7 @@ export default agentPaneEntry({
       play: openWorked,
     },
     "codex-turn-live": {
-      note: "A running turn as the Codex app draws it: one live block at the bottom and nothing over the turn, each finished run one summary line between the paragraphs (Read files, ran commands; Ran 3 commands), commands named by what they do, and the call in flight named on the live line instead of a growing stack.",
+      note: "A running turn as the Codex app draws it: one live block at the bottom and nothing over the turn, each finished run one counted summary line between the paragraphs (Read 2 files, ran 3 commands; Ran 3 commands), commands named by what they do, and the call in flight named on the live line instead of a growing stack.",
       snapshot: chat(
         [
           user("Check the retry regression and the macOS verification run.", 11.5),
@@ -1489,6 +1686,25 @@ export default agentPaneEntry({
           throw new Error("the check shows at rest");
         await ctx.hover({ selector: ".cv-command" });
         await ctx.waitFor(() => ctx.document.defaultView!.getComputedStyle(ok()).opacity === "1");
+      },
+    },
+    "tool-hover-meta-lone": {
+      note: "Calls that are not shells, at rest: a finished fetch shows no check or time, a failed one says failed in red. Play: open Worked for and its run.",
+      snapshot: loneToolCalls(),
+      play: loneToolMetaAtRest,
+    },
+    "tool-hover-meta-lone-hovered": {
+      note: "The same calls with the finished fetch pointed at: its green check and run time fade in; the failure stays as it was. Play: open Worked for and its run, hover the fetch.",
+      snapshot: loneToolCalls(),
+      play: async (ctx) => {
+        await loneToolMetaAtRest(ctx);
+        const row = ctx.find({ selector: ".cv-tool:has(.cv-command__ok)" });
+        await ctx.hover({ selector: ".cv-tool:has(.cv-command__ok)" });
+        await ctx.waitFor(() =>
+          [...row.querySelectorAll(".cv-command__ok, .cv-command__time")].every(
+            (node) => getComputedStyle(node).opacity === "1",
+          ),
+        );
       },
     },
     "mcp-calls": {
@@ -2253,6 +2469,18 @@ export default agentPaneEntry({
       snapshot: chat(groupedShellRows),
       play: openGroupedShells,
     },
+    "long-commands-fill-row": {
+      note: 'Leo 2026-10-22, of Ran rows cut with an ellipsis about two thirds across: "shouldnt these also ellipsis later". Long commands (a cp of two long paths, an acpmux send) draw their whole first step and end in an ellipsis at the row\'s right edge, before the chevron; no 60-character cut. Play: open Worked for and the run; each command line is the whole step.',
+      checks: shellDisclosureChecks,
+      snapshot: chat(longCommandRows),
+      play: async (ctx) => {
+        await openWorked(ctx);
+        await openFoldedRun(ctx);
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-command").length === 2);
+        const lines = [...ctx.document.querySelectorAll(".cv-command__line")].map((line) => line.textContent);
+        if (lines[0] !== LONG_CP) throw new Error(`the cp row reads ${lines[0]}, not the whole command`);
+      },
+    },
     "fold-holds-clicked-line": {
       note: "Play: at the latest row, open Worked for, then a command, then close it; each line stays where it was clicked while its fold plays (height and opacity, the chevron turning).",
       checks: shellDisclosureChecks,
@@ -2263,6 +2491,25 @@ export default agentPaneEntry({
         await clickHoldsLine(ctx, ".cv-command", true);
         await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-shell__command")));
         await clickHoldsLine(ctx, ".cv-command", false);
+      },
+    },
+    "fold-no-blank-collapsed": {
+      note: "A long turn after a background task's notification, bookkeeping the person never typed and another agent's message, folded: Worked for, then the reply right under it. Before, each render row that draws nothing (in the app, an update that joined the first card; the gallery page draws no render frames) left a 34px band between them.",
+      snapshot: chat(foldNoBlankRows),
+    },
+    "fold-no-blank-open": {
+      note: "The same turn opened: the work in order, with no band where a step of only quiet thoughts sits (it draws nothing). Before, that step kept its estimate, 26px a thought, as a blank band under the first commands. Play: open Worked for.",
+      snapshot: chat(foldNoBlankRows),
+      checks: {
+        layoutShiftMax: {
+          value: 0.5,
+          reason: "Opening the disclosure intentionally reveals its folded tool rows below the clicked line.",
+        },
+      },
+      play: async (ctx) => {
+        const worked = { selector: '[data-row-id="worked-fold-no-blank-user"] .cv-worked' };
+        await ctx.click(worked);
+        await ctx.waitFor(() => ctx.find(worked).getAttribute("aria-expanded") === "true");
       },
     },
   },

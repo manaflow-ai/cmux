@@ -6,7 +6,9 @@ public import Foundation
 /// a unit test.
 public nonisolated struct ImportCardDeck: Sendable {
     public nonisolated enum Surface: String, Sendable, CaseIterable {
-        /// Home and New Tab: only what one click can import now, a few at a time.
+        /// Home and New Tab: only a Chief's sign-in request, which answers a sign-in the person
+        /// just ran into. Nothing pops up by itself: what a scan found and the imports the person
+        /// started stay in Settings › Import.
         case home, newTab
         /// Settings › Import: everything found, dismissed ones too.
         case settings
@@ -20,9 +22,6 @@ public nonisolated struct ImportCardDeck: Sendable {
             }
         }
     }
-
-    /// A finished card stays on Home and New Tab this long, then only Settings lists it.
-    public static let doneLingers: TimeInterval = 24 * 3600
 
     public var findings: [ImportFinding]
     public var state: ImportSuggestionState
@@ -50,21 +49,17 @@ public nonisolated struct ImportCardDeck: Sendable {
             cards.append(card(for: request))
             placed.insert(request.id)
         }
+        // Everything else is an offer nobody asked for: only Settings › Import lists it.
+        guard surface == .settings else { return Array(cards.prefix(surface.limit)) }
         // Jobs: running and paused first, then failed, then finished.
         let order: [ImportJob.Phase: Int] = [.running: 0, .paused: 1, .failed: 2, .done: 3]
         for job in jobs.jobs.sorted(by: { (order[$0.phase] ?? 9, $1.updatedAt) < (order[$1.phase] ?? 9, $0.updatedAt) }) {
             guard !placed.contains(job.id) else { continue }
-            // A finished job past its linger leaves Home and New Tab, and so does its source's card.
             placed.insert(job.id)
-            if surface != .settings, job.phase == .done, now.timeIntervalSince(job.updatedAt) > Self.doneLingers { continue }
-            // A classic run that brought nothing has nothing to confirm there; Settings keeps it.
-            if surface != .settings, job.phase == .done, job.opened == 0 { continue }
             cards.append(card(for: job, finding: findings.first { $0.id == job.id }, surface: surface))
         }
         for finding in findings where !placed.contains(finding.id) {
-            let dismissed = state.hides(finding)
-            if surface != .settings, dismissed || finding.access != .ready || finding.offersNothingNew { continue }
-            cards.append(card(for: finding, dismissed: dismissed, surface: surface))
+            cards.append(card(for: finding, dismissed: state.hides(finding), surface: surface))
         }
         return Array(cards.prefix(surface.limit))
     }
@@ -131,7 +126,7 @@ public nonisolated struct ImportCardDeck: Sendable {
         if finding.kind == .browser, finding.access == .ready { secondary.append(.init(.more, ImportSuggestionStrings.more)) }
         if dismissed {
             secondary.append(.init(.restore, ImportSuggestionStrings.showAgain))
-        } else if finding.access != .inUse || surface != .settings {
+        } else if finding.access != .inUse {
             secondary.append(.init(.dismiss, ImportSuggestionStrings.notNow))
         }
         return ImportCard(id: finding.id, kind: finding.kind, app: app(finding), title: finding.name, facts: facts(finding),

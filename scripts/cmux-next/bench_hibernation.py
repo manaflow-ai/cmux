@@ -24,9 +24,13 @@ Then each tab is selected in turn and timed:
               whether a snapshot covered the pane
   scroll/form whether its scroll position and form fields came back
 
-With --pressure (and passwordless sudo) a second set of tabs is opened and
-`memory_pressure -S -l critical` simulated: the time until every eligible
-hidden page hibernated is printed.
+With --pressure a second set of tabs is opened (with --pressure-reuse, the
+bench tabs themselves, woken by the wake phase), plus one page that plays
+media and one an agent keeps calling, and critical memory pressure is fed in
+(`debug.hibernation.pressure` when the build has it, else `sudo -n
+memory_pressure -S -l critical`). Printed: the time until every eligible
+hidden page hibernated, the footprint before and after, and whether the media
+page or the driven page ever hibernated (they must not).
 
 Usage (a fleet or capture mini, never a laptop; DEV build, it reads debug.surfaces):
   bench_hibernation.py --app BUNDLE [--tabs 6] [--heap-mb 40] [--measure 20]
@@ -238,7 +242,9 @@ def main():
     parser.add_argument("--measure", type=float, default=20, help="seconds each phase's CPU is measured over")
     parser.add_argument("--freeze", type=float, default=10, help="browser.freezeHiddenTabs for the run")
     parser.add_argument("--config", default="{}", help="extra cmux.json settings (JSON)")
-    parser.add_argument("--pressure", action="store_true", help="also simulate critical memory pressure (needs sudo -n)")
+    parser.add_argument("--pressure", action="store_true", help="also simulate critical memory pressure")
+    parser.add_argument("--pressure-reuse", action="store_true", help="pressure the bench tabs instead of opening new ones")
+    parser.add_argument("--pressure-wait", type=float, default=0, help="seconds to wait for the pages under pressure (0: 1.5 s per page, at least 30)")
     parser.add_argument("--socket", help="attach: the running app's control socket")
     parser.add_argument("--app-pid", type=int, help="attach: the running app's pid")
     parser.add_argument("--out")
@@ -337,6 +343,9 @@ def main():
                 "mounted_p50_ms": percentile([r["mounted_ms"] for r in rows], 0.5),
                 "usable_p50_ms": percentile([r["usable_ms"] for r in rows], 0.5),
                 "usable_p90_ms": percentile([r["usable_ms"] for r in rows], 0.9),
+                "usable_p95_ms": percentile([r["usable_ms"] for r in rows], 0.95),
+                "mounted_p95_ms": percentile([r["mounted_ms"] for r in rows], 0.95),
+                "app_mounted_p95_ms": percentile([r.get("app_mounted_ms") for r in rows], 0.95),
                 "restored_p50_ms": percentile([r["restored_ms"] for r in rows], 0.5),
                 "app_mounted_p50_ms": percentile([r.get("app_mounted_ms") for r in rows], 0.5),
                 "loaded_p50_ms": percentile([r.get("loaded_ms") for r in rows], 0.5),
@@ -350,14 +359,18 @@ def main():
                   f"processes_exited={s['processes_exited']} app_delta_mb={s['app_delta_mb']} "
                   f"hidden_cpu_pct={s['hidden_cpu_pct']} frozen_cpu_pct={s['frozen_cpu_pct']} "
                   f"hidden_wakeups_per_s={s['hidden_wakeups_per_s']} frozen_wakeups_per_s={s['frozen_wakeups_per_s']} "
-                  f"mounted_p50_ms={s['mounted_p50_ms']} usable_p50_ms={s['usable_p50_ms']} usable_p90_ms={s['usable_p90_ms']} "
+                  f"mounted_p50_ms={s['mounted_p50_ms']} mounted_p95_ms={s['mounted_p95_ms']} usable_p50_ms={s['usable_p50_ms']} "
+                  f"usable_p90_ms={s['usable_p90_ms']} usable_p95_ms={s['usable_p95_ms']} app_mounted_p95_ms={s['app_mounted_p95_ms']} "
                   f"restored_p50_ms={s['restored_p50_ms']} app_mounted_p50_ms={s['app_mounted_p50_ms']} "
                   f"loaded_p50_ms={s['loaded_p50_ms']} loaded_p90_ms={s['loaded_p90_ms']} "
                   f"snapshots={s['snapshots']}/{s['woken']} scroll={s['scroll_restored']}/{s['woken']} "
                   f"form={s['form_restored']}/{s['woken']}", flush=True)
         report["summary"] = summary
         if args.pressure:
-            report["pressure"] = pressure(app, sock, engines, ports, args.tabs, open_tab, front, opened_extra)
+            reuse = [t for e in engines for t in opened[e]] if args.pressure_reuse else None
+            report["pressure"] = pressure(app, sock, engines, ports, args.tabs, open_tab, front, opened_extra,
+                                          reuse=reuse, wait=args.pressure_wait, pid=pid, bundle=bundle,
+                                          measure=args.measure, report=report)
     finally:
         if scratch is None:
             for tab in [t for tabs in opened.values() for t in tabs] + opened_extra:
@@ -383,41 +396,90 @@ def flatten(config: dict, prefix: str = ""):
             yield path, value
 
 
-def pressure(app, sock, engines, ports, count, open_tab, front, opened_extra) -> dict:
-    """Simulated critical memory pressure: the time until every new hidden page hibernated."""
-    if subprocess.run(["sudo", "-n", "true"], capture_output=True).returncode != 0:
-        print("PERF-HIBERNATE-PRESSURE skipped: no passwordless sudo", flush=True)
-        return {"skipped": "no sudo"}
-    tabs = [t for engine in engines for t in (open_tab(engine, page_url(engine, 100 + i, ports)) for i in range(count)) if t]
-    # Pages that play media must outlive any pressure (smarter hibernation, msg 9103).
-    playing = [t for engine in engines for t in [open_tab(engine, page_url(engine, 900, ports) + "&audio=1")] if t]
-    opened_extra.extend(tabs + playing)
+def feed_pressure(sock: str, level: str) -> str | None:
+    """Feeds `level` through the DEBUG hook; returns how, or None when neither way works."""
+    answer = bp.rpc(sock, "debug.hibernation.pressure", {"level": level}) or {}
+    if isinstance(answer, dict) and answer.get("pressure") == level:
+        return "debug"
+    return None
+
+
+def pressure(app, sock, engines, ports, count, open_tab, front, opened_extra, reuse=None, wait=0,
+             pid=None, bundle=None, measure=20, report=None) -> dict:
+    """Critical memory pressure: the time until every hidden page hibernated, the footprint
+    before and after, and that the media page and the agent-driven page never did."""
+    if reuse is None:
+        tabs = [t for engine in engines for t in (open_tab(engine, page_url(engine, 100 + i, ports)) for i in range(count)) if t]
+        opened_extra.extend(tabs)
+    else:
+        tabs = list(reuse)
+    # Pages that play media, or that an agent keeps calling, must outlive any pressure (msg 9103).
+    playing = [t for engine in engines[:1] for t in [open_tab(engine, page_url(engine, 900, ports) + "&audio=1")] if t]
+    driven = [t for engine in engines[:1] for t in [open_tab(engine, page_url(engine, 901, ports))] if t]
+    opened_extra.extend(playing + driven)
     app.run("tab.focus", target=front)
     time.sleep(35)  # test script: agent grace after the script calls
+    for tab in driven:
+        evaluate(sock, tab, "1")
+    if pid is not None and report is not None:
+        phase(pid, bundle, "pressure-before", measure, report)
     before = hibernation(sock).get("hibernated_total") or 0
+    how = feed_pressure(sock, "critical")
+    simulator = None
+    if how is None:
+        if subprocess.run(["sudo", "-n", "true"], capture_output=True).returncode != 0:
+            print("PERF-HIBERNATE-PRESSURE skipped: no debug.hibernation.pressure and no passwordless sudo", flush=True)
+            return {"skipped": "no pressure source"}
+        simulator = subprocess.Popen(["sudo", "-n", "memory_pressure", "-S", "-l", "critical", "-s", "20"],
+                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        how = "memory_pressure"
     started = time.monotonic()
-    simulator = subprocess.Popen(["sudo", "-n", "memory_pressure", "-S", "-l", "critical", "-s", "20"],
-                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    # Pages go a few per pass (HibernationPlanner.Pace), so allow about 1 s per page.
-    ever_playing: set[str] = set()
+    ever_slept: set[str] = set()
+    kept = set(playing + driven)
+    last_drive = [time.monotonic()]
+    timeline: list[tuple[float, int]] = []
 
     def all_asleep():
+        if time.monotonic() - last_drive[0] > 5:
+            for tab in driven:
+                evaluate(sock, tab, "1", 5)  # an agent keeps driving it
+            last_drive[0] = time.monotonic()
         asleep = set(hibernation(sock).get("hibernated") or [])
-        ever_playing.update(asleep & set(playing))
+        ever_slept.update(asleep & kept)
+        timeline.append((round(time.monotonic() - started, 2), len(asleep & set(tabs))))
         return set(tabs) <= asleep and time.monotonic()
 
-    slept = wait_for(all_asleep, max(30, 1.5 * len(tabs)), 0.1)
+    slept = wait_for(all_asleep, wait or max(30, 1.5 * len(tabs)), 0.1)
     status = hibernation(sock)
-    simulator.wait(timeout=60)
-    result = {"tabs": len(tabs), "seconds": round(slept - started, 2) if slept else None,
-              "hibernated": (status.get("hibernated_total") or 0) - before, "pressure_seen": status.get("pressure"),
-              "exemptions": status.get("exemptions"),
-              "playing_tabs": len(playing), "playing_hibernated": sorted(ever_playing)}
-    print(f"PERF-HIBERNATE-PRESSURE tabs={result['tabs']} all_hibernated_s={result['seconds']} "
-          f"hibernated={result['hibernated']} playing_hibernated={len(ever_playing)}/{len(playing)} "
+    if simulator is not None:
+        simulator.wait(timeout=60)
+    else:
+        feed_pressure(sock, "normal")
+    # Pacing: the most pages that went within any one second.
+    burst, j = 0, 0
+    for i in range(len(timeline)):
+        while timeline[i][0] - timeline[j][0] > 1.0:
+            j += 1
+        burst = max(burst, timeline[i][1] - timeline[j][1])
+    result = {"tabs": len(tabs), "source": how, "seconds": round(slept - started, 2) if slept else None,
+              "hibernated": (status.get("hibernated_total") or 0) - before, "asleep_at_end": len(set(status.get("hibernated") or []) & set(tabs)),
+              "pressure_seen": status.get("pressure"), "max_per_second": burst,
+              "playing_tabs": len(playing), "playing_hibernated": sorted(ever_slept & set(playing)),
+              "driven_tabs": len(driven), "driven_hibernated": sorted(ever_slept & set(driven)),
+              "exemptions": status.get("exemptions")}
+    if pid is not None and report is not None:
+        time.sleep(10)  # test script: renderers exit and the app settles
+        phase(pid, bundle, "pressure-after", measure, report)
+        phases = {p["label"]: p for p in report["phases"]}
+        result["footprint_before_mb"] = phases["pressure-before"]["total_footprint_mb"]
+        result["footprint_after_mb"] = phases["pressure-after"]["total_footprint_mb"]
+    print(f"PERF-HIBERNATE-PRESSURE source={how} tabs={result['tabs']} all_hibernated_s={result['seconds']} "
+          f"hibernated={result['hibernated']} asleep_at_end={result['asleep_at_end']} max_per_second={burst} "
+          f"footprint_before_mb={result.get('footprint_before_mb')} footprint_after_mb={result.get('footprint_after_mb')} "
+          f"playing_hibernated={len(result['playing_hibernated'])}/{len(playing)} "
+          f"driven_hibernated={len(result['driven_hibernated'])}/{len(driven)} "
           f"exemptions={json.dumps(result['exemptions'] or {})}", flush=True)
     return result
-
 
 if __name__ == "__main__":
     main()

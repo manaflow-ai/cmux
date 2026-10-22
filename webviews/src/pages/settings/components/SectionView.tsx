@@ -19,8 +19,9 @@ import { ImportSuggestionsCard } from "./ImportSuggestionsCard";
 import { AdvancedInfo, BACKDROP_ROWS, Backdrops, TerminalInfo, useBackdropsShown } from "./HostCards";
 import { DENSITY_ROWS } from "../density";
 import { DensityCard } from "./DensityCard";
-import { BrowserProfiles, MachinesSection, SpacesSection } from "./HostSections";
+import { BrowserProfiles, MACHINE_COLORS_KEY, MachinesSection, SpacesSection } from "./HostSections";
 import { PlaceholderSection } from "./PlaceholderSection";
+import { WebUpdatesCard } from "./WebUpdatesCard";
 import { VoiceInputCard } from "./VoiceInputCard";
 import { SectionActions } from "./SectionActions";
 import { ACCENT_KEY, APP_THEME_KEY, THEME_EDITS_KEY, THEME_KEY, ThemeStudio } from "./ThemeStudio";
@@ -50,6 +51,7 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   density: () => <DensityCard />,
   importSuggestions: () => <ImportSuggestionsCard />,
   channels: () => <ChannelsCard />,
+  webUpdates: () => <WebUpdatesCard />,
   voiceInput: () => <VoiceInputCard />,
 };
 
@@ -74,6 +76,8 @@ export function SectionView({
   const pet = category.lead.includes("chiefPet");
   // The density card draws appearance.density and the custom density keys.
   const densityCard = [...category.lead, ...category.trail].includes("density");
+  // The Machines card draws appearance.machineColors: a color well on each machine's row.
+  const machinesCard = [...category.lead, ...category.trail].includes("machines");
   // appearance.themeEdits is the pickers' "(custom)" themes, never a row of its own.
   const groups = category.groups
     .map((group) => ({
@@ -84,6 +88,7 @@ export function SectionView({
           !drawn.has(row.key) &&
           !(picker && BACKDROP_ROWS.has(row.key)) &&
           !(pet && CHIEF_PET_ROWS.has(row.key)) &&
+          !(machinesCard && row.key === MACHINE_COLORS_KEY) &&
           !(densityCard && DENSITY_ROWS.has(row.key)),
       ),
     }))

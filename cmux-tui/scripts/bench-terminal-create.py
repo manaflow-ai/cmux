@@ -243,6 +243,9 @@ def main():
     ap.add_argument("--spans", action="store_true", help="set CMUX_TUI_DEBUG_SPANS and keep the file")
     ap.add_argument("--gate-metric", default=" first-text",
                     help="the metric --max-p50-ms gates (suffix of the op name)")
+    ap.add_argument("--login", action="store_true",
+                    help="as the app: a frontend client (terminal-frontend-shell-integration-v1) and the "
+                         "account's HOME, so each shell starts through login(1)")
     ap.add_argument("--disk-load", type=int, default=0,
                     help="background writers that write and F_FULLFSYNC in a loop (a busy Mac's disk)")
     args = ap.parse_args()
@@ -265,7 +268,7 @@ def main():
         if k.startswith("CMUX_"):
             del env[k]
     env.update(
-        HOME=home,
+        HOME=os.environ["HOME"] if args.login else home,
         XDG_CONFIG_HOME=os.path.join(home, ".config"),
         XDG_STATE_HOME=os.path.join(home, ".local/state"),
         XDG_DATA_HOME=os.path.join(home, ".local/share"),
@@ -292,6 +295,10 @@ def main():
                 try:
                     c = Conn(sock)
                     result["identify"] = must(c.call("identify"), "identify")
+                    if args.login:
+                        must(c.call("set-client-info", name="bench", kind="bench",
+                                    capabilities=["terminal-frontend-shell-integration-v1"]),
+                             "set-client-info")
                     break
                 except OSError:
                     pass
@@ -306,6 +313,9 @@ def main():
         base_pane, _ = pane_of(c, base["surface"])
         marker.wait(time.perf_counter())
         sized = {"cols": 80, "rows": 24}
+        # The app names the shell in each new tab's env; with the frontend
+        # capability that shell starts through login(1).
+        tab = dict(sized, env={"SHELL": shell}) if args.login else sized
         samples = {}
         followed = {}
 
@@ -326,10 +336,10 @@ def main():
 
         for i in range(args.warmup + args.rounds):
             counted = i >= args.warmup
-            data = create("new-tab", "new-tab", counted, pane=base_pane, terminal_id=uuid.uuid4().hex, **sized)
+            data = create("new-tab", "new-tab", counted, pane=base_pane, terminal_id=uuid.uuid4().hex, **tab)
             c.call("close-surface", surface=data["surface"])
             data = create("split right", "split", counted, pane=base_pane, dir="right",
-                          terminal_id=uuid.uuid4().hex, **sized)
+                          terminal_id=uuid.uuid4().hex, **tab)
             pane = data.get("pane") or pane_of(c, data["surface"])[0]
             c.call("close-pane", pane=pane, end_terminals=True)
             data = create("new-workspace", "new-workspace", counted, name=f"w{i}", **sized)
