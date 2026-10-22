@@ -25,6 +25,12 @@ public nonisolated struct AgentPaneContext: Sendable, Equatable {
 nonisolated extension AgentPaneContext {
     private static let localHosts: Set<String> = ["localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]"]
 
+    /// Whether an agent's cwd, which comes from its page, is an absolute path to a directory on
+    /// this Mac (a remote agent's folder is not one).
+    public static func isLocalDirectory(_ path: String) -> Bool {
+        path.hasPrefix("/") && AcpmuxPathPolicy.isDirectory(path)
+    }
+
     /// The dev server a terminal shows (#16620): the newest localhost URL in
     /// `text`, for a browser tab opened from it. Same rules as `paneContext.ts`:
     /// `0.0.0.0` becomes `localhost`, trailing punctuation is not part of the URL.
@@ -49,7 +55,7 @@ extension AgentPaneView {
     /// Where a terminal opened from this chat starts (#16620, #22225): its working folder, only as
     /// an absolute path to a directory on this Mac (a remote agent's folder is not one); else nil.
     public func terminalFolder() async -> String? {
-        guard let cwd = await workingContext()?.cwd, cwd.hasPrefix("/"), AcpmuxPathPolicy.isDirectory(cwd) else { return nil }
+        guard let cwd = await workingContext()?.cwd, AgentPaneContext.isLocalDirectory(cwd) else { return nil }
         return cwd
     }
 
