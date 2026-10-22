@@ -44,7 +44,9 @@ warnings only.
                  configures, at most 2 pane snapshots and 2 pane chrome updates per move; I6;
                  host-independent, blocks), and no window record save or location-trail encode runs on
                  the main thread between a move and its commit (debug.pane_focus work_before_commit 0;
-                 blocks where moves are timed). Intent to settled p95 over 2 ms of main-thread work
+                 blocks where moves are timed), and no Chromium page window encodes its restorable
+                 state (debug.pane_focus chromium_restorable_encodes 0: a WindowServer round trip on the
+                 main thread per encode; blocks). Intent to settled p95 over 2 ms of main-thread work
                  (PANE_FOCUS_BUDGET_MS, speed-of-sound-DESIGN.md 3.2) and a commit later than the
                  first frame after the move settles (debug.pane_focus late_vsyncs) are warnings: on a
                  shared GUI host both follow the host's load.
@@ -808,6 +810,10 @@ class Gate:
             phase["modes"][name]["work_before_commit"] = before_commit
             check(not before_commit, f"{name}: no record save or trail encode on the main thread before a move's commit "
                                      f"({before_commit or 'none'} in {len(moves)} moves)", scenario)
+            encodes = int(own.get("chromium_restorable_encodes") or 0)
+            phase["modes"][name]["chromium_restorable_encodes"] = encodes
+            check(encodes == 0, f"{name}: no Chromium page window encodes its restorable state ({encodes} encodes in "
+                                f"{per_mode} moves)", scenario)
             col = lambda key: sorted(row.get(key, 0) for row in moves)
             pct = lambda values, q: values[min(len(values) - 1, max(0, int(round(len(values) * q)) - 1))]
             applies, commits = col("apply_ms"), col("commit_ms")

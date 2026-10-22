@@ -28,9 +28,18 @@ enum DebugPaneFocus {
 
     /// `debug.pane_focus`: the timer's moves, plus `work_before_commit` (reset by `start`).
     static func handle(_ params: [String: JSONValue]) -> JSONValue {
-        if params["action"]?.stringValue == "start" { workBeforeCommit = [:] }
+        if params["action"]?.stringValue == "start" {
+            workBeforeCommit = [:]
+            #if DEBUG
+            DebugChromiumRestorableState.reset()
+            #endif
+        }
         guard case .object(var object) = timer.handle(params, key: "moves") else { return .null }
         object["work_before_commit"] = .object(workBeforeCommit.mapValues { .number(Double($0)) })
+        #if DEBUG
+        // Chromium page windows' restorable-state encodes since `start` (WindowServer round trips).
+        object["chromium_restorable_encodes"] = .number(Double(DebugChromiumRestorableState.encodes))
+        #endif
         return .object(object)
     }
 
