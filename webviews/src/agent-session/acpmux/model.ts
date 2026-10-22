@@ -54,8 +54,10 @@ export type AcpmuxCompaction = {
   postTokens?: number;
 };
 
-/// acpmux moved the chat onto its fallback harness after a usage limit (a `failover` record).
-export type AcpmuxFailover = { from: string; to: string };
+/// acpmux moved the chat onto its fallback harness after a usage limit (a `failover` record), or
+/// kept a restricted chat on its harness because the fallback cannot run restricted (a
+/// `failover_refused` record, `refused: "restricted"`).
+export type AcpmuxFailover = { from: string; to: string; refused?: "restricted" };
 
 /// The chat's permission policy (an acpmux policy id narrower than approve-all) that its harness
 /// cannot keep (a `policy_unenforced` record): OpenCode's own settings decide what it asks
@@ -496,6 +498,9 @@ export type AcpmuxSnapshot = {
     backgroundsWork?: boolean;
     /// A turn failed: the queued prompts wait until the user resumes the queue (acpmux `queuePaused`).
     queuePaused?: boolean;
+    /// acpmux runs the chat restricted (`hub/restricted.rs`): no project settings, hooks or MCP
+    /// servers, and every tool asks.
+    restricted?: boolean;
     /// The family (`claude`, `codex`) of a conversation another app runs that this chat only shows
     /// (acpmux `watching`): no prompt goes until the user takes it over.
     watching?: string;

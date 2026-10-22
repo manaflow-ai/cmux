@@ -13,9 +13,18 @@ struct TrustSettingsTests {
         // Off, with nobody's folders or owners built in: the person names their own.
         #expect(snapshot.trust == TrustSettings())
         #expect(!snapshot.trust.autoTrust)
+        // Not now refuses the folder's prompts until the person turns restricted chats on.
+        #expect(!snapshot.trust.restrictedChats)
         #expect(snapshot.trust.projectRoots.isEmpty)
         #expect(snapshot.trust.ownOrgs.isEmpty)
         #expect(snapshot.diagnostics.isEmpty)
+    }
+
+    @Test func restrictedChatsTakesOnlyABoolean() {
+        #expect(Self.parse(["restrictedChats": .bool(true)]).trust.restrictedChats)
+        let bad = Self.parse(["restrictedChats": .string("restricted")])
+        #expect(!bad.trust.restrictedChats)
+        #expect(bad.diagnostics.contains { $0.path == "agents.trust.restrictedChats" })
     }
 
     @Test func readsACustomList() {
@@ -62,6 +71,8 @@ struct TrustSettingsTests {
         let toggle = try #require(SettingsSchema.descriptor(for: ["agents", "trust", "autoTrust"]))
         let roots = try #require(SettingsSchema.descriptor(for: ["agents", "trust", "projectRoots"]))
         let orgs = try #require(SettingsSchema.descriptor(for: ["agents", "trust", "ownOrgs"]))
+        let restricted = try #require(SettingsSchema.descriptor(for: ["agents", "trust", "restrictedChats"]))
+        #expect(restricted.kind == .toggle)
         #expect(toggle.kind == .toggle)
         #expect(roots.kind == .folderList)
         #expect(orgs.kind == .stringList)

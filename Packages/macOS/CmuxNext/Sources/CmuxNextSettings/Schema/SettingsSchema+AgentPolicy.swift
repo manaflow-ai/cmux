@@ -329,6 +329,8 @@ extension SettingsSchema {
         // Which folders an agent may open without asking is the person's call: an agent must not
         // widen what it may open without asking.
         "agents.trust.autoTrust": .userOnly,
+        // Whether an untrusted folder still runs a restricted chat is the person's call too.
+        "agents.trust.restrictedChats": .userOnly,
         "agents.trust.projectRoots": .userOnly,
         "agents.trust.ownOrgs": .userOnly,
         // What reaches this Mac from outside and what leaves it: only the person opens phone access.

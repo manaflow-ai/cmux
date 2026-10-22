@@ -5,6 +5,9 @@ extension TrustSettings {
     /// `agents.trust.autoTrust`: Off: every folder without an answer asks, whatever the project roots and organizations below say.
     public nonisolated static let trustAutoTrustPath = ["agents", "trust", "autoTrust"]
     public nonisolated static let trustAutoTrustDefault = false
+    /// `agents.trust.restrictedChats`: On: Not now on a folder's trust question leaves a Claude Code chat that still runs, restricted (acpmux hub/restricted.rs): no project settings, hooks or MCP servers, and every tool asks. Off: the chat sends no prompts until the folder is trusted. Other agents always refuse.
+    public nonisolated static let trustRestrictedChatsPath = ["agents", "trust", "restrictedChats"]
+    public nonisolated static let trustRestrictedChatsDefault = false
     /// `agents.trust.projectRoots`: Folders whose contents are trusted without a question: absolute or ~/ paths. Symlinks are resolved first, so a link out of a root is not trusted.
     public nonisolated static let trustProjectRootsPath = ["agents", "trust", "projectRoots"]
     public nonisolated static let trustProjectRootsDefault: [String] = []
@@ -28,6 +31,16 @@ nonisolated enum TrustSettingsSchema {
                 kind: .toggle,
                 default: .bool(TrustSettings.trustAutoTrustDefault),
                 keywords: ["trust", "folder", "repository", "prompt", "agents"]
+            ),
+            SettingDescriptor(
+                TrustSettings.trustRestrictedChatsPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.agents.trust.restrictedChats", "Restricted Chats in Untrusted Folders"),
+                help: SettingsText.keyed("settings.agents.trust.restrictedChats.help", "After Not now, Claude Code still runs in the folder without its project settings, hooks or MCP servers, and asks before every tool. Off: the chat waits until you trust the folder."),
+                kind: .toggle,
+                default: .bool(TrustSettings.trustRestrictedChatsDefault),
+                keywords: ["trust", "untrusted", "restricted", "folder", "hooks", "mcp", "agents"]
             ),
             SettingDescriptor(
                 TrustSettings.trustProjectRootsPath,

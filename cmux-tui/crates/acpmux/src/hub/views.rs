@@ -300,6 +300,8 @@ impl Hub {
             // The agent takes a prompt mid-turn (`_meta.acpmux.steer`); else a steer waits, or
             // with `interrupt` stops the turn and runs next.
             steering: session.steering.load(Ordering::SeqCst),
+            // A restricted chat (`hub/restricted.rs`): the pane says what it runs without.
+            restricted: m.restricted.then_some(true),
             // Ctrl-B moves its work: by the kind its harness started as (`processes.rs`).
             backgrounds_work: session.backgrounds_work.load(Ordering::SeqCst),
             turn: turn.map(|t| TurnSummary {

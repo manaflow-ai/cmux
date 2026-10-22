@@ -119,6 +119,8 @@ impl Hub {
                     keep_harness_mode: true,
                     route: None,
                     subsession: None,
+                    // A side chat of a restricted chat runs restricted too.
+                    restricted: meta.restricted,
                     disallowed_tools: Vec::new(),
                 };
                 let side = match self.new_session(req.clone()).await {
