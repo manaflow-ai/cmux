@@ -2363,11 +2363,24 @@ export class AcpmuxDirectClient {
   }
 
   /// The list gained chats (a later page, a new chat): when one is a sender an addressed prompt
-  /// named before it was listed, the rows are read again, so that prompt draws as its message.
+  /// named before it was listed, the rows are read again, so that prompt draws as its message. The
+  /// queue keeps its live order and text; a prompt waiting in it whose `queued` record still holds
+  /// that text is read again too.
   private recheckSenders(added: readonly Session[]): void {
     if (this.unknownSenders.size === 0 || !this.selectedSessionId || this.events.length === 0) return;
     if (![...this.unknownSenders].some((name) => added.some((session) => namesChat(session, name)))) return;
     this.rebuildKeepingLiveState();
+    const queued = new Map<string, any>();
+    for (const event of this.events)
+      if (event.kind === "queued" && event.msg?.promptId) queued.set(String(event.msg.promptId), event.msg);
+    this.queue = this.queue.map((entry) => {
+      const msg = queued.get(entry.id);
+      if (entry.message || !msg || String(msg.text ?? "") !== entry.prompt) return entry;
+      const message = queuedMessage(msg, this.incomingContext());
+      return message
+        ? queuedEntry(entry.id, entry.prompt, entry.next === true, entry.sending === true, entry.images, message)
+        : entry;
+    });
   }
 
   private rebuild(): void {

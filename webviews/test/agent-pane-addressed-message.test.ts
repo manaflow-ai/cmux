@@ -32,9 +32,9 @@ const PANEL_ENTRY = { ...base, sessionId: PANEL, name: "huge-blue/summary-panel"
 
 /// A daemon whose list holds this chat and `listed`, and whose attach page holds the whole history.
 /// `socket()` is the open connection, for a notification.
-function fakeDaemon(history: Rec[], listed: object[] = [PANEL_ENTRY]) {
+function fakeDaemon(history: Rec[], listed: object[] = [PANEL_ENTRY], chat: object = {}) {
   let socket: any;
-  const session = { ...base, sessionId: CHAT, name: "claude-sr2", title: "Reply with only: OK", turnCount: 2 };
+  const session = { ...base, sessionId: CHAT, name: "claude-sr2", title: "Reply with only: OK", turnCount: 2, ...chat };
   const answer = (method: string) => {
     switch (method) {
       case "initialize":
@@ -155,4 +155,35 @@ test("a sender listed after its addressed prompt was read makes that prompt its 
     kind: "message",
     message: { name: "summary-panel", text: "Also #24020." },
   });
+});
+
+test("a queued addressed prompt reads as its sender's once the sender is listed", async () => {
+  const text = "summary-panel -> coord-deputy: Also #24020.";
+  const history = record([
+    ["mux", "user_message", { text: "Check the overlay", client: "cmux-next#0001", promptId: "p-1", turnId: "t-1" }],
+    ["mux", "turn_started", { promptId: "p-1", turnId: "t-1" }],
+    ["mux", "queued", { text, promptId: "p-2", client: "acpmux-peer#01a1", position: 1 }],
+  ]);
+  const queue = [{ promptId: "p-2", prompt: text, turnId: "t-2", queuedAt: START, held: false }];
+  const daemon = fakeDaemon(history, [], { status: "running", steering: true, queue });
+  let shown: any[] = [];
+  await AcpmuxDirectClient.connect(
+    { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:1/", token: "t", sessionId: CHAT },
+    (snapshot: any) => (shown = snapshot.queue),
+    undefined,
+    daemon,
+  );
+  for (let i = 0; i < 8; i++) await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(shown.map((entry) => [entry.id, entry.message])).toEqual([["p-2", undefined]]);
+  daemon.socket().onmessage?.({
+    data: JSON.stringify({
+      jsonrpc: "2.0",
+      method: "_acpmux/session_changed",
+      params: { sessionId: PANEL, session: PANEL_ENTRY, kind: "created" },
+    }),
+  });
+  for (let i = 0; i < 8; i++) await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(shown.map((entry) => [entry.id, entry.prompt, entry.message?.name, entry.message?.text])).toEqual([
+    ["p-2", text, "summary-panel", "Also #24020."],
+  ]);
 });
