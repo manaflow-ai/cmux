@@ -1,3 +1,4 @@
+import type { Translate } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { childRows, type ChildEntry } from "./childRows";
 
@@ -30,10 +31,42 @@ export type Subagent = {
   agents?: { done: number; started: number };
   /// The harness runs it in the background: it outlives its turn's stop.
   background?: boolean;
+  /// What it was asked, as the harness got it (Claude's Agent `prompt`): Restart sends it again.
+  prompt?: string;
+  /// Why a stopped (`cancelled`) one stopped, when this pane knows (``SubagentStops``); none
+  /// when it does not.
+  stopReason?: SubagentStopReason;
   /// The id Claude Code's Agent call answered with (`agentId: …`), which a SendMessage to it
   /// names (conversation/agentNames.ts).
   agentId?: string;
+  /// Nothing has named it yet (no name, task or description in what this fold read): `name` is a
+  /// short form of its id (``shortSubagentId``), drawn as "Subagent <short id>" (``subagentName``).
+  unnamed?: boolean;
 };
+
+/// A short, readable form of a subagent's id for a subagent nothing named: the last part of a
+/// `<session>/<tool call>` id, without Claude's `toolu_` prefix, cut to 8 characters.
+export function shortSubagentId(id: string): string {
+  const last = id.split("/").filter(Boolean).at(-1) ?? id;
+  const bare = last.replace(/^(toolu|call|agent)_/i, "") || last;
+  return bare.length > 8 ? bare.slice(0, 8) : bare;
+}
+
+/// What a subagent is called in a row: its name, or "Subagent <short id>" when nothing named it
+/// (never its raw `<session>/<tool call>` id, which goes in the row's tooltip).
+export function subagentName(agent: Pick<Subagent, "name" | "unnamed">, t: Translate): string {
+  return agent.unnamed ? t("subagents.unnamed", { id: agent.name }) : agent.name;
+}
+
+/// Why a subagent was stopped: the person stopped it (Stop on the turn, or on the subagent), or a
+/// prompt sent with Send now interrupted its turn.
+export type SubagentStopReason = "user" | "sendNow";
+
+/// What the pane knows about subagent stops, kept across the fold's rebuilds (direct.ts): the
+/// subagents this pane asked to stop, and each stopped one's reason once known. A reload of the
+/// page knows only what acpmux's records say (a Send now's `queue_order`).
+export type SubagentStops = { requested: Set<string>; reasons: Map<string, SubagentStopReason> };
+export const subagentStops = (): SubagentStops => ({ requested: new Set(), reasons: new Map() });
 
 export type Event = { seq: number; at: number; msg?: any };
 type Group = { id: string; at: number; version: number; ids: string[] };
@@ -59,6 +92,11 @@ export class SubagentFold {
   private readonly versions = new Map<string, number>();
   /// The subagents spawned since the current turn started, which its stop ends.
   private turn = new Set<string>();
+  /// What stops the running turn now, when the pane knows (direct.ts `turnStopCause`): a stop
+  /// it ends its foreground subagents with is theirs too.
+  cause: SubagentStopReason | undefined;
+
+  constructor(private readonly stops: SubagentStops = subagentStops()) {}
   /// The subagents whose end the harness reported (not one ``stopRunning`` guessed): a progress
   /// report that trails it (Claude's last task_progress) does not run one again.
   private readonly ended = new Set<string>();
@@ -102,6 +140,7 @@ export class SubagentFold {
     const call = typeof update?.toolCallId === "string" ? update.toolCallId : undefined;
     if (call && this.spawnCalls.has(call)) {
       this.readAgentId(call, update);
+      this.readDescription(call, update);
       return true;
     }
     // Codex's own bookkeeping between its subagents (`wait` for them, `closeAgent`): the group
@@ -132,6 +171,7 @@ export class SubagentFold {
       if (left.state === "completed" && !this.called.has(agent.id)) continue;
       agent.state = left.state;
       agent.endedAt = at;
+      this.settleReason(agent);
       this.touch(agent);
       changed = true;
     }
@@ -197,13 +237,15 @@ export class SubagentFold {
     let agent = this.agents.get(change.id);
     if (!agent) {
       const parent = typeof change.parent === "string" ? change.parent : null;
-      const name = text(change.name) ?? text(change.task) ?? change.id;
+      const name = text(change.name) ?? text(change.task);
       agent = {
         id: change.id,
         parent,
-        name,
+        name: name ?? shortSubagentId(change.id),
+        ...(name === undefined && { unnamed: true }),
         task: text(change.task),
         kind: text(change.kind),
+        prompt: text(change.prompt),
         state: "running",
         startedAt: event.at,
       };
@@ -216,9 +258,12 @@ export class SubagentFold {
         this.groupOf.set(agent.id, this.open);
       } else this.record(parent, { event, spawned: agent.id });
     } else {
-      agent.name = text(change.name) ?? agent.name;
+      // A real name replaces one made from its id; a task names one nothing named yet.
+      const name = text(change.name) ?? (agent.unnamed ? text(change.task) : undefined);
+      if (name) this.rename(agent, name);
       agent.task = text(change.task) ?? agent.task;
       agent.kind = text(change.kind) ?? agent.kind;
+      agent.prompt = text(change.prompt) ?? agent.prompt;
     }
     agent.action = text(change.action) ?? agent.action;
     agent.tokens = count(change.tokens) ?? agent.tokens;
@@ -235,8 +280,26 @@ export class SubagentFold {
     if (state && state !== agent.state && !(state === "running" && !spawn && this.ended.has(agent.id))) {
       agent.state = state;
       agent.endedAt = state === "running" ? undefined : event.at;
+      this.settleReason(agent);
     }
     this.touch(agent);
+  }
+
+  /// Records why a subagent that just stopped stopped (``stopReasonOf``), or forgets the reason
+  /// of one that runs again.
+  private settleReason(agent: Subagent): void {
+    // The turn's stop is a reason only for the subagents that turn started and its stop ends.
+    const cause = this.turn.has(agent.id) ? this.cause : undefined;
+    const reason = stopReasonOf(agent, this.stops, cause);
+    if (reason) {
+      agent.stopReason = reason;
+      this.stops.reasons.set(agent.id, reason);
+    } else {
+      delete agent.stopReason;
+      // One that runs again starts a new life: an old stop's reason is not its next one's.
+      if (agent.state === "running") this.stops.reasons.delete(agent.id);
+    }
+    if (agent.state !== "running") this.stops.requested.delete(agent.id);
   }
 
   /// Redraws the group row a subagent is listed in, or its parent's view.
@@ -253,6 +316,22 @@ export class SubagentFold {
       this.touch(agent);
       return;
     }
+  }
+
+  /// Names a subagent nothing named from its spawning call's input (Claude's Agent `description`).
+  private readDescription(call: string, update: any): void {
+    const id = this.spawnedBy.get(call);
+    const agent = id ? this.agents.get(id) : undefined;
+    const name = agent?.unnamed ? (text(update?.rawInput?.description) ?? text(update?.rawInput?.name)) : undefined;
+    if (agent && name) {
+      this.rename(agent, name);
+      this.touch(agent);
+    }
+  }
+
+  private rename(agent: Subagent, name: string): void {
+    agent.name = name;
+    delete agent.unnamed;
   }
 
   private touch(agent: Subagent): void {
@@ -286,6 +365,23 @@ export function subagentsLeft(kind: string, msg: any): SubagentsLeft | undefined
   if (kind === "turn_result" && msg?.status === "completed") return { state: "completed", turn: true };
   return HARNESS_GONE.has(kind) ? { state: "disconnected", turn: false } : undefined;
 }
+/// Why `agent` stopped, when the pane knows: only a `cancelled` one has a reason. One this pane
+/// asked to stop (the subagent's own Stop) the person stopped; a foreground one its own turn
+/// started, stopped while the pane's Stop or a Send now (`cause`, given only for those) was
+/// ending that turn, stopped for that (a background one outlives its turn's stop, so a turn's
+/// stop says nothing about it); else the reason recorded before a rebuild. Anything else (Claude's own TaskStop, another client's cancel, a
+/// Codex interrupt) has none: the line shows no reason rather than a guess.
+export function stopReasonOf(
+  agent: Pick<Subagent, "id" | "state" | "background">,
+  stops: SubagentStops,
+  cause: SubagentStopReason | undefined,
+): SubagentStopReason | undefined {
+  if (agent.state !== "cancelled") return undefined;
+  if (stops.requested.has(agent.id)) return "user";
+  if (cause && !agent.background) return cause;
+  return stops.reasons.get(agent.id);
+}
+
 const HARNESS_GONE = new Set(["exited", "stopped", "reopened", "resumed", "host_started", "host_ended"]);
 
 const text = (value: unknown) => (typeof value === "string" && value.trim() ? value.trim() : undefined);
