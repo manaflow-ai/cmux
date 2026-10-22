@@ -147,5 +147,8 @@ async fn daemon_started_with_launchds_256_raises_it_for_itself_and_its_agents() 
 
     let limit = text.trim();
     let raised = limit == "unlimited" || limit.parse::<u64>().is_ok_and(|n| n > LAUNCHD_SOFT);
-    assert!(raised, "the agent started with an open-file limit of {limit}, launchd's {LAUNCHD_SOFT}");
+    assert!(
+        raised,
+        "the agent started with an open-file limit of {limit}, launchd's {LAUNCHD_SOFT}"
+    );
 }
