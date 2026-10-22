@@ -77,9 +77,14 @@ pub(super) fn asks_opencode(
     profile: &HarnessProfile,
     default: PermissionPolicy,
 ) -> bool {
-    let opencode = crate::web_modes::family_of(meta) == "opencode"
-        || crate::config::derive_family(&meta.harness, profile) == "opencode";
-    opencode && narrow_policy(meta, default).is_some()
+    is_opencode(meta, profile) && narrow_policy(meta, default).is_some()
+}
+
+/// Whether `meta`'s agent, spawned from `profile` (as configured, before it is resolved), is
+/// OpenCode.
+pub(super) fn is_opencode(meta: &SessionMeta, profile: &HarnessProfile) -> bool {
+    crate::web_modes::family_of(meta) == "opencode"
+        || crate::config::derive_family(&meta.harness, profile) == "opencode"
 }
 
 /// The mode a chat with `policy` (narrower than approve-all) runs in on a harness of `family`
