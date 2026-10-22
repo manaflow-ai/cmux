@@ -1598,6 +1598,14 @@ fn start(
     brain.set_sub_starter(sub_starter);
     let idle = brain.cloud_auto_pause_idle();
     brain.set_cloud_vms(cloud_vms, idle);
+    if let Some(home) = env("HOME") {
+        brain.set_fleet_jobs(
+            Some(std::sync::Arc::new(
+                crate::fleet_wait::CommandFleet::in_home(std::path::Path::new(&home)),
+            )),
+            std::time::Duration::from_secs(30),
+        );
+    }
     brain.set_agent_keys(agent_keys, crate::agent_keys::REVOKE_AFTER_DONE);
     // No cap on subagents at work unless OPTCHAT_MAX_LIVE_SUBAGENTS sets one.
     brain.set_max_live(crate::subagents::live_limit(

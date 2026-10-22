@@ -350,6 +350,16 @@ pub enum Input {
     /// Every few seconds while cloud VMs are set: pauses idle ones
     /// (`cloud.autoPauseIdleSeconds`).
     CloudTick,
+    /// Fleet job `job`, which cloud subagent `id` waits on, ended in `state`.
+    FleetJobFinished {
+        id: String,
+        job: String,
+        state: String,
+    },
+    /// The fleet poll of subagent `id`'s jobs ended.
+    FleetPolled {
+        id: String,
+    },
     /// The pool tool refused to pause `peer` (busy there): it is tried again.
     CloudPauseFailed {
         peer: String,
@@ -731,6 +741,13 @@ pub struct Brain {
     /// deletes in flight.
     cloud_reap: std::time::Duration,
     cloud_reaping: std::collections::BTreeSet<String>,
+    /// The fleet controller cloud subagents' `fleet-wait` jobs are read
+    /// from (fleet_wait.rs), how often, when last, and the subagents whose
+    /// poll is running.
+    fleet: Option<std::sync::Arc<dyn crate::fleet_wait::FleetJobs>>,
+    fleet_every: std::time::Duration,
+    fleet_polled_ms: u64,
+    fleet_polling: std::collections::BTreeSet<String>,
     /// Revokes cloud subagents' sandbox keys (agent_keys.rs); since when each
     /// keyed subagent is done, and the revokes in flight.
     agent_keys: Option<std::sync::Arc<dyn crate::agent_keys::AgentKeys>>,
@@ -933,6 +950,10 @@ impl Brain {
                 chief.cloud_delete_after_paused_days * 86_400,
             ),
             cloud_reaping: Default::default(),
+            fleet: None,
+            fleet_every: std::time::Duration::from_secs(30),
+            fleet_polled_ms: 0,
+            fleet_polling: Default::default(),
             agent_keys: None,
             agent_key_done_since: Default::default(),
             agent_key_revoking: Default::default(),
@@ -1086,7 +1107,8 @@ impl Brain {
         fleet: Option<std::sync::Arc<dyn crate::fleet_wait::FleetJobs>>,
         every: std::time::Duration,
     ) {
-        let _ = (fleet, every);
+        self.fleet = fleet;
+        self.fleet_every = every;
     }
 
     pub fn set_cloud_reap(&mut self, after: std::time::Duration) {
@@ -1368,6 +1390,13 @@ impl Brain {
                 self.cloud_tick();
                 self.agent_key_tick();
                 self.cloud_reap_tick();
+                self.fleet_tick();
+            }
+            Input::FleetJobFinished { id, job, state } => {
+                self.fleet_job_finished(&id, &job, &state)
+            }
+            Input::FleetPolled { id } => {
+                self.fleet_polling.remove(&id);
             }
             Input::CloudPauseFailed { peer } => self.cloud_pause_failed(&peer),
             Input::CloudVmDeleted { peer } => self.cloud_vm_deleted(&peer),

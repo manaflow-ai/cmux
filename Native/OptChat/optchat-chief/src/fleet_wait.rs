@@ -14,12 +14,58 @@ pub const FINAL: [&str; 3] = ["done", "failed", "cancelled"];
 /// The fleet job ids a report waits on: its `fleet-wait: ID` lines (ids are
 /// 24 lowercase hex characters).
 pub fn waits(report: &str) -> Vec<String> {
-    let _ = report;
-    Vec::new()
+    report
+        .lines()
+        .filter_map(|l| l.trim().strip_prefix("fleet-wait:"))
+        .map(str::trim)
+        .filter(|id| id.len() == 24 && id.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')))
+        .map(str::to_owned)
+        .collect()
 }
 
 /// Reads a fleet job's state.
 pub trait FleetJobs: Send + Sync {
     /// The job's state (`queued`, `running`, `done`, ...).
     fn state(&self, job: &str) -> Result<String, String>;
+}
+
+/// The fleet client on this Mac: `cmux-ci status JOB` (`~/.local/bin/cmux-ci`
+/// when it is there, else `cmux-ci` on PATH).
+pub struct CommandFleet {
+    pub cmd: std::path::PathBuf,
+}
+
+impl CommandFleet {
+    pub fn in_home(home: &std::path::Path) -> CommandFleet {
+        let local = home.join(".local/bin/cmux-ci");
+        CommandFleet {
+            cmd: if local.exists() {
+                local
+            } else {
+                "cmux-ci".into()
+            },
+        }
+    }
+}
+
+impl FleetJobs for CommandFleet {
+    fn state(&self, job: &str) -> Result<String, String> {
+        let out = std::process::Command::new(&self.cmd)
+            .args(["status", job])
+            .stdin(std::process::Stdio::null())
+            .output()
+            .map_err(|e| format!("cmux-ci status {job}: {e}"))?;
+        if !out.status.success() {
+            return Err(format!(
+                "cmux-ci status {job}: {}",
+                String::from_utf8_lossy(&out.stderr).trim()
+            ));
+        }
+        let v: serde_json::Value = serde_json::from_slice(&out.stdout)
+            .map_err(|e| format!("cmux-ci status {job}: {e}"))?;
+        v["state"]
+            .as_str()
+            .map(str::to_owned)
+            .ok_or_else(|| format!("cmux-ci status {job}: no state"))
+    }
 }
