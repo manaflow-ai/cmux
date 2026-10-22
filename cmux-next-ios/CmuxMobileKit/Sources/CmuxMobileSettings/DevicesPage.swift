@@ -47,7 +47,8 @@ final class SettingsDeviceList {
 
     /// The Mac rows (see `SettingsDeviceRows.macs`); nil while loading.
     func macs(store: AppStore, hasService: Bool) -> [SettingsDevice]? {
-        SettingsDeviceRows.macs(service: devices, hasService: hasService, liveMacs: store.teams.flatMap(\.macs))
+        SettingsDeviceRows.macs(service: devices, hasService: hasService, liveMacs: store.teams.flatMap(\.macs),
+                                teamOf: store.teams.reduce(into: [:]) { out, team in for mac in team.macs where out[mac.id] == nil { out[mac.id] = team.id } })
     }
 
     var phones: [SettingsDevice] { SettingsDeviceRows.phones(service: devices) }

@@ -488,7 +488,7 @@ public final class LiveCoordinator {
             // A Worker that predates machine ids sends none: keep the one the list had. A
             // presence frame names no owner; the caller's hub carries only the caller's own
             // Macs (0.10.0), so a Mac new to the list is the caller's.
-            let owner = known?.ownerUserID ?? (othersMacs.contains(mac.deviceId) ? nil : userID)
+            let owner = othersMacs.contains(mac.deviceId) ? known?.ownerUserID : (known?.ownerUserID ?? userID)
             let device = MacDevice(id: mac.deviceId, name: mac.name, isOnline: mac.online, lastSeenAt: mac.lastSeenDate,
                                    ownerUserID: owner, machineID: mac.machineId ?? known?.machineID)
             if let index = current.firstIndex(where: { $0.id == mac.deviceId }) { current[index] = device } else { current.append(device) }
@@ -734,7 +734,8 @@ public final class LiveCoordinator {
         discoveredMacIDs = ids
         let found = macs.compactMap { mac -> DiscoveredMac? in
             guard let teamID = mac.teamId else { return nil }
-            return DiscoveredMac(id: mac.deviceId, name: mac.name, isOnline: mac.online, lastSeenAt: mac.lastSeenDate, teamID: teamID)
+            return DiscoveredMac(id: mac.deviceId, name: mac.name, isOnline: mac.online, lastSeenAt: mac.lastSeenDate, teamID: teamID,
+                                 ownerUserID: mac.ownerUserId ?? userID, machineID: mac.machineId)
         }
         store.mergeDiscoveredMacs(found, personal: personal)
         if store.accountMacCount != found.count { store.accountMacCount = found.count }

@@ -44,12 +44,15 @@ public enum SettingsDeviceRows {
     /// The Mac rows. With a device service (`hasService`), the service's list
     /// with live presence from `liveMacs` laid over it, or nil while it has not
     /// loaded. Without one, every Mac the phone knows (`liveMacs`, each once).
-    public static func macs(service: [SettingsDevice]?, hasService: Bool, liveMacs: [MacDevice]) -> [SettingsDevice]? {
+    /// `teamOf`: each live Mac's team (the fallback's rows carry it for ``otherBuilds(_:)``).
+    public static func macs(service: [SettingsDevice]?, hasService: Bool, liveMacs: [MacDevice],
+                            teamOf: [String: String]? = nil) -> [SettingsDevice]? {
         guard hasService else {
             var seen = Set<String>()
             return liveMacs.filter { seen.insert($0.id).inserted }.map {
                 SettingsDevice(ids: [$0.id], kind: .mac, name: $0.name, online: $0.isOnline, lastSeenAt: $0.lastSeenAt,
-                               isThisDevice: false, receivesNotifications: false, machineID: $0.machineID)
+                               isThisDevice: false, receivesNotifications: false, machineID: $0.machineID,
+                               teamID: teamOf?[$0.id])
             }
         }
         guard let service else { return nil }

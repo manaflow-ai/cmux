@@ -78,8 +78,9 @@ approval keys are unchanged, so a Mac keeps its approvals: it stores keys, not s
   (`gethostuuid`, the IOPlatformUUID), first 16 bytes in lowercase hex. The
   hardware id never leaves the Mac, and two accounts on one Mac get unrelated
   ids. The phone lists one Mac per (owner, machine id), by its most recently
-  active build, and links only that one; the other builds stay in Settings →
-  Devices, marked "Another cmux build on this Mac". A name is never an
+  active build. The other builds stay in Settings → Devices, marked "Another
+  cmux build on this Mac"; one links only while something names it (a Feed
+  answer or notification of that build) and closes after the idle window. A name is never an
   identity: Macs that share a name stay separate (with the name tag), and a
   Mac with no `machineId` (an older host) is never folded into another.
   Builds stay separate devices on purpose: one shared device id would make
