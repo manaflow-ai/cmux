@@ -1,8 +1,11 @@
 /// `chat.asks.open {sessionId}`: the person went to another chat's ask from Needs you (its list, a
 /// row's answer or side question, the Needs your input pill). The tab that shows that chat already
-/// is shown and focused; else the chat opens in a new tab after this one, focused. The chat on
-/// screen is never replaced: Needs you used to switch this pane to the other chat in place
-/// (`chat.select`), and the person's own chat left its tab (Leo, 2026-10-21, his coordinator).
+/// is shown and focused; else the chat opens on the side, in this chat's side pane on the right
+/// (``AgentSidePanes``, where New side chat and `/btw` open: a tab there, or the first one in a
+/// split right of the chat), focused. The chat on screen is never replaced: Needs you used to switch
+/// this pane to the other chat in place (`chat.select`), and the person's own chat left its tab
+/// (Leo, 2026-10-21, his coordinator); nor does it take a tab in this chat's pane (Leo, 2026-10-22:
+/// "just do more on the side? ... or just do a split on the right").
 ///
 /// Allowed for a chat on this pane's own acpmux on this Mac (``AgentPaneModel/pendingAsksSocket``,
 /// whose chats Needs you lists, and a bare or `local/` id, ``AgentPanePendingAsks/localSession(_:)``):
@@ -18,9 +21,7 @@ enum AgentPaneAskOpen {
             return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.asks.open")
         }
         let bare = String(local.dropFirst(AgentPanePendingAsks.localHost.count))
-        guard header.showSession(bare) || header.openTab(bare, .tab) else {
-            return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.asks.open")
-        }
+        if !header.showSession(bare) { header.openSide(chat, bare) }
         return AgentPaneReply.success()
     }
 }
