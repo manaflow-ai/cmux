@@ -43,7 +43,7 @@ extension DaemonConnection {
 
     /// One resource request on `transport` itself (never whichever transport is current).
     private nonisolated static func send(_ operation: String, params: [String: JSONValue], on transport: LineTransport,
-                                         timeout: Duration) async throws {
+                                         timeout: Duration?) async throws {
         let response = try await transport.request(cmd: operation, timeout: timeout) { id in
             try ResourceRequestEnvelope(id: id, operation: operation, params: params, idempotencyKey: nil).line()
         }
