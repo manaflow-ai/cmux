@@ -3760,9 +3760,12 @@ function AcpmuxPane() {
   /// it read only (`readOnlySubagent`).
   const [ownSubagentPane, setOwnSubagentPane] = useState(false);
   /// This pane was opened on a turn's changes (a `changes:` reveal, turnChanges/changesPane.ts): the
-  /// turn and file it shows once its chat has that turn, and closing that view closes the tab.
+  /// turn and file it shows once its chat has that turn.
   const [requestedChanges, setRequestedChanges] = useState<{ rowId: string; path?: string }>();
-  const changesPane = useRef(false);
+  /// The chat whose changes this pane was opened on, once it shows them: closing that view closes
+  /// the tab. A pane that moves to another chat is an ordinary chat pane again.
+  const changesPane = useRef<string | undefined>(undefined);
+  const changesRequested = useRef(false);
   /// Brings one message's row into the transcript, the way a running line's count does, and says
   /// which row it asked for; undefined while this chat has no row for that message. Set below,
   /// where the chat's rows are.
@@ -3781,7 +3784,7 @@ function AcpmuxPane() {
     }
     const changes = revealedChanges(value);
     if (changes) {
-      changesPane.current = true;
+      changesRequested.current = true;
       return setRequestedChanges(changes);
     }
     const agent = revealedSubagent(value);
@@ -4387,7 +4390,8 @@ function AcpmuxPane() {
   /// Changes does, or, for a turn that diff does not hold (a folder outside a repository, a file the
   /// turn wrote outside it, a chat on another machine: turnChanges/viewChanges.ts), the turn's own
   /// diff in a chat pane of its own (turnChanges/changesPane.ts). False when the host opens neither
-  /// (Quick Chat, the gallery, a pane already showing a turn's changes): the diff then opens in place.
+  /// (Quick Chat, the gallery, a pane already showing a turn's changes, a chat on another machine,
+  /// whose session the app opens no second tab on): the diff then opens in place.
   /// Set below, once the header's actions exist.
   const diffBeside = useRef<(rowId: string, path?: string) => Promise<boolean>>(async () => false);
   // A click does not focus a button in WebKit, so the clicked control is the opener, not the focus.
@@ -4494,7 +4498,8 @@ function AcpmuxPane() {
     closedByUser.current = true;
     setDiffView(undefined);
     // A pane opened on a turn's changes is that view: closing it closes the tab, not to a second chat.
-    if (changesPane.current) void callNative("pane.action", { id: "closeTab" }).catch(() => undefined);
+    if (changesPane.current !== undefined && changesPane.current === sessionIdRef.current)
+      void callNative("pane.action", { id: "closeTab" }).catch(() => undefined);
   }, []);
   // Focus returns to the opener once the view is gone: until then the transcript is hidden,
   // and a hidden control can't take focus.
@@ -4520,9 +4525,17 @@ function AcpmuxPane() {
   useEffect(() => {
     if (!requestedChanges || !snapshot.sessionId) return;
     if (!snapshot.rows.some((row) => row.id === requestedChanges.rowId)) return;
+    changesPane.current = snapshot.sessionId;
     setDiffView({ sessionId: snapshot.sessionId, ...requestedChanges });
     setRequestedChanges(undefined);
   }, [requestedChanges, snapshot.sessionId, snapshot.rows]);
+  // A changes pane that moves to another chat is an ordinary chat pane from then on.
+  useEffect(() => {
+    if (changesPane.current !== undefined && changesPane.current !== snapshot.sessionId) {
+      changesPane.current = undefined;
+      changesRequested.current = false;
+    }
+  }, [snapshot.sessionId]);
   // Hunk decisions outlive the view, so reopening a turn shows what was already decided.
   const [hunkDecisions, setHunkDecisions] = useState<ReadonlyMap<string, HunkDecision>>(() => new Map());
   const hunkReview = useMemo<HunkReview>(() => {
@@ -6523,13 +6536,13 @@ function AcpmuxPane() {
     window.setTimeout(refreshTabState, 400);
   };
   diffBeside.current = async (rowId, path) => {
-    // Quick Chat's panel has no tab beside it; a pane on a turn's changes shows another turn in place.
-    if (quick || changesPane.current) return false;
-    // The folder's diff is its repository's, on this Mac: a remote or cloud chat, a folder outside a
-    // repository, or a file the turn wrote outside it opens the turn's own diff in a pane of its own
-    // (turnChanges/viewChanges.ts).
-    const root = localCwd ? await repositoryRoot(localCwd, readFolderStatus) : undefined;
-    if (localCwd && viewChangesBeside(turnRowsRef.current, rowId, root)) {
+    // Quick Chat's panel has no tab beside it; a pane on a turn's changes shows another turn in place;
+    // a remote or cloud chat's folder is not on this Mac, and the app opens no second tab on its session.
+    if (quick || changesRequested.current || !localCwd) return false;
+    // The folder's diff is its repository's: a folder outside a repository, or a file the turn wrote
+    // outside it, opens the turn's own diff in a pane of its own (turnChanges/viewChanges.ts).
+    const root = await repositoryRoot(localCwd, readFolderStatus);
+    if (viewChangesBeside(turnRowsRef.current, rowId, root)) {
       const reply = await callNative<{ ran?: boolean } | null>("pane.action", {
         id: HEADER_ACTIONS.changes,
         cwd: localCwd,
