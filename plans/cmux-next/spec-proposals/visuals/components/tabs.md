@@ -72,9 +72,9 @@ Applies when `appearance.focusIndicator` is `tabs` or `both`, the screen has mor
 
 | style | textPrimary | textSecondary | selectionFill | hoverFill |
 |---|---|---|---|---|
-| fade (default) | mixed toward the page by 0.6, floor 3.5 | mixed, floor 2.5 | alpha × 0.4 | alpha × 0.7 (half the strength) |
-| tonal | ← textSecondary | ← textTertiary | hoverFill alpha × 0.7 | unchanged |
-| quiet | ← textSecondary | textTertiary faded by 0.3 | transparent | unchanged |
+| fade (default) | mixed toward the page by 0.4, floor 3.5 | mixed, floor 2.5 | alpha × 0.6 | alpha × 0.8 (half the strength) |
+| tonal | ← textSecondary | ← textTertiary | hoverFill alpha × 0.8 | unchanged |
+| quiet | ← textSecondary | textTertiary faded by 0.2 | transparent | unchanged |
 
 Resolved at the earlier strength 0.35, Apple System dark: fade primary `#B0B0B0`, selection `#FFFFFF11`; tonal selection `#FFFFFF0D`; quiet selection none. All themes: `components["tabs.inactivePaneEmphasis"].resolved` in the JSON. Screenshot check (dark): selected tab in the unfocused pane is `#2D2D2D` (fade), `#292929` (tonal), `#1E1E1E` (quiet).
 

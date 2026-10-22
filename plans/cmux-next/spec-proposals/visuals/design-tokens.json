@@ -3239,7 +3239,7 @@
    },
    "variants": {
     "focus.inactiveTabStyle": {
-     "fade": "text tiers mixed toward the page by strength until contrast floors; selectionFill and hoverFill alpha *(1-strength)",
+     "fade": "text tiers mixed toward the page by strength until contrast floors; selectionFill alpha *max(1-strength, 0.4), hoverFill alpha *(1-strength/2)",
      "tonal": "primary<-secondary, secondary<-tertiary, tertiary faded strength/2; selectionFill = hoverFill alpha *(1-strength/2)",
      "quiet": "primary<-secondary, secondary/tertiary faded strength/2; selectionFill transparent"
     },
