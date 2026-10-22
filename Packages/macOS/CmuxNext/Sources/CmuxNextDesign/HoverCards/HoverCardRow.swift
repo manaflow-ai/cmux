@@ -226,8 +226,10 @@ public final class HoverCardAccessoryView: NSView {
     /// The row's text: on a first-baseline row the mark centers on its first line.
     public weak var line: ChromeLabel?
 
+    /// Without a line it reports no baseline (NSView's own 0), with no super call: the selector
+    /// probe table (scripts/cmux-next/objc-selector-table.json) has no NSView getter for it.
     public override var firstBaselineOffsetFromTop: CGFloat {
-        guard let font = line?.font else { return super.firstBaselineOffsetFromTop }
+        guard let font = line?.font else { return 0 }
         return FirstLineIconView.baselineOffset(side: intrinsicContentSize.height, font: font)
     }
 
