@@ -238,3 +238,172 @@ test("the ring takes no hover or open pill in any stylesheet", () => {
   }
   expect(offenders).toEqual([]);
 });
+
+// The richer card (Leo 2026-10-21: "we should have richer metadata on the context circle"): a row
+// per part of the window as Claude Code's /context counts it, the model's window, the time since
+// the last compaction and Compact now. Each row shows only with real data behind it.
+const BREAKDOWN = {
+  categories: [
+    { id: "system_prompt", name: "System prompt", tokens: 6_000 },
+    { id: "system_tools", name: "System tools", tokens: 14_000 },
+    { id: "memory_files", name: "Memory files", tokens: 5_000 },
+    { id: "messages", name: "Messages", tokens: 80_000 },
+  ],
+  attachmentTokens: 3_000,
+};
+const NOW = Date.UTC(2026, 9, 21, 12, 0, 0);
+const parts = () =>
+  [...card()!.querySelectorAll<HTMLElement>(".acpmux-context-card-part")].map((row) => ({
+    kind: row.dataset.segment,
+    name: row.querySelector(".acpmux-context-card-part-name")!.textContent,
+    tokens: row.querySelector(".acpmux-context-card-part-tokens")!.textContent,
+  }));
+const fact = (name: string) => card()!.querySelector<HTMLElement>(`[data-fact="${name}"]`);
+
+test("Claude Code's breakdown shows a row each for system, tools, files and messages", async () => {
+  const ring = await mount({ used: 111_000, size: 475_000, setup: 20_000, breakdown: BREAKDOWN });
+  await act(async () => ring.focus());
+  await wait();
+  expect(parts()).toEqual([
+    { kind: "system", name: translate("context.system"), tokens: "6K" },
+    { kind: "tools", name: translate("context.tools"), tokens: "14K" },
+    // Memory files and the attachments.
+    { kind: "files", name: translate("context.files"), tokens: "8K" },
+    // The rest of what is used now: 111K - 6K - 14K - 8K.
+    { kind: "messages", name: translate("context.messages"), tokens: "83K" },
+  ]);
+  const segments = [...card()!.querySelectorAll<HTMLElement>(".acpmux-context-card-bar [data-segment]")];
+  expect(segments.map((segment) => segment.dataset.segment)).toEqual(["system", "tools", "files", "messages"]);
+});
+
+test("without a breakdown the card shows no system, tools, files or messages row", async () => {
+  const ring = await mount({ used: 111_000, size: 475_000 });
+  await act(async () => ring.focus());
+  await wait();
+  expect(parts()).toEqual([]);
+  expect(card()!.querySelector('[data-segment="system"], [data-segment="messages"]')).toBeNull();
+});
+
+test("the model's window shows with the model's name, and not without it", async () => {
+  const ring = await mount({ used: 111_000, size: 475_000, model: "Opus 5.5" });
+  await act(async () => ring.focus());
+  await wait();
+  expect(fact("model")?.textContent).toBe(translate("context.modelWindow", { model: "Opus 5.5", size: "475K" }));
+  await act(async () => root!.render(<ContextRing used={111_000} size={475_000} />));
+  await wait();
+  expect(fact("model")).toBeNull();
+});
+
+test("the time since the last compaction shows only after one", async () => {
+  const ring = await mount({ used: 30_000, size: 200_000, compactedAt: NOW - 12 * 60_000, now: NOW });
+  await act(async () => ring.focus());
+  await wait();
+  expect(fact("compacted")?.textContent).toBe(
+    translate("context.compacted", { ago: translate("home.ago", { time: translate("age.minutes", { n: 12 }) }) }),
+  );
+  await act(async () => root!.render(<ContextRing used={30_000} size={200_000} now={NOW} />));
+  await wait();
+  expect(fact("compacted")).toBeNull();
+});
+
+test("Compact now fires the compact action and closes the card", async () => {
+  let compacted = 0;
+  const ring = await mount({ used: 111_000, size: 475_000, onCompact: () => compacted++ });
+  await act(async () => ring.focus());
+  await wait();
+  const button = card()!.querySelector<HTMLButtonElement>(".acpmux-context-card-compact")!;
+  expect(button.textContent).toBe(translate("context.compactNow"));
+  await act(async () => button.click());
+  expect(compacted).toBe(1);
+  await until(() => card() === null);
+  expect(card()).toBeNull();
+});
+
+test("without a compact action there is no Compact now, and a running turn disables it", async () => {
+  const ring = await mount({ used: 111_000, size: 475_000 });
+  await act(async () => ring.focus());
+  await wait();
+  expect(card()!.querySelector(".acpmux-context-card-compact")).toBeNull();
+  await act(async () => root!.render(<ContextRing used={111_000} size={475_000} working onCompact={() => {}} />));
+  await wait();
+  expect(card()!.querySelector<HTMLButtonElement>(".acpmux-context-card-compact")!.disabled).toBe(true);
+});
+
+/// The ring between two other controls, as the composer's footer has it.
+async function mountBetween(props: Parameters<typeof ContextRing>[0]) {
+  const container = installDom();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <>
+        <button type="button" id="before">
+          before
+        </button>
+        <ContextRing {...props} />
+        <button type="button" id="after">
+          after
+        </button>
+      </>,
+    );
+  });
+  return container.querySelector<HTMLButtonElement>(".acpmux-context-ring")!;
+}
+const tab = async (shift = false) => {
+  await act(async () => {
+    document.activeElement!.dispatchEvent(
+      new window.KeyboardEvent("keydown", { key: "Tab", shiftKey: shift, bubbles: true, cancelable: true }),
+    );
+  });
+  await wait();
+};
+const focused = () => document.activeElement as HTMLElement | null;
+
+test("Tab from the ring reaches Compact now and Details in the card, then moves on past the ring", async () => {
+  let compacted = 0;
+  const ring = await mountBetween({
+    used: 111_000,
+    size: 475_000,
+    onCompact: () => compacted++,
+    onOpenDetails: () => {},
+  });
+  await act(async () => ring.focus());
+  await wait();
+  expect(card()).not.toBeNull();
+  await tab();
+  expect(focused()?.className).toBe("acpmux-context-card-compact");
+  expect(card()!.contains(focused())).toBe(true);
+  await tab();
+  expect(focused()?.className).toBe("acpmux-context-card-details");
+  // Shift+Tab steps back, and from the first action back to the ring.
+  await tab(true);
+  expect(focused()?.className).toBe("acpmux-context-card-compact");
+  await tab(true);
+  expect(focused()).toBe(ring);
+  // Into the card again, and Enter on Compact now (a button's Enter is its click).
+  await tab();
+  await act(async () => focused()!.click());
+  expect(compacted).toBe(1);
+  await act(async () => ring.focus());
+  await wait();
+  await tab();
+  await tab();
+  // Tab past the card's last action goes to what follows the ring, and the card closes.
+  await tab();
+  expect(focused()?.id).toBe("after");
+  await until(() => card() === null);
+  expect(card()).toBeNull();
+});
+
+test("Escape inside the card closes it and puts focus back on the ring", async () => {
+  const ring = await mountBetween({ used: 111_000, size: 475_000, onOpenDetails: () => {} });
+  await act(async () => ring.focus());
+  await wait();
+  await tab();
+  expect(focused()?.className).toBe("acpmux-context-card-details");
+  await act(async () => {
+    focused()!.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  });
+  await until(() => card() === null);
+  expect(card()).toBeNull();
+  expect(focused()).toBe(ring);
+});

@@ -230,3 +230,84 @@ async fn a_failed_compact_ends_its_prompt() {
     assert_eq!(states, [json!("running"), json!("failed")]);
     assert_eq!(errors, [None, Some(json!("Prompt is too long"))]);
 }
+
+/// Claude Code's /context rows for the pane's context card: at a turn's end acpmux asks Claude
+/// Code's `get_context_usage` (summary, no token-count calls), and its answer comes back as the
+/// chat's usage again with the rows under `_meta.claude.context`. Lines as Claude Code 2.1.305
+/// answers them. A refusal (an older Claude Code) adds nothing.
+#[tokio::test]
+async fn a_turns_end_asks_for_the_context_rows_and_forwards_them() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let prompt = Message::request(
+        3,
+        method::SESSION_PROMPT,
+        json!({"sessionId": "acp-1", "prompt": [{"type": "text", "text": "hi"}]}),
+    );
+    let Outbound::Lines(_) = t.outbound(&prompt).await else { panic!() };
+    t.inbound(&json!({"type": "stream_event", "event": {"type": "message_start", "message": {"id": "m1", "model": "claude-haiku"}}})).await;
+    t.inbound(&json!({"type": "stream_event", "event": {"type": "message_delta", "usage": {"input_tokens": 100_000, "output_tokens": 11_000}}})).await;
+    t.inbound(&json!({"type": "result", "subtype": "success", "is_error": false, "num_turns": 1, "duration_api_ms": 900, "result": "yo", "modelUsage": {"claude-haiku": {"contextWindow": 475_000}}})).await;
+    let asked: Vec<Value> = t
+        .take_stdin_replies()
+        .await
+        .into_iter()
+        .filter(|l| l.pointer("/request/subtype") == Some(&json!("get_context_usage")))
+        .collect();
+    assert_eq!(asked.len(), 1, "{asked:?}");
+    assert_eq!(asked[0]["request"]["detail"], "summary");
+    let rid = asked[0]["request_id"].as_str().unwrap().to_owned();
+
+    let answer = json!({"type": "control_response", "response": {"subtype": "success", "request_id": rid, "response": {
+        "categories": [
+            {"id": "system_prompt", "name": "System prompt", "tokens": 6200, "color": "promptBorder", "kind": "used"},
+            {"id": "system_tools", "name": "System tools", "tokens": 14300, "color": "inactive", "kind": "used"},
+            {"name": "Messages", "tokens": 90500, "color": "purple", "kind": "used"},
+            {"id": "free_space", "name": "Free space", "tokens": 364000, "color": "inactive", "kind": "free"},
+            {"name": "broken"}
+        ],
+        "totalTokens": 111000, "maxTokens": 475000, "rawMaxTokens": 475000, "percentage": 23, "gridRows": [],
+        "model": "claude-haiku", "memoryFiles": [], "mcpTools": [], "agents": [], "isAutoCompactEnabled": true,
+        "messageBreakdown": {"toolCallTokens": 1000, "toolResultTokens": 9000, "attachmentTokens": 2500,
+            "assistantMessageTokens": 30000, "userMessageTokens": 40000, "redirectedContextTokens": 0, "unattributedTokens": 0,
+            "toolCallsByType": [{"name": "Read", "callTokens": 400, "resultTokens": 9000}], "attachmentsByType": []},
+        "apiUsage": null
+    }}});
+    let updates: Vec<Value> = t
+        .inbound(&answer)
+        .await
+        .into_iter()
+        .filter_map(|m| match m {
+            Message::Notification { params, .. } => params.and_then(|p| p.get("update").cloned()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        updates,
+        vec![json!({"sessionUpdate": "usage_update", "used": 111_000, "size": 475_000, "_meta": {"claude": {"context": {
+            "categories": [
+                {"id": "system_prompt", "name": "System prompt", "tokens": 6200},
+                {"id": "system_tools", "name": "System tools", "tokens": 14300},
+                {"name": "Messages", "tokens": 90500},
+                {"id": "free_space", "name": "Free space", "tokens": 364000}
+            ],
+            "attachmentTokens": 2500,
+            "toolResults": [{"name": "Read", "tokens": 9000}]
+        }}}})]
+    );
+
+    // A Claude Code that predates the request refuses it: nothing more goes to the pane.
+    let refused = json!({"type": "control_response", "response": {"subtype": "error", "request_id": "ctx-99", "error": "Unsupported control request subtype: get_context_usage"}});
+    assert!(t.inbound(&refused).await.is_empty());
+}
+
+/// A subagent's result is its own: it asks Claude Code for no /context rows.
+#[tokio::test]
+async fn a_subagents_result_asks_for_no_context_rows() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    t.inbound(&json!({"type": "result", "subtype": "success", "is_error": false, "num_turns": 1, "duration_api_ms": 9, "parent_tool_use_id": "toolu_1", "result": "sub"})).await;
+    let asked = t.take_stdin_replies().await;
+    assert!(
+        !asked.iter().any(|l| l.pointer("/request/subtype") == Some(&json!("get_context_usage"))),
+        "{asked:?}"
+    );
+}
