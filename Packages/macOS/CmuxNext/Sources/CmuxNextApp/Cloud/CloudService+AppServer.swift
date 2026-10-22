@@ -107,8 +107,9 @@ extension CloudPresenter {
             var opens: (@MainActor () -> Void)?
             if let tab = asker.tab { opens = { reveal(tab) } }
             let session: String? = machine.askedBy?.session
+            let line: SidebarNoticeCard.Requester = asker.line
             return await asks.ask(CloudStrings.createConfirmTitle, detail: intro, lines: lines, symbol: "cloud", yes: CloudStrings.createConfirmButton,
-                                  no: CloudStrings.cancel, requester: nil, asker: session, present: chatOpen, reveal: opens)
+                                  no: CloudStrings.cancel, requester: line, asker: session, present: chatOpen, reveal: opens)
         }
         return await withCheckedContinuation { continuation in
             confirm(CloudStrings.createConfirmTitle, ([asker.line.text, intro] + lines).joined(separator: "\n"), button: CloudStrings.createConfirmButton,
@@ -122,8 +123,18 @@ extension CloudPresenter {
     /// the line opens (nil when no open tab asked). No asker is a program outside cmux.
     @MainActor static func askerLine(_ asker: CloudMachineCreateFlow.Asker?,
                                      requester: @MainActor (CloudMachineCreateFlow.Asker) -> CookieImportRequester?) -> (line: SidebarNoticeCard.Requester, tab: String?) {
-        _ = (asker, requester)
-        return (SidebarNoticeCard.Requester(text: ""), nil)
+        guard let asker, let found = requester(asker), found.kind != .unknown, !found.name.isEmpty else {
+            // A caller that named itself but is in no open tab still shows its claim (the session id).
+            if let session = asker?.session { return (SidebarNoticeCard.Requester(text: CloudStrings.createAskedByChat(session)), nil) }
+            return (SidebarNoticeCard.Requester(text: CloudStrings.createAskedByUnknown), nil)
+        }
+        let text = switch (found.kind, found.workspace) {
+        case (.terminal, let workspace?): CloudStrings.createAskedByTerminal(found.name, in: workspace)
+        case (.terminal, nil): CloudStrings.createAskedByTerminal(found.name)
+        case (_, let workspace?): CloudStrings.createAskedByChat(found.name, in: workspace)
+        case (_, nil): CloudStrings.createAskedByChat(found.name)
+        }
+        return (SidebarNoticeCard.Requester(text: text, help: found.tabID.map { _ in CloudStrings.createShowAsker(found.name) }), found.tabID)
     }
 }
 
