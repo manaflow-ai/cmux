@@ -151803,140 +151803,140 @@
         }
       }
     },
-    "settings.attention.ringStyle": {
-      "comment": "Style of the pane attention ring (notifications.attention.ringStyle): glow, ring or none",
+    "settings.attention.agentChatBlinkCount": {
+      "comment": "Number of flashes of an agent chat pane's attention ring as it is read (notifications.attention.agentChatBlinkCount); default 1",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ring Look"
+            "value": "Agent Chat Blinks"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "مظهر الحلقة"
+            "value": "ومضات دردشة الوكيل"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Izgled prstena"
+            "value": "Treptaji chata s agentom"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ringens udseende"
+            "value": "Blink for agentchats"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ring-Darstellung"
+            "value": "Blinken bei Agent-Chats"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aspecto del anillo"
+            "value": "Parpadeos del chat del agente"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Apparence de l’anneau"
+            "value": "Clignotements des discussions d’agent"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aspetto dell’anello"
+            "value": "Lampeggi della chat dell’agente"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "リングの見た目"
+            "value": "エージェントチャットの点滅回数"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "រូបរាងរង្វង់"
+            "value": "ការភ្លឹបភ្លែតនៃការជជែកភ្នាក់ងារ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "링 모양"
+            "value": "에이전트 채팅 깜박임 횟수"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ringens utseende"
+            "value": "Blink for agentchatter"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Wygląd obwódki"
+            "value": "Mignięcia czatu z agentem"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aparência do anel"
+            "value": "Piscadas do chat do agente"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Вид кольца"
+            "value": "Мигания чата с агентом"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ลักษณะวงแหวน"
+            "value": "จำนวนการกะพริบของแชทเอเจนต์"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Halka görünümü"
+            "value": "Ajan sohbeti yanıp sönmeleri"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Вигляд кільця"
+            "value": "Блимання чату з агентом"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kiểu vòng"
+            "value": "Số lần nhấp nháy của trò chuyện tác tử"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "环形样式"
+            "value": "代理聊天闪烁次数"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "環形樣式"
+            "value": "代理聊天閃爍次數"
           }
         }
       }
     },
     "settings.attention.terminals": {
-      "comment": "Toggle (notifications.attention.terminals): terminal and other panes show the attention ring for their notifications",
+      "comment": "Choice (notifications.attention.terminals): how terminal and other panes ring for their notifications: glow, ring or none",
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -152068,7 +152068,7 @@
       }
     },
     "settings.attention.agentChats": {
-      "comment": "Toggle (notifications.attention.agentChats): an agent chat pane shows the attention ring when its turn ends; off by default",
+      "comment": "Choice (notifications.attention.agentChats): how an agent chat pane rings when its turn ends: glow, ring or none (default)",
       "extractionState": "manual",
       "localizations": {
         "en": {

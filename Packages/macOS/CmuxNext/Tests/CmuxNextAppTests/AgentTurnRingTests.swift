@@ -31,7 +31,7 @@ struct AgentTurnRingTests {
     /// turning it off clears a ring already showing.
     @Test func aFinishedTurnRingsNothingByDefault() throws {
         _ = NSApplication.shared
-        #expect(AttentionSettings().ringsAgentChats == false, "agent chat panes ring by default")
+        #expect(AttentionSettings().agentChatRing == .none, "agent chat panes ring by default")
         var chat = TabSnapshot(surface: SurfaceID(rawValue: 1), kind: .conversation, cwd: nil)
         chat.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: "install:ring", session: "s1", harness: "claude"))
         let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [PaneSnapshot(id: 1, tabs: [chat])])
@@ -46,10 +46,10 @@ struct AgentTurnRingTests {
         service.agentTurnEnded(session: "s1", in: store.workspaces)
         #expect(service.agentFinished.isEmpty, "a finished turn was recorded for a ring by default")
         #expect(service.attentionMarks(for: workspace).isEmpty, "a finished reply rang its pane by default")
-        design.attention.ringsAgentChats = true
+        design.attention.agentChatRing = .ring
         service.agentTurnEnded(session: "s1", in: store.workspaces)
         #expect(service.attentionMarks(for: workspace).count == 1, "the opt-in ring did not ring")
-        design.attention.ringsAgentChats = false
+        design.attention.agentChatRing = .none
         #expect(service.attentionMarks(for: workspace).isEmpty, "turning agent chat rings off left the ring")
     }
 

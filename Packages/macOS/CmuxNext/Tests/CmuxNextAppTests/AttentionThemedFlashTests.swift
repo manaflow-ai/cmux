@@ -8,9 +8,11 @@ import Testing
 
 /// Leo (2026-10-21): "I don't think we should have blinky on turn end for GUI... and if we have
 /// any kind of blinky, it should be themed/customizable." The attention ring and its flash take
-/// the theme accent (or `notifications.attention.color`), never a fixed blue; terminal panes ring
-/// and agent chat panes do not by default (`notifications.attention.terminals`, `agentChats`);
-/// `ringStyle` is glow, ring or none; `blinkCount` sets the flashes; Reduce Motion is static.
+/// the theme accent (or `notifications.attention.color`), never a fixed blue. Each pane kind has a
+/// look, glow, ring or none (`notifications.attention.terminals` glow, `agentChats` none by
+/// default, cmuxterm-hq#2959) and a flash count (`blinkCount` 2, `agentChatBlinkCount` 1); an agent
+/// chat the person is looking at never rings, a burst of turn ends pulses once, and Reduce Motion
+/// is static.
 @MainActor @Suite(.serialized) struct AttentionThemedFlashTests {
     static let notificationBlue = [57, 130, 245]
 
@@ -45,7 +47,7 @@ import Testing
         let store = DaemonStore()
         store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "w", screens: [screen])]))
         let service = NotificationCenterService()
-        if agentChat { service.agentTurnEnded(session: "s1", in: store.workspaces) }
+        if agentChat { service.agentTurnEnded(session: "s1", in: store.workspaces, viewed: { _ in false }) }
         return (service, try #require(store.workspaces.first))
     }
 
@@ -66,16 +68,71 @@ import Testing
 
     @Test func theDefaultsRingTerminalsNotAgentChatsInTheThemeAccent() {
         let settings = AttentionSettings()
-        #expect(settings.ringsTerminals && !settings.ringsAgentChats)
-        #expect(settings.ringStyle == .glow && settings.color == nil && settings.blinkCount == 2)
+        #expect(settings.terminalRing == .glow && settings.agentChatRing == .none)
+        #expect(settings.color == nil && settings.blinkCount == 2 && settings.agentChatBlinkCount == 1)
         #expect(settings.rings(agentChat: false) && !settings.rings(agentChat: true))
     }
 
+    /// On, an agent chat's ring takes its own look and its single flash.
+    @Test func anAgentChatDrawsItsOwnLookAndCount() {
+        var settings = AttentionSettings()
+        settings.agentChatRing = .ring
+        let chat = settings.surface(agentChat: true), terminal = settings.surface(agentChat: false)
+        #expect(chat.ringStyle == .ring && chat.blinkCount == 1)
+        #expect(terminal.ringStyle == .glow && terminal.blinkCount == 2)
+    }
+
+    /// A chat the person is looking at never rings; a burst of turn ends pulses once.
+    @Test func aViewedChatNeverRingsAndABurstPulsesOnce() throws {
+        _ = NSApplication.shared
+        // Three chats, each in its own workspace's one pane.
+        let workspaces = (UInt64(1)...3).map { index -> WorkspaceSnapshot in
+            var tab = TabSnapshot(surface: SurfaceID(rawValue: index), kind: .conversation, cwd: nil)
+            tab.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: "install:burst", session: "s\(index)", harness: "claude"))
+            let pane = PaneSnapshot(id: .init(rawValue: index), tabs: [tab])
+            let screen = ScreenSnapshot(id: .init(rawValue: index), layout: .leaf(.init(rawValue: index)), panes: [pane])
+            return WorkspaceSnapshot(id: .init(rawValue: index), key: nil, name: "w\(index)", screens: [screen])
+        }
+        let store = DaemonStore()
+        store.apply(snapshot: DaemonTree(workspaces: workspaces))
+        let models = store.workspaces.compactMap { $0.screens.first?.panes.first?.tabs.first }
+        try #require(models.count == 3)
+        let service = NotificationCenterService()
+        let start = ContinuousClock.now
+        service.agentTurnEnded(session: "s1", in: store.workspaces, rings: true, viewed: { $0 == models[0].id }, now: start)
+        #expect(service.agentFinished[models[0].id] == nil, "the chat being looked at rang")
+        service.agentTurnEnded(session: "s2", in: store.workspaces, rings: true, viewed: { _ in false }, now: start)
+        service.agentTurnEnded(session: "s3", in: store.workspaces, rings: true, viewed: { _ in false }, now: start + .milliseconds(300))
+        #expect(!service.quietAgentFinishes.contains(models[1].id), "the first finish of a burst did not pulse")
+        #expect(service.quietAgentFinishes.contains(models[2].id), "a second finish in the burst pulsed again")
+        let view = Self.overlay()
+        var settings = AttentionSettings()
+        settings.agentChatRing = .ring
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        Self.update(view, AttentionMark(generation: 9, agentChat: true, quiet: true), settings)
+        #expect(view.attentionLayer.animation(forKey: "attention") == nil, "a quiet ring pulsed")
+        #expect(view.attentionLayer.opacity > 0, "a quiet ring does not show")
+    }
+
+    /// Default settings: an agent chat's turn end gives no mark, and even a mark handed to an agent
+    /// chat pane draws no ring, no glow, no arrival pulse and no flash out.
     @Test func anAgentPaneTurnEndDoesNothingByDefault() throws {
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
         try Self.withAttention({ _ in }) {
             let (service, workspace) = try Self.workspace(agentChat: true)
+            #expect(service.agentFinished.isEmpty, "an agent chat's turn end was recorded for a ring")
             #expect(service.attentionMarks(for: workspace).isEmpty, "an agent chat's turn end rang its pane")
         }
+        let view = Self.overlay()
+        Self.update(view, AttentionMark(generation: 1 << 62, agentChat: true), AttentionSettings())
+        #expect(view.attentionLayer.opacity == 0, "an agent chat pane shows a ring by default")
+        #expect(view.attentionGlow.opacity == 0, "an agent chat pane glows by default")
+        #expect(view.attentionLayer.animationKeys() == nil, "an agent chat pane pulsed by default")
+        Self.update(view, nil, AttentionSettings(), readByEntry: true)
+        #expect(view.attentionLayer.animationKeys() == nil, "an agent chat pane flashed out by default")
+        #expect(view.attentionDismissGlow == nil)
     }
 
     /// A terminal's ring and its dismiss flash draw the theme accent, not the notification blue.
@@ -104,16 +161,16 @@ import Testing
         #expect(Self.rgb(view.attentionLayer.borderColor) == [0x33, 0xAA, 0x55])
     }
 
-    /// `ringStyle` none: no pane gets a mark and the overlay draws no ring layer, so nothing flashes.
+    /// Look none: no pane gets a mark and the overlay draws no ring layer, so nothing flashes.
     @Test func ringStyleNoneDrawsNoRing() throws {
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
-        try Self.withAttention({ $0.ringStyle = .none }) {
+        try Self.withAttention({ $0.terminalRing = .none }) {
             let (service, workspace) = try Self.workspace(agentChat: false)
             #expect(service.attentionMarks(for: workspace).isEmpty, "ring style none still marked the pane")
         }
         var settings = AttentionSettings()
-        settings.ringStyle = .none
+        settings.terminalRing = .none
         let view = Self.overlay()
         Self.update(view, AttentionMark(generation: 3), settings)
         #expect(view.attentionLayer.opacity == 0)
@@ -122,12 +179,12 @@ import Testing
         #expect(view.attentionLayer.animationKeys() == nil, "ring style none flashed")
     }
 
-    /// `ringStyle` ring: the stroke alone, with no glow at rest or in the flash; glow keeps classic's.
+    /// Look ring: the stroke alone, with no glow at rest or in the flash; glow keeps classic's.
     @Test func ringStyleRingHasNoGlow() {
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
         var settings = AttentionSettings()
-        settings.ringStyle = .ring
+        settings.terminalRing = .ring
         let view = Self.overlay()
         Self.update(view, AttentionMark(generation: 3), settings)
         #expect(view.attentionGlow.opacity == 0)
@@ -170,11 +227,13 @@ import Testing
 
     @Test func theSettingsLoadFromCmuxJSONAndShowInSettings() throws {
         let root: CmuxNextSettings.JSONValue = .object(["notifications": .object(["attention": .object([
-            "ringStyle": .string("ring"), "terminals": .bool(false), "agentChats": .bool(true),
+            "terminals": .string("ring"), "agentChats": .string("glow"), "agentChatBlinkCount": .number(2),
         ])])])
         let parsed = CmuxConfigSnapshot.parse(root, validDensities: [], validMetrics: []).attention
-        #expect(parsed.ringStyle == .ring && !parsed.ringsTerminals && parsed.ringsAgentChats)
-        let rows: [(String, CmuxNextSettings.JSONValue)] = [("ringStyle", .string("glow")), ("terminals", .bool(true)), ("agentChats", .bool(false))]
+        #expect(parsed.terminalRing == .ring && parsed.agentChatRing == .glow && parsed.agentChatBlinkCount == 2)
+        let rows: [(String, CmuxNextSettings.JSONValue)] = [
+            ("terminals", .string("glow")), ("agentChats", .string("none")), ("agentChatBlinkCount", .number(1)),
+        ]
         for (key, value) in rows {
             let row = try #require(SettingsSchema.descriptor(for: ["notifications", "attention", key]), "no \(key) row")
             #expect(row.defaultValue == value, "\(key) defaults to \(String(describing: row.defaultValue))")

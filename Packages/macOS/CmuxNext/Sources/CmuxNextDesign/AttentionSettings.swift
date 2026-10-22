@@ -22,16 +22,19 @@ public nonisolated struct AttentionSettings: Hashable, Sendable {
     /// nil takes the theme accent (`AttentionHighlightLook.defaultColor`): never a fixed blue
     /// (Leo, 2026-10-21: "if we have any kind of blinky, it should be themed/customizable").
     public var color: ThemeRGB?
-    /// How the ring draws (`notifications.attention.ringStyle`): `glow`, a stroke with a soft glow
-    /// as classic's; `ring`, the stroke alone; `none`, no ring at all (the tab and the sidebar
-    /// row still show the unread mark).
+    /// How a terminal (or any pane but an agent chat) rings (`notifications.attention.terminals`):
+    /// `glow`, a stroke with a soft glow as classic's (default); `ring`, the stroke alone; `none`,
+    /// no ring (the tab and the sidebar row still show the unread mark).
+    public var terminalRing: FocusRingStyle = .glow
+    /// How an agent chat's pane rings when its turn ends (`notifications.attention.agentChats`).
+    /// `none` by default (Leo, 2026-10-21: no blinky on turn end for the GUI; cmuxterm-hq#2959):
+    /// a turn that ends in a shown chat is read at once. On, `ring` is the recommended look.
+    public var agentChatRing: FocusRingStyle = .none
+    /// The agent chat ring's flashes as it goes (`notifications.attention.agentChatBlinkCount`):
+    /// one (cmuxterm-hq#2959); `blinkCount` is the terminal's.
+    public var agentChatBlinkCount = 1
+    /// The look of the pane being drawn, which `surface(agentChat:)` sets from the two above.
     public var ringStyle: FocusRingStyle = .glow
-    /// Terminal and other panes ring for their notifications (`notifications.attention.terminals`).
-    public var ringsTerminals = true
-    /// Agent chat panes ring, and flash out, when a turn ends or a notification arrives there
-    /// (`notifications.attention.agentChats`). Off by default (Leo, 2026-10-21: no blinky on turn
-    /// end for the GUI): a turn that ends in a shown chat is read at once.
-    public var ringsAgentChats = false
     public var width: CGFloat = 2
     public var blinkCount = 2
     /// Seconds the pulse runs before the ring holds steady.
@@ -56,13 +59,19 @@ public nonisolated struct AttentionSettings: Hashable, Sendable {
 
     public init() {}
 
-    /// Whether any ring draws: a ring style and an arrival style other than none.
+    /// Whether the pane being drawn shows a ring: its look and the arrival style are not none.
     public var drawsRing: Bool { style != .none && ringStyle != .none }
 
-    /// Whether a pane showing an agent chat (`agentChat`) or anything else rings.
-    public func rings(agentChat: Bool) -> Bool {
-        drawsRing && (agentChat ? ringsAgentChats : ringsTerminals)
+    /// The settings one pane draws with: an agent chat's look and flash count, or a terminal's.
+    public func surface(agentChat: Bool) -> AttentionSettings {
+        var settings = self
+        settings.ringStyle = agentChat ? agentChatRing : terminalRing
+        if agentChat { settings.blinkCount = agentChatBlinkCount }
+        return settings
     }
+
+    /// Whether a pane showing an agent chat (`agentChat`) or anything else rings.
+    public func rings(agentChat: Bool) -> Bool { surface(agentChat: agentChat).drawsRing }
 
     public static let widthRange: ClosedRange<CGFloat> = 0.5...8
     public static let blinkRange: ClosedRange<Int> = 1...10
@@ -75,9 +84,15 @@ public nonisolated struct AttentionMark: Hashable, Sendable {
     public var color: ThemeRGB?
     /// Changes with every new notification, so the animation restarts.
     public var generation: UInt64
+    /// The pane shows an agent chat: it draws with `AttentionSettings.surface(agentChat: true)`.
+    public var agentChat: Bool
+    /// The ring arrives at rest with no pulse: one of a burst of turn ends (cmuxterm-hq#2959).
+    public var quiet: Bool
 
-    public init(color: ThemeRGB? = nil, generation: UInt64) {
+    public init(color: ThemeRGB? = nil, generation: UInt64, agentChat: Bool = false, quiet: Bool = false) {
         self.color = color
         self.generation = generation
+        self.agentChat = agentChat
+        self.quiet = quiet
     }
 }

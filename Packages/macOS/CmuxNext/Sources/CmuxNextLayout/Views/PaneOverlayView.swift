@@ -55,6 +55,8 @@ final class PaneOverlayView: NSView {
     private var attentionMark: AttentionMark?
     /// The source color of the ring flashing out: the flash keeps it after its mark is gone.
     private var dismissingColor: ThemeRGB?
+    /// The ring shown or flashing out marks an agent chat (`AttentionMark.agentChat`).
+    private var attentionAgentChat = false
     /// The ring's strength (`AttentionHighlightLook`, Debug Settings; cx-epgo).
     private var attentionLook = AttentionHighlightLook.tunable.defaultValue
     /// One observation of the look is registered at a time.
@@ -209,6 +211,10 @@ final class PaneOverlayView: NSView {
                 border borderStyle: Border, attention mark: AttentionMark?, attentionSettings: AttentionSettings,
                 readByEntry: Bool = false, focused: Bool = false, flashesFocus: Bool = false, animated: Bool) {
         self.dimFill = dimFill
+        // The pane's own look and flash count: an agent chat's or a terminal's. A ring going away
+        // keeps its pane's look through its dismiss flash.
+        attentionAgentChat = mark?.agentChat ?? attentionMark?.agentChat ?? attentionAgentChat
+        let attentionSettings = attentionSettings.surface(agentChat: attentionAgentChat)
         let shapeChanged = focusRing != self.focusRing || attentionSettings != self.attentionSettings
             || borderStyle.width != self.borderStyle.width
         let showsBorder = borderStyle.shows
@@ -326,7 +332,7 @@ final class PaneOverlayView: NSView {
         CATransaction.setDisableActions(true)
         attention.opacity = Motion.attentionRestingOpacity(attentionSettings, look: attentionLook)
         attention.removeAnimation(forKey: "attention")
-        if let animation = Motion.indicators.attentionAnimation(attentionSettings, look: attentionLook, showing: previous != nil) {
+        if !mark.quiet, let animation = Motion.indicators.attentionAnimation(attentionSettings, look: attentionLook, showing: previous != nil) {
             attention.add(animation, forKey: "attention")
         }
         CATransaction.commit()
