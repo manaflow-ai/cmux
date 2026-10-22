@@ -209,7 +209,7 @@ await requireBrowserLane("composer-persistent-scrollbar.test.ts", async () => {
           expect({ phase, ...sample }).toEqual({ phase, bar: sample.bar, thumb: true, track: false });
 
         // Cut back to a draft that fits: no thumb on any frame. The thin lane stays reserved and
-        // empty (scrollbar-gutter), so the draft never rewraps as it starts or stops overflowing.
+        // empty (overflow-y: scroll), so the draft never rewraps as it starts or stops overflowing.
         await page.locator(EDITABLE).click();
         await page.keyboard.press("ControlOrMeta+A");
         await page.keyboard.type("short again");
