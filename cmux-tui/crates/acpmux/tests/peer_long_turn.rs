@@ -184,7 +184,8 @@ async fn a_forwarded_prompt_stops_waiting_when_its_client_goes() {
     // The forwarded prompt must not wait on the peer's turn for nobody.
     let Pair { a, home } = pair("gone").await;
     let ca = client(a.clone()).await;
-    let prompt = json!({"sessionId": "b/lane", "prompt": [{"type": "text", "text": "until-cancel"}]});
+    let prompt =
+        json!({"sessionId": "b/lane", "prompt": [{"type": "text", "text": "until-cancel"}]});
     ca.tx.send(Message::request(99, method::SESSION_PROMPT, prompt).to_line()).await.unwrap();
     assert_eq!(until_pending(&a, 1).await, 1, "the prompt waits on the peer");
     drop(ca);
