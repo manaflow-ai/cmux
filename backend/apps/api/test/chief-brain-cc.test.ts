@@ -306,7 +306,10 @@ describe("Cloud Chief on the Claude Code route", { timeout: 120_000 }, () => {
       await replies(token, chief.main_conversation, chief.id, 1)
       const s = cloud.started[0]!
       expect(cloud.tags).toEqual([["tag:lawrence-chief"]])
-      expect((s.input as any).files).toEqual(files)
+      // The tool files as set, plus the Chief's own tools client and the hook that makes ~/.local/bin runnable (tools.ts).
+      expect((s.input as any).files).toMatchObject(files)
+      expect((s.input as any).files[".local/bin/chief-tools"]).toContain("127.0.0.1:4018/vm")
+      expect(JSON.parse((s.input as any).files[".claude/settings.json"]).hooks.SessionStart[0].hooks[0].command).toContain("chmod 700")
       expect((s.input as any).github_token).toBe("github-token-test-not-real")
       // The Chief is told about its tools on this route.
       for (const word of ["chief-agents", "chief-vm", "mac --", "gh auth status", "100.127.110.65:8790"]) expect(s.input.system).toContain(word)
@@ -315,6 +318,87 @@ describe("Cloud Chief on the Claude Code route", { timeout: 120_000 }, () => {
       for (const secret of [...Object.values(files), "github-token-test-not-real"]) expect(all).not.toContain(secret)
     } finally {
       for (const [k, v] of Object.entries(before)) v === undefined ? delete testEnv[k] : (testEnv[k] = v)
+    }
+  })
+
+  it("lets the Chief add, change and remove its own tools: served from its next turn, never a token path, never another Chief's, capped", async () => {
+    const files = { ".config/cloud-chief/mac.token": "mac-token-test-not-real" }
+    const before = testEnv.CHIEF_CC_TURN_FILES
+    testEnv.CHIEF_CC_TURN_FILES = JSON.stringify(files)
+    try {
+      const seen: Record<string, any> = {}
+      const call = async (s: Started, vm: unknown) => {
+        const r = await notes(s, { run: s.run, vm })
+        return { status: r.status, body: await r.json().catch(() => null) }
+      }
+      const turns = new Map<string, number>()
+      const hello = "#!/bin/sh\necho hello\n"
+      const skill = "---\nname: deploy\n---\nDeploy steps.\n"
+      const cloud = fakeCloud(
+        () => "tools",
+        async (s) => {
+          const who = s.input.notes_url.includes(seen.a ?? "-") ? "a" : "b"
+          const n = (turns.get(who) ?? 0) + 1
+          turns.set(who, n)
+          if (who === "a" && n === 1) {
+            seen.put = await call(s, { action: "tools_put", path: ".local/bin/hello", text: hello })
+            seen.skill = await call(s, { action: "tools_put", path: ".claude/skills/deploy/SKILL.md", text: skill })
+            seen.token = await call(s, { action: "tools_put", path: ".config/cloud-chief/mac.token", text: "stolen" })
+            seen.settings = await call(s, { action: "tools_put", path: ".claude/settings.json", text: "{}" })
+            seen.client = await call(s, { action: "tools_put", path: ".local/bin/chief-tools", text: "broken" })
+            seen.dots = await call(s, { action: "tools_put", path: ".local/bin/../.config/x", text: "x" })
+            seen.big = await call(s, { action: "tools_put", path: ".chief/tools/big.txt", text: "x".repeat(70_000) })
+            seen.many = []
+            for (let i = 0; i < 5; i++) seen.many.push((await call(s, { action: "tools_put", path: `.chief/tools/part${i}.txt`, text: "y".repeat(60_000) })).status)
+            for (let i = 0; i < 5; i++) await call(s, { action: "tools_rm", path: `.chief/tools/part${i}.txt` })
+            seen.list = await call(s, { action: "tools_list" })
+          } else if (who === "b") {
+            seen.otherList = await call(s, { action: "tools_list" })
+            seen.otherRm = await call(s, { action: "tools_rm", path: ".local/bin/hello" })
+            seen.otherPut = await call(s, { action: "tools_put", path: ".local/bin/hello", text: "#!/bin/sh\necho other\n" })
+          } else if (who === "a" && n === 2) {
+            seen.rm = await call(s, { action: "tools_rm", path: ".claude/skills/deploy/SKILL.md" })
+          }
+        }
+      )
+      const a = await enabledChief("chief-cc-tools-a", "cc")
+      seen.a = a.chief.id
+      const b = await enabledChief("chief-cc-tools-b", "cc")
+      expect((await send(a.token, a.chief.main_conversation, "t1", "add a hello tool")).ok).toBe(true)
+      await replies(a.token, a.chief.main_conversation, a.chief.id, 1)
+      expect(seen.put.status).toBe(200)
+      expect(seen.skill.status).toBe(200)
+      // Token paths, the hook settings, the client itself and any path outside the tool folders are refused.
+      for (const k of ["token", "settings", "client", "dots"]) expect(seen[k].status, k).toBe(400)
+      expect(seen.big.status).toBe(413)
+      // 4 x 60 KB fit the 256 KB total; the fifth does not.
+      expect(seen.many).toEqual([200, 200, 200, 200, 413])
+      expect(seen.list.body.tools.map((t: any) => t.path).sort()).toEqual([".claude/skills/deploy/SKILL.md", ".local/bin/hello"])
+
+      // The next turn's machine gets the tools; the token file stays the Worker's.
+      expect((await send(a.token, a.chief.main_conversation, "t2", "run hello")).ok).toBe(true)
+      await replies(a.token, a.chief.main_conversation, a.chief.id, 2)
+      const second = (cloud.started.at(-1)!.input as any).files
+      expect(second[".local/bin/hello"]).toBe(hello)
+      expect(second[".claude/skills/deploy/SKILL.md"]).toBe(skill)
+      expect(second[".config/cloud-chief/mac.token"]).toBe("mac-token-test-not-real")
+      expect(seen.rm.status).toBe(200)
+
+      // Another Chief neither sees nor changes them; its own put is its own.
+      expect((await send(b.token, b.chief.main_conversation, "t3", "list tools")).ok).toBe(true)
+      await replies(b.token, b.chief.main_conversation, b.chief.id, 1)
+      expect(seen.otherList).toMatchObject({ status: 200, body: { tools: [] } })
+      expect(seen.otherRm.status).toBe(404)
+      expect(seen.otherPut.status).toBe(200)
+
+      // A's third turn: its hello unchanged, the removed skill gone.
+      expect((await send(a.token, a.chief.main_conversation, "t4", "again")).ok).toBe(true)
+      await replies(a.token, a.chief.main_conversation, a.chief.id, 3)
+      const third = (cloud.started.at(-1)!.input as any).files
+      expect(third[".local/bin/hello"]).toBe(hello)
+      expect(third[".claude/skills/deploy/SKILL.md"]).toBeUndefined()
+    } finally {
+      before === undefined ? delete testEnv.CHIEF_CC_TURN_FILES : (testEnv.CHIEF_CC_TURN_FILES = before)
     }
   })
 
