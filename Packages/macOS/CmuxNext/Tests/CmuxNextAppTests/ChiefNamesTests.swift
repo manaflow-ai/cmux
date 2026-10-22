@@ -36,6 +36,8 @@ import Testing
         // A dated snapshot drops its date, written either way.
         #expect("gpt-4o-2024-08-06".chiefModelName == "GPT 4o")
         #expect("gpt-5-2025-08-07".chiefModelName == "GPT 5")
+        // Three numbers that are no date (month 13) stay.
+        #expect("foo-2024-13-01".chiefModelName == "Foo 2024 13.01")
         #expect("opus".chiefModelName == "Opus")
         #expect("".chiefModelName == "")
     }
@@ -68,6 +70,15 @@ import Testing
         let titles = HomeChiefEngineTitles(snapshot)
         #expect(titles.defaultModel == String(format: HomeEngineStrings.defaultNamedFormat, "Claude Opus 5.5"))
         #expect(titles.defaultHarness == String(format: HomeEngineStrings.defaultNamedFormat, "\(ChiefBackend.claude.title) (SR2 Pipe)"))
+    }
+
+    /// What Default runs, offered by a row acpmux named by its id, reads by a name, not the id.
+    @Test func defaultNamesAnOfferedModelNamedByItsIdByName() {
+        var snapshot = HomeChiefSnapshot(harness: nil, model: nil, effort: nil, avatar: nil, turns: [])
+        snapshot.effective = ChiefEngineReport.Engine(harness: "opencode", model: "kimi-k2", effort: nil)
+        snapshot.models = [ChiefEngineReport.Model(id: "kimi-k2", name: "kimi-k2")]
+        let titles = HomeChiefEngineTitles(snapshot)
+        #expect(titles.defaultModel == String(format: HomeEngineStrings.defaultNamedFormat, "Kimi K2"))
     }
 
     /// The Backend popup shows a chosen route by name and keeps its id in the item's tooltip.

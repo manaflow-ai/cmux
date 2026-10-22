@@ -134,6 +134,15 @@ import Testing
         for subview in view.subviews { found += editableFields(in: subview) }
         return found
     }
+
+    /// The cards can be taller than the screen's room under the pill (the pet rows, an open
+    /// Diagnostics): the popover scrolls them, so none is cut off.
+    @Test func thePopoverScrollsCardsTallerThanTheScreen() {
+        let home = FileManager.default.temporaryDirectory
+        let view = HomeChiefSettingsView(muxHome: home, source: HomeChiefLocalEngine(files: HomeChiefFiles(muxHome: home), connection: { nil }))
+        let popover = HomeChiefSettingsPopover(content: view)
+        #expect(popover.content.enclosingScrollView?.documentView === view)
+    }
 }
 
 /// A Chief whose brain is not running.
