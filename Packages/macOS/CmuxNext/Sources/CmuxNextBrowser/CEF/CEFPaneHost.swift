@@ -153,6 +153,7 @@ final class CEFPaneHost {
             hostView.postGeometryChange()
             // A window-wide side panel stays open across tabs: no event.
             tab.sidePanel.scheduleRefresh()
+            tab.grantPendingFocusIfShown()
         }
     }
 
