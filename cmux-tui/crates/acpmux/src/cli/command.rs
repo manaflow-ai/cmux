@@ -278,10 +278,6 @@ pub enum Command {
     /// files (~/.config/cmux/harnesses/<id>.toml). Also `cmux harness …`.
     #[command(subcommand)]
     Harness(HarnessCmd),
-    /// How harnesses reach their model provider: list, add, edit, test and
-    /// use routes (~/.config/cmux/routes/<id>.toml). Also `cmux route …`.
-    #[command(subcommand)]
-    Route(crate::cli::route::RouteCmd),
     /// Forum rules: announce one, list the current ones, ack one.
     #[command(subcommand)]
     Forum(crate::cli::forum::ForumCmd),
