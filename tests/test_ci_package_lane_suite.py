@@ -18,7 +18,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
+# The binary-module guard's `swift package resolve` and `swift --version`
+# (swiftpm-binary-module-guard.sh) are not builds or suites, so they are not logged.
 FAKE_SWIFT = """#!/bin/bash
+case "$1 ${2:-}" in "package resolve"|"--version "*) exit 0 ;; esac
 echo "swift $*" >> "$FAKE_SWIFT_LOG"
 case "$1" in
   build) echo "Build complete!" ;;

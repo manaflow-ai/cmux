@@ -155,8 +155,7 @@ pub struct TurnFold {
     answered: Vec<String>,
     ended: Option<Ended>,
     /// The last raw Claude Code line came from one of its own subagents
-    /// (Task/Agent): the translated updates that follow it are that
-    /// subagent's steps, which stay out of the log (section 9).
+    /// (Task/Agent): it is not timed, and its result and usage are not the turn's.
     in_subagent: bool,
     /// The event time of what started the next model request: the last
     /// line sent to the harness, or the last tool result Claude Code read.
@@ -259,9 +258,8 @@ impl TurnFold {
             self.request_start = event.at;
         }
         if event.kind.starts_with("claude.") {
-            // Claude Code's raw stream-json line; acpmux records it just before
-            // the updates it translates into, and its translator ignores
-            // `parent_tool_use_id`, so this is where a subagent's steps show.
+            // Claude Code's raw stream-json line; one with `parent_tool_use_id`
+            // is a subagent's, whose results and usage are not the turn's.
             self.in_subagent =
                 matches!(event.msg.get("parent_tool_use_id"), Some(Value::String(_)));
             if !self.in_subagent && event.dir != "out" {
@@ -317,7 +315,18 @@ impl TurnFold {
             }
             return out;
         }
-        if self.in_subagent
+        // A subagent's translated update is logged under its own session
+        // (`<acp>/<toolu>`), its steps stay out of the log (section 9). The
+        // session decides, not the raw line before it: acpmux keeps few raw
+        // stream lines, so a background subagent's raw line can come right
+        // before the main agent's next chunk.
+        let subagent_update = event
+            .msg
+            .get("params")
+            .and_then(|p| p.get("sessionId"))
+            .and_then(Value::as_str)
+            .is_some_and(|id| id.contains('/'));
+        if subagent_update
             && matches!(
                 event.kind.as_str(),
                 "agent_message_chunk" | "agent_thought_chunk" | "tool_call" | "tool_call_update"

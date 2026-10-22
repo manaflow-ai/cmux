@@ -101,6 +101,8 @@ enum TabMoves {
         let echoes = daemon.supports(DaemonCapabilities.shared.tabDrag), emptied = respawn == nil ? services.locateTab(tab.id)?.1 : nil, sizing = services.splitSizing(for: pane, edge: edge, emptying: emptied?.tabs.count == 1 ? emptied : nil)
         // The even sizing lands with the move's echo, in the same layout update as the new split, not a
         // reply later (a visible resize after the drop, #22287); it runs only if the tab left its pane.
+        // That waiter has no barrier, so a resync snapshot from before the move can settle it with the
+        // tab still in its pane: the sizing then goes once the reply's events are in the store (below).
         let from = services.locateTab(tab.id)?.1.handle
         if echoes { daemon.store.whenApplied(transaction) { if let now = services.locateTab(tab.id)?.1.handle, now != from { sizing() } } }
         services.registry.track(Task {
@@ -116,7 +118,7 @@ enum TabMoves {
                     try await fallbackSplit(surface, target: paneHandle, edge: edge, connection: connection)
                 }
             } != nil
-            if ok, !echoes { sizing() }
+            if ok { daemon.whenApplied(transaction) { sizing() } }
             completion(ok)
             return ok ? nil : "move-tab-to-split failed (see the app log)"
         })
@@ -235,10 +237,11 @@ enum TabMoves {
     /// `tab` is its workspace's last daemon tab, the workspace's own name
     /// when the user named it (the workspace closes behind the move).
     static func newWorkspaceName(for tab: TabModel, services: AppServices) -> String? {
-        let input = nameInput(tab, services: services)
+        // An agent chat's name is its chat's title, which only the turn store knows.
+        let tabName = WorkspaceAutoNameWiring(services: services).reader.newWorkspaceName(tab)
         guard let source = services.workspaceID(ofTab: tab.id).flatMap(services.workspace(id:)),
-              source.screens.flatMap(\.panes).flatMap(\.tabs).count == 1 else { return NewWorkspaceName.forTab(input) }
-        return NewWorkspaceName.forLastTab(workspaceName: source.name, workspaceTitle: source.title, tab: input)
+              source.screens.flatMap(\.panes).flatMap(\.tabs).count == 1 else { return tabName }
+        return NewWorkspaceName.forLastTab(workspaceName: source.name, workspaceTitle: source.title, tabName: tabName)
     }
 
     /// What `NewWorkspaceName` reads from `tab`: the browser's live page
@@ -303,6 +306,19 @@ enum TabMoves {
         }
         let surface = tab.surface, handle = workspace.handle
         let echoes = daemon.supports(DaemonCapabilities.shared.tabDrag)
+        // Where the daemon appends the tab, shown now as an intent (tab-move-tearing); a workspace
+        // with no pane yet waits for the daemon's layout.
+        if let intent = daemon.store.workspaceMoveIntent(surface: surface, into: handle) {
+            let send = daemon.intendNow("move-tab-to-workspace", intent, transaction: transaction) { connection -> Void in
+                _ = try await connection.moveTab(surface, toWorkspace: handle, transaction: echoes ? transaction : nil)
+            }
+            services.registry.track(Task {
+                let ok = await send() != nil
+                completion(ok)
+                return ok ? nil : "move-tab-to-workspace failed (see the app log)"
+            })
+            return
+        }
         services.registry.track(Task {
             let ok = await daemon.request("move-tab-to-workspace") { connection -> Void in
                 _ = try await connection.moveTab(surface, toWorkspace: handle, transaction: echoes ? transaction : nil)

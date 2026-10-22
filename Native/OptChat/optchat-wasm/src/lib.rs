@@ -557,39 +557,6 @@ pub fn finish_line(cut: &str, line: &str) -> String {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Audit major 2 (fixed by 8c5aecd3f8a2, ids, and c6f2207069d6, zoom's
-    /// checked end): a JS number names a message only when it is a finite,
-    /// non-negative integer within 2^53, and a level is below 64.
-    #[test]
-    fn only_whole_non_negative_numbers_within_2_pow_53_are_ids() {
-        for bad in [f64::NAN, f64::INFINITY, -1.0, 0.5, 9_007_199_254_740_992.0] {
-            assert!(check_id(bad).is_err(), "{bad} was taken as an id");
-        }
-        assert_eq!(
-            check_id(9_007_199_254_740_991.0).ok(),
-            Some(9_007_199_254_740_991)
-        );
-        assert!(check_level(64).is_err());
-        assert_eq!(check_level(63).ok(), Some(63));
-    }
-
-    /// Audit major 4: the marks a JS caller gets index its string (UTF-16
-    /// code units), not the UTF-8 bytes the core cuts at: `text.slice(0, m)`
-    /// must end exactly at the line end the core chose.
-    #[test]
-    fn marks_given_to_javascript_are_utf16_indices() {
-        let text = "é😀\nb\n";
-        // The core's byte mark after the first line: 2 + 4 + 1 bytes.
-        assert_eq!(js_offsets(text, &[7, 9]), vec![4, 6]);
-        let ascii = "ab\ncd\n";
-        assert_eq!(js_offsets(ascii, &[3]), vec![3]);
-    }
-}
-
 /// The checkpoint's JSON (the same form as optchat-host's `memory/checkpoint`).
 fn encode_checkpoint(c: &Checkpoint) -> String {
     let parts = |v: &[NodeId]| {
@@ -636,4 +603,37 @@ fn decode_checkpoint(text: &str) -> Option<Checkpoint> {
         merging: v["merging"].as_bool().unwrap_or(false),
         compact_merging: v["compact_merging"].as_bool().unwrap_or(false),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Audit major 2 (fixed by 8c5aecd3f8a2, ids, and c6f2207069d6, zoom's
+    /// checked end): a JS number names a message only when it is a finite,
+    /// non-negative integer within 2^53, and a level is below 64.
+    #[test]
+    fn only_whole_non_negative_numbers_within_2_pow_53_are_ids() {
+        for bad in [f64::NAN, f64::INFINITY, -1.0, 0.5, 9_007_199_254_740_992.0] {
+            assert!(check_id(bad).is_err(), "{bad} was taken as an id");
+        }
+        assert_eq!(
+            check_id(9_007_199_254_740_991.0).ok(),
+            Some(9_007_199_254_740_991)
+        );
+        assert!(check_level(64).is_err());
+        assert_eq!(check_level(63).ok(), Some(63));
+    }
+
+    /// Audit major 4: the marks a JS caller gets index its string (UTF-16
+    /// code units), not the UTF-8 bytes the core cuts at: `text.slice(0, m)`
+    /// must end exactly at the line end the core chose.
+    #[test]
+    fn marks_given_to_javascript_are_utf16_indices() {
+        let text = "é😀\nb\n";
+        // The core's byte mark after the first line: 2 + 4 + 1 bytes.
+        assert_eq!(js_offsets(text, &[7, 9]), vec![4, 6]);
+        let ascii = "ab\ncd\n";
+        assert_eq!(js_offsets(ascii, &[3]), vec![3]);
+    }
 }

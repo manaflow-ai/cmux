@@ -44,6 +44,19 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public internal(set) var engineDecision: PageEngineDecision
     /// The Chromium page while one shows the document (PageWebView+Chromium.swift).
     var chromiumSession: PageChromiumSession?
+    /// Rects in this view's coordinates where native UI of the window shows over the page
+    /// (PageWebView+NativeRects.swift): a Chromium page leaves them uncovered. WebKit draws in the
+    /// window's own view tree, under that UI, and needs none.
+    public var nativeRects: [CGRect] = [] {
+        didSet { if nativeRects != oldValue { applyNativeRects() } }
+    }
+    /// The file of the last drag from outside that entered the Chromium page and that ``fileDrop``
+    /// takes, with when it entered; the page's drop opens it once.
+    var chromiumDragFile: (url: URL, at: Date)?
+    /// Shows the Chromium page's context menu at a point of this view (tests capture it).
+    var chromiumMenuPresenter: @MainActor (NSMenu, NSPoint, NSView) -> Void = { menu, point, view in
+        menu.popUp(positioning: nil, at: point, in: view)
+    }
     /// Making the Chromium page (cancelled when the view closes or falls back).
     var chromiumStart: Task<Void, Never>?
     /// How long a Chromium page may take to reach the host before the view falls back to WebKit.
@@ -63,6 +76,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// Pushes every color change of this view's scope to the page, shown or hidden, so a page
     /// shown after a change paints its first frame in the new colors (cx-8w027.12).
     private lazy var themeFollower = ThemeFollower(self) { [weak self] in self?.applyTheme() }
+    /// The wallpaper still the page's glass lenses (`cmuxTheme.backdrop`), pushed after each theme.
+    private lazy var glassFeed = GlassBackdropFeed(host: self, zoom: { [weak self] in self?.pageZoom ?? 1 }) { [weak self] in self?.evaluateInPage($0) }
     private var uiScaleObservation: Task<Void, Never>?
     /// The static status look (`WebTheme.statusIndicators`): the setting and Reduce Motion.
     private var statusLookObservation: Task<Void, Never>?
@@ -107,16 +122,31 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         get { (webView as? PageWKWebView)?.fileDrop }
         set { (webView as? PageWKWebView)?.fileDrop = newValue }
     }
-    /// Called when files are dropped on the page itself (not a ``fileDrop`` the host opens): a real
-    /// gesture page script can't make.
-    public var onFilesDropped: (@MainActor () -> Void)? {
+    /// Called with their file URLs when files are dropped on the page itself (not a ``fileDrop`` the
+    /// host opens): a real gesture page script can't make.
+    public var onFilesDropped: (@MainActor ([URL]) -> Void)? {
         get { (webView as? PageWKWebView)?.onFilesDropped }
         set { (webView as? PageWKWebView)?.onFilesDropped = newValue }
+    }
+    /// Called when a paste (Cmd-V, Edit > Paste) is about to reach the page, before WebKit pastes.
+    public var onPaste: (@MainActor () -> Void)? {
+        get { (webView as? PageWKWebView)?.onPaste }
+        set { (webView as? PageWKWebView)?.onPaste = newValue }
     }
     /// When a real key or mouse event last reached the page (`systemUptime`; page script cannot set
     /// it), the event behind `PageCallContext.userGesture`. A host that grants one action per
     /// gesture (a file page's "Open <path>?" sheet) records the value it used.
-    public var lastUserEventUptime: TimeInterval? { (webView as? PageWKWebView)?.lastUserEventUptime }
+    public var lastUserEventUptime: TimeInterval? {
+        chromiumSession != nil ? chromiumUserEventUptime : (webView as? PageWKWebView)?.lastUserEventUptime
+    }
+    /// When a real key or mouse event last reached the Chromium page (``PageChromiumEvent/userInput(_:)``).
+    var chromiumUserEventUptime: TimeInterval?
+    /// The host's extra message handlers (``addMessageHandler(_:handler:)``), for a Chromium page.
+    var chromiumMessageHandlers: [String: @MainActor (Any) -> Void] = [:]
+    /// Runs before the host builds a Chromium page's right-click menu: a host whose menu depends on
+    /// a report the page sends on `contextmenu` (the agent chat) waits for it here, since Chromium's
+    /// menu request and the page's message arrive in either order. Nil builds the menu at once.
+    public var chromiumMenuWait: (@MainActor () async -> Void)?
     /// The crash clock (tests set it).
     var now: () -> Date = { Date() }
     var crashReloads = PageCrashReloads()
@@ -259,7 +289,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         }
         router.titleBarDoubleClick = { [weak self] in self?.performTitleBarDoubleClick() }
         router.popup = { [weak self] op, params in self?.popup(op, params: params) ?? .object(["shown": .bool(false)]) }
-        router.userGestureEvent = { [weak self] in (self?.webView as? PageWKWebView)?.recentUserGestureEvent() }
+        router.userGestureEvent = { [weak self] in self?.recentUserGestureEvent() }
         #if DEBUG
         // Automation launches (no activation, a GUI host whose windows macOS reports occluded):
         // WebKit stops drawing an occluded window, so captures saw an empty page. DEBUG only;
@@ -345,6 +375,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         webView.pageZoom = pageZoom
         chromiumSession?.page.setZoom(pageZoom)
         evaluateInPage(DesignSettings.shared.interfaceScaleScript)
+        if loaded { glassFeed.refresh() } // the zoom moves the art's rect in CSS px
     }
 
     /// Marks a claimed pooled host as used by real input.
@@ -363,6 +394,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public override func layout() {
         super.layout()
         webView.frame = bounds
+        if !nativeRects.isEmpty { applyNativeRects() } // the unflipped Chromium view's rects move with the height
         // Not while the claim is pending: a refused document reloads, and its paint would end the
         // pane's hold before the reloaded one drew (finishClaim runs the probe on acknowledgement).
         if repaintsAtNextLayout, !claimState.pending, window != nil, !bounds.isEmpty, !(superview is PageHostParking) {
@@ -508,9 +540,12 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         themeFollower.rebind()
         guard loaded else { return }
         let theme = currentTheme()
-        guard force || theme.payloadJSON != appliedTheme else { return }
-        appliedTheme = theme.payloadJSON
-        evaluateInPage(theme.applyScript)
+        if force || theme.payloadJSON != appliedTheme {
+            appliedTheme = theme.payloadJSON
+            evaluateInPage(theme.applyScript)
+        }
+        // After the theme, which sets `data-glass`; a forced push is a new document, which has no still yet.
+        glassFeed.refresh(newDocument: force)
     }
 
     /// The page theme from this view's scope and ``themeSurface``: the surface's override (from

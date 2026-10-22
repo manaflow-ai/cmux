@@ -5,7 +5,8 @@ import { Popover } from "../../ui/Popover";
 import type { AcpmuxSnapshot } from "./model";
 import { ChevronIcon } from "./ComposerPickers";
 import { EnvironmentIcon, EnvironmentPicker, type SavedEnvironmentRows } from "./EnvironmentPicker";
-import type { ConnectKind, EnvironmentKind } from "./environments";
+import { machineColor } from "./machineColor";
+import type { ConnectKind, EnvironmentKind, OffloadKind } from "./environments";
 import { FolderPopover } from "./FolderPopover";
 import type { Project } from "./ProjectChooser";
 import { projectSuffixes } from "./projectSuffix";
@@ -38,6 +39,7 @@ type Location = { id: string; label: string; detail?: string; repo?: ProjectRepo
 type Computer = Location & { kind: EnvironmentKind; connected?: boolean };
 const NO_PEER_KINDS: Record<string, "ssh" | "cloud"> = {};
 const NO_PEER_CONNECTED: Record<string, boolean> = {};
+const NO_OFFLOADS: readonly OffloadKind[] = [];
 
 /// The location strip on the composer card's top edge (hq#1957 composer location strip): folder ·
 /// computer, and the branch at the end. New chats can choose a local or Cloud computer and one of
@@ -62,6 +64,8 @@ export function ComposerContext({
   onNewChat,
   onBrowseFolder,
   onConnect,
+  onOffload,
+  offloads = NO_OFFLOADS,
   saved,
   onRefreshMachines,
 }: {
@@ -94,6 +98,13 @@ export function ComposerContext({
   /// A new chat's Computer menu ends with SSH… and New Cloud Machine, which open the host's
   /// connect flows (Lawrence 2026-10-06: "I cannot click on cmux Cloud SSH").
   onConnect?(kind: ConnectKind): void;
+  /// A started chat's one move, in the environment picker: Move to Cloud for a chat on this Mac,
+  /// Bring Back Local for one a move put on a Cloud machine (the tab menu's same actions), as
+  /// `offloads` lists them. None when the host passes none (the floating chat).
+  onOffload?(kind: OffloadKind): void;
+  /// The moves the app offers this chat now (its right-click menu's, `pane.tabState` `moves`): the
+  /// picker offers only these, whatever the machine's kind.
+  offloads?: readonly OffloadKind[];
   /// The New Tab page's saved environments, in the environment picker. While one is picked it
   /// alone names where the chat starts: the folder and New Worktree controls step aside.
   saved?: SavedEnvironmentRows;
@@ -189,7 +200,9 @@ export function ComposerContext({
       if (folder) onProject?.(folder, id === "local" ? undefined : id);
     }
   };
-  const computerDisabled = readOnly && (started || !onConnect);
+  // A started chat's picker lists only where it runs and its move (EnvironmentPicker `offload`).
+  const offload: OffloadKind | undefined = started && environments && onOffload ? offloads[0] : undefined;
+  const computerDisabled = readOnly && !offload && (started || !onConnect);
   // Preview (`labs.previewFeatures`): the computer control is the environment picker.
   const environmentsShown = environments && !computerDisabled;
   const savedRows = environmentsShown && !readOnly ? saved : undefined;
@@ -278,14 +291,20 @@ export function ComposerContext({
               value={savedPick?.name ?? currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer)}
               face={
                 <LocationFace
-                  icon={<EnvironmentIcon kind={savedPick?.kind ?? currentComputer?.kind ?? "local"} />}
+                  icon={
+                    <EnvironmentIcon
+                      kind={savedPick?.kind ?? currentComputer?.kind ?? "local"}
+                      name={savedPick ? undefined : currentComputer?.label}
+                    />
+                  }
                   value={savedPick?.name ?? currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer)}
                   chevron
                 />
               }
-              environments={computers}
+              environments={offload && currentComputer ? [currentComputer] : computers}
               current={selectedComputer}
               onPick={pickEnvironment}
+              {...(offload && onOffload ? { offload, onOffload } : {})}
               {...(!started && onConnect ? { onConnect } : {})}
               {...(savedRows ? { saved: savedRows } : {})}
               {...(onRefreshMachines ? { onOpen: onRefreshMachines } : {})}
@@ -295,7 +314,7 @@ export function ComposerContext({
               label={t(CONTEXT_LABELS.computer)}
               menu="Computer"
               kind="computer"
-              icon={<ComputerIcon />}
+              icon={<ComputerIcon name={currentComputer?.kind === "local" ? undefined : currentComputer?.label} />}
               value={currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer)}
               options={computers}
               selected={selectedComputer}
@@ -494,10 +513,12 @@ function FolderIcon() {
   );
 }
 
-function ComputerIcon() {
+/// The computer chip's icon, in another machine's own color (machineColor); this Mac's stays quiet.
+function ComputerIcon({ name }: { name?: string }) {
   return (
     <svg
       className="acpmux-icon acpmux-location-icon ui-ghost-icon"
+      style={name ? { color: machineColor(name) } : undefined}
       width={14}
       height={14}
       viewBox="0 0 16 16"

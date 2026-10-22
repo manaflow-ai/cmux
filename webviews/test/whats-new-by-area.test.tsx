@@ -4,7 +4,8 @@
 // span with no curated lines even when it had user-visible commits, and kept internal work as a
 // bare count ("2 internal changes"). Now the span's changes are open, grouped by area ("Sidebar",
 // "Composer", then "Other"), each with its pull request, and internal work is listed, with its pull
-// requests, under a collapsed "Under the hood".
+// requests, under a collapsed "Under the hood". An update with curated notes folds them under its lead
+// changes and cards (whats-new-happy-news.test.tsx); this one has none, so its changes stay open.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -73,14 +74,31 @@ test("What's New lists the update's changes by area with their pull requests, in
   const { mountChangelogPage } = await import("../src/pages/changelog/main");
   const root = dom.window.document.createElement("div");
   dom.window.document.body.append(root);
+  // The span's notes load after the list: yield until the section is drawn and every call is answered.
+  let open = 0;
+  class Counted extends MockChangelogProvider {
+    override async call<R>(op: string, params: unknown): Promise<R> {
+      open += 1;
+      try {
+        return await super.call<R>(op, params);
+      } finally {
+        open -= 1;
+      }
+    }
+  }
   await act(async () => {
-    mountChangelogPage(root, new MockChangelogProvider(span, "3940000000003") as never);
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    mountChangelogPage(root, new Counted(span, "3940000000003") as never);
   });
+  const deadline = performance.now() + 2_000;
+  do {
+    if (performance.now() > deadline) throw new Error("timed out waiting for the update's notes");
+    await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
+  } while (open > 0 || !root.querySelector('[data-testid="changelog.sinceLastUpdate"] .cl-area'));
   const section = root.querySelector('[data-testid="changelog.sinceLastUpdate"]');
   expect(section).not.toBeNull();
   // The span has user-visible changes: never "Maintenance and fixes" over them.
   expect(section?.querySelector(".cl-maintenance")).toBeNull();
+  // No curated notes: the changes are the news, so they are open.
   const fold = section?.querySelector<HTMLDetailsElement>("details.cl-changes");
   expect(fold?.open).toBe(true);
   const areas = [...(fold?.querySelectorAll(".cl-area") ?? [])];
@@ -90,6 +108,8 @@ test("What's New lists the update's changes by area with their pull requests, in
     ["A click never drags", pull(301)],
   ]);
   expect(rows(areas[1]?.querySelector("ul"))).toEqual([["Return steers a running turn", pull(202)]]);
+  // The title links its pull request too, not only the trailing number.
+  expect(areas[1]?.querySelector<HTMLAnchorElement>("a.cl-change-link")?.href).toBe(pull(202));
   expect(rows(areas[2]?.querySelector("ul"))).toEqual([["Enroll Computer Use after peer check", pull(302)]]);
   // The installed build's own change is not part of the update.
   expect(fold?.textContent).not.toContain("installed build");

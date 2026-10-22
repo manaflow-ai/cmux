@@ -317,6 +317,10 @@ pub struct SubRecord {
     /// local subagents count against the live cap.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub peer: Option<String>,
+    /// Its own sandbox key's public id (`vmk_...`, agent_keys.rs) until it is
+    /// revoked; the key itself is never stored here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_key: Option<String>,
     pub status: SubStatus,
     /// The report waiting for the log.
     #[serde(default)]

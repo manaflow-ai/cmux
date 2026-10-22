@@ -176,6 +176,12 @@ impl Client {
         Ok(reply)
     }
 
+    /// A `session/new` that never tags its caller's session as the parent: an ephemeral run
+    /// (`acpmux run --ephemeral`, an agent's probe, `probe_prompt.rs`) is no subagent.
+    pub async fn request_parentless(&self, m: &str, params: Value) -> Result<Value> {
+        self.send_request(m, params).await
+    }
+
     /// A `session/new` sent from inside an acpmux session (its agent runs `acpmux new`,
     /// `acpmux run`): tags the new session with that one (`hub::views::SPAWNED_BY_TAG`), so the chat
     /// lists fold it under its parent. The session exists either way; a failed tag only lists
