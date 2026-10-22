@@ -3334,27 +3334,33 @@ export class AcpmuxDirectClient {
   /// `ticket`: the gesture a send kept for this prompt while acpmux held it for the folder trust
   /// answer (heldPrompt.ts); it rides as `_meta.cmuxGesture`, and the host strips it. Without one,
   /// a send into a shown chat binds the person's Enter or click to this prompt at once
-  /// (``reservePromptGesture``), so the frame goes however late the host checks it.
+  /// (``bindSendGesture``), so the frame goes however late the host checks it; a caller that waits
+  /// before sending (App.tsx) binds it first and passes the pending ticket.
   /// `steer`: into the running turn, read when the agent's current step ends; an agent that
   /// cannot steer queues it behind the turn. Nothing sent stops the turn: only Stop does (Leo
   /// 2026-10-20), so no send carries `_meta.acpmux.interrupt`.
+  /// The person's Enter (or Send, Retry) is a gesture the host counts once, and only while it is
+  /// fresh. Bound to `promptId` the moment it is sent, before anything waits, it is that prompt's
+  /// alone: a prompt sent behind a running turn or as a steer, right after another, no longer
+  /// loses it to the one before when the host checks both after both key presses. Undefined while
+  /// a chat starts (or none is shown): the start takes the gesture and hands its credit to the
+  /// first prompt (a harness switch's prompts reserve when the switch sends them).
+  bindSendGesture(
+    promptId: string = crypto.randomUUID(),
+  ): { promptId: string; ticket: Promise<string | undefined> } | undefined {
+    if (this.creating || !this.selectedSessionId) return undefined;
+    return { promptId, ticket: reservePromptGesture(promptId) };
+  }
   async send(
     input: string,
     attachments: ComposerAttachment[] = [],
     promptId: string = crypto.randomUUID(),
     accepted?: () => void,
-    ticket?: string,
+    ticket?: string | Promise<string | undefined>,
     steer = false,
     resend = false,
   ): Promise<string | undefined> {
-    // The person's Enter (or Send, Retry) is a gesture the host counts once, and only while it is
-    // fresh. Bound to this promptId now, before this send waits on anything, it is this prompt's
-    // alone: a prompt sent behind a running turn or as a steer, right after another, no longer
-    // loses it to the one before when the host checks both after both key presses. A chat still
-    // starting is left to its start: the start takes the gesture and hands its credit to the first
-    // prompt (a harness switch's prompts reserve when the switch sends them).
-    const reserved =
-      ticket === undefined && !this.creating && this.selectedSessionId ? reservePromptGesture(promptId) : undefined;
+    const reserved = ticket ?? this.bindSendGesture(promptId)?.ticket;
     // A `data:` image written into the prompt goes as an image, never as text: the bubble, the
     // agent and the chat's compaction never see base64 (inlineImages.ts, Leo 2026-10-20).
     ({ text: input, attachments } = liftInlineImages(input, attachments));
@@ -3492,7 +3498,7 @@ export class AcpmuxDirectClient {
       }, deliveryTiming.failMs),
     );
     this.emit();
-    const gesture = ticket ?? (await reserved);
+    const gesture = await reserved;
     try {
       await this.request("session/prompt", {
         sessionId,

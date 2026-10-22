@@ -113,3 +113,25 @@ test("a prompt with a kept ticket goes with it, and one with no gesture goes wit
     close();
   }
 });
+
+test("a send that waits before it goes binds its gesture at once", async () => {
+  const { client, sent, reserves, close } = await pane();
+  try {
+    // App.tsx's send waits for the chat's start and its persistence before `client.send`, and the
+    // composer is free meanwhile: each Enter binds its own gesture before any of that.
+    const first = client.bindSendGesture("p-first");
+    const second = client.bindSendGesture("p-second");
+    expect(reserves).toEqual(["p-first", "p-second"]);
+    expect(sent).toEqual([]);
+    await Promise.all([
+      client.send("Run the tests", [], first!.promptId, undefined, first!.ticket),
+      client.send("Keep the old flag", [], second!.promptId, undefined, second!.ticket, true),
+    ]);
+    // The pending tickets ride their own prompts; nothing else was reserved.
+    expect(reserves).toEqual(["p-first", "p-second"]);
+    expect(sent).toContainEqual({ promptId: "p-first", ticket: "ticket-p-first", steer: false });
+    expect(sent).toContainEqual({ promptId: "p-second", ticket: "ticket-p-second", steer: true });
+  } finally {
+    close();
+  }
+});
