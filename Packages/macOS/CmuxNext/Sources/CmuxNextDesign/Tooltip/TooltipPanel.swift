@@ -1,32 +1,25 @@
 import AppKit
 
-/// The tooltip's colors, read in the hovered view's theme scope.
+/// The tooltip's ink, read in the hovered view's theme scope.
 struct TooltipStyle {
-    /// The surface fill: the frosted tint (`TooltipSurface.tint`), or the
-    /// opaque popup surface under Reduce Transparency.
-    var fill: NSColor
-    var border: NSColor
     var ink: NSColor
     var hint: NSColor
-    /// Frosted glass under the fill; false: the fill alone, opaque.
-    var frosted: Bool
 
-    /// The scope's colors, frozen (the panel itself sits in no scope). theme-scoped
-    @MainActor static func current(reduceTransparency: Bool = ReduceTransparency.shared.isEnabled) -> TooltipStyle {
+    /// The scope's colors, frozen (the labels draw them as they are). theme-scoped
+    @MainActor static func current() -> TooltipStyle {
         func frozen(_ color: NSColor) -> NSColor { color.usingColorSpace(.sRGB) ?? color }
-        let opaque = frozen(Palette.popupSurface)
-        // Outside a theme scope there are no tokens to check the tint against: the opaque surface.
-        let tint = ThemeContext.active.map { TooltipSurface($0, lift: ChromeTunables.opaqueOverlayLift.value).tint.nsColor }
-        let frosted = !reduceTransparency && tint != nil
-        return TooltipStyle(fill: frosted ? frozen(tint ?? opaque) : opaque, border: frozen(Palette.separator),
-                            ink: frozen(Palette.textPrimary), hint: frozen(Palette.textSecondary), frosted: frosted)
+        return TooltipStyle(ink: frozen(Palette.textPrimary), hint: frozen(Palette.textSecondary))
     }
 }
 
 /// The one tooltip window: borderless, never key, ignoring the mouse, above page windows and panels
 /// like AppKit's own tooltip. Its view is the text, then the shortcut hint, on a small rounded
-/// surface of frosted glass (`TooltipSurface`): the blur, the tint, a one-device-pixel rim and a
-/// small tight shadow, inset in the window by `margin` so the shadow has room.
+/// surface of the shared overlay glass (`Glass.makeOverlayPanel`, as the hover cards'; Leo
+/// 2026-10-21: "WHERE IS THE GLASS EVERYWHERE, all these hover tooltips and hover previews"): the
+/// Liquid Glass in the hovered view's theme tint, the themed blur before macOS 26, the opaque popup
+/// surface only under Reduce Transparency. A small tight shadow sits under it, inset in the window
+/// by `margin` so the shadow has room. scripts/cmux-next/check-overlay-glass.py fails a tooltip or
+/// hover card window that is not this glass.
 ///
 /// It fades in (`MotionFade.fadeIn`) rising `rise` points, unless a tooltip of the warm group just
 /// showed (then it is there at once), and fades out (`fadeOut`, quicker). Reduce Motion keeps the
@@ -44,16 +37,21 @@ final class TooltipPanel: NSPanel {
     let hint = ChromeLabel(labelWithString: "")
     /// The surface: it carries the shadow, and the fade and the rise run on its layer.
     let surface = NSView()
-    /// The frosted glass under the tint (hidden under Reduce Transparency).
-    let blur = NSVisualEffectView()
-    /// The tint, the rim and the labels, over the blur.
-    let tint = NSView()
+    /// The shared overlay glass (its material follows Reduce Transparency); the labels sit in its
+    /// `contentView`.
+    let glass: OverlaySurfaceView
+    /// The scope the glass draws in: the hovered view's, at full strength.
+    private weak var adoptedScope: ThemeScope?
     /// Bumped by every show and fade-out, so a finished fade-out of an earlier one orders nothing out.
     private var generation = 0
     /// Fading out: still on screen, already gone for the presenter.
     private(set) var isFadingOut = false
 
     init() {
+        glass = Glass.makeOverlayPanel(cornerRadius: Self.radius, interactive: false)
+        // The glass is its clear window's whole content: before macOS 26 its blur samples what is
+        // behind the window (the page, a terminal), as its Liquid Glass refracts it.
+        glass.samplesBehindWindow = true
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
         isOpaque = false
         backgroundColor = .clear
@@ -74,24 +72,15 @@ final class TooltipPanel: NSPanel {
         surface.layer?.shadowOpacity = Float(TooltipSurface.shadow.alpha)
         surface.layer?.shadowRadius = TooltipSurface.shadow.layerRadius
         surface.layer?.shadowOffset = TooltipSurface.shadow.layerOffset()
-        blur.material = .toolTip
-        blur.blendingMode = .behindWindow
-        blur.state = .active
-        blur.wantsLayer = true
-        tint.wantsLayer = true
-        for view in [blur, tint] {
-            view.autoresizingMask = [.width, .height]
-            view.layer?.cornerRadius = Self.radius
-            view.layer?.cornerCurve = .continuous
-            view.layer?.masksToBounds = true
-            surface.addSubview(view)
-        }
+        glass.translatesAutoresizingMaskIntoConstraints = true
+        glass.autoresizingMask = [.width, .height]
+        surface.addSubview(glass)
         for label in [text, hint] {
             label.font = Typography.caption
             label.isSelectable = false
             label.drawsBackground = false
             label.translatesAutoresizingMaskIntoConstraints = true
-            tint.addSubview(label)
+            glass.contentView.addSubview(label)
         }
         text.maximumNumberOfLines = 0
         hint.alignment = .right
@@ -119,15 +108,16 @@ final class TooltipPanel: NSPanel {
         NSSize(width: frame.width - Self.margin * 2, height: frame.height - Self.margin * 2)
     }
 
-    /// Lays out `text` and `shortcut` in `style` and sizes the window to them; `scale` is the
-    /// backing scale of the screen it shows on (the rim is one of its pixels).
-    func show(text value: String, shortcut: String?, style: TooltipStyle, appearance: NSAppearance, scale: CGFloat) {
+    /// Lays out `text` and `shortcut` in `style` and sizes the window to them, on the glass of
+    /// `scope` (the hovered view's).
+    func show(text value: String, shortcut: String?, style: TooltipStyle, scope: ThemeScope, appearance: NSAppearance) {
+        if adoptedScope !== scope {
+            scope.adopt(self)
+            adoptedScope = scope
+        }
         self.appearance = appearance
-        blur.isHidden = !style.frosted
-        tint.layer?.backgroundColor = style.fill.cgColor
-        tint.layer?.borderColor = style.border.cgColor
-        // One device pixel (`--cmux-hairline` in pages).
-        tint.layer?.borderWidth = 1 / max(scale, 1)
+        glass.refreshMaterial()
+        glass.applyTheme()
         text.stringValue = value
         text.textColor = style.ink
         hint.stringValue = shortcut ?? ""
@@ -145,6 +135,7 @@ final class TooltipPanel: NSPanel {
                             width: ceil(hintSize.width), height: ceil(hintSize.height))
         setContentSize(NSSize(width: width + Self.margin * 2, height: height + Self.margin * 2))
         surface.frame = NSRect(x: Self.margin, y: Self.margin, width: width, height: height)
+        glass.frame = surface.bounds
         surface.layer?.shadowPath = CGPath(roundedRect: surface.bounds, cornerWidth: Self.radius, cornerHeight: Self.radius,
                                            transform: nil)
         configureSurfaceShadow()

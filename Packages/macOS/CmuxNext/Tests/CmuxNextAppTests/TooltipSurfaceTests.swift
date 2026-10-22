@@ -277,7 +277,11 @@ import Testing
                 "the rise does not follow Reduce Motion (read \(reduced ? "on" : "off"))")
     }
 
-    @Test func theSurfaceIsFrostedGlassOrOpaqueUnderReduceTransparency() async throws {
+    /// Leo 2026-10-21: "WHERE IS THE GLASS EVERYWHERE, all these hover tooltips and hover previews".
+    /// The tooltip is the shared overlay glass the hover cards draw (`Glass.makeOverlayPanel`), in
+    /// the hovered view's theme, never a card fill; the opaque popup surface only under Reduce
+    /// Transparency.
+    @Test func theSurfaceIsTheSharedGlassOrOpaqueUnderReduceTransparency() async throws {
         defer { ReduceTransparency.shared.override = nil }
         for reduce in [false, true] {
             ReduceTransparency.shared.override = reduce
@@ -289,19 +293,14 @@ import Testing
             }
             try await Self.rest(on: buttons[0], presenter, clock)
             let panel = presenter.panel
-            let surface = TooltipSurface(scope.tokens, lift: ChromeTunables.opaqueOverlayLift.value)
-            let fill = try #require(panel.tint.layer?.backgroundColor.flatMap(NSColor.init(cgColor:))?.usingColorSpace(.sRGB))
-            let want = (reduce ? surface.fill : surface.tint).nsColor.usingColorSpace(.sRGB)
-            #expect(abs(fill.alphaComponent - (want?.alphaComponent ?? -1)) < 0.01, "reduce \(reduce)")
-            #expect(panel.blur.isHidden == reduce, "reduce \(reduce): blur")
-            if !reduce {
-                #expect(panel.blur.blendingMode == .behindWindow)
-                #expect(panel.blur.state == .active)
-            }
-            // A one-device-pixel rim and a small tight shadow, no window shadow.
-            // The screen the tooltip shows on, or the window's own scale on a host with no screen.
-            let scale = window.screen?.backingScaleFactor ?? window.backingScaleFactor
-            #expect(abs((panel.tint.layer?.borderWidth ?? 0) - 1 / scale) < 0.001)
+            #expect(panel.glass.themeScope === scope.fullStrength, "reduce \(reduce): not in the view's theme")
+            #expect(!panel.glass.isCard, "reduce \(reduce): the opaque card fill on the tooltip's glass")
+            #expect((panel.glass.material == .opaque) == reduce, "reduce \(reduce): material \(panel.glass.material)")
+            #expect(panel.glass.samplesBehindWindow)
+            #expect(panel.glass.frame == panel.surface.bounds)
+            // No fill over the glass: the labels sit on it.
+            #expect(panel.glass.contentView.layer?.backgroundColor.map { $0.alpha == 0 } ?? true)
+            // A small tight shadow, no window shadow.
             #expect(!panel.hasShadow)
             #expect(panel.surface.layer?.shadowOpacity == Float(PopupStyle.elevation1.alpha))
             #expect((panel.surface.layer?.shadowRadius ?? 99) <= 2)
