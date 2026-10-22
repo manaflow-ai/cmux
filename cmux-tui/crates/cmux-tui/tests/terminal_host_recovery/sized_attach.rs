@@ -409,27 +409,31 @@ fn a_released_phone_size_returns_the_grid_at_once_and_its_drop_holds_nothing() {
     wait_for_vt_size(&harness.socket, surface, 53, 39);
 
     let released = Instant::now();
-    stream_request(
+    let release = stream_request(
         &mut phone_writer,
         &mut phone_reader,
         serde_json::json!({"id": 30, "cmd": "release-surface-size", "surface": surface}),
     );
+    assert_eq!(release["outcome"], "applied", "release-surface-size: {release}");
     wait_for_vt_size(&harness.socket, surface, 120, 39);
     assert!(released.elapsed() < Duration::from_secs(2), "the release took {:?}", released.elapsed());
 
     // Claimed again, released again, then the channel closes: no hold.
-    stream_request(
+    let reclaim = stream_request(
         &mut phone_writer,
         &mut phone_reader,
         serde_json::json!({"id": 31, "cmd": "resize-surface", "surface": surface, "cols": 53, "rows": 42}),
     );
+    assert_eq!(reclaim["outcome"], "applied", "resize-surface: {reclaim}");
     wait_for_vt_size(&harness.socket, surface, 53, 39);
-    writeln!(
-        phone_writer,
-        "{}",
-        serde_json::json!({"id": 32, "cmd": "release-surface-size", "surface": surface})
-    )
-    .unwrap();
+    // The release is answered before the connection closes (a phone, and
+    // cmux-mobile-host for a phone's closed channel, wait for the answer):
+    // an end of file read before the release is a dropped view and holds.
+    stream_request(
+        &mut phone_writer,
+        &mut phone_reader,
+        serde_json::json!({"id": 32, "cmd": "release-surface-size", "surface": surface}),
+    );
     drop(phone_writer);
     drop(phone_reader);
     wait_for_vt_size(&harness.socket, surface, 120, 39);

@@ -270,6 +270,7 @@ pub(super) fn resize_surface(
     if let Some((true, name, kind, _)) = resize.attached {
         mux.emit(MuxEvent::ClientChanged { client, name, kind });
     }
+    super::size_lease::renew_size_lease(mux, client, surface);
     Ok(json!({
         "accepted": resize.accepted,
         "reservation_id": resize.reservation_id,
@@ -382,6 +383,8 @@ pub(super) fn release_surface_size(
     surface: SurfaceId,
 ) -> anyhow::Result<Value> {
     let _lifecycle = mux.lock_client_sizing_lifecycle();
+    // Released on purpose: no lease is left to end it again.
+    mux.control_clients.size_leases.end(client, surface);
     if mux.control_clients.surface_attachment_is_retired_without_current(client, surface)
         || (!accepts_view_sizing(mux, surface)
             && mux.control_clients.surface_attachment_is_current_or_retired(client, surface))
