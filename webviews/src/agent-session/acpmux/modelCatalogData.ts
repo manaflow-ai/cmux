@@ -92,8 +92,13 @@ export type PickerModel = {
   unavailable?: string;
   /** The catalog release an alias row stands for; `id` is the alias the harness offers. */
   release?: string;
+  /** What the profile's declaration or the user's override set: the session's options keep it. */
+  own?: Own;
   searchText: string;
 };
+
+/** The fields a profile declared or the user overrode, over the catalog's. */
+type Own = { efforts?: true; fast?: true };
 
 export type PickerHarness = {
   id: string;
@@ -313,7 +318,7 @@ function layeredModel(
   harnessId: string,
   probe: AcpmuxModel | undefined,
   join: Join,
-): HarnessModel {
+): HarnessModel & { own?: Own } {
   // A profile declares metadata, not the model's identity: its name and provider stay the catalog's.
   const {
     name: _name,
@@ -324,7 +329,13 @@ function layeredModel(
     ...join.overrides[`*/${model.id}`],
     ...join.overrides[`${harnessId}/${model.id}`],
   };
-  return { ...model, ...declared, ...modelFields(user) };
+  const fields = modelFields(user);
+  const own: Own = {
+    ...(model as { own?: Own }).own,
+    ...(declared.efforts || fields.efforts ? { efforts: true } : {}),
+    ...(declared.fast !== undefined || fields.fast !== undefined ? { fast: true } : {}),
+  };
+  return { ...model, ...declared, ...fields, ...(own.efforts || own.fast ? { own } : {}) };
 }
 
 function catalogHarness(harness: CatalogHarness, members: AcpmuxHarness[], join: Join): PickerHarness {
@@ -557,7 +568,7 @@ function addSessionModels(
   }
 }
 
-function pickerModel(model: HarnessModel, catalog: ModelCatalog, unavailable?: string): PickerModel {
+function pickerModel(model: HarnessModel & { own?: Own }, catalog: ModelCatalog, unavailable?: string): PickerModel {
   const info = model.ref ? catalog.models[model.ref] : undefined;
   const providerName = model.provider ? catalog.providers[model.provider]?.name : undefined;
   const contextWindow = model.contextWindow ?? info?.contextWindow;
@@ -576,6 +587,7 @@ function pickerModel(model: HarnessModel, catalog: ModelCatalog, unavailable?: s
     ...(info?.input ? { input: info.input } : {}),
     ...(status ? { status } : {}),
     ...(unavailable ? { unavailable } : {}),
+    ...(model.own ? { own: model.own } : {}),
     searchText: [model.id, model.name, model.family, providerName, ...(model.aliases ?? [])]
       .filter(Boolean)
       .join(" ")
@@ -618,12 +630,16 @@ function withLiveOptions(model: PickerModel, options: ConfigOptions): PickerMode
     ?.map((choice) => choice.value)
     .filter((value): value is EffortValue => EFFORT_ORDER.includes(value as EffortValue));
   // An adapter can list one set for every model (Claude Code's): the model's own levels bound it.
+  // Levels the profile declared or the user set (none included) are only narrowed, never widened.
   const narrowed =
-    offered && model.efforts.length > 0 ? offered.filter((value) => model.efforts.includes(value)) : offered;
-  const efforts = narrowed && narrowed.length > 0 ? narrowed : offered;
+    offered && (model.efforts.length > 0 || model.own?.efforts)
+      ? offered.filter((value) => model.efforts.includes(value))
+      : offered;
+  const efforts = narrowed && (narrowed.length > 0 || model.own?.efforts) ? narrowed : offered;
   // An adapter can offer fast mode for every model too (Claude Code's, honored on a few): a model
-  // the catalog describes keeps its own.
+  // the catalog describes keeps its own, and so does one whose profile or user set it.
   const fast =
+    !model.own?.fast &&
     model.efforts.length === 0 &&
     options.some((option) => option.id === "fast" || option.id === "fast_mode" || option.id === "fast-mode");
   return {

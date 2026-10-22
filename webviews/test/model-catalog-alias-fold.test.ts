@@ -80,3 +80,61 @@ test("the running release keeps the folded alias's overrides, and stays the chec
     defaultEffort: "low",
   });
 });
+
+// Codex review at a3f9e52c: the session's options then marked that row Fast-capable and gave it every
+// effort the adapter lists, because a row with no efforts read as one the catalog does not describe.
+test("the session's fast and effort options do not undo what the alias's declaration or override disables", () => {
+  const live = [
+    {
+      id: "fast-mode",
+      name: "Fast mode",
+      currentValue: "off",
+      options: [
+        { value: "off", name: "Off" },
+        { value: "on", name: "On" },
+      ],
+    },
+    {
+      id: "effort",
+      name: "Effort",
+      category: "thought_level",
+      currentValue: "high",
+      options: [
+        { value: "low", name: "Low" },
+        { value: "medium", name: "Medium" },
+        { value: "high", name: "High" },
+      ],
+    },
+  ] as NonNullable<Parameters<typeof buildPickerCatalog>[0]["session"]>["configOptions"];
+  const session = { harness: "claude-sr2", model: "claude-opus-5-5", configOptions: live };
+  const disabled = { fast: false, efforts: [] };
+  const fromOverride = modelsOf(
+    buildPickerCatalog({
+      catalog: BUNDLED_MODEL_CATALOG,
+      user: { overrides: { "claude-sr2/opus": disabled } },
+      acpmux: profile([
+        { id: "opus", name: "Opus 5.5" },
+        { id: "claude-opus-5-5", name: "Opus 5.5" },
+      ]),
+      session,
+    }),
+  );
+  const fromDeclaration = modelsOf(
+    buildPickerCatalog({
+      catalog: BUNDLED_MODEL_CATALOG,
+      acpmux: profile([
+        { id: "opus", name: "Opus 5.5", ...disabled } as { id: string; name: string },
+        { id: "claude-opus-5-5", name: "Opus 5.5" },
+      ]),
+      session,
+    }),
+  );
+  for (const [source, models] of [
+    ["override", fromOverride],
+    ["declaration", fromDeclaration],
+  ] as const) {
+    const running = models.find((model) => model.id === "claude-opus-5-5");
+    expect(running, `${source}: ${models.map((model) => model.id).join(", ")}`).toBeDefined();
+    expect({ source, fast: running!.fast, efforts: running!.efforts }).toEqual({ source, fast: false, efforts: [] });
+  }
+});
