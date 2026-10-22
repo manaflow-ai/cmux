@@ -79,6 +79,10 @@ pub struct Peer {
     withheld: AtomicBool,
     /// The peer token this connection presented (`stale_token`).
     presented: StdMutex<Option<String>>,
+    /// From the WebSocket opening until `stale_token` cleared it: callers'
+    /// requests and notifications are refused, so none goes out on a link
+    /// that is dropped to reconnect as a peer, or waits to go out on the next.
+    admitting: AtomicBool,
     attached: StdMutex<HashSet<String>>,
     notices: mpsc::Sender<(String, u64, PeerNotice)>,
     stop: AtomicBool,
@@ -123,6 +127,7 @@ impl Peer {
             file_put: AtomicBool::new(false),
             withheld: AtomicBool::new(false),
             presented: StdMutex::new(None),
+            admitting: AtomicBool::new(false),
             attached: StdMutex::new(HashSet::new()),
             notices,
             stop: AtomicBool::new(false),
@@ -344,9 +349,14 @@ impl Peer {
     }
 
     pub async fn request(&self, m: &str, params: Value) -> Result<Value, RpcError> {
-        if !self.connected.load(Ordering::SeqCst) {
+        if !self.connected.load(Ordering::SeqCst) || self.admitting.load(Ordering::SeqCst) {
             return Err(self.unreachable_error());
         }
+        self.link_request(m, params).await
+    }
+
+    /// `request` with no admission check: the handshake's `initialize`.
+    async fn link_request(&self, m: &str, params: Value) -> Result<Value, RpcError> {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let (tx, rx) = oneshot::channel();
         let key = Value::from(id).to_string();
@@ -369,6 +379,9 @@ impl Peer {
     }
 
     pub async fn notify(&self, m: &str, params: Value) -> Result<(), RpcError> {
+        if self.admitting.load(Ordering::SeqCst) {
+            return Err(self.unreachable_error());
+        }
         let line = Message::notification(m, params).bounded_line().map_err(RpcError::too_large)?;
         self.out
             .send(line)
@@ -485,6 +498,7 @@ impl Peer {
     {
         use tokio_tungstenite::tungstenite::Message as Frame;
         let (mut sink, mut source) = ws.split();
+        self.admitting.store(true, Ordering::SeqCst);
         self.connected.store(true, Ordering::SeqCst);
         *self.last_error.lock().unwrap() = None;
         self.with_link(|l| l.opened(crate::store::now_ms()));
@@ -495,7 +509,7 @@ impl Peer {
         let (stale_tx, mut stale_rx) = oneshot::channel::<String>();
         let handshake = tokio::spawn(async move {
             let init = me
-                .request(
+                .link_request(
                     method::INITIALIZE,
                     json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": "acpmux-peer", "version": crate::hub::VERSION}}),
                 )
@@ -518,6 +532,7 @@ impl Peer {
                 let _ = stale_tx.send(why);
                 return Ok(());
             }
+            me.admitting.store(false, Ordering::SeqCst);
             *me.person_instance.lock().unwrap_or_else(|e| e.into_inner()) = init
                 .pointer("/_meta/acpmux/personInstance")
                 .and_then(Value::as_str)
@@ -582,10 +597,6 @@ impl Peer {
                 stale = &mut stale_rx, if !stale_settled => {
                     stale_settled = true;
                     if let Ok(why) = stale {
-                        // Requests queued while the probe ran never go out:
-                        // their callers get the disconnect error (`run`),
-                        // and the next connection must not replay them.
-                        while out_rx.try_recv().is_ok() {}
                         break Err(why);
                     }
                 }
