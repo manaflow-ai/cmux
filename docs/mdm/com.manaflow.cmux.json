@@ -47,16 +47,6 @@
       "title" : "Chat Full Width",
       "type" : "boolean"
     },
-    "agentPane.display.inspector.placement" : {
-      "default" : "overlay",
-      "description" : "Where the Inspector opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat.",
-      "enum" : [
-        "push",
-        "overlay"
-      ],
-      "title" : "Inspector",
-      "type" : "string"
-    },
     "agentPane.display.width" : {
       "default" : 800,
       "description" : "The widest the chat's column gets. On a wider pane the chat stays centered.",
@@ -169,12 +159,6 @@
       ],
       "title" : "Permission Mode for New Chats",
       "type" : "string"
-    },
-    "agents.subsessions.answerQuestions" : {
-      "default" : false,
-      "description" : "When an agent in a sub-session asks a question, the session that started it can answer, and the answer shows who gave it. Permission requests always wait for you. Off: only you answer.",
-      "title" : "Let Sessions Answer Their Sub-sessions' Questions",
-      "type" : "boolean"
     },
     "agents.subsessions.enabled" : {
       "default" : true,
@@ -330,40 +314,66 @@
       "enum" : [
         "none",
         "david-death-of-marat",
+        "goya-saturn",
         "velde-small-ship-storm",
+        "bosch-garden-right",
         "bosch-ascent-blessed",
         "goya-witches-flight",
+        "bocklin-self-portrait-death",
+        "caravaggio-medusa",
         "martin-pandemonium",
         "moran-burning-philadelphia",
         "goya-burial-sardine",
         "arbo-wild-hunt",
+        "caravaggio-david-goliath",
+        "van-gogh-skeleton-cigarette",
         "altdorfer-battle-of-issus",
+        "gentileschi-judith",
         "munch-madonna",
+        "bocklin-isle-of-the-dead",
         "klee-fish-magic",
         "friedrich-forest-moonlight",
+        "goya-witches-sabbath",
         "bosch-garden-left",
         "rembrandt-storm-galilee",
         "cole-voyage-manhood",
+        "fuseli-nightmare-2",
+        "hiremy-hirschl-souls-of-acheron",
         "munch-scream",
+        "klimt-judith",
+        "repin-ivan",
+        "millais-ophelia",
         "bruegel-fall-rebel-angels",
+        "fuseli-nightmare",
+        "bundy-death-general",
         "wright-vesuvius",
         "gerome-botsaris",
+        "durer-knight-death-devil",
         "martin-joshua",
         "velde-gale",
         "hogai-nio",
+        "klimt-death-and-life",
+        "klimt-medicine",
         "bosch-garden-central",
         "martin-great-day-wrath",
         "bonheur-wounded-eagle",
+        "gerome-pollice-verso",
         "cole-voyage-old-age",
         "friedrich-abbey-oakwood",
         "goya-sleep-of-reason",
         "bosch-garden-fragment",
+        "bruegel-triumph-death",
         "spilliaert-vertigo",
         "rothaug-melpomene",
+        "schiele-death-and-the-maiden",
         "aivazovsky-ship-stormy-seas",
+        "vereshchagin-apotheosis-war",
+        "ensor-skeleton-painter",
         "cabanel-fallen-angel",
         "spilliaert-woman-shoreline",
         "el-greco-view-of-toledo",
+        "gericault-raft-of-the-medusa",
+        "moreau-apparition",
         "rembrandt-prodigal-son",
         "velazquez-las-meninas",
         "matejko-stanczyk",
@@ -373,6 +383,7 @@
         "rembrandt-night-watch",
         "vigee-lebrun-madame-grand",
         "waterhouse-lady-shalott",
+        "draper-lament-icarus",
         "fragonard-swing",
         "rubens-st-francis-xavier",
         "vermeer-pearl-earring",
@@ -469,6 +480,7 @@
         "hokusai-umezawa",
         "whistler-falling-rocket",
         "dore-fall-of-satan",
+        "dore-flood",
         "dore-wolves-sheep",
         "dore-leviathan",
         "dore-paradise-lost-book-vi",
@@ -486,40 +498,66 @@
         "none",
         "daily",
         "david-death-of-marat",
+        "goya-saturn",
         "velde-small-ship-storm",
+        "bosch-garden-right",
         "bosch-ascent-blessed",
         "goya-witches-flight",
+        "bocklin-self-portrait-death",
+        "caravaggio-medusa",
         "martin-pandemonium",
         "moran-burning-philadelphia",
         "goya-burial-sardine",
         "arbo-wild-hunt",
+        "caravaggio-david-goliath",
+        "van-gogh-skeleton-cigarette",
         "altdorfer-battle-of-issus",
+        "gentileschi-judith",
         "munch-madonna",
+        "bocklin-isle-of-the-dead",
         "klee-fish-magic",
         "friedrich-forest-moonlight",
+        "goya-witches-sabbath",
         "bosch-garden-left",
         "rembrandt-storm-galilee",
         "cole-voyage-manhood",
+        "fuseli-nightmare-2",
+        "hiremy-hirschl-souls-of-acheron",
         "munch-scream",
+        "klimt-judith",
+        "repin-ivan",
+        "millais-ophelia",
         "bruegel-fall-rebel-angels",
+        "fuseli-nightmare",
+        "bundy-death-general",
         "wright-vesuvius",
         "gerome-botsaris",
+        "durer-knight-death-devil",
         "martin-joshua",
         "velde-gale",
         "hogai-nio",
+        "klimt-death-and-life",
+        "klimt-medicine",
         "bosch-garden-central",
         "martin-great-day-wrath",
         "bonheur-wounded-eagle",
+        "gerome-pollice-verso",
         "cole-voyage-old-age",
         "friedrich-abbey-oakwood",
         "goya-sleep-of-reason",
         "bosch-garden-fragment",
+        "bruegel-triumph-death",
         "spilliaert-vertigo",
         "rothaug-melpomene",
+        "schiele-death-and-the-maiden",
         "aivazovsky-ship-stormy-seas",
+        "vereshchagin-apotheosis-war",
+        "ensor-skeleton-painter",
         "cabanel-fallen-angel",
         "spilliaert-woman-shoreline",
         "el-greco-view-of-toledo",
+        "gericault-raft-of-the-medusa",
+        "moreau-apparition",
         "rembrandt-prodigal-son",
         "velazquez-las-meninas",
         "matejko-stanczyk",
@@ -529,6 +567,7 @@
         "rembrandt-night-watch",
         "vigee-lebrun-madame-grand",
         "waterhouse-lady-shalott",
+        "draper-lament-icarus",
         "fragonard-swing",
         "rubens-st-francis-xavier",
         "vermeer-pearl-earring",
@@ -625,6 +664,7 @@
         "hokusai-umezawa",
         "whistler-falling-rocket",
         "dore-fall-of-satan",
+        "dore-flood",
         "dore-wolves-sheep",
         "dore-leviathan",
         "dore-paradise-lost-book-vi",
@@ -1662,7 +1702,7 @@
       "type" : "boolean"
     },
     "diff.wordDiffs" : {
-      "default" : true,
+      "default" : false,
       "description" : "diff.wordDiffs",
       "title" : "Highlight Word Changes",
       "type" : "boolean"
@@ -2357,16 +2397,6 @@
       "title" : "Open Links and Files",
       "type" : "string"
     },
-    "layout.mainPane" : {
-      "default" : "agent-chats",
-      "description" : "Agent Chats keeps an agent chat as the main pane: links, files, subagents and side chats it opens appear as tabs in a column on its right, and closing that column gives the chat its full width back.",
-      "enum" : [
-        "agent-chats",
-        "off"
-      ],
-      "title" : "Main Pane",
-      "type" : "string"
-    },
     "layout.minimumPaneHeight" : {
       "default" : 64,
       "description" : "layout.minimumPaneHeight",
@@ -2775,17 +2805,6 @@
       },
       "title" : "Quiet Hours",
       "type" : "object"
-    },
-    "notifications.showPreviews" : {
-      "default" : "whenUnlocked",
-      "description" : "Whether a banner shows what the agent said, or only where and what state.",
-      "enum" : [
-        "always",
-        "whenUnlocked",
-        "never"
-      ],
-      "title" : "Show Message in Banners",
-      "type" : "string"
     },
     "notifications.sound" : {
       "default" : "default",
@@ -3395,12 +3414,6 @@
       "title" : "Show All Chats on New Tab",
       "type" : "boolean"
     },
-    "sidebar.showLocalMachine" : {
-      "default" : false,
-      "description" : "With workspaces on more than one computer, a workspace on another computer shows that computer's icon in its color. On, this Mac's workspaces show its icon too.",
-      "title" : "Mark This Mac's Workspaces",
-      "type" : "boolean"
-    },
     "sidebar.showProfileControl" : {
       "default" : true,
       "description" : "sidebar.showProfileControl",
@@ -3995,10 +4008,9 @@
       "type" : "string"
     },
     "tabs.newTabTemplate" : {
-      "default" : "minimal",
+      "default" : "cards",
       "description" : "The layout of the New Tab page. Terminal skips the page and opens a terminal. The dots at the bottom of the page also change it.",
       "enum" : [
-        "minimal",
         "cards",
         "default",
         "composer",
@@ -4009,36 +4021,6 @@
       ],
       "title" : "New Tab Template",
       "type" : "string"
-    },
-    "tabs.newTabWidgets.actions" : {
-      "default" : false,
-      "description" : "Chats that need you, and New Terminal, New Browser Tab and New Chat.",
-      "title" : "Show Quick Actions on New Tab",
-      "type" : "boolean"
-    },
-    "tabs.newTabWidgets.chats" : {
-      "default" : false,
-      "description" : "Your recent chats under the composer. The palette finds any chat.",
-      "title" : "Show Recent Chats on New Tab",
-      "type" : "boolean"
-    },
-    "tabs.newTabWidgets.greeting" : {
-      "default" : true,
-      "description" : "A short greeting over the composer.",
-      "title" : "Show Greeting on New Tab",
-      "type" : "boolean"
-    },
-    "tabs.newTabWidgets.projects" : {
-      "default" : false,
-      "description" : "A card of this Mac and its recent projects over the composer.",
-      "title" : "Show Projects on New Tab",
-      "type" : "boolean"
-    },
-    "tabs.newTabWidgets.styleDots" : {
-      "default" : false,
-      "description" : "Dots under the page that switch its template.",
-      "title" : "Show Template Dots on New Tab",
-      "type" : "boolean"
     },
     "tabs.overflow" : {
       "default" : "shrink",
@@ -4090,6 +4072,18 @@
       },
       "title" : "Tab Bar Buttons",
       "type" : "array"
+    },
+    "tabs.verticalTabs" : {
+      "default" : false,
+      "description" : "Show every workspace's tabs as a list beside its panes instead of a strip above them. Turn vertical tabs on or off for one workspace from its tab bar's menu.",
+      "title" : "Use Vertical Tabs for All Workspaces",
+      "type" : "boolean"
+    },
+    "tabs.verticalTabsExpandOnHover" : {
+      "default" : true,
+      "description" : "When the vertical tab list is collapsed to icons, show the titles while the pointer is over it.",
+      "title" : "Expand Collapsed Vertical Tabs on Hover",
+      "type" : "boolean"
     },
     "tasks.layout" : {
       "default" : "inbox",
@@ -4271,22 +4265,6 @@
       "title" : "Download Updates Automatically",
       "type" : "boolean"
     },
-    "updates.idleInstallMaxWaitSeconds" : {
-      "default" : 900,
-      "description" : "A downloaded nightly installs by itself once agents and commands finish and you stop typing, and never waits longer than this. Terminals and agents carry on after the restart.",
-      "maximum" : 7200,
-      "minimum" : 60,
-      "title" : "Install Within",
-      "type" : "number"
-    },
-    "updates.idleInstallQuietSeconds" : {
-      "default" : 60,
-      "description" : "How long the keyboard and mouse must be idle before a downloaded nightly installs by itself.",
-      "maximum" : 600,
-      "minimum" : 5,
-      "title" : "Quiet Time Before Installing",
-      "type" : "number"
-    },
     "updates.installOnQuit" : {
       "default" : true,
       "description" : "A downloaded update installs as cmux quits. Terminals keep running.",
@@ -4328,17 +4306,6 @@
       "title" : "Show What's New After Updates",
       "type" : "boolean"
     },
-    "updates.web" : {
-      "default" : "every-merge",
-      "description" : "Every Merge: changes to the web UI arrive minutes after they land, without waiting for the next app update. Off: the web UI this app shipped with.",
-      "enum" : [
-        "every-merge",
-        "nightly",
-        "off"
-      ],
-      "title" : "Web UI Updates",
-      "type" : "string"
-    },
     "window.titlebar" : {
       "default" : "minimal",
       "description" : "Minimal has no titlebar strip; the top row moves the window.",
@@ -4366,7 +4333,7 @@
       "type" : "boolean"
     },
     "workspaces.newPlacement" : {
-      "default" : "top",
+      "default" : "afterCurrent",
       "description" : "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. Pinned workspaces stay above it.",
       "enum" : [
         "top",

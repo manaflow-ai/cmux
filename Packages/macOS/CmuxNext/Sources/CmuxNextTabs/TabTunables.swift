@@ -108,6 +108,6 @@ public nonisolated enum TabTunables {
          titleFadeWidth, badgeSize, closeMinContentsWidth, titleMinVisibleWidth, scrollFadeWidth,
          separatorHeight, groupChipPadding, groupUnderlineHeight, tearOffDistance, dragStartDistance].map(\.descriptor)
             + [separators.descriptor, separatorOpacity.descriptor, restingControlOpacity.descriptor, groupJoinHysteresis.descriptor, autoscrollGain.descriptor,
-               hoverPreviews.descriptor, loadingAnimation.descriptor]
+               hoverPreviews.descriptor, loadingAnimation.descriptor] + VerticalTabTunables.all
     }
 }

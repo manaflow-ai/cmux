@@ -109,6 +109,8 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     public var machines: [MachineID: SidebarMachine] = [:]
     /// Include tab rows beneath each visible workspace.
     public var showWorkspaceTabs = false
+    /// Workspaces that list their tabs themselves (vertical tabs): no tab rows and no disclosure here.
+    public var inWorkspaceTabs = SidebarInWorkspaceTabs()
     /// With `showWorkspaceTabs`, the workspaces whose disclosure hid their tabs.
     public var collapsedWorkspaces: Set<WorkspaceID> = []
     /// Keep the active workspace visible beneath a collapsed group so the
@@ -215,13 +217,13 @@ nonisolated extension SidebarLayoutOptions {
 
     /// `showWorkspaceTabs` lists every workspace's tabs, except those the user collapsed with the row's disclosure.
     func listsTabs(_ ws: SidebarWorkspace) -> Bool {
-        showWorkspaceTabs && !collapsedWorkspaces.contains(ws.id)
+        showWorkspaceTabs && !collapsedWorkspaces.contains(ws.id) && !inWorkspaceTabs.contains(ws.id)
     }
 
     /// A workspace row's tab disclosure; nil when the list shows no tabs.
     func disclosure(_ ws: SidebarWorkspace) -> SidebarTabDisclosure? {
         guard showWorkspaceTabs else { return nil }
-        if ws.tabs.isEmpty { return .empty }
+        if ws.tabs.isEmpty || inWorkspaceTabs.contains(ws.id) { return .empty }
         return collapsedWorkspaces.contains(ws.id) ? .collapsed : .expanded
     }
 }
