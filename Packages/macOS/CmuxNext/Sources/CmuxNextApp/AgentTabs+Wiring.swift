@@ -1,3 +1,4 @@
+import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDaemon
@@ -157,6 +158,19 @@ extension AgentTabStore {
         tabs.openProcess = { [weak services] chat, viewer in
             guard let services else { return false }
             return AgentProcessTerminal(services: services).open(viewer, beside: chat)
+        }
+        // A chat in a plain split (chat | terminal) gets a tab in the pane already on its right; the
+        // side pane (AgentSidePanes) reuses only a pane it made, so it would make a third split.
+        // A pane of another machine holds no chat of this Mac's acpmux: nothing opens there.
+        tabs.openRight = { [weak services, weak tabs] chat, session in
+            guard let services, let tabs, let (_, pane) = services.locateTab(chat), let source = services.paneController(for: pane) else { return false }
+            return services.linkOpener.open(from: source) { target, placed in
+                guard target.daemon.isLocal else { return false }
+                return tabs.openTab(in: target, session: session, select: placed == nil) { [weak services, weak tabs] key in
+                    if let placed { if let surface = services?.locateTab(key)?.0.surface { placed(surface) }; return }
+                    _ = tabs?.actionRegistry?.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: key), origin: .user))
+                }
+            }
         }
         tabs.lookup = { [weak services] key in
             guard let services, let (tab, _) = services.locateTab(key), let record = tab.agentSession else { return nil }
