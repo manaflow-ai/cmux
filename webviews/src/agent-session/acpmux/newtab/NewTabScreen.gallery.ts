@@ -90,8 +90,8 @@ const ambientSnapshot = () => {
   const [first] = snapshot.sessions;
   return {
     ...snapshot,
-    peers: ["cosmic-gray"],
-    peerKinds: { "cosmic-gray": "ssh" as const },
+    peers: ["build-box"],
+    peerKinds: { "build-box": "ssh" as const },
     sessions: first
       ? [...snapshot.sessions, { ...first, sessionId: "cloud-old", hostKind: "cloud" as const, host: "cloud-dev" }]
       : snapshot.sessions,
