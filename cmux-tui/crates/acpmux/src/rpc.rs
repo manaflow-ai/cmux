@@ -260,6 +260,10 @@ pub mod method {
     /// that wait for it, and keep the turn (Send now on a steer, `hub/queue_edit.rs`). Answers
     /// `{interrupted}`, false when no steer waits; an agent without it answers an error.
     pub const MUX_STEP_NOW: &str = "_acpmux/step_now";
+    /// To the agent adapter, `{sessionId, promptId}`: take back that prompt's steer while the
+    /// agent has not read it (the X on a waiting steer, `hub/queue_edit.rs` `withdraw`). Answers
+    /// `{withdrawn}`, false once it was read; an agent without it answers an error.
+    pub const MUX_STEER_WITHDRAW: &str = "_acpmux/steer_withdraw";
     /// An agent message's sender takes it back (`hub/withdraw.rs`).
     pub const MUX_PROMPT_WITHDRAW: &str = "_acpmux/prompt_withdraw";
     /// `acpmux send --no-wait`: queue a prompt for this daemon to deliver (`hub/outbox.rs`).
