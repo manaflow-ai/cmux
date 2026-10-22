@@ -163,7 +163,11 @@ async function mount({ harness, family, model = "claude-opus-5-5", effort = "med
       catalog: [{ id: harness, name: "Claude Code", family, models: CLAUDE_CODE_MODELS }],
       summary: { sessionId: "s1", harness, family, model: state.model, turnCount: 12, configOptions },
     } as unknown as Snapshot;
-    const picker = usePickerCatalog(snapshot.catalog, { harness, configOptions }, snapshot.sessions);
+    const picker = usePickerCatalog(
+      snapshot.catalog,
+      { harness, model: state.model, configOptions },
+      snapshot.sessions,
+    );
     return (
       <ComposerPickers
         snapshot={snapshot}

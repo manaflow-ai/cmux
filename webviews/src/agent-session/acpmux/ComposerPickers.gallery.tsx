@@ -187,7 +187,11 @@ function GalleryComposerPickers({ claude }: Props) {
         ? buildPickerCatalog({
             catalog: BUNDLED_MODEL_CATALOG,
             acpmux: snapshot.catalog,
-            session: { harness: "claude-sr2", configOptions: snapshot.summary?.configOptions },
+            session: {
+              harness: "claude-sr2",
+              model: snapshot.summary?.model,
+              configOptions: snapshot.summary?.configOptions,
+            },
           })
         : undefined,
     [claude, snapshot],

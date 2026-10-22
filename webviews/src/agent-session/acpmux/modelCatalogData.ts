@@ -478,8 +478,13 @@ function foldAliases(
     }
     // The pinned release the session runs keeps its own id, so its row stays the checked one.
     const alias = takenBy.get(model.id);
-    if (!alias || model.id === current) return [model];
-    return [asAlias(model, alias)];
+    if (!alias) return [model];
+    const row = asAlias(model, alias);
+    if (model.id !== current) return [row];
+    // The running release keeps its own id (so it stays the checked row), with what is declared and
+    // overridden for the alias it stands for: the same model, the same limits.
+    const { release: _release, ...running } = row;
+    return [{ ...running, id: model.id }];
   });
 }
 

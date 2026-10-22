@@ -55,3 +55,28 @@ test("a session reporting the pinned release with no model option keeps that rel
     ids.join(", "),
   ).toHaveLength(1);
 });
+
+// Codex review at 850d3746: the running release took the alias's place but dropped what the user
+// set for the alias, so a chat on Opus 5.5 offered Fast and every effort again.
+test("the running release keeps the folded alias's overrides, and stays the checked row", () => {
+  const models = modelsOf(
+    buildPickerCatalog({
+      catalog: BUNDLED_MODEL_CATALOG,
+      user: { overrides: { "claude-sr2/opus": { fast: false, efforts: ["low"], defaultEffort: "low" } } },
+      acpmux: profile([
+        { id: "opus", name: "Opus 5.5" },
+        { id: "claude-opus-5-5", name: "Opus 5.5" },
+      ]),
+      session: { harness: "claude-sr2", model: "claude-opus-5-5" },
+    }),
+  );
+  const ids = models.map((model) => model.id);
+  const running = models.find((model) => model.id === "claude-opus-5-5");
+  expect(running, ids.join(", ")).toBeDefined();
+  expect(ids, "the alias folds into it").not.toContain("opus");
+  expect({ fast: running!.fast, efforts: running!.efforts, defaultEffort: running!.defaultEffort }).toEqual({
+    fast: false,
+    efforts: ["low"],
+    defaultEffort: "low",
+  });
+});
