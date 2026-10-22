@@ -48,7 +48,10 @@ class Tui:
 
     def render(self):
         lines = list(self.transcript)
-        if self.menu:
+        if self.menu == "late":
+            lines += ["  Hooks need review", "  1 hook is new or changed.", "› 1. Review hooks",
+                      "  2. Trust all and continue", "  enter confirm · esc skip"]
+        elif self.menu:
             lines += ["Do you want to proceed?", "❯ 1. Yes", "  2. No", "Esc to cancel"]
         else:
             lines += [RULE] + [("❯ " if i == 0 else "  ") + l for i, l in enumerate((self.composer or "").split("\n"))] + [RULE]
@@ -59,8 +62,18 @@ class Tui:
             f.write("\n".join(lines) + "\n")
         os.replace(tmp, self.screen_path)
 
+    def hook(self, state):
+        """The cmux agent hook record, as `cmux agent list` reports it."""
+        if not self.a.hook:
+            return
+        with open(os.path.join(self.a.dir, self.a.term + ".hook"), "w") as f:
+            json.dump({"terminal_id": self.a.term, "state": state, "updated_at_ms": int(time.time() * 1000)}, f)
+
     def submit(self, text):
         self.log(ev="submit", text=text)
+        # Codex's hooks report `idle` first and `working` a moment later.
+        self.hook("idle")
+        self.hook_working_at = time.monotonic() + 0.8
         with open(self.submitted, "a") as f:
             f.write(json.dumps({"text": text}) + "\n")
         for i, l in enumerate(text.split("\n")):
@@ -75,14 +88,22 @@ class Tui:
     def tick(self):
         now = time.monotonic()
         changed = False
+        if self.a.late_menu_ms and not getattr(self, "late_shown", False) and (now - self.start) * 1000 >= self.a.late_menu_ms:
+            self.late_shown = True
+            self.menu = "late"
+            changed = True
         if self.pending and now >= self.pending[0]:
             self.composer += self.pending[1]
             self.pending = None
             self.log(ev="paste_rendered")
             changed = True
+        if getattr(self, "hook_working_at", None) and now >= self.hook_working_at:
+            self.hook_working_at = None
+            self.hook("working")
         if getattr(self, "answer_pending", False) and now >= self.busy_until:
             self.answer_pending = False
             self.transcript.append("⏺ READY")
+            self.hook("idle")
             changed = True
         return changed
 
@@ -103,6 +124,10 @@ class Tui:
             return
         i = 0
         while i < len(data):
+            if self.menu == "late" and (data.startswith(b"\x1b[200~", i) or not data.startswith(b"\x1b", i)):
+                self.log(ev="typed_into_menu", byte=data[i:i + 1].decode(errors="replace"))
+                i += 1
+                continue
             if data.startswith(b"\x1b[200~", i):
                 end = data.find(b"\x1b[201~", i)
                 end = len(data) if end < 0 else end
@@ -147,6 +172,8 @@ def main():
     p.add_argument("--ready-ms", type=int, default=0)
     p.add_argument("--busy-ms", type=int, default=800)
     p.add_argument("--ignore-enter", action="store_true")
+    p.add_argument("--hook", action="store_true", help="write a cmux agent hook record")
+    p.add_argument("--late-menu-ms", type=int, default=0, help="show a menu N ms after launch")
     p.add_argument("--prompt", default="")
     a = p.parse_args()
     fifo = os.path.join(a.dir, a.term + ".in")
