@@ -224,6 +224,20 @@ pub async fn reply_to_notification(
         .await?;
     let now_ms = crate::mailbox::now().saturating_mul(1000);
     let program = reply_target(row, &info, now_ms)?;
+    // An agent's notification (a hook on a terminal tab): with `send-expect-agent-v1`
+    // (#24205) one write, text and Return, only while that agent waits at its prompt,
+    // so a Return never lands on an approval dialog. Else, or when this host's policy
+    // does not know the fields yet, the two writes below.
+    if row.get("source").and_then(Value::as_str) == Some("agent") {
+        let identify =
+            lines.call_daemon(&policy, &json!({"id": "mailbox-identify", "cmd": "identify"})).await?;
+        if has_capability(&identify, SEND_EXPECT_AGENT)
+            && let Some(answer) =
+                lines.call_daemon_if_allowed(&policy, &agent_reply_line(found, text, &program)).await?
+        {
+            return failed(&answer).map_or(Ok(()), |why| Err(refused(why)));
+        }
+    }
     for line in terminal_lines(found, text, &program) {
         let answer = lines.call_daemon(&policy, &line).await?;
         if let Some(why) = failed(&answer) {
@@ -301,6 +315,24 @@ pub fn foreground_program(info: &Value) -> Option<String> {
     let executable = data.get("foreground_executable").and_then(Value::as_str)?;
     let base = executable.rsplit('/').next().unwrap_or(executable).trim_start_matches('-');
     (!base.is_empty() && !SHELLS.contains(&base)).then(|| executable.to_owned())
+}
+
+/// The daemon capability of `send` `expect_agent` and `submit` (#24205).
+pub const SEND_EXPECT_AGENT: &str = "send-expect-agent-v1";
+
+/// Whether the daemon's `identify` answer lists `capability`.
+pub fn has_capability(identify: &Value, capability: &str) -> bool {
+    let data = identify.get("data").unwrap_or(identify);
+    data.get("capabilities")
+        .and_then(Value::as_array)
+        .is_some_and(|all| all.iter().any(|c| c.as_str() == Some(capability)))
+}
+
+/// One `send` of a reply to an agent's notification: pasted and submitted only
+/// while the terminal's agent waits at its prompt and `program` holds the terminal.
+pub fn agent_reply_line(surface: u64, text: &str, program: &str) -> Value {
+    json!({"id": "mailbox-agent-reply", "cmd": "send", "surface": surface, "text": text, "paste": true,
+           "submit": true, "expect_agent": {}, "expect_foreground": program})
 }
 
 /// The two `send` lines of a terminal reply: the text pasted, then Return.
@@ -490,6 +522,22 @@ impl Lines {
             .map(|(reply, _)| reply)
     }
 
+    /// `call_daemon`, or `None` when this host's policy refuses the request
+    /// (a field it does not know yet): the caller falls back.
+    async fn call_daemon_if_allowed(
+        &mut self,
+        policy: &DaemonPolicy,
+        request: &Value,
+    ) -> Result<Option<Value>, Rejection> {
+        let line = serde_json::to_vec(request).unwrap_or_default();
+        let line = match policy.evaluate(&line) {
+            Verdict::Forward => line,
+            Verdict::Rewrite(line) => line,
+            Verdict::Refuse(_) => return Ok(None),
+        };
+        self.round_trip(&line, &request["id"]).await.map(Some)
+    }
+
     async fn call_daemon(&mut self, policy: &DaemonPolicy, request: &Value) -> Result<Value, Rejection> {
         let line = serde_json::to_vec(request).unwrap_or_default();
         let line = match policy.evaluate(&line) {
@@ -632,6 +680,24 @@ mod tests {
                                "poster_pid": 10, "poster_executable": "/bin/zsh"});
         let shell = json!({"data": {"foreground_pid": 10, "foreground_executable": "/bin/zsh"}});
         assert!(matches!(reply_target(&shell_row, &shell, NOW_MS), Err(Rejection::Refused(_))));
+    }
+
+    #[test]
+    fn an_agents_notification_uses_expect_agent_where_the_daemon_has_it() {
+        let identify = json!({"id": "x", "ok": true, "data": {"capabilities": ["send-expect-foreground-v1", SEND_EXPECT_AGENT]}});
+        assert!(has_capability(&identify, SEND_EXPECT_AGENT));
+        assert!(!has_capability(
+            &json!({"data": {"capabilities": ["send-expect-foreground-v1"]}}),
+            SEND_EXPECT_AGENT
+        ));
+        let line = agent_reply_line(7, "run the tests", "/usr/local/bin/claude");
+        assert_eq!(line["submit"], true);
+        assert_eq!(line["expect_agent"], json!({}));
+        assert_eq!(line["expect_foreground"], "/usr/local/bin/claude");
+        // `identify` passes this host's policy.
+        let daemon = DaemonPolicy::new("phone-1");
+        let identify = serde_json::to_vec(&json!({"id": "i", "cmd": "identify"})).unwrap();
+        assert!(!matches!(daemon.evaluate(&identify), Verdict::Refuse(_)));
     }
 
     #[test]
