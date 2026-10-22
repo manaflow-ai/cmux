@@ -68,6 +68,21 @@ pub(super) fn paste_image(
 /// `send-expect-foreground-v1`: `send` takes `expect_foreground`.
 pub(super) const SEND_EXPECT_FOREGROUND_CAPABILITY: &str = "send-expect-foreground-v1";
 
+/// `send-expect-agent-v1`: `send` takes `expect_agent` and `submit`, so a reply typed from
+/// somewhere that cannot see the screen (the phone's Feed) reaches only the agent that waits at
+/// its prompt, and is submitted with no gap between the text and Return.
+pub(super) const SEND_EXPECT_AGENT_CAPABILITY: &str = "send-expect-agent-v1";
+
+/// `send` `expect_agent`: the terminal's agent must wait at its prompt (`idle` or `done`, never
+/// `working` or `blocked` on an approval or a question), in this harness session when given.
+#[derive(serde::Deserialize)]
+pub(super) struct ExpectAgent {
+    /// The harness's own session id (`list-agents` `agent_session_id`, the `notification`
+    /// event's `session`): a restarted agent in the same terminal is another session.
+    #[serde(default)]
+    pub(super) session: Option<String>,
+}
+
 /// The params of `send`.
 #[derive(serde::Deserialize)]
 pub(super) struct SendParams {
@@ -89,6 +104,13 @@ pub(super) struct SendParams {
     /// still this one (`process-info`'s `foreground_executable`), checked just before the write.
     #[serde(default)]
     pub(super) expect_foreground: Option<String>,
+    /// `send-expect-agent-v1`: write only while the terminal's agent waits at its prompt,
+    /// checked just before the write with `expect_foreground`.
+    #[serde(default)]
+    pub(super) expect_agent: Option<ExpectAgent>,
+    /// `send-expect-agent-v1`: Return as its own key right after the text, under the same checks.
+    #[serde(default)]
+    pub(super) submit: bool,
 }
 
 pub(super) fn send(
@@ -97,12 +119,21 @@ pub(super) fn send(
     writer: &MessageWriter,
     params: SendParams,
 ) -> anyhow::Result<Value> {
-    let SendParams { surface, terminal_id, text, bytes, paste, expect_foreground } = params;
+    let SendParams {
+        surface,
+        terminal_id,
+        text,
+        bytes,
+        paste,
+        expect_foreground,
+        expect_agent,
+        submit,
+    } = params;
     let surface = match (surface, terminal_id) {
         (Some(surface), None) => surface,
-        (None, Some(_)) if expect_foreground.is_some() => {
+        (None, Some(_)) if expect_foreground.is_some() || expect_agent.is_some() || submit => {
             return Err(DeliveryClassifiedError::known_not_delivered(anyhow::anyhow!(
-                "bad request: expect_foreground needs surface, not terminal_id"
+                "bad request: expect_foreground, expect_agent and submit need surface, not terminal_id"
             )));
         }
         (None, Some(terminal_id)) => {
@@ -132,6 +163,21 @@ pub(super) fn send(
             )));
         }
     }
+    if let Some(expected) = expect_agent {
+        let agent = mux.list_agents(Some(surface.id), None).into_iter().next();
+        let waiting = agent.as_ref().is_some_and(|agent| {
+            matches!(agent.state, crate::AgentState::Idle | crate::AgentState::Done)
+                && expected
+                    .session
+                    .as_deref()
+                    .is_none_or(|session| agent.agent_session_id.as_deref() == Some(session))
+        });
+        if !waiting {
+            return Err(DeliveryClassifiedError::known_not_delivered(anyhow::anyhow!(
+                "agent not waiting: the terminal's agent is working, asking, or another session"
+            )));
+        }
+    }
     if paste {
         let mut payload = text.unwrap_or_default().into_bytes();
         if let Some(b64) = bytes {
@@ -146,6 +192,11 @@ pub(super) fn send(
             let raw = base64::engine::general_purpose::STANDARD.decode(b64)?;
             surface.write_bytes(&raw)?;
         }
+    }
+    if submit {
+        // Return as its own key: a full-screen agent editor reads a pasted newline as a line
+        // break, not a submit.
+        surface.write_bytes(b"\r")?;
     }
     mux.note_terminal_input(surface.id, client);
     Ok(json!({}))
