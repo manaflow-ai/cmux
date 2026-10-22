@@ -102,6 +102,9 @@ type Chat = {
   running?: string;
   /** The profile's model rows as acpmux lists them; PROFILE_MODELS when unset. */
   rows?: { id: string; name: string; release?: string }[];
+  /** The catalogued `claude` profile also reports Claude Code's `opus` as "Opus 5.5": the catalog
+   *  join folds it into Opus 5.5's row, whose own level is Medium. */
+  claudeOpus?: boolean;
 };
 
 async function mount(chat: Chat) {
@@ -116,7 +119,10 @@ async function mount(chat: Chat) {
       id: harness.id,
       name: harness.name,
       family: harness.families[0],
-      models: harness.models.map((model) => ({ id: model.id, name: model.name })),
+      models: [
+        ...(chat.claudeOpus && harness.id === "claude" ? [{ id: "opus", name: "Opus 5.5" }] : []),
+        ...harness.models.map((model) => ({ id: model.id, name: model.name })),
+      ],
     })),
     { id: "claude-sr2", name: "claude-sr2", family: "claude-sr2", models: chat.rows ?? PROFILE_MODELS },
   ] as Snapshot["catalog"];
@@ -295,4 +301,44 @@ test("an alias row that names its release resolves the same way", async () => {
 test("an alias whose release is unknown still names no level, never a guess", async () => {
   await mount({ harness: "claude-sr2", family: "claude-sr2", effort: "default", model: "opus" });
   expect(host.querySelector(".acpmux-model-detail")).toBeNull();
+});
+
+// Codex review of #24376 at 03c55364: another profile's alias is not this chat's. The catalogued
+// `claude` profile reports `opus` as Opus 5.5, so the join folds `opus` into a row whose level is
+// Medium. A claude-sr2 chat on `opus` that names no release, or one the catalog does not know, runs
+// a model nobody here has resolved: its button names no level and its Effort submenu checks none.
+for (const running of ["opus", "claude-opus-9-9"]) {
+  test(`an alias another profile folded does not lend its level (model option ${running})`, async () => {
+    await mount({
+      harness: "claude-sr2",
+      family: "claude-sr2",
+      effort: "default",
+      model: "opus",
+      running,
+      claudeOpus: true,
+    });
+    expect(host.querySelector(".acpmux-model-detail")?.textContent).toBeUndefined();
+    const levels = await openEffort();
+    expect(effortRow()?.querySelector(".acpmux-quick-value")?.textContent).toBeUndefined();
+    expect(checked(levels)).toEqual([]);
+  });
+}
+
+test("with that fold in place, the chat's own resolved release still names its level", async () => {
+  await mount({
+    harness: "claude-sr2",
+    family: "claude-sr2",
+    effort: "default",
+    model: "opus",
+    running: "claude-opus-5-5",
+    claudeOpus: true,
+  });
+  expect(host.querySelector(".acpmux-model-detail")?.textContent).toBe("Medium");
+  const levels = await openEffort();
+  expect(checked(levels)).toEqual(["Medium"]);
+});
+
+test("with that fold in place, a profile chat on the release itself names its level", async () => {
+  await mount({ harness: "claude-sr2", family: "claude-sr2", effort: "default", claudeOpus: true });
+  expect(host.querySelector(".acpmux-model-detail")?.textContent).toBe("Medium");
 });
