@@ -159,6 +159,50 @@ await requireBrowserLane("new-tab-no-entry-menus.test.ts", async () => {
     });
   }
 
+  /// A file dropped on the page: the overlay mounted in `over` turns `landing` (attachmentIntake.tsx
+  /// landDropOverlay), and the sheet flies into the composer. What runs on the sheet and the pill
+  /// once it lands, by animation name.
+  async function landing(page: Page): Promise<{ sheet: string[]; pill: string[] }> {
+    return page.evaluate(async () => {
+      const root = document.getElementById("root")!;
+      root.innerHTML = `<div class="acpmux-drop-overlay" data-phase="over"><div class="acpmux-drop-sheet"><div class="acpmux-drop-pill"><span class="acpmux-drop-mark"></span></div></div></div>`;
+      const overlay = root.querySelector<HTMLElement>(".acpmux-drop-overlay")!;
+      [...root.querySelectorAll<HTMLElement>("*")].map((element) => getComputedStyle(element).animationName).join();
+      // raf-read: reads the running animations, not layout; paint timing does not matter.
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      overlay.dataset.phase = "landing";
+      [...root.querySelectorAll<HTMLElement>("*")].map((element) => getComputedStyle(element).animationName).join();
+      const running = (selector: string) =>
+        document
+          .getAnimations()
+          .filter(
+            (animation) =>
+              (animation.effect as KeyframeEffect | null)?.target === root.querySelector(selector) &&
+              Number(animation.effect?.getComputedTiming().activeDuration ?? 0) >= 1,
+          )
+          .map((animation) => (animation as CSSAnimation).animationName ?? "transition")
+          .sort();
+      return { sheet: running(".acpmux-drop-sheet"), pill: running(".acpmux-drop-pill") };
+    });
+  }
+
+  // The sheet's exit is the page's own: the same with the New Tab's mark as without it (under
+  // Reduce Motion desktop.css cuts it to 0.01ms in either case).
+  for (const reducedMotion of ["no-preference", "reduce"] as const) {
+    test(`on a New Tab, a dropped file's pill does not enter again as the sheet lands (${reducedMotion})`, async () => {
+      const marked = await open(reducedMotion, true);
+      const unmarked = await open(reducedMotion, false);
+      try {
+        const page = await landing(unmarked);
+        if (reducedMotion === "no-preference") expect(page.sheet).toEqual(["acpmux-drop-land"]);
+        expect(await landing(marked)).toEqual({ sheet: page.sheet, pill: [] });
+      } finally {
+        await marked.close();
+        await unmarked.close();
+      }
+    });
+  }
+
   test("on a New Tab, menus, tooltips, dialogs and cards still fade as they close", async () => {
     const page = await open("no-preference", true);
     try {
