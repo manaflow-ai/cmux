@@ -32,6 +32,10 @@ cmux tab tab_… move --workspace ws_… --screen screen_… --pane pane_… --i
 cmux pane flash-focused                            # attention cue (app action)
 ```
 
+## Show UI in a chat reply
+
+Embed screenshots instead of describing a UI change: a cmux chat draws `![alt](/abs/path.png)`, a bare image path, a `file://` URL or an https image address (PR media) as a thumbnail that opens full size on click. Put a before/after pair in one paragraph (`![Before](/tmp/a.png) ![After](/tmp/b.png)`, or `Before: /tmp/a.png` and `After: /tmp/b.png` on two lines) and it draws side by side. `#N`, `owner/repo#N`, `hq#N`, commit SHAs and `path/to/file.ts:42` become links.
+
 ## Which `cmux` to run
 
 Inside a cmux terminal, `$CMUX_BUNDLED_CLI_PATH` is the CLI that ships with the running app. A login shell (`zsh -lc`, which Codex and other agents use) can put an older `cmux` first on `PATH`, for example a `uv tool` or `pipx` install of the PyPI `cmux` package. That CLI can lack verbs such as `browser page`. When a verb or flag that this skill documents is missing, run `"$CMUX_BUNDLED_CLI_PATH"` instead, or define `cmux() { "${CMUX_BUNDLED_CLI_PATH:-cmux}" "$@"; }` once per shell. Do not run `cmux daemon stop` to cure a version mismatch: it stops the user's session.
@@ -62,6 +66,10 @@ cmux notify --title "Review ready" --body "PR #123"    # --desktop false: sideba
 To start another agent on a task and show it, use one command, `acpmux new -n NAME --worktree REPO@BASE --prompt-file BRIEF.md --report-to ME --group G -d` (the `acpmux` skill): it makes the worktree, starts the session, sends the brief and opens its chat in group G; running it again changes nothing.
 
 To open a link, the MCP tool `workspace_open_url` loads it on the workspace's right side, but it navigates a browser tab already there; `cmux browser profile open URL --profile default --background true` (MCP `browser_profile_open` with `activate: false`) adds a tab and keeps the pane's selected tab. `tab focus`, `workspace focus`, `agents tab select` and `focus: true` do move the person's focus: use them only when asked. `current` is the workspace the person looks at, not yours: from a cmux terminal `status set` without a selector targets that terminal's workspace, but an agent chat has no terminal, so name the workspace (`$CMUX_WORKSPACE_ID` when set).
+
+## Asking the person
+
+The person allows tools through the chat's mode and the harness's own permission prompts, never through your questions. A chat in Full access (Claude Code `bypassPermissions`, Codex full access) has already allowed every tool call its harness would ask about. Never ask them to allow, confirm or approve a step, with AskUserQuestion or in text ("allow this?", "should I go ahead?"): decide, say why in one line, and go on. Deciding never widens the task: a step a cmux skill keeps for the person's own request (computer use, importing a browser's cookies, deleting their data) waits for that request, and a cmux consent panel is theirs to answer; leave such a step out and say so. Ask only about product taste you cannot settle from the request or the code (how something should look, read or behave), and ask it as that choice, never as a permission. The cmux MCP server's instructions say the same (`acpmux::agent_tools::ASKING_RULE`).
 
 ## Screenshots of the app
 

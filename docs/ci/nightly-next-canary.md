@@ -135,6 +135,29 @@ gh variable set NIGHTLY_NEXT_CANARY_ENFORCE_AFTER -R manaflow-ai/cmux --body 202
 gh variable delete NIGHTLY_NEXT_CANARY -R manaflow-ai/cmux               # back to auto
 ```
 
+### Release rings: Dev before Nightly
+
+The app's Update Channel setting picks a ring, and each ring accepts its own
+`sparkle:channel` tag and every slower ring's (`UpdateRing.swift`): Dev
+accepts `cmux-next-dev` and `cmux-next`, Nightly and every build from before
+rings accept only `cmux-next`. Sparkle never offers an item whose tag the
+updater does not allow.
+
+Repository variable `NIGHTLY_NEXT_DEV_RING` (`scripts/ci/nightly_next_ring.py`):
+
+| `NIGHTLY_NEXT_DEV_RING` | Effect |
+| --- | --- |
+| `on` | A new build is published as `cmux-next-dev`, so only Dev gets it. It moves to `cmux-next` once its durable verdict (`verdicts/<build>.json`, the one the train uses) is `pass`: `nightly-next-verdict.yml` retags the live feed after each verdict, and `republish-nightly-deltas` tags the earlier builds it lists from the same verdicts. A build the canary failed, skipped or never checked stays on Dev. The old cmux NIGHTLY-identity feed copies only builds already on `cmux-next`. |
+| unset, `off` or anything else | Every item is `cmux-next`, as before rings. The next verdict or publication puts any Dev item back on Nightly. |
+
+With `on`, Nightly gets nothing new while the canary passes no build, so turn
+it on only while the canary passes.
+
+```bash
+gh variable set NIGHTLY_NEXT_DEV_RING -R manaflow-ai/cmux --body on
+gh variable delete NIGHTLY_NEXT_DEV_RING -R manaflow-ai/cmux   # back to one ring
+```
+
 ### Fix-forward
 
 A pull stops a bad build spreading but can't move a Mac that already has it.
