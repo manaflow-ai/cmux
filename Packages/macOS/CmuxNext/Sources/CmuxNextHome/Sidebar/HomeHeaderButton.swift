@@ -112,4 +112,18 @@ final class HomeHeaderButton: NSButton {
         layer.transform = pressed ? shrink : CATransform3DIdentity
         CATransaction.commit()
     }
+
+    #if DEBUG
+    /// `debug.home.sidebar_fixture`: whether the glyph can show (shown, a frame, an image and
+    /// its point size, the tint as sRGB components, the backing layer's drawn contents).
+    var debugState: [String: Any] {
+        let tint = contentTintColor?.usingColorSpace(.sRGB)
+        return ["id": accessibilityIdentifier(), "hidden": isHidden,
+                "frame": [frame.minX, frame.minY, frame.width, frame.height].map(Double.init),
+                "image": image != nil, "glyphSize": Double(glyphSize), "glyph": glyphName,
+                "tint": tint.map { [$0.redComponent, $0.greenComponent, $0.blueComponent, $0.alphaComponent].map(Double.init) } ?? NSNull(),
+                "appearance": effectiveAppearance.name.rawValue,
+                "layerContents": layer?.contents != nil, "needsDisplay": needsDisplay]
+    }
+    #endif
 }
