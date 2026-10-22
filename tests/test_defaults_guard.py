@@ -547,6 +547,34 @@ class SettingsExportStampTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1, result.stdout)
         self.assertNotIn("stale on the base", result.stdout)
 
+    def test_a_base_merge_that_keeps_the_branchs_stamp_is_named_as_the_pull_requests_red(self):
+        """#22762 (10-21): the base changed and restamped Beta; a branch from before it changed Alpha.
+        Merging the base locally with cmux-generated-v1 kept the branch's stamp, so Beta's digest went
+        back to the old one. Beta is a base source and was fresh on the base, so the red read as the
+        base's and the pull request merged with it, putting the old digest back on the base."""
+        self.repo.write(".gitattributes", (ROOT / ".gitattributes").read_text(encoding="utf-8"))
+        self.repo.commit("attributes", snapshot=False)
+        self.repo.git("config", "merge.cmux-generated-v1.driver", "true")
+        self.repo.git("checkout", "-q", "-b", "branch")
+        self.repo.write(f"{SETTINGS_SOURCES}/Alpha.swift", "// alpha, edited on the branch\n")
+        self.export()
+        self.repo.commit("branch", snapshot=False)
+        self.repo.git("checkout", "-q", "main")
+        self.repo.write(f"{SETTINGS_SOURCES}/Beta.swift", "// beta, edited and restamped on the base\n")
+        self.export()
+        base = self.repo.commit("base moves on", snapshot=False)
+        self.repo.git("checkout", "-q", "branch")
+        self.repo.git("-c", "user.name=t", "-c", "user.email=t@t", "merge", "-q", "--no-edit", "main")
+        head = self.repo.git("rev-parse", "HEAD")
+        self.assertEqual(self.repo.guard("check-stamp", "--ref", base).returncode, 0, "the base is fresh")
+        result = self.repo.guard("check-stamp", "--ref", head, "--base", base)
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertNotIn("stale on the base", result.stdout)
+        kept = result.stdout.split("this pull request's red, not the base's", 1)
+        self.assertEqual(len(kept), 2, result.stdout)
+        self.assertIn("Beta.swift", kept[1])
+        self.assertIn("pr-autofix-patch", kept[1])
+
     def test_check_stamp_with_a_base_passes_however_many_sources_the_base_left_stale(self):
         for n in range(25):
             self.repo.write(f"{SETTINGS_SOURCES}/Merged{n:02}.swift", f"// merged {n} without its exports\n")
