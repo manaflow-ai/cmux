@@ -80,7 +80,9 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
   /// leave room for a loaded runner without letting an acpmux round trip through.
   const CACHED_DRAW_FRAMES = 3;
   /// The longest fade a chat read cold may take to show (Leo, 2026-10-21: "a fast fade in"), and
-  /// the frame the fade's end lands on: one dev-bundle frame under a loaded runner.
+  /// the frame the fade's end lands on: one frame late at most, the longest frame the fade spanned
+  /// or FADE_FRAME_SLACK_MS, whichever is more (a dev-bundle frame of 130 ms during a 120 ms fade
+  /// shows its end at 250 ms; the fade's own length is held exactly, from its animation).
   const FADE_MS = 150;
   const FADE_FRAME_SLACK_MS = 50;
   /// How long after a chat draws the sampler watches it for shifts and blank frames.
@@ -299,6 +301,8 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
     drawOpacity: number;
     /// Milliseconds from that frame to the first frame at full opacity (0 when it drew whole).
     fadeMs: number;
+    /// The longest time between two painted frames while the fade ran.
+    fadeFrameMs: number;
     /// Frames where the transcript's opacity went down, or the page's background changed: a flash.
     flashes: number;
     /// What the animations running on the transcript at the draw changed and for how long: a fade
@@ -379,6 +383,8 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
         .join("|");
     let drawOpacity = 1;
     let fadeMs = 0;
+    let fadeFrameMs = 0;
+    let lastFrameAt = 0;
     let flashes = 0;
     let lastOpacity = 1;
     let lastBackdrop = backdrop();
@@ -425,6 +431,7 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
             flashes += 1;
             first ??= { at, opacity: { from: lastOpacity, to: seen } };
           }
+          if (lastOpacity < 0.999) fadeFrameMs = Math.max(fadeFrameMs, at - lastFrameAt);
           if (lastOpacity < 0.999 && seen >= 0.999) fadeMs = at - drawn;
           lastOpacity = seen;
           const covers = coverage();
@@ -450,10 +457,24 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
           before = tops;
           scrollTop = scroller.scrollTop;
         }
+        lastFrameAt = at;
         if (at < limitMs && (drawn === null || at < drawn + settleMs)) return;
         // A fade that never finished inside the window is as long as the window.
         if (drawn !== null && lastOpacity < 0.999) fadeMs = at - drawn;
-        resolve({ drawn, shifted, moved, blank, frames, first, cadence, drawOpacity, fadeMs, flashes, animated });
+        resolve({
+          drawn,
+          shifted,
+          moved,
+          blank,
+          frames,
+          first,
+          cadence,
+          drawOpacity,
+          fadeMs,
+          fadeFrameMs,
+          flashes,
+          animated,
+        });
         return false;
       });
     });
@@ -477,7 +498,8 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
         `frames ${opened.map((entry) => entry.frames).join("/")}, ` +
         `frames to the draw ${opened.map((entry) => entry.cadence.join(",")).join(" | ")}, ` +
         `opacity at the draw ${opened.map((entry) => entry.drawOpacity.toFixed(2)).join("/")}, ` +
-        `fade ${opened.map((entry) => entry.fadeMs.toFixed(0)).join("/")} ms, ` +
+        `fade ${opened.map((entry) => entry.fadeMs.toFixed(0)).join("/")} ms ` +
+        `(longest frame in it ${opened.map((entry) => entry.fadeFrameMs.toFixed(0)).join("/")} ms), ` +
         `flashes ${opened.map((entry) => entry.flashes).join("/")}, ` +
         `animated ${JSON.stringify(opened.map((entry) => entry.animated))}` +
         (opened.some((entry) => entry.first)
@@ -591,7 +613,7 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
         expect(animation.duration).toBeLessThanOrEqual(FADE_MS);
       }
       expect(opened.fadeMs).toBeGreaterThan(0);
-      expect(opened.fadeMs).toBeLessThanOrEqual(FADE_MS + FADE_FRAME_SLACK_MS + slack);
+      expect(opened.fadeMs).toBeLessThanOrEqual(FADE_MS + Math.max(FADE_FRAME_SLACK_MS, opened.fadeFrameMs) + slack);
     }
     // A chat the page holds is whole on the frame it draws: no fade, nothing animating it.
     for (const opened of cached) {
