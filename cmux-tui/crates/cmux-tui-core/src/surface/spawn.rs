@@ -238,6 +238,12 @@ impl Surface {
             return Err(error);
         }
         spawn_frame_producer(&surface, frame_rx)?;
+        // `surface` is the `Surface::Pty` built above; checked once here,
+        // before any thread starts, so no path below can leak one.
+        let Some(pty) = surface.as_pty() else {
+            surface.kill();
+            anyhow::bail!("local PTY spawn built a non-PTY surface");
+        };
 
         // PTY reader: pty bytes -> terminal state -> SurfaceOutput events.
         let reader_thread =
@@ -403,12 +409,6 @@ impl Surface {
                     publish_local_exit_if_ready(&surface);
                 }
             })?;
-        let Some(pty) = surface.as_pty() else {
-            // Unreachable in practice: `surface` is the `Surface::Pty` built
-            // above. Fail the spawn rather than run without a reaper.
-            close_local_terminal_master_after_exit(&surface);
-            anyhow::bail!("local PTY spawn built a non-PTY surface");
-        };
         *pty.reader_thread.lock().recover_poison() = Some(reader_thread);
 
         // Child reaper: retain the native status and rendezvous with PTY EOF

@@ -851,6 +851,11 @@ impl Surface {
         Self::install_deferred_cell_pixel_handler(&surface, &control_responses);
         Self::install_clipboard_read_handler(&surface);
         spawn_frame_producer(&surface, frame_rx)?;
+        // `surface` is the `Surface::Pty` built above; checked before the
+        // reader starts, so its handle is always kept.
+        let Some(pty) = surface.as_pty() else {
+            anyhow::bail!("hosted terminal spawn built a non-PTY surface");
+        };
 
         // Keep exact-child rollback ownership armed through the final thread
         // spawn. If Builder::spawn fails, dropping the closure clone and
@@ -884,11 +889,7 @@ impl Surface {
                 let surface = surface.clone();
                 move || hosted_reader.run(surface, reader)
             })?;
-        // `surface` was built as `Surface::Pty` above, so this always stores
-        // the handle; a browser surface has no reader thread to keep.
-        if let Some(pty) = surface.as_pty() {
-            *pty.reader_thread.lock().recover_poison() = Some(reader_thread);
-        }
+        *pty.reader_thread.lock().recover_poison() = Some(reader_thread);
         let kitty_registration = kitty_reservation.map_or(Ok(()), |reservation| {
             reservation.commit(&surface, snapshot.kitty_state.limits)
         });
