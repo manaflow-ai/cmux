@@ -877,8 +877,10 @@ pub fn place_in_personal_group(daemon: &Path, key: &str, name: &str) -> Result<(
                 params,
                 Some(&format!("optchat-subagent-group-create-{key}")),
             )?;
-            made["id"]
+            // A mutation answers `{value: <the group>, revision, …}`.
+            made["value"]["id"]
                 .as_str()
+                .or_else(|| made["id"].as_str())
                 .ok_or("workspace_group.create named no group")?
                 .to_owned()
         }

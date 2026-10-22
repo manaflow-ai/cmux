@@ -46,7 +46,11 @@ fn serve(
                                 {"id": "grp_user_sidebar", "name": "Sidebar & Tabs", "index": 0, "room_id": "default"}
                             ])),
                             "workspace_group.create" => {
-                                Some(json!({"id": "grp_new", "name": req["params"]["name"]}))
+                                // A mutation answers the group as its `value`.
+                                Some(
+                                    json!({"generation": "g", "replayed": false, "revision": "1",
+                                    "value": {"id": "grp_new", "name": req["params"]["name"], "index": 1}}),
+                                )
                             }
                             "workspace.place" => Some(json!({"group_id": req["params"]["group"]})),
                             _ => None,
