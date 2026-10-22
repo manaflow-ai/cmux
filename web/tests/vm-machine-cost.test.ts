@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { PgDialect } from "drizzle-orm/pg-core";
 import type { SQL } from "drizzle-orm";
 
-import { cloudVmRuntimeIntervals } from "../db/schema";
+import { cloudVmRuntimeIntervals, cloudVms, vmProvider } from "../db/schema";
 import { FREESTYLE_COST_USD, sandboxHourUsd } from "../services/billing/chiefPricing";
 import { readVmRunningSince, vmCostFields, vmHourlyRateUsd } from "../services/vms/machineCost";
 
@@ -87,10 +87,12 @@ describe("readVmRunningSince", () => {
     });
     expect([...since.entries()]).toEqual([["vm-a", new Date(1_000)]]);
     expect(captured.table).toBe(cloudVmRuntimeIntervals);
+    expect(captured.joined).toBe(cloudVms);
     const where = new PgDialect().sqlToQuery(captured.where!);
     expect(where.sql).toContain(`"cloud_vm_runtime_intervals"."ended_at" is null`);
+    expect(where.sql).toContain(`"cloud_vms"."provider" in`);
     expect(where.sql).toContain(`"cloud_vms"."provider_vm_id" in`);
-    expect(where.params).toEqual(["vm-a", "vm-b"]);
+    expect(where.params).toEqual([...vmProvider.enumValues, "vm-a", "vm-b"]);
   });
 
   test("no ids means no query", async () => {

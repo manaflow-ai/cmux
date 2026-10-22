@@ -2,7 +2,7 @@ import { and, eq, inArray, isNull } from "drizzle-orm";
 
 import { cloudDb } from "../../db/client";
 import { runWithCloudDbQuerySignal } from "../../db/queryScope";
-import { cloudVmRuntimeIntervals, cloudVms } from "../../db/schema";
+import { cloudVmRuntimeIntervals, cloudVms, vmProvider } from "../../db/schema";
 import { FREESTYLE_COST_USD, sandboxHourUsd } from "../billing/chiefPricing";
 import type { VmComputeResources } from "./machineSpec";
 
@@ -100,6 +100,9 @@ export async function readVmRunningSince(
         .innerJoin(cloudVms, eq(cloudVms.id, cloudVmRuntimeIntervals.vmId))
         .where(and(
           isNull(cloudVmRuntimeIntervals.endedAt),
+          // The unique (provider, provider_vm_id) index leads with provider;
+          // naming every provider lets the lookup use it instead of a scan.
+          inArray(cloudVms.provider, vmProvider.enumValues),
           inArray(cloudVms.providerVmId, ids),
         )),
     );
