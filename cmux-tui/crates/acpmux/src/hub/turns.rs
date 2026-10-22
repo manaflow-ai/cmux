@@ -283,8 +283,6 @@ impl Hub {
             drop(guard);
             return Err(e);
         }
-        // Its folder back if it is gone, or the one above it (`worktree_care/revive.rs`).
-        self.ready_folder(session, false).await;
         // What its queue entry holds now (`queue_edit.rs` may edit a prompt that waited).
         let (mut blocks, control, trust_gate) = (run.blocks.clone(), run.control, run.trust_gate);
         // A pushed forum rule whose key moved on while it waited tells the current one.
@@ -357,6 +355,13 @@ impl Hub {
             accept(
                 json!({"sessionId": session.id, "promptId": prompt_id, "turnId": turn_id, "queued": false}),
             );
+        }
+        // Its folder back if it is gone, or the one above it (`worktree_care/revive.rs`): once
+        // the turn has started, so a prompt sent meanwhile queues behind this one.
+        if let Err(e) = self.ready_folder(session, false).await {
+            self.fail_unstarted_turn(session, &prompt_id, &turn_id, &e);
+            drop(guard);
+            return Err(e);
         }
         // The prompt is recorded and acknowledged above before the agent is started again (it
         // died, or the daemon restarted), so a client hears prompt_accepted at once.

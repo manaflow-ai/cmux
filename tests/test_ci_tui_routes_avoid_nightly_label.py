@@ -36,6 +36,7 @@ PROMOTE_LABEL = "glaeda-promote-trusted-std-xcode-26.6"
 DAEMON_LABEL = "glaeda-daemon-tests-xcode-26.6"
 LIGHT_LABEL = "glaeda-side-light-xcode-26.6"
 PIN_LABEL = "glaeda-pin-daemon-xcode-26.6"
+LINUX_DAEMON_LABEL = "blacksmith-16vcpu-ubuntu-2404"
 PIN_REF = "refs/heads/cmux-tui-pin-0123456789ab"
 
 # The repository's variables as of 2026-10-14 (gh variable list), the ones
@@ -195,10 +196,11 @@ def test_daemon_tests_stay_on_the_owned_minis_on_every_attempt() -> None:
             ):
                 assert label == PROMOTE_LABEL, where
                 continue
-            # 2026-10-21: a cmux-tui-pin-* push takes its own pool, else the
-            # light minis, on every attempt; never the side lane.
+            # 2026-10-21: a cmux-tui-pin-* push takes its own pool, else
+            # Blacksmith Linux, on every attempt; never the side lane
+            # (tests/test_cmux_tui_daemon_tests_linux.py).
             if context["github.event_name"] == "push" and context["github.ref"] == PIN_REF:
-                assert label == (LIGHT_LABEL if owned == "1" else "blacksmith-6vcpu-macos-15"), where
+                assert label == LINUX_DAEMON_LABEL, where
                 continue
             if owned != "1" or context["github.event_name"] not in trusted:
                 assert label == "blacksmith-6vcpu-macos-15", where
@@ -218,19 +220,19 @@ def test_daemon_tests_stay_on_the_owned_minis_on_every_attempt() -> None:
 
 def test_pin_pushes_while_promotion_shares_the_light_minis() -> None:
     # The landing state (claude-sr2, 2026-10-21): CI_PIN_DAEMON_POOL unset and
-    # CI_NEXT_DAEMON_POOL naming the light minis. Pins take the light minis on
-    # every attempt; a pin pool naming the promotion's pool or the side lane is
-    # ignored for the light minis.
+    # CI_NEXT_DAEMON_POOL naming the light minis. Pins take Linux on every
+    # attempt; a pin pool naming the promotion's pool or the side lane is
+    # ignored for Linux.
     runs_on = load("cmux-tui-artifacts.yml")["jobs"]["cmux-next-daemon-tests"]["runs-on"]
     for pin in ("", LIGHT_LABEL, SIDE_LABEL):
         for context in contexts(CI_NEXT_DAEMON_POOL=LIGHT_LABEL, CI_PIN_DAEMON_POOL=pin):
             if (context["github.repository_owner"], context["github.event_name"], context["github.ref"]) == (
                     "manaflow-ai", "push", PIN_REF):
-                assert route(runs_on, context) == LIGHT_LABEL, (pin, context["github.run_attempt"])
+                assert route(runs_on, context) == LINUX_DAEMON_LABEL, (pin, context["github.run_attempt"])
     for context in contexts(CI_NEXT_DAEMON_POOL=PIN_LABEL, CI_PIN_DAEMON_POOL=PIN_LABEL):
         if (context["github.repository_owner"], context["github.event_name"], context["github.ref"]) == (
                 "manaflow-ai", "push", PIN_REF):
-            assert route(runs_on, context) == LIGHT_LABEL, context["github.run_attempt"]
+            assert route(runs_on, context) == LINUX_DAEMON_LABEL, context["github.run_attempt"]
 
 
 def _pin_variable_combinations():

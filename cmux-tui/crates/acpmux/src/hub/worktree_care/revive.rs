@@ -16,10 +16,12 @@
 //! that exists (`cwd_fallback`): its agent starts there, a live one restarted. acpmux never
 //! makes a folder git did not. A remote chain (`remote_origin`) is left as it was: its sandbox
 //! allows writes in its own folder only. Either way the agent's next prompt starts with a line that says
-//! what happened (`[acpmux] your cwd ... was missing; ...`).
+//! what happened (`[acpmux] your cwd ... was missing; ...`). The session never moves to `/`, to
+//! `/Volumes` or to a volume's top folder: the turn fails, saying why, and its queue is held.
 
 use crate::git_state::{GitState, WorktreeOrigin, linked_worktree};
-use crate::hub::{Hub, Session};
+use crate::hub::{Hub, Session, SessionStatus};
+use crate::rpc::RpcError;
 use serde_json::json;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -62,17 +64,17 @@ impl Hub {
         session: &Arc<Session>,
         one: &tokio::sync::Mutex<()>,
         starting: bool,
-    ) {
+    ) -> Result<(), RpcError> {
         let meta = session.meta();
         let cwd = meta.cwd.clone();
         // A remote chain's sandbox allows writes in its folder only: it never moves above it,
         // nor runs git on a repository its agent could have written (`remote_sandbox.rs`).
         if meta.remote_origin {
-            return;
+            return Ok(());
         }
         if tokio::fs::try_exists(&cwd).await.unwrap_or(true) {
             if !starting {
-                return;
+                return Ok(());
             }
             let read = tokio::task::spawn_blocking(move || origin_of(&cwd, &GitState::read(&cwd)));
             if let Ok(Some(found)) = read.await
@@ -81,7 +83,7 @@ impl Hub {
                 session.meta.lock().unwrap_or_else(|e| e.into_inner()).worktree = Some(found);
                 self.save_meta(session);
             }
-            return;
+            return Ok(());
         }
         let _one = one.lock().await;
         let origin = meta.worktree.filter(|w| w.cwd == cwd);
@@ -91,7 +93,7 @@ impl Hub {
             .unwrap_or_else(|e| fallback(&cwd, format!("the recreate stopped: {e}")));
         let shown = cwd.display();
         let notice = match revived {
-            Revived::There => return,
+            Revived::There => return Ok(()),
             Revived::Made(w, from, at) => {
                 let b = &w.branch;
                 let msg = json!({"branch": b, "cwd": cwd, "root": w.root, "from": from, "at": at});
@@ -109,6 +111,14 @@ impl Hub {
                     let msg = json!({"branch": w.branch, "cwd": cwd, "root": w.root, "error": why});
                     self.append(session, "mux", "worktree_recreate_failed", msg);
                 }
+                if bare_root(&to) {
+                    let msg = json!({"cwd": cwd, "to": to, "reason": why});
+                    self.append(session, "mux", "cwd_fallback_refused", msg);
+                    return Err(RpcError::internal(format!(
+                        "your cwd {shown} is missing ({why}) and the folder above it is {}: acpmux runs no agent there; recreate the folder or move the chat",
+                        to.display()
+                    )));
+                }
                 session.meta.lock().unwrap_or_else(|e| e.into_inner()).cwd = to.clone();
                 self.save_meta(session);
                 self.append(
@@ -119,15 +129,39 @@ impl Hub {
                 );
                 // At a turn's start, a live agent still runs in the folder that is gone: it
                 // starts again here. A cold start replaces the agent anyway.
-                if !starting && session.child.lock().await.is_some() {
-                    self.detach_child(session).await;
+                if !starting {
+                    self.stop_agent_keeping_turn(session).await;
                 }
                 format!("{why}; running in {} instead", to.display())
             }
         };
         let notice = format!("[acpmux] your cwd {shown} was missing; {notice}.");
         NOTICES.lock().unwrap_or_else(|e| e.into_inner()).insert(session.id.clone(), notice);
+        Ok(())
     }
+
+    /// `detach_child` but for the turn: the turn starting stays, so a prompt sent meanwhile
+    /// still queues behind it. Idle before the child lock is let go, so the agent's exit reads
+    /// as a stop (`permissions.rs`), not a death to resume.
+    async fn stop_agent_keeping_turn(&self, session: &Arc<Session>) {
+        let mut slot = session.child.lock().await;
+        let Some(child) = slot.take() else {
+            return;
+        };
+        self.revoke_permission_chat(session);
+        self.cancel_pending_permissions(session);
+        child.kill().await;
+        if session.status() != SessionStatus::Closed {
+            self.set_status(session, SessionStatus::Idle);
+        }
+        drop(slot);
+    }
+}
+
+/// A folder no session moves to: the root, `/Volumes`, or a volume's top folder.
+fn bare_root(dir: &Path) -> bool {
+    let volumes = Path::new("/Volumes");
+    dir.parent().is_none() || dir == volumes || dir.parent() == Some(volumes)
 }
 
 /// Brings `cwd` back from its worktree record, else names the folder above it (blocking).
@@ -210,4 +244,24 @@ fn git(common: &Path, args: &[&str]) -> Result<String, String> {
     }
     let err = String::from_utf8_lossy(&out.stderr);
     Err(format!("git {}: {}", args.join(" "), err.trim()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_session_never_moves_to_the_root_or_a_volume_top() {
+        for dir in ["/", "/Volumes", "/Volumes/Work"] {
+            assert!(bare_root(Path::new(dir)), "{dir}");
+        }
+        for dir in ["/Users", "/tmp/x", "/Volumes/Work/repo", "/home/me"] {
+            assert!(!bare_root(Path::new(dir)), "{dir}");
+        }
+        let Revived::Moved(to, _) = fallback(Path::new("/acpmux-never-made/deeper"), "x".into())
+        else {
+            panic!("a missing folder moves");
+        };
+        assert!(bare_root(&to));
+    }
 }

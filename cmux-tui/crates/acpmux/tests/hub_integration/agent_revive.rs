@@ -326,3 +326,35 @@ async fn a_missing_plain_folder_moves_the_session_to_its_parent_and_the_agent_is
     assert_eq!(agent_sid(&hub, &id), sid);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[tokio::test]
+async fn a_prompt_sent_while_a_turn_moves_from_a_missing_folder_queues_behind_it() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let dir = scratch("behind");
+    let folder = dir.join("gone");
+    std::fs::create_dir_all(&folder).unwrap();
+    let s = c.request(method::SESSION_NEW, json!({"cwd": folder, "mcpServers": []})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let sid = agent_sid(&hub, &id);
+    c.request(method::SESSION_PROMPT, prompt(&id, "hello", None)).await.unwrap();
+    // The agent is live when its folder goes: the next turn restarts it in the folder above.
+    std::fs::remove_dir_all(&folder).unwrap();
+    // Back to back: the second arrives while the first brings its folder back or holds its turn.
+    let first = c.send(method::SESSION_PROMPT, prompt(&id, "[hold]", Some("p-first"))).await;
+    let second = c.send(method::SESSION_PROMPT, prompt(&id, "hello", Some("p-second"))).await;
+    let acc = c.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "p-second").await;
+    assert_eq!(acc["queued"], true, "{:?}", kinds(&hub, &id));
+    let (first, second) = (c.response(first).await.0, c.response(second).await.0);
+    assert!(first.is_ok() && second.is_ok(), "{first:?} {second:?}");
+    let queued = records(&hub, &id, "queued");
+    assert!(queued.iter().any(|q| q["promptId"] == "p-second"), "{queued:?}");
+    assert_eq!(prompt_ids(&hub, &id)[1..], [json!("p-first"), json!("p-second")]);
+    let moved = records(&hub, &id, "cwd_fallback");
+    assert_eq!(moved.len(), 1, "{:?}", kinds(&hub, &id));
+    assert_eq!(moved[0]["to"], json!(dir));
+    // The agent it stopped was no death: nothing resumed, and the same conversation loaded.
+    assert!(records(&hub, &id, "auto_resume_scheduled").is_empty(), "{:?}", kinds(&hub, &id));
+    assert_eq!(hub.resolve(&id).unwrap().meta().cwd, dir);
+    assert_eq!(agent_sid(&hub, &id), sid);
+    let _ = std::fs::remove_dir_all(&dir);
+}
