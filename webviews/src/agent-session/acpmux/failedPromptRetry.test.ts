@@ -159,3 +159,22 @@ test("a failed send says one plain sentence by its cause, and keeps the raw erro
     pane.client.close?.();
   }
 });
+
+// The host spends one click's gesture on one session/prompt, so a card's Retry for several failed
+// prompts sends them as one prompt: the texts in order, over the last one's bubble.
+test("Retry on a run of failed prompts sends them again as one prompt", async () => {
+  const pane = await paneWith((attempt) => (attempt <= 3 ? new Error("upstream request failed (502)") : undefined));
+  try {
+    for (const text of ["ship it", "and the tests", "open a PR"]) await pane.client.send(text).catch(() => undefined);
+    const failed = pane.rows().filter((row) => row.kind === "user" && row.failed);
+    expect(failed.map((row) => row.text)).toEqual(["ship it", "and the tests", "open a PR"]);
+    await pane.client.retryPrompts(failed.map((row) => row.id));
+    expect(pane.prompts).toEqual(["ship it", "and the tests", "open a PR", "ship it\n\nand the tests\n\nopen a PR"]);
+    const users = pane.rows().filter((row) => row.kind === "user");
+    expect(users.some((row) => row.failed)).toBe(false);
+    expect(users.filter((row) => row.text === "ship it\n\nand the tests\n\nopen a PR")).toHaveLength(1);
+    expect(users.some((row) => row.text === "and the tests")).toBe(false);
+  } finally {
+    pane.client.close?.();
+  }
+});

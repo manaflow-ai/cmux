@@ -3474,9 +3474,7 @@ export class AcpmuxDirectClient {
         // says just that, not the generic refusal's pick wording (cx-w2p8r).
         if (held && !isTrustRefusal(error))
           this.notice(
-            code === "transport.gesture_required"
-              ? translate("prompt.notSentAgain")
-              : failedSendText(error, false),
+            code === "transport.gesture_required" ? translate("prompt.notSentAgain") : failedSendText(error, false),
           );
         else this.emit();
         throw error;
@@ -3612,6 +3610,29 @@ export class AcpmuxDirectClient {
     } finally {
       this.retriedPrompts.delete(promptId);
     }
+  }
+  /// Retry on a card for a run of prompts that were not sent for one cause (sendFailure.ts). One
+  /// click is one gesture, which the host spends on one `session/prompt`, so the run goes again as
+  /// one prompt: its texts in order, its attachments together, over `anchor`'s row and under its
+  /// prompt id (a trust refusal's kept gesture is bound to that id, heldPrompt.ts). The run's other
+  /// rows go.
+  async retryPrompts(rowIds: readonly string[], ticket?: string, anchor?: string): Promise<string | undefined> {
+    const run = rowIds.filter((id) => this.failedPrompts.has(id));
+    const kept = anchor && run.includes(anchor) ? anchor : run[run.length - 1];
+    if (!kept) return undefined;
+    if (run.length > 1) {
+      const failed = run.map((id) => this.failedPrompts.get(id)!);
+      const into = this.failedPrompts.get(kept)!;
+      for (const id of run) if (id !== kept) this.dropFailedPrompt(id, this.failedPrompts.get(id)?.promptId);
+      this.failedPrompts.set(kept, {
+        input: failed.map((prompt) => prompt.input).join("\n\n"),
+        attachments: failed
+          .flatMap((prompt) => prompt.attachments)
+          .filter((attachment, index, all) => all.findIndex((other) => other.id === attachment.id) === index),
+        ...(into.promptId ? { promptId: into.promptId } : {}),
+      });
+    }
+    return this.retryPrompt(kept, ticket);
   }
   /// Edit on a prompt that was not sent: its row goes and what it held comes back, for the composer.
   takeFailedPrompt(rowId: string): { input: string; attachments: ComposerAttachment[] } | undefined {

@@ -64,7 +64,10 @@ const failed = (id: string, text: string, delivery: Partial<PromptDelivery>): Ac
   error: delivery.reason === "trust.pending" ? translate("prompt.failure.trustPending") : "Not sent: no answer.",
   delivery: { state: "failed", promptId: id, sessionId: "s", sentAt: 0, failedAt: 10, hop: "acpmux", ...delivery },
 });
-const trustPending = { reason: "trust.pending", error: "trust.pending: answer the trust question for the folder first" };
+const trustPending = {
+  reason: "trust.pending",
+  error: "trust.pending: answer the trust question for the folder first",
+};
 
 /// The transcript's failed prompts as App.tsx draws them: each row's DeliveryFailure under the chat's context.
 function transcript(rows: AcpmuxRow[], sends: Omit<FailedSends, "runs">) {
@@ -92,7 +95,7 @@ test("failed prompts in a row with one cause share one card, whose actions name 
     failed("d", "deploy", { code: "timeout", error: "no answer" }),
   ];
   const calls: { name: string; params: Record<string, unknown> }[] = [];
-  const container = await render(transcript(rows, { trustHolds: false }));
+  const container = await render(transcript(rows, {}));
   window.cmuxAcpmuxActions = Object.fromEntries(
     ["chat.retryPrompt", "chat.editFailedPrompt", "chat.removeFailedPrompt"].map((name) => [
       name,
@@ -119,7 +122,10 @@ test("failed prompts in a row with one cause share one card, whose actions name 
 test("a trust failure's card says one plain sentence with Trust folder, and its raw code only under Details", async () => {
   let trusted = 0;
   const container = await render(
-    transcript([failed("a", "ship it", trustPending)], { trustHolds: true, trustFolder: () => (trusted += 1) }),
+    transcript([failed("a", "ship it", trustPending)], {
+      trustBlock: "trust.answerFirst",
+      trustFolder: () => (trusted += 1),
+    }),
   );
   const card = container.querySelector<HTMLElement>(".cv-user__status--failed")!;
   expect(card.querySelector(".cv-user__failure-text")!.textContent).toBe("Not sent until you trust this folder.");
@@ -134,9 +140,10 @@ test("a trust failure's card says one plain sentence with Trust folder, and its 
 
 test("Retry waits while the folder's trust question is open, and comes back once it is answered", async () => {
   const rows = [failed("a", "ship it", trustPending)];
-  const container = await render(transcript(rows, { trustHolds: true, trustFolder: () => undefined }));
+  const container = await render(transcript(rows, { trustBlock: "trust.answerFirst", trustFolder: () => undefined }));
   expect(button(container, "Retry")!.disabled).toBe(true);
-  await act(async () => root!.render(transcript(rows, { trustHolds: false })));
+  expect(button(container, "Retry")!.title).toBe("Answer the trust question first");
+  await act(async () => root!.render(transcript(rows, {})));
   expect(button(container, "Retry")!.disabled).toBe(false);
   // Trusted: nothing left to fix.
   expect(button(container, "Trust folder")).toBeUndefined();
@@ -144,7 +151,7 @@ test("Retry waits while the folder's trust question is open, and comes back once
   await act(async () =>
     root!.render(
       transcript([failed("b", "deploy", { code: "timeout", error: "no answer" })], {
-        trustHolds: true,
+        trustBlock: "trust.answerFirst",
         trustFolder: () => undefined,
       }),
     ),

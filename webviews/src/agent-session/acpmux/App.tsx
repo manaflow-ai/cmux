@@ -4121,13 +4121,14 @@ function AcpmuxPane() {
   const trustNow = useRef(trustAsk.trust);
   trustNow.current = trustAsk.trust;
   const canTrustFolder = answersTrust && !trustAsk.trusted && trustAsk.ask?.state !== "remote";
+  const trustBlock = trustAsk.holdsAsks ? trustAsk.blocked?.reason : undefined;
   const failedSends = useMemo<FailedSends>(
     () => ({
       runs,
-      trustHolds: trustAsk.holdsAsks,
+      ...(trustBlock ? { trustBlock } : {}),
       ...(canTrustFolder ? { trustFolder: () => trustNow.current() } : {}),
     }),
-    [runs, trustAsk.holdsAsks, canTrustFolder],
+    [runs, trustBlock, canTrustFolder],
   );
   // A wide pane reserves a right-side summary column; a narrow pane keeps the summary as a
   // popover under the header button so it never covers the composer controls.
@@ -5723,7 +5724,16 @@ function AcpmuxPane() {
               // gesture goes to the trust answer (heldPrompt.ts).
               if (row) {
                 void heldRowPrompt.hold(client.promptDelivery(row)?.promptId);
-                trustRefused.current?.(error, () => void client.retryPrompt(row, heldRowPrompt.take()?.ticket));
+                // After Trust, the row's whole run goes again, as its card's Retry sends it.
+                trustRefused.current?.(
+                  error,
+                  () =>
+                    void client.retryPrompts(
+                      lastFailedRuns.current?.get(row)?.rowIds ?? [row],
+                      heldRowPrompt.take()?.ticket,
+                      row,
+                    ),
+                );
               } else {
                 void heldPrompt.hold();
                 if (!inComposer) restorePrompt(text, attachments);
@@ -5888,11 +5898,8 @@ function AcpmuxPane() {
             ),
           "chat.harness.cancelPrompt": async ({ promptId }) => harnessSwitch.cancelQueued(String(promptId)),
           // A failure card acts on its run of prompts (`rowIds`, in order; sendFailure.ts), else on `rowId`.
-          // Retry sends them again in order; acpmux queues each behind the one before.
-          "chat.retryPrompt": async ({ rowId, rowIds }) => {
-            const sent = await Promise.all(failedRowIds(rowId, rowIds).map((id) => client.retryPrompt(id)));
-            return sent[sent.length - 1];
-          },
+          // Retry sends the run again as one prompt: one click is one gesture (direct.ts `retryPrompts`).
+          "chat.retryPrompt": ({ rowId, rowIds }) => client.retryPrompts(failedRowIds(rowId, rowIds)),
           // Edit on prompts that did not get there: their rows go and the prompts come back to the
           // composer as one, in order, ahead of what is typed there now.
           "chat.editFailedPrompt": async ({ rowId, rowIds }) => {
@@ -6875,7 +6882,9 @@ function AcpmuxPane() {
                                                   reveal={childRows ? undefined : revealRow}
                                                   registry={registry}
                                                   githubRepository={githubRepository}
-                                                  fallbackRepository={pullRequestRef(headerPullRequest?.url ?? "")?.repo}
+                                                  fallbackRepository={
+                                                    pullRequestRef(headerPullRequest?.url ?? "")?.repo
+                                                  }
                                                   // The Quick Composer has no room for the changes view; its file rows stay plain.
                                                   onOpenDiff={quick ? undefined : openDiff}
                                                   onToggleActivity={toggleActivity}

@@ -15,9 +15,9 @@ import { Clock } from "./icons";
 /// folder's trust for a trust failure. Without it each failed prompt has its own card.
 export type FailedSends = {
   runs: ReadonlyMap<string, FailedRun>;
-  /// The folder's trust question is open, or Not now stands: a trust failure's Retry would be
-  /// refused the same way, so it waits.
-  trustHolds: boolean;
+  /// Why the folder's trust holds prompts now (its question is open, or Not now stands): a trust
+  /// failure's Retry would be refused the same way, so it waits and says why.
+  trustBlock?: StringKey;
   /// Trust the chat's folder, when the folder is not trusted and this pane may answer for it.
   trustFolder?: () => void;
 };
@@ -98,7 +98,7 @@ export function DeliveryFailure({ row }: { row: AcpmuxRow }) {
   const rowIds = sends?.runs.get(row.id)?.rowIds ?? [row.id];
   if (rowIds[rowIds.length - 1] !== row.id) return null;
   const trust = isTrustCause(sendCause(delivery));
-  const retryWaits = trust && sends?.trustHolds === true;
+  const retryWaits = trust ? sends?.trustBlock : undefined;
   const fix = trust ? sends?.trustFolder : undefined;
   const act = (name: string) => void window.cmuxAcpmuxActions?.[name]?.({ rowId: row.id, rowIds });
   const codes = [...new Set([delivery?.reason, delivery?.code].filter(Boolean))];
@@ -123,8 +123,8 @@ export function DeliveryFailure({ row }: { row: AcpmuxRow }) {
         <button
           type="button"
           className="cv-user__cancel"
-          disabled={retryWaits}
-          title={retryWaits ? t("trust.answerFirst") : undefined}
+          disabled={retryWaits !== undefined}
+          title={retryWaits && t(retryWaits)}
           onClick={() => act("chat.retryPrompt")}
         >
           {t("turn.retry")}
