@@ -70,15 +70,15 @@ import Testing
         await view.refresh().value
         let rows = view.reactionRows
         #expect(!rows.showsClassifier)
-        #expect(rows.canWake.window == view.window && rows.canWake.superview != nil, "Can Wake shows at once")
-        for field in [rows.harness, rows.model, rows.prompt] { #expect(field.superview == nil, "closed: not in the card") }
+        #expect(rows.canWake.isDescendant(of: view), "Can Wake shows at once")
+        for field in [rows.harness, rows.model, rows.prompt] { #expect(!field.isDescendant(of: view), "closed: not in the card") }
         rows.classifierToggle.performClick(nil)
         #expect(rows.showsClassifier)
-        for field in [rows.harness, rows.model, rows.prompt] { #expect(field.superview != nil, "open: in the card") }
+        for field in [rows.harness, rows.model, rows.prompt] { #expect(field.isDescendant(of: view), "open: in the card") }
         #expect(rows.model.placeholderString?.contains("claude-haiku-5-5") == true, "filled before it opened")
         rows.classifierToggle.performClick(nil)
         #expect(!rows.showsClassifier)
-        for field in [rows.harness, rows.model, rows.prompt] { #expect(field.superview == nil, "closed again") }
+        for field in [rows.harness, rows.model, rows.prompt] { #expect(!field.isDescendant(of: view), "closed again") }
     }
 
     @Test func theSetForwardsTheClassifierFields() {
