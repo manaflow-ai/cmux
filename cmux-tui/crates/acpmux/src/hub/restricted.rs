@@ -262,7 +262,7 @@ fn folder_env(env: &BTreeMap<String, String>, cwd: &Path) -> Result<(), String> 
 }
 
 /// Whether `text` holds the absolute path `folder` whole: not as part of a longer name
-/// (`/a/chat2`) or a deeper path (`/x/a/chat`).
+/// (`/a/chat2`, `/a/chat backup`) or a deeper path (`/x/a/chat`).
 fn holds_path(text: &str, folder: &str) -> bool {
     let folder = folder.trim_end_matches('/');
     let name = |c: char| c.is_alphanumeric() || "._-~+@".contains(c);
@@ -270,18 +270,16 @@ fn holds_path(text: &str, folder: &str) -> bool {
         && text.match_indices(folder).any(|(at, _)| {
             let before = text[..at].chars().next_back();
             let after = text[at + folder.len()..].chars().next();
-            before.is_none_or(|c| !name(c) && c != '/') && after.is_none_or(|c| !name(c))
+            before.is_none_or(|c| !name(c) && c != '/')
+                && after.is_none_or(|c| !name(c) && !c.is_whitespace())
         })
 }
 
-/// Refuses an inherited `ZDOTDIR` (the daemon's or the login shell's, which the spawn hands to
-/// zsh: `login_env::agent_shell_env`) that is relative or inside the chat's folder `cwd`: a zsh
-/// launcher sources the `.zshenv` there before anything asks. Allowed when `cwd` holds the
-/// person's home.
-fn inherited_zdotdir<'v>(
-    values: impl IntoIterator<Item = &'v str>,
-    cwd: &Path,
-) -> Result<(), String> {
+/// Refuses a `ZDOTDIR` zsh could read (the profile's, or the daemon's or the login shell's, which
+/// the spawn hands to the app's zsh agent layer: `login_env::agent_shell_env`) that is relative
+/// or inside the chat's folder `cwd`: a zsh launcher sources the `.zshenv` there before anything
+/// asks. Allowed inside `cwd` when it holds the person's home.
+fn check_zdotdir<'v>(values: impl IntoIterator<Item = &'v str>, cwd: &Path) -> Result<(), String> {
     let cwd = std::fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_path_buf());
     let home = held_home(&cwd);
     for value in values.into_iter().filter(|v| !v.is_empty()) {
@@ -689,13 +687,17 @@ impl Hub {
         launcher(own.first().map_or("", String::as_str)).map_err(refused)?;
         folder_args(own.get(1..).unwrap_or_default(), &meta.cwd).map_err(refused)?;
         folder_env(&profile.env, &meta.cwd).map_err(refused)?;
-        let zdotdir = [
+        let carrier = crate::login_env::AGENT_USER_ZDOTDIR_ENV;
+        let mut zdotdir = vec![
             crate::login_env::var("ZDOTDIR"),
             std::env::var("ZDOTDIR").ok(),
-            std::env::var(crate::login_env::AGENT_USER_ZDOTDIR_ENV).ok(),
+            std::env::var(carrier).ok(),
         ];
-        inherited_zdotdir(zdotdir.iter().flatten().map(String::as_str), &meta.cwd)
-            .map_err(refused)?;
+        for key in ["ZDOTDIR", carrier] {
+            let own = profile.env.get(key).map(|v| env_refs_read(key, v)).transpose();
+            zdotdir.push(own.map_err(refused)?);
+        }
+        check_zdotdir(zdotdir.iter().flatten().map(String::as_str), &meta.cwd).map_err(refused)?;
         let mut plan = command_line(own, plan).map_err(refused)?;
         plan.program = frozen_program(&plan.program, &meta.cwd).map_err(refused)?;
         for &(key, under) in SETTINGS_ROOTS {
@@ -926,18 +928,18 @@ mod tests {
     }
 
     #[test]
-    fn an_inherited_zdotdir_relative_or_in_the_chat_folder_is_refused() {
+    fn a_zdotdir_relative_or_in_the_chat_folder_is_refused() {
         let root = std::env::temp_dir().join(format!("restricted-zdot-{}", std::process::id()));
         let (chat, elsewhere) = (root.join("chat"), root.join("elsewhere"));
         std::fs::create_dir_all(chat.join("dots")).unwrap();
         std::fs::create_dir_all(&elsewhere).unwrap();
         let dots = chat.join("dots").to_string_lossy().into_owned();
-        assert!(inherited_zdotdir(["."], &chat).is_err());
-        assert!(inherited_zdotdir(["zsh"], &chat).is_err());
-        assert!(inherited_zdotdir([dots.as_str()], &chat).is_err());
+        assert!(check_zdotdir(["."], &chat).is_err());
+        assert!(check_zdotdir(["zsh"], &chat).is_err());
+        assert!(check_zdotdir([dots.as_str()], &chat).is_err());
         let theirs = elsewhere.to_string_lossy().into_owned();
-        assert!(inherited_zdotdir(["", theirs.as_str()], &chat).is_ok());
-        assert!(inherited_zdotdir([dots.as_str()], &elsewhere).is_ok());
+        assert!(check_zdotdir(["", theirs.as_str()], &chat).is_ok());
+        assert!(check_zdotdir([dots.as_str()], &elsewhere).is_ok());
         let _ = std::fs::remove_dir_all(&root);
     }
 
