@@ -879,6 +879,17 @@
       "title" : "Interface Size",
       "type" : "number"
     },
+    "appearance.machineColors" : {
+      "default" : {
+
+      },
+      "description" : "The color of each machine's sidebar rows and tab badges, by machine name: \"#RRGGBB\", or an accent name (red, green, yellow, purple, cyan, orange, pink, blue) that follows the theme. A machine without one gets a color from its name.",
+      "properties" : {
+
+      },
+      "title" : "Machine Color",
+      "type" : "object"
+    },
     "appearance.metrics.chromeFontSize" : {
       "description" : "Text size of tabs, the sidebar and other controls. Terminal text has its own size.",
       "maximum" : 16,
@@ -3511,6 +3522,16 @@
       "title" : "Wrap Around",
       "type" : "boolean"
     },
+    "sidebar.style" : {
+      "default" : "standard",
+      "description" : "Rail shrinks the sidebar to a thin strip with a mark for each workspace. Point at the strip to open the full sidebar over your work.",
+      "enum" : [
+        "standard",
+        "rail"
+      ],
+      "title" : "Sidebar Style",
+      "type" : "string"
+    },
     "sidebar.topBandMaxShare" : {
       "default" : 0.3333333333333333,
       "description" : "The share of the sidebar the top sections fill before they scroll.",
@@ -3602,7 +3623,7 @@
       "type" : "boolean"
     },
     "sidebar.workspaceRow.agentStatus" : {
-      "default" : true,
+      "default" : false,
       "description" : "The status agents and hooks report, one line each.",
       "title" : "Agent Status",
       "type" : "boolean"
@@ -3714,7 +3735,7 @@
       "type" : "boolean"
     },
     "sidebar.workspaceRow.log" : {
-      "default" : true,
+      "default" : false,
       "description" : "The newest line agents and scripts log: cmux workspace log append <text>.",
       "title" : "Log",
       "type" : "boolean"

@@ -271,6 +271,7 @@
           "text" : "Updates"
         },
         "trail" : [
+          "webUpdates",
           "channels"
         ]
       },
@@ -461,6 +462,7 @@
               "sidebar.showProfileControl",
               "sidebar.showSearchButton",
               "sidebar.minimal",
+              "sidebar.style",
               "sidebar.density",
               "sidebar.detailedStatusIcons",
               "sidebar.showTimestamps",
@@ -1333,6 +1335,16 @@
             "title" : {
               "key" : "settings.group.messagesServer",
               "text" : "Messages Server"
+            }
+          },
+          {
+            "key" : "settings.group.machineColors",
+            "rows" : [
+              "appearance.machineColors"
+            ],
+            "title" : {
+              "key" : "settings.group.machineColors",
+              "text" : "Machine Colors"
             }
           }
         ],
@@ -5097,6 +5109,68 @@
       "title" : {
         "key" : "settings.phone.cloudReplica",
         "text" : "Show This Mac's Workspaces on Your Phone While It's Off"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        {
+
+        },
+        {
+          "*" : "★",
+          "Work" : ""
+        }
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : {
+
+      },
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.machineColors",
+        "text" : "Machine Colors"
+      },
+      "help" : {
+        "key" : "settings.machines.colors.help",
+        "text" : "The color of each machine's sidebar rows and tab badges, by machine name: \"#RRGGBB\", or an accent name (red, green, yellow, purple, cyan, orange, pink, blue) that follows the theme. A machine without one gets a color from its name."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.machineColors",
+      "keywords" : [
+        "machine",
+        "computer",
+        "server",
+        "ssh",
+        "cloud",
+        "color",
+        "colour",
+        "identity"
+      ],
+      "kind" : "string_map",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "machineColors"
+      ],
+      "refuses" : [
+        "★",
+        [
+
+        ],
+        {
+          "Work" : 1
+        }
+      ],
+      "section" : "machines",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.machines.colors",
+        "text" : "Machine Color"
       },
       "validation" : "portable"
     },
@@ -21500,6 +21574,76 @@
     },
     {
       "accepts" : [
+        "standard",
+        "rail"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.sidebarStandard",
+            "text" : "Standard"
+          },
+          "value" : "standard"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.sidebarRail",
+            "text" : "Rail"
+          },
+          "value" : "rail"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "standard",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.style.help",
+        "text" : "Rail shrinks the sidebar to a thin strip with a mark for each workspace. Point at the strip to open the full sidebar over your work."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.style",
+      "keywords" : [
+        "sidebar",
+        "style",
+        "rail",
+        "thin",
+        "narrow",
+        "minimal",
+        "strip",
+        "hide",
+        "hover",
+        "overlay",
+        "auto hide"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "style"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.style",
+        "text" : "Sidebar Style"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "compact",
         "comfortable",
         "expanded"
@@ -24948,7 +25092,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : true,
+      "default" : false,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.workspaceRows",
@@ -25278,7 +25422,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : true,
+      "default" : false,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.workspaceRows",
@@ -29144,8 +29288,8 @@
       "choices" : [
         {
           "title" : {
-            "key" : "settings.choice.moderate",
-            "text" : "After 1 Hour"
+            "key" : "settings.choice.after30Minutes",
+            "text" : "After 30 Minutes"
           },
           "value" : "moderate"
         },
