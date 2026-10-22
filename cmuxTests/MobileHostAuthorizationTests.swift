@@ -58,6 +58,62 @@ struct MobileHostAuthorizationTests {
         }
     }
 
+    @Test func removingIrohStatusPreservesTheIndependentTailscaleRoute() throws {
+        let tailscale = try CmxAttachRoute(
+            id: "tailscale",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.64.0.7", port: 52_074)
+        )
+        let identity = try CmxIrohPeerIdentity(endpointID: String(repeating: "a", count: 64))
+        MobileHostPublicStatusCache.update(routes: [tailscale])
+        MobileHostPublicStatusCache.update(irohIdentity: identity)
+        MobileHostPublicStatusCache.updateV2DeviceID("iroh-device")
+        defer { MobileHostPublicStatusCache.removeAll() }
+
+        MobileHostPublicStatusCache.removeIroh()
+
+        #expect(MobileHostPublicStatusCache.snapshot() == [tailscale])
+        #expect(MobileHostPublicStatusCache.currentV2DeviceID() == nil)
+    }
+
+    @Test func removingStackBearerConnectionsPreservesIrohSessions() async throws {
+        let registry = MobileHostConnectionRegistry()
+        let stackID = UUID()
+        let irohID = UUID()
+        let stack = MobileHostConnection(
+            id: stackID,
+            transport: RecordingMobileHostByteTransport(),
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { _ in .ok([:]) },
+            onClose: { _ in }
+        )
+        let peer = CmxIrohAdmittedPeer(peer: CmxIrohGrantPeer(
+            bindingID: "123e4567-e89b-42d3-a456-426614174001",
+            deviceID: "123e4567-e89b-42d3-a456-426614174002",
+            tag: "ios-test",
+            platform: .ios,
+            endpointID: try CmxIrohPeerIdentity(endpointID: String(repeating: "b", count: 64)),
+            identityGeneration: 1
+        ))
+        let iroh = MobileHostConnection(
+            id: irohID,
+            transport: RecordingMobileHostByteTransport(),
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { _ in .ok([:]) },
+            onClose: { _ in }
+        )
+        #expect(registry.insert(stack, id: stackID, authorization: .stackBearer, limit: 4))
+        #expect(registry.insert(iroh, id: irohID, authorization: .irohAdmission(peer), limit: 4))
+
+        let removed = registry.removeStackBearerConnections()
+        #expect(removed.map(\.connectionID) == [stackID])
+        #expect(registry.count == 1)
+        for connection in removed { await connection.close(reason: "test") }
+        for connection in registry.removeAll() { await connection.close(reason: "test") }
+    }
+
     @Test func testAttachTicketStoreKeepsMultipleTicketsForSameTerminal() throws {
         let store = MobileAttachTicketStore()
         let route = try CmxAttachRoute(

@@ -50,6 +50,22 @@ struct MobilePairingConnectionTransitionTests {
         }
     }
 
+    @Test func v2FailurePreservesTransportDiagnosis() throws {
+        let status = MobileHostServiceStatus(
+            isRunning: false, port: nil, configuredPort: 58465,
+            usesEphemeralFallback: false, routes: [], activeConnectionCount: 0,
+            lastErrorDescription: "Another cmux instance owns the endpoint"
+        )
+        guard case let .failed(message) = MobilePairingModel.v2StatusTransition(
+            status,
+            baselineConnectionCount: 0
+        ) else {
+            Issue.record("A transport diagnosis must produce a visible failure")
+            return
+        }
+        #expect(message.contains("Another cmux instance owns the endpoint"))
+    }
+
     @Test("Preparation has a cancellable deadline and keeps recovery visible")
     func preparationDeadline() async throws {
         let clock = SidebarTestManualClock()
