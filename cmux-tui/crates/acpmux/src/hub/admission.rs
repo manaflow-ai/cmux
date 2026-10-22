@@ -6,10 +6,13 @@
 //!
 //! - `~/.cache/worktree-reclaim/under-floor`, which worktree-reclaim writes
 //!   while the disk is under its free-space floor: no new session at all;
-//! - `lanes.max_lanes` of this machine in the fleet registry (`FLEET_REGISTRY`,
-//!   else `~/.ssh/config.d/fleet-registry.json`, the copy `reach --install`
-//!   renders): no new session while this host's live sessions (running,
-//!   ready, waiting; a peer's are not counted) are at the cap.
+//! - `lanes.max_lanes` of this machine in the fleet registry: no new session
+//!   while this host's live sessions (running, ready, waiting; a peer's are
+//!   not counted) are at the cap. The registry is `FLEET_REGISTRY` when set,
+//!   else the first that exists of `~/.ssh/config.d/fleet-registry.json` (the
+//!   copy `reach --install` renders) and leo-workspace's own
+//!   `~/Projects/leo-workspace/machines/fleet-registry.json` (a fleet host
+//!   with a checkout and no rendered copy, like cmux16).
 //!
 //! This machine is `FLEET_ORIGIN` when set, else the registry machine whose
 //! name, `aliases` or origin `hostnames` match the host name, as `reach`
@@ -33,7 +36,7 @@ const NO_REGISTRY: &str = "no fleet registry";
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Refusal {
     UnderFloor { flag: PathBuf },
-    MaxLanes { live: usize, max: u64 },
+    MaxLanes { live: usize, max: u64, machine: String, source: PathBuf },
 }
 
 impl Refusal {
@@ -44,19 +47,27 @@ impl Refusal {
         }
     }
 
-    fn error(&self, host: &str) -> RpcError {
+    /// `local`: the caller may learn this host's name and paths (not a Web client).
+    fn error(&self, local: bool) -> RpcError {
+        let host = if local { super::start_gate::host_label() } else { "this machine" };
         let what = match self {
             Self::UnderFloor { flag } => format!(
-                "{host}'s disk is under its free-space floor ({} exists): no new session until worktree-reclaim frees space",
-                flag.display()
+                "{host}'s disk is under its free-space floor ({}): no new session until worktree-reclaim frees space",
+                if local {
+                    format!("{} exists", flag.display())
+                } else {
+                    "worktree-reclaim says so".into()
+                }
             ),
-            Self::MaxLanes { live, max } => format!(
-                "{host} runs {live} of max_lanes {max} live sessions (fleet registry): stop one or start the session on another host"
+            Self::MaxLanes { live, max, machine, source } => format!(
+                "{host} has {live} live sessions, at its cap of {max} (lanes.max_lanes of {machine} in {}): stop one or start the session on another host",
+                if local { source.display().to_string() } else { "the fleet registry".into() }
             ),
         };
         let mut data = json!({"reason": REASON, "why": self.why(), "retryable": true});
-        if let Self::MaxLanes { live, max } = self {
-            (data["live"], data["maxLanes"]) = (json!(live), json!(max));
+        if let Self::MaxLanes { live, max, machine, .. } = self {
+            (data["live"], data["maxLanes"], data["machine"]) =
+                (json!(live), json!(max), json!(machine));
         }
         RpcError::new(-32000, format!("{what}; --force-admit creates it anyway")).with_data(data)
     }
@@ -66,6 +77,8 @@ impl Refusal {
 pub(crate) struct Inputs<'a> {
     pub flag: Option<&'a Path>,
     pub registry: Option<&'a Value>,
+    /// Where the registry was read, for the refusal.
+    pub source: &'a Path,
     pub machine: Option<&'a str>,
     pub live: usize,
 }
@@ -90,8 +103,12 @@ pub(crate) fn check(inputs: &Inputs<'_>) -> (Option<Refusal>, Option<String>) {
     else {
         return (None, Some(format!("no lanes entry with max_lanes for {machine}")));
     };
-    let refusal =
-        (inputs.live as u64 >= max).then_some(Refusal::MaxLanes { live: inputs.live, max });
+    let refusal = (inputs.live as u64 >= max).then(|| Refusal::MaxLanes {
+        live: inputs.live,
+        max,
+        machine: machine.to_owned(),
+        source: inputs.source.to_path_buf(),
+    });
     (refusal, None)
 }
 
@@ -124,11 +141,17 @@ fn user_home() -> Option<PathBuf> {
     std::env::var_os("HOME").filter(|h| !h.is_empty()).map(PathBuf::from)
 }
 
+/// Where this host's fleet registry is (module docs): `FLEET_REGISTRY`, else
+/// the first of the two usual copies that exists.
 fn registry_path() -> Option<PathBuf> {
-    match std::env::var_os("FLEET_REGISTRY").filter(|p| !p.is_empty()) {
-        Some(path) => Some(path.into()),
-        None => user_home().map(|h| h.join(".ssh/config.d/fleet-registry.json")),
+    if let Some(path) = std::env::var_os("FLEET_REGISTRY").filter(|p| !p.is_empty()) {
+        return Some(path.into());
     }
+    let home = user_home()?;
+    [".ssh/config.d/fleet-registry.json", "Projects/leo-workspace/machines/fleet-registry.json"]
+        .iter()
+        .map(|rel| home.join(rel))
+        .find(|p| p.exists())
 }
 
 impl Hub {
@@ -152,14 +175,15 @@ impl Hub {
         let flag = user_home().map(|h| h.join(".cache/worktree-reclaim/under-floor"));
         let live = self.live_sessions();
         let (refusal, uncapped) = tokio::task::spawn_blocking(move || {
-            let registry = registry_path().and_then(|p| match std::fs::read(&p) {
+            let source = registry_path().unwrap_or_default();
+            let registry = match std::fs::read(&source) {
                 Ok(bytes) => serde_json::from_slice::<Value>(&bytes)
-                    .map_err(
-                        |e| tracing::warn!(path = %p.display(), "fleet registry unreadable: {e}"),
-                    )
+                    .map_err(|e| {
+                        tracing::warn!(path = %source.display(), "fleet registry unreadable: {e}")
+                    })
                     .ok(),
                 Err(_) => None,
-            });
+            };
             let origin = std::env::var("FLEET_ORIGIN").ok();
             let machine = registry
                 .as_ref()
@@ -167,6 +191,7 @@ impl Hub {
             check(&Inputs {
                 flag: flag.as_deref(),
                 registry: registry.as_ref(),
+                source: &source,
                 machine: machine.as_deref(),
                 live,
             })
@@ -204,8 +229,7 @@ impl Hub {
             return Ok(());
         }
         tracing::info!(caller = who, why, live, "session/new refused: {refusal:?}");
-        let host = if ask.local { super::start_gate::host_label() } else { "this machine" };
-        Err(refusal.error(host))
+        Err(refusal.error(ask.local))
     }
 }
 
@@ -225,11 +249,17 @@ pub(crate) struct Ask<'a> {
 mod tests {
     use super::*;
 
+    /// The four lane hosts as leo-workspace's registry has them.
     fn registry() -> Value {
         json!({
-            "origins": {"air-blue": {"hostnames": ["air-blue", "air-blue.local", "macbook-air"]}},
+            "origins": {
+                "huge-blue": {"hostnames": ["huge-blue"]},
+                "air-blue": {"hostnames": ["air-blue", "air-blue.local", "macbook-air"]},
+            },
             "machines": {
                 "huge-blue": {"lanes": {"max_lanes": 12}},
+                "cmux16": {"lanes": {"max_lanes": 3}},
+                "big-red": {"lanes": {"max_lanes": 6}},
                 "air-blue": {"aliases": ["macbook-air"], "lanes": {"max_lanes": 3}},
                 "cmux-lawrence": {},
             },
@@ -240,6 +270,8 @@ mod tests {
     fn this_machine_is_found_by_name_alias_or_origin_hostname() {
         let r = registry();
         assert_eq!(machine_of(&r, None, "huge-blue").as_deref(), Some("huge-blue"));
+        assert_eq!(machine_of(&r, None, "cmux16").as_deref(), Some("cmux16"));
+        assert_eq!(machine_of(&r, None, "cmux16.local").as_deref(), Some("cmux16"));
         assert_eq!(machine_of(&r, None, "Air-Blue.local").as_deref(), Some("air-blue"));
         assert_eq!(machine_of(&r, None, "MacBook-Air").as_deref(), Some("air-blue"));
         assert_eq!(machine_of(&r, None, "somewhere-else"), None);
@@ -248,28 +280,55 @@ mod tests {
     }
 
     #[test]
-    fn the_cap_refuses_at_max_lanes_and_the_flag_before_it() {
+    fn each_host_is_capped_at_its_own_max_lanes() {
         let r = registry();
-        let at = |machine: Option<&str>, live| {
-            check(&Inputs { flag: None, registry: Some(&r), machine, live }).0
+        let source = Path::new("/r/fleet-registry.json");
+        let at = |machine: &str, live| {
+            check(&Inputs { flag: None, registry: Some(&r), source, machine: Some(machine), live })
+                .0
         };
-        assert_eq!(at(Some("huge-blue"), 11), None);
-        assert_eq!(at(Some("huge-blue"), 12), Some(Refusal::MaxLanes { live: 12, max: 12 }));
-        assert_eq!(at(Some("cmux-lawrence"), 50), None, "no lanes entry: admitted");
-        assert_eq!(at(None, 50), None, "not a registry machine: admitted");
-        let none = check(&Inputs { flag: None, registry: None, machine: None, live: 99 });
+        let capped = |machine: &str, live, max| {
+            Some(Refusal::MaxLanes { live, max, machine: machine.into(), source: source.into() })
+        };
+        for (machine, max) in [("huge-blue", 12), ("cmux16", 3), ("big-red", 6), ("air-blue", 3)] {
+            assert_eq!(at(machine, max as usize - 1), None, "{machine} under its cap");
+            assert_eq!(at(machine, max as usize), capped(machine, max as usize, max));
+            // Over the cap already (sessions from before the check): still refused, nothing evicted.
+            assert_eq!(at(machine, 16), capped(machine, 16, max));
+        }
+        assert_eq!(at("cmux-lawrence", 50), None, "no lanes entry: admitted");
+        let message = capped("cmux16", 16, 3).unwrap().error(true).message;
+        assert!(
+            message.contains("16 live sessions")
+                && message.contains("cap of 3")
+                && message.contains("lanes.max_lanes of cmux16 in /r/fleet-registry.json"),
+            "the refusal names the count, the cap and where it comes from: {message}"
+        );
+        let web = capped("cmux16", 16, 3).unwrap().error(false).message;
+        assert!(!web.contains("/r/"), "a Web client learns no path: {web}");
+    }
+
+    #[test]
+    fn the_flag_refuses_before_the_cap_and_no_registry_admits() {
+        let r = registry();
+        let source = Path::new("");
+        let none = check(&Inputs { flag: None, registry: None, source, machine: None, live: 99 });
         assert_eq!(none.0, None, "no registry: admitted");
+        let stray =
+            check(&Inputs { flag: None, registry: Some(&r), source, machine: None, live: 99 });
+        assert_eq!(stray.0, None, "not a registry machine: admitted");
         let dir = std::env::temp_dir().join(format!("acpmux-admission-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let flag = dir.join("under-floor");
         std::fs::write(&flag, "").unwrap();
         let (refusal, _) =
-            check(&Inputs { flag: Some(&flag), registry: None, machine: None, live: 0 });
+            check(&Inputs { flag: Some(&flag), registry: None, source, machine: None, live: 0 });
         assert_eq!(refusal, Some(Refusal::UnderFloor { flag: flag.clone() }));
         let missing = dir.join("absent");
         let (refusal, _) = check(&Inputs {
             flag: Some(&missing),
             registry: Some(&r),
+            source,
             machine: Some("huge-blue"),
             live: 0,
         });
