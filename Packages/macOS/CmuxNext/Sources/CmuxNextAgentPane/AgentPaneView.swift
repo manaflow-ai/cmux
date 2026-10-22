@@ -306,6 +306,7 @@ public final class AgentPaneView: NSView {
     public override func layout() {
         super.layout()
         if let page { page.frame = topBar.contentFrame(in: bounds) } else { webView.frame = topBar.contentFrame(in: bounds) }
+        AgentPaneTabRow.cutHoles(in: self) // the page moved with the top bar: its holes follow
         if loadingView.superview === self { loadingView.frame = topBar.contentFrame(in: bounds) }
         redraw.laidOut(self)
     }
