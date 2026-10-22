@@ -1,12 +1,12 @@
-/* The Inspector (ChatInspector.tsx): the chat's right-hand panel. Push (a setting): a column in the shell's
-   flex row beside the chat, which reflows narrower, on the chat's own page surface. Overlay (the default): the
-   same column over the chat's right side as liquid glass (.ui-glass, ui/glass/glass.css), never an opaque fill
-   (Leo: "I don't like the non-glassness"), from under the chat header (--acpmux-inspector-top, the header's
-   height) to the pane's foot: the header's tools, its own toggle among them, stay above it, and like the
-   pushed column it lies beside the composer's right side. Its width comes from the viewer's drag (inline
-   style); it slides in from the right and back out, and the width never animates. Sections are hairline
-   cards a step lighter than the page; rows are 28px;
-   a long list scrolls inside its section. */
+/* The Inspector (ChatInspector.tsx): the chat's right-hand panel, liquid glass in either place (.ui-glass,
+   ui/glass/glass.css), never an opaque fill (Leo: "I don't like the non-glassness"; "glass, never opaque").
+   Push (a setting): a column in the shell's flex row beside the chat, which reflows narrower. Overlay (the
+   default): the same column over the chat's right side, from under the chat header (--acpmux-inspector-top,
+   the header's height) to the pane's foot: the header's tools, its own toggle among them, stay above it,
+   and like the pushed column it lies beside the composer's right side. Its width comes from the viewer's
+   drag (inline style); it slides in from the right and back out, and the width never animates. Sections
+   are hairline cards with no fill of their own, so the glass shows through them (Claude Code's session
+   panel); rows are 28px; a long list scrolls inside its section. */
 .acpmux-chat-inspector {
   position: relative;
   flex: none;
@@ -19,9 +19,12 @@
   font-size: var(--text-control);
   line-height: 18px;
 }
+/* Pushed, its left hairline is the edge, so the glass draws no rim of its own (it would line the pane's
+   top, right and foot too). */
 .acpmux-chat-inspector[data-placement="push"] {
   border-left: var(--cmux-hairline, 0.5px) solid var(--agent-border);
-  background: var(--agent-page-bg);
+  --glass-edge: transparent;
+  --glass-rim: 0;
 }
 .acpmux-chat-inspector[data-placement="overlay"] {
   position: absolute;
@@ -82,8 +85,9 @@
   padding: var(--acpmux-inspector-card-pad);
   border: var(--cmux-hairline, 0.5px) solid var(--agent-border);
   border-radius: var(--acpmux-inspector-card-radius);
-  /* A translucent step over whatever is behind (the glass panel or the page), never a solid card. */
-  background: color-mix(in srgb, var(--agent-text) 4%, transparent);
+  /* Bordered, unfilled: the hairline alone draws the card over the panel's glass (Claude Code's
+     session panel), never a fill, solid or tinted. */
+  background: none;
 }
 /* Every row that takes a click (a section's head, a file or link, a pull request, a task, the
    avatars, a subagent or a started chat) hovers one way: a faint tint of the text over whatever the

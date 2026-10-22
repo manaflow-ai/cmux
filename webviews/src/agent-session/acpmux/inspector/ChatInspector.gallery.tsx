@@ -14,7 +14,7 @@ import { sessionSummary } from "../summary/sessionSummary";
 import { ChatInspector, InspectorPanel, type InspectorPlacement } from "./ChatInspector";
 import { DEFAULT_SECTIONS } from "./inspectorState";
 
-type Props = ComponentProps<typeof ChatInspector> & { placement?: InspectorPlacement };
+type Props = ComponentProps<typeof ChatInspector> & { placement?: InspectorPlacement; transcript?: boolean };
 
 const edit = (path: string, oldText: string | undefined, newText: string) =>
   tool(`Edit ${path}`, "edit", "completed", { diffs: [{ path: `${CWD}/${path}`, oldText, newText }] });
@@ -31,9 +31,39 @@ const local = chat([
 ]);
 const made = sessionSummary(local.rows);
 
-function GalleryInspector({ placement = "overlay", ...props }: Props) {
+/// A busy transcript under the panel (prompts, replies, code), so its glass shows what it lies over.
+const TRANSCRIPT = [
+  "Make the Inspector glass, and its cards bordered with no fill.",
+  "The panel paints the chat's page color, so nothing behind it shows. I'll give it the shared glass and drop the cards' fill.",
+  '<aside className="ui-glass acpmux-chat-inspector">\n  {sections}\n</aside>',
+  "Check it over a long transcript in light and dark.",
+  "Over the transcript the text frosts under the panel and the cards keep only their hairline.",
+  "export const tries = 3;\nexport const backoff = 200;\nexport async function retry() {}",
+];
+function Transcript() {
+  return (
+    <div aria-hidden="true" style={{ position: "absolute", inset: 0, overflow: "hidden", padding: "16px 24px" }}>
+      {[0, 1, 2].flatMap((round) =>
+        TRANSCRIPT.map((line, index) =>
+          index % 3 === 0 ? (
+            <div key={`${round}-${index}`} className="acpmux-user" style={{ margin: "12px 0" }}>
+              <div className="acpmux-user-bubble">{line}</div>
+            </div>
+          ) : (
+            <div key={`${round}-${index}`} className="acpmux-markdown" style={{ margin: "12px 0" }}>
+              {index % 3 === 2 ? <pre>{line}</pre> : <p>{line}</p>}
+            </div>
+          ),
+        ),
+      )}
+    </div>
+  );
+}
+
+function GalleryInspector({ placement = "overlay", transcript = false, ...props }: Props) {
   return (
     <div className="acpmux-shell" style={{ display: "flex", justifyContent: "flex-end", height: "100%" }}>
+      {transcript ? <Transcript /> : null}
       <InspectorPanel width={320} placement={placement}>
         <ChatInspector {...props} />
       </InspectorPanel>
@@ -239,8 +269,12 @@ export default componentEntry<Props>({
       },
     },
     push: {
-      note: "Settings > Agent Chat > Inspector set to Push: the panel sits beside the chat and narrows it, instead of lying over it with a shadow.",
+      note: "Settings > Agent Chat > Inspector set to Push: the panel sits beside the chat and narrows it, instead of lying over it with a shadow. It is glass there too, with its left hairline as its only edge.",
       props: { ...full, placement: "push" },
+    },
+    "glass-over-transcript": {
+      note: "The panel over a busy transcript: liquid glass, never opaque, so the prompts, replies and code under it frost through; its cards are hairline borders with no fill. Under Reduce Transparency the panel is the opaque theme surface.",
+      props: { ...full, transcript: true },
     },
   },
 });
