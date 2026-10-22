@@ -560,7 +560,13 @@ impl Brain {
         self.flush_inbox(id);
     }
 
-    pub(super) fn sub_workspace(&mut self, id: &str, key: String, name: String) {
+    pub(super) fn sub_workspace(
+        &mut self,
+        id: &str,
+        key: String,
+        _ws: Option<String>,
+        name: String,
+    ) {
         let mut shown_session = None;
         let done = if let Some(sub) = self.state.sub_mut(id) {
             sub.workspace = Some(key);

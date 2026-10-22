@@ -14,6 +14,8 @@ struct HomeCmuxAppLinkTests {
         "cmux://chief/2e448bc2/session/01a12408-f0a2",
         "cmux-dev-tag://workspace/ws_0123456789abcdef0123456789abcdef",
         "cmux://workspace/ws_0123456789abcdef0123456789abcdef?machine=machine_0123456789abcdef0123456789abcdef",
+        // A workspace by its key, what `chief peers` showed for a subagent's workspace (a489).
+        "cmux://workspace/66ec22fe-b08e-4cba-b281-b51eb1633b76",
     ])
     func appLinks(_ text: String) {
         #expect(URL(string: text)!.isCmuxAppLink)
@@ -24,7 +26,8 @@ struct HomeCmuxAppLinkTests {
         "cmux://workspace/ws_short", "cmux://workspace/ws_0123456789ABCDEF0123456789ABCDEF",
         "cmux://workspace/ws_0123456789abcdef0123456789abcdef/extra", "cmux://u:p@workspace/ws_0123456789abcdef0123456789abcdef",
         "cmux://workspace/ws_0123456789abcdef0123456789abcdef?x=1", "cmux://auth-callback", "cmuxx://workspace/ws_0123456789abcdef0123456789abcdef",
-        "https://cmux.dev/",
+        "https://cmux.dev/", "cmux://workspace/66ec22fe-b08e-4cba-b281-b51eb1633b7", "cmux://workspace/66ec22feb08e4cbab281b51eb1633b76",
+        "cmux://pane/66ec22fe-b08e-4cba-b281-b51eb1633b76",
     ])
     func notAppLinks(_ text: String) {
         #expect(!URL(string: text)!.isCmuxAppLink)

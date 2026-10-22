@@ -20,6 +20,16 @@ struct CmuxAppLinksTests {
         #expect(link("cmux://workspace/\(ws)")?.url(scheme: scheme)?.absoluteString == "\(scheme)://workspace/\(ws)")
     }
 
+    /// A workspace named by its key (`cmux://workspace/<uuid>`, what `chief peers` showed and
+    /// nightly wrote) opens it from Home too, through `link.open`'s key lookup; only nightly's
+    /// pane and surface forms, which name nothing here, stay out.
+    @Test func aWorkspaceKeyLinkOpensThatWorkspace() {
+        let key = "66ec22fe-b08e-4cba-b281-b51eb1633b76"
+        let uuid = UUID(uuidString: key)!
+        #expect(link("cmux://workspace/\(key)")?.target == .legacyWorkspace(uuid, fallback: nil))
+        #expect(link("cmux://workspace/\(key)/pane/\(key)") == nil)
+    }
+
     @Test func paneTabAndSessionLinksOpenToo() {
         #expect(link("cmux://pane/pane_0123456789abcdef0123456789abcdef")?.target == .pane("pane_0123456789abcdef0123456789abcdef"))
         #expect(link("cmux://tab/tab_0123456789abcdef0123456789abcdef")?.target == .tab("tab_0123456789abcdef0123456789abcdef"))

@@ -580,6 +580,7 @@ fn subagent_asking(h: &mut Harness, workspace: bool) -> String {
         h.brain.step(Input::SubagentWorkspace {
             id: "a1".into(),
             key: "workspace:7".into(),
+            ws: None,
             name: "deploy the docs".into(),
         });
     }
@@ -725,6 +726,7 @@ fn a_prompt_whose_workspace_opens_after_it_asked_waits_for_the_person() {
     h.brain.step(Input::SubagentWorkspace {
         id: "a1".into(),
         key: "workspace:7".into(),
+        ws: None,
         name: "deploy the docs".into(),
     });
     assert!(h.brain.unanswered_permissions().is_empty());
@@ -872,4 +874,44 @@ fn a_turn_that_waits_on_a_permission_nobody_answers_counts_as_idle() {
     h.settle();
     let sends = h.owner.lock().unwrap().sends();
     assert!(sends.iter().any(|(_, text)| text == "done"), "{sends:?}");
+}
+
+/// `peers` names a subagent's workspace by the link that opens it, `cmux://workspace/ws_…` with
+/// its real resource id, never by its key: the Chief turned the key `66ec22fe-b08e-…` into
+/// `cmux://workspace/ws_66ec22feb08e…`, which named no workspace (Lawrence 2026-10-22, a489).
+#[test]
+fn peers_links_a_workspace_by_its_resource_id_never_its_key() {
+    let mut h = harness(None, false, default_script());
+    subagent_asking(&mut h, false);
+    let key = "66ec22fe-b08e-4cba-b281-b51eb1633b76";
+    let peers = |h: &mut Harness| {
+        let (reply, rx) = std::sync::mpsc::channel();
+        h.brain.step(Input::PeerList {
+            caller: "a2".into(),
+            reply,
+        });
+        rx.recv_timeout(Duration::from_secs(5)).unwrap().unwrap()
+    };
+    // Its id is not known yet (an older record, or `locate` failed): no key, nothing to guess from.
+    h.brain.step(Input::SubagentWorkspace {
+        id: "a1".into(),
+        key: key.into(),
+        ws: None,
+        name: "deploy the docs".into(),
+    });
+    let listed = peers(&mut h);
+    assert!(!listed.contains(key), "{listed}");
+    assert!(!listed.contains("ws_66ec22fe"), "{listed}");
+    h.brain.step(Input::SubagentWorkspace {
+        id: "a1".into(),
+        key: key.into(),
+        ws: Some("ws_d8e2e3359e20c03d3c27ceb7f23315af".into()),
+        name: "deploy the docs".into(),
+    });
+    let listed = peers(&mut h);
+    assert!(
+        listed.contains("workspace cmux://workspace/ws_d8e2e3359e20c03d3c27ceb7f23315af"),
+        "{listed}"
+    );
+    assert!(!listed.contains(key), "{listed}");
 }

@@ -824,6 +824,7 @@ impl Spawner {
                 let _ = self.to_brain(Input::SubagentWorkspace {
                     id: id.to_owned(),
                     key,
+                    ws: located.map(|r| r.id),
                     name,
                 });
                 Ok(note)

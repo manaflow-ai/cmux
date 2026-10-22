@@ -153,10 +153,12 @@ pub enum Input {
         id: String,
         prompt_id: String,
     },
-    /// A subagent's cmux workspace exists.
+    /// A subagent's cmux workspace exists: `key` is the key this host chose for it, `ws` its
+    /// public resource id (`ws_…`) when the session daemon named it (`Workspaces::locate`).
     SubagentWorkspace {
         id: String,
         key: String,
+        ws: Option<String>,
         name: String,
     },
     /// A subagent could not start.
@@ -1223,7 +1225,9 @@ impl Brain {
                 self.stop_if_cancelled(&id);
             }
             Input::SubagentTurnStarted { id, prompt_id } => self.sub_turn_started(&id, &prompt_id),
-            Input::SubagentWorkspace { id, key, name } => self.sub_workspace(&id, key, name),
+            Input::SubagentWorkspace { id, key, ws, name } => {
+                self.sub_workspace(&id, key, ws, name)
+            }
             Input::SubagentFailed { id, error } => self.sub_failed(&id, &error),
             Input::SubagentAgentKey { id, key_id } => self.sub_agent_key(&id, key_id),
             Input::AgentKeyRevoked { id } => self.agent_key_revoked(&id),
