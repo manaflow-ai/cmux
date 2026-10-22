@@ -239,6 +239,29 @@ import Testing
         #expect(menu.items[0].isEnabled)
     }
 
+    /// u9786 (2026-10-21): "right click workspace also feels laggy". Theming drew a row view for
+    /// every row of every submenu before the menu showed (Move to Group, More, Move ▸, each choices
+    /// list). A submenu's rows are drawn when it opens; the menu's own rows at once.
+    @Test func aSubmenuDrawsItsRowsOnlyWhenItOpens() throws {
+        let counter = Counter()
+        let menu = Self.menu(counter)
+        let more = NSMenuItem(title: "More", action: nil, keyEquivalent: "")
+        let submenu = NSMenu(title: "More")
+        for index in 0..<150 {
+            let item = NSMenuItem(title: "workspace-\(index)", action: #selector(Counter.fire(_:)), keyEquivalent: "")
+            item.target = counter
+            submenu.addItem(item)
+        }
+        more.submenu = submenu
+        menu.addItem(more)
+        menu.themeRows(in: try Self.accentedScope())
+
+        #expect(menu.items.allSatisfy { $0.view is ThemedMenuRowView }, "the menu's own rows are drawn at once")
+        #expect(submenu.items.allSatisfy { $0.view == nil }, "no submenu row is drawn before it opens")
+        submenu.delegate?.menuNeedsUpdate?(submenu)
+        #expect(submenu.items.allSatisfy { $0.view is ThemedMenuRowView }, "the submenu's rows are drawn as it opens")
+    }
+
     /// A submenu its delegate fills as it opens (Open With ▸) themes the rows it just added.
     @Test func rowsAddedAsASubmenuOpensAreThemed() throws {
         let counter = Counter()
