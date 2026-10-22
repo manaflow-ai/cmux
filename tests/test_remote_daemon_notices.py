@@ -41,7 +41,7 @@ class RemoteDaemonNoticesTest(unittest.TestCase):
         text = rdn.compose(self.modules, "go1.26.8", self.review)
         self.assertIn("Go standard library and runtime (go1.26.8)", text)
         self.assertIn((rdn.TEXTS / "go/LICENSE").read_text(), text)
-        for module in ("github.com/creack/pty v1.1.24", "golang.org/x/sys v0.30.0", "nhooyr.io/websocket v1.8.17"):
+        for module in ("github.com/creack/pty v1.1.24", "golang.org/x/sys v0.44.0", "nhooyr.io/websocket v1.8.17"):
             self.assertIn(module, text)
         self.assertIn("Anmol Sethi", text)
         self.assertIn("Keith Rarick", text)
