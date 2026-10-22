@@ -34,7 +34,7 @@ fn encode_base36(mut n: u64) -> String {
         *slot = if digit < 10 { b'0' + digit } else { b'a' + digit - 10 };
         n /= BASE;
     }
-    String::from_utf8(chars.to_vec()).expect("base36 output is ascii")
+    chars.iter().map(|&byte| char::from(byte)).collect()
 }
 
 #[cfg(test)]

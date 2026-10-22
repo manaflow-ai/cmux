@@ -198,46 +198,44 @@ fn drop_comments(text: &str) -> String {
     let bytes = text.as_bytes();
     let mut output = String::with_capacity(text.len());
     let (mut index, mut start, mut in_string) = (0, 0, false);
-    while index < bytes.len() {
-        let byte = bytes[index];
+    while let Some(&byte) = bytes.get(index) {
         if in_string {
             match byte {
-                b'\\' => index += 2,
+                b'\\' => index = index.saturating_add(2),
                 b'"' => {
                     in_string = false;
-                    index += 1;
+                    index = index.saturating_add(1);
                 }
-                _ => index += 1,
+                _ => index = index.saturating_add(1),
             }
             continue;
         }
-        match (byte, bytes.get(index + 1)) {
+        match (byte, bytes.get(index.saturating_add(1))) {
             (b'"', _) => {
                 in_string = true;
-                index += 1;
+                index = index.saturating_add(1);
             }
             (b'/', Some(b'/')) => {
-                output.push_str(&text[start..index]);
-                while index < bytes.len() && bytes[index] != b'\n' {
-                    index += 1;
-                }
+                output.push_str(text.get(start..index).unwrap_or_default());
+                index = bytes
+                    .get(index..)
+                    .and_then(|rest| rest.iter().position(|byte| *byte == b'\n'))
+                    .map_or(bytes.len(), |offset| index.saturating_add(offset));
                 start = index;
             }
             (b'/', Some(b'*')) => {
-                output.push_str(&text[start..index]);
-                index += 2;
-                while index < bytes.len()
-                    && !(bytes[index] == b'*' && bytes.get(index + 1) == Some(&b'/'))
-                {
-                    index += 1;
-                }
-                index = (index + 2).min(bytes.len());
+                output.push_str(text.get(start..index).unwrap_or_default());
+                let body = index.saturating_add(2);
+                index = bytes
+                    .get(body..)
+                    .and_then(|rest| rest.windows(2).position(|pair| pair == b"*/"))
+                    .map_or(bytes.len(), |offset| body.saturating_add(offset).saturating_add(2));
                 start = index;
             }
-            _ => index += 1,
+            _ => index = index.saturating_add(1),
         }
     }
-    output.push_str(&text[start.min(bytes.len())..]);
+    output.push_str(text.get(start..).unwrap_or_default());
     output
 }
 
@@ -246,16 +244,15 @@ fn drop_trailing_commas(text: &str) -> String {
     let bytes = text.as_bytes();
     let mut output = String::with_capacity(text.len());
     let (mut index, mut start, mut in_string) = (0, 0, false);
-    while index < bytes.len() {
-        let byte = bytes[index];
+    while let Some(&byte) = bytes.get(index) {
         if in_string {
             match byte {
-                b'\\' => index += 2,
+                b'\\' => index = index.saturating_add(2),
                 b'"' => {
                     in_string = false;
-                    index += 1;
+                    index = index.saturating_add(1);
                 }
-                _ => index += 1,
+                _ => index = index.saturating_add(1),
             }
             continue;
         }
@@ -263,16 +260,20 @@ fn drop_trailing_commas(text: &str) -> String {
             in_string = true;
         } else if byte == b','
             && matches!(
-                bytes[index + 1..].iter().find(|byte| !byte.is_ascii_whitespace()),
+                bytes
+                    .get(index.saturating_add(1)..)
+                    .unwrap_or_default()
+                    .iter()
+                    .find(|byte| !byte.is_ascii_whitespace()),
                 Some(b'}' | b']')
             )
         {
-            output.push_str(&text[start..index]);
-            start = index + 1;
+            output.push_str(text.get(start..index).unwrap_or_default());
+            start = index.saturating_add(1);
         }
-        index += 1;
+        index = index.saturating_add(1);
     }
-    output.push_str(&text[start.min(bytes.len())..]);
+    output.push_str(text.get(start..).unwrap_or_default());
     output
 }
 

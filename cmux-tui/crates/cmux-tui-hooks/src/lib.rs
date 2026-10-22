@@ -675,8 +675,10 @@ fn run_with_context(plan: &Plan, context: &Context) -> RunResult {
         "skipped":skipped,
         "errors":errors,
     });
-    if plan.action != Action::Uninstall {
-        value["activation"] = Value::String(ACTIVATION_NOTE.into());
+    if plan.action != Action::Uninstall
+        && let Some(object) = value.as_object_mut()
+    {
+        object.insert("activation".into(), Value::String(ACTIVATION_NOTE.into()));
     }
     RunResult { failed: !errors.is_empty(), value }
 }
@@ -896,7 +898,15 @@ fn read_hermes_output(mut pipe: impl Read + AsRawFd, deadline: Instant) -> io::R
         match pipe.read(&mut chunk) {
             Ok(0) => return Ok(bytes),
             Ok(count) => {
-                bytes.extend_from_slice(&chunk[..count]);
+                // `Read::read` reports at most `chunk.len()` bytes; an
+                // out-of-contract count is a reader bug, not data.
+                let Some(read) = chunk.get(..count) else {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "Hermes output reader reported more bytes than its buffer",
+                    ));
+                };
+                bytes.extend_from_slice(read);
                 if bytes.len() as u64 > HERMES_COMMAND_OUTPUT_BYTES {
                     return Err(io::Error::new(
                         io::ErrorKind::InvalidData,
@@ -969,11 +979,11 @@ impl HermesReapState {
     fn reap(&self) {
         #[cfg(unix)]
         if let Some(child_exit) =
-            self.child_exit.lock().expect("Hermes exit observer mutex poisoned").take()
+            self.child_exit.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take()
         {
             child_exit.finish();
         }
-        let child = self.child.lock().expect("Hermes reaper mutex poisoned").take();
+        let child = self.child.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
         if let Some(mut child) = child {
             let _ = child.wait();
         }
@@ -982,8 +992,8 @@ impl HermesReapState {
     fn handoff_reap(&self) {
         #[cfg(unix)]
         let child_exit =
-            self.child_exit.lock().expect("Hermes exit observer mutex poisoned").take();
-        let child = self.child.lock().expect("Hermes reaper mutex poisoned").take();
+            self.child_exit.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
+        let child = self.child.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
 
         #[cfg(unix)]
         if let Some(child_exit) = child_exit {
@@ -1020,14 +1030,12 @@ fn spawn_hermes_reaper(state: Arc<HermesReapState>) -> io::Result<()> {
 fn cleanup_hermes_start_failure(
     child: &mut Child,
     tree: &mut UnixProcessScope,
-    child_exit: &mut Option<UnixChildExitSignal>,
+    child_exit: UnixChildExitSignal,
     reader: Option<HermesOutputReader>,
 ) {
     tree.terminate();
     let _ = child.kill();
-    if let Some(child_exit) = child_exit.take() {
-        child_exit.finish();
-    }
+    child_exit.finish();
     let _ = child.wait();
     if let Some(reader) = reader {
         let _ = reader.join();
@@ -1078,8 +1086,8 @@ fn run_hermes_command_with_timeout(
         return Err(error).context("track Hermes process scope");
     }
     #[cfg(unix)]
-    let mut child_exit = match UnixChildExitSignal::observe(child.id()) {
-        Ok(child_exit) => Some(child_exit),
+    let child_exit = match UnixChildExitSignal::observe(child.id()) {
+        Ok(child_exit) => child_exit,
         Err(error) => {
             tree.terminate_until(deadline);
             let _ = child.kill();
@@ -1100,7 +1108,7 @@ fn run_hermes_command_with_timeout(
         Some(stdout) => stdout,
         None => {
             #[cfg(unix)]
-            cleanup_hermes_start_failure(&mut child, &mut tree, &mut child_exit, None);
+            cleanup_hermes_start_failure(&mut child, &mut tree, child_exit, None);
             #[cfg(windows)]
             cleanup_hermes_start_failure(&mut child, &job, None);
             anyhow::bail!("Hermes stdout pipe is unavailable");
@@ -1110,7 +1118,7 @@ fn run_hermes_command_with_timeout(
         Some(stderr) => stderr,
         None => {
             #[cfg(unix)]
-            cleanup_hermes_start_failure(&mut child, &mut tree, &mut child_exit, None);
+            cleanup_hermes_start_failure(&mut child, &mut tree, child_exit, None);
             #[cfg(windows)]
             cleanup_hermes_start_failure(&mut child, &job, None);
             anyhow::bail!("Hermes stderr pipe is unavailable");
@@ -1123,7 +1131,7 @@ fn run_hermes_command_with_timeout(
         Ok(stdout) => stdout,
         Err(error) => {
             #[cfg(unix)]
-            cleanup_hermes_start_failure(&mut child, &mut tree, &mut child_exit, None);
+            cleanup_hermes_start_failure(&mut child, &mut tree, child_exit, None);
             #[cfg(windows)]
             cleanup_hermes_start_failure(&mut child, &job, None);
             return Err(error).context("start Hermes stdout reader");
@@ -1136,27 +1144,28 @@ fn run_hermes_command_with_timeout(
         Ok(stderr) => stderr,
         Err(error) => {
             #[cfg(unix)]
-            cleanup_hermes_start_failure(&mut child, &mut tree, &mut child_exit, Some(stdout));
+            cleanup_hermes_start_failure(&mut child, &mut tree, child_exit, Some(stdout));
             #[cfg(windows)]
             cleanup_hermes_start_failure(&mut child, &job, Some(stdout));
             return Err(error).context("start Hermes stderr reader");
         }
     };
     #[cfg(unix)]
-    let status = match child_exit.as_ref().expect("Unix child exit observer").wait_until(deadline) {
+    let (status, child_exit) = match child_exit.wait_until(deadline) {
         Ok(true) => {
             tree.terminate_until(deadline);
-            child_exit.take().expect("Unix child exit observer").finish();
-            Some(child.wait()?)
+            child_exit.finish();
+            (Some(child.wait()?), None)
         }
         Ok(false) => {
             tree.terminate_until(deadline);
-            None
+            // A timed-out command hands the observer to the reaper below.
+            (None, Some(child_exit))
         }
         Err(error) => {
             tree.terminate_until(deadline);
             let _ = child.kill();
-            child_exit.take().expect("Unix child exit observer").finish();
+            child_exit.finish();
             let _ = child.wait();
             return Err(error).context("wait for Hermes process exit");
         }
@@ -1176,7 +1185,7 @@ fn run_hermes_command_with_timeout(
         // issued exact termination. If the OS cannot create that thread, the
         // state below keeps ownership for a nonblocking fallback handoff.
         #[cfg(unix)]
-        let reap_state = Arc::new(HermesReapState::new(child, child_exit.take()));
+        let reap_state = Arc::new(HermesReapState::new(child, child_exit));
         #[cfg(not(unix))]
         let reap_state = Arc::new(HermesReapState::new(child));
         if spawn_hermes_reaper(Arc::clone(&reap_state)).is_err() {
@@ -1188,10 +1197,9 @@ fn run_hermes_command_with_timeout(
     }
     let stdout = stdout.join().map_err(|_| anyhow::anyhow!("Hermes stdout reader panicked"))?;
     let stderr = stderr.join().map_err(|_| anyhow::anyhow!("Hermes stderr reader panicked"))?;
-    if timed_out {
+    let Some(status) = status else {
         anyhow::bail!("Hermes command timed out after {} ms", timeout.as_millis());
-    }
-    let status = status.expect("timed-out Hermes command returned above");
+    };
     let stdout = stdout?;
     let stderr = stderr?;
     anyhow::ensure!(Instant::now() <= deadline, "Hermes command output timed out");
@@ -1408,8 +1416,9 @@ fn install_provider(
             let marker_end = "# cmux hooks rovodev end";
             let mut lines: Vec<&str> = existing.lines().collect();
             if let Some(start) = lines.iter().position(|line| line.trim() == marker_start)
-                && let Some(end_rel) =
-                    lines[start..].iter().position(|line| line.trim() == marker_end)
+                && let Some(end_rel) = lines
+                    .get(start..)
+                    .and_then(|rest| rest.iter().position(|line| line.trim() == marker_end))
             {
                 lines.drain(start..=start + end_rel);
             }
@@ -1440,7 +1449,9 @@ fn install_provider(
             let end = "# cmux-kimi-hooks-7c3a9f12-4e8b-4d2a-9f15-6b8c0d1e2a3f end";
             let mut lines = existing.lines().map(str::to_owned).collect::<Vec<_>>();
             if let Some(index) = lines.iter().position(|line| line.trim() == start)
-                && let Some(end_rel) = lines[index..].iter().position(|line| line.trim() == end)
+                && let Some(end_rel) = lines
+                    .get(index..)
+                    .and_then(|rest| rest.iter().position(|line| line.trim() == end))
             {
                 lines.drain(index..=index + end_rel);
             }
@@ -1590,7 +1601,9 @@ fn uninstall_provider(
             let mut lines = existing.lines().map(str::to_owned).collect::<Vec<_>>();
             let mut changed = false;
             if let Some(index) = lines.iter().position(|line| line.trim() == start)
-                && let Some(end_rel) = lines[index..].iter().position(|line| line.trim() == end)
+                && let Some(end_rel) = lines
+                    .get(index..)
+                    .and_then(|rest| rest.iter().position(|line| line.trim() == end))
             {
                 lines.drain(index..=index + end_rel);
                 changed = true;
@@ -2218,6 +2231,10 @@ fn codex_identity_trust_hash(
     if let Some(matcher) = codex_normalized_matcher(state_label, matcher) {
         identity.insert("matcher".into(), Value::String(matcher.into()));
     }
+    #[allow(
+        clippy::expect_used,
+        reason = "serializing a Value::Object of string keys into a Vec cannot fail"
+    )]
     let encoded = serde_json::to_vec(&Value::Object(identity))
         .expect("codex hook identity serializes to JSON");
     format!("sha256:{:x}", sha2::Sha256::digest(encoded))
@@ -2255,10 +2272,10 @@ fn codex_owned_hook_entry<'a>(
     let groups = root.get("hooks")?.get(event)?.as_array()?;
     groups.iter().enumerate().find_map(|(group_index, group)| {
         let hooks = group.get("hooks").and_then(Value::as_array)?;
-        let handler_index = hooks.iter().position(|hook| {
+        let (handler_index, handler) = hooks.iter().enumerate().find(|(_, hook)| {
             hook.get("command").and_then(Value::as_str).is_some_and(is_owned_command)
         })?;
-        Some((group_index, handler_index, group, &hooks[handler_index]))
+        Some((group_index, handler_index, group, handler))
     })
 }
 

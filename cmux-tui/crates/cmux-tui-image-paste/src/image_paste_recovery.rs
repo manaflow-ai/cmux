@@ -33,7 +33,8 @@ impl ImagePasteRecovery {
             }
         }
         for _ in 0..64 {
-            match self.entries.as_mut().unwrap().next() {
+            let Some(entries) = self.entries.as_mut() else { return Duration::from_secs(30) };
+            match entries.next() {
                 Some(Ok(entry)) => {
                     let name = entry.file_name();
                     let Some(suffix) =

@@ -3,8 +3,20 @@ use std::ffi::{CStr, CString, c_char, c_void};
 use std::future::Future;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration as StdDuration, Instant};
+
+/// A poisoned lock only means another thread panicked while holding it; the
+/// client keeps using the data instead of panicking in turn.
+trait LockExt<T> {
+    fn lock_or_recover(&self) -> MutexGuard<'_, T>;
+}
+
+impl<T> LockExt<T> for Mutex<T> {
+    fn lock_or_recover(&self) -> MutexGuard<'_, T> {
+        self.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
 
 use base64::Engine;
 use bytes::Bytes;
@@ -116,16 +128,16 @@ struct RawOutput {
 
 impl RawOutput {
     fn set_callback(&self, callback: Option<TerminalOutputCallback>, context: *mut c_void) {
-        *self.callback.lock().unwrap() = callback
+        *self.callback.lock_or_recover() = callback
             .map(|callback| OutputCallbackRegistration { callback, context: context as usize });
     }
 
     fn is_installed(&self) -> bool {
-        self.callback.lock().unwrap().is_some()
+        self.callback.lock_or_recover().is_some()
     }
 
     fn emit(&self, event: &RawEvent) {
-        let registered = self.callback.lock().unwrap();
+        let registered = self.callback.lock_or_recover();
         let Some(registered) = *registered else {
             return;
         };
@@ -181,7 +193,7 @@ struct ClientUpdates {
 
 impl ClientUpdates {
     fn set_callback(&self, callback: Option<TerminalUpdateCallback>, context: *mut c_void) {
-        let mut registered = self.callback.lock().unwrap();
+        let mut registered = self.callback.lock_or_recover();
         *registered = callback
             .map(|callback| UpdateCallbackRegistration { callback, context: context as usize });
         if let Some(registered) = *registered {
@@ -192,7 +204,7 @@ impl ClientUpdates {
     }
 
     fn notify(&self) {
-        let registered = self.callback.lock().unwrap();
+        let registered = self.callback.lock_or_recover();
         if let Some(registered) = *registered {
             // SAFETY: set_callback documents the context lifetime contract and
             // holds this same mutex across invocation and synchronous removal.
@@ -225,12 +237,12 @@ struct ResizeDelivery {
 
 impl ResizeDelivery {
     fn request(&self, request: ResizeRequest) {
-        *self.desired.lock().unwrap() = Some(request);
+        *self.desired.lock_or_recover() = Some(request);
         self.changed.notify_one();
     }
 
     fn desired(&self) -> Option<ResizeRequest> {
-        *self.desired.lock().unwrap()
+        *self.desired.lock_or_recover()
     }
 
     fn acknowledge(&self, request_id: u64) {
@@ -243,7 +255,7 @@ impl ResizeDelivery {
     }
 
     fn complete_if_current(&self, request_id: u64) {
-        let mut desired = self.desired.lock().unwrap();
+        let mut desired = self.desired.lock_or_recover();
         if desired.is_some_and(|request| request.request_id == request_id) {
             *desired = None;
         }
@@ -521,15 +533,18 @@ impl ClientState {
             }
             MessageKind::Resized if matches!(frame.payload.len(), 4 | 8) => {
                 self.require_sequence(frame.sequence)?;
-                let cols = u16::from_le_bytes([frame.payload[0], frame.payload[1]]).max(1);
-                let rows = u16::from_le_bytes([frame.payload[2], frame.payload[3]]).max(1);
-                let cell_pixels = if frame.payload.len() == 8 {
-                    (
-                        u16::from_le_bytes([frame.payload[4], frame.payload[5]]).max(1),
-                        u16::from_le_bytes([frame.payload[6], frame.payload[7]]).max(1),
-                    )
-                } else {
-                    self.cell_pixels
+                let (cols, rows, cell_pixels) = match *frame.payload.as_slice() {
+                    [c0, c1, r0, r1] => (
+                        u16::from_le_bytes([c0, c1]).max(1),
+                        u16::from_le_bytes([r0, r1]).max(1),
+                        self.cell_pixels,
+                    ),
+                    [c0, c1, r0, r1, w0, w1, h0, h1] => (
+                        u16::from_le_bytes([c0, c1]).max(1),
+                        u16::from_le_bytes([r0, r1]).max(1),
+                        (u16::from_le_bytes([w0, w1]).max(1), u16::from_le_bytes([h0, h1]).max(1)),
+                    ),
+                    _ => return Err("Resized payload must be 4 or 8 bytes".into()),
                 };
                 if self.raw_mode {
                     if !self.snapshot_applied {
@@ -573,17 +588,12 @@ impl ClientState {
                 if frame.request_id == 0 {
                     return Err("ResizeAck request ID is zero".into());
                 }
-                if frame.payload.len() != 8 {
+                let [c0, c1, r0, r1, f0, f1, f2, f3] = *frame.payload.as_slice() else {
                     return Err("ResizeAck payload must be 8 bytes".into());
-                }
-                let cols = u16::from_le_bytes([frame.payload[0], frame.payload[1]]).max(1);
-                let rows = u16::from_le_bytes([frame.payload[2], frame.payload[3]]).max(1);
-                let flags = u32::from_le_bytes([
-                    frame.payload[4],
-                    frame.payload[5],
-                    frame.payload[6],
-                    frame.payload[7],
-                ]);
+                };
+                let cols = u16::from_le_bytes([c0, c1]).max(1);
+                let rows = u16::from_le_bytes([r0, r1]).max(1);
+                let flags = u32::from_le_bytes([f0, f1, f2, f3]);
                 if flags & !RESIZE_ACK_CANONICAL_CHANGED != 0 {
                     return Err(format!("ResizeAck has unknown flags 0x{flags:08x}"));
                 }
@@ -920,7 +930,7 @@ enum StreamOutcome {
 }
 
 fn set_client_status(state: &Arc<Mutex<ClientState>>, updates: &ClientUpdates, status: String) {
-    state.lock().unwrap().status = status;
+    state.lock_or_recover().status = status;
     updates.notify();
 }
 
@@ -957,7 +967,7 @@ async fn receive_frames(
                     Ok(frames) => {
                         let mut outcome = None;
                         for frame in frames {
-                            let applied = state.lock().unwrap().apply(frame);
+                            let applied = state.lock_or_recover().apply(frame);
                             // The state lock is released before the embedding
                             // renderer runs, so a callback may call back into
                             // this API without deadlocking.
@@ -1064,7 +1074,7 @@ impl TerminalStreamSupervisor {
             if closed.load(Ordering::Acquire) {
                 return;
             }
-            if let Err(error) = state.lock().unwrap().prepare_handshake(terminal_id.clone()) {
+            if let Err(error) = state.lock_or_recover().prepare_handshake(terminal_id.clone()) {
                 set_client_status(&state, &updates, format!("resync: {error}"));
                 return;
             }
@@ -1233,7 +1243,7 @@ fn start_terminal_tasks(
     let resize_streams = streams.subscribe();
     let resize_delivery = Arc::new(ResizeDelivery::default());
     {
-        let mut state = state.lock().unwrap();
+        let mut state = state.lock_or_recover();
         state.resize_delivery = Some(resize_delivery.clone());
         state.resize_acknowledgement = None;
     }
@@ -1331,7 +1341,7 @@ impl CmuxTerminalClient {
         terminal_id: TerminalPublicId,
         timeout: Option<StdDuration>,
     ) -> Result<(), String> {
-        let mut terminal = self.terminal.lock().unwrap();
+        let mut terminal = self.terminal.lock_or_recover();
         if attach_target_already_satisfied(
             terminal
                 .as_ref()
@@ -1379,7 +1389,7 @@ impl CmuxTerminalClient {
         // The delivery mode is fixed per attach: a renderer that installs its
         // callback after the snapshot would miss the replay.
         next_state.raw_mode = self.raw_output.is_installed();
-        *self.state.lock().unwrap() = next_state;
+        *self.state.lock_or_recover() = next_state;
         self.updates.notify();
         *terminal = Some(start_terminal_tasks(
             &self.runtime,
@@ -1395,11 +1405,11 @@ impl CmuxTerminalClient {
     }
 
     fn detach_terminal(&self) {
-        let terminal = self.terminal.lock().unwrap().take();
+        let terminal = self.terminal.lock_or_recover().take();
         if let Some(terminal) = terminal {
             self.runtime.block_on(terminal.close());
         }
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock_or_recover();
         state.bootstrap_committed = false;
         state.ready = false;
         state.exited = false;
@@ -1444,7 +1454,7 @@ fn enqueue_command(client: &CmuxTerminalClient, frame: Frame) -> bool {
     let Ok(encoded) = encode_frame(&frame) else {
         return false;
     };
-    let terminal = client.terminal.lock().unwrap();
+    let terminal = client.terminal.lock_or_recover();
     let Some(terminal) = terminal.as_ref() else {
         return false;
     };
@@ -1729,7 +1739,7 @@ pub unsafe extern "C" fn cmux_terminal_client_disconnect(client: *mut CmuxTermin
     // Connection teardown may wait on the carrier. Transfer ownership to a
     // background thread so the C call is nonblocking for AppKit.
     let _ = std::thread::Builder::new().name("cmux-terminal-disconnect".into()).spawn(move || {
-        let terminal = client.terminal.lock().unwrap().take();
+        let terminal = client.terminal.lock_or_recover().take();
         client.runtime.block_on(async {
             if let Some(terminal) = terminal {
                 terminal.close().await;
@@ -1804,16 +1814,16 @@ pub unsafe extern "C" fn cmux_terminal_client_send_key(
     let chord = match chord.to_str() {
         Ok(chord) => chord,
         Err(error) => {
-            client.state.lock().unwrap().status = format!("key: {error}");
+            client.state.lock_or_recover().status = format!("key: {error}");
             client.updates.notify();
             return false;
         }
     };
-    let key_result = client.state.lock().unwrap().encode_key(chord, repeat);
+    let key_result = client.state.lock_or_recover().encode_key(chord, repeat);
     let encoded = match key_result {
         Ok(encoded) => encoded,
         Err(error) => {
-            client.state.lock().unwrap().status = format!("key: {error}");
+            client.state.lock_or_recover().status = format!("key: {error}");
             client.updates.notify();
             return false;
         }
@@ -1896,7 +1906,7 @@ pub unsafe extern "C" fn cmux_terminal_client_resize_with_request_id(
 }
 
 fn queue_resize(client: &CmuxTerminalClient, cols: u16, rows: u16) -> Option<u64> {
-    let terminal = client.terminal.lock().unwrap();
+    let terminal = client.terminal.lock_or_recover();
     let terminal = terminal.as_ref()?;
     if terminal.closed.load(Ordering::Acquire) {
         return None;
@@ -1934,7 +1944,7 @@ pub unsafe extern "C" fn cmux_terminal_client_last_resize_ack(
     if request_id.is_null() || cols.is_null() || rows.is_null() || canonical_changed.is_null() {
         return false;
     }
-    let state = client.state.lock().unwrap();
+    let state = client.state.lock_or_recover();
     let Some(acknowledgement) = state.resize_acknowledgement else {
         return false;
     };
@@ -1967,7 +1977,7 @@ pub unsafe extern "C" fn cmux_terminal_client_copy_frame(
     let Some(client) = (unsafe { client.as_ref() }) else {
         return 0;
     };
-    let mut state = client.state.lock().unwrap();
+    let mut state = client.state.lock_or_recover();
     if let Err(error) = state.materialize_frame() {
         state.status = format!("render: {error}");
     }
@@ -1993,7 +2003,7 @@ pub unsafe extern "C" fn cmux_terminal_client_copy_frame_dirty_rows(
     let Some(client) = (unsafe { client.as_ref() }) else {
         return 0;
     };
-    let mut state = client.state.lock().unwrap();
+    let mut state = client.state.lock_or_recover();
     if let Err(error) = state.materialize_frame() {
         state.status = format!("render: {error}");
     }
@@ -2021,7 +2031,7 @@ pub unsafe extern "C" fn cmux_terminal_client_frame_row_count(
     let Some(client) = (unsafe { client.as_ref() }) else {
         return 0;
     };
-    let mut state = client.state.lock().unwrap();
+    let mut state = client.state.lock_or_recover();
     if let Err(error) = state.materialize_frame() {
         state.status = format!("render: {error}");
     }
@@ -2048,7 +2058,7 @@ pub unsafe extern "C" fn cmux_terminal_client_copy_frame_row(
     let Some(client) = (unsafe { client.as_ref() }) else {
         return 0;
     };
-    let mut state = client.state.lock().unwrap();
+    let mut state = client.state.lock_or_recover();
     if let Err(error) = state.materialize_frame() {
         state.status = format!("render: {error}");
     }
@@ -2073,7 +2083,7 @@ pub unsafe extern "C" fn cmux_terminal_client_copy_diagnostics(
     let Some(client) = (unsafe { client.as_ref() }) else {
         return 0;
     };
-    copy_utf8(&client.state.lock().unwrap().diagnostics(), buffer, capacity)
+    copy_utf8(&client.state.lock_or_recover().diagnostics(), buffer, capacity)
 }
 
 /// Returns whether the attached PTY has exited.
@@ -2090,7 +2100,7 @@ pub unsafe extern "C" fn cmux_terminal_client_has_exited(
     let Some(client) = (unsafe { client.as_ref() }) else {
         return false;
     };
-    client.state.lock().unwrap().exited
+    client.state.lock_or_recover().exited
 }
 
 /// Keep the diagnostics snapshot current across carrier generations.
@@ -2113,7 +2123,7 @@ fn spawn_diagnostics(
                 .as_ref()
                 .map(|path| format!("{:?}", path.kind).to_lowercase())
                 .unwrap_or_else(|| snapshot.transport.route.clone());
-            let mut state = state.lock().unwrap();
+            let mut state = state.lock_or_recover();
             state.transport_provider = snapshot.transport.provider;
             state.transport_path = path;
             state.generation = snapshot.generation;
@@ -2124,9 +2134,9 @@ fn spawn_diagnostics(
 }
 
 /// Placeholder for a client that has not attached a terminal yet.
-fn unattached_terminal_id() -> TerminalPublicId {
+fn unattached_terminal_id() -> Result<TerminalPublicId, String> {
     TerminalPublicId::parse("term_00000000000000000000000000000000")
-        .expect("placeholder terminal id is well-formed")
+        .map_err(|error| format!("placeholder terminal id: {error}"))
 }
 
 /// Largest carrier frame on a direct WebSocket route; matches the sidecar.
@@ -2159,10 +2169,14 @@ fn select_enrolled_daemon(daemons: Vec<KnownDaemon>, route: &str) -> Result<Know
         .collect::<Vec<_>>();
     let selected = match matching.as_slice() {
         [daemon] => daemon.clone(),
-        [] if daemons.len() == 1 => daemons[0].clone(),
-        [] => {
-            return Err("no enrolled daemon matches this route; connect with an invitation".into());
-        }
+        [] => match daemons.as_slice() {
+            [only] => only.clone(),
+            _ => {
+                return Err(
+                    "no enrolled daemon matches this route; connect with an invitation".into()
+                );
+            }
+        },
         _ => return Err("multiple enrolled daemons match this route".into()),
     };
     if selected.auth == KnownDaemonAuth::Carrier {
@@ -2341,6 +2355,13 @@ async fn connect_route_client(options: RouteConnectOptions<'_>) -> Result<RouteC
         let _ = connection.close().await;
         return Err(format!("client state: {error}"));
     }
+    let placeholder_terminal = match unattached_terminal_id() {
+        Ok(id) => id,
+        Err(error) => {
+            let _ = connection.close().await;
+            return Err(error);
+        }
+    };
 
     let snapshot = connection.snapshot().await;
     let path = snapshot
@@ -2354,7 +2375,7 @@ async fn connect_route_client(options: RouteConnectOptions<'_>) -> Result<RouteC
             snapshot.transport.provider,
             path,
             snapshot.generation,
-            unattached_terminal_id(),
+            placeholder_terminal,
         )
         .map_err(|error| format!("libghostty: {error}"))?,
     ));
@@ -2729,8 +2750,8 @@ impl CmuxTerminalClient {
             "operation": operation,
             "params": Value::Object(params),
         });
-        if mutation {
-            request["idempotency_key"] = json!(random_token()?);
+        if mutation && let Some(object) = request.as_object_mut() {
+            object.insert("idempotency_key".to_owned(), json!(random_token()?));
         }
         let call = async {
             let mux = self.mux_client().await?;

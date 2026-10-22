@@ -71,9 +71,9 @@ impl ImagePasteOwnership {
 
     fn name() -> CString {
         #[cfg(target_vendor = "apple")]
-        let name = "com.cmux.image-paste";
+        let name = c"com.cmux.image-paste";
         #[cfg(not(target_vendor = "apple"))]
-        let name = "user.cmux.image-paste";
-        CString::new(name).unwrap()
+        let name = c"user.cmux.image-paste";
+        name.to_owned()
     }
 }

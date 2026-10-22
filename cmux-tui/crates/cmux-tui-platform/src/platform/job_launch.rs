@@ -120,8 +120,10 @@ fn pick_env<'a>(entries: impl Iterator<Item = &'a str>, keys: &[&str]) -> Vec<(S
     let mut found = vec![None; keys.len()];
     for entry in entries {
         let Some((key, value)) = entry.split_once('=') else { continue };
-        if let Some(index) = keys.iter().position(|wanted| *wanted == key) {
-            found[index].get_or_insert_with(|| value.to_string());
+        if let Some(index) = keys.iter().position(|wanted| *wanted == key)
+            && let Some(slot) = found.get_mut(index)
+        {
+            slot.get_or_insert_with(|| value.to_string());
         }
     }
     keys.iter()

@@ -199,7 +199,7 @@ pub fn terminal_mark(terminal: &str, name: &'static str) {
         else {
             return;
         };
-        let entry = &mut owed[index];
+        let Some(entry) = owed.get_mut(index) else { return };
         entry.left.retain(|left| *left != name);
         let found = (entry.label, entry.start.elapsed().as_micros() as u64);
         if entry.left.is_empty() {

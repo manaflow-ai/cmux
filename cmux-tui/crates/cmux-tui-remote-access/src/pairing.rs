@@ -1,8 +1,8 @@
 use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::net::IpAddr;
-use std::sync::Mutex;
 use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
+use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use base64::Engine;
@@ -127,7 +127,7 @@ impl PairingBroker {
         peer: IpAddr,
     ) -> Result<(PairingChallenge, Receiver<PairingDecision>), PairingError> {
         let now = (self.clock)();
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         Self::prune(&mut state, now);
         if state.pending.values().any(|request| request.peer == peer) {
             return Err(PairingError::AlreadyPending);
@@ -154,7 +154,9 @@ impl PairingBroker {
         };
         let number = random_u64()? % 1_000_000;
         let digits = format!("{number:06}");
-        let code = format!("{} {}", &digits[..3], &digits[3..]);
+        // Six ASCII digits, so the split is on a character boundary.
+        let (head, tail) = digits.split_at_checked(3).unwrap_or((digits.as_str(), ""));
+        let code = format!("{head} {tail}");
         let challenge = PairingChallenge {
             id,
             code,
@@ -192,7 +194,7 @@ impl PairingBroker {
         commit: impl FnOnce(&PairingChallenge) -> anyhow::Result<R>,
     ) -> anyhow::Result<Option<R>> {
         let now = (self.clock)();
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         Self::prune(&mut state, now);
         let Some(challenge) = state.pending.get(&id).map(|request| request.challenge.clone())
         else {
@@ -209,8 +211,11 @@ impl PairingBroker {
             })?;
         }
         let committed = commit(&challenge)?;
-        let request =
-            state.pending.remove(&id).expect("pairing lock reserves the validated pending request");
+        // The lock held since the lookup above reserves the request, so it is
+        // still there.
+        let Some(request) = state.pending.remove(&id) else {
+            return Err(anyhow::anyhow!("pairing request {id} vanished while its lock was held"));
+        };
         let decision = if let Some(value) = credential {
             state.credentials.push_back(Credential {
                 value: value.clone(),
@@ -249,7 +254,7 @@ impl PairingBroker {
     fn issue_page_credential(&self, page: Option<String>) -> Result<(String, u64), PairingError> {
         let now = (self.clock)();
         let value = random_credential()?;
-        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         Self::prune(&mut state, now);
         let (store, bound) = if page.is_some() {
             (&mut state.scoped_page_credentials, MAX_SCOPED_PAGE_CREDENTIALS)
@@ -268,7 +273,7 @@ impl PairingBroker {
     }
 
     pub fn cancel(&self, id: u64) -> bool {
-        self.state.lock().unwrap().pending.remove(&id).is_some()
+        self.state.lock().unwrap_or_else(PoisonError::into_inner).pending.remove(&id).is_some()
     }
 
     pub fn authenticate(&self, provided: &str) -> bool {
@@ -284,7 +289,7 @@ impl PairingBroker {
         handshake_page: Option<&str>,
     ) -> CredentialMatch {
         let now = (self.clock)();
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         Self::prune(&mut state, now);
         if state
             .credentials
@@ -312,7 +317,7 @@ impl PairingBroker {
 
     pub fn pending(&self) -> Vec<PairingChallenge> {
         let now = (self.clock)();
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         Self::prune(&mut state, now);
         state.pending.values().map(|request| request.challenge.clone()).collect()
     }

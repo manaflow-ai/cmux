@@ -82,7 +82,7 @@ impl ImagePasteStorage {
         // openat returned a new owned descriptor.
         let directory = unsafe { File::from_raw_fd(descriptor) };
         Self::require_private(&directory)?;
-        Ok((self.root.join(name.to_str().unwrap()), directory))
+        Ok((self.root.join(name.to_str().map_err(io::Error::other)?), directory))
     }
 
     fn open_directory(path: &Path) -> io::Result<File> {

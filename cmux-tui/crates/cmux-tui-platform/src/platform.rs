@@ -1200,7 +1200,7 @@ fn kitty_shell_cwd_to_local_path(value: &str, allow_hostless: bool) -> Option<Op
     let rest = value
         .get(..SCHEME.len())
         .filter(|scheme| scheme.eq_ignore_ascii_case(SCHEME))
-        .map(|_| &value[SCHEME.len()..])?;
+        .and_then(|_| value.get(SCHEME.len()..))?;
     let Some(slash) = rest.find('/') else { return Some(None) };
     let (host, path) = rest.split_at(slash);
     let host_ok = if host.is_empty() { allow_hostless } else { terminal_pwd_host_is_local(host) };
@@ -1302,8 +1302,8 @@ pub fn local_hostname() -> Option<String> {
     if unsafe { libc::gethostname(hostname.as_mut_ptr().cast(), hostname.len()) } != 0 {
         return None;
     }
-    let end = hostname.iter().position(|byte| *byte == 0).unwrap_or(hostname.len());
-    decode_local_hostname(&hostname[..end])
+    let name = hostname.split(|byte| *byte == 0).next().unwrap_or_default();
+    decode_local_hostname(name)
 }
 
 #[cfg(unix)]
