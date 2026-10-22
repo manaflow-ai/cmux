@@ -108,6 +108,7 @@ private final class HoleRecordingPage: PageChromiumPage {
 
     func devTools(_ method: String, params: [String: any Sendable]) async throws -> String { #"{"result":{}}"# }
     func load(_ url: URL) {}
+    func setSeeThrough(_ seeThrough: Bool) {}
     func reload() {}
     func setZoom(_ zoom: Double) {}
     func setFocused(_ focused: Bool) {}
