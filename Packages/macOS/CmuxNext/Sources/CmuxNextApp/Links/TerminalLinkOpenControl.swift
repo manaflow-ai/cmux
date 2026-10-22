@@ -60,10 +60,10 @@ enum TerminalLinkOpenControl {
                 case .cmux:
                     let router = LinkRouter.shared
                     if explicit {
-                        router.open(url, in: .cmuxBrowser, background: background, source: source, cmdClick: true)
+                        router.open(url, in: .cmuxBrowser, background: background, source: source)
                         reply["opened_in"] = .string(router.routing().browserEnabled ? "cmux" : "system")
                     } else {
-                        let routed = router.open(url, background: background, source: source, cmdClick: true)
+                        let routed = router.open(url, background: background, source: source)
                         reply["opened_in"] = .string(routed == .system ? "system" : "cmux")
                     }
                 case .system:
