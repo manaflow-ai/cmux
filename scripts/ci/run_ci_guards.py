@@ -370,13 +370,32 @@ def run_steps(
     return results
 
 
+def wait_for(take) -> bool:
+    """Retry `take()` until it succeeds (True) or the run is interrupted
+    (False), so an interrupted run never stays blocked on another's turn."""
+    while not take():
+        if STOPPING.is_set():
+            return False
+        time.sleep(0.2)
+    return True
+
+
+def try_flock(handle) -> bool:
+    try:
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        return False
+    return True
+
+
 @contextlib.contextmanager
 def apt_turn(step: Step):
-    """Hold the host-wide apt turn while a step that runs apt-get runs."""
-    if not APT_GET.search(step.run):
+    """Hold the host-wide apt turn while a step that runs apt-get runs. An
+    interrupted wait yields without the turn; run_step then skips the step."""
+    if not APT_GET.search(step.run) or not wait_for(lambda: APT_TURN.acquire(timeout=0.2)):
         yield
         return
-    with APT_TURN:
+    try:
         try:
             handle = APT_LOCK.open("a")
         except OSError:
@@ -385,8 +404,10 @@ def apt_turn(step: Step):
             yield
             return
         with handle:
-            fcntl.flock(handle, fcntl.LOCK_EX)
+            wait_for(lambda: try_flock(handle))
             yield
+    finally:
+        APT_TURN.release()
 
 
 def run_step(step: Step, cwd: Path, env: dict[str, str], log_path: Path) -> tuple[int, str]:
