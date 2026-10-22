@@ -5,7 +5,7 @@
   "agent-session/acpmux/changes/OptionsMenu.tsx": 5,
   "agent-session/acpmux/changes/RevertBar.tsx": 1,
   "agent-session/acpmux/changes/useDiffKeys.ts": 1,
-  "agent-session/acpmux/Composer.tsx": 6,
+  "agent-session/acpmux/Composer.tsx": 5,
   "agent-session/acpmux/composerFocus.ts": 1,
   "agent-session/acpmux/ComposerPickers.tsx": 6,
   "agent-session/acpmux/conversation/EditedFilesCard.tsx": 1,
