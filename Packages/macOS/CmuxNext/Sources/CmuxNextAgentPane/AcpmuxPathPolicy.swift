@@ -58,15 +58,19 @@ nonisolated enum AcpmuxPathPolicy {
         public var home: String? = nil
         /// Folders the user added or picked by a gesture: roots as given.
         public var granted: [String] = []
+        /// The pane's cmux workspace key, from the host (never the page): a local `session/new`
+        /// carries it as `_meta.acpmux.workspaceId` (``stampWorkspace(_:id:)``).
+        public var workspaceID: String?
 
         public init(roots: [String], gestureRoots: [String] = [], fillCwd: String? = nil, agentHome: AgentHomeFill? = nil,
-                    home: String? = nil, granted: [String] = []) {
+                    home: String? = nil, granted: [String] = [], workspaceID: String? = nil) {
             self.roots = roots
             self.gestureRoots = gestureRoots
             self.fillCwd = fillCwd
             self.agentHome = agentHome
             self.home = home
             self.granted = granted
+            self.workspaceID = workspaceID
         }
     }
 
@@ -117,7 +121,11 @@ nonisolated enum AcpmuxPathPolicy {
             var meta = fields["_meta"] as? [String: Any]
             var acpmux = meta?["acpmux"] as? [String: Any]
             let noProject = acpmux?["noProject"] as? Bool == true
-            if acpmux?.removeValue(forKey: "noProject") != nil {
+            let hadNoProject = acpmux?.removeValue(forKey: "noProject") != nil
+            // The pane's workspace, which acpmux holds the chat to (its sub-session limit, its
+            // computer use display); the host's value, never the page's.
+            if stampWorkspace(&acpmux, id: scope.workspaceID) || hadNoProject {
+                meta = meta ?? [:]
                 meta?["acpmux"] = acpmux
                 fields["_meta"] = meta
                 context.changed = true
