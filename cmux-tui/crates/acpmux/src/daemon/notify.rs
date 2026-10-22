@@ -29,14 +29,7 @@ pub(super) async fn notify_loop(hub: Arc<Hub>) {
         }
         let name = summary.get("name").and_then(Value::as_str).unwrap_or("").to_owned();
         let text = match kind {
-            "permission_request" => format!(
-                "{name} needs a permission: {}",
-                ev.record
-                    .msg
-                    .pointer("/request/toolCall/title")
-                    .and_then(Value::as_str)
-                    .unwrap_or("tool")
-            ),
+            "permission_request" => permission_text(&name, &ev.record.msg["request"]),
             "agent_pair_paused" => {
                 let peer = ev
                     .record
@@ -76,6 +69,20 @@ pub(super) async fn notify_loop(hub: Arc<Hub>) {
             .stderr(std::process::Stdio::null())
             .spawn();
     }
+}
+
+/// The notification for a pending permission request. An agent's question
+/// (AskUserQuestion, a Codex user-input request) reads as a question, never
+/// as a permission (Leo 2026-10-21).
+fn permission_text(name: &str, request: &Value) -> String {
+    if crate::hub::is_question(request) {
+        return match crate::hub::question_prompt(request) {
+            Some(prompt) => format!("{name} asks: {prompt}"),
+            None => format!("{name} asks a question"),
+        };
+    }
+    let title = request.pointer("/toolCall/title").and_then(Value::as_str).unwrap_or("tool");
+    format!("{name} needs a permission: {title}")
 }
 
 #[cfg(test)]
