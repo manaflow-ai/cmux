@@ -93,21 +93,21 @@ const panelsOpen: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector('.acpmux-header-tool[aria-pressed="true"]'));
 };
 
-// Action controls and session metadata stay separate in the compact top-right cluster while every
-// existing control keeps its 26px hit target.
-const groupedControls: Play = async (ctx) => {
-  const actions = ctx.find({ selector: ".acpmux-header-tool-group-actions" });
-  const meta = ctx.find({ selector: ".acpmux-header-tool-group-meta" });
-  const separator = ctx.find({ selector: ".acpmux-header-separator" });
-  if (actions.getBoundingClientRect().width <= 0 || meta.getBoundingClientRect().width <= 0)
-    throw new Error("header control groups must remain visible");
-  // An <hr> is a separator by its implicit role, so the play checks the element, not an attribute.
-  if (separator.tagName !== "HR") throw new Error("header group separator is not semantic");
-  if (separator.getAttribute("aria-orientation") !== "vertical")
-    throw new Error("header separator orientation changed");
-  const tools = ctx.document.querySelectorAll<HTMLElement>(".acpmux-header-tools button");
-  if ([...tools].some((button) => Math.round(button.getBoundingClientRect().height) !== 26))
-    throw new Error("header control hit target changed");
+// One row of icons (Leo, 2026-10-21: "THE TOP RIGHT ICONS AND FIXING THE SPACING"): no separators,
+// the right-side panel's toggle first as in Claude and ChatGPT desktop, then every button on one
+// 24px pitch, each 26px tall, with no gap between them.
+const oneRow: Play = async (ctx) => {
+  const tools = ctx.find({ selector: ".acpmux-header-tools" });
+  if (tools.querySelector("hr, [role=separator]")) throw new Error("the header's icons must have no separators");
+  const buttons = [...tools.querySelectorAll<HTMLElement>("button")];
+  if (!buttons[0]?.classList.contains("acpmux-summary-button"))
+    throw new Error("the panel toggle must be the first of the header's icons");
+  const boxes = buttons.map((button) => button.getBoundingClientRect());
+  if (boxes.some((box) => Math.round(box.width) !== 24 || Math.round(box.height) !== 26))
+    throw new Error("every header icon must be 24 by 26");
+  boxes.slice(1).forEach((box, index) => {
+    if (Math.round(box.left - boxes[index].right) !== 0) throw new Error("the header's icons must sit on one pitch");
+  });
 };
 
 // The App found the chat branch's pull request: open, 3 of 5 checks passed, one failing (cx-tcwj).
@@ -324,10 +324,10 @@ export default componentEntry<HeaderToolsProps>({
       note: "The chat's last turn named a local page: Browser opens it beside the chat and its tooltip names it; there is no separate Preview button.",
       props: { ...base, previewUrl: "http://localhost:5173/", onPreview: () => undefined },
     },
-    "grouped-controls": {
-      note: "Quick actions and session metadata are separated without changing the existing button hit targets.",
-      props: base,
-      play: groupedControls,
+    "one-row": {
+      note: "One row of icons: the panel toggle first, then the quick actions and the chat menu, flush on one 24px pitch with no separators.",
+      props: { ...base, hasChanges: true, onChanges: () => undefined },
+      play: oneRow,
     },
     "pull-request": {
       note: "The chat branch's pull request leads the tools: its number, its state and how its checks stand (cx-tcwj).",
