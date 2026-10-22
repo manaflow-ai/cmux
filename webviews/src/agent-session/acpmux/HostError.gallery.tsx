@@ -72,6 +72,23 @@ export default componentEntry<Props>({
         withRetry: true,
       },
     },
+    "remote-unreached": {
+      props: {
+        message:
+          "cmux cannot find mini-1 on your network. Turn Tailscale on, on this Mac and on mini-1, and sign both in to the same tailnet.",
+        initialRetrying: false,
+        withRetry: true,
+      },
+      note: "A chat on another Mac that cannot be reached when it opens (Leo 2026-10-21): the way it failed and its fix, never “acpmux did not answer in time”.",
+    },
+    "remote-offline": {
+      props: {
+        message: "mini-1 is offline. Wake mini-1, and check that Tailscale is on there.",
+        initialRetrying: false,
+        withRetry: true,
+      },
+      note: "The tailnet lists the chat's machine as offline.",
+    },
     enable: {
       props: {
         message: "Claude Code is not enabled for this folder.",

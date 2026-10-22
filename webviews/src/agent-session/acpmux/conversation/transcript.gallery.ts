@@ -1852,6 +1852,110 @@ export default agentPaneEntry({
         );
       },
     },
+    "failed-send-tailscale-off": {
+      note: "A chat on a Mac mini while Tailscale is off on this Mac (Leo 2026-10-21): the card names the machine and the fix, never a timeout.",
+      snapshot: chat([
+        user(prompt, 6),
+        assistant("Added retries with backoff.", 5.5),
+        summary(5.5, { status: "completed" }),
+        user("Add a test for the backoff", 1, {
+          failed: true,
+          error:
+            "Not sent: Tailscale is off on this Mac, so cmux cannot reach mini-1. Turn Tailscale on, then try again.",
+          delivery: {
+            state: "failed",
+            promptId: "p1",
+            sessionId: "s",
+            sentAt: 0,
+            failedAt: 40,
+            hop: "acpmux",
+            code: "agent_session.unreached.tailscale_off",
+            error: "Tailscale is off on this Mac, so cmux cannot reach mini-1. Turn Tailscale on, then try again.",
+          },
+        }),
+      ]),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector('[data-failure-cause="unreached"]'));
+      },
+    },
+    "failed-send-not-serving": {
+      note: "A Mac mini that is on but does not serve cmux on port 7319: run cmux host enable there.",
+      snapshot: chat([
+        user(prompt, 6),
+        assistant("Added retries with backoff.", 5.5),
+        summary(5.5, { status: "completed" }),
+        user("Add a test for the backoff", 1, {
+          failed: true,
+          error: "Not sent: mini-1 is on, but cmux does not serve there. Run cmux host enable on mini-1.",
+          delivery: {
+            state: "failed",
+            promptId: "p1",
+            sessionId: "s",
+            sentAt: 0,
+            failedAt: 40,
+            hop: "acpmux",
+            code: "agent_session.unreached.not_serving",
+            error: "mini-1 is on, but cmux does not serve there. Run cmux host enable on mini-1.",
+          },
+        }),
+      ]),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector('[data-failure-cause="unreached"]'));
+      },
+    },
+    "failed-send-no-answer": {
+      note: "A Mac mini that does not answer (asleep, or Tailscale off there).",
+      snapshot: chat([
+        user(prompt, 6),
+        assistant("Added retries with backoff.", 5.5),
+        summary(5.5, { status: "completed" }),
+        user("Add a test for the backoff", 1, {
+          failed: true,
+          error:
+            "Not sent: mini-1 does not answer. Check that mini-1 is on and awake, and that Tailscale is on, on this Mac and on mini-1.",
+          delivery: {
+            state: "failed",
+            promptId: "p1",
+            sessionId: "s",
+            sentAt: 0,
+            failedAt: 40,
+            hop: "acpmux",
+            code: "agent_session.unreached.no_answer",
+            error:
+              "mini-1 does not answer. Check that mini-1 is on and awake, and that Tailscale is on, on this Mac and on mini-1.",
+          },
+        }),
+      ]),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector('[data-failure-cause="unreached"]'));
+      },
+    },
+    "failed-send-storage-full": {
+      note: "A Mac mini whose disk is full: acpmux there refuses the prompt (storage.full) and keeps running; nothing is lost.",
+      snapshot: chat([
+        user(prompt, 6),
+        assistant("Added retries with backoff.", 5.5),
+        summary(5.5, { status: "completed" }),
+        user("Add a test for the backoff", 1, {
+          failed: true,
+          error:
+            "Not sent: The disk on mini-1 is full, so it cannot save this chat. Free some space there, then send again.",
+          delivery: {
+            state: "failed",
+            promptId: "p1",
+            sessionId: "s",
+            sentAt: 0,
+            failedAt: 40,
+            hop: "acpmux",
+            code: "agent_session.storage_full",
+            error: "The disk on mini-1 is full, so it cannot save this chat. Free some space there, then send again.",
+          },
+        }),
+      ]),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector('[data-failure-cause="storage-full"]'));
+      },
+    },
     "edited-files": {
       note: "A turn that edited three files: the edited-files card with Undo.",
       snapshot: chat([...workedTurnRows(minutesAgo(15)), summary(14, { status: "completed", toolCount: 3 })]),
