@@ -7,7 +7,7 @@ import XCTest
 @testable import cmux
 #endif
 
-extension SocketListenerAcceptPolicyTests {
+extension AgentResumeCommandPolicyTests {
     func testGeminiResumeCommandPreservesSafeFlagsAndDropsSessionSelectors() {
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .gemini,
