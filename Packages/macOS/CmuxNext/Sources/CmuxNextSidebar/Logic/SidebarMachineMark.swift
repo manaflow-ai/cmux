@@ -26,14 +26,9 @@ public nonisolated struct SidebarMachineMark: Hashable, Sendable {
         }
     }
 
-    /// The kind's glyph: a Mac, a Cloud machine, another computer.
-    var kindIcon: IconName {
-        switch kind {
-        case .local: .machineLocal
-        case .cloud: .cloud
-        case .ssh, .server: .machineRemote
-        }
-    }
+    /// The machine's form glyph (`SidebarMachineForm`): a cloud, a Mac mini, a laptop, a server, the
+    /// same icon its remote group's header draws.
+    var kindIcon: IconName { SidebarMachineForm(kind: kind, name: name).icon }
 
     /// The machine's color in the active theme.
     @MainActor var color: NSColor { MachineColor(name: name).color }

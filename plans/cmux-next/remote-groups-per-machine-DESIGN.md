@@ -73,10 +73,11 @@ the target case has 10× headroom.
 
 ## 3. R2: show or hide remote groups
 
-- Setting `sidebar.showRemoteGroups` (bool, default **true**; cmux.json, Settings > General > Sidebar,
-  agent-settable) and one action `sidebar.toggleRemoteGroups` ("Show Remote Groups" / "Hide Remote
-  Groups") with every entrance on the one action path: Command Palette, the sidebar's background
-  right-click menu, View menu, `cmux action run sidebar.toggleRemoteGroups`, MCP `app_*` mirror.
+- Setting `sidebar.showRemoteGroups` (bool, default **true**; cmux.json, Settings > Appearance > Sidebar,
+  agent-settable) and two actions on the one action path, `sidebar.remoteGroups.hide` and
+  `sidebar.remoteGroups.show` (Command Palette and keyboard; each is offered only while it applies).
+  Default picked: no menu row, because the machine header menu and the sidebar background menu are
+  both at the 12-row limit (`MachineIconTests` guards it); Settings and the palette cover it.
 - **Hidden** = the remote groups' headers go away and their workspaces join the one list, in
   chronological order with their machine mark (R3). Nothing is removed, nothing disconnects, every
   workspace stays one Cmd-P away and still runs on its machine. Shown = each remote group is a
