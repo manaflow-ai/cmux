@@ -21,7 +21,7 @@ struct HomeChiefDefaultHostTests {
         home.localChiefRunning = false
         #expect(!home.startsLocalBrain(for: "conv_hosted"), "the Hosted Chief's conversation")
         #expect(!home.startsLocalBrain(for: nil), "Home itself (a reconnect, Channels) while the default resolves to Hosted")
-        #expect(home.startsLocalBrain(for: HomeChiefDefaultTests.local), "this Mac's Chief, opened by the person")
+        #expect(!home.startsLocalBrain(for: HomeChiefDefaultTests.local), "this Mac's Chief, shown: a message to it starts the host")
         // Auto resolves to this Mac's Chief: Home itself keeps its host running; the Hosted Chief still starts none.
         home.localChiefRunning = true
         #expect(home.startsLocalBrain(for: nil))
@@ -51,7 +51,7 @@ struct HomeChiefDefaultHostTests {
         #expect(starts.value.isEmpty, "no host starts under the Hosted Chief")
         #expect(home.cloudChief == HomeChiefDefaultTests.hosted)
         #expect(!home.startsLocalBrain(for: nil))
-        #expect(home.startsLocalBrain(for: HomeChiefDefaultTests.local), "the person opens this Mac's Chief")
+        #expect(!home.startsLocalBrain(for: HomeChiefDefaultTests.local), "this Mac's Chief, shown: a message to it starts the host")
         // Signed in without a cloud Chief: Home's Chief is this Mac's and starts as before.
         home.setCloudChiefs(HomeCloudChiefs())
         #expect(home.startsLocalBrain(for: nil))
@@ -88,7 +88,7 @@ struct HomeChiefDefaultHostTests {
         home.noteCloudChiefsChecked()
         #expect(starts.value.isEmpty, "the waited ask starts no host under the Hosted Chief")
         #expect(!home.startsLocalBrain(for: nil), "Home itself (a reconnect) starts none either")
-        #expect(home.startsLocalBrain(for: HomeChiefDefaultTests.local), "the person opens this Mac's Chief")
+        #expect(!home.startsLocalBrain(for: HomeChiefDefaultTests.local), "nor the Chief tab, which shows this Mac's Chief meanwhile")
     }
 
     // MARK: The running state follows the brain keeper

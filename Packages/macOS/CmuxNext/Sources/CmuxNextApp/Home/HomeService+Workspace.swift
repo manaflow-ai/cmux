@@ -49,9 +49,11 @@ extension HomeService {
                 try await ensureChiefTab(connection, home: home)
             } catch is CancellationError {
             } catch {
-                self?.settleHomeEnsure(generation)
-                self?.homeWorkspaceStep = "failed: \(String(describing: error))"
-                self?.logger.error("home workspace: \(String(describing: error), privacy: .public)")
+                guard let self else { return }
+                settleHomeEnsure(generation)
+                homeWorkspaceStep = "failed: \(String(describing: error))"
+                logger.error("home workspace: \(String(describing: error), privacy: .public)")
+                await settleCloudChiefsWithoutTab()
             }
         }
     }
@@ -130,14 +132,16 @@ extension HomeService {
         // Chief has no history to hide (G6, one history).
         // The same sign-in also reads the Home list's Chiefs: the list hides an archived Chief's rows by them
         // (the page's own read can come before sign-in, and a docked Home never makes the page).
-        if let read = await readCloudChiefs() { setCloudChiefs(read); await directory.refreshChiefs() }
+        let read = await readCloudChiefs()
+        if let read { setCloudChiefs(read); await directory.refreshChiefs() }
         guard !Task.isCancelled else { return }
         // The local Chief keeps the tab until its history is in the Hosted Chief (``HostedChiefMigration/pending``).
         hostedChief.start(cloudChiefs.hosted)
         // The default Chief is this Mac's while its optchat-chief runs (HomeService+ChiefDefault). The
         // copy above runs once: after it the two Chiefs' histories grow apart and a switch never merges them.
         await refreshLocalChiefRunning()
-        noteCloudChiefsChecked()
+        // A failed read leaves the Hosted Chief unknown: an ask that waits for it waits for the next check.
+        if read != nil { noteCloudChiefsChecked() }
         let cloud = tabChiefs
         let shown = cloudChief
         // Local conversations live in the Chief home's owner, not this build's

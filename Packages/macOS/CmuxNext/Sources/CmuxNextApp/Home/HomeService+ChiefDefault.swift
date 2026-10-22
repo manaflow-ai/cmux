@@ -16,21 +16,25 @@ extension HomeService {
         HomeTunables.chiefDefault.value.prefersLocal(localRunning: localChiefRunning)
     }
 
-    /// Whether showing `conversation` (nil: Home itself, a reconnect) starts this Mac's brain host:
-    /// never for a cloud Chief's conversation, and for Home itself only while the default Chief
-    /// resolves to this Mac's. A host started under the Hosted Chief would turn Auto into this
-    /// Mac's Chief at the next Chief tab check (review of #23813).
+    /// Whether showing `conversation` (nil: Home itself, a reconnect) starts this Mac's brain host ahead of a
+    /// message: never for a cloud Chief's conversation, and otherwise only while no cloud Chief is known to
+    /// take Home or the default Chief resolves to this Mac's. A host started under the Hosted Chief would turn
+    /// Auto into this Mac's Chief at the next Chief tab check (review of #23813), so under the Hosted Chief
+    /// even this Mac's Chief, shown, starts none; a person's message to it does (``ChiefBrainKeeper/ask(after:in:)``).
     ///
     /// Signed in, before the first Chief tab check read the cloud Chiefs, Home shows this Mac's Chief only
-    /// because the Hosted Chief is not known yet: no host starts then (unless this Mac's Chief is the default
-    /// already), and the check asks again once it knows (``noteCloudChiefsChecked()``).
+    /// because the Hosted Chief is not known yet: no host starts then, and the check asks again once it knows
+    /// (``noteCloudChiefsChecked()``). While this Mac's history is still being copied into the Hosted Chief the
+    /// tab shows this Mac's Chief (``tabChiefs``), but the Hosted Chief takes it when the copy settles, so the
+    /// cloud Chiefs decide here, not the tab.
     func startsLocalBrain(for conversation: String?) -> Bool {
         if let conversation, cloudChiefs.chief(for: conversation) != nil { return false }
-        if cloudChiefsUnknown, !prefersLocalChief { return false }
-        return conversation != nil || cloudChief == nil
+        if prefersLocalChief { return true }
+        return !cloudChiefsUnknown && cloudChiefs.shown(choice: hostedChief.choice) == nil
     }
 
-    /// Signed in and the cloud Chiefs not read yet this launch: the Hosted Chief may still take Home.
+    /// Signed in and the cloud Chiefs not read yet this launch (a failed read counts as not read): the
+    /// Hosted Chief may still take Home.
     var cloudChiefsUnknown: Bool {
         !cloudChiefsChecked && (signedInToCloud?() ?? services.cloud.auth.isSignedIn)
     }
@@ -53,6 +57,14 @@ extension HomeService {
         guard let asked = waitingHomeAsk else { return }
         waitingHomeAsk = nil
         if startsLocalBrain(for: nil) { startLocalBrain(asked: asked) }
+    }
+
+    /// `ensure_home` failed before the Chief tab check read the cloud Chiefs: reads them anyway, so an
+    /// ask that waits for them settles. A failed read keeps it waiting for the next check.
+    func settleCloudChiefsWithoutTab() async {
+        guard !cloudChiefsChecked, let read = await readCloudChiefs() else { return }
+        setCloudChiefs(read)
+        noteCloudChiefsChecked()
     }
 
     private func startLocalBrain(asked: Bool) {
