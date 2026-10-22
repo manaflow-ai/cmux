@@ -12,6 +12,7 @@ extension SidebarModel {
         guard !isPlaceholder(id) else { return }
         selection = [id]
         selectionAnchor = id
+        selectionExtent = nil
         send(.select(id))
     }
 
@@ -27,6 +28,7 @@ extension SidebarModel {
             selection.insert(id)
             selectionAnchor = id
         }
+        selectionExtent = nil
     }
 
     /// The row a Shift range starts from: the anchor while it is still
@@ -48,6 +50,7 @@ extension SidebarModel {
         }
         selection = Set(visibleOrder[min(a, b)...max(a, b)])
         selectionAnchor = anchor
+        selectionExtent = id
     }
 
     /// Arrow-key navigation over the visible rows; a row still being made
@@ -56,7 +59,9 @@ extension SidebarModel {
     public func moveActive(by delta: Int, extending: Bool, visibleOrder: [WorkspaceID]) {
         let visibleOrder = visibleOrder.filter { !isPlaceholder($0) }
         guard !visibleOrder.isEmpty else { return }
-        let current = activeWorkspaceID.flatMap { visibleOrder.firstIndex(of: $0) }
+        // A Shift step continues from the range's moving end, which a Shift-click leaves off the active row.
+        let from = extending ? selectionExtent.flatMap { selection.contains($0) ? $0 : nil } ?? activeWorkspaceID : activeWorkspaceID
+        let current = from.flatMap { visibleOrder.firstIndex(of: $0) }
         let next = current.map { max(0, min(visibleOrder.count - 1, $0 + delta)) } ?? (delta > 0 ? 0 : visibleOrder.count - 1)
         let id = visibleOrder[next]
         if extending {
@@ -64,6 +69,7 @@ extension SidebarModel {
             let a = visibleOrder.firstIndex(of: anchor) ?? next
             selection = Set(visibleOrder[min(a, next)...max(a, next)])
             selectionAnchor = anchor
+            selectionExtent = id
             activeWorkspaceID = id
             send(.select(id))
         } else {

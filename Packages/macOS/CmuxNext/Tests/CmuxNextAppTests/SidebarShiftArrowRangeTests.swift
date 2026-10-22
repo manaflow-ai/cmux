@@ -50,4 +50,13 @@ import Testing
         model.moveActive(by: 1, extending: true, visibleOrder: Self.ids)
         #expect(Self.selected(model) == ["c", "d"])
     }
+
+    /// Shift-click selects a..c; Shift+Down continues from c, as in Finder.
+    @Test func shiftArrowAfterShiftClickExtendsFromTheClickedEnd() {
+        let model = Self.model()
+        model.extendSelection(to: Self.ids[2], visibleOrder: Self.ids)
+        #expect(Self.selected(model) == ["a", "b", "c"])
+        model.moveActive(by: 1, extending: true, visibleOrder: Self.ids)
+        #expect(Self.selected(model) == ["a", "b", "c", "d"])
+    }
 }

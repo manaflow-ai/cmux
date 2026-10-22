@@ -78,7 +78,9 @@ final class WindowShortcutHints {
         }
         if let pane = controller.content?.panes.values.first(where: { $0.paneKey == controller.focus.state.pane }) {
             let strip = pane.view.stripView
-            let order = strip.presentedTabIDs
+            // Select Tab 1…9 counts the tabs the strip shows: a collapsed group's members take no number.
+            let visible = Set(pane.stripModel.visibleOrderedTabs.map(\.id))
+            let order = strip.presentedTabIDs.filter(visible.contains)
             for (id, rect) in TabShortcutHintGeometry().frames(in: strip) {
                 guard let index = order.firstIndex(of: id) else { continue }
                 guard index < 8 || index == order.count - 1 else { continue }
