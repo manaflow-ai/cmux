@@ -39,6 +39,9 @@ DEBT_KINDS = ("needs_review", "identical", "other")
 # scripts/cmux-next/check-l10n.sh counts as present): 269 more in one hour on 2026-10-21. Growth
 # of that kind is reported, not failed; copied English and malformed entries never grow.
 DEBT_ENFORCED = ("identical", "other")
+# What decides a catalog's debt besides the catalog: base debt is only counted with the
+# base's own rules when the pull request leaves these unchanged.
+RULE_FILES = ("localization_catalog.py", "localization-allowed-omissions.json", "localization-plurals.json")
 
 
 @dataclass
@@ -628,7 +631,11 @@ def main() -> int:
         # A pull request runs on its merge with the base, so debt the base added past its own
         # baseline is in every pull request's count; only the push that added it fails.
         base_baseline = load_debt_baseline(args.base_baseline) or {}
-        base_debt = debt_counts(debt_findings(args.base_root, locales, omissions, counts))
+        changed = [name for name in RULE_FILES if not (args.base_root / "scripts" / name).is_file()
+                   or (args.base_root / "scripts" / name).read_bytes() != (ROOT / "scripts" / name).read_bytes()]
+        if changed:
+            print(f"note: this change changes {', '.join(changed)}, so debt the base has is not excused")
+        base_debt = {} if changed else debt_counts(debt_findings(args.base_root, locales, omissions, counts))
         for line in debt_raises(base_debt, base_baseline, DEBT_ENFORCED):
             print(f"warning: the base is already over its baseline, not this change: {line}")
         allowed = {catalog: {kind: baseline.get(catalog, {}).get(kind, 0)

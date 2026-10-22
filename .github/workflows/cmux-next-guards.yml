@@ -337,6 +337,7 @@ jobs:
             base_root="$RUNNER_TEMP/localization-base"
             mkdir -p "$base_root"
             git archive HEAD^1 -- ':(glob)Resources/**/*.xcstrings' ':(glob)Packages/macOS/*/Sources/**/*.xcstrings' \
+              scripts/localization_catalog.py scripts/localization-allowed-omissions.json scripts/localization-plurals.json \
               | tar -x -C "$base_root"
             args+=(--base-root "$base_root")
           fi
