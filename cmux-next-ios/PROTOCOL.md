@@ -743,3 +743,99 @@ The phone's link line names the path: "WireGuard direct", "WireGuard relay
 (TURN)", "WireGuard relay (TURN over TLS)" (and the same for WebRTC's
 TURN). There is no WebSocket relay any more. cmux-mobile-host reports the path as
 `direct`, `turn`, `turn-tls` or `none` (`phone_up`, `phone_path`).
+
+## Push notifications (API 0.12.0)
+
+Rich, interactive notifications (`verify/rich-push.md`). Every field below is
+optional and additive: a 0.11 Mac host sends none of them and gets the 0.11
+banner; a 0.11 phone ignores what it does not read.
+
+### Mac → Worker: `POST /v1/devices/:macId/notify`
+
+Adds to the 0.7.0 body (the Worker cleans every string: control and format
+characters become spaces, then it cuts to the limit in code points):
+
+| Field | Limit | Meaning |
+| --- | --- | --- |
+| `kind` | | adds `terminal` (an OSC 9, OSC 777 or OSC 99 desktop notification from a program in a cmux terminal) |
+| `workspace` | 60 | the workspace's title (`place` stays the folder name) |
+| `workspaceId`, `tabId` | 128 | the daemon's ids; `tabId` is `s<surface>` for a terminal |
+| `permissionId` | 128 | the acpmux permission id of a question or permission |
+| `conversationId` | 128 | a Chief's home id (`kind` `chief`) |
+| `notificationId` | 64 | the daemon ledger id of a terminal notification |
+| `title` | 200 | the question, the permission's command or tool title, a terminal notification's title |
+| `body` | 400 | a terminal notification's body, an error's summary, a Chief reply's first lines |
+| `options` | 6 × (`id` 64, `label` 60, `kind`) | a permission's acpmux options (`kind` `allow_once`, `allow_always`, `reject_once`, `reject_always`) |
+| `questions` | 4 × (`question` 200, `header` 30, `multiSelect`, `allowsOther`, `options` 6 × `label` 60) | an AskUserQuestion-style ask |
+| `tail` | 6 × 160 | the last lines: the chat's last messages, or a terminal's last screen rows |
+| `state` | | `waiting`, `finished`, `failed`, `notified` |
+
+The answer adds `wants`: the kinds any phone of the owner that has not muted
+this Mac still wants, so the host skips kinds nobody wants (it asks again at
+most every 60 s).
+
+Content moved from minimized to granular in 0.12.0 by the person's decision
+(rich notifications). Paths, prompts and tool arguments beyond the title are
+still never sent; `tail` is the visible text the phone's chat or terminal
+would show. Until payload encryption (PR B, `sealed`) every field is visible
+to the Worker and to APNs.
+
+### Worker → APNs
+
+```json
+{"aps": {"alert": {"title": "Claude asks", "subtitle": "cmux-next · Mac mini", "body": "Which branch?"},
+         "sound": "default", "mutable-content": 1, "thread-id": "<mac>:<sessionId>",
+         "category": "CMUX_MOBILE_QUESTION", "interruption-level": "time-sensitive",
+         "target-content-id": "<mac>:<sessionId>"},
+ "cmuxMobile": {"v": 2, "mac": "…", "macName": "Mac mini", "kind": "question", "eventId": "p-…",
+                "agent": "Claude", "place": "cmux-next", "workspace": "cmux-next", "workspaceId": "…",
+                "tabId": "…", "sessionId": "…", "permissionId": "…", "title": "Which branch?",
+                "questions": [{"question": "Which branch?", "multiSelect": false, "allowsOther": true,
+                               "options": [{"label": "main"}, {"label": "dev"}]}],
+                "tail": ["…"], "state": "waiting", "previews": true}}
+```
+
+- `thread-id`: `<mac>:<sessionId>`, else `<mac>:<tabId>` (terminal), else
+  `<mac>:chief:<conversationId>`, else `<mac>`. Collapse ids are unchanged
+  (#23803); a terminal notification collapses per `notificationId`.
+- `category`: `CMUX_MOBILE_QUESTION` (one question, one choice, at most 4
+  options), `CMUX_MOBILE_QUESTION_FORM` (any other ask: multi-select, more
+  options, several questions, or none listed), `CMUX_MOBILE_PERMISSION`,
+  `CMUX_MOBILE_COMPLETED`, `CMUX_MOBILE_FAILED`, `CMUX_MOBILE_CHIEF`,
+  `CMUX_MOBILE_TERMINAL`.
+- The payload stays under 4096 bytes: the Worker drops `tail` lines from the
+  oldest, then option descriptions, then shortens `title`, and finally drops
+  `questions` (the category becomes `CMUX_MOBILE_QUESTION_FORM`).
+- Banner text: question "<Agent> asks" / the question; permission "<Agent>
+  needs permission" / the title; completed "<Agent> finished" / the last
+  `tail` line; failed "<Agent> stopped with an error" / `body` or the last
+  line; chief "Chief" / `body`; terminal `title` / `body`. Subtitle
+  "<workspace or place> · <Mac>".
+- `previews: false` (the phone turned Show previews off): the 0.11 banner
+  text ("Claude has a question", body the Mac's name) and no subtitle; the
+  `cmuxMobile` fields stay, so the buttons still work after unlock.
+
+### Phone → Worker: `PUT /v1/devices/:deviceId/push`
+
+Adds `mutedMacs` (at most 64 Mac device ids: no push from them) and
+`previews` (boolean, default true). `kinds` adds `terminal`. The answer echoes
+both. The app's levels: Only when I'm needed = `question`, `permission`;
+Needed and finished = those and `completed`, `chief`; Everything = all six
+plus `failed` and `terminal`.
+
+### Phone actions
+
+| Identifier | Kind | Options | Delivery |
+| --- | --- | --- | --- |
+| `cmux.option.<i>` | question (one choice) | foreground, authenticationRequired | the app opens, Face ID, signed answer |
+| `cmux.answer` ("Answer…") | question | foreground | the app opens on the question |
+| `cmux.allow.once`, `cmux.allow.always` | permission | foreground, authenticationRequired | the app opens, Face ID, signed allow |
+| `cmux.deny` | permission | destructive, authenticationRequired | background, unsigned reject |
+| `cmux.reply` (text input) | completed, failed, chief | authenticationRequired | background: a prompt to the session, or a Chief message |
+| `cmux.terminal.reply` (text input) | terminal (PR B) | authenticationRequired | background: input to the terminal |
+| `cmux.retry` | the "Couldn't reach <Mac>" notification | foreground | the app opens and sends again |
+
+The content extension replaces the buttons with the payload's own options
+(`extensionContext.notificationActions`). Its option rows, Submit and its
+composer write the request to the App Group outbox and open the app, which
+sends it over that Mac's link and opens the chat.
