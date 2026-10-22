@@ -216,10 +216,11 @@ struct SidebarPinnedWorkspaceRowsTests {
 
     // MARK: Unpin through the document
 
-    /// The home daemon's document: Pinned holds `w_pin`; This Mac holds `w_one`.
+    /// The home daemon's document: Pinned (which keeps closed workspaces, as the daemon writes it) holds `w_pin` and
+    /// the closed `w_gone`; This Mac holds `w_one`.
     static let document = Data("""
     {"revision": "1",
-     "sections": [{"id": "sec_pinned", "kind": {"type": "pinned"}},
+     "sections": [{"id": "sec_pinned", "kind": {"type": "pinned"}, "keeps_closed": true},
                   {"id": "sec_m_s1", "kind": {"type": "machine", "session_id": "s1"}}],
      "items": [
        {"id": "w_pin", "section": "sec_pinned", "order": "a", "body": {"type": "workspace", "ref": {"session_id": "s1", "workspace_id": "pin"}}},
