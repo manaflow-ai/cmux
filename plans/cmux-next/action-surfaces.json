@@ -16722,7 +16722,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Developer Tools: Start or Stop Performance Recording",
+      "title" : "Developer Tools: Start\/Stop Performance Recording",
       "title_key" : "action.devtools.togglePerformanceRecording",
       "title_table" : "DevToolsActions"
     },
@@ -22345,6 +22345,34 @@
       "palette_suggested" : null,
       "title" : "Chief: Open Memory Inspector",
       "title_key" : "action.chief.openMemoryInspector",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action chief-toggle-memory-inspector",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "chief.toggleMemoryInspector",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Chief: Toggle Memory Inspector",
+      "title_key" : "action.chief.toggleMemoryInspector",
       "title_table" : "ActionCatalog"
     },
     {
@@ -30652,7 +30680,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Pin or Unpin Chat",
+      "title" : "Pin\/Unpin Chat",
       "title_key" : "action.sidebar.chat.togglePin",
       "title_table" : "SidebarSectionActions"
     },
@@ -33691,7 +33719,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Palette: Show or Hide Actions",
+      "title" : "Palette: Show\/Hide Actions",
       "title_key" : "action.paletteKey.toggleActions",
       "title_table" : "ActionCatalog"
     },
