@@ -1,8 +1,7 @@
 /* The header's summary button and the summary card (summary/SummaryButton.tsx, SummaryCard.tsx): a
    narrow pane gets a popover; a wide pane reserves a quiet column beside the chat and composer.
    Rows are 28px, text truncates, and every control follows the Motion hover fade. */
-.acpmux-summary{position:relative;flex:none;display:flex}
-/* The button itself is a header tool (header.css .acpmux-header-tool): the same square, glyph and tints. */
+/* The button is the header's panel toggle (header/PanelToggle.tsx, header.css .acpmux-header-tool). */
 .acpmux-summary-card{display:flex;flex-direction:column;box-sizing:border-box;border-radius:var(--ui-popup-radius);color:var(--agent-text);font-size:var(--text-control);line-height:18px;background:var(--surface-popup);box-shadow:var(--acpmux-popup-elevation)}
 .acpmux-summary-card[data-placement=popover]{position:absolute;z-index:var(--layer-sticky);top:48px;right:10px;width:min(288px,calc(100% - 20px));max-height:calc(100% - 60px);border-radius:var(--ui-popup-radius)}
 /* The popover is the liquid glass (.ui-glass, ui/glass/glass.css), as the chat's other menus and
@@ -67,7 +66,7 @@
 .acpmux-summary-text{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .acpmux-summary-meta{flex:none;color:var(--agent-muted);font-size:var(--text-detail);font-variant-numeric:tabular-nums}
 .acpmux-summary-link,.acpmux-summary-more{transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
-.acpmux-summary-link:hover,.acpmux-summary-more:hover{background:var(--acpmux-menu-hover)}
+.acpmux-summary-link:hover:not(:disabled),.acpmux-summary-more:hover{background:var(--acpmux-menu-hover)}
 .acpmux-summary-link:active,.acpmux-summary-more:active{background:color-mix(in srgb,var(--agent-text) 18%,var(--acpmux-base))}
 .acpmux-summary-link:focus-visible,.acpmux-summary-more:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1.5px}
 .acpmux-summary-link:disabled{color:var(--agent-muted)}
