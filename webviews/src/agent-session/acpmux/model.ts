@@ -127,7 +127,9 @@ export type QueuedPrompt = {
   images?: QueuedPromptImage[];
 };
 /// An image a prompt sent: `_acpmux/attachment {sessionId, id}` reads its bytes back.
-export type PromptImage = { id: string; mimeType: string; name?: string };
+/// A prompt's image as acpmux names it; `width`/`height` are its natural size when the record
+/// carries them, so its thumbnail is reserved at its own shape before it is read.
+export type PromptImage = { id: string; mimeType: string; name?: string; width?: number; height?: number };
 /// A queued prompt's image: `src` is its data URL when the pane has its bytes (it sent them, or
 /// the `queued` record carries them), else the row reads it by `id`. acpmux names an image by the
 /// SHA-256 of its bytes; one the pane only sent so far has the composer's id (`local`) until
@@ -220,11 +222,14 @@ export type AcpmuxRow = {
   below?: boolean;
   /// The Codex-style live line (conversation/turns.ts `codexLiveTurn`, Thinking.tsx): the call in
   /// flight's start on this computer's clock, which its time counts from; whether `doing` is a raw
-  /// command line, which reads "Running <command>" (or "Running a command" when empty); no time
-  /// beside "Thinking" (the turn's line over its work has it); and the streaming text it waits
+  /// command line, which reads "Running <command>" (or "Running a command" when empty); whether
+  /// the agent still writes that command (`doingDraft`: a pending shell call with no command yet,
+  /// "Writing a command"); no time beside "Thinking" (`untimed`, the older layout's line, whose
+  /// "Working for" over the work timed the turn); and the streaming text it waits
   /// behind, by id and version, while that text still moves.
   doingAt?: number;
   doingShell?: boolean;
+  doingDraft?: boolean;
   untimed?: boolean;
   quietKey?: string;
   /// The call it names is a command, so the line leads with the terminal glyph (WorkingFor.tsx).
@@ -489,6 +494,9 @@ export type AcpmuxSnapshot = {
   /// page's first-paint report: a chat read cold fades in over the loading state, this one shows
   /// in one frame (AgentPaneView+Loading.swift).
   drewKeptTail?: true;
+  /// The selected chat's rows are in this snapshot (its attach page, or a kept tail), or none is
+  /// selected: the first-paint report may say the chat is on screen (App.tsx `chatDrawn`).
+  chatRead?: true;
   sessionId?: string;
   isWorking: boolean;
   /// The running turn's tokens so far, its model calls added up, subagents' included (direct.ts
@@ -720,8 +728,14 @@ export function nextDrawnRow(rows: readonly AcpmuxRow[], index: number): AcpmuxR
   return undefined;
 }
 /// The chat's last footer ends at the message gap, not the turn gap: no band over the composer
-/// (App.tsx marks it `acpmux-row--last-footer`). `next` is the next row that draws.
-export const isLastFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) => row.kind === "turnSummary" && !next;
+/// (App.tsx marks it `acpmux-row--last-footer`). So does a footer over another agent's line (a
+/// message, a notice or a started task's result): that line belongs with the agent's text above
+/// it, not a turn of its own after a band. `next` is the next row that draws.
+export const isLastFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
+  row.kind === "turnSummary" &&
+  (!next ||
+    (next.kind === "user" &&
+      (next.received !== undefined || next.incoming?.kind === "message" || next.incoming?.kind === "notice")));
 /// What the row after a row changes about its height (`beforeFooter`, `lastFooter`), as one key.
 const rowEdge = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
   isBeforeFooter(row, next) ? "footer" : isLastFooter(row, next) ? "last" : undefined;
@@ -781,9 +795,9 @@ function fallbackRowHeight(row: AcpmuxRow, width: number, beforeFooter = false, 
     );
   // A paused agent pair: its sentence over the held count and Resume; resumed, one line.
   if (row.kind === "agentPair") return row.agentPair?.resumed ? 37 : 37 + 24;
-  // A session start: its facts line, and the compaction note's one line under it until it is
-  // dismissed (conversation/SessionStartNote.tsx); either opens below when asked.
-  if (row.kind === "sessionStart") return 37 + 26;
+  // A session start: its facts line (conversation/SessionStartNote.tsx); the full facts open
+  // below when asked.
+  if (row.kind === "sessionStart") return 37;
   // The plan card's 24px items inside 8px of padding and 8px margins (conversation/PlanList.tsx).
   if (row.kind === "plan" && row.plan) return 40 + row.plan.length * 24;
   // A turn's footer: its meta line, then the turn gap (the message gap for the chat's last one).

@@ -665,6 +665,10 @@ path = "tests/test_ci_required_checks_are_bounded.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_pr_runs_cancel_superseded.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_required_checks_have_no_path_filters.py"
 lane = "linux-guard"
 
@@ -1570,11 +1574,19 @@ path = "tests/test_cmux_next_base_autofix_finishes.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_next_tip_swift_suite.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_next_debug_only_controls.py"
 lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_next_feed_rollback.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_ring.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1587,6 +1599,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_next_train.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_train_drive_pin.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1682,6 +1698,10 @@ path = "tests/test_gallery_select.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_gallery_health_merge_ref.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_check_concurrency_generic_deinit.py"
 lane = "linux-guard"
 
@@ -1699,4 +1719,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_owned_pool_sources.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_tui_daemon_tests_linux.py"
 lane = "linux-guard"

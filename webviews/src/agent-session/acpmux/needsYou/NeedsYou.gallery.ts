@@ -102,6 +102,7 @@ const sessions = [
     peer: "build-box",
     indicator: "input",
     pendingPermissions: 1,
+    // Its ask lives on the build box: the row says the question its summary names, never this reply.
     waitingOn: { on: "question", prompt: "Which tag should the notes start from?" },
     preview: "I drafted the notes from the merged PRs since the last nightly.",
     updatedAt: ago(32),

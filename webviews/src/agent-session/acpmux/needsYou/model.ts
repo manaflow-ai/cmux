@@ -136,7 +136,10 @@ function waitsOnPerson(session: AcpmuxSessionEntry): boolean {
 /// reads as its kind's line (NeedsYou.tsx `askText`).
 function waitingAsk(session: AcpmuxSessionEntry): Pick<NeedsYouItem, "kind" | "ask"> {
   const waiting = session.waitingOn;
-  if (waiting?.on === "question") return { kind: "decision", ask: waiting.prompt ?? "" };
+  if (waiting?.on === "question") {
+    const ask = waiting.prompt ?? "";
+    return { kind: VERIFY.test(ask) ? "verify" : "decision", ask };
+  }
   if (waiting?.on === "permission") return { kind: "approval", ask: "" };
   return { kind: "input", ask: "" };
 }
