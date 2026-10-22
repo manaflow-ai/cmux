@@ -291,6 +291,38 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
       await page.close();
     });
 
+  test("Show less on a prompt several screens tall, with motion off, keeps its button on its pixel", async () => {
+    const page = await open("reduce");
+    const tall = Array.from({ length: 400 }, (_, line) => `${line + 1}. The uploader retries on a 5xx.`).join("\n");
+    await show(page, [
+      ...done,
+      row("tall-user", "user", tall),
+      ...done.map((one) => ({ ...one, id: `after-${one.id}` })),
+    ]);
+    await settle(page);
+    const button = '[data-row-id="tall-user"] .cv-user__more';
+    const place = () =>
+      page.evaluate((query) => {
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        const more = document.querySelector<HTMLElement>(query)!;
+        scroller.scrollTop += more.getBoundingClientRect().top - scroller.getBoundingClientRect().top - 200;
+      }, button);
+    await place();
+    await settle(page);
+    await page.locator(button).click();
+    await settle(page);
+    expect(await page.locator(button).getAttribute("aria-expanded")).toBe("true");
+    await place();
+    await settle(page);
+    await page.evaluate(() => document.querySelector("[data-probe]")?.removeAttribute("data-probe"));
+    await probe(page, button);
+    const closed = await clickAndWatch(page, 250);
+    expect(closed.moved).toBeLessThanOrEqual(1);
+    expect(await page.locator(button).getAttribute("aria-expanded")).toBe("false");
+    expect(Math.abs((await probedTop(page)) - closed.top)).toBeLessThanOrEqual(1);
+    await page.close();
+  });
+
   test("under Reduce Motion a tool call opens at once, and still stays on its pixel", async () => {
     const page = await open("reduce");
     await show(page, [...done, ...live(1)]);

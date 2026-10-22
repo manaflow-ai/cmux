@@ -2391,7 +2391,15 @@ export function VirtualTranscript({
   // of building them in its own frame. A jump past them mounts only what it shows.
   const warmTop = useDeferredValue(renderScroll.top);
   const warm = visibleLayoutRange(layout, warmTop - height * WARM_VIEWPORTS, height * (1 + 2 * WARM_VIEWPORTS));
-  const mountedRanges = mergeRowRanges(warm.last < range.first || warm.first > range.last ? ahead : [...ahead, warm]);
+  // The row whose line a fold holds stays mounted while the hold lasts: a body that shrank under
+  // the old offset (Show less on a long prompt) would otherwise drop the row, and the hold with it,
+  // before the hold puts the line back (foldAnchor.ts).
+  const heldAt = Number(foldAnchor.current?.toggle.closest(".acpmux-row")?.getAttribute("aria-posinset")) - 1;
+  const held = heldAt >= 0 && heldAt < rows.length ? [{ first: heldAt, last: heldAt + 1 }] : [];
+  const mountedRanges = mergeRowRanges([
+    ...(warm.last < range.first || warm.first > range.last ? ahead : [...ahead, warm]),
+    ...held,
+  ]);
   // Find highlights only need repainting when the query/target, row content, or mounted DOM
   // window changes. Keep this signature primitive so scroll and layout state updates that leave
   // the mounted rows alone do not walk every text node in the transcript again.
@@ -2588,8 +2596,14 @@ export function VirtualTranscript({
     }
     // A disclosure the reader clicked stays where they clicked it while what it opens lays out: this
     // pass neither follows the latest row nor keeps the top row, it puts the clicked line back.
+    const heldFrom = node?.scrollTop ?? 0;
     const folding = Boolean(old && node && foldAnchor.current && keepFold(foldAnchor.current, node));
     if (!folding) foldAnchor.current = undefined;
+    if (folding && node && Math.abs(node.scrollTop - heldFrom) >= 0.5) {
+      // The rows mounted for this frame read the held offset too, before its scroll event comes.
+      const moved = node.scrollTop;
+      setScroll((current) => ({ top: moved, delta: moved - current.top }));
+    }
     if (folding && node) {
       // What opened pushed the latest row out of view: the view is the reader's now, not following.
       if (followingRef.current && node.scrollTop < layout.totalHeight - node.clientHeight - FOLLOW_BOTTOM_DEADBAND_PX)
