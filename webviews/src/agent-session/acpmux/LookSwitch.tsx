@@ -3,7 +3,8 @@
 // Claude's look then Codex's (composerLook.ts), in the composer's bottom area. With Claude's look
 // they sit in the quiet row's empty middle, with Codex's in the band under the box; either way they
 // show while the pointer is over that area or a dot has the keyboard, and fade when it leaves
-// (composerLocation.css `.acpmux-look-dots`).
+// (composerLook.css `.acpmux-look-dots`). ComposerBox keeps one LookSwitch across a look change, so
+// arrow keys go on switching and Escape goes back to the prompt.
 import { COMPOSER_LOOK_NAMES, COMPOSER_LOOKS, setComposerLook, useComposerLook } from "./composerLook";
 import { useT } from "./i18n";
 import { DotSwitch } from "./newtab/StyleSwitch";

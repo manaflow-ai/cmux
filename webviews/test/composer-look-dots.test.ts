@@ -148,7 +148,10 @@ await requireBrowserLane("composer-look-dots.test.ts", async () => {
     const form = ".acpmux-composer";
     // Claude's look: the quiet row under the box holds the dots, unseen at rest.
     expect(await page.$(`${form}[data-composer-look]`)).toBeNull();
-    expect(await page.$(`${form} .acpmux-composer-foot .acpmux-look-dots`)).not.toBeNull();
+    // The dots sit over the quiet row, inside its height.
+    const row = (await (await page.$(`${form} .acpmux-composer-foot`))!.boundingBox())!;
+    const group = (await (await page.$(`${form} .acpmux-look-dots`))!.boundingBox())!;
+    expect(group.y >= row.y && group.y + group.height <= row.y + row.height).toBe(true);
     expect(await shown(page, form)).toBe(false);
     expect(await dots(page, `${form} .acpmux-look-dots`)).toEqual([
       { value: "claude", name: "Claude", checked: true },
@@ -191,7 +194,8 @@ await requireBrowserLane("composer-look-dots.test.ts", async () => {
         if (active?.closest(".acpmux-composer-box") && active.matches("[contenteditable], textarea")) return "prompt";
         return active?.tagName ?? "none";
       });
-    const settle = () => page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+    const settle = () =>
+      page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
 
     await page.focus(`${form} .acpmux-look-dots input[value=claude]`);
     expect(await focused()).toBe("dot:claude");

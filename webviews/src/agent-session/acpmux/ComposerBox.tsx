@@ -225,11 +225,17 @@ export function ComposerBox({
           <ComposerFoot ref={bar}>
             {shownChips}
             {ring}
-            {bottom}
           </ComposerFoot>
         </ChromeArea>
       )}
-      {!quietRow && bottom && <div className="acpmux-composer-under">{bottom}</div>}
+      {/* One place for both looks, so a look switched from the dots by keys keeps the same dots and
+          their focus (they would remount under the box and drop it): with the quiet row they draw
+          over its empty middle, with Codex's look in the band under the box (composerLook.css). */}
+      {bottom && (
+        <div className="acpmux-composer-under" data-beside-foot={quietRow ? "" : undefined}>
+          {bottom}
+        </div>
+      )}
     </>
   );
 }
