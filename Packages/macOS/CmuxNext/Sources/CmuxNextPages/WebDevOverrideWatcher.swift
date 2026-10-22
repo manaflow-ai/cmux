@@ -1,5 +1,6 @@
 import CmuxNextSettings
 public import Foundation
+public import WebKit
 
 /// Watches `web-dev.json` and the overlay's `manifest.json` (``WebDevOverride``), keeps
 /// ``WebDevOverride/current`` and reloads every web view the page and agent pane scheme handlers
@@ -15,11 +16,13 @@ public final class WebDevOverrideWatcher {
     private var readTask: Task<Void, Never>?
     private var readRequested = false
 
-    /// A page or agent pane scheme handler is serving a view: the first one starts the watch, so a
-    /// launch that shows no page reads nothing (the first page loads bundled and reloads once the
-    /// file is read).
-    public func served() {
+    /// A page or agent pane scheme handler is serving `webView`, from any of its paths (bundled
+    /// file, dev server, overlay): it joins ``WebBundleServedViews`` so a change reloads it, and the
+    /// first one starts the watch, so a launch that shows no page reads nothing (the first page
+    /// loads bundled and reloads once the file is read).
+    public func served(_ webView: WKWebView) {
         guard WebDevOverride.isEnabled else { return }
+        WebBundleServedViews.shared.add(webView)
         start()
     }
 

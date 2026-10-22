@@ -27,7 +27,7 @@ final class AgentPaneSchemeHandler: NSObject, WKURLSchemeHandler {
     var active: Set<ObjectIdentifier> = []
 
     func webView(_ webView: WKWebView, start task: any WKURLSchemeTask) {
-        WebDevOverrideWatcher.shared.served() // a web-dev.json change reloads every served view
+        WebDevOverrideWatcher.shared.served(webView) // a web-dev.json change reloads it
         if task.request.httpMethod.map({ $0 == "GET" }) ?? true,
            let url = task.request.url, AgentPaneRenderFrame.isFrame(url) {
             let data = AgentPaneRenderFrame.document
