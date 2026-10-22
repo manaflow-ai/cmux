@@ -56,6 +56,16 @@ final class HomeLinkPreviewProvider: HomeLinkPreviewing {
             let shown = DeepLink.agentTabs(harness: harness, session: session, adopted: services.agentTabs.tab(resuming: AgentPaneAdopt(harness: harness, agentSessionId: session)), harnessSessions: services.machines.daemons.flatMap(\.store.reachableAgentHarnessSessions))
             guard let (tab, pane) = shown.lazy.compactMap({ services.locateTab($0) }).first else { return closed(.session, session) }
             return tabPreview(tab, pane: pane, services: services, kind: .session)
+        case .group(let id, let workspace):
+            // A cloud group's record is in cmux Cloud; the card names the workspace when this Mac shows it.
+            guard let workspace, let open = services.machines.allWorkspaces.map(\.0).first(where: { $0.resourceID?.rawValue == workspace }) else {
+                return closed(kind, id)
+            }
+            let tabs = open.screens.flatMap(\.panes).flatMap(\.tabs)
+            let titles = TabTitleResolver(services: services)
+            return HomeLinkPreview(kind: .workspace, title: open.displayName, place: HomeLinkPreviewStrings.tabCount(tabs.count),
+                                   status: HomeLinkPreviewStrings.open, statusTone: .success,
+                                   lines: tabs.prefix(Self.maxLines).map { titles.title($0) })
         case .legacyWorkspace, .legacyPane, .legacySurface: return closed(kind, url.lastPathComponent)
         }
     }
