@@ -19,12 +19,12 @@ not ask for what the daemon would refuse, and shows no control for it.
 
 ## Rules
 
-- H1. Tab strip. Home's dock takes tabs, so its pane shows its tab strip by default, like any pane:
-  Home's tab first with no close x, and the tabs dragged in. The strip has no +: what Home opens
-  (New Tab, Cmd-D, a new chat, a link) still goes beside it (`ChatColumnPlacement`,
-  `NewChatPlacement`, `LinkOpener`). Hide/Show Tab Bar and New Horizontal Tab are offered there.
-  Only a pinned dock the person closed to tabs (`allow_tabs` off), showing at most one tab, has
-  no strip and hides those two actions (`DockColumn.hidesTabBar`).
+- H1. Tab strip. The Home Chief pane shows its tab bar like every agent pane (Leo 2026-10-21: "JUST
+  MAKE THE TAB THING SHOW UP ON THE MAIN PANE TOO"; it had no strip from 2026-10-20): Home's tab
+  first with no close x, and the tabs dragged in. The strip has no +: what Home opens (New Tab,
+  Cmd-D, a new chat, Split Browser, a link) still goes beside it (`ChatColumnPlacement`,
+  `NewChatPlacement`, `LinkOpener`). The person's Hide Tab Bar hides it, as in any pane
+  (`PaneTabBarChoices`); New Horizontal Tab stays hidden for that pane in menus and the palette.
 - H2. Cmd-W. With focus in Home, the person's Cmd-W does nothing and shows no notice
   (`TabKeyboardClose.ignore`). The person's Close Pane does the same. With Home and other tabs
   (only with `allow_tabs`), Cmd-W on Home selects the next tab, as before.
@@ -44,10 +44,11 @@ not ask for what the daemon would refuse, and shows no control for it.
 
 ## Tests
 
-- App: `Tests/CmuxNextAppTests/HomeChiefPaneUncloseableTests.swift` (H1, H2, H3, H4),
-  `PinnedHomeDockTests.swift` (close x, Cmd-W, new-chat placement, refusal text),
-  `HomeLoneDockTests.swift` (opens beside the dock, a dragged-in tab drags out) and, against the
-  same-tree daemon, `HomeSplitKeysTests.homesDockShowsItsTabStripAndTakesTabs` (H1, `allow_tabs`).
+- App: `Tests/CmuxNextAppTests/HomeChiefPaneShowsTabBarTests.swift` (H1),
+  `HomeChiefPaneUncloseableTests.swift` (H2, H3, H4), `PinnedHomeDockTests.swift` (close x, Cmd-W,
+  new-chat placement, which tabs a chat dock takes, refusal text), `HomeLoneDockTests.swift` (opens
+  beside the dock, a dragged-in tab drags out) and, against the same-tree daemon,
+  `HomeSplitKeysTests.homesDockShowsItsTabStripAndTakesTabs` (`allow_tabs`, drag out and back in).
 - Daemon: `cmux-tui/crates/cmux-tui-core/src/server/pinned_columns_tests.rs` (close-surface,
   `tab.close`, close-pane, `pane.close`, `screen.close`, `pane.split`, new tabs, moves in and out,
   undock and edge changes).

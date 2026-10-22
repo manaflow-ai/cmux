@@ -12,7 +12,7 @@ enum PaneTabBarHandlers {
     static func bind(into registry: ActionRegistry, context ctx: AppActionContext) {
         registry.bind(toggle, invoke: { invocation in
             guard let controller = ctx.paneController(invocation) else { return }
-            if let reason = noTabBarReason(controller) { return ctx.refuse(reason) }
+            if let reason = noToggleReason(controller) { return ctx.refuse(reason) }
             controller.showTabBar(controller.view.hidesStrip)
         })
         // The row reads as the change it makes (cx-5425v): Hide Tab Bar while the pane shows it,
@@ -31,22 +31,29 @@ enum PaneTabBarHandlers {
         })
         // An app workspace's one pane shows its app without a tab bar (`app-screens-v1`).
         // After both binds: `bind` registers a fresh action and drops an earlier hide rule.
+        // The Home Chief pane shows its tab bar, which the person may hide, but takes no new tab
+        // (home-chief-pane.md).
         for id in [toggle, newTab] {
-            // A pinned dock closed to other tabs has no tab bar to show and takes no new tab
-            // (home-chief-pane.md); Home's dock takes tabs and offers both.
+            let isToggle = id == toggle
             ActionTargetVisibility.hide(id, in: registry) { invocation in
-                ctx.paneController(invocation).map { $0.isAppPane || $0.isClosedPinnedDockPane } ?? false
+                ctx.paneController(invocation).map { (isToggle ? noToggleReason($0) : noTabBarReason($0)) != nil } ?? false
             }
             // The palette, the CLI and MCP say why instead of reporting a run that did nothing.
-            ctx.setTargetReason(id) { invocation in ctx.paneController(invocation).flatMap(noTabBarReason) }
+            ctx.setTargetReason(id) { invocation in
+                ctx.paneController(invocation).flatMap { isToggle ? noToggleReason($0) : noTabBarReason($0) }
+            }
         }
     }
 
-    /// Why `controller` takes no tab bar change and no new tab, or nil.
+    /// Why `controller` takes no new tab, or nil.
     static func noTabBarReason(_ controller: PaneController) -> String? {
-        if controller.isClosedPinnedDockPane { return RefusalStrings.chiefPaneHasNoTabBar }
-        if controller.isAppPane { return RefusalStrings.appPaneHasNoTabBar }
-        return nil
+        if controller.isPinnedDockPane { return RefusalStrings.chiefPaneHasNoTabBar }
+        return noToggleReason(controller)
+    }
+
+    /// Why `controller`'s tab bar cannot be shown or hidden, or nil: an app's pane has none.
+    static func noToggleReason(_ controller: PaneController) -> String? {
+        controller.isAppPane ? RefusalStrings.appPaneHasNoTabBar : nil
     }
 }
 
@@ -54,10 +61,11 @@ extension PaneController {
     /// An app workspace's pane: it never shows a tab bar.
     var isAppPane: Bool { daemon.store.workspace(containing: pane.handle)?.app != nil }
 
-    /// A pane of a pinned dock (the Home Chief pane, `pinned-dock-v1`): it never closes.
+    /// A pane of a pinned dock (the Home Chief pane, `pinned-dock-v1`): it takes no new tab (what Home
+    /// opens goes beside it) and never closes; its tab bar shows like any pane's.
     var isPinnedDockPane: Bool { pinnedDock != nil }
 
-    /// A pane of a pinned dock that takes no other tab (`allow_tabs` off): it shows no tab bar.
+    /// A pane of a pinned dock that takes no other tab (`allow_tabs` off): no tab drops on its strip.
     /// Home's dock takes tabs (Leo 2026-10-21), so this is only a dock the person closed to tabs.
     var isClosedPinnedDockPane: Bool { pinnedDock.map { !$0.takesTabs } ?? false }
 

@@ -176,13 +176,13 @@ final class PaneController: SurfacePresenter, PresentablePane {
         let dock = ownWorkspace?.screens.lazy.flatMap(\.columns).first { $0.layout.paneIDs.contains(pane.handle) }?.dock
         let pinned = dock?.isPinned == true
         let tabs = pane.tabs.filter { !hidden.contains($0.id) }
-        // A pinned dock the person closed to other tabs shows no tab bar; Home's dock takes tabs and
-        // shows its strip (plans/cmux-next/home-chief-pane.md).
-        let homeChief = dock.map { LayoutMapping.dock($0).hidesTabBar(shownTabs: tabs.count + local.count) } ?? false
+        // The Home Chief pane (a pinned dock) shows its tab bar like every agent pane (Leo
+        // 2026-10-21: "JUST MAKE THE TAB THING SHOW UP ON THE MAIN PANE TOO"); only the person's
+        // Hide Tab Bar hides it (plans/cmux-next/home-chief-pane.md H1).
         return Snapshot(tabs: tabs, items: local, groups: groups,
                          defaultIndex: pane.defaultTabIndex, generation: store.generation?.rawValue,
                          // An app workspace's one pane shows its app without a strip (`app-screens-v1`).
-                         hidesStrip: hidesTabBar || ownWorkspace?.app != nil || homeChief,
+                         hidesStrip: hidesTabBar || ownWorkspace?.app != nil,
                          fullWidthTab: services.paneFullWidthTabs.contains(paneKey),
                          keepsFirstTab: pinned && tabs.first?.id == pane.tabs.first?.id,
                          // What Home's pinned dock opens goes beside it (ChatColumnPlacement, and

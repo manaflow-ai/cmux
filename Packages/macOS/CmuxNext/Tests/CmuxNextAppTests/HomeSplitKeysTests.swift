@@ -16,7 +16,7 @@ import Testing
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct HomeSplitKeysTests {
     /// Shows the docked Home with its dock alone and focused; returns the window and the home workspace.
-    private static func showHome(_ services: AppServices, _ connection: DaemonConnection) async throws -> (WindowController, WorkspaceModel) {
+    static func showHome(_ services: AppServices, _ connection: DaemonConnection) async throws -> (WindowController, WorkspaceModel) {
         try #require(!services.home.dock.isClassic, "the docked Home is the default")
         let window = try #require(services.windows.active)
         services.home.ensureHomeWorkspace(connection)
@@ -73,7 +73,7 @@ struct HomeSplitKeysTests {
         return (window, home)
     }
 
-    private static func panes(_ home: WorkspaceModel) -> [PaneModel] { home.screens.flatMap(\.panes) }
+    static func panes(_ home: WorkspaceModel) -> [PaneModel] { home.screens.flatMap(\.panes) }
 
     /// Collects every refusal `body` causes.
     private static func refusals(_ services: AppServices, _ body: () -> Void) -> [String] {
@@ -124,7 +124,7 @@ struct HomeSplitKeysTests {
             #expect(dockFlag()?.isPinned == true, "the dock stays pinned")
             let controller = try #require(services.paneController(for: dock))
             try await PasswordManagerRouteTests.until({ !controller.view.hidesStrip }, report: { "Home's pane hides its tab strip" })
-            #expect(PaneTabBarHandlers.noTabBarReason(controller) == nil, "Hide Tab Bar is refused in Home")
+            #expect(PaneTabBarHandlers.noToggleReason(controller) == nil, "Hide Tab Bar is refused in Home")
             let page = try #require(dock.tabs.first)
             #expect(page.page == HomeDock.page)
             let created = try await connection.newTab(in: dock.handle)

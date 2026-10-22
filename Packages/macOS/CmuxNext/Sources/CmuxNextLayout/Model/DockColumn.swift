@@ -43,11 +43,4 @@ public nonisolated struct DockColumn: Hashable, Sendable {
 
     /// Whether the column takes a tab other than its pinned one.
     public var takesTabs: Bool { !isPinned || allowsTabs }
-
-    /// Whether a pane of this column shows no tab bar while it shows `shownTabs` tabs: a pinned
-    /// column the person closed to other tabs (`allow_tabs` off) holds only its pinned tab, so a
-    /// strip would offer only controls that must not work. Home's dock takes tabs, so it shows its
-    /// strip (Leo 2026-10-21). Extra tabs keep the bar so they stay reachable.
-    /// plans/cmux-next/home-chief-pane.md.
-    public func hidesTabBar(shownTabs: Int) -> Bool { !takesTabs && shownTabs <= 1 }
 }
