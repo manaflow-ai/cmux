@@ -28,6 +28,8 @@ final class SidebarDogEarButton: NSButton {
     /// The pointer is on the fold (its triangle, not just its square): the stronger fill.
     var isPointerOnFold = false { didSet { if isPointerOnFold != oldValue { needsDisplay = true } } }
     private var isPressed = false { didSet { if isPressed != oldValue { needsDisplay = true } } }
+    /// The current press began on the fold; only such a press can fire, on a release on the fold.
+    private var pressBegan = false
     private let icon: IconName
     private var renderedSide: CGFloat = 0
     /// The glyph in the last tint drawn, so a redraw in the same colors makes no new image.
@@ -45,7 +47,7 @@ final class SidebarDogEarButton: NSButton {
         themedToolTip = label
         wantsLayer = true
         // Over the row's trailing marks, which keep their places under the fold.
-        layer?.zPosition = 1
+        layer?.zPosition = Self.zPosition
         target = self
         action = #selector(pressed)
         refusesFirstResponder = true
@@ -72,6 +74,9 @@ final class SidebarDogEarButton: NSButton {
     }
 
     // MARK: Shape
+
+    /// Over the row's marks (zPosition 0); a row control that takes clicks under the fold draws above it.
+    static let zPosition: CGFloat = 1
 
     /// The fold's side: the square it sits in, on the row's top-right corner.
     static var side: CGFloat { SidebarStyle.dogEarSide }
@@ -163,17 +168,36 @@ final class SidebarDogEarButton: NSButton {
     override func mouseMoved(with event: NSEvent) { followPointer(event) }
     override func mouseExited(with event: NSEvent) { isPointerOnFold = false }
 
-    /// NSButton tracks the click inside `super.mouseDown` and returns on release.
+    /// The press tracks the fold, not the button's square: NSButton's own tracking (`super.mouseDown`)
+    /// fires on a release anywhere in its bounds, so a press on the fold dragged below the crease
+    /// still closed the workspace. Here a release fires only on the fold after a press on it, and
+    /// the fold unlights while the pointer is off it. AppKit sends the drag and the release to the
+    /// view that took the press.
     override func mouseDown(with event: NSEvent) {
         guard isEnabled else { return super.mouseDown(with: event) }
-        isPressed = true
-        super.mouseDown(with: event)
+        pressBegan = foldContains(convert(event.locationInWindow, from: nil))
+        isPressed = pressBegan
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard pressBegan else { return super.mouseDragged(with: event) }
+        let onFold = foldContains(convert(event.locationInWindow, from: nil))
+        isPointerOnFold = onFold
+        isPressed = onFold
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        guard pressBegan else { return super.mouseUp(with: event) }
+        let fires = foldContains(convert(event.locationInWindow, from: nil))
+        pressBegan = false
         isPressed = false
+        if fires { pressed() }
     }
 
     /// A fold hidden under the pointer gets no exit event: it shows unlit when it comes back.
     override func viewDidHide() {
         super.viewDidHide()
+        pressBegan = false
         isPressed = false
         isPointerOnFold = false
     }

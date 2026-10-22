@@ -157,9 +157,13 @@ final class WorkspaceRowView: SidebarRowView {
         pinButton.onPress = { [weak self] in self?.onPin?() }
         disclosureButton.onPress = { [weak self] in self?.onToggleTabs?() }
         audioButton.onPress = { [weak self] in self?.onToggleAudio?() }
+        raiseControlsOverDogEar()
     }
 
-    override var interactiveSubviews: [NSView] { [closeButton, moreButton, pinButton, disclosureButton, treeFoldButton, audioButton] }
+    /// In hit-test order: the dog-ear comes last, so a control that shows under its corner (the
+    /// tabs chevron, the session tree's fold, the audio button at the row's end) keeps its clicks,
+    /// and it draws over the fold (`raiseControlsOverDogEar`).
+    override var interactiveSubviews: [NSView] { [pinButton, disclosureButton, treeFoldButton, audioButton, closeButton, moreButton] }
     override var debugIcon: String? {
         switch iconKind {
         case nil: !agentMark.isHidden && agentMarkVariant == .besideTitle ? "agentMark" : nil

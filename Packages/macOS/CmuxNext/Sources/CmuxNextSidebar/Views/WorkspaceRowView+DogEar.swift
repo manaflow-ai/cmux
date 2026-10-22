@@ -16,4 +16,14 @@ extension WorkspaceRowView {
             setHoverShown(ear, shown, fades: fades)
         }
     }
+
+    /// The row's end controls that can sit under the dog-ear's square on a short row (the tabs
+    /// chevron, the session tree's fold, the audio button) draw over the fold, as they take the
+    /// clicks there (`interactiveSubviews` hit-tests the dog-ear last): what shows on top is
+    /// what a click presses.
+    func raiseControlsOverDogEar() {
+        for control in [disclosureButton, treeFoldButton, audioButton] {
+            control.layer?.zPosition = SidebarDogEarButton.zPosition + 1
+        }
+    }
 }

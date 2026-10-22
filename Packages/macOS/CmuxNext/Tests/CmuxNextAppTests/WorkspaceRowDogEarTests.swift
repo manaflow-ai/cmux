@@ -89,6 +89,59 @@ struct WorkspaceRowDogEarTests {
         #expect(closed, "pressing the dog-ear did not close the workspace")
     }
 
+    /// A press on the fold fires only when it is released on the fold: dragged below the crease (still
+    /// inside the dog-ear's square) and released there, it does nothing. NSButton's own tracking fired
+    /// on a release anywhere in its square.
+    @Test func aPressDraggedOffTheFoldDoesNotClose() throws {
+        let ws = SidebarWorkspace(id: WorkspaceID("ws-drag-off"), title: Self.longName)
+        let (list, row) = try Self.row(ws)
+        Self.hover(list, row, ws.id)
+        let ear = row.closeButton
+        var closes = 0
+        row.onClose = { closes += 1 }
+        let side = ear.bounds.width
+        let onFold = NSPoint(x: side * 0.8, y: side * 0.2), offFold = NSPoint(x: side * 0.2, y: side * 0.8)
+        #expect(ear.foldContains(onFold) && !ear.foldContains(offFold))
+        func event(_ type: NSEvent.EventType, _ point: NSPoint) throws -> NSEvent {
+            try #require(NSEvent.mouseEvent(with: type, location: ear.convert(point, to: nil), modifierFlags: [],
+                                            timestamp: 0, windowNumber: 0, context: nil, eventNumber: 0,
+                                            clickCount: 1, pressure: 1))
+        }
+
+        ear.mouseDown(with: try event(.leftMouseDown, onFold))
+        ear.mouseDragged(with: try event(.leftMouseDragged, offFold))
+        ear.mouseUp(with: try event(.leftMouseUp, offFold))
+        #expect(closes == 0, "a press on the fold released below its crease closed the workspace")
+
+        ear.mouseDown(with: try event(.leftMouseDown, onFold))
+        ear.mouseDragged(with: try event(.leftMouseDragged, offFold))
+        ear.mouseDragged(with: try event(.leftMouseDragged, onFold))
+        ear.mouseUp(with: try event(.leftMouseUp, onFold))
+        #expect(closes == 1, "a click on the fold did not close the workspace")
+    }
+
+    /// A control the row shows under the dog-ear's square (on a 24 pt row the tabs chevron, the
+    /// session tree's fold or the audio button at the row's end sits partly under the fold) keeps its
+    /// clicks and draws over the fold, so a click on it never closes the workspace.
+    @Test func aControlUnderTheDogEarKeepsItsClicksAndDrawsOverIt() throws {
+        let ws = SidebarWorkspace(id: WorkspaceID("ws-under"), title: Self.longName)
+        let (list, row) = try Self.row(ws)
+        Self.hover(list, row, ws.id)
+        let ear = row.closeButton
+        let side = SidebarStyle.dogEarSide
+        let point = NSPoint(x: ear.frame.maxX - side * 0.3, y: ear.frame.minY + side * 0.4)
+        #expect(Self.hit(row, at: point) === ear, "a click on the fold misses it")
+        for control in [row.disclosureButton, row.treeFoldButton, row.audioButton] {
+            control.isHidden = false
+            control.alphaValue = 1
+            control.frame = NSRect(x: point.x - 8, y: point.y - 8, width: 16, height: 16)
+            #expect(Self.hit(row, at: point) === control, "a click on \(control.accessibilityLabel() ?? "") under the dog-ear closes the workspace")
+            #expect((control.layer?.zPosition ?? 0) > (ear.layer?.zPosition ?? 0),
+                    "the dog-ear draws over \(control.accessibilityLabel() ?? ""), which takes the click")
+            control.isHidden = true
+        }
+    }
+
     @Test func theHomeRowsDogEarOpensTheMenuThere() throws {
         let ws = SidebarWorkspace(id: WorkspaceID("ws-home"), title: "Home", isClosable: false)
         let (list, row) = try Self.row(ws)
