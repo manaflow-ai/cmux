@@ -9,13 +9,16 @@ import os
 /// `late_vsyncs`, and one `<stage>_ms` per stage: `park` (the old content parked), `content` (the new controller kept
 /// or built), `sidebar` (the same-turn selection pass), `swap` (the content view in the window), `theme`, `did_show` (panes restored), `side` (the
 /// observers, record save and context hooks after it). `kind` is `warm` (a parked controller came back) or `cold`
-/// (built now). Every switch is also an `OSSignposter` interval (subsystem `com.cmuxterm.app.next`, category
+/// (built now). `input_event` names what began it: 1 a left mouse-down, 2 a mouse-up, 3 a key, 0 none (a socket
+/// action): the perf gate checks a sidebar press switched on its down. Every switch is also an `OSSignposter` interval (subsystem `com.cmuxterm.app.next`, category
 /// `workspace-switch`, name `switch`), recording or not.
 @MainActor
 enum DebugWorkspaceSwitch {
     static let timer = SwitchFrameTimer(owner: "debug.workspace_switch")
     private static let signposter = OSSignposter(subsystem: "com.cmuxterm.app.next", category: "workspace-switch")
     private static var intervals: [ObjectIdentifier: (id: OSSignpostID, state: OSSignpostIntervalState)] = [:]
+    /// The event that began each pending switch: 1 for a left mouse-down, 2 for a mouse-up, 3 for a key (`input_event`).
+    private static var inputEvents: [ObjectIdentifier: Double] = [:]
 
     /// A switch in the window of `owner` begins (its press, key or action is the current event, if any).
     static func began(_ owner: AnyObject) {
@@ -28,6 +31,12 @@ enum DebugWorkspaceSwitch {
         guard timer.isRecording else { return }
         let event = NSApp.currentEvent
         let input = event.flatMap { [.leftMouseDown, .leftMouseUp, .keyDown].contains($0.type) ? $0.timestamp : nil }
+        inputEvents[key] = switch event?.type {
+        case .leftMouseDown?: 1
+        case .leftMouseUp?: 2
+        case .keyDown?: 3
+        default: 0
+        }
         timer.began(key, inputTimestamp: input)
     }
 
@@ -44,6 +53,7 @@ enum DebugWorkspaceSwitch {
     /// The new workspace is in `window`: the transaction open now carries it to the screen.
     static func shown(_ owner: AnyObject, in window: NSWindow?) {
         if let open = intervals.removeValue(forKey: ObjectIdentifier(owner)) { signposter.endInterval("switch", open.state) }
-        timer.shown(ObjectIdentifier(owner), in: window)
+        let event = inputEvents.removeValue(forKey: ObjectIdentifier(owner)) ?? 0
+        timer.shown(ObjectIdentifier(owner), in: window, extra: ["input_event": event])
     }
 }
