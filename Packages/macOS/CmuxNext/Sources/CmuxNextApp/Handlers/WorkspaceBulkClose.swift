@@ -124,7 +124,9 @@ enum WorkspaceBulkClose {
     }
 
     /// The open workspaces a sidebar section lists: its workspace items (Pinned
-    /// too), or the window's workspace list for the workspaces section.
+    /// too) the active window draws (not another window's, which it leaves
+    /// out: `SidebarRows.visibleLayout`), or the window's workspace list for
+    /// the workspaces section.
     static func sectionWorkspaces(_ invocation: ActionInvocation, _ context: AppActionContext) throws -> [String] {
         let layout = context.services.sidebarLayout
         if let reason = SidebarDocWiring.layoutUnavailableReason(layout) { throw ActionFailure(message: reason) }
@@ -132,7 +134,10 @@ enum WorkspaceBulkClose {
         switch section.content {
         case .items:
             let refs = WorkspaceLayoutRefs(machines: context.services.machines)
-            return section.items.compactMap { refs.workspace(for: $0.ref)?.0.id }
+            let registry = context.services.windows.registry.value, window = context.activeWindow?.state.id
+            return section.items.filter { item in
+                window.map { !refs.ownedElsewhere(item.ref.value, window: $0, registry: registry) } ?? true
+            }.compactMap { refs.workspace(for: $0.ref)?.0.id }
         case .workspaces:
             guard let window = context.activeWindow else { throw ActionFailure.invalidTarget(RefusalStrings.noWindowOpen) }
             return window.sidebar.model.selectableWorkspaces.map(\.id.rawValue)

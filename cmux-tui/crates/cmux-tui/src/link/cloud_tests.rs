@@ -128,7 +128,7 @@ async fn dial(
     let request = format!(r#"{{"op":"link.dial","host":"{host}","service":"{service}"}}"#);
     let mut caller = BufReader::new(caller);
     let pairings = Pairings::default();
-    let serve = serve_dial_line(link_side, &request, overlay, &pairings, resolver);
+    let serve = serve_dial_line(link_side, &request, overlay, &pairings, resolver, None);
     // Read the reply, then hang up, so a dial that wrongly succeeds ends
     // and the assertions report it instead of a hang.
     let read = async move {
@@ -154,7 +154,8 @@ fn spawn_dial(
         let (caller, link_side) = tokio::io::duplex(64 * 1024);
         let request = format!(r#"{{"op":"link.dial","host":"{HOST}","service":"daemon"}}"#);
         tokio::spawn(async move {
-            serve_dial_line(link_side, &request, overlay, &Pairings::default(), resolver).await;
+            serve_dial_line(link_side, &request, overlay, &Pairings::default(), resolver, None)
+                .await;
         });
         let mut caller = BufReader::new(caller);
         let mut reply = String::new();
