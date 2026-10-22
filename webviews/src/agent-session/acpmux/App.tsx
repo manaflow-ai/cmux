@@ -5678,7 +5678,8 @@ function AcpmuxPane() {
           (draft.sessionId ?? back.sessionId) === back.sessionId,
       );
       let taken = false;
-      if (composerHandle.current) taken = composerHandle.current.takeBack(parts.map(([, part]) => part), at, back.sessionId);
+      if (composerHandle.current)
+        taken = composerHandle.current.takeBack(parts.map(([, part]) => part), at, back.sessionId);
       else if (waiting && unmounted !== undefined && unmounted >= 0) {
         heldBack.current = waiting.filter((_, index) => index !== unmounted);
         taken = true;
