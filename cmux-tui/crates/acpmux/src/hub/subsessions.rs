@@ -384,7 +384,7 @@ impl Hub {
     /// it (`claim_name`) only when the link is set, so a refused answer
     /// takes no name.
     pub(super) fn offer_link(&self, parent: &Session, title: Option<&str>) -> SubsessionLink {
-        let depth = self.lineage_depth(&parent.meta()) + 1;
+        let depth = self.lineage_depth(&parent.meta()).saturating_add(1);
         let base = short_name_of(title, "task");
         SubsessionLink { started_by: parent.id.clone(), short_name: base, depth, offered: true }
     }

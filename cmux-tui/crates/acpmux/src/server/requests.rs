@@ -410,6 +410,10 @@ async fn dispatch_request(
             let ask = crate::hub::lineage::parent_ask(meta)?;
             let tool_call = crate::hub::lineage::tool_call_id(meta)?;
             let lineage = if adopting || super::ephemeral::requested(&params) {
+                // It records none, but a parent it names is still one the caller owns.
+                if let crate::hub::lineage::ParentAsk::Named(id) = &ask {
+                    hub.check_lineage_parent(conn.caller(), id)?;
+                }
                 None
             } else {
                 hub.new_session_lineage(conn.caller(), ask, tool_call)?

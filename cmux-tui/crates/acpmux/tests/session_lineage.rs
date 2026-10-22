@@ -181,6 +181,11 @@ async fn agents_record_their_children_any_depth_within_the_depth_limit() {
     assert_eq!(e["data"]["reason"], "lineage.parent_not_owned", "{e}");
     let e = k.refused_new(json!({"name": "up", "parent": coord_id})).await;
     assert_eq!(e["data"]["reason"], "lineage.parent_not_owned", "{e}");
+    // Also on a request that records no lineage (an ephemeral run): a parent it names is
+    // still checked, never accepted as a root.
+    let other = id(&app.new_session(json!({"name": "other"})).await);
+    let e = c.refused_new(json!({"name": "eph-spoof", "ephemeral": true, "parent": other})).await;
+    assert_eq!(e["data"]["reason"], "lineage.parent_not_owned", "{e}");
     let under_kid = c.new_session(json!({"name": "under-kid", "parent": kid_id})).await;
     assert_eq!(under_kid["parent"], kid_id.as_str(), "{under_kid}");
     assert_eq!(under_kid["depth"], 2, "{under_kid}");
@@ -221,6 +226,7 @@ async fn lineage_survives_a_daemon_restart() {
     let kid = id(&c.new_session(json!({"name": "r-kid", "spawnToolCallId": "toolu_r"})).await);
     let mut k = Client::as_session(&hub, &kid).await;
     let grandkid = id(&k.new_session(json!({"name": "r-grandkid"})).await);
+    let looped = id(&app.new_session(json!({"name": "r-loop"})).await);
     hub.shutdown_all().await;
     drop((app, c, k));
     drop(hub);
@@ -235,6 +241,40 @@ async fn lineage_survives_a_daemon_restart() {
     assert_eq!(g["depth"], 2, "{g}");
     let r = summary(&coord);
     assert_eq!((r["parent"].clone(), r["depth"].clone()), (Value::Null, json!(0)), "{r}");
+    hub.shutdown_all().await;
+    drop(hub);
+
+    // A store saved before lineage existed: only sub-session links. Their lineage is derived
+    // (parent, the root up the links, the link's depth); a link loop ends, never hangs.
+    let store = acpmux::store::open(&cfg.store, &dir).unwrap();
+    let link = |to: &str, depth: u32| acpmux::store::SubsessionLink {
+        started_by: to.to_owned(),
+        short_name: format!("s{depth}"),
+        depth,
+        offered: false,
+    };
+    for (who, up, depth) in [(&kid, &coord, 1), (&grandkid, &kid, 2), (&looped, &looped, 1)] {
+        let mut m = store.load(who).unwrap().unwrap();
+        m.lineage = None;
+        m.subsession = Some(link(up, depth));
+        store.save(&m).unwrap();
+    }
+    drop(store);
+    let hub = Hub::new(cfg.clone(), acpmux::store::open(&cfg.store, &dir).unwrap());
+    let summary = |id: &str| hub.session_summary(&hub.resolve(id).unwrap());
+    let g = summary(&grandkid);
+    assert_eq!((g["parent"].clone(), g["root"].clone()), (json!(kid), json!(coord)), "{g}");
+    assert_eq!((g["depth"].clone(), g["spawnToolCallId"].clone()), (json!(2), Value::Null));
+    let k = summary(&kid);
+    assert_eq!(
+        (k["parent"].clone(), k["root"].clone(), k["depth"].clone()),
+        (json!(coord), json!(coord), json!(1)),
+        "{k}"
+    );
+    assert_eq!(k["spawnedBy"], coord.as_str(), "the alias still names the parent: {k}");
+    let l = summary(&looped);
+    assert_eq!(l["parent"], looped.as_str(), "a self link stays as saved: {l}");
+    assert_eq!(l["spawnedBy"], Value::Null, "{l}");
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&dir);
 }

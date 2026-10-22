@@ -188,16 +188,18 @@ impl Client {
     }
 
     /// A `session/new` sent from inside an acpmux session (its agent runs `acpmux new`,
-    /// `acpmux run`) that the daemon did not record as that session's child (`hub/lineage.rs`):
-    /// an older daemon, a session on a peer, or a caller it could not prove. Tags the new
-    /// session with that one (`hub::views::SPAWNED_BY_TAG`), so the chat lists still fold it
-    /// under its parent. The session exists either way; a failed tag only lists it on its own.
+    /// `acpmux run`) to a daemon that records no lineage (`hub/lineage.rs`): an older daemon,
+    /// or a session on a peer (a family lives on one daemon). Tags the new session with that
+    /// one (`hub::views::SPAWNED_BY_TAG`), so the chat lists still fold it under its parent.
+    /// A daemon that records lineage decides alone: its root (`parent: null`, a caller it could
+    /// not prove) is never tagged from this env var. The session exists either way; a failed
+    /// tag only lists it on its own.
     async fn tag_spawned_by(&self, reply: &Value) {
         let Some(parent) = std::env::var("ACPMUX_SESSION_ID").ok().filter(|id| !id.is_empty())
         else {
             return;
         };
-        if !reply_lacks_parent(reply) {
+        if !reply_lacks_lineage(reply) {
             return;
         }
         let Some(id) = reply.get("sessionId").and_then(Value::as_str) else { return };
@@ -265,10 +267,14 @@ fn mux_meta(params: &mut Value) -> Option<&mut serde_json::Map<String, Value>> {
     meta.as_object_mut()?.entry("acpmux").or_insert_with(|| json!({})).as_object_mut()
 }
 
-/// Whether a `session/new` reply records no lineage parent (`_meta.acpmux.parent`): an older
-/// daemon (no field), a session on a peer, or a session the daemon made a root.
-fn reply_lacks_parent(reply: &Value) -> bool {
-    reply.get("peer").is_some() || reply.pointer("/_meta/acpmux/parent").is_none_or(Value::is_null)
+/// Whether a `session/new` reply comes from a daemon that records no lineage: a session on a
+/// peer, or an older daemon (its summary has no `parent` field). A `parent` that is null is
+/// this daemon's root, never one to tag.
+fn reply_lacks_lineage(reply: &Value) -> bool {
+    reply.get("peer").is_some()
+        || !reply.pointer("/_meta/acpmux").and_then(Value::as_object).is_some_and(|m| {
+            m.contains_key(crate::hub::lineage::PARENT_FIELD)
+        })
 }
 
 /// An error reply from the daemon. It prints as the message alone and
@@ -355,18 +361,20 @@ mod lineage_tests {
         assert_eq!(sent["_meta"]["acpmux"]["ephemeral"], true);
     }
 
-    /// The tag request goes only where the daemon recorded no parent: the CLI path of a
-    /// proven caller makes none.
+    /// The tag request goes only to a daemon that records no lineage: the CLI path of a
+    /// proven caller makes none, and a root the daemon made (an unproven caller) is never
+    /// tagged under the env's session.
     #[test]
-    fn only_a_reply_without_a_lineage_parent_needs_the_spawned_by_tag() {
+    fn only_a_daemon_without_lineage_gets_the_spawned_by_tag() {
         let recorded = json!({"sessionId": "c", "_meta": {"acpmux": {"parent": "p"}}});
-        assert!(!reply_lacks_parent(&recorded));
+        assert!(!reply_lacks_lineage(&recorded));
         let root = json!({"sessionId": "c", "_meta": {"acpmux": {"parent": null}}});
-        assert!(reply_lacks_parent(&root));
+        assert!(!reply_lacks_lineage(&root), "a new daemon's root is final");
         let older_daemon = json!({"sessionId": "c", "_meta": {"acpmux": {"name": "c"}}});
-        assert!(reply_lacks_parent(&older_daemon));
+        assert!(reply_lacks_lineage(&older_daemon));
+        assert!(reply_lacks_lineage(&json!({"sessionId": "c"})));
         let on_a_peer =
-            json!({"sessionId": "c", "peer": "box", "_meta": {"acpmux": {"parent": "p"}}});
-        assert!(reply_lacks_parent(&on_a_peer));
+            json!({"sessionId": "c", "peer": "box", "_meta": {"acpmux": {"parent": null}}});
+        assert!(reply_lacks_lineage(&on_a_peer));
     }
 }

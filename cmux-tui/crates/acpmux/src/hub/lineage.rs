@@ -155,7 +155,8 @@ impl Hub {
         Lineage {
             parent: pm.id.clone(),
             root: up.as_ref().map_or_else(|| pm.id.clone(), |l| l.root.clone()),
-            depth: up.map_or(0, |l| l.depth) + 1,
+            // Saturating: a hand-edited store's depth never wraps past the depth limit.
+            depth: up.map_or(0, |l| l.depth).saturating_add(1),
             tool_call_id,
         }
     }
@@ -171,6 +172,19 @@ impl Hub {
             next = self.session_meta_by_id(&l.parent).and_then(|m| self.lineage_of(&m));
         }
         false
+    }
+
+    /// Refuses a `session/new` that names parent `id` ([`PARENT_FIELD`]) unless the proven
+    /// `caller` is that session or one of its lineage ancestors. Checked for every request
+    /// that names one, also one that records no lineage (an adopted chat, an ephemeral run).
+    pub fn check_lineage_parent(&self, caller: Option<&str>, id: &str) -> Result<(), RpcError> {
+        if caller.is_some_and(|c| c == id || self.lineage_descends(id, c)) {
+            return Ok(());
+        }
+        Err(RpcError::invalid_params(format!(
+            "_meta.acpmux.{PARENT_FIELD} names a session this caller did not start"
+        ))
+        .with_data(json!({"reason": "lineage.parent_not_owned"})))
     }
 
     /// The lineage of a `session/new` from a connection that proved it runs in session
@@ -190,13 +204,7 @@ impl Hub {
                 None => return Ok(None),
             },
             ParentAsk::Named(id) => {
-                let owned = caller.is_some_and(|c| c == id || self.lineage_descends(&id, c));
-                if !owned {
-                    return Err(RpcError::invalid_params(format!(
-                        "_meta.acpmux.{PARENT_FIELD} names a session this caller did not start"
-                    ))
-                    .with_data(json!({"reason": "lineage.parent_not_owned"})));
-                }
+                self.check_lineage_parent(caller, &id)?;
                 id
             }
         };
