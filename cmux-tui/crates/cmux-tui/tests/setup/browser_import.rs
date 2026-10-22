@@ -20,12 +20,15 @@ fn timed_out() -> Value {
 /// node and its children), and `browser.importCookies`, whose consent panel
 /// the person allows while `allow` is set. While `loading` counts down,
 /// `bookmark.list` answers an empty list that is not `loaded` yet, as the
-/// app does before its stored bookmarks arrive. `bookmark.importSources`
-/// names the source keys a Chrome profile name stands for (`moved` names
-/// one the import then does not write). The import puts one "Imported
+/// app does before its stored bookmarks arrive, each answer slow (150 ms).
+/// `bookmark.importSources` names the source keys of a browser's profiles,
+/// or of the one named (Chrome's `moved` names one the import then does not
+/// write). The import puts one "Imported
 /// from" folder per browser on the bar, or refreshes the folder of that
 /// source in place (same id, the new title and children) as the app's
-/// `importDrafts` does, and answers as the app does: `chrome` at once; `arc` lands but the app
+/// `importDrafts` does; the folders in `concurrent` land with the next
+/// import, as another import running at the same time would. It answers
+/// as the app does: `chrome` at once; `arc` lands but the app
 /// stops waiting first (`timeout`); `zen` times out with nothing landed
 /// yet; `brave` lands one profile and could not read another
 /// (`daemon_error`); anything else is the app's unknown-browser
@@ -35,6 +38,7 @@ struct FakeBrowserApp {
     bookmarks: Arc<Mutex<Vec<Value>>>,
     allow: Arc<std::sync::atomic::AtomicBool>,
     loading: Arc<std::sync::atomic::AtomicUsize>,
+    concurrent: Arc<Mutex<Vec<Value>>>,
     requests: Arc<Mutex<Vec<Value>>>,
 }
 
@@ -47,10 +51,11 @@ impl FakeBrowserApp {
             bookmarks: Arc::new(Mutex::new(bookmarks)),
             allow: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             loading: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            concurrent: Arc::new(Mutex::new(Vec::new())),
             requests: Arc::new(Mutex::new(Vec::new())),
         };
-        let (bookmarks, allow, loading) =
-            (app.bookmarks.clone(), app.allow.clone(), app.loading.clone());
+        let (bookmarks, allow, loading, concurrent) =
+            (app.bookmarks.clone(), app.allow.clone(), app.loading.clone(), app.concurrent.clone());
         serve_app(listener, app.requests.clone(), move |method, params| {
             let ran = json!({"action": params["action"], "ran": true, "waited": true});
             let land = |id: &str, key: &str, title: &str| {
@@ -75,6 +80,9 @@ impl FakeBrowserApp {
                     let loaded = loading
                         .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
                         .is_err();
+                    if !loaded {
+                        std::thread::sleep(std::time::Duration::from_millis(150));
+                    }
                     let listed = if loaded { bookmarks.lock().unwrap().clone() } else { vec![] };
                     Ok(json!({
                         "profile": params["profile"].as_str().unwrap_or("default"),
@@ -84,20 +92,33 @@ impl FakeBrowserApp {
                     }))
                 }
                 ("bookmark.importSources", _) => {
-                    let source = params["source"].as_str().unwrap_or_default().to_lowercase();
-                    let folder = match (params["browser"].as_str(), source.as_str()) {
-                        (Some("chrome"), "default" | "person 1") => Some("Default"),
-                        (Some("chrome"), "work" | "profile 1") => Some("Profile 1"),
-                        (Some("chrome"), "moved") => Some("Profile 3"),
-                        _ => None,
-                    };
-                    let sources = folder.map(|folder| {
-                        json!({"source_key": format!("chrome/{folder}"),
-                        "browser": "chrome", "folder": folder, "name": source})
-                    });
-                    Ok(json!({"sources": sources.into_iter().collect::<Vec<_>>()}))
+                    let browser = params["browser"].as_str().unwrap_or_default();
+                    let source = params["source"].as_str().map(str::to_lowercase);
+                    let sources = [
+                        ("chrome", "Default", "Person 1"),
+                        ("chrome", "Profile 1", "Work"),
+                        ("chrome", "Profile 3", "Moved"),
+                        ("arc", "Default", "Personal"),
+                        ("zen", "Default", "Default"),
+                        ("brave", "Default", "Person 1"),
+                        ("brave", "Profile 1", "Work"),
+                    ]
+                    .into_iter()
+                    .filter(|(id, folder, name)| {
+                        *id == browser
+                            && source.as_deref().is_none_or(|source| {
+                                [folder, name].iter().any(|n| n.to_lowercase() == source)
+                            })
+                    })
+                    .map(|(id, folder, name)| {
+                        json!({"source_key": format!("{id}/{folder}"),
+                            "browser": id, "folder": folder, "name": name})
+                    })
+                    .collect::<Vec<_>>();
+                    Ok(json!({"sources": sources}))
                 }
                 ("action.run", Some("bookmark.importFromBrowser")) => {
+                    bookmarks.lock().unwrap().append(&mut concurrent.lock().unwrap());
                     match params["args"]["browser"].as_str().unwrap_or_default() {
                         "chrome" => {
                             land(
@@ -400,8 +421,30 @@ fn cmux_setup_browser_import_waits_for_the_apps_bookmarks() {
     let ok = world.json(&["setup", "browser-import", "--browser", "chrome"]);
     assert_eq!(ok["state"], "ok", "{ok}");
 
+    // Slow answers do not stretch the wait past its two seconds.
     app.loading.store(usize::MAX, Ordering::SeqCst);
+    let started = std::time::Instant::now();
     let wait = world.json(&["setup", "browser-import", "--browser", "chrome"]);
     assert_eq!(wait["user_action"]["kind"], "wait", "{wait}");
+    assert!(started.elapsed() < std::time::Duration::from_secs(4), "{:?}", started.elapsed());
     assert!(app.runs().is_empty(), "{:?}", app.runs());
+}
+
+/// Two imports of one browser at once: a folder another run brings in while
+/// this one runs is not this run's, so its undo never removes it.
+#[test]
+fn cmux_setup_browser_import_leaves_another_runs_folders_out_of_its_undo() {
+    let mut world = World::new("bimany");
+    let app = FakeBrowserApp::start(&mut world, Vec::new());
+    let work = json!({"id": "work", "kind": "folder", "parent": "bar",
+        "title": "Imported from Google Chrome (Work)", "source_key": "chrome/Profile 1"});
+    app.concurrent.lock().unwrap().push(work.clone());
+
+    let changed = world.json(&["setup", "browser-import", "--browser", "chrome:Default"]);
+    assert_eq!(changed["state"], "changed", "{changed}");
+    assert_eq!(changed["undo"], "cmux bookmark remove --target bookmark:bm_1", "{changed}");
+    let folders = &changed["after"]["folders"];
+    assert_eq!(folders.as_array().map(Vec::len), Some(1), "{changed}");
+    assert_eq!(changed["after"]["other"][0]["id"], "work", "{changed}");
+    assert!(app.bookmarks.lock().unwrap().contains(&work));
 }
