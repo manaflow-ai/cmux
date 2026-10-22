@@ -58,7 +58,7 @@ if [[ "$db_provider" == "planetscale" ]]; then
   export DATABASE_URL="${PLANETSCALE_DATABASE_URL:-${DATABASE_URL:-}}"
   [[ -n "$DATABASE_URL" ]] || { echo "CMUX_DB_PROVIDER=planetscale requires PLANETSCALE_DATABASE_URL or DATABASE_URL" >&2; exit 2; }
 else
-  export DATABASE_URL="${DATABASE_URL:-postgres://${db_user}:${db_password}@localhost:${db_port}/${db_name}}"
+  export DATABASE_URL="${DATABASE_URL:-postgres://${db_user}:${db_password}@127.0.0.1:${db_port}/${db_name}}"
 fi
 export DIRECT_DATABASE_URL="${DIRECT_DATABASE_URL:-$DATABASE_URL}"
 
@@ -82,7 +82,7 @@ wait_for_postgres() {
     fi
     sleep 1
   done
-  echo "Timed out waiting for Postgres on localhost:${db_port}" >&2
+  echo "Timed out waiting for Postgres on 127.0.0.1:${db_port}" >&2
   compose ps >&2 || true
   return 1
 }
@@ -147,7 +147,7 @@ case "$command" in
     export CMUX_DB_PORT_OFFSET="${CMUX_TEST_DB_PORT_OFFSET:-30000}"
     export CMUX_DB_NAME="${CMUX_TEST_DB_NAME:-cmux_test}"
     export CMUX_DB_PORT="$((cmux_port + ${CMUX_TEST_DB_PORT_OFFSET:-30000}))"
-    export DATABASE_URL="postgres://${db_user}:${db_password}@localhost:${CMUX_DB_PORT}/${CMUX_DB_NAME}"
+    export DATABASE_URL="postgres://${db_user}:${db_password}@127.0.0.1:${CMUX_DB_PORT}/${CMUX_DB_NAME}"
     export DIRECT_DATABASE_URL="$DATABASE_URL"
     bun "$ROOT_DIR/scripts/db-migrate.mjs"
     bun "$ROOT_DIR/scripts/db-migrate.mjs"

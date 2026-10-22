@@ -109,7 +109,7 @@ if [[ "${CMUX_DEV_USE_PLANETSCALE:-0}" == "1" || "${CMUX_DEV_USE_EXTERNAL_DATABA
   export DATABASE_URL="$cmux_external_database_url"
   export DIRECT_DATABASE_URL="$cmux_external_database_url"
 elif [[ "${CMUX_DEV_USE_EXTERNAL_DATABASE_URL:-0}" != "1" ]]; then
-  export DATABASE_URL="postgres://${CMUX_DB_USER}:${CMUX_DB_PASSWORD}@localhost:${CMUX_DB_PORT}/${CMUX_DB_NAME}"
+  export DATABASE_URL="postgres://${CMUX_DB_USER}:${CMUX_DB_PASSWORD}@127.0.0.1:${CMUX_DB_PORT}/${CMUX_DB_NAME}"
   export DIRECT_DATABASE_URL="$DATABASE_URL"
 elif [[ -z "${DIRECT_DATABASE_URL:-}" && -n "${DATABASE_URL:-}" ]]; then
   export DIRECT_DATABASE_URL="$DATABASE_URL"
