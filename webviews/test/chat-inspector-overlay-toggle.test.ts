@@ -304,7 +304,7 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
   for (const name of browsers.keys())
     test(`${name}: with nothing focused and a turn running, Esc arms and then stops the turn, and the Inspector stays open`, async () => {
       current = browsers.get(name)!;
-      const page = await running!.open({ width: 900, height: 620 });
+      const page = await running!.open({ width: 1600, height: 620 });
       try {
         const { panel, toggle } = await openInspector(page, 0);
         await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
@@ -337,7 +337,7 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
   for (const name of browsers.keys())
     test(`${name}: Esc with the keyboard in the Inspector or on its toggle closes it and gives the keyboard to the toggle`, async () => {
       current = browsers.get(name)!;
-      const page = await pane!.open({ width: 900, height: 620 });
+      const page = await pane!.open({ width: 1600, height: 620 });
       try {
         const { panel, toggle } = await openInspector(page, 0);
         await page.locator("aside.acpmux-chat-inspector [data-section] button").first().focus();
@@ -369,7 +369,7 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
   for (const name of browsers.keys())
     test(`${name}: the Inspector's x closes it and gives the keyboard to the toggle`, async () => {
       current = browsers.get(name)!;
-      const page = await pane!.open({ width: 900, height: 620 });
+      const page = await pane!.open({ width: 1600, height: 620 });
       try {
         const { panel } = await openInspector(page, 0);
         await page.locator("aside.acpmux-chat-inspector button.acpmux-chat-inspector__close").click({ timeout: 5_000 });
