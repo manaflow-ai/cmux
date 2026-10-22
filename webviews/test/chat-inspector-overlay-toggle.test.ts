@@ -185,6 +185,9 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
   // Leo, 2026-10-22: "WHY DOES IT STAY ON IN THESE RANDOM SITUATIONS WITHOUT BEING CLOSABLE!?" Over a
   // diff in place the chat header (with the toggle) is hidden, so the panel carries its own close
   // button, and Esc closes it from anywhere but a text field (the composer keeps its own Esc).
+  /// Two painted frames: an Esc that closes the panel has drawn by then.
+  const frames = (page: Page) =>
+    page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
   for (const name of browsers.keys())
     test(`${name}: the Inspector's own close button and Esc close it; Esc in the composer or on a popover leaves it open`, async () => {
       current = browsers.get(name)!;
@@ -201,8 +204,9 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
         await panel.waitFor({ timeout: 5_000 });
         await page.locator("textarea, [contenteditable=true]").first().focus();
         await page.keyboard.press("Escape");
-        await page.waitForTimeout(300);
-        const keptInComposer = (await panel.count()) === 1;
+        await frames(page);
+        // Still open, not leaving (a leaving panel stays drawn while it slides out).
+        const keptInComposer = (await toggle.getAttribute("aria-pressed")) === "true";
         await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
         // An open popover takes Esc first: the Inspector stays.
         await page.evaluate(() => {
@@ -214,8 +218,9 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
           popover.querySelector("button")!.focus();
         });
         await page.keyboard.press("Escape");
-        await page.waitForTimeout(300);
-        const keptUnderPopover = (await panel.count()) === 1;
+        await frames(page);
+        // Still open, not leaving (a leaving panel stays drawn while it slides out).
+        const keptUnderPopover = (await toggle.getAttribute("aria-pressed")) === "true";
         await page.evaluate(() => document.querySelector("dialog.ui-popup")!.remove());
         await page.keyboard.press("Escape");
         const byEscape = await panel.waitFor({ state: "detached", timeout: 5_000 }).then(() => true, () => false);
