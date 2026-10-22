@@ -15,13 +15,19 @@ enum CmuxAppLinks {
 
     /// Runs `link.open` on `url` when ``link(for:linkScheme:chiefHost:)`` accepts it; false
     /// (nothing runs) for any other URL.
+    ///
+    /// - Parameter origin: Where it was clicked: `.modelOutput` for an agent chat's reply and the
+    ///   Chief's transcript, whose links only reveal what is open (media safety R8); `.person`
+    ///   for the app's own surfaces (a terminal, a Markdown file page).
     @MainActor
     @discardableResult
-    static func open(_ url: URL, services: AppServices) -> Bool {
+    static func open(_ url: URL, services: AppServices, origin: DeepLink.Origin = .person) -> Bool {
         if url.isFileURL { return openPath(url, services: services) }
         guard let link = link(for: url, linkScheme: services.linkScheme, chiefHost: services.agentTabs.chiefHost),
               let text = link.url(scheme: services.linkScheme)?.absoluteString else { return false }
-        return services.registry.perform("link.open", invocation: ActionInvocation(arguments: ["url": .string(text)], origin: .user))
+        var invocation = ActionInvocation(arguments: ["url": .string(text)], origin: .user)
+        invocation.linkOrigin = origin
+        return services.registry.perform("link.open", invocation: invocation)
     }
 
     /// A path link (`file:///…`: Home's form of a path an agent wrote): a file opens in the

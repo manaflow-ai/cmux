@@ -140,7 +140,7 @@ final class HomeHostView: NSView {
         // The stop button (HomeHostView+StopAll): a click, Esc and Cmd-. stop the Chief; Option-click stops all agents.
         let registry = services.registry
         wireStopButton(registry)
-        // A cmux app link (a workspace, pane, tab, chat or Chief subagent): opened here, through link.open.
+        // A cmux app link (a workspace, pane, tab, chat or Chief subagent): link.open as model output (R8: reveal only).
         // An attachment or a path link opens in cmux on the right of Home, never in Finder (a
         // folder in a Files tab); right-click has Open With (HomeFileActions).
         let fileActions = HomeFileActions(services: services)
@@ -148,7 +148,7 @@ final class HomeHostView: NSView {
         transcript.fileHost = fileActions
         transcript.onAppLink = { [weak services, weak fileActions] url in
             if url.isFileURL, url.path.hasPrefix("/") { fileActions?.open(URL(fileURLWithPath: url.path)); return }
-            if let services { CmuxAppLinks.open(url, services: services) }
+            if let services { CmuxAppLinks.open(url, services: services, origin: .modelOutput) }
         }
         // A link chip's hover card: the app's one coordinator, the target's live facts.
         transcript.enableLinkPreviews(coordinator: services.hoverCards, previewer: HomeLinkPreviewProvider(services: services))
