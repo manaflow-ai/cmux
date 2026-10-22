@@ -8,13 +8,15 @@
 #     --script scripts/measure/perf-bench.sh --ref SHA --artifact artifacts/perf-bench/results.json \
 #     [--arg=rounds=3] [--arg=launches=2] [--arg=idle=60] [--arg=active=30] [--arg=cmux=build|nightly]
 #     [--arg=browsers=cmux-chromium,cmux-webkit,cmux-terminal,cmux-budget,chrome,helium,ardia,dia,safari] [--arg=gate=1]
-#     [--arg=tabswitch=chromium,webkit,markdown,chat] [--arg=tabcounts=2,10,30] [--arg=palette=on|off]
+#     [--arg=tabswitch=chromium,webkit,markdown,chat] [--arg=tabcounts=2,10,30] [--arg=palette=on|off] [--arg=spaceswitch=on|off]
 #     [--arg=budgets=scripts/perf-bench/budgets.json]
 # tabswitch= (default on; tabswitch=off skips it) also builds a tagged Debug app at this checkout and
 # runs scripts/cmux-next/tab-switch-matrix.py: real-window tab switch end to end (input event to
 # commit) per tab kind at each count, as a "Tab switch" section of BENCH.md and gate rows.
 # palette= (default on) runs a182's scripts/cmux-next/palette-open-stages.py on the same Debug app:
 # Cmd-Shift-P and Cmd-P key-down to the committed frame from each surface ("Palette open" rows).
+# spaceswitch= (default on) runs scripts/cmux-next/space-switch-matrix.py on the same Debug app: 5 spaces
+# of 20 and 100 workspaces, Opt-Cmd-]/[; its budget (e2e p95 <= 8.33 ms, no missed frame) fails the report.
 # cmux=build (default) builds a Release app at this checkout; cmux=nightly
 # measures the latest nightly-next DMG. gate=1 fails the step when a cmux row
 # is worse than scripts/perf-bench/baseline/<chip>-macos<major>.json by more
@@ -22,7 +24,7 @@
 # artifacts/perf-bench/{results.json,BENCH.md}.
 set -euo pipefail
 rounds=3 launches=2 idle=60 active=30 settle=30 cmux=build gate=0 maxload=4
-tabswitch="chromium,webkit,markdown,chat" tabcounts="2,10,30" palette=on budgets=scripts/perf-bench/budgets.json
+tabswitch="chromium,webkit,markdown,chat" tabcounts="2,10,30" palette=on spaceswitch=on budgets=scripts/perf-bench/budgets.json
 browsers="cmux-chromium,cmux-webkit,cmux-terminal,cmux-budget,chrome,helium,ardia,dia,safari"
 for arg in "$@"; do
   case "$arg" in
@@ -38,6 +40,7 @@ for arg in "$@"; do
     tabswitch=*) tabswitch="${arg#tabswitch=}" ;;
     tabcounts=*) tabcounts="${arg#tabcounts=}" ;;
     palette=*) palette="${arg#palette=}" ;;
+    spaceswitch=*) spaceswitch="${arg#spaceswitch=}" ;;
     budgets=*) budgets="${arg#budgets=}" ;;
     *) echo "perf-bench.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
@@ -58,7 +61,7 @@ chip="$(sysctl -n machdep.cpu.brand_string)"
 echo "PERF-BENCH-MACHINE host=$(scutil --get ComputerName 2>/dev/null || hostname) sha=$sha model=$(sysctl -n hw.model) chip=\"$chip\" cores=$(sysctl -n hw.ncpu) ram_gb=$(( $(sysctl -n hw.memsize) / 1073741824 )) macos=$(sw_vers -productVersion) load=\"$(uptime | sed 's/.*load averages*: //')\""
 
 debug=0
-{ [ "$tabswitch" != off ] || [ "$palette" != off ]; } && debug=1
+{ [ "$tabswitch" != off ] || [ "$palette" != off ] || [ "$spaceswitch" != off ]; } && debug=1
 if [ "$cmux" = build ] || [ "$debug" = 1 ]; then
   # A fleet step checks out no submodules (only their empty gitlink directories): the app build needs
   # Ghostty's headers, the ghostty-next tree and GhosttyKit.xcframework (as scripts/measure/tab-switch.sh).
@@ -121,6 +124,13 @@ if [ "$debug" = 1 ]; then
       python3 scripts/cmux-next/palette-open-stages.py --tag pbswitch --app "$switch_app" --no-gate \
         --out "$work/palette" --json "$out/palette-open.json" || true
       [ -f "$out/palette-open.json" ] && switch_json="$switch_json --palette $out/palette-open.json"
+    fi
+    if [ "$spaceswitch" != off ]; then
+      # Space switch budget (space-switch-100x): 5 spaces of 20 and 100 workspaces, e2e p95 within one 120 Hz frame.
+      mkdir -p "$work/space"
+      python3 scripts/cmux-next/space-switch-matrix.py --tag pbswitch --app "$switch_app" --switches 24 \
+        --out "$work/space" --json "$out/space-switch.json" || true
+      [ -f "$out/space-switch.json" ] && switch_json="$switch_json --spaceswitch $out/space-switch.json"
     fi
   else
     echo "PERF-BENCH-TABSWITCH tagged Debug build failed:"; tail -n 40 "$work/reload-switch.log"; status=1

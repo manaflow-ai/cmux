@@ -167,3 +167,19 @@ Follows Ardia's `docs/perf/vs-browsers.md` so the numbers compare:
 - `pages.py`, `procs.py`, `benchhelper.swift`, `fetch_browsers.py`.
 - `baseline/<chip>-macos<major>.json`: the gate's reference (results.json of a run at a known sha).
 - `../measure/perf-bench.sh`: the fleet entry.
+
+## Space switch
+
+The same Debug app runs `scripts/cmux-next/space-switch-matrix.py` (space-switch-100x, user msg 9582):
+5 spaces of 20 and then 100 workspaces (a terminal each, 3 Chromium tabs per space), warm, switched
+with Opt-Cmd-] and Opt-Cmd-[ through the key router. Per switch `debug.space_switch` gives the OS key
+event age, intent to the sidebar and to the content showing the new space, the Core Animation commit,
+main-thread CPU and the frames missed until 600 ms after the commit (the slide). BENCH.md gets a
+"Space switch" table and `space-switch-<spaces>x<workspaces>` rows. Budget: e2e p95 <= 8.33 ms (one
+120 Hz frame) and 0 missed frames at p95; a broken budget fails `xbench.py report`.
+`--arg=spaceswitch=off` skips it. Alone, through the reviewed tab-switch entry:
+
+```sh
+cmux-ci run --class exclusive --measurement --label measure --key KEY --script scripts/measure/tab-switch.sh \
+  --ref <40-char sha> --artifact artifacts/space-switch/space-switch.json --arg=--space-switch [--arg=--sizes=20,100]
+```

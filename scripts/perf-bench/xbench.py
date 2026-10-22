@@ -895,8 +895,47 @@ def palette_rows(path: str | None) -> tuple[dict, list[str]]:
     return rows, lines
 
 
+# Space switch budget (space-switch-100x, user msg 9582): OS key event to the commit that shows the new
+# space, at p95, within one 120 Hz frame, and no frame missed while the slide settles.
+SPACE_SWITCH_BUDGET_MS = 8.33
+
+
+def space_switch_rows(path: str | None) -> tuple[dict, list[str], int]:
+    """Rows, BENCH.md lines and broken budgets from space-switch-matrix.py's report: per size (spaces x
+    workspaces each), end-to-end ms (OS key event to the commit showing the new space), main-thread CPU
+    and frames missed while the slide settles. Budget: e2e p95 <= one 120 Hz frame and 0 missed at p95."""
+    if not path or not os.path.exists(path):
+        return {}, [], 0
+    data = json.load(open(path))
+    rows, broken = {}, 0
+    lines = ["## Space switch in a real window (cmux NEXT, tagged Debug build)", "",
+             "**Debug only**, like the tab switch rows. space-switch-matrix.py: N spaces of M workspaces (a terminal "
+             "each, Chromium tabs in each space), warm, Opt-Cmd-] / [ through the key router; e2e = OS key event to the "
+             f"commit showing the new space (sidebar and content). Budget: e2e p95 <= {SPACE_SWITCH_BUDGET_MS} ms and "
+             "0 missed frames at p95.", "",
+             "| Spaces x workspaces | e2e p50 / p95 ms | main-thread CPU p50 / p95 ms | missed frames p50 / p95 | budget |",
+             "|---|---|---|---|---|"]
+    for scenario in data.get("scenarios", []):
+        table = (scenario.get("keys") or {}).get("table") or {}
+        e2e, cpu, missed = table.get("e2e") or {}, table.get("cpu") or {}, table.get("settle_missed_frames") or {}
+        size = f"{scenario['spaces']}x{scenario['per_space']}"
+        if e2e.get("p50") is None:
+            lines.append(f"| {size} | – | – | – | not measured |")
+            broken += 1
+            continue
+        ok = e2e["p95"] <= SPACE_SWITCH_BUDGET_MS and (missed.get("p95") or 0) == 0
+        broken += not ok
+        rows.setdefault(f"space-switch-{size}", {})[TAB_SWITCH_BROWSER] = {"median": e2e["p50"], "p90": e2e["p95"], "n": table.get("n")}
+        lines.append(f"| {size} | {e2e['p50']:.1f} / {e2e['p95']:.1f} | {cpu.get('p50', 0):.1f} / {cpu.get('p95', 0):.1f} | "
+                     f"{missed.get('p50')} / {missed.get('p95')} | {'ok' if ok else 'OVER'} |")
+    lines.append("")
+    for line in lines[-len(data.get("scenarios", [])) - 1:-1]:
+        print("PERF-SPACE-SWITCH " + line)
+    return rows, lines, broken
+
+
 def report(out: str, md_path: str | None, json_path: str | None, tabswitch: str | None = None,
-           palette: str | None = None, budgets: str | None = None):
+           palette: str | None = None, budgets: str | None = None, spaceswitch: str | None = None):
     path = os.path.join(out, "samples.jsonl")
     samples = [json.loads(line) for line in open(path) if line.strip()] if os.path.exists(path) else []
     meta = json.load(open(os.path.join(out, "meta.json")))
@@ -905,6 +944,8 @@ def report(out: str, md_path: str | None, json_path: str | None, tabswitch: str 
     rows.update(switch_rows)
     palette_found, palette_lines = palette_rows(palette)
     rows.update(palette_found)
+    space_found, space_lines, space_broken = space_switch_rows(spaceswitch)
+    rows.update(space_found)
     errors = [s for s in samples if s["row"] == "session-error" or (s.get("value") is None and s.get("note"))]
     budget_errors = sum(1 for sample in samples if sample["browser"] == budget.NAME and sample["row"] == "session-error")
     # The run's budgets file decides, so samples are judged against the scenario that collected them.
@@ -914,7 +955,7 @@ def report(out: str, md_path: str | None, json_path: str | None, tabswitch: str 
     result = {"date": time.strftime("%Y-%m-%d"), "machine": meta["machine"], "cmux_ref": meta.get("cmux_ref"),
               "browsers": meta["browsers"], "rows": rows, "published": PUBLISHED,
               "errors": [{k: s.get(k) for k in ("browser", "round", "row", "note")} for s in errors],
-              "budgets": budget_result, "method": "scripts/perf-bench/README.md", "samples": samples}
+              "budgets": budget_result, "space_switch_over_budget": space_broken, "method": "scripts/perf-bench/README.md", "samples": samples}
     if json_path:
         with open(json_path, "w") as handle:
             json.dump(result, handle, indent=1)
@@ -950,6 +991,7 @@ def report(out: str, md_path: str | None, json_path: str | None, tabswitch: str 
     lines += budget_lines
     lines += switch_lines
     lines += palette_lines
+    lines += space_lines
     if errors:
         lines += ["## Rows that could not be measured", ""]
         seen = set()
@@ -979,7 +1021,7 @@ def gate(results_path: str, baseline_path: str, tolerance: float) -> int:
     baseline = json.load(open(baseline_path))["rows"]
     failed = 0
     for row, per in baseline.items():
-        if row not in ROW_INFO and not row.startswith(("tab-switch-", "palette-open-")):
+        if row not in ROW_INFO and not row.startswith(("tab-switch-", "palette-open-", "space-switch-")):
             continue
         if row in budget.ROW_INFO:
             continue  # budgets.json gates these (advisory or enforced), not the baseline's 15 %
@@ -1024,6 +1066,7 @@ def main():
     rep.add_argument("--json")
     rep.add_argument("--tabswitch", help="tab-switch-matrix.py's --json report")
     rep.add_argument("--palette", help="palette-open-stages.py's --json report")
+    rep.add_argument("--spaceswitch", help="space-switch-matrix.py's --json report")
     rep.add_argument("--budgets", help="budgets.json (default: the one the run used); an enforced budget "
                      "the cmux-budget session broke exits 1")
     gat = sub.add_parser("gate")
@@ -1036,8 +1079,8 @@ def main():
         random.seed(0)
         Run(args).main()
     elif args.command == "report":
-        result = report(args.out, args.md, args.json, args.tabswitch, args.palette, args.budgets)
-        sys.exit(1 if result["budgets"]["failed"] else 0)
+        result = report(args.out, args.md, args.json, args.tabswitch, args.palette, args.budgets, args.spaceswitch)
+        sys.exit(1 if result["budgets"]["failed"] or result["space_switch_over_budget"] else 0)
     else:
         sys.exit(gate(args.results, args.baseline, args.tolerance))
 
