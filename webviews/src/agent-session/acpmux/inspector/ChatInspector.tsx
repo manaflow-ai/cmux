@@ -39,6 +39,7 @@ import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
 import { registerPicker } from "../pickerOpeners";
+import { tooltipProps } from "../shortcuts";
 import { subagentsIn } from "../subagents/subagentRows";
 import { chatGallery } from "../summary/chatGallery";
 import { GalleryDialog } from "../summary/GalleryDialog";
@@ -173,6 +174,31 @@ export function useChatInspector({
       setInspectorOpen(true);
     });
   }, [on, label]);
+  // Esc closes it from anywhere but a text field (the composer keeps its own Esc), before a diff in
+  // place takes it (DiffPanel listens on the window, after the document). An open popover, menu or
+  // dialog takes Esc first (as WidgetEditing.tsx): they listen on the document too, but after this.
+  useEffect(() => {
+    if (!shown) return;
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented || event.isComposing) return;
+      const focus = document.activeElement;
+      if (
+        focus instanceof HTMLElement &&
+        focus.closest("input, textarea, select, [contenteditable]:not([contenteditable=false])")
+      )
+        return;
+      if (
+        document.querySelector(
+          'dialog[open], [role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"], .ui-popup',
+        )
+      )
+        return;
+      event.preventDefault();
+      setInspectorOpen(false);
+    };
+    document.addEventListener("keydown", escape);
+    return () => document.removeEventListener("keydown", escape);
+  }, [shown]);
   if (!on) return { on: false };
   const toggle = () => {
     if (shown) setInspectorOpen(false);
@@ -207,6 +233,7 @@ export function useChatInspector({
         shell={shell}
         openedOutputAt={openedOutputAt}
         onSuppress={suppress}
+        onClose={closeInspector}
         registry={registry}
         subagents={subagents}
         sessions={sessions}
@@ -223,6 +250,8 @@ export function useChatInspector({
   };
 }
 
+const closeInspector = () => setInspectorOpen(false);
+
 /// The Inspector while it is drawn: its presence, its width and folds, its push or overlay and what
 /// it lists. Its own component, so its enter and exit phases, a drag step and a fold draw the panel
 /// alone, not the chat pane that calls useChatInspector (one Inspector open drew that pane five
@@ -236,6 +265,7 @@ function InspectorPresence({
   shell,
   openedOutputAt,
   onSuppress,
+  onClose,
   registry,
   subagents,
   sessions,
@@ -259,6 +289,7 @@ function InspectorPresence({
   openedOutputAt: { readonly current: number };
   /// That diff's split left no room to push the chat: the Inspector steps aside.
   onSuppress: () => void;
+  onClose: () => void;
   registry?: ProcessRegistry;
   subagents?: {
     views: Record<string, AcpmuxRow[]> | undefined;
@@ -313,6 +344,7 @@ function InspectorPresence({
       // pane's tab row, the row's height), so the header's tools, its own toggle among them, stay in reach.
       under={tabRowHeight > 0 ? `${tabRowHeight}px` : "var(--acpmux-header-height, 44px)"}
       presence={presence}
+      onClose={onClose}
     >
       {/* Another chat's sections start drawn with what that chat has: none of its rows drops in. */}
       <ChatInspector
@@ -358,12 +390,16 @@ export function InspectorPanel({
   placement,
   under,
   presence,
+  onClose,
   children,
 }: {
   width: number;
   placement: InspectorPlacement;
   under?: string;
   presence?: Presence;
+  /// Its own close button, at its top right: over a diff in place the chat header, with the toggle,
+  /// is out of reach.
+  onClose?: () => void;
   children: ReactNode;
 }) {
   const t = useT();
@@ -407,6 +443,20 @@ export function InspectorPanel({
         }}
         onDoubleClick={() => setInspectorWidth(INSPECTOR_WIDTH.fallback)}
       />
+      {onClose && (
+        <div className="acpmux-chat-inspector__head">
+          <span className="acpmux-chat-inspector__title">{t("chatInspector.title")}</span>
+          <button
+            type="button"
+            className="acpmux-chat-inspector-icon-button acpmux-chat-inspector__close"
+            aria-label={t("chatInspector.close")}
+            {...tooltipProps(t("chatInspector.close"), undefined)}
+            onClick={onClose}
+          >
+            <Icon name="action.close" size={12} />
+          </button>
+        </div>
+      )}
       {children}
     </aside>
   );
