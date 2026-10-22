@@ -126,8 +126,7 @@ final class SettingsPageProvider: PageProvider {
             return .object([:])
         case "cmux.settings.theme.colors": return try ["themes": .array(Self.host(themeColors, "theme colors")().map(Self.json))]
         case "cmux.settings.theme.save", "cmux.settings.theme.import":
-            guard let themeFiles else { throw PageError(code: "cmux.page.unavailable", message: "no theme files") }
-            return try await themeFiles.call(op, params: params, edits: settings.applied.themeEdits, writer: Self.writer(context))
+            return try await Self.available(themeFiles, "no theme files").call(op, params: params, edits: settings.applied.themeEdits, writer: Self.writer(context))
         case "cmux.settings.theme.accepts":
             return ["accepts": .bool(acceptsTheme?(params["text"]?.stringValue ?? "") ?? false)]
         case "cmux.settings.folders.add":
@@ -323,6 +322,10 @@ final class SettingsPageProvider: PageProvider {
         }
         return value
     }
+
+    /// A host part the app wired, else the page's `cmux.page.unavailable` (tests without an app).
+    static func available<Part>(_ part: Part?, _ missing: String) throws -> Part {
+        if let part { return part } else { throw PageError(code: "cmux.page.unavailable", message: missing) } }
 
     /// SECURITY (agent_settable): the Settings page writes as the user only for a call backed by a
     /// real key or mouse event in its view (`context.userGesture`, the host's record) from the

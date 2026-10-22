@@ -552,6 +552,7 @@
     "setting.phone.allowConnections": false,
     "setting.phone.cloudReplica": false,
     "setting.phone.keepAwake": "pluggedIn",
+    "setting.phone.newDevices": "ask",
     "setting.phone.startSessions": true,
     "setting.picker.pinned": [],
     "setting.screenshots.findTools": true,
