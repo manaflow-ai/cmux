@@ -3,17 +3,17 @@ import CmuxNextDesign
 import CmuxNextIcons
 import SwiftUI
 
-/// Features: cmux's own features as cards (preview, name, one line, Get or Remove), with
-/// category chips. Each card follows its key live, whoever writes it.
+/// Features: cmux's own features as item cards (``AppStoreItemCard``) under the category bar.
+/// Each card follows its key live, whoever writes it.
 struct AppFeaturesView: View {
     let model: AppStoreModel
     @Environment(\.appSceneColors) private var colors
 
     var body: some View {
         VStack(spacing: 0) {
-            chips
+            AppStoreCategoryBar(chips: chips).appStoreWideColumn()
             ScrollView {
-                AppStoreCardGrid { ForEach(model.featureListings) { AppFeatureCard(model: model, feature: $0) } }
+                AppStoreCardGrid(look: model.cardLook) { ForEach(model.featureListings) { AppFeatureCard(model: model, feature: $0) } }
                     .appStoreWideColumn()
                 .padding(.vertical, Metrics.space4)
                 .thinScrollers()
@@ -27,66 +27,30 @@ struct AppFeaturesView: View {
         }
     }
 
-    private var chips: some View {
-        ScrollView(.horizontal) {
-            HStack(spacing: Metrics.space2) {
-                chip(AppsStrings.allCategories, selected: model.featureCategory == nil) { model.featureCategory = nil }
-                ForEach(model.featureCategories, id: \.self) { category in
-                    chip(AppsStrings.featureCategory(category), selected: model.featureCategory == category) {
-                        model.featureCategory = model.featureCategory == category ? nil : category
-                    }
+    private var chips: [AppStoreCategoryBar.Chip] {
+        [AppStoreCategoryBar.Chip(id: "all", title: AppsStrings.allCategories, selected: model.featureCategory == nil) { model.featureCategory = nil }]
+            + model.featureCategories.map { category in
+                AppStoreCategoryBar.Chip(id: category.rawValue, title: AppsStrings.featureCategory(category), selected: model.featureCategory == category) {
+                    model.featureCategory = model.featureCategory == category ? nil : category
                 }
             }
-            .padding(.vertical, Metrics.space3)
-            .thinScrollers()
-        }
-        .appStoreWideColumn()
-    }
-
-    private func chip(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(Font(Typography.caption))
-                .foregroundStyle(selected ? colors.primary : colors.secondary)
-                .padding(.horizontal, Metrics.space3)
-                .padding(.vertical, Metrics.space1)
-                .background(RoundedRectangle(cornerRadius: Metrics.itemCornerRadius, style: .continuous).fill(selected ? colors.selection : colors.hover))
-        }
-        .buttonStyle(.plain)
     }
 }
 
-/// One feature: its preview, name and line, and Get (off) or On + Remove (on).
+/// One feature as an item card: its preview, name and line, On while on, Settings… when it has
+/// options, and Get (off) or Remove (on).
 struct AppFeatureCard: View {
     let model: AppStoreModel
     let feature: AppFeature
-    @State private var hovered = false
     @Environment(\.appSceneColors) private var colors
 
     var body: some View {
         let on = model.isOn(feature)
-        VStack(alignment: .leading, spacing: Metrics.space3) {
-            AppFeaturePreviewView(preview: feature.preview)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(feature.name).font(Font(Typography.bodyEmphasized)).foregroundStyle(colors.primary).lineLimit(1)
-                // Two lines reserved, so every card's footer sits on the same line.
-                Text(feature.summary)
-                    .font(Font(Typography.caption)).foregroundStyle(colors.secondary).lineLimit(2, reservesSpace: true)
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
-            }
-            HStack(spacing: Metrics.space2) {
-                if on { AppStoreBadge(text: AppsStrings.featureOn, emphasized: true) }
-                if model.hasSettings(feature) { settingsLink }
-                Spacer(minLength: 0)
-                AppFeatureButton(model: model, feature: feature, on: on)
-            }
-            .frame(height: AppStoreColumn.actionHeight)
-        }
-        .padding(Metrics.space4)
-        .appStoreCard(hovered: hovered)
-        .onHover { hovered = $0 }
-        .themedHelp(AppsStrings.featureSetting(feature.setting))
-        .accessibilityElement(children: .contain)
+        AppStoreItemCard(look: model.cardLook, artwork: .feature(feature.preview), name: feature.name, summary: feature.summary,
+                         states: on ? [AppStoreItemState(text: AppsStrings.featureOn, emphasized: true)] : [],
+                         help: AppsStrings.featureSetting(feature.setting),
+                         secondary: { if model.hasSettings(feature) { settingsLink } },
+                         primary: { AppFeatureButton(model: model, feature: feature, on: on) })
         .accessibilityIdentifier("appStore.feature.\(feature.id)")
     }
 
@@ -157,6 +121,7 @@ struct AppFeatureButton: View {
 /// the part the feature changes lit.
 struct AppFeaturePreviewView: View {
     let preview: AppFeature.Preview
+    var height: CGFloat = 88
     @Environment(\.appSceneColors) private var colors
 
     var body: some View {
@@ -177,7 +142,7 @@ struct AppFeaturePreviewView: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .frame(height: 88)
+        .frame(height: height)
         .clipShape(shape)
         .overlay(shape.strokeBorder(colors.separator, lineWidth: Borders.drawsLines ? 0.5 : 0))
         .accessibilityHidden(true)

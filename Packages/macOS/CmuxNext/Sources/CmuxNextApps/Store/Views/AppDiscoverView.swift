@@ -37,7 +37,7 @@ struct AppDiscoverView: View {
                             }
                             if model.discoverShowsListings {
                                 if model.layout == .grid {
-                                    AppStoreCardGrid { ForEach(model.listings) { AppListingCard(model: model, listing: $0) } }
+                                    AppStoreCardGrid(look: model.cardLook) { ForEach(model.listings) { AppListingCard(model: model, listing: $0) } }
                                 } else {
                                     LazyVStack(spacing: 2) { rows(showsInstall: true) }
                                 }
@@ -47,7 +47,7 @@ struct AppDiscoverView: View {
                                     Text(AppsStrings.featureCategory(section.category))
                                         .font(Font(Typography.header)).foregroundStyle(colors.primary)
                                         .accessibilityAddTraits(.isHeader)
-                                    AppStoreCardGrid { ForEach(section.features) { AppFeatureCard(model: model, feature: $0) } }
+                                    AppStoreCardGrid(look: model.cardLook) { ForEach(section.features) { AppFeatureCard(model: model, feature: $0) } }
                                 }
                                 .accessibilityIdentifier("appStore.discover.features.\(section.category.rawValue)")
                             }
@@ -74,45 +74,33 @@ struct AppDiscoverView: View {
     }
 
     private var chips: some View {
-        ScrollView(.horizontal) {
-            HStack(spacing: Metrics.space2) {
-                chip(AppsStrings.allCategories, selected: model.category == nil && model.featureCategory == nil) {
-                    model.category = nil
-                    model.featureCategory = nil
-                }
-                ForEach(model.allCategories, id: \.self) { id in
-                    chip(AppsStrings.category(id), selected: model.category == id) {
-                        model.featureCategory = nil
-                        model.category = model.category == id ? nil : id
-                    }
-                }
-                // The feature sections' categories: one shows only that section.
-                if model.layout != .split {
-                    ForEach(model.featureCategories, id: \.self) { category in
-                        chip(AppsStrings.featureCategory(category), selected: model.featureCategory == category) {
-                            model.category = nil
-                            model.featureCategory = model.featureCategory == category ? nil : category
-                        }
-                    }
-                }
-            }
-            .padding(.vertical, Metrics.space3)
-            .thinScrollers()
-        }
-        // On the scroll view: inside it the column gets an unbounded width and stays at the edge.
-        .modifier(AppStoreColumnModifier(enabled: model.layout != .split, fallbackPadding: Metrics.space5, maxWidth: AppStoreColumn.wideMaxWidth))
+        AppStoreCategoryBar(chips: chipItems)
+            // On the scroll view: inside it the column gets an unbounded width and stays at the edge.
+            .modifier(AppStoreColumnModifier(enabled: model.layout != .split, fallbackPadding: Metrics.space5, maxWidth: AppStoreColumn.wideMaxWidth))
     }
 
-    private func chip(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(Font(Typography.caption))
-                .foregroundStyle(selected ? colors.primary : colors.secondary)
-                .padding(.horizontal, Metrics.space3)
-                .padding(.vertical, Metrics.space1)
-                .background(RoundedRectangle(cornerRadius: Metrics.itemCornerRadius, style: .continuous).fill(selected ? colors.selection : colors.hover))
+    /// All, the apps' categories, then (not in split, which lists apps only) the feature sections'
+    /// categories: one shows only that section.
+    private var chipItems: [AppStoreCategoryBar.Chip] {
+        var chips = [AppStoreCategoryBar.Chip(id: "all", title: AppsStrings.allCategories, selected: model.category == nil && model.featureCategory == nil) {
+            model.category = nil
+            model.featureCategory = nil
+        }]
+        chips += model.allCategories.map { id in
+            AppStoreCategoryBar.Chip(id: "app.\(id)", title: AppsStrings.category(id), selected: model.category == id) {
+                model.featureCategory = nil
+                model.category = model.category == id ? nil : id
+            }
         }
-        .buttonStyle(.plain)
+        if model.layout != .split {
+            chips += model.featureCategories.map { category in
+                AppStoreCategoryBar.Chip(id: category.rawValue, title: AppsStrings.featureCategory(category), selected: model.featureCategory == category) {
+                    model.category = nil
+                    model.featureCategory = model.featureCategory == category ? nil : category
+                }
+            }
+        }
+        return chips
     }
 
     private func empty(_ text: String) -> some View {

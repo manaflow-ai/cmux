@@ -39,6 +39,27 @@ public nonisolated enum AppSectionLook: String, Sendable, CaseIterable, TunableC
     }
 }
 
+/// How an App Store item card is drawn (`apps.store.cardStyle`): the same item primitive
+/// (`AppStoreItemCard`) in three densities, for features and apps alike (Leo, 2026-10-22: "we
+/// should also have nicer primitives for the app store").
+public nonisolated enum AppStoreCardLook: String, Sendable, CaseIterable, TunableChoice {
+    /// The preview over the name, two lines of description and the action row (the store's
+    /// original density).
+    case compact
+    /// A tall preview, the name and one line, then the action row.
+    case artwork
+    /// One row: a small preview at the start, the name and one line, the actions at the end.
+    case row
+
+    public var tunableTitle: String {
+        switch self {
+        case .compact: "Compact (preview, two lines)"
+        case .artwork: "Artwork (tall preview, one line)"
+        case .row: "Row (small preview, actions at the end)"
+        }
+    }
+}
+
 /// Debug Settings declarations of the app platform.
 public nonisolated enum AppsTunables {
     public static let section = TunableSection(id: "apps", title: "Apps", symbol: "bag", order: 45)
@@ -51,5 +72,9 @@ public nonisolated enum AppsTunables {
         "apps.section.look", section, "App section look", help: "How app sidebar sections and store previews are framed.",
         default: .card, code: "AppsTunables.sectionLook")
 
-    public static var all: [TunableDescriptor] { [storeLayout.descriptor, sectionLook.descriptor] }
+    public static let cardLook = Tunable<AppStoreCardLook>.choice(
+        "apps.store.cardStyle", section, "App Store card style", help: "How feature and app cards are drawn. Switches live.",
+        default: .compact, code: "AppsTunables.cardLook")
+
+    public static var all: [TunableDescriptor] { [storeLayout.descriptor, sectionLook.descriptor, cardLook.descriptor] }
 }

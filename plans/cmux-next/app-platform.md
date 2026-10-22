@@ -50,6 +50,7 @@ Picked (Lawrence, 2026-10-02): cards. `apps.store.layout` defaults to `grid` and
 
 - `apps.store.layout` = `grid` (cards) | `list` (dense rows) | `split` (list + detail side by side).
 - `apps.section.look` = `native` (app sections use built-in row metrics) | `card` (app section in a subtle inset card with the app icon in the header) | `minimal` (no header icon, title only).
+- `apps.store.cardStyle` = `compact` (default: preview, name, two lines, actions) | `artwork` (tall preview, one line) | `row` (small preview, one line, actions at the end). Every feature and app card is the one `AppStoreItemCard` (Leo, 2026-10-22: "we should also have nicer primitives for the app store").
 - `apps.consent.style` = `sheet` (scopes as a list with reasons) | `inline` (scopes expand inside the listing page).
 Screenshots of each come from a throwaway demo executable that links CmuxNextApps with the mock registry.
 

@@ -1,36 +1,30 @@
 import CmuxNextDesign
 import SwiftUI
 
-/// A listing as a card (grid layout).
+/// A listing as an item card (grid layout): icon, name, publisher, description, its states and
+/// Install or Remove; the body opens its page.
 struct AppListingCard: View {
     let model: AppStoreModel
     let listing: AppStoreListing
-    @State private var hovered = false
-    @Environment(\.appSceneColors) private var colors
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Metrics.space3) {
-            HStack(alignment: .top) {
-                AppIconView(icon: listing.icon, bundleDirectory: listing.bundleDirectory, size: 44)
-                Spacer()
-                AppListingBadges(model: model, listing: listing)
-            }
-            VStack(alignment: .leading, spacing: 2) {
-                Text(listing.name.resolved()).font(Font(Typography.bodyEmphasized)).foregroundStyle(colors.primary)
-                Text(AppsStrings.publisher(listing.publisherName)).font(Font(Typography.caption)).foregroundStyle(colors.tertiary)
-            }
-            // Three lines reserved, so cards in a row keep one height.
-            Text(listing.description.resolved())
-                .font(Font(Typography.caption)).foregroundStyle(colors.secondary).lineLimit(3, reservesSpace: true)
-                .frame(maxWidth: .infinity, alignment: .topLeading)
-        }
-        .padding(Metrics.space4)
-        .appStoreCard(hovered: hovered)
-        .contentShape(Rectangle())
-        .onHover { hovered = $0 }
-        .onTapGesture { model.show(.discover, selection: listing.id) }
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isButton)
+        AppStoreItemCard(look: model.cardLook, artwork: .app(listing.icon, listing.bundleDirectory), name: listing.name.resolved(),
+                         byline: AppsStrings.publisher(listing.publisherName), summary: listing.description.resolved(),
+                         states: listing.installStates(model.state(of: listing.id)) + [AppStoreItemState(text: AppsStrings.tier(listing.tier))],
+                         open: { model.show(.discover, selection: listing.id) },
+                         secondary: { EmptyView() },
+                         primary: { AppInstallButton(model: model, id: listing.id, builtIn: listing.isBuiltIn) })
+            .accessibilityIdentifier("appStore.listing.\(listing.id)")
+    }
+}
+
+extension AppStoreListing {
+    /// Installed (or Disabled) and Hidden, while the app is installed.
+    func installStates(_ state: AppRecord?) -> [AppStoreItemState] {
+        guard let state, state.installed else { return [] }
+        var states = [AppStoreItemState(text: state.enabled ? AppsStrings.installedBadge : AppsStrings.disabledBadge, emphasized: state.enabled)]
+        if state.hidden { states.append(AppStoreItemState(text: AppsStrings.hiddenBadge)) }
+        return states
     }
 }
 
@@ -64,17 +58,14 @@ struct AppListingRow: View {
     }
 }
 
-/// Tier and install state badges.
+/// Install state and tier badges.
 struct AppListingBadges: View {
     let model: AppStoreModel
     let listing: AppStoreListing
 
     var body: some View {
         HStack(spacing: Metrics.space1) {
-            if let state = model.state(of: listing.id), state.installed {
-                AppStoreBadge(text: state.enabled ? AppsStrings.installedBadge : AppsStrings.disabledBadge, emphasized: state.enabled)
-                if state.hidden { AppStoreBadge(text: AppsStrings.hiddenBadge) }
-            }
+            ForEach(listing.installStates(model.state(of: listing.id)), id: \.self) { AppStoreBadge(text: $0.text, emphasized: $0.emphasized) }
             AppStoreBadge(text: AppsStrings.tier(listing.tier))
         }
     }

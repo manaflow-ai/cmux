@@ -53,6 +53,7 @@ public final class AppStoreModel {
     /// Demo and screenshot overrides of the Debug Settings prototypes.
     public var layoutOverride: AppStoreLayout?
     public var lookOverride: AppSectionLook?
+    public var cardLookOverride: AppStoreCardLook?
 
     public let client: AppsClient
     /// The settings behind the Features tab; nil lists no features (tests, a store without settings).
@@ -79,6 +80,8 @@ public final class AppStoreModel {
 
     public var layout: AppStoreLayout { layoutOverride ?? AppsTunables.storeLayout.value }
     public var look: AppSectionLook { lookOverride ?? AppsTunables.sectionLook.value }
+    /// How the item cards are drawn (`apps.store.cardStyle`).
+    public var cardLook: AppStoreCardLook { cardLookOverride ?? AppsTunables.cardLook.value }
     /// Whether changes can be sent (the supervisor answers).
     public var canChange: Bool { client.isAvailable }
 
