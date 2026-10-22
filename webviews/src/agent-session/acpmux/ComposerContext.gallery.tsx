@@ -309,6 +309,8 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       },
       play: async (ctx) => {
         await openFolder(ctx);
+        // Projects (current) is the first row, cmux the second.
+        await ctx.press("ArrowDown");
         await ctx.press("ArrowDown");
         await ctx.press("ArrowRight");
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-location-row[data-worktree]"));

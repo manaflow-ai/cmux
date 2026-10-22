@@ -110,7 +110,7 @@ import { openPicker } from "./pickerOpeners";
 import { EmptyState, type EmptyStateProjects, isNewChat, projectName } from "./EmptyState";
 import { PastChat, type PastTurn, readPastTurns } from "./PastChat";
 import type { Project } from "./ProjectChooser";
-import { byRecentUse, parseProjectRepos } from "./projectRepos";
+import { byRecentUse, parseProjectRepos, projectRows } from "./projectRepos";
 import { HomeLists } from "./HomeLists";
 import { endsTurn, turnFiles, turnPathsOnly, turnRows, type TurnFile } from "./diff";
 import { opensTurn } from "./turnStart";
@@ -6716,7 +6716,13 @@ function AcpmuxPane() {
     // The machine as the rows key it (ComposerContext.computerId): a peer, else a Cloud host.
     const peer = summary?.peer || (summary?.hostKind === "cloud" ? summary.host : undefined);
     return {
-      projects: [...newTabProjects.filter((project) => !isAgentHome(project.cwd)), ...remote.values()],
+      projects: [
+        ...projectRows(
+          newTabProjects.filter((project) => !isAgentHome(project.cwd)),
+          cwd?.replace(/(.)\/+$/, "$1"),
+        ),
+        ...remote.values(),
+      ],
       current: cwd && !isAgentHome(cwd) ? cwd.replace(/(.)\/+$/, "$1") : undefined,
       currentPeer: peer,
       // In no project only when it is: its folder is agent-home, or the host starts it there. A chat

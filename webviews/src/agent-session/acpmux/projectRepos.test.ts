@@ -8,6 +8,7 @@ import {
   guessProjectRepo,
   isMainCheckout,
   parseProjectRepos,
+  projectRows,
   shownRepoRows,
   worktreeName,
   type RepoFolder,
@@ -227,6 +228,43 @@ test("a lane checkout's guess joins only an unambiguous repository of that name"
     name: "cmux",
     branch: "picker-23900",
   });
+});
+
+test("a folder the host said nothing about never joins a known repository by its name alone", () => {
+  // The host knows only a lane of acme/web (root in a bare mirror, so no main checkout to hold it).
+  const web = { root: "/Users/me/.mirrors/acme/web.git", name: "web", github: "acme/web" };
+  const unrelated: RepoFolder[] = [
+    {
+      id: "/Users/me/checkouts/web/lane1",
+      label: "lane1",
+      repo: { ...web, top: "/Users/me/checkouts/web/lane1", branch: "lane1" },
+    },
+    { id: "/Users/me/Projects/site/web", label: "web" },
+  ];
+  const groups = groupByRepo(unrelated);
+  expect(groups.map((group) => [group.name, group.lead.id])).toEqual([
+    ["web", "/Users/me/checkouts/web/lane1"],
+    ["web", "/Users/me/Projects/site/web"],
+  ]);
+});
+
+test("the flat pickers list each repository once, by its lead, and no scratch folders", () => {
+  const projects = [
+    {
+      cwd: "/Users/me/Projects/cmux",
+      label: "cmux",
+      repo: { root: "/Users/me/Projects/cmux", name: "cmux", github: "o/cmux", branch: "main" },
+    },
+    { cwd: "/Users/me/Projects/checkouts/cmux/lane-a", label: "lane-a" },
+    { cwd: "/Users/me/Projects/cmux-live-block.noindex", label: "cmux-live-block.noindex" },
+    { cwd: "/Users/me", label: "me" },
+    { cwd: "/Users/me/notes", label: "notes" },
+  ];
+  expect(projectRows(projects).map((project) => project.cwd)).toEqual(["/Users/me/Projects/cmux", "/Users/me/notes"]);
+  expect(projectRows(projects, "/Users/me/Projects/checkouts/cmux/lane-a").map((project) => project.cwd)).toEqual([
+    "/Users/me/Projects/checkouts/cmux/lane-a",
+    "/Users/me/notes",
+  ]);
 });
 
 test("projects a chat used come first, newest chat first; the rest keep their order", () => {

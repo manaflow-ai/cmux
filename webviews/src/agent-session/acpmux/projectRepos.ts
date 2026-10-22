@@ -108,7 +108,7 @@ const repoKey = (repo: ProjectRepo) => (repo.github ? "\u0000github:" + repo.git
 /// each lane's checkout as a project). Every clone and worktree of one GitHub repository is one row.
 /// A folder the host said nothing about joins the repository whose checkout holds it, else the one
 /// its worktree path names (`~/.cmux/worktrees/cmux/x`, `checkouts/cmux/x`: the host's repository
-/// of that name when there is one), else one whose name is its own as the main checkout
+/// of that name when there is one), else a guessed one whose name is its own as the main checkout
 /// (`~/Projects/cmux`), else it is a row of its own. A lane's scratch folder in no repository, and
 /// the home folder, are left out unless current. The members carry their repository as resolved.
 export function groupByRepo<T extends RepoFolder>(folders: readonly T[], current?: string): RepoGroup<T>[] {
@@ -151,9 +151,9 @@ export function groupByRepo<T extends RepoFolder>(folders: readonly T[], current
   );
   const keyOf = (folder: T): string => {
     if (folder.repo) return repoKey(folder.repo);
+    // Only a guessed repository takes a folder by its name: a folder the host said nothing about
+    // is no checkout of a repository it knows (`~/Projects/site/web` is not acme/web).
     const label = folder.label.toLowerCase();
-    const named = byName.get(label);
-    if (named) return repoKey(named);
     return guessed.has(GUESSED + label) ? GUESSED + label : folder.id;
   };
   const groups = new Map<string, T[]>();
@@ -176,6 +176,21 @@ export function groupByRepo<T extends RepoFolder>(folders: readonly T[], current
       members,
     };
   });
+}
+
+/// One project per repository for a picker that lists no worktrees (the New Tab hero and
+/// environment card): each group's lead, so lane checkouts and scratch folders never fill it.
+export function projectRows<T extends { cwd: string; label: string; repo?: ProjectRepo }>(
+  projects: readonly T[],
+  current?: string,
+): T[] {
+  const folders = projects.map((project) => ({
+    id: project.cwd,
+    label: project.label,
+    ...(project.repo ? { repo: project.repo } : {}),
+    project,
+  }));
+  return groupByRepo(folders, current).map((group) => group.lead.project);
 }
 
 /// The projects in the order they were last used: those a chat used, newest chat first, then the
