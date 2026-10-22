@@ -1,5 +1,7 @@
 import AppKit
+import CmuxNextControl
 import CmuxNextDesign
+import CmuxNextSettings
 import os
 
 /// `debug.pane_focus`: the app's own time per pane focus move (`SwitchFrameTimer`), apart from the
@@ -14,6 +16,32 @@ enum DebugPaneFocus {
     static let timer = SwitchFrameTimer(owner: "debug.pane_focus")
     private static let signposter = OSSignposter(subsystem: "com.cmuxterm.app.next", category: "pane-focus")
     private static var interval: OSSignpostIntervalState?
+    /// Main-thread follow-up work that ran after a move settled and before its commit, by kind
+    /// (`record_saves`, `trail_encodes`): work that can push the move's frame late.
+    private(set) static var workBeforeCommit: [String: Int] = [:]
+
+    /// Main-thread work of `kind` runs now: counted while a recorded move waits for its commit.
+    static func noteMainWork(_ kind: String) {
+        guard timer.isRecording, timer.awaitsCommit else { return }
+        workBeforeCommit[kind, default: 0] += 1
+    }
+
+    /// `debug.pane_focus`: the timer's moves, plus `work_before_commit` (reset by `start`).
+    static func handle(_ params: [String: JSONValue]) -> JSONValue {
+        if params["action"]?.stringValue == "start" {
+            workBeforeCommit = [:]
+            #if DEBUG
+            DebugChromiumRestorableState.reset()
+            #endif
+        }
+        guard case .object(var object) = timer.handle(params, key: "moves") else { return .null }
+        object["work_before_commit"] = .object(workBeforeCommit.mapValues { .number(Double($0)) })
+        #if DEBUG
+        // Chromium page windows' restorable-state encodes since `start` (WindowServer round trips).
+        object["chromium_restorable_encodes"] = .number(Double(DebugChromiumRestorableState.encodes))
+        #endif
+        return .object(object)
+    }
 
     /// A pane focus move of `coordinator` starts now (the earliest caller wins until it shows).
     static func began(_ coordinator: FocusCoordinator) {
