@@ -274,13 +274,24 @@ impl Hub {
         }
     }
 
+    /// Before a prompt for a session with no running agent is recorded (`turns.rs`): its folder
+    /// (`folder_ready`), then its harness, found from the folder for a folder harness
+    /// (`folder_profiles.rs`). A refusal here lets the caller send it again (handoff start).
+    pub(super) async fn cold_prompt_check(&self, session: &Arc<Session>) -> Result<(), RpcError> {
+        self.folder_ready(session).await?;
+        let m = session.meta();
+        let cfg = self.config.read().await;
+        super::resolve::session_profile_checked(&cfg, &m.harness, &m.cwd, m.remote_origin)?;
+        Ok(())
+    }
+
     /// Before a prompt for a session with no running agent is taken: its folder, restored when
     /// cleanup reclaimed it, or a refusal naming the folder when it is still gone (a worktree
     /// removed by hand). The refusal is retryable, so an outbox delivery (`server/outbox.rs`)
     /// keeps the message and sends it again once the folder is back; a harness started in a
     /// missing folder failed the turn after it was taken, as `spawn harness process: No such
     /// file or directory`.
-    pub(super) async fn folder_ready(&self, session: &Arc<Session>) -> Result<(), RpcError> {
+    async fn folder_ready(&self, session: &Arc<Session>) -> Result<(), RpcError> {
         self.care_restore_for(session).await;
         let meta = session.meta();
         // A folder that cannot be read (its permissions) fails at the start as before.

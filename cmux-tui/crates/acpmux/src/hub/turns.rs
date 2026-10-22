@@ -213,8 +213,8 @@ impl Hub {
                 f(v);
             }
         };
-        // A prompt that cannot reach any agent (none running, and its harness is gone) is
-        // refused before it is recorded, so a caller may send it again (handoff start).
+        // A prompt that cannot reach any agent (none running, and its folder or harness is gone)
+        // is refused before it is recorded (`cold_prompt_check`, after steer-only's refusal).
         let live = match session.child.lock().await.as_ref() {
             Some(child) => child.is_alive().await,
             None => false,
@@ -229,11 +229,7 @@ impl Hub {
             .with_data(json!({"reason": "steer.unavailable"})));
         }
         if !live {
-            // Its folder first: a folder harness is found from the folder (`folder_profiles.rs`).
-            self.folder_ready(session).await?;
-            let m = session.meta();
-            let cfg = self.config.read().await;
-            super::resolve::session_profile_checked(&cfg, &m.harness, &m.cwd, m.remote_origin)?;
+            self.cold_prompt_check(session).await?;
         }
         if steer_now && session.moving().is_some() {
             return Err(super::queue::moving_error());
