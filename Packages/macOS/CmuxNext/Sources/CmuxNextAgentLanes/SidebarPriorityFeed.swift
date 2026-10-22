@@ -97,13 +97,14 @@ public final class SidebarPriorityFeed {
                                     collapsed: state.collapsed, shortcut: hooks.shortcut())
     }
 
-    /// A row's buttons run their registered actions (`Hooks.rowAction`); the fold and the bell are
-    /// the view's own.
+    /// A row's buttons run their registered actions (`Hooks.rowAction`); the fold, the bell and a
+    /// dragged row's place are the view's own.
     func perform(_ action: SidebarPriorityAction) {
         switch action {
         case .open(let id): if let lane = chats.lane(id) { hooks.open(lane) }
         case .markRead, .togglePin, .snooze, .archive: hooks.rowAction(action)
         case .setCollapsed(let collapsed): marks.setCollapsed(collapsed)
+        case .place(let id, let order): marks.place(id, in: order)
         case .toggleShown: hooks.toggleShown()
         }
     }
