@@ -30,4 +30,11 @@ struct MacNameHostTests {
     func kernelNameWhenNoLocalHostName(_ localHost: String?) {
         #expect(MacName.hostName(localHost: localHost, kernel: "cosmic-gray") == "cosmic-gray")
     }
+
+    /// The synchronous `hostName()` (tab badges, terminal moves on the main actor) answers from the
+    /// read made off the main actor, never its own configd call.
+    @Test func syncHostNameAnswersFromTheOffMainRead() async {
+        let local = await MacName.localHostName()
+        #expect(MacName().hostName() == MacName.hostName(localHost: local, kernel: MacName().kernelHostName()))
+    }
 }
