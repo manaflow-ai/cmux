@@ -75,7 +75,7 @@ test("a chat's private folder is named in words, its path in the tooltip", async
   expect(text.hasAttribute("title")).toBe(false);
 });
 
-test("a project folder keeps its name", async () => {
+test("a project folder shows its path", async () => {
   await act(async () =>
     root.render(
       <TrustAsk
@@ -87,5 +87,6 @@ test("a project folder keeps its name", async () => {
       />,
     ),
   );
-  expect(host.querySelector(".acpmux-trust-ask-text")!.textContent).toBe("Trust atlas-web?");
+  expect(host.querySelector(".acpmux-trust-ask-text")!.textContent).toBe("Trust this folder?");
+  expect(host.querySelector(".acpmux-trust-ask-path")!.textContent).toBe("~/src/atlas-web");
 });
