@@ -38,7 +38,7 @@ enum DebugMouse {
         guard let controller = services.windows.controllers.first(where: { windowID == nil || $0.state.id == windowID }),
               let window = controller.window else { return .object(["error": .string("no window")]) }
         guard let point = point(params, controller: controller, window: window) else {
-            return .object(["error": .string("pass x and y, or a pane shown in the window")])
+            return .object(["error": .string("pass x and y, a pane shown in the window, or a workspace row in its sidebar")])
         }
         let flags = modifiers(params["modifiers"]?.arrayValue ?? [])
         let (down, up, dragged) = eventTypes(button: params["button"]?.stringValue)
