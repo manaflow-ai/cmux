@@ -57,6 +57,8 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
     attachHeld?: Promise<void>;
     /// Sessions whose attach fails, as one on a machine that dropped again would.
     attachFails?: Set<string>;
+    /// Sessions whose next attach fails once, then attaches.
+    attachFailsOnce?: Set<string>;
   };
   let scenario: Scenario = { sessions: [], peers: [] };
   const statusAsked: number[] = [];
@@ -86,6 +88,7 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
         const session = scenario.sessions.find((item) => item.sessionId === params.sessionId);
         if (!session) throw new Error("no such session");
         if (scenario.attachFails?.has(session.sessionId)) throw new Error("peer_unreachable");
+        if (scenario.attachFailsOnce?.delete(session.sessionId)) throw new Error("peer_unreachable");
         return { session, events: events(session.sessionId), hasMore: false, lastSeq: 3 };
       }
       case "_acpmux/events":
@@ -409,6 +412,47 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
     await offline.getByRole("button", { name: "Reconnect" }).click();
     await page.getByText("Opened chat-on-box", { exact: true }).waitFor({ timeout: 60_000 });
     expect((await state(page)).sessionId).toBe("chat-on-box");
+    await page.close();
+  });
+
+  test("a failed reopen never undoes a newer open of the same chat", async () => {
+    scenario = {
+      sessions: [summary("chat-kept")],
+      peers: [{ name: "build-box", transport: "ssh", connected: false, state: "connecting", attempts: 0 }],
+    };
+    const page = await open("chat-on-box");
+    await page.locator('[data-unavailable="connecting"]').waitFor({ timeout: 60_000 });
+    // The chat is listed; the pane's own reopen waits on a slow attach that will fail.
+    let releaseAttach = () => {};
+    scenario.attachHeld = new Promise((resolve) => (releaseAttach = resolve));
+    scenario.attachFailsOnce = new Set(["chat-on-box"]);
+    scenario.peers = [{ name: "build-box", transport: "ssh", connected: true, state: "connected" }];
+    const listed = summary("chat-on-box", { peer: "build-box" });
+    scenario.sessions = [...scenario.sessions, listed];
+    const firstAttach = new Promise<void>((resolve) => (attachAsked = resolve));
+    notify("_acpmux/session_changed", { kind: "created", session: listed });
+    await firstAttach;
+    // The person opens the same chat again (the list, a link) while that attach is in flight; the
+    // client sends the newer attach once the first one is answered. The pane draws the list once its
+    // switch hold ends (the attach is still in flight).
+    await page.waitForFunction(() =>
+      (window as any).cmuxAcpmuxDebug
+        .chatState()
+        .sessions.some((session: { sessionId: string }) => session.sessionId === "chat-on-box"),
+    );
+    expect(await page.evaluate(() => (window as any).cmuxAcpmuxDebug.selectSession("chat-on-box"))).toEqual({
+      selected: "chat-on-box",
+    });
+    await page.waitForTimeout(300);
+    // The first attach fails, the second opens the chat: the stale failure must not undo it.
+    releaseAttach();
+    await page.getByText("Opened chat-on-box", { exact: true }).waitFor({ timeout: 60_000 });
+    await page.waitForTimeout(500);
+    const now = await state(page);
+    expect(now.sessionId).toBe("chat-on-box");
+    expect(now.missingSession).toBeNull();
+    expect(await page.locator("[data-unavailable]").count()).toBe(0);
+    scenario.attachHeld = undefined;
     await page.close();
   });
 

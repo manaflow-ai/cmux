@@ -1789,8 +1789,12 @@ export class AcpmuxDirectClient {
     if (this.selectedSessionId !== undefined || missing === undefined || this.closed) return false;
     if (!this.sessions.some((session) => session.sessionId === missing)) return false;
     const [reason, since, peer] = [this.missingReason, this.missingSince, this.missingPeer];
-    void this.select(missing).catch(() => {
-      if (this.closed || this.selectedSessionId !== missing) return;
+    const opening = this.select(missing);
+    // select() takes its generation before its first await: a newer selection (even of this same
+    // chat, switching away and back) moves it, and this failure is then not the pane's to undo.
+    const generation = this.selectionGeneration;
+    void opening.catch(() => {
+      if (this.closed || generation !== this.selectionGeneration || this.selectedSessionId !== missing) return;
       this.wire.lifecycle("reopen failed", { sessionId: missing });
       this.selectedSessionId = undefined;
       this.selectionGeneration += 1;
