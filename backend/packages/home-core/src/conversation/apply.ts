@@ -40,7 +40,7 @@ export const targetMessageId = (op: Op): string | undefined =>
 
 export const isSend = (op: Op): boolean => op.kind === "message.send"
 
-const CLOUD_OPS = new Set(["invite.create", "invite.revoke", "invite.accept", "invite.accept_verified", "invite.approve_join", "invite.delivery.report", "conversation.settings.set", "participants.set_role", "ownership.transfer", "participants.unban", "grant.create", "grant.revoke"])
+const CLOUD_OPS = new Set(["invite.create", "invite.revoke", "invite.accept", "invite.accept_verified", "invite.approve_join", "invite.delivery.report", "chief.rename", "conversation.settings.set", "participants.set_role", "ownership.transfer", "participants.unban", "grant.create", "grant.revoke"])
 
 /** Validates one op against the head. Every commit increases `rev` by exactly one. */
 export const apply = (head: ConversationHead, request: OpRequest): ApplyResult => {
@@ -64,6 +64,10 @@ const applyOrThrow = (head: ConversationHead, request: OpRequest): Commit => {
   if (op.kind === "invite.delivery.report") {
     if (request.actor !== SYSTEM_ACTOR) fail("forbidden")
     return reportDelivery(head, next, request, op)
+  }
+  if (op.kind === "chief.rename") {
+    if (request.actor !== SYSTEM_ACTOR) fail("forbidden")
+    return renameChief(head, next, request, op)
   }
   const actor = currentParticipant(head, request.actor)
   if (!actor) return fail("not_participant")
@@ -300,4 +304,21 @@ const applyTurn = (next: Draft, turned: ConversationHead): void => {
   if (turned.last_agent_text_at !== undefined) draft.last_agent_text_at = turned.last_agent_text_at
   if (turned.thread_agent_streaks === undefined) delete draft.thread_agent_streaks
   else draft.thread_agent_streaks = turned.thread_agent_streaks
+}
+
+/**
+ * `chief.rename` (system, from the owner's UserDO): the Chief's conversation shows the Chief's new
+ * name, as its title and on the Chief's own participant record. Only a Chief's conversation, only
+ * its own Chief; `title.set` stays refused there, so the record in UserDO is the one source.
+ */
+const renameChief = (head: ConversationHead, next: Draft, request: OpRequest, op: Extract<Op, { kind: "chief.rename" }>): Commit => {
+  if (head.kind !== "chief") fail("kind_forbids")
+  const chief = currentParticipant(head, op.chief)
+  if (!chief || chief.kind !== "agent") fail("unknown_participant")
+  validateTitle(op.display_name)
+  const renamed = validateParticipant({ ...chief, display_name: op.display_name }, true)
+  next.title = op.display_name
+  next.participants = upsertParticipant(head.participants, { ...chief, ...renamed })
+  next.updated_at = request.now
+  return conversationChanged(next, request)
 }
