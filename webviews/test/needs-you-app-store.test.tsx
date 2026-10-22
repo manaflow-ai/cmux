@@ -43,8 +43,8 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterEach(() => {
-  act(() => root?.unmount());
+afterEach(async () => {
+  await act(async () => root?.unmount());
   root = undefined;
   delete (scope.document as Document).documentElement.dataset.needsYou;
 });
@@ -88,7 +88,7 @@ async function renderHeader(installed: boolean) {
 
 test("not installed: no inbox button, and the row holds only the tools, with no empty slot", async () => {
   const on = await renderHeader(true);
-  act(() => root?.unmount());
+  await act(async () => root?.unmount());
   delete (scope.document as Document).documentElement.dataset.needsYou;
   const off = await renderHeader(false);
   expect(on.labels[0]).toBe("Needs you");
@@ -105,11 +105,12 @@ test("not installed: nothing opens the hidden list; installed, a link opens it",
   await renderHeader(false);
   expect(openNeedsYou("acpmux:abc")).toBe(false);
   expect((scope.document as Document).querySelector(".acpmux-needs-you-panel")).toBeNull();
-  act(() => root?.unmount());
+  await act(async () => root?.unmount());
   delete (scope.document as Document).documentElement.dataset.needsYou;
   await renderHeader(true);
   let opened = false;
-  act(() => {
+  // Async act: the opened popover's positioner settles inside it, not after this file's teardown.
+  await act(async () => {
     opened = openNeedsYou("acpmux:abc");
   });
   expect(opened).toBe(true);
