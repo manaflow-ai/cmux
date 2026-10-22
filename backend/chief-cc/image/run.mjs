@@ -6,7 +6,7 @@
 // lost. The per-turn token never reaches the `chief` user: it stays in this process and in the
 // root-only input file, which is removed at start.
 import { spawn } from "node:child_process"
-import { chownSync, mkdirSync, readFileSync, rmSync, writeFileSync, renameSync } from "node:fs"
+import { chmodSync, chownSync, mkdirSync, readFileSync, rmSync, writeFileSync, renameSync } from "node:fs"
 import { dirname } from "node:path"
 import { createServer } from "node:http"
 
@@ -39,6 +39,8 @@ const writeHome = (rel, text) => {
   while (d.length > home.length && d.startsWith(`${home}/`)) [made.unshift(d), (d = dirname(d))]
   for (const x of made) [mkdirSync(x, { recursive: true, mode: 0o700 }), own(x)]
   writeFileSync(path, text, { mode: 0o600 })
+  // The Chief's commands (chief-tools, tools.ts) run as commands; the Worker's settings hook does the same for older images.
+  if (rel.startsWith(".local/bin/") || rel.startsWith(".chief/tools/")) chmodSync(path, 0o700)
   own(path)
 }
 for (const [rel, text] of Object.entries(input.files ?? {})) if (typeof text === "string") writeHome(rel, text)
