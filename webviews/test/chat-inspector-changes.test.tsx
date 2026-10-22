@@ -209,6 +209,9 @@ test("the whole lit row is one target: its owner chip opens the pull request, an
   expect(css).toMatch(/\.acpmux-chat-inspector-pr \{\s*position: relative;/);
   expect(css).toMatch(/\.acpmux-chat-inspector-pr__link::before \{[^}]*position: absolute;[^}]*inset: 0;/);
   expect(css).toMatch(/\.acpmux-chat-inspector-pr__more \{\s*position: relative;/);
+  // The link's own content stays above that overlay, so its tooltips (the state glyph's and the
+  // check dot's titles, the line counts' by-kind breakdown) still get the pointer.
+  expect(css).toMatch(/\.acpmux-chat-inspector-pr__link > \* \{\s*position: relative;/);
 });
 
 test("open ones come first, the most recently touched first, then the merged and closed", () => {
