@@ -14,7 +14,7 @@
 //! for a kept one), exactly as a plain close leaves it.
 
 use super::*;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 use crate::panic_free::RecoverPoison;
 use crate::workspace_registry::TopologyCloseCommit;
 
@@ -495,7 +495,7 @@ impl Mux {
             "end_terminals": end_terminals,
         });
         if let Some(reason) = reason {
-            fingerprint.set_field("reason", json!(reason.as_str()));
+            fingerprint.insert("reason", json!(reason.as_str()));
         }
         self.commit_batch_close(BatchCloseRequest {
             target: BatchCloseTarget::Tabs(surfaces),
@@ -667,7 +667,7 @@ impl Mux {
             "end_terminals": true,
         });
         if let Some(reason) = reason {
-            fingerprint.set_field("reason", json!(reason.as_str()));
+            fingerprint.insert("reason", json!(reason.as_str()));
         }
         // A retry of a committed close replays before the selector resolves.
         {

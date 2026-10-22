@@ -17,7 +17,7 @@ use std::collections::BTreeSet;
 use crate::Actor;
 use crate::mux::tab_strip::StripRequest;
 use crate::mux::*;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 use crate::panic_free::RecoverPoison;
 use crate::state::commit::{StateEffects, state_not_found};
 use crate::state::prelude::*;

@@ -1,7 +1,7 @@
 //! Terminal exit state and waits: exit snapshots, output reads, exit replay, and exit waiter subscription and notification.
 
 use super::*;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 use crate::panic_free::RecoverPoison;
 
 impl Mux {

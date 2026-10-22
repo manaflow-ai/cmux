@@ -17,7 +17,7 @@ use std::collections::BTreeSet;
 use super::tab_drag;
 use super::tab_groups::{pane_by_public_id, prune_tab_groups};
 use super::*;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 use crate::panic_free::RecoverPoison;
 use crate::state::store::{state_delete, state_upsert};
 use crate::state::tab_state_store::{

@@ -22,7 +22,7 @@
 //! rows outside any resource batch and sends no placement change, so the
 //! rows after them keep their old index until a later shift restates them.
 
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 use rusqlite::{Connection, Transaction};
 use serde_json::{Value, json};
 

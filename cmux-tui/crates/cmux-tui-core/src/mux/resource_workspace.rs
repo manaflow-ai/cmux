@@ -3,7 +3,7 @@
 //! workspaces.
 
 use super::*;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 use crate::panic_free::RecoverPoison;
 
 impl Mux {
@@ -453,7 +453,7 @@ impl Mux {
             "name": name,
         });
         if let Some(name_authority) = authority.fingerprint() {
-            fingerprint.set_field("name_authority", name_authority);
+            fingerprint.insert("name_authority", name_authority);
         }
         self.commit_resource_mutation_plan(
             mutation,

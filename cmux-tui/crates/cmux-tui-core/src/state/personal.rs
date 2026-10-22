@@ -7,7 +7,7 @@ use rusqlite::Transaction;
 use serde::Serialize;
 
 use crate::mux::*;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 use crate::state::closed_history_store::{flush_pending_group, new_closed_id, pend_group};
 use crate::state::commit::{StateEffects, state_not_found, workspace_identity};
 use crate::state::personal_state_store as personal;

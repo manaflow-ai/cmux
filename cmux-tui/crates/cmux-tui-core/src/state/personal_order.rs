@@ -13,7 +13,7 @@ use std::collections::HashSet;
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
 use super::values::{local_registry_id, workspace_public_id_for_key};
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 use crate::user_settings::NewWorkspacePlacement;
 use crate::workspace_registry::personal_store::{
     PersonalGroup, bump_personal_revision, next_workspace_position, read_groups, read_pins,

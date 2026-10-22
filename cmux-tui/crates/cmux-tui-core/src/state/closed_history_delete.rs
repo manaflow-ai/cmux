@@ -14,7 +14,7 @@ use rusqlite::{Transaction, params};
 use serde_json::Map;
 
 use crate::mux::*;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 use crate::state::closed_history_query::{closed_record, keep_members, remove_closed};
 use crate::state::commit::{StateEffects, state_not_found};
 use crate::state::prelude::*;

@@ -1,7 +1,7 @@
 //! Focus plans for resource topology: focus deltas, pane focus plans, applying a focus path, and tab position reindexing.
 
 use super::*;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 
 pub(super) fn focus_deltas(
     state: &State,

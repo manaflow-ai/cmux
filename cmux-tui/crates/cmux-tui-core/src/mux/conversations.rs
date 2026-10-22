@@ -5,7 +5,7 @@
 
 use super::*;
 use crate::conversation_store::ConversationStore;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 use crate::panic_free::RecoverPoison;
 use crate::remote_relay_state::{RelayLock, RelayStateError, lock_checked};
 

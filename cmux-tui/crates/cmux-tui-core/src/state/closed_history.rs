@@ -16,7 +16,7 @@ use crate::Actor;
 use crate::mux::tab_groups::{group_members, pane_by_public_id};
 use crate::mux::tab_strip::StripRequest;
 use crate::mux::*;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 use crate::panic_free::RecoverPoison;
 use crate::state::closed_history_query::{
     closed_page, closed_record, keep_members, newest_for_window, public_item, remove_closed,
@@ -57,16 +57,16 @@ impl ReopenRequest {
     fn fingerprint(&self) -> Value {
         let mut fingerprint = serde_json::json!({"operation": OPERATION, "closed": self.closed});
         if let Some(window) = &self.window {
-            fingerprint.set_field("window", serde_json::json!(window));
+            fingerprint.insert("window", serde_json::json!(window));
         }
         if let Some(members) = &self.members {
-            fingerprint.set_field("members", serde_json::json!(members));
+            fingerprint.insert("members", serde_json::json!(members));
         }
         if let Some(tab) = &self.tab {
-            fingerprint.set_field("tab", serde_json::json!(tab));
+            fingerprint.insert("tab", serde_json::json!(tab));
         }
         if let Some(pane) = &self.fallback_pane {
-            fingerprint.set_field("fallback_pane", serde_json::json!(pane));
+            fingerprint.insert("fallback_pane", serde_json::json!(pane));
         }
         fingerprint
     }
@@ -401,7 +401,7 @@ impl Mux {
                 if tabs.is_empty() {
                     continue;
                 }
-                group.set_field("tab_ids", serde_json::json!(tabs));
+                group.insert("tab_ids", serde_json::json!(tabs));
             }
             self.reopen_tab_group(&mutation.actor, &group, closed, &mut reopened)?;
         }

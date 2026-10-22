@@ -6,7 +6,7 @@
 use serde_json::json;
 
 use crate::mux::*;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 use crate::state::browser_devices::{self as devices, ID, RESOURCE};
 use crate::state::commit::StateEffects;
 use crate::state::prelude::*;

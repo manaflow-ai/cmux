@@ -25,7 +25,7 @@ use std::fmt;
 
 use rusqlite::{Connection, OptionalExtension, Transaction};
 
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 use crate::workspace_registry::personal_store::read_workspaces;
 use crate::workspace_registry::{PersonalWorkspaceUpdate, WorkspaceRegistry};
 

@@ -35,7 +35,7 @@ use rusqlite::{Connection, params};
 use serde_json::{Value, json};
 
 use super::Mux;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 use crate::state::agent_message_store as messages;
 use crate::state::agent_message_unsend::clip;
 use crate::state::commit::StateEffects;

@@ -49,7 +49,7 @@ use crate::terminal_host_protocol::TerminalExit;
 #[cfg(any(unix, windows))]
 use crate::terminal_loss_log::Prefilled;
 
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 pub(crate) use supervisor::RespawnGuard;
 
 /// Disables respawn for a daemon (tests that exercise dead tabs).

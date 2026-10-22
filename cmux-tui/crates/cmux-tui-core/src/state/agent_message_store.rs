@@ -16,7 +16,7 @@ use super::agent_message_policy::{
 };
 use super::agent_message_release::{expire_held, hold_deadline};
 use super::agent_message_schema::DELIVERY_STATES;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 
 /// Bytes of UTF-8 one body may hold.
 pub(crate) const MAX_BODY_BYTES: usize = 32 * 1024;

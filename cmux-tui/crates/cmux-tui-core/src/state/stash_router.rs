@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use serde_json::{Map, Value};
 
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 use crate::resource::{ResourceError, ResourceOperation};
 use crate::resource_router::{ParsedResourceRequest, mutation_result, resource_operation_error};
 use crate::state::stash::{ImportGroup, RestoreTarget, StashSource};

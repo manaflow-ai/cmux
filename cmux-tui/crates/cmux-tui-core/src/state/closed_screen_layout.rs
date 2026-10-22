@@ -16,7 +16,7 @@ use anyhow::Context;
 use serde_json::Value;
 
 use crate::mux::*;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 use crate::{Actor, PaneId, SurfaceId};
 
 /// The split tree of a closed screen, with its tabs (indexes into the

@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 
 use super::super::{WorkspaceMutation, WorkspaceRegistry};
 use super::*;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 
 // MARK: Ops on a transaction
 
@@ -449,7 +449,7 @@ impl WorkspaceRegistry {
                 key.origin
             );
             let mut result: Value = serde_json::from_str(&result)?;
-            result.set_field("replayed", json!(true));
+            result.insert("replayed", json!(true));
             return Ok(BookmarkOutcome { result, changed: None });
         }
         let (mut result, changed) = apply_op(&tx, op)?;
@@ -461,7 +461,7 @@ impl WorkspaceRegistry {
             None => None,
         };
         tx.commit()?;
-        result.set_field("replayed", json!(false));
+        result.insert("replayed", json!(false));
         Ok(BookmarkOutcome { result, changed })
     }
 }

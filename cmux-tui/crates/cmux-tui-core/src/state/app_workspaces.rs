@@ -31,7 +31,7 @@ use rusqlite::{Connection, Transaction, params};
 use serde_json::{Map, json};
 
 use crate::mux::*;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 use crate::resource::BrowserPublicId;
 use crate::state::home_store::live_app_workspace;
 use crate::state::prelude::*;

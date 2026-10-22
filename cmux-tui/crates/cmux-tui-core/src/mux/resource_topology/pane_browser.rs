@@ -9,7 +9,7 @@
 
 use super::*;
 use crate::Actor;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 
 /// Daemon-internal `pane.split` field: the new pane holds a browser at this
 /// URL instead of a terminal.

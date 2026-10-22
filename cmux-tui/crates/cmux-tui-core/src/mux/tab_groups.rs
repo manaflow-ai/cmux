@@ -20,7 +20,7 @@
 use super::tab_drag::{TabDragDestination, TabDragIds, apply_tab_drag};
 use super::tab_strip::{StripRequest, StripResult, group_archive};
 use super::*;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 use crate::panic_free::RecoverPoison;
 use crate::workspace_registry::{
     DEFAULT_PROFILE_ID, PresentationSnapshot, SavedTabGroupRecord, SavedTabMember, TabGroupRecord,

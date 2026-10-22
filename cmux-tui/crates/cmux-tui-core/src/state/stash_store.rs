@@ -32,7 +32,7 @@ use serde_json::{Value, json};
 
 use super::closed_history_privacy as privacy;
 use super::closed_history_store::tab_member;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 use crate::workspace_registry::{new_uuid_v4, unix_epoch_ms};
 
 /// `stash.create|list|restore|delete|import`.
@@ -181,7 +181,7 @@ pub(crate) fn store_workspace_stash(
                 if tab.field("kind") == "browser"
                     && let Some(tab_id) = tab.field("tab_id").as_str().map(str::to_string)
                 {
-                    tab.set_field("title", json!(page_title(transaction, &tab_id)?));
+                    tab.insert("title", json!(page_title(transaction, &tab_id)?));
                 }
             }
         }
@@ -220,7 +220,7 @@ pub(crate) fn stash_member(
     }
     let title = json!(page_title(connection, tab_id)?);
     if let Some(tab) = member.pointer_mut("/screens/0/tabs/0") {
-        tab.set_field("title", title);
+        tab.insert("title", title);
     }
     Ok(Ok(member))
 }
@@ -340,7 +340,7 @@ fn insert_stash_with(
     extra: Option<Value>,
 ) -> anyhow::Result<Value> {
     for member in &mut members {
-        member.set_field("id", json!(new_member_id()));
+        member.insert("id", json!(new_member_id()));
     }
     let created_at_ms = match created_at_ms {
         Some(created) => created,
@@ -391,7 +391,7 @@ pub(crate) fn keep_stash_members(
         transaction.execute("DELETE FROM stashed_groups WHERE stash_id = ?1", [stash_id])?;
         return Ok((super::store::state_delete(RESOURCE, stash_id), 0));
     }
-    record.set_field("members", Value::Array(keep));
+    record.insert("members", Value::Array(keep));
     transaction.execute(
         "UPDATE stashed_groups SET record_json = ?2 WHERE stash_id = ?1",
         params![stash_id, serde_json::to_string(&record)?],

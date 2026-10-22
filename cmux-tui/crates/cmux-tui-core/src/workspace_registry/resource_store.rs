@@ -1,7 +1,7 @@
 mod events_page;
 use super::*;
 use crate::JournalIngress;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 use crate::resource::{NotificationPublicId, TerminalPublicId};
 pub(crate) use events_page::query_resource_events_after;
 use serde_json::json;

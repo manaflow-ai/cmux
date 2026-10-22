@@ -28,6 +28,7 @@ import * as turnLoop from "./brain-turn.ts"
 import { ccRoute } from "../chief-brain-cc/vm.ts"
 import { ccNotes } from "../chief-brain-cc/turn.ts"
 import { toolFiles, toolsCall } from "../chief-brain-cc/tools.ts"
+import { ccSandbox, ccSandboxRetire } from "../chief-brain-cc/sandbox.ts"
 import { IMPORT_SCHEMA, type ImportBody, type ImportFail, type ImportStatus, importBatch, importing, importStatus } from "./memory-import.ts"
 
 /**
@@ -456,9 +457,27 @@ export class ChiefBrainDO extends DurableObject<Env> {
     return toolFiles(this.sql)
   }
 
+  /**
+   * The Chief's sandboxes (chief-brain-cc/sandbox.ts), on its `<agent>/sandboxes` object only: one `chief-vm` call.
+   * `legacy`: sandboxes a conversation brain kept before they moved here (adopted once).
+   */
+  async ccSandboxCall(agent: string, req: unknown, legacy: ReadonlyArray<{ id: string; name: string; created_at: number }> = []): Promise<{ status: number; json: unknown }> {
+    return ccSandbox(this, agent, req, legacy)
+  }
+
+  /** The Chief was archived: its sandboxes pause and its Freestyle identity goes, with every token and grant. */
+  async ccSandboxRetire(): Promise<{ paused: number; revoked: boolean }> {
+    return ccSandboxRetire(this)
+  }
+
   /** MuxDO forwards a committed wake here. Pulls the conversation's new messages as the chief and starts a turn. */
   async wake(w: { agent: string; owner: string; conversation: string; seq: number; reason: string; at?: number }): Promise<{ queued: number } | { skipped: string }> {
     return turnLoop.wake(this, w)
+  }
+
+  /** A peer Chief's message (brain-turn.ts peerNote), forwarded by the owner's install. */
+  async peerNote(w: { agent: string; owner: string; conversation: string; from: string; text: string; key: string }): Promise<{ queued: boolean } | { skipped: string }> {
+    return turnLoop.peerNote(this, w)
   }
 
   /**

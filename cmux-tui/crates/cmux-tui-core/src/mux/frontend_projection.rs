@@ -1,7 +1,7 @@
 //! Frontend projections and registry reads: terminal registry snapshots and pages, workspace registry events, frontend projection get/put, and workspace selector resolution.
 
 use super::*;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 use crate::panic_free::RecoverPoison;
 
 impl Mux {

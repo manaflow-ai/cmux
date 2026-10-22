@@ -5,7 +5,7 @@ use sha2::{Digest, Sha256};
 use std::fmt;
 
 use super::*;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 
 #[derive(Debug)]
 pub(crate) struct AgentCLIJobBusy;

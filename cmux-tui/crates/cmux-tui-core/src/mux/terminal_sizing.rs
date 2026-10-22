@@ -1,7 +1,7 @@
 //! Shared terminal sizing: geometry claims, view participants and sub-views, size policies, the sizing engine entries, size state publication, and client size participation.
 
 use super::*;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 use crate::panic_free::RecoverPoison;
 
 mod grid_hold;
@@ -822,7 +822,7 @@ impl Mux {
                     for size in sizes {
                         let surface =
                             size.get("surface").and_then(Value::as_u64).unwrap_or_default();
-                        size.set_field(
+                        size.insert(
                             "size_participating",
                             serde_json::json!(self.client_size_participates(surface, id)),
                         );

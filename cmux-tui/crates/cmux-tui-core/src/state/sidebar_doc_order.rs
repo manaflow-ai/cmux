@@ -18,7 +18,7 @@ use serde_json::Value;
 
 use super::sidebar_doc_store as store;
 use super::values::local_registry_id;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 use crate::user_settings::NewWorkspacePlacement;
 
 /// This machine's workspace ids in document order, and how many of them

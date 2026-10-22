@@ -18,7 +18,7 @@
 use std::path::{Path, PathBuf};
 
 use super::agent_start::agent_home_base;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 
 /// The folder the app empties into the Trash.
 pub(crate) const TRASH_PENDING: &str = ".trash-pending";

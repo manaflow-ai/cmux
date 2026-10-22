@@ -16,7 +16,7 @@ use sha2::{Digest, Sha256};
 
 use super::*;
 
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 use crate::resource::{
     AgentPublicId, BrowserPublicId, FrontendProjectionPublicId, NotificationPublicId, WireDecimal,
 };
@@ -65,7 +65,7 @@ pub struct RegistryAgentProjection {
 pub(crate) fn agent_projection_extra(agent: Option<&str>, agent_session_id: Option<&str>) -> Value {
     let mut extra = json!({"agent": agent});
     if let Some(agent_session_id) = agent_session_id {
-        extra.set_field("agent_session_id", json!(agent_session_id));
+        extra.insert("agent_session_id", json!(agent_session_id));
     }
     extra
 }

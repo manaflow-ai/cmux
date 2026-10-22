@@ -34,7 +34,7 @@ use sha2::{Digest, Sha256};
 use crate::Actor;
 use crate::mux::tab_groups::pane_by_public_id;
 use crate::mux::*;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 use crate::state::closed_history::{REOPEN, Reopened, note_created, recording_created};
 use crate::state::closed_history_store::queue_change;
 use crate::state::commit::{StateEffects, state_not_found};

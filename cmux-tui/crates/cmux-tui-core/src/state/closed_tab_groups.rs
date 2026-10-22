@@ -13,7 +13,7 @@ use serde_json::{Value, json};
 use crate::mux::tab_groups::{group_members, move_members_into, pane_by_public_id, tab_public_id};
 use crate::mux::tab_strip::{StripRequest, StripResult};
 use crate::mux::*;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 use crate::{Actor, SurfaceId};
 
 /// The archives of the live tab groups holding a tab that closes: one in

@@ -1,5 +1,5 @@
 use super::*;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 
 mod exit_snapshot;
 mod writer_batch;

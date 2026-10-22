@@ -2,7 +2,7 @@
 //! removes the source pane from its layout.
 
 use super::*;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 
 #[allow(clippy::too_many_arguments)]
 /// Build the durable mutation plan for moving a sole tab across panes.
@@ -195,7 +195,7 @@ pub(in crate::mux) fn structural_tab_move_plan(
     let pane = pane_value(state, &target_record, &after)?;
     deltas.push(upsert(0, "pane", target_pane_id.as_str(), pane));
     for (sequence, delta) in deltas.iter_mut().enumerate() {
-        delta.set_field("sequence", json!(sequence));
+        delta.insert("sequence", json!(sequence));
     }
     deltas.push(delete_delta(deltas.len(), "pane", source_pane_id.as_str()));
     if !source_screen_remains {

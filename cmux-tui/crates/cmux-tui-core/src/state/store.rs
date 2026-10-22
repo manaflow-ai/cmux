@@ -21,7 +21,7 @@ use anyhow::Context;
 use rusqlite::{Connection, OptionalExtension, Transaction};
 use serde_json::{Value, json};
 
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 use crate::workspace_registry::personal_store::personal_revision;
 use crate::workspace_registry::resource_store::{prune_resource_mutations, resource_patch_replay};
 use crate::workspace_registry::session_journal::append_resource_journal_record;
@@ -224,7 +224,7 @@ pub(crate) fn finish_changes(changes: Vec<Value>) -> Vec<Value> {
         output.push(change);
     }
     for (sequence, change) in output.iter_mut().enumerate() {
-        change.set_field("sequence", json!(sequence));
+        change.insert("sequence", json!(sequence));
     }
     output
 }

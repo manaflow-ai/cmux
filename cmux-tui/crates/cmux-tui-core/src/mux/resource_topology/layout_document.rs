@@ -1,7 +1,7 @@
 //! Resource layout documents: validating, parsing and applying a layout document to a screen.
 
 use super::*;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 
 #[derive(Debug)]
 pub(super) struct ParsedResourceLayout {

@@ -21,7 +21,7 @@
 
 use std::sync::OnceLock;
 
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde_json::{Map, Value, json};
 
@@ -697,7 +697,7 @@ pub(crate) fn resolve(stored: &str) -> Option<Value> {
     }
     let mut agent = json!({"userAgent": user_agent});
     if let Some(metadata) = &metadata {
-        agent.set_field("userAgentMetadata", metadata.clone());
+        agent.insert("userAgentMetadata", metadata.clone());
     }
     let touch_call = if touch {
         json!({"enabled": true, "maxTouchPoints": 1})

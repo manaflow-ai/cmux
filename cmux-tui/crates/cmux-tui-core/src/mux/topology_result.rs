@@ -3,7 +3,7 @@
 //! transaction.
 
 use super::*;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 
 pub(super) fn persist_public_topology_result(
     operation: &str,

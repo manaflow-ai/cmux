@@ -16,7 +16,7 @@ use super::super::personal_store::{
     DEFAULT_PROFILE_ID, bump_personal_revision, commit_personal, read_groups, read_profile,
     read_profiles, subject, write_order,
 };
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 
 /// The rooms that show workspace `key` of `session` (data-model.md 3.2, the
 /// rule of the app's `RoomMembership`): its pin, else every room that

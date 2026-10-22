@@ -1,7 +1,7 @@
 //! Terminal resolution and close: resolve by public id or host id, guarded terminal close, failed hosted attachments, and discovered host termination.
 
 use super::*;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 use crate::panic_free::RecoverPoison;
 
 impl Mux {

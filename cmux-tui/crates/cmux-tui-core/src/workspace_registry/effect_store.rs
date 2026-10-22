@@ -5,7 +5,7 @@ use super::resource_store::{
 };
 use super::*;
 use crate::diagnostics::CommitSpans;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 use crate::resource::ResourceError;
 use serde_json::json;
 
@@ -469,27 +469,27 @@ impl WorkspaceRegistry {
         });
         match stored.state.as_str() {
             "prepared" => {
-                result.set_field("state", json!("not_applied"));
-                result.set_field("recovery", json!("retry_same_idempotency_key"));
+                result.insert("state", json!("not_applied"));
+                result.insert("recovery", json!("retry_same_idempotency_key"));
             }
             "not_applied" => {
-                result.set_field("state", json!("not_applied"));
-                result.set_field("recovery", json!("retry_new_idempotency_key"));
+                result.insert("state", json!("not_applied"));
+                result.insert("recovery", json!("retry_new_idempotency_key"));
             }
             "executing"
                 if stored.execution_generation.as_deref() == Some(self.generation.as_str()) =>
             {
-                result.set_field("state", json!("pending"));
-                result.set_field("recovery", json!("wait"));
+                result.insert("state", json!("pending"));
+                result.insert("recovery", json!("wait"));
             }
             "executing" | "indeterminate" => {
-                result.set_field("state", json!("indeterminate"));
-                result.set_field("recovery", json!("do_not_retry"));
+                result.insert("state", json!("indeterminate"));
+                result.insert("recovery", json!("do_not_retry"));
             }
             "created" => {
-                result.set_field("state", json!("created"));
-                result.set_field("recovery", json!("none"));
-                result.set_field(
+                result.insert("state", json!("created"));
+                result.insert("recovery", json!("none"));
+                result.insert(
                     "created_path",
                     serde_json::from_str(
                         stored
@@ -498,13 +498,13 @@ impl WorkspaceRegistry {
                             .ok_or_else(|| anyhow::anyhow!("created resource omitted its path"))?,
                     )?,
                 );
-                result.set_field(
+                result.insert(
                     "generation",
                     json!(stored.generation.ok_or_else(|| {
                         anyhow::anyhow!("created resource omitted its generation")
                     })?),
                 );
-                result.set_field(
+                result.insert(
                     "revision",
                     json!(
                         u64::try_from(stored.committed_revision.ok_or_else(|| {

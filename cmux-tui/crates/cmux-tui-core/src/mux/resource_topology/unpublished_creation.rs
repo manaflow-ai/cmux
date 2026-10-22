@@ -11,7 +11,7 @@
 use std::sync::PoisonError;
 
 use super::*;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 
 impl Mux {
     pub(super) fn settle_unpublished_creation(

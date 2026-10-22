@@ -18,7 +18,7 @@ use serde_json::json;
 
 use crate::Actor;
 use crate::mux::*;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 use crate::state::closed_history::{Reopened, note_created};
 use crate::state::commit::state_not_found;
 use crate::state::prelude::*;
@@ -207,7 +207,7 @@ impl Mux {
             if tabs.is_empty() {
                 continue;
             }
-            group.set_field("tab_ids", json!(tabs));
+            group.insert("tab_ids", json!(tabs));
             self.reopen_tab_group(actor, &group, true, reopened)?;
         }
         Ok(())

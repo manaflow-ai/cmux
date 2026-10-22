@@ -39,7 +39,7 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use super::{Mux, NotificationLevel, NotificationSource};
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 use crate::resource::ContentPublicId;
 use crate::state::conversation_tabs_store::ConversationTabRecord;
 use crate::{Actor, SurfaceId};

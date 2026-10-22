@@ -15,7 +15,7 @@ use std::time::Duration;
 use serde_json::json;
 
 use crate::Mux;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 use crate::resource::TerminalPublicId;
 use crate::state::commit::StateEffects;
 use crate::state::prelude::*;

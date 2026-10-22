@@ -22,7 +22,7 @@ use super::closed_history_privacy as privacy;
 pub(crate) use super::closed_history_query::closed_items;
 use super::closed_history_query::public_item;
 use super::store::{state_delete, state_upsert};
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 use crate::workspace_registry::resource_store::{ResourceChange, ResourcePatch};
 use crate::workspace_registry::{new_uuid_v4, unix_epoch_ms};
 
@@ -231,7 +231,7 @@ pub(crate) fn drain_pending_changes(
                     super::placement_shift::merge(&mut shift, marker);
                     continue;
                 }
-                change.set_field("sequence", json!(array.len()));
+                change.insert("sequence", json!(array.len()));
                 array.push(change);
             }
         }
@@ -289,12 +289,12 @@ fn tab_record(connection: &Connection, tab_id: &str) -> anyhow::Result<Option<Va
         // works after the terminal's row is gone.
         let relaunch =
             crate::workspace_registry::relaunch_store::closed_fields(connection, &content_id)?;
-        record.set_field(
+        record.insert(
             "cwd",
             relaunch.as_ref().map_or(Value::Null, |fields| fields["cwd"].clone()),
         );
-        record.set_field("relaunch", relaunch.unwrap_or(Value::Null));
-        record.set_field("terminal_id", json!(content_id));
+        record.insert("relaunch", relaunch.unwrap_or(Value::Null));
+        record.insert("terminal_id", json!(content_id));
     } else {
         let url = connection
             .query_row(
@@ -318,12 +318,12 @@ fn tab_record(connection: &Connection, tab_id: &str) -> anyhow::Result<Option<Va
             .optional()?;
         match frontend {
             Some((url, profile, engine)) => {
-                record.set_field("url", json!(privacy::strip_url(&url)));
-                record.set_field("browser_profile_id", json!(profile));
-                record.set_field("engine", json!(engine));
+                record.insert("url", json!(privacy::strip_url(&url)));
+                record.insert("browser_profile_id", json!(profile));
+                record.insert("engine", json!(engine));
                 // Back/forward entries and scroll come back on reopen
                 // (cx-d0d.11); `closed.list` never shows them.
-                record.set_field(
+                record.insert(
                     "browser_history",
                     connection
                         .query_row(
@@ -341,13 +341,13 @@ fn tab_record(connection: &Connection, tab_id: &str) -> anyhow::Result<Option<Va
         if let Some(conversation) =
             super::conversation_tabs_store::tab_conversation_wire(connection, tab_id)?
         {
-            record.set_field("conversation", conversation);
+            record.insert("conversation", conversation);
         }
         // A remote-terminal tab reopens as one (`remote-terminal-tabs-v1`).
         if let Some(remote) =
             super::remote_terminal_tabs_store::tab_remote_wire(connection, tab_id)?
         {
-            record.set_field("remote", remote);
+            record.insert("remote", remote);
         }
     }
     Ok(Some(record))
@@ -385,7 +385,7 @@ fn screen_tabs(
         let entry = panes.entry(pane.clone()).or_insert_with(|| json!({"tabs": [], "active": 0}));
         let strip = entry.field("tabs").as_array().map_or(0, Vec::len);
         if active.as_deref() == Some(tab.as_str()) {
-            entry.set_field("active", json!(strip));
+            entry.insert("active", json!(strip));
         }
         if let Some(strip) = entry.get_mut("tabs").and_then(Value::as_array_mut) {
             strip.push(json!(records.len()));
@@ -449,7 +449,7 @@ fn insert_group(
     };
     if !tab_groups.is_empty() {
         let fields = extra.get_or_insert_with(|| json!({}));
-        fields.set_field("tab_groups", Value::Array(tab_groups));
+        fields.insert("tab_groups", Value::Array(tab_groups));
     }
     insert_record(transaction, closed_id, members, window, extra)
 }
@@ -479,7 +479,7 @@ fn insert_record(
         // workspace-level group: reopening it restores the space. An
         // ungrouped tab or screen group stays a tab- or screen-level one.
         if record.field("members").as_array().is_some_and(Vec::is_empty) {
-            record.set_field(
+            record.insert(
                 "kind",
                 json!(if record.get("tab_group").is_some() {
                     "tab"
@@ -924,7 +924,7 @@ pub(crate) fn tab_member(
         && let Some(split) =
             super::closed_pane_split::pane_placement(transaction, &screen_id, &pane_id)?
     {
-        member.set_field("split", split);
+        member.insert("split", split);
     }
     Ok(Some(member))
 }

@@ -5,7 +5,7 @@ use super::client_ids::{
     requested_reopen_tab_id,
 };
 use super::*;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 use crate::panic_free::RecoverPoison;
 use crate::state::app_workspaces::{APP_WORKSPACE_FIELD, APP_WORKSPACE_NAME_FIELD};
 
@@ -60,7 +60,7 @@ impl Mux {
                 None => TerminalId::random()?.to_hex(),
             };
             let mutation = context.mutation.reservation();
-            intent.set_field(
+            intent.insert(
                 "terminal_reservation",
                 json!({
                     "terminal_id":terminal_id,
@@ -76,7 +76,7 @@ impl Mux {
             if let Some(tab_id) = tab_id
                 && let Some(reservation) = intent.get_mut("terminal_reservation")
             {
-                reservation.set_field("tab_id", json!(tab_id));
+                reservation.insert("tab_id", json!(tab_id));
             }
         }
         if matches!(operation, ResourceOperation::PaneSplit | ResourceOperation::PaneCreate) {
@@ -86,7 +86,7 @@ impl Mux {
                 Some(pane_id) => pane_id,
                 None => PanePublicId::random()?,
             };
-            intent.set_field("pane_reservation", json!({ "pane_id": pane_id }));
+            intent.insert("pane_reservation", json!({ "pane_id": pane_id }));
         }
         if operation == ResourceOperation::PaneSplit {
             // The new split's public id is fixed here too: the caller's
@@ -97,7 +97,7 @@ impl Mux {
                 Some(split_id) => split_id,
                 None => SplitPublicId::random()?,
             };
-            intent.set_field("split_reservation", json!({ "split_id": split_id }));
+            intent.insert("split_reservation", json!({ "split_id": split_id }));
         }
         if topology_effect_may_create_workspace(operation) {
             let mutation = context.mutation.reservation();
@@ -107,7 +107,7 @@ impl Mux {
                 .map(str::to_string)
                 .map(Ok)
                 .unwrap_or_else(Self::new_workspace_key)?;
-            intent.set_field(
+            intent.insert(
                 "workspace_reservation",
                 json!({
                     "workspace_key":workspace_key,
@@ -129,7 +129,7 @@ impl Mux {
                 Some(tab_id) => tab_id,
                 None => TabPublicId::random()?,
             };
-            intent.set_field(
+            intent.insert(
                 "browser_reservation",
                 json!({
                     "tab_id":tab_id,
@@ -202,7 +202,7 @@ impl Mux {
                     )));
                 }
             }
-            intent.set_field("layout_revision", json!(entry.after_revision));
+            intent.insert("layout_revision", json!(entry.after_revision));
         }
         Ok(intent)
     }

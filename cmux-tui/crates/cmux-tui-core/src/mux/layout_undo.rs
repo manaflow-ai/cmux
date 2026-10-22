@@ -1,7 +1,7 @@
 //! Layout undo: undo with confirmation tokens, including the resource-effect path.
 
 use super::*;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 use crate::panic_free::RecoverPoison;
 
 impl Mux {

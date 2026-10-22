@@ -13,7 +13,7 @@ use serde_json::{Value, json};
 use crate::model::State;
 use crate::mux::tab_groups::{pane_by_public_id, pane_public_id};
 use crate::mux::*;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 use crate::{Actor, PaneId, SurfaceId};
 
 /// Where closing pane `pane_id` sits in the split tree of `screen_id`:
@@ -36,7 +36,7 @@ pub(super) fn pane_placement(
     let Some(layout) = layout else { return Ok(None) };
     let layout: Value = serde_json::from_str(&layout)?;
     Ok(placement_in(&layout, pane_id).map(|mut placement| {
-        placement.set_field("screen", json!(screen_id));
+        placement.insert("screen", json!(screen_id));
         placement
     }))
 }
@@ -133,8 +133,8 @@ pub(super) fn follow_split_panes(members: &mut [Value], panes: &HashMap<String, 
         let Some(split) = member.field("pane_id").as_str().and_then(|pane| panes.get(pane)) else {
             continue;
         };
-        member.set_field("pane_id", json!(split.pane));
-        member.set_field("screen_id", json!(split.screen));
+        member.insert("pane_id", json!(split.pane));
+        member.insert("screen_id", json!(split.screen));
         if let Some(fields) = member.as_object_mut() {
             fields.remove("split");
         }

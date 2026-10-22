@@ -8,7 +8,7 @@
 
 use super::*;
 use crate::Actor;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 use crate::panic_free::RecoverPoison;
 use crate::resource::BrowserPublicId;
 use crate::workspace_registry::{
@@ -712,10 +712,10 @@ impl Mux {
         // Only a pin request carries the key, so a retry first sent to a
         // daemon without workspace-pin-v1 still replays.
         if let Some(pinned) = update.pinned {
-            fingerprint.set_field("pinned", pinned.into());
+            fingerprint.insert("pinned", pinned.into());
         }
         if let Some(marked_unread) = update.marked_unread {
-            fingerprint.set_field("marked_unread", marked_unread.into());
+            fingerprint.insert("marked_unread", marked_unread.into());
         }
         let mut registry = self.workspace_registry.lock().recover_poison();
         if let Some(commit) = registry.replay(mutation, &fingerprint)? {

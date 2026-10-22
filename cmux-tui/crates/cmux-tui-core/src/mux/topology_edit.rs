@@ -3,7 +3,7 @@
 //! landing 3a): each names the actor it acts as.
 
 use super::*;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 use crate::panic_free::RecoverPoison;
 
 impl Mux {

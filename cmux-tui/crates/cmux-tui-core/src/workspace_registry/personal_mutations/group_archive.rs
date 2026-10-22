@@ -16,7 +16,7 @@ use super::super::personal_store::{
     write_order,
 };
 use super::room_archive::{insert_rows, reinsert, rows};
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 
 /// The record of `group` before its delete: its row, its place in the
 /// group order and its members in personal order.

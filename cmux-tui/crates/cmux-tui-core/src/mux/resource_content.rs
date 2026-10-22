@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 use super::{Mux, ResourceMutationMetrics, ResourceMutationPlan};
 use crate::browser::{BrowserSource, BrowserStatus};
 use crate::model::{Node, State};
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 use crate::panic_free::RecoverPoison;
 use crate::resource::{
     ContentPublicId, PanePublicId, SplitPublicId, TabPublicId, TabResourceIdentity,
@@ -588,7 +588,7 @@ impl Mux {
                     source_pane_id == target_pane_id,
                 )?);
                 for (sequence, delta) in deltas.iter_mut().enumerate() {
-                    delta.set_field("sequence", json!(sequence));
+                    delta.insert("sequence", json!(sequence));
                 }
 
                 let source_old_index = state

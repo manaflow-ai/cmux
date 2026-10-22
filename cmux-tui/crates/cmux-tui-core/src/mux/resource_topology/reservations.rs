@@ -7,7 +7,7 @@ use anyhow::Context;
 use serde_json::{Map, Value};
 
 use super::*;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 use crate::resource::{TabPublicId, WorkspacePublicId};
 
 /// The mutation a reservation was minted with (`id`, `origin`, `actor`); a

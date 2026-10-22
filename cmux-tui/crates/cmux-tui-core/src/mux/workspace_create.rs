@@ -1,7 +1,7 @@
 //! Empty workspace creation through the registry, ordinary and resource-effect paths.
 
 use super::*;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 use crate::panic_free::RecoverPoison;
 
 impl Mux {

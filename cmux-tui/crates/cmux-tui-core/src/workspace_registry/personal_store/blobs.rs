@@ -33,7 +33,7 @@ use super::super::session_journal::unix_epoch_ms;
 
 use super::super::presentation_store::svg_icon::{sanitize_svg_icon, svg_icon_wire};
 use super::super::presentation_store::validate_presentation_icon_asset;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 
 /// Largest stored PNG, JPEG or WebP, in bytes.
 pub const MAX_RASTER_BYTES: usize = 256 * 1024;
@@ -195,7 +195,7 @@ impl StoredBlob {
             "size": self.data.len(),
         });
         if with_data {
-            value.set_field(
+            value.insert(
                 "data",
                 base64::engine::general_purpose::STANDARD.encode(&self.data).into(),
             );

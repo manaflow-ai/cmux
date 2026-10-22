@@ -15,7 +15,7 @@ use super::dock_columns::reduce_column_dock;
 use super::*;
 use crate::layout::DEFAULT_VIEWPORT_PANE_WIDTH;
 use crate::model::{ColumnDock, DockEdge, LayoutColumn, LayoutUndoTabRestore};
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 use crate::panic_free::RecoverPoison;
 use cmux_layout_reducer::{Edge, LayoutOpKind, NewTab, TabContent};
 
@@ -189,7 +189,7 @@ impl TabDragDestination {
                 });
                 // Only when set, so keys recorded before the field stay equal.
                 if keep_focus {
-                    fingerprint.set_field("keep_focus", Value::Bool(true));
+                    fingerprint.insert("keep_focus", Value::Bool(true));
                 }
                 fingerprint
             }
@@ -202,7 +202,7 @@ impl TabDragDestination {
                     "dock": dock,
                 });
                 if keep_focus {
-                    fingerprint.set_field("keep_focus", Value::Bool(true));
+                    fingerprint.insert("keep_focus", Value::Bool(true));
                 }
                 fingerprint
             }

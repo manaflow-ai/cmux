@@ -2,7 +2,7 @@
 //! input receipt HMACs, and resource selector lookups for surfaces.
 
 use super::*;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 use crate::panic_free::RecoverPoison;
 
 mod effect_commit;

@@ -29,7 +29,7 @@ use std::path::{Path, PathBuf};
 use serde_json::{Value, json};
 
 use crate::Mux;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 use crate::resource::ResourceError;
 
 /// Advertised by `identify` once `workspace.agent_start.get` exists.

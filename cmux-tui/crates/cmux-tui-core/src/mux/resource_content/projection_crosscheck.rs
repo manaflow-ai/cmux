@@ -3,7 +3,7 @@
 //! each would publish, after the fields a live surface changes on its own.
 
 use super::*;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 
 /// `None` when `scoped` commits what `full` would (the same rows after
 /// unchanged-row pruning, the same public values for what it restates, and

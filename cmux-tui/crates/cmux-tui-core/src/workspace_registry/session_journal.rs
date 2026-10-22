@@ -1,6 +1,6 @@
 mod plugin_generation;
 use super::*;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 use base64::Engine;
 use flate2::bufread::GzDecoder;
 use rusqlite::Row;
@@ -2110,7 +2110,7 @@ fn normalize_terminal_output(
         let bytes = base64::engine::general_purpose::STANDARD
             .decode(data)
             .context("decode archived terminal output")?;
-        record.payload.set_field("encoding", Value::String("raw".into()));
+        record.payload.insert("encoding", Value::String("raw".into()));
         bytes
     };
     anyhow::ensure!(!bytes.is_empty(), "terminal output record is empty");

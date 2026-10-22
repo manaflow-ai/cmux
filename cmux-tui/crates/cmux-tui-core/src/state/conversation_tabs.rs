@@ -21,7 +21,7 @@ use serde_json::Map;
 
 use crate::Surface;
 use crate::mux::*;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 use crate::panic_free::RecoverPoison;
 use crate::resource::BrowserPublicId;
 use crate::state::commit::StateEffects;
@@ -225,7 +225,7 @@ impl Mux {
                 let mut ids =
                     serde_json::json!({"pane": id.as_str(), "split": direction, "pane_id": pane_id});
                 if let Some(split_id) = split_id {
-                    ids.set_field("split_id", Value::String(split_id.clone()));
+                    ids.insert("split_id", Value::String(split_id.clone()));
                 }
                 Ok(ids)
             }

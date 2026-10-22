@@ -1,7 +1,7 @@
 //! In-state tree edits: focus identity, focus stamps, auto-layout append, pane and surface removal, tab moves, close deltas, and layout undo confirmation details.
 
 use super::*;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 
 pub(super) type FocusIdentity = (WorkspaceId, ScreenId, PaneId);
 

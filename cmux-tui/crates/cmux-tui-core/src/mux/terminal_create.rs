@@ -1,7 +1,7 @@
 //! Terminal creation in a workspace: host ids and run results for created terminals, replayed placements, the create implementation, and binding a running terminal to its canonical workspace.
 
 use super::*;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 use crate::panic_free::RecoverPoison;
 
 impl Mux {

@@ -1,7 +1,7 @@
 //! Workspace rename: revision-checked, provider-managed and selector paths.
 
 use super::*;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 use crate::panic_free::RecoverPoison;
 
 impl Mux {
@@ -167,7 +167,7 @@ impl Mux {
             "name": name,
         });
         if let Some(name_fingerprint) = name_authority.fingerprint() {
-            fingerprint.set_field("name_authority", name_fingerprint);
+            fingerprint.insert("name_authority", name_fingerprint);
         }
         let notifications = self.tree_decorations();
         let mut registry = self.workspace_registry.lock().recover_poison();

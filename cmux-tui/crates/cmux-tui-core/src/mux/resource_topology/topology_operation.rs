@@ -1,7 +1,7 @@
 //! Resource topology operation entry: creation resolution, interrupted creation reconcile, empty workspace creation, pane neighbors, the operation dispatcher, receipted creation, the commit path, and legacy event emission.
 
 use super::*;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 use crate::panic_free::RecoverPoison;
 
 impl Mux {
@@ -65,10 +65,10 @@ impl Mux {
         });
         if let Some(fields) = fingerprint.get_mut("fields") {
             if let Some((field, value)) = mark.fingerprint_field() {
-                fields.set_field(field, value);
+                fields.insert(field, value);
             }
             if focus {
-                fields.set_field(WORKSPACE_CREATE_FOCUS_FIELD, Value::Bool(true));
+                fields.insert(WORKSPACE_CREATE_FOCUS_FIELD, Value::Bool(true));
             }
         }
         if let Some(name) = name.as_deref() {
@@ -388,7 +388,7 @@ impl Mux {
             "fields": fingerprint_fields,
         });
         if selector_candidates.len() > 1 {
-            fingerprint.set_field("selector_fallbacks", json!(&selector_candidates[1..]));
+            fingerprint.insert("selector_fallbacks", json!(&selector_candidates[1..]));
         }
         let commit = self.resource_correlated_creation_operation(
             operation,

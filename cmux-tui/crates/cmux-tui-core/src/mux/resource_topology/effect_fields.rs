@@ -1,7 +1,7 @@
 //! Resource effect field parsing and operation classification: required and optional fields, terminal options, effect targets, and which operations are effectful or create paths.
 
 use super::*;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 
 pub(super) fn resource_effect_indeterminate(
     idempotency_key: &str,

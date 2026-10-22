@@ -33,7 +33,7 @@ use super::{
     TerminalLifecycle, TerminalOnExit, WorkspaceMutation, WorkspaceRegistry, canonical_json,
     read_terminal, transaction_resource_revision, transaction_terminal_revision,
 };
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 use crate::terminal_end::TerminalEnd;
 
 const RESPAWN_ORIGIN: &str = "cmux-tui-runtime";

@@ -22,7 +22,6 @@ mod browser_provider;
 /// Where the daemon finds the first-party app packages (cx-0uo1, cx-e0cs).
 pub mod first_party_dir;
 mod lock_rank;
-mod panic_free;
 /// The cloud conversations proxy; its own crate, re-exported at the old path.
 pub use cmux_tui_cloud_conversations as cloud_conversations;
 pub mod chief_brains;
@@ -59,6 +58,8 @@ pub mod net_keepalive;
 /// Remote access state; the cmux-tui-remote-access crate, re-exported at the old paths.
 use cmux_tui_remote_access::pairing;
 mod output_store;
+/// `RecoverPoison` and `JsonFields` (panic-free lane).
+mod panic_free;
 mod program_status;
 mod prompt_mode_reset;
 pub mod provider_management;

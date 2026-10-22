@@ -18,7 +18,7 @@
 use std::collections::VecDeque;
 
 use super::*;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 
 /// The delay before attempt N (0-based) of one terminal in the window. Its
 /// length is the number of attempts per window.

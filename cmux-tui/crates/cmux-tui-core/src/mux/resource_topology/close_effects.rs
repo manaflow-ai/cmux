@@ -1,7 +1,7 @@
 //! Resource close effects: surface and terminal close effects, legacy terminal closes, terminal exit detach projection, and the close plan and commit.
 
 use super::*;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 use crate::panic_free::RecoverPoison;
 
 impl Mux {
@@ -455,7 +455,7 @@ impl Mux {
                 && change.field("id").as_str() == Some(terminal_public_id.as_str()))
         });
         for (sequence, change) in public_changes.iter_mut().enumerate() {
-            change.set_field("sequence", json!(sequence));
+            change.insert("sequence", json!(sequence));
         }
 
         Ok(Some(TerminalExitDetachProjection {

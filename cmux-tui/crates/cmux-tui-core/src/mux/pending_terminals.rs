@@ -5,7 +5,7 @@
 //! terminals that the tab JSON reports.
 
 use super::*;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 use crate::panic_free::RecoverPoison;
 
 impl Mux {

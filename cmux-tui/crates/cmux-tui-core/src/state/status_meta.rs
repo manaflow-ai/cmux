@@ -13,7 +13,7 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde::Serialize;
 use serde_json::{Map, Value, json};
 
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 use crate::resource::TerminalPublicId;
 
 pub(crate) const STATES: [&str; 5] = ["busy", "success", "error", "waiting", "info"];

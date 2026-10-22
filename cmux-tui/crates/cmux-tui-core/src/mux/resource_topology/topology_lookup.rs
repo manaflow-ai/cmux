@@ -1,7 +1,7 @@
 //! Resource topology lookups and change values: screen, pane and tab lookups, active screen, registry workspace, upsert and delete deltas, and workspace placement.
 
 use super::*;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 
 /// Registry position for a workspace created into `group` (`None` =
 /// ungrouped) at final index `index` among that section's members. Groups
@@ -194,7 +194,7 @@ pub(super) fn pane_value_with_zoom(
     zoomed: bool,
 ) -> anyhow::Result<Value> {
     let mut value = pane_value(state, pane, topology)?;
-    value.set_field("zoomed", json!(zoomed));
+    value.insert("zoomed", json!(zoomed));
     Ok(value)
 }
 

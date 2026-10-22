@@ -12,7 +12,7 @@ use rusqlite::{Connection, OptionalExtension};
 use serde_json::{Map, Value, json};
 
 use super::store::resource_upsert;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 use crate::resource::SessionPublicId;
 use crate::workspace_registry::resource_store::load_resource_topology;
 use crate::workspace_registry::{meta_value, required_meta};
@@ -293,7 +293,7 @@ pub(crate) fn decorate_value(
     // The canonical kind of a conversation tab; connections without
     // `conversation-tabs-v1` see `browser` (server/conversation_tabs_wire.rs).
     if resource == "tab" && fields.contains_key("conversation") {
-        value.set_field("content_kind", json!(super::conversation_tabs_store::CONVERSATION_KIND));
+        value.insert("content_kind", json!(super::conversation_tabs_store::CONVERSATION_KIND));
     }
     merge_extra(value, fields);
     Ok(())

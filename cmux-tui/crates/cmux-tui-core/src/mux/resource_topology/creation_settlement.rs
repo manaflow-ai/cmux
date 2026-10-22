@@ -1,7 +1,7 @@
 //! Resource creation settlement: correlated creation operations, live selector selection, settlement and rollback of interrupted creations, and creation evidence.
 
 use super::*;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 use crate::panic_free::RecoverPoison;
 
 impl Mux {

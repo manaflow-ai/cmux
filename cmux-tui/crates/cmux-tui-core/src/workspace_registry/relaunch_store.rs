@@ -42,7 +42,7 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde_json::{Map, Value, json};
 
 use super::WorkspaceRegistry;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 
 mod agent_launch;
 pub(crate) use agent_launch::{
@@ -448,10 +448,10 @@ impl WorkspaceRegistry {
                 };
                 let mut record = json!({"harness": harness, "session_id": session_id});
                 if non_interactive {
-                    record.set_field(NON_INTERACTIVE, json!(true));
+                    record.insert(NON_INTERACTIVE, json!(true));
                 } else if let Some(launch) = kept {
-                    record.set_field("args", json!(launch.args));
-                    record.set_field(
+                    record.insert("args", json!(launch.args));
+                    record.insert(
                         "env",
                         Value::Object(
                             launch

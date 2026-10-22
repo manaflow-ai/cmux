@@ -24,7 +24,7 @@
 //! when the close stopped a program, one dim line that names it.
 
 use super::*;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 use crate::workspace_registry::relaunch_store::RelaunchKind;
 use crate::workspace_registry::terminal_archive_store::{
     ARCHIVE_BLOB_BUDGET_BYTES, ARCHIVE_MAX_SCREEN_BYTES, ArchiveRow,

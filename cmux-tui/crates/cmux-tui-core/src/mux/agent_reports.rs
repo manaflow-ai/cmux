@@ -1,7 +1,7 @@
 //! Agent reports: raw socket and resource agent reports, the sequence-locked commit, and the agent list.
 
 use super::*;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 use crate::panic_free::RecoverPoison;
 
 impl Mux {
@@ -353,7 +353,7 @@ impl Mux {
             "extra":extra,
         });
         let mut public_value = value.clone();
-        public_value.set_field("source_session", serde_json::json!(record.session.as_deref()));
+        public_value.insert("source_session", serde_json::json!(record.session.as_deref()));
         let deltas = if effective_hook_state.is_some_and(|state| state.ended) {
             serde_json::json!([{
                 "kind":"delete",

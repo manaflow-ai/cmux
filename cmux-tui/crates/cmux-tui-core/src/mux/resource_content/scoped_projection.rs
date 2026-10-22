@@ -18,7 +18,7 @@ use std::time::Instant;
 use super::projection_crosscheck::projection_difference;
 use super::*;
 use crate::diagnostics::ProjectionSpans;
-use crate::panic_free::JsonField;
+use crate::panic_free::JsonFields;
 use crate::resource::{BrowserPublicId, WorkspacePublicId};
 use crate::workspace_registry::{RegistryTerminal, ResourceTopologySnapshot};
 
