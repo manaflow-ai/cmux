@@ -179,6 +179,7 @@ nonisolated extension SidebarLayoutOptions {
         var content = baseRowContent(ws, machine: machine)
         content.detailedStatus = detailedStatus
         content.machine = machines[ws.machineID].map(SidebarMachineMark.init)
+        content.pinned = ws.pinned
         if let sessionTree { content.keycap = keycaps[ws.id] }
         // Leo 2026-10-21, "REMOVE PR INDICATORS BY DEFAULT": every pull request mark on a row (the
         // hook's text and the read badge, tree or not) follows `sidebar.workspaceRow.pullRequest`,

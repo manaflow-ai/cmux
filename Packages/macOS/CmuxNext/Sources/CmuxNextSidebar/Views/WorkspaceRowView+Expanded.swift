@@ -35,18 +35,6 @@ extension WorkspaceRowView {
         return trailing - w - Metrics.space2
     }
 
-    /// The pin button of an expanded row, with the menu button (hover, not
-    /// renaming): left of it, Pin or Unpin by the row's section, fading in
-    /// and out in place with it. Returns its minX while it shows.
-    func layoutPin(showMore: Bool, control: CGFloat, fades: Bool) -> CGFloat? {
-        let pinned = isExpanded ? isPinned?() : nil
-        setHoverShown(pinButton, showMore && pinned != nil, fades: fades)
-        guard let pinned else { return nil }
-        (pinButton.icon, pinButton.label) = pinned ? (.statePinned, Strings.unpinWorkspace) : (.actionPin, Strings.pinWorkspace)
-        pinButton.frame = moreButton.frame.offsetBy(dx: -(control + Metrics.space1), dy: 0)
-        return showMore ? pinButton.frame.minX : nil
-    }
-
     /// The title, the second line and the meta line, top to bottom from `top`.
     func layoutTextLines(x: CGFloat, inset: CGFloat, titleWidth: CGFloat, width: CGFloat, head b: NSRect,
                          top: CGFloat, title th: CGFloat, line sh: CGFloat) {
