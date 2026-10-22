@@ -209,7 +209,8 @@ export class TeamHub extends DurableObject<Env> {
     // Older builds on the same Mac now listed as that computer's: their sockets' phones hear it.
     for (const id of d.claimed ?? []) {
       const sibling = this.macRow(id)
-      if (!sibling || sibling.machine_id === machineId) continue
+      // A row that has a machine id keeps it (the database never replaces one either).
+      if (!sibling || sibling.machine_id) continue
       this.sql.exec(`UPDATE macs SET machine_id = ? WHERE device_id = ?`, machineId, id)
       this.broadcast(sibling.team_id, JSON.stringify({ type: "presence", mac: this.presenceOf(id) }))
     }

@@ -485,9 +485,12 @@ public final class LiveCoordinator {
         case .mac(let mac):
             var current = store.teams.first { $0.id == teamID }?.macs ?? []
             let known = current.first { $0.id == mac.deviceId }
-            // A Worker that predates machine ids sends none: keep the one the list had.
+            // A Worker that predates machine ids sends none: keep the one the list had. A
+            // presence frame names no owner; the caller's hub carries only the caller's own
+            // Macs (0.10.0), so a Mac new to the list is the caller's.
+            let owner = known?.ownerUserID ?? (othersMacs.contains(mac.deviceId) ? nil : userID)
             let device = MacDevice(id: mac.deviceId, name: mac.name, isOnline: mac.online, lastSeenAt: mac.lastSeenDate,
-                                   ownerUserID: known?.ownerUserID, machineID: mac.machineId ?? known?.machineID)
+                                   ownerUserID: owner, machineID: mac.machineId ?? known?.machineID)
             if let index = current.firstIndex(where: { $0.id == mac.deviceId }) { current[index] = device } else { current.append(device) }
             store.setMacs(current, teamID: teamID)
             let session = sessions[mac.deviceId]
@@ -587,7 +590,10 @@ public final class LiveCoordinator {
         guard let team = store.activeTeam, registeredTeamID == team.id else { return }
         let macs = dialable ?? dialableMacs(team)
         let now = ContinuousClock.now
-        let showing = showingMacs ?? Set(macs.map(\.id))
+        // nil (Workspaces, the Feed): every listed Mac. Another build of a listed Mac is
+        // never "shown" by that: it keeps its link only for the idle window after
+        // something named it (`touch`), then closes.
+        let showing = showingMacs ?? Set(listedMacs(team).map(\.id))
         for id in showing { lastShown[id] = now }
         // A live link that presence briefly calls offline (a signaling reset) ranks as online:
         // the cap never closes it for that.

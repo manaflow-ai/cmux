@@ -76,6 +76,30 @@ import Testing
         #expect(live.focusedMacID == "m1")
     }
 
+    /// Workspaces and the Feed show every listed Mac (`showing(nil)`): the other build
+    /// named once closes after the idle window instead of staying linked.
+    @Test func theOtherBuildIdlesOutWhileWorkspacesShows() async {
+        let machine = "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        let macs = [
+            MacDevice(id: "m1", name: "cmux mini", isOnline: true, ownerUserID: userID, machineID: machine),
+            MacDevice(id: "m2", name: "cmux mini", isOnline: true, ownerUserID: userID, machineID: machine),
+        ]
+        let store = AppStore(teams: [], activeTeamID: "", workspaces: [], feed: [], tabMemory: .inMemory())
+        let dialer = PerMacDialer()
+        let live = coordinator(store: store, dialer: dialer, macs: macs)
+        defer { live.stop() }
+        live.linkPolicy = MacLinkPolicy(idleAfter: .milliseconds(200))
+        live.showing(macIDs: nil)
+        await settle { store.macConnection["m1"] == .connected }
+        live.touch("m2")
+        await settle { store.macConnection["m2"] == .connected }
+        #expect(store.macConnection["m2"] == .connected)
+        live.showing(macIDs: nil)
+        await settle { store.macConnection["m2"] == nil }
+        #expect(store.macConnection["m2"] == nil)
+        #expect(store.macConnection["m1"] == .connected)
+    }
+
     @Test func sameNamedMacsOnTwoComputersAreBothLinked() async {
         let macs = [
             MacDevice(id: "m1", name: "cmux mini", isOnline: true, ownerUserID: userID, machineID: "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"),

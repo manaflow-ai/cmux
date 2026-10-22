@@ -279,7 +279,9 @@ impl HostConfig {
             return (None, Vec::new());
         };
         let marker = self.state_dir.join(MACHINE_MARKER);
-        if std::fs::read_to_string(&marker).ok().as_deref() != Some(id.as_str())
+        // An override (tests, the rig) is not this computer's id: never written as its marker.
+        if self.machine_id_override.is_none()
+            && std::fs::read_to_string(&marker).ok().as_deref() != Some(id.as_str())
             && let Err(error) = std::fs::create_dir_all(&self.state_dir).and_then(|()| std::fs::write(&marker, &id))
         {
             tracing::warn!("could not write the machine marker: {error}");
