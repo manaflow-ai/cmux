@@ -1623,10 +1623,10 @@ export default agentPaneEntry({
       snapshot: subSecondTurns(),
     },
     "sub-second-turns-pointed": {
-      note: "The same turns, the pointer on the quiet one's prompt: its Pin and age show over the turn gap, and nothing below moves.",
+      note: "The same turns, the pointer on the quiet turn's footer: its age (and Pin, where the chat pins) shows over the turn gap, and nothing below moves.",
       snapshot: subSecondTurns(),
       play: async (ctx) => {
-        await ctx.hover({ selector: ".cv-user__bubble" });
+        await ctx.hover({ selector: ".acpmux-turnSummary" });
       },
     },
     "prompt-delivery": {

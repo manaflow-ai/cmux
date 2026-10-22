@@ -32,6 +32,13 @@ public nonisolated struct AppFeature: Sendable, Hashable, Identifiable {
         case devices
         case browser
         case layout
+
+        /// `appStore.show`'s `category` argument (`newTab`, any case); nil for an empty or unknown name.
+        public init?(argument: String) {
+            let name = argument.trimmingCharacters(in: .whitespaces).lowercased()
+            guard let category = Self.allCases.first(where: { $0.rawValue.lowercased() == name }) else { return nil }
+            self = category
+        }
     }
 
     /// What the card shows above its name.

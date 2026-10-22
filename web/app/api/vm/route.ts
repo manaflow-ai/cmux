@@ -7,6 +7,7 @@ import {
   withCallerName,
 } from "../../../services/vms/creators";
 import { normalizedDisplayName } from "../../../services/vms/displayName";
+import { readVmRunningSince, vmCostFields } from "../../../services/vms/machineCost";
 import { vmClientRoutesTeamNetworks, vmTeamDirectory } from "../../../services/vms/teamDirectory";
 // Authenticated REST facade over the VM control plane. Native clients use this surface so
 // provider credentials stay behind server-side ownership checks.
@@ -201,16 +202,30 @@ export async function GET(request: Request): Promise<Response> {
       const freeAccessWindowDays = listEntitlements && !isPaidVmPlan(listEntitlements.planId)
         ? vmFreeAccessWindowDays()
         : 0;
-      // Who made each machine. A team list is scoped by owner team, so this is
-      // the only thing separating one member's machines from another's.
-      const creatorNames = await readCreatorNames({
-        userIds: creatorUserIds(entries),
-        teamId: billingTeamId,
-        caller: user,
-        onFailure: (error) => setSpanAttributes(span, {
-          "cmux.vm.creator_lookup_error": error instanceof Error ? error.name : "unknown",
+      // Who made each machine, and when each live machine last started (its
+      // running time and cost line). Both reads are bounded and best effort,
+      // and they run together so a stalled database delays the list once.
+      // A team list is scoped by owner team, so the names are the only thing
+      // separating one member's machines from another's.
+      const [creatorNames, runningSince] = await Promise.all([
+        readCreatorNames({
+          userIds: creatorUserIds(entries),
+          teamId: billingTeamId,
+          caller: user,
+          onFailure: (error) => setSpanAttributes(span, {
+            "cmux.vm.creator_lookup_error": error instanceof Error ? error.name : "unknown",
+          }),
         }),
-      });
+        readVmRunningSince(
+          entries.filter((entry) => entry.status === "running" || entry.status === "provisioning")
+            .map((entry) => entry.providerVmId),
+          {
+            onFailure: (error) => setSpanAttributes(span, {
+              "cmux.vm.running_since_error": error instanceof Error ? error.name : "unknown",
+            }),
+          },
+        ),
+      ]);
       // A migration lagging in one environment turns every row into "Unknown"
       // with nothing else to show for it. This, with the lookup error above,
       // separates that from nobody having set a name.
@@ -247,6 +262,10 @@ export async function GET(request: Request): Promise<Response> {
         freeAccessExpiresAt: freeAccessExpiresAtMs(entry.createdAt, freeAccessWindowDays),
         // "image" keeps the baked coding-agent pins; "latest" updates them on attach.
         agentUpdates: entry.agentUpdates,
+        // Minutes without activity before the machine pauses by itself (0 is
+        // Off), and why a paused machine is paused ("idle" or "user", else null).
+        idlePauseMinutes: entry.idlePauseMinutes,
+        pauseReason: entry.pauseReason,
         // Contract recorded when the provider attached cmux-tui. This is
         // rollout metadata, not a live daemon probe.
         cmuxTuiContract: entry.cmuxTuiContract,
@@ -256,6 +275,10 @@ export async function GET(request: Request): Promise<Response> {
         // clients can use the measured live shape for grow-only checks.
         resources: poolShare(entry),
         ...(entry.resourceReservation ? { resourceReservation: entry.resourceReservation } : {}),
+        // Display cost: the size's hourly rate (null when the size is not
+        // measured yet) and when a live machine last started (epoch ms; null
+        // while paused). Clients show rate x elapsed as an estimate.
+        ...vmCostFields(entry, runningSince.get(entry.providerVmId)),
       }));
       const activeEntries = entries.filter((vm) => vm.status === "running" || vm.status === "provisioning");
       const limits = listEntitlements
