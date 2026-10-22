@@ -48,9 +48,11 @@ impl Hub {
     ) -> Result<Spawn, RpcError> {
         // A fork resumes its parent's conversation: it runs in the parent's folder.
         let forking = session.fork_from.lock().unwrap_or_else(|e| e.into_inner()).is_some();
+        let meta = session.meta();
+        let opencode = super::policy_mode::is_opencode(&meta, profile);
         let (profile, preset_digest, account_home) =
-            self.spawn_profile_read(&session.meta(), forking, profile, defaults_env).await?;
-        Ok(Spawn { profile, preset_digest, account_home })
+            self.spawn_profile_read(&meta, forking, profile, defaults_env).await?;
+        Ok(Spawn { profile, preset_digest, account_home, opencode })
     }
 
     /// `spawn_profile` for a session's meta, also before the session exists
@@ -184,7 +186,38 @@ impl Hub {
                 p.env.insert(crate::agent_tools::OFF_ENV.to_owned(), off.join(","));
             }
         }
+        // OpenCode asked to ask (`opencode_ask.rs`, `policy_mode.rs`), never by a profile's own marker.
+        p.env.remove(crate::opencode_ask::MARKER);
+        let default_policy = self.config.read().await.permission_policy;
+        if super::policy_mode::asks_opencode(meta, profile, default_policy) {
+            p.env.insert(crate::opencode_ask::MARKER.to_owned(), "1".to_owned());
+        }
         Ok((p, digest, account_home))
+    }
+
+    /// `spawn` with OpenCode asked to ask as `session`'s policy stands now (`policy_mode.rs`),
+    /// or `None` when it already is: `ensure_child` reads it again under the spawn lock, so a
+    /// narrowing after `spawn_profile` read the policy (`ask_opencode` then finds no agent
+    /// running) still holds for this start.
+    pub(super) async fn opencode_ask_now(&self, session: &Session, spawn: &Spawn) -> Option<Spawn> {
+        let default = self.config.read().await.permission_policy;
+        let asks =
+            spawn.opencode && super::policy_mode::narrow_policy(&session.meta(), default).is_some();
+        if asks == spawn.env.contains_key(crate::opencode_ask::MARKER) {
+            return None;
+        }
+        let mut profile = spawn.profile.clone();
+        if asks {
+            profile.env.insert(crate::opencode_ask::MARKER.to_owned(), "1".to_owned());
+        } else {
+            profile.env.remove(crate::opencode_ask::MARKER);
+        }
+        Some(Spawn {
+            profile,
+            preset_digest: spawn.preset_digest.clone(),
+            account_home: spawn.account_home.clone(),
+            opencode: spawn.opencode,
+        })
     }
 }
 
@@ -195,6 +228,8 @@ pub(super) struct Spawn {
     pub preset_digest: Option<String>,
     /// The account home a new chat starts in (route_account.rs `record`).
     pub account_home: Option<std::path::PathBuf>,
+    /// Whether the harness is OpenCode, from the profile as configured (`policy_mode::is_opencode`).
+    pub opencode: bool,
 }
 
 impl std::ops::Deref for Spawn {

@@ -48,23 +48,59 @@ export async function loadSeed(
   const session = mock.seedLoadSession(Math.max(1, Math.floor(turns)));
   const seeded = performance.now();
   host.selectSession(session);
-  // The transcript is in once its row count stops growing.
+  // The transcript is in once its row count stops growing. Each frame also reads what is on
+  // screen: the first frame with transcript text in view (time to first content), whether that
+  // frame was at the latest message, and every later frame whose rows in view moved (a shift).
   let last = -1;
   let still = 0;
+  let firstContent: number | undefined;
+  let firstAtLatest: boolean | undefined;
+  let shifts = 0;
+  let shown: string | undefined;
   const deadline = performance.now() + 25_000;
   while (still < 20 && performance.now() < deadline) {
     await frame();
+    const now = await afterRender();
     const count = host.rowCount();
     still = count === last && count > 0 ? still + 1 : 0;
     last = count;
+    const view = inView();
+    if (!view) continue;
+    if (firstContent === undefined) {
+      firstContent = now - seeded;
+      firstAtLatest = view.atLatest;
+    } else if (view.key !== shown) shifts += 1;
+    shown = view.key;
   }
   return {
     session,
     turns,
     rows: host.rowCount(),
     seed_ms: round2(seeded - started),
+    first_content_ms: firstContent === undefined ? null : round2(firstContent),
+    first_content_at_latest: firstAtLatest ?? null,
+    shifts_after_first_content: shifts,
     open_ms: round2(performance.now() - seeded),
   };
+}
+
+/// The transcript rows in view, by id and place (a key that changes when any of them moves), and
+/// whether the view is at its latest message; undefined while no row with text is in view.
+function inView(): { key: string; atLatest: boolean } | undefined {
+  const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
+  if (!scroller) return undefined;
+  const box = scroller.getBoundingClientRect();
+  const rows = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")].filter((row) => {
+    const rect = row.getBoundingClientRect();
+    return rect.bottom > box.top && rect.top < box.bottom && rect.width > 0 && (row.textContent ?? "").trim() !== "";
+  });
+  if (!rows.length) return undefined;
+  const opacity = Number(getComputedStyle(scroller).opacity);
+  if (opacity === 0) return undefined;
+  const key = rows
+    .map((row) => `${row.dataset.rowId ?? row.id}@${Math.round(row.getBoundingClientRect().top - box.top)}`)
+    .join(",");
+  return { key, atLatest: scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop <= 2 };
 }
 
 export async function loadRun(

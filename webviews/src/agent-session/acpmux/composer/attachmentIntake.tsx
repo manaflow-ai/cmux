@@ -6,7 +6,9 @@ import React, { useContext, useEffect, useRef, useState } from "react";
 import { ContextMenu } from "../../../ui/ContextMenu";
 import { Dialog } from "../../../ui/Dialog";
 import {
+  MAX_ATTACHMENTS,
   filesFrom,
+  isImageFile,
   pastedImageFiles,
   installFileDropLifecycle,
   thumbnail,
@@ -88,17 +90,27 @@ export function appendAttachments(
   return result;
 }
 
+/// A chip shown the moment a file is pasted, dropped or chosen, while the composer reads, scales or
+/// saves it (intakeFiles.ts can take a large screenshot hundreds of ms): the chip it becomes, or
+/// the refusal's note, takes its place. Leo 2026-10-21: "ME PASTING IT DOESN'T JUST PASTE RIGHT
+/// INTO THE COMPOSER IMMEDIATELY".
+export type PendingAttachment = { id: string; name: string; image: boolean };
+
 /// The prompt's staged attachments: what a paste on the composer's field or a file drop anywhere on
 /// the page adds (the document-level drop contract, attachments.ts), with the note a refusal leaves.
 /// `attach(files, uploads, kind)` adds files another way (the + menu's chooser, which uploads like a
-/// drop, or a capture).
+/// drop, or a capture). `pending`: the files still being read, shown at once (PendingAttachment).
 export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   const t = useT();
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
+  const [pending, setPending] = useState<PendingAttachment[]>([]);
   const [attachError, setAttachError] = useState<string | undefined>();
   const [dropping, setDropping] = useState(false);
   const live = useRef({ options, t, held: attachments.length });
   live.current = { options, t, held: attachments.length };
+  /// The files of every batch still being read, counted as soon as it comes in (before a render),
+  /// so a second paste meanwhile leaves room for the first one's chips.
+  const reading = useRef(0);
   /// `uploads`: the person dropped, pasted or chose these, so the chat's host may save what the
   /// composer can't attach (a moved chat's machine, or this Mac for a local chat) and its chip sends
   /// the saved path (composer/intakeFiles.ts); never a capture. `kind`: the person's own drop or
@@ -106,13 +118,32 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   const [attach] = useState(() => async (files: File[], uploads = false, kind?: DroppedKind) => {
     if (files.length === 0) return;
     const { options: current, t: translate, held } = live.current;
+    const ahead = reading.current;
+    // In the paste's or drop's own task, so React draws them before the next frame.
+    const shown: PendingAttachment[] = files
+      .slice(0, Math.max(0, MAX_ATTACHMENTS - held - ahead))
+      .map((file) => ({ id: crypto.randomUUID(), name: file.name, image: isImageFile(file) }));
+    reading.current += files.length;
+    if (shown.length) setPending((chips) => [...chips, ...shown]);
     const paths = current.localPaths;
-    const taken = await intakeFiles(files, {
-      held,
-      allowImages: current.allowImages,
-      ...(kind && paths ? { localPaths: (batch: File[]) => paths(kind, batch) } : {}),
-      ...(uploads && current.upload ? { upload: current.upload } : {}),
-    });
+    // Their placeholders go in the same render as what they became (or when the read fails).
+    const read = () => {
+      reading.current -= files.length;
+      if (shown.length) setPending((chips) => chips.filter((chip) => !shown.includes(chip)));
+    };
+    let taken: Awaited<ReturnType<typeof intakeFiles>>;
+    try {
+      taken = await intakeFiles(files, {
+        held: held + ahead,
+        allowImages: current.allowImages,
+        ...(kind && paths ? { localPaths: (batch: File[]) => paths(kind, batch) } : {}),
+        ...(uploads && current.upload ? { upload: current.upload } : {}),
+      });
+    } catch (error) {
+      read();
+      throw error;
+    }
+    read();
     setAttachments((staged) => appendAttachments(staged, taken.attachments));
     const error = taken.error;
     setAttachError(error && ("text" in error ? error.text : attachmentErrorText(error, translate)));
@@ -138,7 +169,33 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       document.removeEventListener("paste", paste);
     };
   }, [attach]);
-  return { attachments, setAttachments, attachError, setAttachError, dropping, attach };
+  return { attachments, setAttachments, pending, attachError, setAttachError, dropping, attach };
+}
+
+/// A prompt sent while its files are still being read (`pending`) is held and goes, once, when the
+/// last of them is a chip, so it never leaves without them. `hold(send)` holds it when there are
+/// pending files (true; a later hold replaces it) and does nothing otherwise (false). `send` runs
+/// after the render that has the chips, so it must read the composer's state then (a ref). A new
+/// `scope` (the composer moved to another chat) drops a held prompt: it never goes to another chat.
+export function useSendWhenAttached(pending: number, scope?: string): (send: () => void) => boolean {
+  const held = useRef<(() => void) | undefined>(undefined);
+  const count = useRef(pending);
+  count.current = pending;
+  useEffect(() => {
+    held.current = undefined;
+  }, [scope]);
+  useEffect(() => {
+    const send = held.current;
+    if (pending > 0 || !send) return;
+    held.current = undefined;
+    send();
+  }, [pending]);
+  const [hold] = useState(() => (send: () => void) => {
+    if (count.current === 0) return false;
+    held.current = send;
+    return true;
+  });
+  return hold;
 }
 
 /// Puts `text` in place of a paste's own text in a plain text field (the New Tab prompt), so the
@@ -157,6 +214,7 @@ function pasteTextInto(event: ClipboardEvent, text: string) {
 /// The staged attachments' chips over the prompt, with the drop hint or a refusal's note.
 export function AttachmentStrip({
   attachments,
+  pending = [],
   error,
   dropping,
   codex = false,
@@ -164,6 +222,8 @@ export function AttachmentStrip({
   onExpand,
 }: {
   attachments: readonly ComposerAttachment[];
+  /// Files still being read: a placeholder chip each, after the staged ones (PendingAttachment).
+  pending?: readonly PendingAttachment[];
   error?: string;
   dropping: boolean;
   codex?: boolean;
@@ -176,7 +236,7 @@ export function AttachmentStrip({
   // More chips than fit scroll sideways: the side with chips past it is marked, and the CSS fades it
   // by the prompt's band (composerAttachments.css).
   const edges = useScrollEdges("x");
-  if (attachments.length === 0 && !error && !dropping) return null;
+  if (attachments.length === 0 && pending.length === 0 && !error && !dropping) return null;
   return (
     <fieldset
       ref={edges}
@@ -193,12 +253,36 @@ export function AttachmentStrip({
           {...(onExpand ? { onExpand } : {})}
         />
       ))}
+      {pending.map((chip) => (
+        <PendingChip key={chip.id} chip={chip} />
+      ))}
       {dropping ? (
         <span className="acpmux-attachment-note">{t(ATTACHMENT_LABELS.dropFiles)}</span>
       ) : (
         error && <output className="acpmux-attachment-note">{error}</output>
       )}
     </fieldset>
+  );
+}
+
+/// A file still being read: an image's tile in the shape of an image chip, or a file's chip with its
+/// name, marked busy. No ×: it is a chip (or a refusal's note) in a moment.
+function PendingChip({ chip }: { chip: PendingAttachment }) {
+  const t = useT();
+  if (chip.image)
+    return (
+      <div
+        className="acpmux-attachment acpmux-attachment-image acpmux-attachment-pending"
+        aria-busy="true"
+        aria-label={imageLabel(t, { name: chip.name })}
+      >
+        <ImageIcon size={16} className="acpmux-attachment-failed-icon" />
+      </div>
+    );
+  return (
+    <div className="acpmux-attachment acpmux-attachment-file acpmux-attachment-pending" aria-busy="true">
+      <span>{chip.name}</span>
+    </div>
   );
 }
 
@@ -337,6 +421,7 @@ function AttachmentChip({
           <button
             type="button"
             className="acpmux-attachment-pasted-open"
+            /* tooltip-allow: the chip shows the paste's first words; the tooltip says a click puts it back in the prompt */
             title={t(ATTACHMENT_LABELS.editPasted)}
             onClick={expand}
           >

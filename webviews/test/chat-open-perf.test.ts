@@ -87,9 +87,9 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
   const modes = (current: string) => ({
     currentModeId: current,
     availableModes: [
-      { id: "default", name: "Normal", description: "Ask before edits and commands" },
+      { id: "default", name: "Manual", description: "Always ask before making changes" },
       { id: "acceptEdits", name: "Accept edits", description: "Edit files without asking" },
-      { id: "bypassPermissions", name: "Full access", description: "Never ask" },
+      { id: "bypassPermissions", name: "Bypass permissions", description: "Accepts all permissions" },
     ],
   });
 

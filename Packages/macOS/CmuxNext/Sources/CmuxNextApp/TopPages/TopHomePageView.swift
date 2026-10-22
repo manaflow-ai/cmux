@@ -6,7 +6,6 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextHome
 import CmuxNextHomeEngine
-import CmuxNextImportCards
 import Observation
 
 /// The Home top page, two columns: MessagesLab's conversation list
@@ -53,7 +52,6 @@ final class TopHomePageView: NSView {
         split.frame = bounds
         split.autoresizingMask = [.width, .height]
         addSubview(split)
-        ImportCardsStripView.mount(over: transcriptColumn, in: self)
         wireList(services)
         observe(services.home)
         // task-owner: lives as long as this view; one read of the team and Chiefs
