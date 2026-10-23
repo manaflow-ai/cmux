@@ -1,12 +1,15 @@
 //! `tab.pin`, `tab.unpin`, and `tab.update` on a tab handle. The result's
 //! `TabSnapshot.extra` carries `pinned`, `zoom`, a browser tab's `back` and
-//! `forward` URL lists, a frontend-rendered browser's `owner`, and the
-//! user's `icon`.
+//! `forward` URL lists, a frontend-rendered browser's `owner`, the
+//! user's `icon`, and an agent's `attention` mark (`tab-attention-v1`).
 
 use super::super::*;
 
 /// Most URLs `tab.update` accepts in `back` or `forward`.
 pub const TAB_HISTORY_MAX_URLS: usize = 20;
+
+/// Most UTF-8 bytes an attention reason holds (`tab-attention-v1`).
+pub const TAB_ATTENTION_REASON_MAX_BYTES: usize = 200;
 
 /// Fields of `tab.update`. At least one field must be present. `back` and
 /// `forward` apply only to browser tabs; `owner` only to frontend-rendered
@@ -26,6 +29,11 @@ pub struct TabUpdateOptions {
     /// The tab's user icon: an SF Symbol name or one emoji (the daemon
     /// validates the shape). `Update::Clear` sends `null`.
     pub icon: Update<String>,
+    /// An agent needs the person to act in this tab (`tab-attention-v1`):
+    /// one line the person reads, at most 200 bytes. It never moves focus;
+    /// the tab's navigation to another page or its close clears it.
+    /// `Update::Clear` sends `null` (the agent's clear).
+    pub attention: Update<String>,
 }
 
 impl Tab {
@@ -48,8 +56,8 @@ impl Tab {
         mutation_snapshot(self.client().mutate(ops::TAB_UNPIN, self.params(), mutation)?, "tab")
     }
 
-    /// Sets the tab's zoom, browser history lists, frontend owner, or icon
-    /// with a fresh idempotency key.
+    /// Sets the tab's zoom, browser history lists, frontend owner, icon, or
+    /// attention mark with a fresh idempotency key.
     pub fn update(&self, options: TabUpdateOptions) -> Result<MutationResult<TabSnapshot>> {
         self.update_with(options, MutationOptions::unique()?)
     }
@@ -69,15 +77,16 @@ impl Tab {
 }
 
 fn tab_update_params(params: Params, options: TabUpdateOptions) -> Result<Params> {
-    let TabUpdateOptions { zoom, back, forward, owner, icon } = options;
+    let TabUpdateOptions { zoom, back, forward, owner, icon, attention } = options;
     if matches!(zoom, Update::Unchanged)
         && matches!(icon, Update::Unchanged)
+        && matches!(attention, Update::Unchanged)
         && back.is_none()
         && forward.is_none()
         && owner.is_none()
     {
         return Err(Error::InvalidArgument(
-            "tab update must set zoom, back, forward, owner, or icon".to_string(),
+            "tab update must set zoom, back, forward, owner, icon, or attention".to_string(),
         ));
     }
     let mut params = match zoom {
@@ -117,6 +126,26 @@ fn tab_update_params(params: Params, options: TabUpdateOptions) -> Result<Params
         }
         Update::Set(_) => {
             return Err(Error::InvalidArgument("tab icon must contain 1 to 128 bytes".to_string()));
+        }
+    }
+    match attention {
+        Update::Unchanged => {}
+        Update::Clear => params = params.value("attention", Value::Null),
+        // The daemon's rule: one readable line (no control character, no
+        // U+2028 or U+2029) of at most TAB_ATTENTION_REASON_MAX_BYTES.
+        Update::Set(reason)
+            if !reason.trim().is_empty()
+                && reason.len() <= TAB_ATTENTION_REASON_MAX_BYTES
+                && !reason
+                    .chars()
+                    .any(|c| c.is_control() || matches!(c, '\u{2028}' | '\u{2029}')) =>
+        {
+            params = params.string("attention", reason);
+        }
+        Update::Set(_) => {
+            return Err(Error::InvalidArgument(format!(
+                "tab attention needs one line of 1 to {TAB_ATTENTION_REASON_MAX_BYTES} bytes"
+            )));
         }
     }
     Ok(params)
