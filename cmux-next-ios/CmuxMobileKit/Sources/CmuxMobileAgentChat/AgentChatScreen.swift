@@ -338,6 +338,9 @@ public struct AgentChatTranscript: View {
             content: AnyView(AgentChatTurns(store: store, surface: surface)
                 .environment(\.openDiff, OpenDiffAction { changes, file in surface.diffRoute = AgentChatSurface.DiffRoute(changes: changes, fileID: file) })
                 .environment(\.openSessionFile, openFile)
+                .environment(\.attachmentLoader, AttachmentLoader { [weak source = store.source] attachment in
+                    await source?.attachmentData(attachment)
+                })
                 // A file link in an answer opens its preview; web links open as before.
                 .environment(\.openURL, OpenURLAction { url in
                     guard let link = FileLink(url: url) else { return .systemAction }
@@ -845,6 +848,9 @@ struct SentAttachments: View {
     let attachments: [AgentAttachment]
     /// A tapped attachment: every attachment of the message opens full screen, to swipe between.
     @State private var preview: FilePreviewRequest?
+    /// Bytes read for recorded images (a prompt this launch did not send).
+    @State private var fetched: [String: Data] = [:]
+    @Environment(\.attachmentLoader) private var loader
 
     var body: some View {
         let images = attachments.filter { $0.kind == .image }
@@ -874,16 +880,25 @@ struct SentAttachments: View {
         .filePreview($preview)
     }
 
-    /// Images first, then files: the order they show in.
+    /// Images first, then files: the order they show in. A recorded image's bytes come from the
+    /// session (read once here, or by the preview when it opens first).
     private func open(_ attachment: AgentAttachment) {
         let ordered = attachments.filter { $0.kind == .image } + attachments.filter { $0.kind != .image }
-        preview = FilePreviewRequest(files: ordered.map(\.localFile), startingAt: attachment.id)
+        let files = ordered.map { item in
+            var file = item.localFile
+            if file.data == nil { file.data = fetched[item.id] }
+            return file
+        }
+        let load = loader.load
+        preview = FilePreviewRequest(files: files, startingAt: attachment.id) { file in
+            await load(AgentAttachment(id: file.id, kind: file.isImage ? .image : .file, name: file.name))
+        }
     }
 
     @ViewBuilder
     private func thumbnail(_ attachment: AgentAttachment, size: CGSize) -> some View {
         Group {
-            if let data = attachment.data, let image = UIImage(data: data) {
+            if let data = attachment.data ?? fetched[attachment.id], let image = UIImage(data: data) {
                 Image(uiImage: image).resizable().scaledToFill()
             } else {
                 Color.cmuxMobileFill.overlay { Image(systemName: "photo").font(.title3).foregroundStyle(.secondary) }
@@ -894,11 +909,24 @@ struct SentAttachments: View {
         .contentShape(.rect(cornerRadius: 16, style: .continuous))
         // Tap opens it full screen (swipe to the message's other attachments).
         .onTapGesture { open(attachment) }
+        .task(id: attachment.id) {
+            guard attachment.data == nil, fetched[attachment.id] == nil, let data = await loader.load(attachment) else { return }
+            fetched[attachment.id] = data
+        }
         .accessibilityElement()
         .accessibilityLabel(Text("Image, \(attachment.name)"))
         .accessibilityAddTraits(.isButton)
         .accessibilityHint("Opens full screen")
     }
+}
+
+/// Reads the bytes of an attachment a recorded prompt names (`AgentSessionSource.attachmentData`).
+struct AttachmentLoader: Sendable {
+    let load: @MainActor @Sendable (AgentAttachment) async -> Data?
+}
+
+extension EnvironmentValues {
+    @Entry var attachmentLoader = AttachmentLoader { _ in nil }
 }
 
 /// SPEC 4.4 action row: copy, share, retry, more; trailing duration.

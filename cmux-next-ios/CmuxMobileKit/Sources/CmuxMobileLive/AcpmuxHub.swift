@@ -571,6 +571,15 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         return summary.cwd
     }
 
+    /// A recorded prompt image's bytes from acpmux (`_acpmux/attachment`: only an image this
+    /// session's own log names is read).
+    public func attachmentData(_ attachment: AgentAttachment) async -> Data? {
+        guard let id = attachment.recordedImageID, let hub,
+              let reply = try? await hub.request("_acpmux/attachment", .object(["sessionId": .string(sessionID), "id": .string(id)])),
+              let base64 = reply["data"]?.stringValue else { return nil }
+        return Data(base64Encoded: base64)
+    }
+
     public var artifactSource: any ArtifactSource {
         let hub = hub
         return LinkFileArtifactSource(macName: summary.macName, baseDirectory: baseDirectory) {

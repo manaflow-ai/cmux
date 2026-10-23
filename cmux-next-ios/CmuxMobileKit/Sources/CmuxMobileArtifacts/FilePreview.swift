@@ -41,12 +41,16 @@ public struct LocalFileArtifactSource: ArtifactSource {
 
     let files: [String: LocalFile]
     let fallback: any ArtifactSource
+    /// Reads the bytes of a file the phone names but does not hold (a recorded prompt's image).
+    let fetch: (@Sendable (LocalFile) async -> Data?)?
 
-    public init(files: [LocalFile], fallback: any ArtifactSource = UnavailableArtifactSource()) {
+    public init(files: [LocalFile], fallback: any ArtifactSource = UnavailableArtifactSource(),
+                fetch: (@Sendable (LocalFile) async -> Data?)? = nil) {
         var byReference: [String: LocalFile] = [:]
         for file in files { byReference[file.reference] = file }
         self.files = byReference
         self.fallback = fallback
+        self.fetch = fetch
     }
 
     public func load(_ artifact: TerminalArtifact) async throws -> ArtifactContent {
@@ -54,7 +58,9 @@ public struct LocalFileArtifactSource: ArtifactSource {
         if let url = file.fileURL, file.data == nil {
             return artifact.kind == .video ? .file(url) : .quickLook(url)
         }
-        guard let data = file.data else { throw ArtifactUnavailable("\(file.name) isn't on this iPhone anymore.") }
+        var data = file.data
+        if data == nil, let fetch { data = await fetch(file) }
+        guard let data else { throw ArtifactUnavailable("\(file.name) isn't on this iPhone anymore.") }
         return try LinkFileArtifactSource.content(for: artifact, data: data)
     }
 }
@@ -73,8 +79,9 @@ public struct FilePreviewRequest: Identifiable {
     }
 
     /// Attachments the phone holds, opened at `start`'s id.
-    public init(files: [LocalFile], startingAt start: String?, fallback: any ArtifactSource = UnavailableArtifactSource()) {
-        self.init(artifacts: files.map(\.artifact), source: LocalFileArtifactSource(files: files, fallback: fallback),
+    public init(files: [LocalFile], startingAt start: String?, fallback: any ArtifactSource = UnavailableArtifactSource(),
+                fetch: (@Sendable (LocalFile) async -> Data?)? = nil) {
+        self.init(artifacts: files.map(\.artifact), source: LocalFileArtifactSource(files: files, fallback: fallback, fetch: fetch),
                   start: files.firstIndex { $0.id == start } ?? 0)
     }
 

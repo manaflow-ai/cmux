@@ -199,6 +199,9 @@ public final class AgentChatStore {
     /// A returned draft the Mac turned out to have run (its prompt id showed up in the
     /// transcript after the link came back): the composer takes it out again (then clears this).
     public var withdrawnDraft: ReturnedDraft?
+    /// What this phone attached to each prompt it sent, by prompt id: the Mac's record of the
+    /// prompt names its images only (and no files), so the sent bubble keeps what was sent.
+    @ObservationIgnored private var sentAttachments: [String: [AgentAttachment]] = [:]
     /// The last returned prompt still waiting for a resend: what it held and its id.
     private var resendable: (text: String, attachments: [AgentAttachment], promptID: String)?
     /// Prompt ids the transcript showed running or queued (a lost reply for one of them is not
@@ -284,8 +287,10 @@ public final class AgentChatStore {
             pending.text == text && pending.attachments.map(\.id) == attachments.map(\.id) ? pending.promptID : nil
         }
         resendable = nil
+        let promptID = resend ?? UUID().uuidString.lowercased()
+        if !attachments.isEmpty { sentAttachments[promptID] = attachments }
         source.send(.prompt(text: text, attachments: attachments, steer: steer,
-                            promptID: resend ?? UUID().uuidString.lowercased(), resend: resend != nil))
+                            promptID: promptID, resend: resend != nil))
     }
 
     /// The Mac shows `promptID` ran (or queued): a draft returned for it goes away, and it is
@@ -344,6 +349,13 @@ public final class AgentChatStore {
 
     // MARK: Reducer
 
+    /// A turn's attachments: what this phone sent (with their bytes), else what the Mac's record
+    /// names (its images, whose bytes `AgentSessionSource.attachmentData` reads on demand).
+    static func sentAttachments(_ sent: [AgentAttachment]?, recorded: [AgentAttachment]) -> [AgentAttachment] {
+        guard let sent, !sent.isEmpty else { return recorded }
+        return sent
+    }
+
     func apply(_ event: AgentSessionEvent) {
         revision &+= 1
         lastChangeWasReplay = false
@@ -353,7 +365,8 @@ public final class AgentChatStore {
             currentMessageID = nil
             reached(promptId)
             if !turns.contains(where: { $0.id == turnId }) {
-                turns.append(AgentTurn(id: turnId, prompt: text, attachments: attachments, promptAt: at))
+                turns.append(AgentTurn(id: turnId, prompt: text, attachments: Self.sentAttachments(sentAttachments[promptId], recorded: attachments),
+                                       promptAt: at))
             }
         case .queued(let text, let promptId, _):
             reached(promptId)

@@ -127,6 +127,19 @@ public struct AgentAttachment: Hashable, Sendable, Identifiable {
 
     /// The attachment as a preview reads it (composer and sent message alike).
     public var localFile: LocalFile { LocalFile(id: id, name: name, data: data, isImage: kind == .image) }
+
+    /// The id prefix of an image a recorded prompt names (acpmux's `images[].id`, its bytes' hash).
+    public static let recordedImagePrefix = "acpmux-image:"
+
+    /// An image the Mac's record of a prompt names, without its bytes.
+    public static func recordedImage(id: String, name: String?) -> AgentAttachment {
+        AgentAttachment(id: recordedImagePrefix + id, kind: .image, name: name ?? "Photo", data: nil)
+    }
+
+    /// acpmux's id of a recorded image (nil for one this phone holds).
+    public var recordedImageID: String? {
+        id.hasPrefix(Self.recordedImagePrefix) ? String(id.dropFirst(Self.recordedImagePrefix.count)) : nil
+    }
 }
 
 /// The data side of an agent chat. The mock streams a scripted session offline;
@@ -157,6 +170,13 @@ public protocol AgentSessionSource: AnyObject {
     func discardHandoff(_ draft: AgentHandoffDraft) async
     /// Loads the session's referenced files for the artifacts browser.
     var artifactSource: any ArtifactSource { get }
+    /// The bytes of an attachment a recorded prompt names but this phone does not hold (an
+    /// image another device or an earlier launch sent), or nil when the source can't read it.
+    func attachmentData(_ attachment: AgentAttachment) async -> Data?
+}
+
+extension AgentSessionSource {
+    public func attachmentData(_ attachment: AgentAttachment) async -> Data? { nil }
 }
 
 extension AgentSessionSource {
