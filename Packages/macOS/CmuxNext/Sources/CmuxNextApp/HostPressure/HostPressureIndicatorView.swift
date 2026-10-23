@@ -7,20 +7,42 @@ import CmuxNextHostPressure
 /// and the incognito badge (`WindowRootView.hostPressureIndicator`; never the
 /// sidebar). Hidden while the host is normal; at warning and critical a still
 /// glyph in the theme's attention color (no pulse, no animation), whose click
-/// opens the popover. It subscribes to the app's `HostPressureService` while it
-/// is in a window, so the monitor stops when the last window closes.
+/// opens the popover.
+///
+/// Off by default (cmux#22662): it subscribes to the app's `HostPressureService`
+/// only while `HostPressureSampling.samples` holds (the Debug Settings toggle
+/// `hostPressure.enabled` is on and its window can be seen). Stop condition: the
+/// toggle going off, or the window hiding, minimizing, being fully occluded or
+/// closing, unsubscribes it, and the service stops the monitor and its one 15 s
+/// timer when no window is subscribed. Cleanup: leaving the window, and deinit,
+/// remove the window observers, cancel the toggle and level observations and
+/// unsubscribe. While the toggle is off it never creates the service at all.
 final class HostPressureIndicatorView: NSView {
     static let identifier = "cmux.titlebar.hostPressure"
     let button = TitlebarBandButton(symbol: HostPressureIndicatorView.symbol(.warning))
     private let services: AppServices
+    private let store: TunableStore
+    private let windowVisible: @MainActor (NSWindow?) -> Bool
+    private let makeService: @MainActor () -> HostPressureService
     private let onVisibilityChange: () -> Void
     private var service: HostPressureService?
     private var observation: Task<Void, Never>?
+    private var toggleObservation: Task<Void, Never>?
+    private var windowObservers: [NSObjectProtocol] = []
     private lazy var popover: HostPressurePopover = makePopover()
     private(set) var level = HostPressureLevel.normal
+    /// Whether it is subscribed to the service now (tests read it).
+    var isSampling: Bool { service != nil }
 
-    init(services: AppServices, onVisibilityChange: @escaping () -> Void) {
+    /// `store`, `windowVisible` and `service` are for tests; the app passes none.
+    init(services: AppServices, store: TunableStore = .shared,
+         windowVisible: @escaping @MainActor (NSWindow?) -> Bool = HostPressureSampling.isVisible,
+         service: (@MainActor () -> HostPressureService)? = nil,
+         onVisibilityChange: @escaping () -> Void) {
         self.services = services
+        self.store = store
+        self.windowVisible = windowVisible
+        self.makeService = service ?? { HostPressureService.shared(acpmux: QuitAgents.environment(services)) }
         self.onVisibilityChange = onVisibilityChange
         super.init(frame: .zero)
         isHidden = true
@@ -46,7 +68,8 @@ final class HostPressureIndicatorView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        window == nil ? leave() : join()
+        observeWindow()
+        reconcile()
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -54,12 +77,46 @@ final class HostPressureIndicatorView: NSView {
         applyTint()
     }
 
+    /// The gate's inputs now: the toggle and whether the window can be seen.
+    var sampling: HostPressureSampling {
+        HostPressureSampling(enabled: HostPressureTunables.enabled.value(in: store), windowVisible: windowVisible(window))
+    }
+
+    /// Subscribes while `sampling.samples`, else unsubscribes (idempotent).
+    func reconcile() {
+        sampling.samples ? join() : leave()
+    }
+
+    /// The window's visibility notifications and the toggle, while in a window.
+    private func observeWindow() {
+        windowObservers.forEach { NotificationCenter.default.removeObserver($0) }
+        windowObservers = []
+        toggleObservation?.cancel()
+        toggleObservation = nil
+        guard let window else { return }
+        windowObservers = HostPressureSampling.windowChanges.map { name in
+            NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] note in
+                let closing = note.name == NSWindow.willCloseNotification
+                MainActor.assumeIsolated { // main-proof: observer on queue: .main
+                    closing ? self?.leave() : self?.reconcile()
+                }
+            }
+        }
+        let (store, enabled) = (store, HostPressureTunables.enabled)
+        // task-owner: the indicator (cancelled when it leaves its window and in deinit); event-driven (Observation of the tunable store)
+        toggleObservation = Task { [weak self] in
+            for await _ in ObservationStream({ enabled.value(in: store) }) {
+                self?.reconcile()
+            }
+        }
+    }
+
     private func join() {
         guard service == nil else { return }
-        let service = HostPressureService.shared(acpmux: QuitAgents.environment(services))
+        let service = makeService()
         self.service = service
         service.subscribe()
-        // task-owner: the indicator (cancelled when it leaves its window); event-driven (Observation)
+        // task-owner: the indicator (cancelled when it stops sampling); event-driven (Observation)
         observation = Task { [weak self] in
             for await (level, verdict) in ObservationStream({ (service.level, service.verdict) }) {
                 self?.show(level: level, verdict: verdict)
@@ -68,15 +125,16 @@ final class HostPressureIndicatorView: NSView {
     }
 
     private func leave() {
+        guard let service else { return }
         observation?.cancel()
         observation = nil
-        service?.unsubscribe()
-        service = nil
-        if level != .normal { popover.close() }
+        service.unsubscribe()
+        self.service = nil
+        show(level: .normal, verdict: nil)
     }
 
     private func show(level: HostPressureLevel, verdict: HostBudgetVerdict?) {
-        let wasHidden = isHidden
+        let (wasHidden, wasLevel) = (isHidden, self.level)
         self.level = level
         isHidden = level == .normal
         button.symbol = Self.symbol(level)
@@ -85,7 +143,8 @@ final class HostPressureIndicatorView: NSView {
         button.themedToolTip = title
         applyTint()
         if level == .normal {
-            if popover.isShown { popover.close() }
+            // The popover opens only above normal, so it is made (lazily) and shown only then.
+            if wasLevel != .normal { popover.close() }
         } else {
             popover.content.update(level: level, verdict: verdict)
         }
@@ -140,6 +199,8 @@ final class HostPressureIndicatorView: NSView {
     nonisolated deinit {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
+            windowObservers.forEach { NotificationCenter.default.removeObserver($0) }
+            toggleObservation?.cancel()
             observation?.cancel()
             service?.unsubscribe()
         }

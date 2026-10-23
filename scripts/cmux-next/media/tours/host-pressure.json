@@ -1,7 +1,10 @@
 {
   "title": "Host pressure indicator and popover",
   "steps": [
-    {"title": "Launch: a normal host shows nothing", "wait": 2},
+    {"title": "Launch: the indicator ships off (Debug toggle hostPressure.enabled)", "wait": 2},
+    {"title": "Indicator on: a normal host still shows nothing",
+     "rpc": {"method": "debug.tunables", "params": {"action": "set", "key": "hostPressure.enabled", "value": true}}, "wait": 2, "shot": false,
+     "optional": "debug.tunables is DEBUG only"},
     {"title": "Warning: the still gauge after the toolbar band",
      "rpc": {"method": "debug.tunables", "params": {"action": "set", "key": "hostPressure.force", "value": "warning"}}, "wait": 2,
      "optional": "debug.tunables is DEBUG only"},
@@ -18,6 +21,9 @@
      "optional": "debug.host_pressure is DEBUG only"},
     {"title": "Back to the host's real level",
      "rpc": {"method": "debug.tunables", "params": {"action": "set", "key": "hostPressure.force", "value": "off"}}, "wait": 1, "shot": false,
+     "optional": "debug.tunables is DEBUG only"},
+    {"title": "Indicator off again: no timer, no reads",
+     "rpc": {"method": "debug.tunables", "params": {"action": "set", "key": "hostPressure.enabled", "value": false}}, "wait": 1, "shot": false,
      "optional": "debug.tunables is DEBUG only"}
   ]
 }

@@ -11,8 +11,9 @@ import os
 /// acpmux's host budget, and the level the windows' top-row indicator shows.
 ///
 /// Stop condition: it runs while a window's indicator subscribes
-/// (`subscribe()`), and stops when the last one unsubscribes (its window
-/// closed) and at quit (`stop()`). Cleanup: the monitor cancels its memory
+/// (`subscribe()`: the Debug toggle `hostPressure.enabled` is on and that window
+/// can be seen), and stops when the last one unsubscribes (toggle off, or every
+/// window hidden, minimized, occluded or closed) and at quit (`stop()`). Cleanup: the monitor cancels its memory
 /// pressure source, its timer and any read in flight, and drops a level change
 /// still queued.
 @MainActor @Observable
@@ -66,6 +67,10 @@ final class HostPressureService {
             }
         }
     }
+
+    /// How many windows' indicators are subscribed, and whether the monitor (and its timer) runs.
+    var subscriberCount: Int { subscribers }
+    var isMonitoring: Bool { running }
 
     /// A window's indicator joined: the monitor runs while one is subscribed.
     func subscribe() {
