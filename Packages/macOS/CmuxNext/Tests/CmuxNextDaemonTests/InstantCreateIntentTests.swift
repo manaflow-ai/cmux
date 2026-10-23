@@ -249,6 +249,30 @@ struct InstantCreateIntentTests {
         #expect(store.mirrorViolations.isEmpty)
     }
 
+    /// A fast second New Column (Cmd-Shift-N twice): the second press targets the first's stand-in,
+    /// which the daemon's pane then takes over under a new handle. The second column keeps showing
+    /// right after it, and its command goes to the daemon's pane (`daemonHandle(showing:)`), never to
+    /// the stand-in's handle, which the daemon does not know.
+    @Test func newColumnOnAPendingColumnFollowsItsDaemonPane() throws {
+        let store = Self.store()
+        let first = ProvisionalPane(columnWidth: 0.5, treeWidth: 0.5)
+        store.intend(.splitPane(pane: Self.pane, direction: .right, ratio: 0.5, provisional: first), transaction: .generate())
+        let second = ProvisionalPane(columnWidth: 0.5)
+        store.intend(.splitPane(pane: first.handle, direction: .right, ratio: 0.5, provisional: second), transaction: .generate())
+        #expect(store.daemonHandle(showing: first.handle) == nil, "the first column has no daemon pane yet")
+        let daemon = PaneID(rawValue: 9)
+        _ = store.apply(batch: [DaemonEventEnvelope(sequence: 1, event: .paneAdded(PaneDelta(
+            workspace: WorkspaceHandle(rawValue: 1), screen: ScreenID(rawValue: 2), pane: daemon, index: 1,
+            entity: PaneSnapshot(id: daemon, resourceID: ResourceID(rawValue: first.paneID),
+                                 tabs: [TabSnapshot(surface: SurfaceID(rawValue: 7))]),
+            clientTransactionID: nil)))])
+        #expect(store.daemonHandle(showing: first.handle) == daemon)
+        let screen = try #require(store.workspace(id: Self.baseKey.rawValue)?.screens.first)
+        #expect(screen.panes.map(\.handle) == [Self.pane, daemon, second.handle], "the second column left once the first was confirmed")
+        #expect(screen.columns.last?.layout.paneIDs == [second.handle])
+        #expect(store.mirrorViolations.isEmpty)
+    }
+
     /// A conversation tab's split (`conversation-tab-split-v1`): the daemon's `pane-added`, carrying
     /// the split's transaction, names the split's tab before the `layout-changed` that places the
     /// pane. In between the screen stays split, the daemon's pane where the provisional one was
