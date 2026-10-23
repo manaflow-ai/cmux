@@ -70,8 +70,15 @@ public struct ListNotificationsRequest: DaemonRequest {
         public var surface: SurfaceID?
         public var createdAtMs: UInt64
         public var acknowledged: Bool
+        /// Source identity is carried in the daemon's opaque `extra` object
+        /// so older clients can continue decoding the ledger row.
+        public var extra: [String: JSONValue]?
+
+        /// The producer category (`cli`, `terminal`, `agent` or `daemon`).
+        public var source: String? { extra?["source"]?.stringValue }
+
         enum CodingKeys: String, CodingKey {
-            case id, title, subtitle, body, level, surface, acknowledged
+            case id, title, subtitle, body, level, surface, acknowledged, extra
             case terminalID = "terminal_id"
             case createdAtMs = "created_at_ms"
         }
