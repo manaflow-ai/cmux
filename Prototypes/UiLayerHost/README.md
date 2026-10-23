@@ -26,7 +26,8 @@ document export remain future projection work. The prototype deliberately
 uses a lightweight chrome shell: linking CmuxNext here would pull the app's
 composition root and mutation-capable models into a standalone host.
 
-`cmux ui-layer` is intentionally not a production CLI alias in this v0. Use
-the launcher above on the developer's own Mac; the attach socket must belong
-to a local Debug/DEV cmux NEXT instance. This host is off by default, is never
-run on Big Red, and sends no user-data mutations.
+`cmux dev ui-host` is the one-command Debug/DEV entry point; when the CLI
+wrapper is present it forwards to this launcher. Until that wrapper is landed,
+run the launcher above on the developer's own Mac. The attach socket must be a
+current-user local Debug/DEV cmux NEXT socket. This host is off by default, is
+never run on Big Red, and sends no user-data mutations.

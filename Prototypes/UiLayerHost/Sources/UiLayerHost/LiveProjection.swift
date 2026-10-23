@@ -172,34 +172,32 @@ private actor ProjectionRefreshQueue {
     }
 }
 
-private struct IdentifyFingerprint: Equatable, Sendable {
+struct IdentifyFingerprint: Equatable, Sendable {
     let app: String
     let version: String
     let build: String
-    let bundleID: String
+    let bundleID: String?
     let processID: Int64
     let protocolVersion: Int64
-    let socketPath: String
+    let socketPath: String?
     let methods: Set<String>
 
     init(result: [String: Any]) throws {
         guard let app = result["app"] as? String, !app.isEmpty,
               let version = result["version"] as? String,
               let build = result["build"] as? String,
-              let bundleID = result["bundle_id"] as? String,
               let processID = jsonInt(result["pid"]),
               let protocolVersion = jsonInt(result["protocol_version"]),
-              let socketPath = result["socket_path"] as? String,
               let methods = result["methods"] as? [String] else {
             throw LiveProjectionError.invalidIdentify
         }
         self.app = app
         self.version = version
         self.build = build
-        self.bundleID = bundleID
+        self.bundleID = result["bundle_id"] as? String
         self.processID = processID
         self.protocolVersion = protocolVersion
-        self.socketPath = socketPath
+        self.socketPath = result["socket_path"] as? String
         self.methods = Set(methods)
     }
 }
@@ -291,6 +289,7 @@ private final class UnixLineSocket: @unchecked Sendable {
     private var pending = Data()
 
     init(path: String) throws {
+        try Self.validateSocketPath(path)
         let descriptor = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
         guard descriptor >= 0 else { throw LiveProjectionError.socket(String(cString: strerror(errno))) }
         var noSigPipe: Int32 = 1
@@ -322,7 +321,23 @@ private final class UnixLineSocket: @unchecked Sendable {
             Darwin.close(descriptor)
             throw LiveProjectionError.socket(message)
         }
+        var descriptorInfo = stat()
+        guard fstat(descriptor, &descriptorInfo) == 0,
+              descriptorInfo.st_mode & S_IFMT == S_IFSOCK,
+              descriptorInfo.st_uid == geteuid() else {
+            Darwin.close(descriptor)
+            throw LiveProjectionError.socket("connected endpoint is not a current-user Unix socket")
+        }
         handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+    }
+
+    private static func validateSocketPath(_ path: String) throws {
+        var info = stat()
+        guard lstat(path, &info) == 0,
+              info.st_mode & S_IFMT == S_IFSOCK,
+              info.st_uid == geteuid() else {
+            throw LiveProjectionError.socket("attach path must be a current-user Unix socket")
+        }
     }
 
     func send(method: String, params: [String: Any]) throws {

@@ -38,4 +38,16 @@ import Testing
             ])
         }
     }
+
+    @Test func identifyFingerprintAcceptsNullableOptionalIdentityFields() throws {
+        let identity = try IdentifyFingerprint(result: [
+            "app": "cmux NEXT", "version": "dev", "build": "test",
+            "bundle_id": NSNull(), "pid": 7, "socket_path": NSNull(),
+            "protocol_version": 1,
+            "methods": ["system.identify", "snapshot.get", "events.stream"],
+        ])
+        #expect(identity.bundleID == nil)
+        #expect(identity.socketPath == nil)
+        #expect(identity.protocolVersion == 1)
+    }
 }
