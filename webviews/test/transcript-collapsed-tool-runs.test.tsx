@@ -185,8 +185,12 @@ test("an edit waiting for its permission keeps its row in an ended turn's folded
     ],
     new Set(["worked-u3"]),
     { liveRuns: true },
-  ).filter((entry) => entry.kind === "activity" && entry.id.startsWith("work3"));
-  expect(ended.some((entry) => words(entry).includes("Edit src/a.ts"))).toBe(true);
+  ).find((entry) => entry.kind === "activity" && entry.foldRun === true)!;
+  // The opened Worked for's folded run itself, not the edited-files card after it: the edit keeps
+  // its own row between the summary lines.
+  expect(ended.id).toBe("work3:fold");
+  expect(words(ended)).toContain("Read a file, ran a command");
+  expect(words(ended)).toContain("Edit src/a.ts");
 });
 
 test("the gallery's quieter versions dim the line", () => {
