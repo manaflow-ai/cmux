@@ -68,6 +68,7 @@ export default agentPaneEntry({
   widths: { narrow: 420, normal: 760, wide: 1100 },
   covers: [
     "agent-session/acpmux/composerLook.ts",
+    "agent-session/acpmux/LookSwitch.tsx#LookSwitch",
     "agent-session/acpmux/newtab/PageDots.tsx#PageDots",
     "agent-session/acpmux/newtab/StyleSwitch.tsx#DotSwitch",
   ],
@@ -77,10 +78,26 @@ export default agentPaneEntry({
       snapshot: startedChat(),
       play: (ctx) => look(ctx, "claude"),
     },
+    "claude-chat-dots": {
+      note: "Claude's look with the pointer in the quiet row's empty middle: the two dots show there, Claude marked.",
+      snapshot: startedChat(),
+      play: async (ctx) => {
+        await look(ctx, "claude");
+        await ctx.hover({ selector: ".acpmux-composer-foot" });
+      },
+    },
     "codex-chat": {
       note: "The second dot, Codex's look (the pick): one row in the box under the prompt, + and the mode left, the context ring, the model and effort, the mic and Send right.",
       snapshot: startedChat(),
       play: (ctx) => look(ctx, "codex"),
+    },
+    "codex-chat-dots": {
+      note: "Codex's look with the pointer in the band under the box (the dead space Codex leaves): the two dots show there, Codex marked.",
+      snapshot: startedChat(),
+      play: async (ctx) => {
+        await look(ctx, "codex");
+        await ctx.hover({ selector: ".acpmux-composer-under" });
+      },
     },
     "codex-new-chat": {
       note: "Codex's look on a new chat (the pick): the folder and computer strip a tray tucked under the box's top edge, as Codex's.",

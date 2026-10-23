@@ -49,8 +49,6 @@ import { FOCUS_LOCATION_EVENT, NewTabPage, newTabHost, type NewTabHost } from ".
 import { setDeviceChats } from "./newtab/deviceChats";
 import { setRecentlyClosed } from "./newtab/recentlyClosed";
 import { setNowPlaying } from "./newtab/nowPlaying";
-import { setImportCards } from "./importCards";
-import { NewTabImportCards } from "./NewTabImportCards";
 import { NewTabScreen, type NewTabScreenActions } from "./newtab/NewTabScreen";
 import { HistoryScreen } from "./newtab/HistoryScreen";
 import type { AllChatsPage } from "./newtab/AllChatsList";
@@ -68,6 +66,7 @@ import { PageDots } from "./newtab/PageDots";
 import { editedPageWidgets, editNewTabWidgets, shownPageWidgets } from "./newtab/pageWidgets";
 import { screenTemplate, shownTemplate } from "./newtab/templates";
 import { newTabPageSubmit } from "./newtab/pageSubmit";
+import { holdNewTabAttachments } from "./newtab/remoteAttachmentDraft";
 import { isAgentHome, projectLabel, recentLocalFolders, sessionTitle, type AcpmuxSessionEntry } from "./sessionList";
 import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
 import { PromptMarksSession } from "./threadMinimap/promptMarks";
@@ -229,7 +228,7 @@ import {
   type SessionEdits,
 } from "./turnChanges/sessionRows";
 import { repositoryRoot, viewChangesBeside } from "./turnChanges/viewChanges";
-import { TurnActionsContext, chatLoginCommand, type TurnActions } from "./conversation/turnActions";
+import { TurnActionsContext, chatLoginCommand, resumeThrough, type TurnActions } from "./conversation/turnActions";
 import {
   RunInBackgroundContext,
   backgroundsWork,
@@ -323,6 +322,7 @@ import { registerChatDisplayHost, useChatDisplay } from "./chatDisplay";
 import { ChatDisplaySettings } from "./ChatDisplaySettings";
 import { configureCodexToolRuns, useCodexToolRuns } from "./codexToolRuns";
 import { configureLiveLineBelow, useLiveLineBelow } from "./liveLineBelow";
+import { configureToolRunLook } from "./toolRunLook";
 import { configureNativeSidebarPreviewVariant, configureSidebarPreviewVariant } from "./sidebarPreview";
 import { configureTurnActionsPlacement } from "./turnActionsPlacement";
 import { archiveRow, markUnreadRow } from "./header/archiveRow";
@@ -489,8 +489,6 @@ declare global {
       applyRecentlyClosed?(items: unknown): void;
       /// What plays, for the New Tab page's player (newtab/nowPlaying.ts); null while nothing does.
       applyNowPlaying?(track: unknown): void;
-      /// The New Tab page's import suggestion cards (importCards.ts); null while there are none.
-      applyImportCards?(cards: unknown): void;
       /// Scrolls to a turn a `cmux://session/<id>#turn-<turnId>` link names (links.ts), once its row
       /// renders; gives up quietly after a few seconds.
       revealTurn?(turnId: string): void;
@@ -4776,6 +4774,18 @@ function AcpmuxPane() {
               attachments: (await directClient.current?.promptAttachments(rowId)) ?? [],
             }))().catch(() => undefined),
       }),
+      // Continue after a stop (Codex's) sends its prompt as the composer would: it shows as the
+      // reader's prompt and starts the next turn, or queues behind one already sent. Like Restart
+      // (restart.ts), never to a View Only chat, a subagent's read-only pane or where the composer
+      // cannot send, and only to the chat this pane still shows, never the next during a switch's hold.
+      ...(restartChat && {
+        resume: (
+          (owner: string) => () =>
+            restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession)
+              ? resumeThrough(callNative)()
+              : Promise.resolve()
+        )(restartChat),
+      }),
       // Restart sends a prompt as the composer would (restart.ts `restartOwner`, `restartReaches`):
       // never to a View Only chat, from a subagent's read-only pane or where the composer cannot send,
       // and only to the chat whose row was clicked, never to the next chat during a switch's hold.
@@ -5744,6 +5754,7 @@ function AcpmuxPane() {
         configureChatWidth(theme.chatWidth);
         configureCodexToolRuns(theme.codexToolRuns);
         configureLiveLineBelow(theme.liveLineBelow);
+        configureToolRunLook(theme.toolRunLook);
         configureTurnActionsPlacement(theme.turnActionsPlacement);
         configureSubagentTray(theme.subagentTray);
       },
@@ -5780,9 +5791,6 @@ function AcpmuxPane() {
       },
       applyNowPlaying(track) {
         setNowPlaying(track);
-      },
-      applyImportCards(cards) {
-        setImportCards(cards);
       },
       revealTurn(turnId) {
         revealRef.current(turnId);
@@ -7076,18 +7084,22 @@ function AcpmuxPane() {
     }
   }, []);
   /// The classic page's chat: a terminal or browser tab opens through `newTabPageSubmit`.
-  const chatFromNewTab = (text: string, cwd?: string) => {
+  const chatFromNewTab = (text: string, cwd?: string, attachments: ComposerAttachment[] = []) => {
     const inherited = newTab?.cwd;
     setNewTab(undefined);
     const start = (folder?: string) =>
       void (async () => {
         // A chat on another machine starts only with a send (cx-k21v): with no text, the folder
         // waits for the first send.
-        if (folder && !text && directClient.current?.startsOnSend) return setProjectDraft(folder);
+        if (folder && !text && directClient.current?.startsOnSend) {
+          heldBack.current = holdNewTabAttachments(heldBack.current, attachments);
+          return setProjectDraft(folder);
+        }
         const started = folder ? await callNative("chat.new", { cwd: folder }) : undefined;
         // A chat the person started here with a prompt makes its project the default.
         if (started && text && !directClient.current?.startsOnSend) rememberStartedProject(folder, callNative);
-        if (text) await callNative("chat.send", { text });
+        if (text || attachments.length)
+          await callNative("chat.send", { text, ...(attachments.length ? { attachments } : {}) });
       })().catch(() => undefined);
     // The page's own folder is inherited (`~` in a fresh workspace): the chat starts in its start
     // folder. Another project the user picked there goes through the host first.
@@ -8093,6 +8105,18 @@ function AcpmuxPane() {
       </ShortcutsContext.Provider>
     );
   if (paneRenderStart > 0) acpmuxPerf.span("pane.body", performance.now() - paneRenderStart);
+  // Sources' Use tools (cx-thur3): only where acpmux can change the chat's tools. A browser over
+  // the web relay (`remote`) cannot: acpmux refuses it there (`tools.remote`). A subagent's pane
+  // is read-only.
+  const chatTools =
+    snapshot.summary?.toolsMutable && snapshot.summary.tools && snapshot.origin !== "remote" && !readOnlySubagent
+      ? {
+          rows: snapshot.summary.tools,
+          set: (id: string, enabled: boolean) =>
+            // l10n-allow: never shown; the row says summary.tools.failed.
+            directClient.current?.setTool(id, enabled) ?? Promise.reject(new Error("no connection")),
+        }
+      : undefined;
   const summaryPanel = (
     // Its Subagents tab draws the transcript's subagent rows, avatars carrying the harness's mark and
     // a running one's stop button.
@@ -8117,6 +8141,7 @@ function AcpmuxPane() {
             onAttach={
               localCwd && !quick && !readOnlySubagent ? () => void attachLinks().catch(() => undefined) : undefined
             }
+            tools={chatTools}
           />
         </SubagentHarnessContext.Provider>
       </SubagentClockContext.Provider>
@@ -8184,14 +8209,7 @@ function AcpmuxPane() {
               accessory={<DictationMic dictation={dictation} />}
               dictating={isWaitingForWords(dictation.state)}
               dictationField={newTabDictationField}
-              notice={
-                <>
-                  <DictationNotice dictation={dictation} />
-                  <NewTabImportCards
-                    onAction={(id, action) => void callNative("importCards.act", { id, action }).catch(() => undefined)}
-                  />
-                </>
-              }
+              notice={<DictationNotice dictation={dictation} />}
               // The host answers only for a page on this Mac; another machine's keeps the refusal.
               {...(!quick ? { localPaths } : {})}
               template={screenTemplate(shownTemplate(newTab))}
