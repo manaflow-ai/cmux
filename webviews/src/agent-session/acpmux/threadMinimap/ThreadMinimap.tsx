@@ -477,6 +477,19 @@ export function ThreadMinimap({
     followPointer(node);
   }, [onScreen.first, onScreen.last, turns.length, overflow, height, scrubbing, followPointer]);
 
+  // The previewed prompt stays lit while the pointer is on its card, as ChatGPT's rail does.
+  const active = hovered ?? focused ?? (showCard ? cardRow : undefined);
+  /// The band glides only when the scroll moves it (threadMinimap.css): a commit that changes the
+  /// active row, the hover or the scrub (the pointer leaving the rail, a key focusing a tick) marks
+  /// the rail `data-snap`, so the rows it changes switch at once. The rail's next render that changes
+  /// none of these (the scroll's next band move) drops the mark, and its rows glide.
+  const pose = `${active ?? ""}|${hovered !== undefined}|${scrubbing}`;
+  const committedPose = useRef(pose);
+  const snap = pose !== committedPose.current;
+  useLayoutEffect(() => {
+    committedPose.current = pose;
+  });
+
   /// The rows' actions: stable for the memoized rows, reading the latest state through `live`.
   const actions = useMemo<TickActions>(
     () => ({
@@ -563,8 +576,6 @@ export function ThreadMinimap({
   };
   const railTop = railTopAt(height, viewportHeight, foot);
   const fades = railFades(onScreen, turns.length, height, listTop);
-  // The previewed prompt stays lit while the pointer is on its card, as ChatGPT's rail does.
-  const active = hovered ?? focused ?? (showCard ? cardRow : undefined);
   const cardMarked = cardTurn ? marks.has(cardTurn) : false;
   const cardTop =
     cardRow === undefined
@@ -588,6 +599,7 @@ export function ThreadMinimap({
         data-hovering={hovered !== undefined || undefined}
         data-scrubbing={scrubbing || undefined}
         data-reduce={reduce || undefined}
+        data-snap={snap || undefined}
         onPointerLeave={(event) => {
           if (scrub.current?.moved) return;
           pointerY.current = undefined;

@@ -124,14 +124,16 @@
 }
 /* The band moving with the scroll: a row coming on screen brightens, and one leaving dims, over
    the micro step, so the lit band glides down the rail as a wave instead of flicking row by row
-   (Leo 2026-10-21: "the wave didn't look good enough"). Only at rest: a hovered, scrubbed or
-   Reduce Motion rail switches every row at once, and the full-height map (ScrollMap.tsx) keeps its
-   own look. A transition stops by itself at its end; nothing here runs a timer. */
+   (Leo 2026-10-21: "the wave didn't look good enough"). Only when the scroll moves the band: a
+   hovered, scrubbed or Reduce Motion rail, a commit that changes the active row or the hover
+   (`data-snap`: the pointer leaving, a key focusing a tick) and the active row itself switch at
+   once, under the rules above. The full-height map (ScrollMap.tsx) keeps its own look. A transition
+   stops by itself at its end; nothing here runs a timer. */
 @media (prefers-reduced-motion: no-preference) {
-  .acpmux-minimap__rail:not(.acpmux-scrollmap):not([data-hovering]):not([data-scrubbing]):not([data-reduce]) .acpmux-minimap__tick {
+  .acpmux-minimap__rail:not(.acpmux-scrollmap):not([data-hovering]):not([data-scrubbing]):not([data-reduce]):not([data-snap]) .acpmux-minimap__tick:not([data-tone="active"]) {
     transition: color var(--cmux-motion-micro) ease-out;
   }
-  .acpmux-minimap__rail:not(.acpmux-scrollmap):not([data-hovering]):not([data-scrubbing]):not([data-reduce]) .acpmux-minimap__bar {
+  .acpmux-minimap__rail:not(.acpmux-scrollmap):not([data-hovering]):not([data-scrubbing]):not([data-reduce]):not([data-snap]) .acpmux-minimap__tick:not([data-tone="active"]) .acpmux-minimap__bar {
     transition:
       transform var(--cmux-motion-micro) var(--acpmux-minimap-spring),
       opacity var(--cmux-motion-micro) ease-out;

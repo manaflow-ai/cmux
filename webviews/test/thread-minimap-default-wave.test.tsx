@@ -265,21 +265,51 @@ test("the lit band draws at --acpmux-minimap-lit (75% by default) and stays lit 
 
 test("at rest the lit band glides as it moves (the wave); hover, scrub and Reduce Motion switch at once", () => {
   const css = minimapCss();
+  // Only on the compact rail, at rest, outside a commit that changed the active row or the hover
+  // (data-snap), and never on the active row itself.
   const atRest =
-    ".acpmux-minimap__rail:not(.acpmux-scrollmap):not([data-hovering]):not([data-scrubbing]):not([data-reduce])";
+    '.acpmux-minimap__rail:not(.acpmux-scrollmap):not([data-hovering]):not([data-scrubbing]):not([data-reduce]):not([data-snap]) .acpmux-minimap__tick:not([data-tone="active"])';
   const block = (selector: string) =>
     new RegExp(`${selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\\{([^}]*)\\}`).exec(css)?.[1] ?? "";
   const bar = block(`${atRest} .acpmux-minimap__bar`);
   expect(bar).toMatch(/transform var\(--cmux-motion-micro\)/);
   expect(bar).toMatch(/opacity var\(--cmux-motion-micro\)/);
-  expect(block(`${atRest} .acpmux-minimap__tick`)).toMatch(/color var\(--cmux-motion-micro\)/);
+  expect(block(atRest)).toMatch(/color var\(--cmux-motion-micro\)/);
   // Both rules sit inside the no-preference query, so Reduce Motion never runs them.
-  for (const selector of [`${atRest} .acpmux-minimap__bar`, `${atRest} .acpmux-minimap__tick`]) {
+  for (const selector of [`${atRest} .acpmux-minimap__bar`, atRest]) {
     const at = css.indexOf(selector);
     expect(at).toBeGreaterThan(-1);
     const query = css.lastIndexOf("@media (prefers-reduced-motion: no-preference)", at);
     expect(query).toBeGreaterThan(-1);
     // No block closes the query between it and the rule.
     expect(css.slice(query, at)).not.toMatch(/\}\s*\}/);
+  }
+});
+
+// Codex review of #24526: a key focusing a tick, or the focus leaving it, changes rows while the rail
+// is at rest; those rows must switch at once, not glide. The commit that changes the active row marks
+// the rail data-snap; the scroll's next band move drops the mark, so the band glides again.
+test("focusing a tick or leaving it marks the rail data-snap, and the next band move clears it", async () => {
+  const { host, root, scroller } = await render();
+  try {
+    const rail = () => host.querySelector<HTMLElement>("nav.acpmux-minimap__rail")!;
+    expect(rail().hasAttribute("data-snap")).toBe(false);
+    const tick = host.querySelector<HTMLElement>('[data-tick="2"]')!;
+    await act(async () => tick.focus());
+    expect(tick.dataset.tone).toBe("active");
+    expect(rail().hasAttribute("data-snap")).toBe(true);
+    const lit = () => host.querySelector('[data-tick][aria-current="true"]')?.getAttribute("data-tick");
+    const before = lit();
+    await act(async () => {
+      scroller.scrollTop = 2400;
+      scroller.dispatchEvent(new dom.window.Event("scroll"));
+    });
+    expect(lit()).not.toBe(before);
+    expect(rail().hasAttribute("data-snap")).toBe(false);
+    await act(async () => tick.blur());
+    expect(rail().hasAttribute("data-snap")).toBe(true);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
   }
 });

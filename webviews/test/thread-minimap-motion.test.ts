@@ -131,12 +131,18 @@ await requireBrowserLane("thread-minimap-motion.test.ts", async () => {
     const page = await open(false);
     const style = await page.evaluate(() => {
       const css = getComputedStyle(document.querySelector<HTMLElement>('[data-tick="5"] .acpmux-minimap__bar')!);
-      return { delay: css.transitionDelay, duration: css.transitionDuration, easing: css.transitionTimingFunction };
+      return {
+        property: css.transitionProperty,
+        delay: css.transitionDelay,
+        duration: css.transitionDuration,
+        easing: css.transitionTimingFunction,
+      };
     });
-    // At rest the bar also fades its opacity as the band moves (the wave): every property it
-    // transitions starts at once and runs the scale's micro step, at rest and hovered alike.
-    expect(style.delay).toMatch(/^0s(, 0s)*$/);
-    expect(style.duration).toMatch(/^0\.12s(, 0\.12s)*$/);
+    // At rest the bar also fades its opacity as the band moves (the wave): both properties start
+    // at once and run the scale's micro step.
+    expect(style.property).toBe("transform, opacity");
+    expect(style.delay).toBe("0s, 0s");
+    expect(style.duration).toBe("0.12s, 0.12s");
     const point = await tickPoint(page, 5);
     await page.mouse.move(point.x + 300, point.y);
     // The pointer's arrival starts a transform transition at once (no dwell). Its timeline is read
