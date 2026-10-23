@@ -66,9 +66,13 @@ test("the chat menu groups its rows by what they do, in six groups", () => {
 });
 
 test("Quick Chat's panel keeps the chat's own rows in the same order, nothing beside it", () => {
-  expect(keys(chatMenuOrder({ quick: true, copy: row("copy"), fork: row("fork"), view: [row("display")] }))).toEqual(
-    ["copy", "|", "fork", "|", "display"],
-  );
+  expect(keys(chatMenuOrder({ quick: true, copy: row("copy"), fork: row("fork"), view: [row("display")] }))).toEqual([
+    "copy",
+    "|",
+    "fork",
+    "|",
+    "display",
+  ]);
 });
 
 test("the header's folded quick actions open beside the chat, after the chat's own rows", () => {

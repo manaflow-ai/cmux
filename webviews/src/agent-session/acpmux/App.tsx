@@ -310,7 +310,8 @@ import { ImageViewer } from "./conversation/ImageViewer";
 import { ImageViewerContext } from "./conversation/imageViewerContext";
 import { sessionLink } from "./links";
 import { ChatHeaderInlineStatus, ChatHeaderStatus } from "./header/ChatHeaderStatus";
-import { ChatHeaderTools, HEADER_ACTIONS, menuGroups, type ChatMenuItem } from "./header/ChatHeaderTools";
+import { ChatHeaderTools, HEADER_ACTIONS, type ChatMenuItem } from "./header/ChatHeaderTools";
+import { chatMenuOrder, type ChatMenuEntry } from "./header/chatMenuOrder";
 import { EnvironmentLine, environmentOpener } from "./header/EnvironmentLine";
 import { headerState, setHeaderState, useHeaderState } from "./header/headerState";
 import { setTabRow, tabRowStyle, useTabRow, useTabRowTools } from "./header/tabRow";
@@ -6856,7 +6857,7 @@ function AcpmuxPane() {
   // every click, whatever the header's Terminal and Browser buttons do.
   const newTerminal = () => runSplitAction(HEADER_ACTIONS.terminal, localCwd, "open");
   const newBrowser = () => runSplitAction(HEADER_ACTIONS.browser, undefined, "open");
-  const chatMenu = (): ChatMenuItem[] => {
+  const chatMenu = (): ChatMenuEntry[] => {
     const link = snapshot.sessionId ? sessionLink(snapshot.sessionId) : undefined;
     const copy = copyRow(
       { link, rows: snapshot.rows, sessionId: snapshot.sessionId },
@@ -6866,7 +6867,7 @@ function AcpmuxPane() {
     // Fork › From here (the last turn), then, for a harness that forks at any turn, the earlier
     // prompts, newest first (ChatGPT's "from a message"); otherwise one Fork row.
     const forkPrompts = forksAnyTurn(summary?.family) ? earlierForkPrompts(snapshot.rows) : [];
-    const fork: ChatMenuItem[] =
+    const fork: Exclude<ChatMenuItem, "separator">[] =
       forkable && lastForkSeq !== undefined
         ? [
             {
@@ -6892,9 +6893,9 @@ function AcpmuxPane() {
             },
           ]
         : [];
-    // New side chat, New terminal and New browser: something new beside the chat, every time.
-    const opensBeside = opensBesideRows({ sideChat, quick }, { terminal: newTerminal, browser: newBrowser }, t);
-    const continueIn: ChatMenuItem[] =
+    // New terminal and New browser: something new beside the chat, every time.
+    const opensBeside = opensBesideRows({ quick }, { terminal: newTerminal, browser: newBrowser }, t);
+    const continueIn: Exclude<ChatMenuItem, "separator">[] =
       snapshot.canHandoff && handoffTargets.length > 0
         ? [
             {
@@ -6910,7 +6911,7 @@ function AcpmuxPane() {
             },
           ]
         : [];
-    const replay: ChatMenuItem[] =
+    const replay: Exclude<ChatMenuItem, "separator">[] =
       !quick && snapshot.sessionId && experimentArm(sessionReplay) === "on"
         ? [
             {
@@ -6931,7 +6932,7 @@ function AcpmuxPane() {
       : projectFilesRow({ cwd: localCwd, family: summary?.family || summary?.harness }, (cwd, name) =>
           ignoreFailure(callNative("project.addFiles", { cwd, name })),
         );
-    const tools: ChatMenuItem[] = [
+    const tools: Exclude<ChatMenuItem, "separator">[] = [
       {
         key: "display",
         label: t("chatDisplay.menu"),
@@ -6968,29 +6969,33 @@ function AcpmuxPane() {
           ]
         : []),
     ];
-    // Quick Chat's panel is not a tab: only the chat's own actions.
-    if (quick) return menuGroups([...fork, ...continueIn], copy ? [copy] : [], tools);
-    // ChatGPT's order: the chat's name and pin, new chats from it, Copy, where it shows, then Archive.
-    return menuGroups(
-      [
-        {
-          key: "rename",
-          label: t("chatMenu.rename"),
-          icon: "action.edit",
-          shortcutAction: HEADER_ACTIONS.rename,
-          onSelect: () => runHeaderAction(HEADER_ACTIONS.rename),
-        },
-        {
-          key: "pin",
-          label: headerState().pinned ? t("chatMenu.unpin") : t("chatMenu.pin"),
-          icon: "action.pin",
-          shortcutAction: HEADER_ACTIONS.pin,
-          onSelect: () => runHeaderAction(HEADER_ACTIONS.pin),
-        },
-      ],
-      [...opensBeside, ...fork, ...continueIn],
-      copy ? [copy] : [],
-      [
+    // Grouped by what a row does (chatMenuOrder.ts): the chat, a new chat from it, what opens beside
+    // it, where the tab goes, how the chat shows, then Archive and Close. Quick Chat's panel is not a
+    // tab: only the chat's own rows.
+    if (quick) return chatMenuOrder({ quick, copy, fork: fork[0], continueIn: continueIn[0], view: tools });
+    return chatMenuOrder({
+      quick,
+      rename: {
+        key: "rename",
+        label: t("chatMenu.rename"),
+        icon: "action.edit",
+        shortcutAction: HEADER_ACTIONS.rename,
+        onSelect: () => runHeaderAction(HEADER_ACTIONS.rename),
+      },
+      pin: {
+        key: "pin",
+        label: headerState().pinned ? t("chatMenu.unpin") : t("chatMenu.pin"),
+        icon: "action.pin",
+        shortcutAction: HEADER_ACTIONS.pin,
+        onSelect: () => runHeaderAction(HEADER_ACTIONS.pin),
+      },
+      markUnread,
+      copy,
+      sideChat,
+      fork: fork[0],
+      continueIn: continueIn[0],
+      beside: opensBeside,
+      move: [
         {
           key: "moveRight",
           label: t("chatMenu.moveRight"),
@@ -7023,19 +7028,16 @@ function AcpmuxPane() {
             ]
           : []),
       ],
-      tools,
-      [
-        ...(markUnread ? [markUnread] : []),
-        ...(archive ? [archive] : []),
-        {
-          key: "close",
-          label: t("chatMenu.close"),
-          icon: "tab.close",
-          shortcutAction: HEADER_ACTIONS.close,
-          onSelect: () => runHeaderAction(HEADER_ACTIONS.close),
-        },
-      ],
-    );
+      view: tools,
+      archive,
+      close: {
+        key: "close",
+        label: t("chatMenu.close"),
+        icon: "tab.close",
+        shortcutAction: HEADER_ACTIONS.close,
+        onSelect: () => runHeaderAction(HEADER_ACTIONS.close),
+      },
+    });
   };
   // Before the handshake the New Tab frame shows (cx-0rpl.10) unless the host failed: then the
   // chat view's error card with Retry shows, as before.

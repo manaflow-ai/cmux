@@ -3,8 +3,9 @@
 // split the pane in the chat's folder and toggle, as in T3 Chat and ChatGPT; Browser opens the chat's
 // local page when there is one, the job of the Preview button a person can still show); the
 // summary (Sources) button, whose popover also opens the last turn's changes; and the "..." chat menu,
-// which starts with the quick actions not shown as buttons ([+] New tab, which reads Hide tabs in place,
-// Files and Split Down; each while it applies). Before them, the chat branch's pull request with its
+// grouped by what a row does (chatMenuOrder.ts), whose group of what opens beside the chat lists the
+// quick actions not shown as buttons ([+] New tab, which reads Hide tabs in place, Files and Split
+// Down; each while it applies). Before them, the chat branch's pull request with its
 // checks (cx-tcwj, Codex desktop's PR chip; PullRequestChip.tsx), when the App found one. Every control
 // renders from the first frame at its final size; data fills in place.
 import { useEffect, useRef, useState, type ReactNode } from "react";
@@ -15,6 +16,7 @@ import { registerPicker } from "../pickerOpeners";
 import { Menu, MenuButton, MenuItem, MenuPopup, MenuSeparator, Submenu } from "../../../ui/Menu";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
 import { headerState, useHeaderState } from "./headerState";
+import { withFolded, type ChatMenuEntry } from "./chatMenuOrder";
 import { PullRequestChip } from "./PullRequestChip";
 import { useWorktree, WorktreePill } from "./WorktreePill";
 import type { MergeResult } from "./PullRequestMerge";
@@ -67,9 +69,7 @@ export type ChatMenuItem =
       children?: ChatMenuChild[];
     };
 
-/// The menu's groups in order, the empty ones dropped, with a separator between each two.
-export const menuGroups = (...groups: ChatMenuItem[][]): ChatMenuItem[] =>
-  groups.filter((group) => group.length > 0).flatMap((group, index) => (index ? ["separator", ...group] : group));
+export { menuGroups } from "./chatMenuOrder";
 
 /// A preview's address as its card shows it: host, then the path and query when there is one.
 function previewAddress(url: string): string {
@@ -139,8 +139,9 @@ export function ChatHeaderTools({
   /// Terminal and Browser split the chat's tab; Quick Chat's panel has none.
   tabTools?: boolean;
   summary: ReactNode;
-  /// The menu's rows, read when it opens.
-  menu: () => ChatMenuItem[];
+  /// The menu's rows, read when it opens; CHAT_MENU_FOLDED marks where the folded quick actions go
+  /// (chatMenuOrder.ts), else they lead.
+  menu: () => ChatMenuEntry[];
   /// Runs before the menu opens; the menu shows once it settles.
   onMenuOpen?: () => Promise<unknown>;
   /// A row with children to show open (the palette's Continue In…); `onExpanded` clears it.
@@ -184,7 +185,7 @@ export function ChatHeaderTools({
   // The right-clicked button, read as the menu opens.
   const target = useRef<QuickActionId>(undefined);
   const [menuTarget, setMenuTarget] = useState<QuickActionId>();
-  // The quick actions without a button, at the top of "...": each while it would show as a button.
+  // The quick actions without a button, in "..."'s beside group: each while it would show as a button.
   // Changes is listed there with its button too.
   // Built when "..." reads its rows, after the App's tab state refresh (onMenuOpen): the props of this
   // render, and the lit splits as the App last pushed them.
@@ -276,7 +277,7 @@ export function ChatHeaderTools({
       });
     return folded;
   };
-  const rows = () => menuGroups(foldedRows(), menu());
+  const rows = () => withFolded(foldedRows(), menu());
   // Browser without its own Preview button (the default): the chat's local page when it has one, so the
   // globe opens what the chat is about, not a blank tab (Leo 2026-10-20). A toggle click closes whichever
   // browser it opened: the page's preview or the plain split.

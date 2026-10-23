@@ -3,7 +3,7 @@ import { createElement } from "react";
 import type { ReactNode } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play, PlayContext } from "../../../gallery/play";
-import type { ChatMenuItem } from "./ChatHeaderTools";
+import { chatMenuOrder, type ChatMenuEntry } from "./chatMenuOrder";
 import { PanelToggle } from "./PanelToggle";
 import type { QuickAction } from "./quickActions";
 
@@ -21,7 +21,7 @@ type HeaderToolsProps = {
   onPreview?: (url: string | undefined, mode: "toggle" | "open") => void;
   onCustomize?: (list: readonly QuickAction[]) => void;
   summary: ReactNode;
-  menu: () => ChatMenuItem[];
+  menu: () => ChatMenuEntry[];
   onMenuOpen?: () => Promise<unknown>;
   onMergePullRequest?: (pullRequest: { number: number; url: string }) => Promise<{ queued: boolean }>;
   expand?: string;
@@ -32,47 +32,53 @@ type HeaderToolsProps = {
   onRemoveWorktree?: (key: string, discard: boolean) => Promise<unknown>;
 };
 
-const menuRows = (): ChatMenuItem[] => [
-  { key: "rename", label: "Rename", icon: "action.edit", shortcutAction: "renameTab", onSelect: () => undefined },
-  {
-    key: "pin",
-    label: "Pin",
-    icon: "action.pin",
-    shortcutAction: "palette.toggleTabPin",
-    onSelect: () => undefined,
-  },
-  "separator",
-  { key: "sideChat", label: "New side chat", icon: "agent.chat.new", onSelect: () => undefined },
-  { key: "fork", label: "Fork", icon: "agent.fork", onSelect: () => undefined },
-  {
-    key: "continue",
-    label: "Continue in",
-    icon: "agent.handoff",
-    children: [
-      { key: "codex", label: "Codex", onSelect: () => undefined },
-      { key: "claude", label: "Claude Code", onSelect: () => undefined },
+const noop = () => undefined;
+// The App's rows in its order (chatMenuOrder.ts): the chat, a new chat from it, beside it (the
+// folded New tab, Files and Split Down lead), where the tab goes, how it shows, then Archive and Close.
+const menuRows = (): ChatMenuEntry[] =>
+  chatMenuOrder({
+    quick: false,
+    rename: { key: "rename", label: "Rename", icon: "action.edit", shortcutAction: "renameTab", onSelect: noop },
+    pin: { key: "pin", label: "Pin", icon: "action.pin", shortcutAction: "palette.toggleTabPin", onSelect: noop },
+    markUnread: { key: "markUnread", label: "Mark as Unread", icon: "unread.dot", onSelect: noop },
+    copy: {
+      key: "copy",
+      label: "Copy",
+      icon: "action.copy",
+      children: [
+        { key: "copyLink", label: "Copy link", shortcutAction: "palette.copySurfaceLink", onSelect: noop },
+        { key: "copyResponse", label: "Copy last response", onSelect: noop },
+        { key: "copyMarkdown", label: "Copy as Markdown", onSelect: noop },
+      ],
+    },
+    sideChat: { key: "sideChat", label: "New side chat", icon: "agent.chat.new", onSelect: noop },
+    fork: { key: "fork", label: "Fork", icon: "agent.fork", onSelect: noop },
+    continueIn: {
+      key: "continue",
+      label: "Continue in",
+      icon: "agent.handoff",
+      children: [
+        { key: "codex", label: "Codex", onSelect: noop },
+        { key: "claude", label: "Claude Code", onSelect: noop },
+      ],
+    },
+    beside: [
+      { key: "newTerminal", label: "New terminal", icon: "terminal", shortcutAction: "splitRight", onSelect: noop },
+      { key: "newBrowser", label: "New browser", icon: "browser", shortcutAction: "splitBrowserRight", onSelect: noop },
     ],
-  },
-  "separator",
-  {
-    key: "copy",
-    label: "Copy",
-    icon: "action.copy",
-    children: [
-      { key: "copyLink", label: "Copy link", shortcutAction: "palette.copySurfaceLink", onSelect: () => undefined },
-      { key: "copyResponse", label: "Copy last response", onSelect: () => undefined },
-      { key: "copyMarkdown", label: "Copy as Markdown", onSelect: () => undefined },
+    move: [
+      { key: "moveRight", label: "Move to right pane", icon: "pane.split.right", onSelect: noop },
+      { key: "newWorkspace", label: "Move to new workspace", icon: "workspace.new", onSelect: noop },
+      { key: "newWindow", label: "Open in new window", icon: "app.open.external", onSelect: noop },
     ],
-  },
-  "separator",
-  { key: "move-right", label: "Move to right pane", icon: "pane.split.right", onSelect: () => undefined },
-  { key: "new-workspace", label: "Move to new workspace", icon: "workspace.new", onSelect: () => undefined },
-  { key: "new-window", label: "Open in new window", icon: "app.open.external", onSelect: () => undefined },
-  "separator",
-  { key: "archive", label: "Archive", icon: "inbox", onSelect: () => undefined },
-  // The tab-owned close action stays the last row, like Chrome's tab actions.
-  { key: "close", label: "Close", icon: "tab.close", shortcutAction: "closeTab", onSelect: () => undefined },
-];
+    view: [
+      { key: "display", label: "Display…", icon: "site.permission.localfonts", onSelect: noop },
+      { key: "inspector", label: "Inspector", icon: "code", onSelect: noop },
+    ],
+    archive: { key: "archive", label: "Archive", icon: "inbox", onSelect: noop },
+    // The tab-owned close action stays the last row, like Chrome's tab actions.
+    close: { key: "close", label: "Close", icon: "tab.close", shortcutAction: "closeTab", onSelect: noop },
+  });
 
 // The summary's panel toggle as the App passes it (summary/SummaryButton.tsx).
 const panelToggle = (shown: boolean) =>
@@ -282,7 +288,7 @@ export default componentEntry<HeaderToolsProps>({
   id: "agent-pane.header-tools",
   title: "Chat header tools",
   area: "Agent pane",
-  height: 420,
+  height: 680,
   widths: { narrow: 390, normal: 560, wide: 860 },
   anchors: [{ selector: ".acpmux-header-tools" }],
   covers: [
@@ -434,7 +440,7 @@ export default componentEntry<HeaderToolsProps>({
       play: customizeMenu,
     },
     "menu-open": {
-      note: "The chat menu starts with the quick actions not shown as buttons (New tab, Files, Split Down), then the tab's own rows, ending with Close.",
+      note: "The chat menu in six groups by what a row does: the chat, a new chat from it, what opens beside it (New tab, Files and Split Down, folded out of the header, lead it), where the tab goes, how it shows, then Archive and Close.",
       props: base,
       play: openMenu,
     },
