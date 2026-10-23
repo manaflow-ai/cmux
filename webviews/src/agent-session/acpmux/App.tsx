@@ -7931,8 +7931,8 @@ function AcpmuxPane() {
           </output>
         </Notice>
         {/* The tray (subagents/SubagentTray.tsx): in the bottom stack, right above the composer, every
-          running subagent, background command and started chat, one line each. */}
-        {!quick && !freshView && trayList.length > 0 && (
+          running or recently ended subagent, background command and started chat, one card each. */}
+        {!quick && !freshView && (trayList.length > 0 || trayFinished.length > 0) && (
           <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
             <SubagentTray
               key={shownSessionId}
