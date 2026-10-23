@@ -43,4 +43,10 @@ public nonisolated struct DockColumn: Hashable, Sendable {
 
     /// Whether the column takes a tab other than its pinned one.
     public var takesTabs: Bool { !isPinned || allowsTabs }
+
+    /// Whether a pane of this column shows no tab bar while it shows `shownTabs` tabs: a pinned
+    /// column (the Home Chief pane) holding only its pinned tab has no strip (Lawrence 2026-10-23:
+    /// "home chief should have no tabbar"). A tab dragged into it (`allowsTabs`) brings the strip
+    /// back while it is there, so it stays reachable. plans/cmux-next/home-chief-pane.md H1.
+    public func hidesTabBar(shownTabs: Int) -> Bool { isPinned && shownTabs <= 1 }
 }

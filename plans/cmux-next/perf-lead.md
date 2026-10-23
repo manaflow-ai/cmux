@@ -58,6 +58,7 @@ Numbers are fleet p95 unless noted. "unmeasured" means the first job of the owne
 | 18 | [#17587](https://github.com/manaflow-ai/cmux/issues/17587) launch: first frame 217-263 ms, live tree 351-936 ms at 24 workspaces. | as stated | first frame < 150 ms | batch 2 | open |
 | 19 | [#23087](https://github.com/manaflow-ai/cmux/issues/23087) idle headless cmux-tui owner 5-16 % CPU; [#17287](https://github.com/manaflow-ai/cmux/issues/17287) client busy loop after pty deleted. | as stated | 0 | batch 2 | open |
 | 20 | [#21977](https://github.com/manaflow-ai/cmux/issues/21977) zsh integration forks `find` per path part: new tab +100 ms (145-240 ms). | as stated | 0 forks | batch 2 | open |
+| 21 | **Ghostty integration** ([ghostty-integration-DESIGN.md](ghostty-integration-DESIGN.md) G1-G8): a resize frame draws the old text at the new size (sync draw of stale cells on main, async reflow frames dropped); each grid step is a full READY snapshot round trip with up to 4 whole-scrollback reflows and the app holding frames for its own; every byte parsed 3 times (host, daemon mirror, app), daemon parse on the echo path; output chunks hop through the main actor; base64 JSON output. | resize stale-text frames and frame hold per step: unmeasured (bench-terminal-resize.py) | every resize frame shows the new size with its text, 0 held frames, < 10 ms | PL-ghostty (app, ghostty-next); daemon half PL-daemon | in progress |
 
 Earlier perf work this plan builds on (do not undo): perf gate and budgets (a436, Aziz's
 1884ac30 brought tabs/new_workspaces back), Chromium clip memo (Leo c22a1071, `debug.cef`
@@ -113,7 +114,13 @@ palette linear grouping (Aziz 59564e6e), WebKit title coalesce (Aziz ff167aa9).
 | F8 | Hidden things keep full cost | hidden Chromium tab 55 MB, Home 793 MB vs ~70 MB floor | discard engines past a grace, keep a record and picture | batch 2 |
 | F10 | Daemon requests are slow | split 107-112 ms p50, new terminal 114/660 ms p50/p95 loaded | profile each op, fix causes; local request < 2 ms (PL-daemon) | now |
 | F11 | Ghostty integration (audit) | 20 idle terminals 7.3 % CPU, 7.8 MB per terminal; possible double VT parsing (daemon + app) | ghostty-integration-DESIGN.md (PL-ghostty) | now |
+| F12 | Two web engines for browser tabs (every feature built twice) | WebKitEngine + CEFEngine, per-tab engine | Lawrence 2026-10-23: KEEP BOTH ENGINES. Every perf target applies to both; no removal | closed |
+| F13 | Codebase health: god target CmuxNextApp 141,651 lines, 152 singletons, 162 broadcast observers, 290 assumeIsolated, Debug-only perf counters | text search counts | PL-arch (architecture-refactor-DESIGN.md), PL-guardrails (pre-push ratchet, OWNERS.md, perf-hot markers, codebase-health.md) | now |
 | F9 | Lag regressions land unseen: timings only warn, fleet minis have no lit display (frame checks skipped) | perf-gate.py header | Lawrence: no CI gate on push or nightly; a scheduled cron perf run (perf budgets + STRESS) opens one regression issue (PL-perf-cron) | now |
+
+User data: Lawrence 2026-10-23: opt-in hang reports from nightly users, private data removed (PL-telemetry, hang-reports-DESIGN.md; privacy policy text needs Lawrence).
+
+Process (Lawrence 2026-10-23): every agent session's landed code is reviewed twice by independent review agents, with fixes landed after each review; at the end one agent tests everything on live Macs on every supported macOS (14, 15, 26, 27). The remaining basic problems run as workflow cmux-next-basic-problems (pages cost, idle wakeups, O(all) per event incl. Cmd-Tab, hidden memory, launch, create on the key, scrolling, shell integration, then a completeness critic and a second round).
 
 ## 4. Workstreams (batch 1)
 
@@ -144,4 +151,5 @@ Batch 2 (after batch 1 lands): issues 8, 9, 11, 15-20.
 
 | Date | Workstream | sha range on feat-cmux-next | Row | Before | After |
 |---|---|---|---|---|---|
+| 2026-10-23 | PL-guardrails | this push | pre-push guardrails (guardrails.py), perf-hot markers, OWNERS.md, codebase-health.md | no rule; hooks on this Mac from 10-19 | 8 rules refuse new debt in added lines; 0.16-0.20 s per typical push (Lawrence's Mac, loaded); no CI change |
 | | | | | | |

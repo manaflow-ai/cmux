@@ -35,6 +35,14 @@ many changes to sidebar?"). CMUX_NEXT_CHECKS_SKIP_REASON does not skip it.
 Also on every push, in any file: "Merge conflict markers": a file the push adds both a `<<<<<<< ` and
 a `>>>>>>> ` line to (c779988d57d, 2026-10-22, broke CmuxNextAppTests). Nothing skips it.
 
+Also on every local run (the hook and a plain run; never --commits, never under GitHub Actions, so CI
+gains no gate; Lawrence 2026-10-23): "Guardrails" (guardrails.py, plans/cmux-next/codebase-health.md):
+refuses NEW singletons, unproven MainActor.assumeIsolated, unjustified @unchecked Sendable /
+nonisolated(unsafe), sleeps in loops, DispatchQueue.main.async, new Notification.Name broadcasts,
+ObservableObject/@Published, store references in list rows and big new CmuxNextApp files, in lines the
+push adds; warns on `// perf-hot:` functions, OWNERS.md areas and App growth. Skip one push with
+CMUX_GUARDRAILS_SKIP_REASON="<rule>: <why>"; --no-guardrails turns it off for a manual run.
+
 Not here (they stay on CI and the fleet): generated-file freshness (gen-*.py --check), god files,
 the app size cap, script tests, Swift and Rust builds and tests.
 
@@ -51,6 +59,7 @@ import argparse
 import collections
 import concurrent.futures
 import hashlib
+import importlib.util
 import json
 import os
 import platform
@@ -610,6 +619,52 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
     return found
 
 
+def load_guardrails(repo: Path, trusted_scripts: Path | None):
+    """The guardrails module: the installed reviewed copy for the hook, else this checkout's."""
+    script = (trusted_scripts / "guardrails.py") if trusted_scripts else (repo / SCRIPTS / "guardrails.py")
+    if not script.is_file():
+        return None
+    spec = importlib.util.spec_from_file_location("cmux_next_guardrails", script)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module  # dataclasses resolve their module through sys.modules
+    spec.loader.exec_module(module)
+    return module
+
+
+def guardrails(repo: Path, ranges: list[tuple[str, str]], trusted_scripts: Path | None) -> bool:
+    """Print the guardrail warnings and refusals for RANGES; True when they refuse the push."""
+    module = load_guardrails(repo, trusted_scripts)
+    if module is None:
+        if trusted_scripts:
+            log("prepush-gate: guardrails.py is not installed; rerun scripts/install-git-hooks.sh")
+        return False
+    refused = False
+    for base, head in ranges:
+        refusals, warnings = module.check(repo, base, head)
+        text, refuse = module.format_report(refusals, warnings)
+        if text:
+            print(text)
+        refused = refused or refuse
+    return refused
+
+
+def stale_hook_warning(repo: Path, trusted_scripts: Path) -> None:
+    """Warn when the installed checker copies differ from origin/feat-cmux-next's (a rebase never refreshes them)."""
+    for ref in DEFAULT_BASE_REFS:
+        if not rev_ok(repo, ref):
+            continue
+        stale = []
+        for name in ("prepush-gate.py", "guardrails.py"):
+            theirs = subprocess.run(["git", "-C", str(repo), "show", f"{ref}:{SCRIPTS}/{name}"], capture_output=True)
+            mine = trusted_scripts / name
+            if theirs.returncode == 0 and (not mine.is_file() or mine.read_bytes() != theirs.stdout):
+                stale.append(name)
+        if stale:
+            log(f"prepush-gate: WARNING: this clone's installed hook copy of {', '.join(stale)} is not {ref}'s, so its "
+                f"rules may be old: run scripts/install-git-hooks.sh from a checkout at {ref} (rebase and fetch do not).")
+        return
+
+
 def print_findings(found: list[tuple[str, list[str]]], header: str) -> None:
     print(header)
     for name, fresh in found:
@@ -637,6 +692,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--commits", help="CI: check each non-merge commit of RANGE against its first parent")
     parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,swiftlint,reserved")
     parser.add_argument("--timings", action="store_true")
+    parser.add_argument("--no-guardrails", action="store_true", help="skip guardrails.py (it never runs on CI)")
     args = parser.parse_args(argv)
     repo = Path(args.repo or git(Path.cwd(), "rev-parse", "--show-toplevel").decode().strip())
     only = set(args.only.split(",")) if args.only else None
@@ -670,8 +726,20 @@ def main(argv: list[str] | None = None) -> int:
     found_any = []
     for base, head in ranges:
         found_any += gate(repo, base, head, only, args.timings, trusted_scripts)
+    if args.pre_push and trusted_scripts:
+        stale_hook_warning(repo, trusted_scripts)
+    # Local only: CI runs this script too (--commits, and --base/--head on pull requests), and must gain no gate.
+    guarded = False
+    if not args.no_guardrails and not os.environ.get("GITHUB_ACTIONS") and only is None:
+        t0 = time.monotonic()
+        guarded = guardrails(repo, ranges, trusted_scripts)
+        if args.timings:
+            log(f"  {time.monotonic() - t0:5.2f}s  guardrails")
     elapsed = time.monotonic() - started
     if not found_any:
+        if guarded:
+            print(f"prepush-gate: push refused by the guardrails ({elapsed:.1f}s)")
+            return 1
         print(f"prepush-gate: no new violations ({elapsed:.1f}s)")
         return 0
     skip = os.environ.get("CMUX_NEXT_CHECKS_SKIP_REASON", "").strip()
@@ -688,6 +756,9 @@ def main(argv: list[str] | None = None) -> int:
     elif skip:
         print(f"prepush-gate: SKIPPED by CMUX_NEXT_CHECKS_SKIP_REASON={skip!r}. Say so in your report; "
               "CI still names the commit.")
+        if guarded:
+            print("prepush-gate: push refused by the guardrails (CMUX_NEXT_CHECKS_SKIP_REASON does not skip them)")
+            return 1
         return 0
     print(HOW_TO_FIX)
     print(f"prepush-gate: push refused ({elapsed:.1f}s)")

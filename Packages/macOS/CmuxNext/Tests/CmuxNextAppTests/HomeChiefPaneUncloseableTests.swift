@@ -5,13 +5,26 @@ import CmuxNextTabs
 import Testing
 
 /// The Home Chief pane (the pinned left chat dock, `pinned-dock-v1`) cannot close (Lawrence 2026-10-20:
-/// "make it impossible to close home chief left hand side"). Its tab bar shows like every agent pane's
-/// (HomeChiefPaneShowsTabBarTests), and it takes tabs dragged into it (Leo 2026-10-21: "JUST MAKE THE
-/// TAB THING SHOW UP ON THE MAIN PANE TOO"). plans/cmux-next/home-chief-pane.md. The daemon keeps the
+/// "make it impossible to close home chief left hand side"). It shows no tab bar while it holds only
+/// Home (Lawrence 2026-10-23, HomeChiefPaneHasNoTabBarTests), and it takes tabs dragged into it (Leo
+/// 2026-10-21), whose strip then shows. plans/cmux-next/home-chief-pane.md. The daemon keeps the
 /// pinned tab (cmux-tui `pinned_columns_tests.rs`); these cover what the app shows and asks.
 @MainActor
 struct HomeChiefPaneUncloseableTests {
     static let home = DockColumn(edge: .left, mode: .docked, role: .agentChat, isPinned: true)
+
+    /// No tab bar over Home's one tab; a tab dragged in brings the strip back so it stays reachable.
+    /// An unpinned dock keeps its bar.
+    @Test func aPinnedDockHoldingOnlyHomeShowsNoTabBar() {
+        #expect(Self.home.hidesTabBar(shownTabs: 1))
+        #expect(Self.home.hidesTabBar(shownTabs: 0))
+        #expect(!Self.home.hidesTabBar(shownTabs: 2), "a dragged-in tab stays reachable")
+        var open = Self.home
+        open.allowsTabs = true
+        #expect(open.hidesTabBar(shownTabs: 1), "Home's dock takes tabs and still shows no bar alone")
+        #expect(!DockColumn(edge: .left, role: .agentChat).hidesTabBar(shownTabs: 1), "an unpinned chat dock keeps its bar")
+        #expect(!DockColumn(edge: .right).hidesTabBar(shownTabs: 1))
+    }
 
     /// Cmd-W with focus in Home does nothing, with no notice: Home's tab is the only one there.
     @Test func cmdWOnHomeAloneIsIgnoredSilently() {
