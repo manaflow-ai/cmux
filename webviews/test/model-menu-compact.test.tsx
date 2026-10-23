@@ -479,7 +479,8 @@ test("Fast mode is a checkbox row after Account, checked from the session, and a
   expect(host.querySelector(".acpmux-fast")).toBeNull();
   await open();
   const rows = itemsOf(menu()!);
-  expect(rows.at(-1)).toBe("Fast mode");
+  // The row names its state, as Effort and Account name theirs (Leo 2026-10-21).
+  expect(rows.at(-1)).toBe("Fast modeOff");
   expect(rows.findIndex((row) => row?.startsWith("Account"))).toBeLessThan(rows.length - 1);
   const fast = () => menu()!.querySelector<HTMLElement>('.acpmux-quick-fast[role="menuitemcheckbox"]')!;
   expect(fast()).not.toBeNull();
@@ -493,6 +494,7 @@ test("Fast mode is a checkbox row after Account, checked from the session, and a
   // The session confirms it: the row is checked, and the button still names no Fast.
   if (!menu()) await open();
   expect(fast().getAttribute("aria-checked")).toBe("true");
+  expect(fast().querySelector(".acpmux-quick-value")?.textContent).toBe("On");
   expect(chipButton().textContent).not.toMatch(/fast/i);
   await act(async () => fast().click());
   await settle();

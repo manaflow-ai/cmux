@@ -106,7 +106,7 @@ const rowValue = (model: Pick<QuickModel, "family" | "id">) => `${model.family}\
 export type QuickMenuExtras = Pick<QuickMenu, "effort" | "account" | "fast">;
 
 /// The Claude Code style model menu (Leo 2026-10-18): a short rounded menu headed "Model · this
-/// session". Keys 1 to 9 pick a model in place, its check sits at the row's trailing edge, Effort
+/// session". Its few numbered rows (ModelPicker's QUICK_ROWS) are picked in place by their keys, its check sits at the row's trailing edge, Effort
 /// and Account open beside their rows, and More models opens the full picker (the harness rail and
 /// search). Typing a letter opens that picker searching for it. Fast mode is the last row, a
 /// checkbox (Leo 2026-10-20), never a radio group inside Effort.
@@ -402,6 +402,9 @@ export function QuickModelMenu({
             onCheckedChange={(on) => fast.onChange(on)}
           >
             <span className="acpmux-menu-label">{t("picker.fastMode")}</span>
+            {/* Its state in words at the trailing edge, as Effort and Account name theirs (Leo
+                2026-10-21): Off in secondary ink, On in the theme accent. */}
+            <span className="acpmux-quick-value">{t(fast.checked ? "picker.on" : "picker.off")}</span>
           </MenuCheckboxItem>
         </>
       )}

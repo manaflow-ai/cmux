@@ -258,7 +258,8 @@ export function ComposerPickers({
             models: entry.models,
             ...(entry.unavailable ? { unavailable: entry.unavailable } : {}),
             pickable: entry.pickable && entry.acpmuxHarness !== null,
-            ...(topModelsFor(entry.id) ? { top: topModelsFor(entry.id) } : {}),
+            // A profile of a catalogued agent ("claude-sr2") lists that agent's top models.
+            ...(topModelsFor(entry.kin ?? entry.id) ? { top: topModelsFor(entry.kin ?? entry.id) } : {}),
           })),
         // The chat folder's own profiles are acpmux's alone; the model catalog never lists them.
         ...snapshot.catalog.filter((entry) => entry.folder),
@@ -1991,12 +1992,14 @@ const PLAIN_LEVELS = new Set(["none", "minimal", "low", "medium", "high", "xhigh
 /// The Reasoning section's rows: the agent's levels, named by the pane, narrowed to what the
 /// running model supports when its catalog row says. The agent-owned default sentinel is omitted,
 /// and so are an older acpmux's Ultracode (now its own switch) and Ultrathink (a prompt keyword,
-/// not a level).
+/// not a level). A row whose profile or user set its levels (`own.efforts`) is held to them: set
+/// to none, it offers no level at all.
 export function reasoningChoices(
   options: { value: string; name?: string; description?: string }[],
-  model: { efforts?: readonly string[]; defaultEffort?: string } | undefined,
+  model: { efforts?: readonly string[]; defaultEffort?: string; own?: { efforts?: true } } | undefined,
   t: (key: StringKey) => string,
 ): Choice[] {
+  if (model?.own?.efforts && (model.efforts ?? []).length === 0) return [];
   const levels = model?.efforts && model.efforts.length > 0 ? new Set<string>(model.efforts) : undefined;
   const offered = options.filter((option) => {
     if (["default", "ultracode", "ultrathink"].includes(option.value)) return false;

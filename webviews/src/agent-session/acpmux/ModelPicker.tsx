@@ -13,6 +13,7 @@ import { agentName } from "./agents";
 import { isDefaultChoice } from "./defaultChoice";
 import { CheckIcon, ChevronIcon, PICKER_LABELS, SearchIcon } from "./ComposerPickers";
 import { Icon } from "./icons/Icon";
+import { usePromptFocus } from "./promptFocus";
 import { currentLanguage, useT } from "./i18n";
 import { useUpdateOffer } from "./HarnessHealthNotice";
 import { CHAT_COLUMN, MODEL_PICKER_MIN_HEIGHT, pickerHeightBounds, type ModelPickerProps } from "./modelPickerLayout";
@@ -111,6 +112,35 @@ function shownSections(
   const runs = sections.older.find((choice) => choice.id === model);
   if (!runs) return sections;
   return { latest: [...sections.latest, runs], older: sections.older.filter((choice) => choice !== runs) };
+}
+
+/// How many models the compact menu lists at once (Leo 2026-10-21: "why are there so many models!?
+/// it should be truncating and then showing more models"): the top picks and the running model,
+/// numbered 1 to 4. Every other model is under More models.
+const QUICK_ROWS = 4;
+
+/// A variant of a model ("Fable 5.1 · 1M context", `opus[1m]`, "Opus plan · Sonnet execute"): listed
+/// in the compact menu only after every plain model, so the four rows are four models.
+const isVariant = (model: ModelChoice) => model.id.includes("[") || model.name.includes(" · ");
+
+/// The compact menu's rows: up to QUICK_ROWS of the harness's top models, plain models before
+/// variants, and the model the chat runs (`model`) always among them, in the list's order; `more` is
+/// every other model, in order.
+function quickSections(
+  entry: HarnessChoice | undefined,
+  model: string | undefined,
+  usable: (choice: ModelChoice) => boolean = () => true,
+): { shown: ModelChoice[]; more: ModelChoice[] } {
+  const { latest, older } = sectionsFor(entry);
+  const all = [...latest, ...older].filter(usable);
+  const top = latest.filter(usable);
+  const picks = [...top.filter((choice) => !isVariant(choice)), ...top.filter(isVariant)].slice(0, QUICK_ROWS);
+  const runs = all.find((choice) => choice.id === model);
+  const chosen = new Set(runs && !picks.includes(runs) ? [...picks.slice(0, QUICK_ROWS - 1), runs] : picks);
+  return {
+    shown: all.filter((choice) => chosen.has(choice)),
+    more: all.filter((choice) => !chosen.has(choice)),
+  };
 }
 
 /// Every model of a harness, newest first, older versions included.
@@ -334,6 +364,12 @@ export function ModelPicker(props: ModelPickerProps) {
   const menu = useRef<HTMLDivElement>(null);
   const search = useRef<HTMLInputElement>(null);
   const restoreFocus = useRef(false);
+  // A pick hands the keyboard to the composer's prompt, not back to the model button (promptFocus.ts).
+  const toPrompt = useRef(false);
+  const focusPrompt = usePromptFocus();
+  // The compact menu's pick does the same once the menu has closed: while it is open it keeps the
+  // keyboard on its rows, and its close leaves focus where the pick put it (ui/Menu.tsx).
+  const quickPicked = useRef(false);
   const menuId = useId();
   const allHarnesses = useMemo(() => uniqueHarnesses(catalog), [catalog]);
   // A started chat lists its own harness alone. One acpmux has not listed yet (the first open after
@@ -453,13 +489,22 @@ export function ModelPicker(props: ModelPickerProps) {
     // press-drag-release selection.
     let second: number | undefined;
     const first = requestAnimationFrame(() => {
-      second = requestAnimationFrame(() => trigger.current?.focus({ preventScroll: true }));
+      second = requestAnimationFrame(() => {
+        const picked = toPrompt.current;
+        toPrompt.current = false;
+        if (!(picked && focusPrompt())) trigger.current?.focus({ preventScroll: true });
+      });
     });
     return () => {
       cancelAnimationFrame(first);
       if (second !== undefined) cancelAnimationFrame(second);
     };
-  }, [open]);
+  }, [open, focusPrompt]);
+  useEffect(() => {
+    if (quickOpen || !quickPicked.current) return;
+    quickPicked.current = false;
+    focusPrompt();
+  }, [quickOpen, focusPrompt]);
   const show = useCallback(() => {
     setSelectedHarness(harness ?? current?.id);
     setActiveHarness(
@@ -561,6 +606,7 @@ export function ModelPicker(props: ModelPickerProps) {
   const selectModel = (model: ModelChoice) => {
     const owner = owners.get(model);
     if (model.unavailable || !owner?.pickable || loginFor(owner) !== undefined) return;
+    toPrompt.current = true;
     // A typed effort or fast mode, or a model of another harness, lands as one combo.
     const effort = searching ? modelEffort(model, parsed.effort) : undefined;
     const fast = searching ? parsed.fast : undefined;
@@ -601,15 +647,15 @@ export function ModelPicker(props: ModelPickerProps) {
     if (starred.length) list.push({ id: STARRED, name: starredText, starred: true, models: starred, more: [] });
     for (const entry of startable) {
       const signedOutHere = loginFor(entry) !== undefined;
-      const { latest, older } = signedOutHere
-        ? { latest: [], older: [] }
-        : shownSections(entry, entry.ids.includes(harness ?? "") ? props.model : undefined);
+      const { shown, more } = signedOutHere
+        ? { shown: [], more: [] }
+        : quickSections(entry, entry.ids.includes(harness ?? "") ? props.model : undefined);
       list.push({
         id: entry.id,
         name: entry.name,
         ...(agentBrand(entry.mark ?? entry.id) ? { mark: entry.mark ?? entry.id } : {}),
-        models: latest.slice(0, 9).map((model) => row(entry, model)),
-        more: [...latest.slice(9), ...older].map((model) => row(entry, model)),
+        models: shown.map((model) => row(entry, model)),
+        more: more.map((model) => row(entry, model)),
         ...(signedOutHere ? { note: t("harnesses.signedOut") } : {}),
         ...(signedOutHere && loginFor(entry) && onLogIn
           ? { logIn: () => onLogIn(entry.acpmuxHarness ?? entry.id, loginFor(entry)!) }
@@ -910,18 +956,22 @@ export function ModelPicker(props: ModelPickerProps) {
             // This harness's top models, the running one among them; a signed-out harness lists none.
             models:
               current && loginFor(current) === undefined
-                ? shownSections(current, props.model)
-                    .latest.filter((model) => !model.unavailable)
-                    .slice(0, 9)
+                ? quickSections(current, props.model, (model) => !model.unavailable).shown
                 : [],
             current: props.model,
-            onModel: (id) => onLand(id),
+            onModel: (id) => {
+              quickPicked.current = true;
+              onLand(id);
+            },
             ...(quickFamilies
               ? {
                   families: {
                     list: quickFamilies,
                     current: current?.id,
-                    onPick: pickQuick,
+                    onPick: (model: QuickModel) => {
+                      quickPicked.current = true;
+                      pickQuick(model);
+                    },
                     ...(onAddAgent ? { onAddHarness: onAddAgent } : {}),
                     ...(harnessFixed ? {} : onHarness ? { onAccount: pickAccount } : {}),
                     ...(harnessFixed && fork ? { onAccount: pickAccount, onFork: forkTo, forkReady: fork.ready } : {}),
