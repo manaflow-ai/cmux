@@ -241,11 +241,11 @@ struct AgentPaneRecordingDropTests {
         }
         rig.model.adoptSession("chat-a")
         rig.model.droppedPaths.stash([source], kind: .drop)
-        let pending = Task { await rig.ask([source.lastPathComponent]) }
+        let pending = Task { Self.paths(await rig.ask([source.lastPathComponent])) }
         await gate.waitUntilEntered()
         rig.model.adoptSession("chat-b")
         await gate.release()
-        #expect(Self.paths(await pending.value).isEmpty)
+        #expect(await pending.value.isEmpty)
         let refused = await rig.model.respond(to: AgentPaneRequest(body: [
             "method": "file.drag", "params": ["path": expected.path],
         ]))
