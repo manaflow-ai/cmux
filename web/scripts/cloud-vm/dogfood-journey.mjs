@@ -408,7 +408,7 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
   process.on(signal, () => {
     console.error(`received ${signal}; cleaning up`);
     cleanup().finally(() => {
-      const output = summary({ ok: false, stage, error: `cancelled by ${signal}`, ...result });
+      const output = summary({ ok: false, cancelled: true, stage, error: `cancelled by ${signal}`, ...result });
       console.log(JSON.stringify(output, null, 2));
       if (resultFile) writeFileSync(resultFile, `${JSON.stringify(output)}\n`);
       process.exit(130);
@@ -441,7 +441,7 @@ function summary(outcome) {
     notes,
     receipt: buildLifecycleReceipt({
       ok: outcome.ok,
-      cancelled: typeof outcome.error === "string" && outcome.error.includes("cancel"),
+      cancelled: outcome.cancelled === true,
       sourceSha: process.env.GITHUB_SHA ?? process.env.CI_COMMIT_SHA ?? process.env.CMUX_SOURCE_SHA,
       provider: outcome.vm?.provider,
       imageVersion: outcome.vm?.imageVersion,
