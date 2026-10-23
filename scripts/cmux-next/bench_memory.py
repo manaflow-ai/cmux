@@ -42,6 +42,7 @@ import argparse
 import ctypes
 import json
 import os
+import plistlib
 import re
 import shutil
 import signal
@@ -467,7 +468,10 @@ def launch(bundle: str, config: dict, extra_env: dict | None = None, direct: boo
     if direct is None:
         direct = os.environ.get("CMUX_BENCH_LAUNCH") == "direct"
     binary_dir = os.path.join(bundle, "Contents/MacOS")
-    binary = os.path.join(binary_dir, sorted(os.listdir(binary_dir))[0])
+    # The bundle's own executable (Info.plist): a DEV build also ships `__preview.dylib` there,
+    # which sorts first, so the first file is not the app.
+    with open(os.path.join(bundle, "Contents", "Info.plist"), "rb") as handle:
+        binary = os.path.join(binary_dir, plistlib.load(handle)["CFBundleExecutable"])
     # Every process from this bundle at the end is this run's (cleanup ends
     # them all), so none may exist before: an earlier app's detached daemons
     # and terminal hosts would otherwise be ended too.

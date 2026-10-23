@@ -323,6 +323,18 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".nt-style") !== null);
       },
     },
+    "minimal-stage-foot": {
+      note: "Minimal with the project card, quick actions and recent chats on, the template dots off: the composer at the page's foot, its quiet row a few px over the page's bottom edge, as Claude Code's (Leo 2026-10-21).",
+      ready: newTab({
+        template: "minimal",
+        pageWidgets: ["greeting", "projects", "actions", "chats"],
+      }),
+      snapshot: noChat(manySessions(12)),
+      play: async (ctx: PlayContext) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-stage .nt-env") !== null);
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-foot .acpmux-composer-foot") !== null);
+      },
+    },
     // Minimal's widgets in the user's order (`tabs.newTabWidgets.order`) and its edit mode
     // (newtab/WidgetEditing.tsx): right-click > Edit New Tab, and the widgets wiggle with their ✕.
     "minimal-widgets-ordered": {

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 @testable import CmuxNextDaemon
 import CmuxNextHome
 @testable import CmuxNextHomeEngine
@@ -14,6 +15,9 @@ import UniformTypeIdentifiers
         let (_, continuation) = AsyncStream.makeStream(of: [String: String?].self)
         let view = HomeChiefSettingsView(muxHome: FileManager.default.temporaryDirectory, source: CapturedChief(writes: continuation))
         view.appearance = NSAppearance(named: appearance)
+        // The room's theme draws the card, as in the app (an appearance alone left the theme dark).
+        let scope = HomeChiefReactionRowsLayoutTests.scope(dark: appearance == .darkAqua)
+        scope.root(view)
         await view.refresh().value
         // The picture shows the whole block: the Classifier disclosure open.
         view.reactionRows.showsClassifier = true
@@ -33,7 +37,7 @@ import UniformTypeIdentifiers
         NSAppearance(named: appearance)?.performAsCurrentDrawingAppearance {
             NSGraphicsContext.saveGraphicsState()
             NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
-            (dark ? NSColor(white: 0.16, alpha: 1) : NSColor(white: 0.97, alpha: 1)).setFill()
+            scope.perform { Palette.pageBackground }.setFill()
             view.bounds.fill()
             NSGraphicsContext.restoreGraphicsState()
             view.cacheDisplay(in: view.bounds, to: rep)

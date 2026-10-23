@@ -1121,8 +1121,11 @@
   min-height: 28px;
   /* Claude desktop (2x capture, Leo 2026-10-20): the row's middle 22 px under the box. */
   margin-top: 8px;
-  /* Room under the row so it never sits on the window's edge (Leo 2026-10-20, as Codex and Claude). */
-  margin-bottom: 10px;
+  /* Claude Code's row sits at the window's bottom edge with about 8 px under it (Leo 2026-10-21: too
+     much space at the bottom compared to Claude Code). The floating dock's composer adds nothing
+     under the row (below), so these 8 px are all the room there is: never on the window's edge
+     (Leo 2026-10-20), room for a control's focus outline, and no band. */
+  margin-bottom: 8px;
   padding-block: 0;
   /* The row spans the box (Leo 2026-10-21: "stop with the left right padding"): the mode's pill
      starts on the box's left edge and the last control's ends on its right edge, so the row adds no

@@ -38,7 +38,7 @@ final class HomeChiefReactionRows: NSStackView {
         canWake.action = #selector(pickedWake(_:))
         canWake.font = Typography.body
         canWake.setAccessibilityLabel(HomeEngineStrings.reactionsCanWake)
-        add(HomeChiefSettingsView.row(HomeEngineStrings.reactionsCanWake, canWake))
+        add(Self.stacked(HomeEngineStrings.reactionsCanWake, canWake, width: width))
         add(disclosureRow())
         for (field, title, action) in [(harness, HomeEngineStrings.reactionHarness, #selector(editedHarness(_:))),
                                        (model, HomeEngineStrings.reactionModel, #selector(editedModel(_:))),
@@ -50,8 +50,7 @@ final class HomeChiefReactionRows: NSStackView {
             field.font = Typography.body
             field.setAccessibilityLabel(title)
             let box = ThemedFieldBox(field: field, height: Metrics.controlHeight)
-            box.widthAnchor.constraint(equalToConstant: HomeChiefSettingsView.pickerWidth).isActive = true
-            let row = HomeChiefSettingsView.row(title, box)
+            let row = Self.stacked(title, box, width: width)
             row.translatesAutoresizingMaskIntoConstraints = false
             classifierRows.append(row)
         }
@@ -112,6 +111,24 @@ final class HomeChiefReactionRows: NSStackView {
 
     @objc func clickedClassifierTitle() {
         showsClassifier.toggle()
+    }
+
+    /// A title over its control, both the block's whole width: the card's label column (beside a
+    /// 188 pt picker) cut these titles off ("Can Wake the…"), and longer locales more so. The title
+    /// wraps instead of truncating.
+    static func stacked(_ title: String, _ control: NSView, width: CGFloat) -> NSView {
+        let label = ThemedLabel(wrappingLabelWithString: title)
+        label.font = Typography.body
+        label.preferredMaxLayoutWidth = width
+        label.translatesAutoresizingMaskIntoConstraints = false
+        control.translatesAutoresizingMaskIntoConstraints = false
+        let column = NSStackView(views: [label, control])
+        column.orientation = .vertical
+        column.alignment = .leading
+        column.spacing = Metrics.space1
+        label.widthAnchor.constraint(equalTo: column.widthAnchor).isActive = true
+        control.widthAnchor.constraint(equalTo: column.widthAnchor).isActive = true
+        return column
     }
 
     @available(*, unavailable)

@@ -283,7 +283,7 @@ import { actOnReportedImage } from "./conversation/imageMenuActions";
 import { callChipHost } from "./chips/host";
 import { pullRequestRef } from "./chips/PullRequestCard";
 import { RenderToolCard, canRender } from "./conversation/RenderCard";
-import { ArtifactPanel, type SaveDocument } from "./conversation/ArtifactPanel";
+import { ArtifactPanel, useArtifactCoversPane, type SaveDocument } from "./conversation/ArtifactPanel";
 import { branchesFromKey, branchesKey, forkAnchor, messageBranches } from "./conversation/branches";
 import { ArtifactContext, type Artifact } from "./conversation/artifactPreview";
 import { artifactVersions } from "./conversation/artifactVersions";
@@ -5068,6 +5068,14 @@ function AcpmuxPane() {
   // Inspector draws): what its task row opens where its terminal cannot (a peer's or Cloud chat).
   const showCallRef = useRef<(toolCallId: string) => boolean>(() => false);
   const showCall = useCallback((toolCallId: string) => showCallRef.current(toolCallId), []);
+  // In a narrow pane the side panel covers the whole pane, the header with it (ArtifactPanel.tsx).
+  const narrowPane = useArtifactCoversPane();
+  const artifactCovers = narrowPane && artifact !== undefined;
+  const uncoverChat = useCallback(() => {
+    closeDiff();
+    closeInspector();
+    if (artifactCovers) setArtifact(undefined);
+  }, [closeDiff, closeInspector, artifactCovers]);
   const inspector = useChatInspector({
     snapshot,
     machineName,
@@ -5092,6 +5100,14 @@ function AcpmuxPane() {
     // Quick Chat's panel has no room beside it for the side panel.
     onOpenDocument: quick ? undefined : openArtifact,
     onShowCall: quick ? undefined : showCall,
+    // A turn's diff in place, the event Inspector and, in a narrow pane, the side panel take the pane
+    // in the chat's place, its header and the toggle with it: the panel steps aside while they show,
+    // and opening it closes them.
+    covered: (diffView !== undefined && diffFiles !== undefined) || inspectorOpen || artifactCovers,
+    onUncover: uncoverChat,
+    beside: artifact?.opened,
+    // A handoff review's form is wider than the transcript's column: the panel pushes it aside.
+    wide: reviewing,
   });
   // The running line's counts (conversation/WorkingFor.tsx), with the tray off (Debug Settings):
   // the subagents still running, the background commands that have not ended and the started chats
