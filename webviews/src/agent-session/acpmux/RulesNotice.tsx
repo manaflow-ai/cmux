@@ -52,8 +52,10 @@ export function RulesNotice({ rules }: { rules: ForumRule[] }) {
   const t = useT();
   const [open, setOpen] = useState(false);
   const listId = useId();
-  // A hint in the one notice slot above the composer: an error or a running step draws first.
-  const { shown } = useNoticeTurn("rules", "hint", rules.length > 0);
+  // Standing information in the one notice slot above the composer: it shows for as long as
+  // rules exist, so every other notice (an error, a running step, a hint, an update the person
+  // started) draws first and the rules come back once it clears.
+  const { shown } = useNoticeTurn("rules", "info", rules.length > 0);
   if (!shown || rules.length === 0) return null;
   const newest = rules.reduce((a, b) => (b.created > a.created ? b : a));
   const from = (rule: ForumRule) =>

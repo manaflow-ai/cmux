@@ -6,6 +6,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { readFileSync } from "node:fs";
+import { Notice, NoticeSlot } from "./NoticeSlot";
 import { forumRules, RulesNotice } from "./RulesNotice";
 
 let dom: JSDOM | undefined;
@@ -112,4 +113,26 @@ test("the open list scrolls inside a bounded height, so long rules never push th
   const rule = css.match(/\.acpmux-rules-list\{([^}]*)\}/)?.[1] ?? "";
   expect(rule).toMatch(/max-height:/);
   expect(rule).toMatch(/overflow-y:auto/);
+});
+
+test("the rules card waits while an update the person started shows, then comes back", async () => {
+  const container = installDom();
+  const rules = forumRules(reply);
+  const draw = (updating: boolean) => (
+    <NoticeSlot>
+      <RulesNotice rules={rules} />
+      <Notice id="harness-health" tier="update" when={updating}>
+        <p className="updating">Updating</p>
+      </Notice>
+    </NoticeSlot>
+  );
+  await act(async () => {
+    root = createRoot(container);
+    root.render(draw(true));
+  });
+  expect(container.querySelector(".updating")).not.toBeNull();
+  expect(container.querySelector(".acpmux-rules-notice")).toBeNull();
+  await act(async () => root!.render(draw(false)));
+  expect(container.querySelector(".updating")).toBeNull();
+  expect(container.querySelector(".acpmux-rules-notice")).not.toBeNull();
 });
