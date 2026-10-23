@@ -8,10 +8,13 @@ link; `/tmp` only when the path is too long for `sun_path`), and `~` there is th
 password database, not `$HOME` (a fleet step's HOME is a scratch folder). A launch also needs the bench
 environment below, and a GUI login session of this account on the console: from SSH or a fleet worker
 (which runs its steps over SSH as the worker account) an app whose account is not the console user gets no
-working session: it waits on ViewBridge (`ClientCallsAuxiliary` / `HostCallsAuxiliary: Connection
-interrupted`), never opens its socket, and dies after about 40 s. Found on the AWS measure workers
-2026-10-23, where only aws-m4pro-9 had ec2-user on the console. `launch()` checks the session first and
-raises LaunchError("no-gui-session") at once; every other failure gets its reason after the wait.
+working session: its display does not tick (frame numbers mean nothing), and the made-ahead open panel
+blocked its main thread about 40 s on ViewBridge (`HostCallsAuxiliary: Connection interrupted`), so the
+socket often never answered, then crashed it (MadeAheadOpenPanel, fixed in c41e7e7296a; the 40 s block
+stays). Found on the AWS measure workers 2026-10-23, where only aws-m4pro-9 had ec2-user on the console.
+`launch()` checks the session first and raises LaunchError("no-gui-session") at once
+(BENCH_LAUNCH_ANY_SESSION=1 launches anyway, for socket-only checks); every other failure gets its reason
+after the wait.
 
 On the fleet: `scripts/measure/split-spring.sh --suite=launch-check` builds the app and runs `check` below.
 
@@ -289,8 +292,8 @@ class BenchApp:
         """
         session = gui_session()
         if not session["ok"] and not os.environ.get("BENCH_LAUNCH_ANY_SESSION"):
-            # Without the console session the app waits on ViewBridge, never opens its socket, and dies
-            # (MadeAheadOpenPanel); say so now instead of after the timeout. BENCH_LAUNCH_ANY_SESSION=1 tries anyway.
+            # Without the console session the display does not tick and the open-panel warm-up blocks the main
+            # thread ~40 s; say so now instead of after the timeout. BENCH_LAUNCH_ANY_SESSION=1 tries anyway.
             self._fail("no-gui-session", {"tag": self.tag, **host_facts(), "gui_session": session,
                                           "detail": no_session_detail(session), "log_tail": ""})
         for path in socket_candidates(self.tag):
