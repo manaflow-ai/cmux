@@ -173,13 +173,10 @@ impl HolderLink {
             Some(ring) => {
                 let payload =
                     Out::default().i32(pid).u64(base).bytes(id).u64(resume).bytes(prologue).0;
-                let frame = wire::encode_flagged(Kind::Adopt, wire::FLAG_RING, chan, &payload);
+                let fds = [master.as_raw_fd(), ring.as_raw_fd()];
                 let writer = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
-                wire::send_all(
-                    writer.as_raw_fd(),
-                    &frame,
-                    &[master.as_raw_fd(), ring.as_raw_fd()],
-                )?;
+                let fd = writer.as_raw_fd();
+                wire::send_frame(fd, Kind::Adopt, wire::FLAG_RING, chan, &payload, &fds)?;
             }
             None => {
                 let payload = Out::default().i32(pid).u64(resume).bytes(id).bytes(prologue).0;
@@ -209,9 +206,9 @@ impl HolderLink {
         flags: u16,
     ) -> io::Result<()> {
         self.lock().sinks.insert(chan, sink);
-        let frame = wire::encode_flagged(Kind::Attach, flags, chan, &Out::default().u64(from).0);
+        let payload = Out::default().u64(from).0;
         let writer = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
-        wire::send_all(writer.as_raw_fd(), &frame, &[])
+        wire::send_frame(writer.as_raw_fd(), Kind::Attach, flags, chan, &payload, &[])
     }
 
     /// Tell the holder the daemon parsed `chan`'s output before `offset`,
@@ -268,7 +265,7 @@ impl HolderLink {
     fn send(&self, kind: Kind, chan: u32, payload: &[u8], fd: Option<&OwnedFd>) -> io::Result<()> {
         let fds: Vec<_> = fd.map(AsRawFd::as_raw_fd).into_iter().collect();
         let writer = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
-        wire::send_all(writer.as_raw_fd(), &wire::encode(kind, chan, payload), &fds)
+        wire::send_frame(writer.as_raw_fd(), kind, 0, chan, payload, &fds)
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, State> {
