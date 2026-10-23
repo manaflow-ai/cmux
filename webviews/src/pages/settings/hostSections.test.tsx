@@ -110,6 +110,25 @@ test("a space and a browser profile with a stored image or SVG icon draw it from
   browser.unmount();
 });
 
+test("Development shows only when the host is a DEV build, however it is reached", async () => {
+  const dev = await renderPage({ path: "/settings/development" });
+  expect(dev.container.querySelector("[data-section]")?.getAttribute("data-section")).toBe("development");
+  expect(dev.container.querySelector('[data-row-key="macScreen.debug.relayOnly"]')).not.toBeNull();
+  expect(dev.container.querySelector('[data-section-link="development"]')).not.toBeNull();
+  dev.unmount();
+  // NIGHTLY and Release: the deep link (and the relay key's focus link) open the default page.
+  for (const path of ["/settings/development", "/settings/development?focus=macScreen.debug.relayOnly"]) {
+    const page = await renderPage({
+      path,
+      setup: (provider) => provider.setHost({ ...provider.host, dev_build: false }),
+    });
+    expect(page.container.querySelector("[data-section]")?.getAttribute("data-section")).toBe("general");
+    expect(page.container.querySelector('[data-row-key="macScreen.debug.relayOnly"]')).toBeNull();
+    expect(page.container.querySelector('[data-section-link="development"]')).toBeNull();
+    page.unmount();
+  }
+});
+
 test("Machines offers Add Device…, which opens the one Add Device card through the palette's action", async () => {
   // add-device-DESIGN.md 2.2: one entry for every new device. The page passes no way, so it only
   // opens the card; the card hands off to Add Machine or Add Server and never approves by itself.
