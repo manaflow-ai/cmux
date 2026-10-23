@@ -15,6 +15,8 @@ import { ImageIcon, Lock } from "../conversation/icons";
 import { ImageViewerContext } from "../conversation/imageViewerContext";
 import { callChipHost } from "./host";
 import { DataUrlCache, IMAGE_CACHE_MAX_CHARS, IMAGE_CACHE_MAX_ENTRIES } from "./imageCache";
+import { ElsewhereChip } from "./LinkChips";
+import { useMessageScope } from "./messageScope";
 import { usePathInfo, useReplyPolicy } from "./linkStore";
 import { isRemoteMedia, mediaKind, RemoteMedia, ReplyMedia } from "./ReplyMedia";
 import { isDeniedPath, linkPath, pathName } from "./paths";
@@ -107,6 +109,10 @@ export function OpenableImage({
       type="button"
       className={thumb ? "cv-thumb cv-thumb--open" : "cv-img-open"}
       data-open-image
+      /* The file a reply read the image from: the context menu's Show in Finder selects it. */
+      data-image-path={path || undefined}
+      /* A button is not draggable by default: the image drags out as a file (conversation/dragOut.ts). */
+      draggable
       title={alt || t("image.view")}
       onClick={() => openImage(src, alt, path)}
     >
@@ -133,7 +139,15 @@ export function ReplyImage({
   fallback: ReactNode;
   thumb?: boolean;
 }) {
+  const scope = useMessageScope();
   const local = localImageSource(src);
+  // Another machine's image: its chip, never a file of the same path here; a denied one is its name.
+  if (local && scope?.host !== undefined)
+    return isDeniedPath(local) ? (
+      <span className="cv-chip-plain">{alt || pathName(local)}</span>
+    ) : (
+      <ElsewhereChip path={local} host={scope.host} label={alt || undefined} />
+    );
   if (local && mediaKind(local)) return <ReplyMedia path={local} alt={alt} fallback={fallback} />;
   if (!local && isRemoteMedia(src)) return <RemoteMedia url={src} alt={alt} fallback={fallback} />;
   const host = local ? undefined : remoteImageHost(src);

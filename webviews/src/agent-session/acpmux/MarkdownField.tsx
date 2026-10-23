@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef } from "react";
 import { pasteIsOnlyFileNames } from "./attachments";
 import { COMPOSER_READY_EVENT } from "./composerFocus";
-import { liftInlineImages } from "./inlineImages";
+import { liftInlineImages, withoutMarkdownImages } from "./inlineImages";
 import { isImeKeyEvent } from "../../pages/shared/imeKeys";
 import { activeFormats, applyFormat, type MarkdownFormat } from "./markdownFormat";
 import "./markdownField.css";
@@ -99,7 +99,8 @@ export type MarkdownFieldProps = {
   onSubmit?(markdown: string, modifiers: { cmd: boolean }): void;
   /// A new paragraph or line the browser inserts on its own, not from a key the field handled: the
   /// Return an input method or Dictation passes on (keyCode 229, which every key handler leaves to
-  /// it). Set, the field never adds that line and this runs instead, as Return would.
+  /// it), or that 229 Return itself once no composition runs or just ended. Set, the field never
+  /// adds that line and this runs instead, as Return would.
   onReturnInput?(): void;
   /// The user's first edit (the new tab's `newTab.touched`).
   onFirstInput?(): void;
@@ -203,8 +204,15 @@ function insertPlain(view: EditorView, text: string) {
  * empty paragraph a blank line), with no markdown escapes or `<br />` placeholders. */
 const copiedText = (slice: Slice) => slice.content.textBetween(0, slice.content.size, "\n");
 
-/// How long after a focus with no click the browser's own caret placement is overruled.
+/// How long after a focus with no click the browser's own caret placement is overruled. Its caret
+/// at the field's very start is overruled for as long as no key, click or edit came (see `keepCaret`).
 const KEEP_CARET_MS = 100;
+/// How soon after `compositionend` a keyCode-229 Return is the key that committed the composition
+/// (WebKit sends it after the event). ProseMirror's own Safari guard uses the same window.
+const COMMIT_RETURN_MS = 500;
+/** Return or keypad Enter, also when an input method reports its key as "Process". */
+const isReturnKey = (event: KeyboardEvent) =>
+  event.key === "Enter" || event.code === "Enter" || event.code === "NumpadEnter";
 /// The soft band at a long draft's scrolled edges (markdownField.css reads it as
 /// `--acpmux-md-fade-band`). The caret reveal keeps the caret this far from the field's edge, so the
 /// caret's line never sits in the fade. The attachment row above the prompt fades its scrolled sides
@@ -378,6 +386,11 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
     // long paste left the field (it scrolls past eight lines) at the top. Set while a paste the
     // surface did not consume runs; the paste's dispatch is synchronous inside it.
     let pasting = false;
+    // When the last composition ended (the event's timeStamp), for the Return that commits it.
+    let compositionEndedAt = -Infinity;
+    // Set from a passed-on Return the field took until its key comes up: the paragraph an input
+    // method may still insert for that key is the same Return, not a second one.
+    let returnTaken = false;
     // A paste that ends the draft shows the field's whole end, its bottom inset too: the caret
     // reveal stops a margin short in WebKit, which would leave the last line under the bottom fade
     // (markdownField.css). Every paste path ends here.
@@ -395,8 +408,27 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
           props: {
             handleDOMEvents: {
               keydown: (_view, event) => {
+                returnTaken = false;
                 latest.current.onKeyDown?.(event);
                 if (event.defaultPrevented) return true;
+                // A Return an input method or Dictation passed on (keyCode 229) never reaches
+                // ProseMirror's keymap, which reads its key as Enter and splits the paragraph: in
+                // Leo's chat that line was all a dictated prompt's Return did (2026-10-21). The
+                // Return that commits a composition stays the input method's; any later one is
+                // Return, as the field's surface takes it.
+                const returnInput = latest.current.onReturnInput;
+                const plainReturn = !event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey;
+                if (returnInput && isImeKeyEvent(event) && isReturnKey(event) && plainReturn) {
+                  if (event.isComposing || composing.current) return true;
+                  // WebKit's commit Return, just after compositionend: ProseMirror's own keydown
+                  // swallows it and clears its after-composition guard (imeKeys.ts). Kept from it,
+                  // the guard stayed armed and took the next key, so a quick Shift-Return sent.
+                  if (event.timeStamp - compositionEndedAt <= COMMIT_RETURN_MS) return false;
+                  event.preventDefault();
+                  returnTaken = true;
+                  returnInput();
+                  return true;
+                }
                 const submit = latest.current.onSubmit;
                 if (submit && event.key === "Enter" && !event.shiftKey && !event.altKey && !isImeKeyEvent(event)) {
                   event.preventDefault();
@@ -412,15 +444,21 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
                 if (!returnInput || (input.inputType !== "insertParagraph" && input.inputType !== "insertLineBreak"))
                   return false;
                 event.preventDefault();
-                returnInput();
+                if (returnTaken) returnTaken = false;
+                else returnInput();
                 return true;
+              },
+              keyup: () => {
+                returnTaken = false;
+                return false;
               },
               compositionstart: () => {
                 composing.current = true;
                 latest.current.onCompositionChange?.(true);
                 return false;
               },
-              compositionend: () => {
+              compositionend: (_view, event) => {
+                compositionEndedAt = event.timeStamp;
                 composing.current = false;
                 latest.current.onCompositionChange?.(false);
                 return false;
@@ -441,7 +479,16 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
                 if (!data.files.length && !htmlHasDataImage(data.getData("text/html")) && !lifted.attachments.length)
                   return false;
                 event.preventDefault();
-                const plain = pasteIsOnlyFileNames(data) ? "" : lifted.text;
+                // The picture itself is on the clipboard (a file, or a data: <img>): the `![…](…)`
+                // a browser or the transcript copies beside it is only markup for it, never text.
+                const carriesImage =
+                  [...data.files].some((file) => file.type.startsWith("image/")) ||
+                  htmlHasDataImage(data.getData("text/html"));
+                const plain = pasteIsOnlyFileNames(data)
+                  ? ""
+                  : carriesImage
+                    ? withoutMarkdownImages(lifted.text)
+                    : lifted.text;
                 if (!plain.trim() || beforeInput(editorView, plain, true)) return true;
                 insertPlain(editorView, plain);
                 showPastedEnd(editorView.state);
@@ -514,6 +561,8 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
     // textarea gets its selection back. So does the field now: a focus that no click placed puts
     // back the selection it had, also over a placement the browser makes just after the focus.
     const keepCaret = $prose(() => {
+      const caretAtStart = ({ doc, selection }: EditorState) =>
+        selection.empty && selection.from === Selection.atStart(doc).from;
       const kept = (state: EditorState) => {
         const saved = refocus.current;
         if (!saved || saved.owner !== owner.current || !state.doc.eq(saved.doc)) return null;
@@ -575,8 +624,15 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
         },
         appendTransaction: (transactions, _previous, state) => {
           const saved = refocus.current;
-          if (!saved || performance.now() > saved.until) return null;
-          if (transactions.some((tr) => tr.docChanged)) {
+          if (!saved) return null;
+          const docChanged = transactions.some((tr) => tr.docChanged);
+          if (performance.now() > saved.until) {
+            // Past the window only WebKit's caret at the start is overruled: it comes after the
+            // focus, as a selectionchange that a busy page (an inbound message drawing) takes well
+            // past 100 ms to deliver (Leo 2026-10-21, after another agent's steer). The person's own
+            // move there comes with a key or a click, which drop the saved selection first.
+            if (docChanged || !caretAtStart(state)) return null;
+          } else if (docChanged) {
             refocus.current = null;
             return null;
           }
