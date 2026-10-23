@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "build": "3993193180601",
+  "notes": "notes/3993193180601.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 24499,
+      "title": "Agent chat: a subagent's hover card never leaves the page for a long line (no flash)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23693,
+      "title": "cmux NEXT: a classic import keeps classic's workspace order again (base red since #22593)",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/23693/2c3abb84/next-core-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "2c3abb84",
+      "tour": "core"
+    },
+    {
+      "pr": 24502,
+      "title": "cmux NEXT composer: the look dots' radios are on the type scale",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24505,
+      "title": "test(agent-pane): a held edit's run keeps its tool rows; check the labels, not the card",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
