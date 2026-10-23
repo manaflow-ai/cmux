@@ -189,7 +189,7 @@ nonisolated extension ActionSurfaceCatalog {
         "cloudResizeMachine": [p(.cloudMachine, .connection, 200, folder: .connection)],
         "palette.cloud.deleteSnapshot": [p(.cloudMachine, .close, 301, folder: .connection)],
         "remote.connect": [p(.sidebarBackground, .create, 201, folder: .new)],
-        "machine.add": [p(.sidebarBackground, .create, 202, folder: .new)],
+        "device.add": [p(.sidebarBackground, .create, 202, folder: .new)],
         "machine.doctor": [p(.sshMachine, .connection, 103)],
         "remote.newGroup": [p(.sidebarBackground, .create, 200, folder: .new)],
         "remote.newWorkspace": [p(.sshMachine, .create, 0)],
