@@ -126,7 +126,17 @@ class GitHub:
                 raise RequestError(f"{method} curl exit {result.returncode}: {detail}")
             status = int(result.stdout)
             if not 200 <= status < 300:
-                raise RequestError(f"{method} HTTP {status}", status=status)
+                # Pass GitHub's own rate-limit message (primary or secondary)
+                # so gh-quota-retry.sh can see it (run 39536149802: "POST HTTP 403").
+                detail = ""
+                if status in (403, 429) and output.exists():
+                    try:
+                        message = str(json.loads(output.read_text(errors="replace")).get("message", ""))
+                    except (ValueError, AttributeError):
+                        message = ""
+                    if "rate limit" in message.lower():
+                        detail = f": {message[:200]}"
+                raise RequestError(f"{method} HTTP {status}{detail}", status=status)
             body = output.read_text()
             if not body:
                 return None

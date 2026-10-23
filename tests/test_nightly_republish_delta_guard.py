@@ -49,6 +49,17 @@ if "--jq" in args:
 assert args[0] == "api", args
 routes = json.loads(os.environ["FAKE_GH_ROUTES"])
 path = args[1]
+if path == "rate_limit":
+    # Quota left: the wrapper waits its short secondary-limit wait (GH_QUOTA_MAX_WAIT).
+    print("4999" if jq and "remaining" in jq else "0"); sys.exit(0)
+limited = os.environ.get("FAKE_GH_LIMIT_ONCE_DIR")
+if limited and path in os.environ.get("FAKE_GH_LIMIT_ONCE", "").split():
+    marker = os.path.join(limited, path.replace("/", "_"))
+    if not os.path.exists(marker):
+        open(marker, "w").close()
+        # gh prints the error body on stdout and the message on stderr.
+        print('{"message":"API rate limit exceeded for installation."}')
+        sys.stderr.write("gh: API rate limit exceeded for installation. (HTTP 403)\n"); sys.exit(1)
 if path not in routes:
     sys.stderr.write(f"gh: Not Found (HTTP 404) {path}\n"); sys.exit(1)
 body = json.dumps(routes[path])
@@ -73,7 +84,7 @@ def render(text, context):
     return re.sub(r"\$\{\{\s*([^}]+?)\s*\}\}", lambda m: context.get(m.group(1).strip(), ""), str(text))
 
 
-def run_guard(script, tag_object, live_build=None):
+def run_guard(script, tag_object, live_build=None, limit_once=()):
     """Runs the step with the branch at BRANCH and the tag as `tag_object`;
     with `live_build`, the NEXT feed (a file URL) serves that build."""
     routes = {
@@ -97,6 +108,13 @@ def run_guard(script, tag_object, live_build=None):
         env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}", FAKE_GH_ROUTES=json.dumps(routes),
                    GITHUB_REPOSITORY=REPO, GITHUB_OUTPUT=output, CHANNEL_RELEASE_TAG=TAG, GH_TOKEN="test",
                    NIGHTLY_BUILD=NIGHTLY_BUILD)
+        if limit_once:
+            # The checked-out build commit has the quota wrapper; one tag read hits the limit.
+            os.makedirs(os.path.join(tmp, "scripts", "ci"))
+            shutil.copy(os.path.join(ROOT, "scripts", "ci", "gh-quota-retry.sh"), os.path.join(tmp, "scripts", "ci"))
+            os.mkdir(os.path.join(tmp, "limited"))
+            env.update(FAKE_GH_LIMIT_ONCE=" ".join(limit_once), FAKE_GH_LIMIT_ONCE_DIR=os.path.join(tmp, "limited"),
+                       GH_QUOTA_MAX_WAIT="1")
         if live_build is not None:
             feed = os.path.join(tmp, "feed")
             os.mkdir(feed)
@@ -127,6 +145,15 @@ def main():
                f"{label} at this build, branch moved ahead: the delta result is not called stale ({result.stdout.strip()})")
         _check("No Sparkle deltas were generated" in result.stdout,
                f"{label} at this build: the step goes on to the deltas ({result.stdout.strip()})")
+
+    # 2026-10-21 (run 39536149802): the tag read hit the API quota. The wrapper
+    # runs it again, and the failed attempt's error body must not reach the
+    # captured tag object (it would read as a stale tag and drop the deltas).
+    result, output = run_guard(script, {"sha": TAG_OBJECT, "type": "tag"},
+                               limit_once=(f"repos/{REPO}/git/ref/tags/{TAG}", f"repos/{REPO}/git/tags/{TAG_OBJECT}"))
+    _check(result.returncode == 0 and "No Sparkle deltas were generated" in result.stdout
+           and "Skipping stale delta result" not in result.stdout and "rate limit" in result.stderr,
+           f"a rate-limited tag read: the wrapper runs it again and the step goes on to the deltas ({result.stdout.strip()} | {result.stderr.strip()[-300:]})")
 
     result, output = run_guard(script, {"sha": NEWER, "type": "commit"})
     _check(result.returncode == 0 and "Skipping stale delta result" in result.stdout and "publish=false" in output,
