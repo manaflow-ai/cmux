@@ -194,7 +194,10 @@ struct DiffLastTurnTests {
             return AgentPaneRequest(body: ["method": "pane.action", "params": params] as [String: Any])
         }
         guard case .diffTurn(let turn, let cwd, let toggle) = message(["from": "cp-1", "to": "cp-2", "file": "src/a.ts", "show": true])
-        else { return Issue.record("pane.action with a turn did not decode") }
+        else {
+            Issue.record("pane.action with a turn did not decode")
+            return
+        }
         #expect(turn == AgentPaneDiffTurn(from: "cp-1", to: "cp-2", file: "src/a.ts", show: true))
         #expect(cwd == "/repo")
         #expect(!toggle)
@@ -206,7 +209,8 @@ struct DiffLastTurnTests {
             Issue.record("pane.action with a turn did not decode")
         }
         guard case .paneAction("openDiffViewer", _, _) = message(["from": "cp-1"]) else {
-            return Issue.record("pane.action without a pair is not plain Changes")
+            Issue.record("pane.action without a pair is not plain Changes")
+            return
         }
 
         // The header runs openDiffViewer beside the chat with the turn's arguments.
