@@ -11,6 +11,23 @@ fn strings(values: &[&str]) -> Vec<String> {
 }
 
 #[test]
+fn removed_route_is_detected_after_global_options() {
+    assert!(removed_route_requested(&strings(&["route", "list"])));
+    assert!(removed_route_requested(&strings(&["--json", "route", "list"])));
+    assert!(removed_route_requested(&strings(&["--socket", "/tmp/cmux.sock", "route", "list"])));
+    assert!(removed_route_requested(&strings(&["--headless", "route", "list"])));
+    assert!(removed_route_requested(&strings(&["help", "route"])));
+    assert!(removed_route_requested(&strings(&["--headless", "help", "route"])));
+    assert!(removed_route_requested(&strings(&["--state", "/tmp/state", "route", "list"])));
+    assert!(removed_route_requested(&strings(&["--json", "acp", "route"])));
+    assert!(!removed_route_requested(&strings(&["--machine-provider-command", "/bin/foo", "route", "list", "--"])));
+    assert!(removed_route_requested(&strings(&["route", "list", "--machine-provider-command", "foo", "--"])));
+    assert!(removed_route_requested(&strings(&["--owner-ready-fd", "5", "route", "list"])));
+    assert!(!removed_route_requested(&strings(&["--socket", "route", "workspace", "list"])));
+    assert!(!removed_route_requested(&strings(&["--", "route", "list"])));
+}
+
+#[test]
 fn global_modes_are_mutually_exclusive() {
     let error = parse_globals(&strings(&["--json", "--quiet", "workspace", "list"])).unwrap_err();
     assert!(error.0.0.contains("another output mode"));
