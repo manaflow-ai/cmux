@@ -9,6 +9,8 @@ public nonisolated enum PageScriptError: Error, Sendable, Equatable {
     case noResult
     /// The script threw; the text is Chromium's exception description.
     case exception(String)
+    /// VERIFY ONLY stub.
+    case notStarted
 }
 
 extension PageWebView {
