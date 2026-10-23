@@ -16,22 +16,30 @@ display frame of visibility (1 = the first frame drawn after the key) is above N
 `--browser-tabs N` first opens N browser tabs (6 per workspace, in workspaces of their own) on pages a
 local HTTP server serves, each with its own title and favicon, so every visit is a history entry with
 an icon: the New Tab page that Cmd-N and Cmd-T build then lists N open tabs and up to 40 history pages
-with favicons, as a working session does. Without it the session holds only the bench's terminals.
+with favicons, as a working session does. `--icon-px` (default 180, a touch icon's size) sets each icon's
+size: the page inlines every listed icon, so a site's full-size icon is what each create encodes and sends. Without it the session holds only the bench's terminals.
 `--browser-engine` (default chromium) picks the engine. Only Chromium tabs get these icons: a WebKit
 tab fetches its icon through BrowserFaviconLoader, which refuses loopback hosts, so with webkit the
 pages and history are there but without icons. Check `debug.cef` first (perf-lead-brief measurement
 validity): a build without the Chromium artifact silently opens WebKit tabs.
 
-Create-on-the-key guard (red before the fix, green after):
-  instant-new-surfaces-bench.py --tag T --app APP --phases idle --browser-tabs 60 \
+`--sessions light,stress` runs every phase in the light session first, then builds the standard STRESS
+session (scripts/cmux-next/perf-stress-session.py: 60 workspaces, the measured one 4 x 3 panes plus nested
+splits, 6 tabs per pane, 10 busy terminals, 10 workspaces with Chromium pages) in the same app and runs
+every phase again in its measured workspace (phase names end in `@stress`), so light and STRESS numbers come
+from one build side by side. It prints the STRESS-SESSION line the builder reports.
+
+Create-on-the-key guard (red before the fix, green after), light and STRESS:
+  instant-new-surfaces-bench.py --tag T --app APP --phases idle --browser-tabs 60 --sessions light,stress \
     --commands new_workspace,new_tab,new_terminal,split_right,split_down,new_chat \
     --budget-frames 1 --budget-key-p95-ms 4
 
-`--commands` picks the commands (default all); `--workspaces 10,100` runs every phase again at
+`--commands` picks the commands (default all but new_column, which PL-motion-core owns); `--workspaces 10,100` runs every phase again at
 each workspace count (the app holds that many terminal workspaces; the bench's is the shown one).
 
 Usage: instant-new-surfaces-bench.py --tag TAG --app PATH [--runs 12] [--commands new_terminal]
-       [--workspaces 10,100] [--browser-tabs 60] [--budget-key-p95-ms 4] [--out DIR] [--json FILE]
+       [--workspaces 10,100] [--browser-tabs 60] [--sessions light,stress] [--budget-key-p95-ms 4]
+       [--out DIR] [--json FILE]
 """
 import argparse, glob, http.server, json, os, re, signal, socket, struct, subprocess, sys, tempfile, threading, time, zlib
 
@@ -41,13 +49,16 @@ parser.add_argument("--app", required=True)
 parser.add_argument("--runs", type=int, default=12)
 parser.add_argument("--storm", type=int, default=8)
 parser.add_argument("--phases", default="idle,load")
-parser.add_argument("--commands", default="split_right,split_down,new_tab,new_terminal,new_workspace,new_column,new_chat")
+# new_column is PL-motion-core's (New Column end to end): pass it with --commands to time it here.
+parser.add_argument("--commands", default="split_right,split_down,new_tab,new_terminal,new_workspace,new_chat")
 parser.add_argument("--workspaces", default="", help="comma-separated workspace counts to run every phase at (empty: as launched)")
 parser.add_argument("--budget-frames", type=float, default=0, help="fail when a command's p95 display frame of visibility is above this (1: the first frame; 0: report only)")
 parser.add_argument("--budget-key-ms", type=float, default=16.7)
 parser.add_argument("--budget-key-p95-ms", type=float, default=0, help="fail when a command's p95 key main-thread ms is above this (0: off)")
 parser.add_argument("--browser-tabs", type=int, default=0, help="open this many browser tabs with favicons (and history) before the bench")
 parser.add_argument("--browser-engine", choices=["chromium", "webkit"], default="chromium")
+parser.add_argument("--sessions", default="light", help="light, stress, or light,stress (STRESS built after the light runs)")
+parser.add_argument("--icon-px", type=int, default=180, help="pixel size of each --browser-tabs page's favicon (sites serve 16 to 256)")
 parser.add_argument("--out", default="/tmp")
 parser.add_argument("--json")
 opts = parser.parse_args()
@@ -135,8 +146,19 @@ def stop_load():
     LOAD.clear()
 
 
-def undo(command, window, before_panes):
+def undo(command, window, before_panes, result=None):
     """Back to one terminal pane in the bench workspace."""
+    if command == "new_chat":
+        # The chat the run added, by id: Cmd-W would close the focused tab, which is the bench's
+        # terminal when the placement opened the chat unfocused in another pane. A chat the
+        # placement opened in a new workspace takes that workspace with it.
+        if (result or {}).get("workspace_changed"):
+            rpc("action.run", {"action": "closeWorkspace"})
+        else:
+            for tab in (result or {}).get("added_tabs") or []:
+                rpc("action.run", {"action": "closeTab", "target": f"tab:{tab}", "origin": "script", "wait": True})
+        wait(lambda: len(panes()) <= before_panes and (focused() or {}).get("kind") == "terminal", 10)
+        return
     if command == "new_workspace":
         rpc("action.run", {"action": "closeWorkspace"})
         wait(lambda: (focused() or {}).get("kind") == "terminal", 10)
@@ -177,7 +199,7 @@ def bench(phase, window):
                   f"frame={frame_of(result)} confirmed={result.get('confirmed_ms')} marks={marks} "
                   f"err={result.get('error')}", flush=True)
             time.sleep(0.4)  # test harness: let the creation's shell start before closing it
-            undo(command, window, before)
+            undo(command, window, before, result)
             time.sleep(0.3)
     return rows
 
@@ -236,12 +258,15 @@ def summary(rows):
     return out
 
 
-def png(seed):
-    """A 16x16 solid PNG whose color follows `seed`: each page gets its own favicon image."""
-    color = bytes(((seed * 67) % 256, (seed * 131) % 256, (seed * 29 + 90) % 256))
-    raw = b"".join(b"\x00" + color * 16 for _ in range(16))
+def png(seed, size):
+    """A `size` px square PNG of color blocks whose base color follows `seed`: each page gets its
+    own favicon image, at the size sites serve (`--icon-px`: a 180 px touch icon is common; a 16 px
+    one hides what a full-size icon costs every New Tab page that lists it)."""
+    r, g, b = (seed * 67) % 256, (seed * 131) % 256, (seed * 29 + 90) % 256
+    raw = b"".join(b"\x00" + b"".join(bytes(((r + x // 6 * 9) % 256, (g + y // 6 * 9) % 256, (b + ((x // 12) ^ (y // 12)) * 16) % 256)) for x in range(size))
+                   for y in range(size))
     chunk = lambda kind, data: struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
-    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 16, 16, 8, 2, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b"")
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", size, size, 8, 2, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b"")
 
 
 class PageHandler(http.server.BaseHTTPRequestHandler):
@@ -256,7 +281,7 @@ class PageHandler(http.server.BaseHTTPRequestHandler):
         if match.group(1) == "p":
             body, kind = f'<!doctype html><title>Bench page {n}</title><link rel="icon" href="/icon/{n}.png"><p>page {n}'.encode(), "text/html"
         else:
-            body, kind = png(n), "image/png"
+            body, kind = png(n, opts.icon_px), "image/png"
         self.send_response(200)
         self.send_header("Content-Type", kind)
         self.send_header("Content-Length", str(len(body)))
@@ -283,6 +308,18 @@ def seed_browser_tabs(count):
     print(f"browser tabs ({opts.browser_engine}): {listed()} of {count} listed by the New Tab bar ({seen}); "
           f"debug.cef: {json.dumps(rpc('debug.cef'))[:400]}", flush=True)
     return server
+
+
+def build_stress():
+    """The standard STRESS session in this app (perf-stress-session.py), its measured workspace shown."""
+    import importlib.util
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "perf-stress-session.py")
+    spec = importlib.util.spec_from_file_location("perf_stress_session", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    shape = module.Stress(rpc).build()
+    print("STRESS-SESSION", json.dumps(shape), flush=True)
+    return shape
 
 
 app = None
@@ -331,21 +368,25 @@ def main():
     time.sleep(2)  # test harness: shell prompt
     window = window_key()
     server = seed_browser_tabs(opts.browser_tabs) if opts.browser_tabs else None
-    rows = []
+    rows, stress = [], None
     counts = [int(c) for c in opts.workspaces.split(",") if c] or [None]
-    for count in counts:
-        suffix = ""
-        if count is not None:
-            ensure_terminal()
-            suffix = f"@{grow_workspaces(count)}ws"
-        for phase in opts.phases.split(","):
-            if phase == "load":
-                start_load()
-            try:
-                rows += bench(phase + suffix, window)
-            finally:
-                stop_load()
-    result = {"tag": TAG, "host": os.uname().nodename, "cpus": os.cpu_count(), "summary": summary(rows), "runs": rows}
+    for session in [s for s in opts.sessions.split(",") if s]:
+        if session == "stress":
+            stress = build_stress()
+        for count in counts:
+            suffix = "@stress" if session == "stress" else ""
+            if count is not None:
+                ensure_terminal()
+                suffix += f"@{grow_workspaces(count)}ws"
+            for phase in opts.phases.split(","):
+                if phase == "load":
+                    start_load()
+                try:
+                    rows += bench(phase + suffix, window)
+                finally:
+                    stop_load()
+    result = {"tag": TAG, "host": os.uname().nodename, "cpus": os.cpu_count(), "stress_session": stress,
+              "summary": summary(rows), "runs": rows}
     print("\nSUMMARY", json.dumps(result["summary"], indent=1), flush=True)
     if opts.json:
         open(opts.json, "w").write(json.dumps(result, indent=1))
