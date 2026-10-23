@@ -256,7 +256,12 @@ pub(crate) fn removed_route_requested(args: &[String]) -> bool {
     // This mode consumes an arbitrary argv payload through `--` and never
     // enters the CLI dispatcher, so a literal `route` belongs to the provider
     // command rather than the removed cmux resource scope.
-    if args.iter().any(|arg| arg == "--machine-provider-command") {
+    if let Some(provider_index) = args.iter().position(|arg| arg == "--machine-provider-command")
+        && args
+            .iter()
+            .position(|arg| arg == "route")
+            .is_none_or(|route_index| provider_index < route_index)
+    {
         return false;
     }
     scan_globals(args, MachineFlag::Global)
