@@ -199,7 +199,10 @@ fn tab_extra(connection: &Connection, tab_id: &str) -> anyhow::Result<Map<String
         // `tab-attention-v1`: `{reason, at_ms}`, present only while an agent
         // needs the person in this tab.
         if let Some(attention) = attention {
-            fields.insert("attention".into(), serde_json::from_str(&attention)?);
+            fields.insert(
+                "attention".into(),
+                crate::state::tab_state_store::shown_attention(&attention)?,
+            );
         }
         for (name, list) in [("back", back), ("forward", forward)] {
             if let Some(list) = list {

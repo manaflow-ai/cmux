@@ -12,14 +12,14 @@ pub(super) fn start_surface_thread(
 ) -> anyhow::Result<()> {
     let id = surface.id;
     std::thread::Builder::new().name(format!("browser-surface-{id}-events")).spawn(move || {
-        // tab-attention-v1: the page URL this thread last saw. Any setter
-        // (target info, frame navigation, same-document navigation, the
-        // navigate hold) may move the URL first, so compare against what
-        // this thread saw rather than trust one setter's return value.
+        // tab-attention-v1: the page URL this thread last asked about, so
+        // repeated events on one page read nothing. Whether a mark goes is
+        // decided against the page the mark recorded, not this, so the first
+        // event (even one after the URL already moved) still clears it.
         let mut seen_url: Option<String> = None;
         while let Some(event) = events.recv() {
             let Surface::Browser(browser) = surface.as_ref() else { break };
-            let seen_url = seen_url.get_or_insert_with(|| browser.url());
+            let seen_url = &mut seen_url;
             match event {
                 CdpEvent::ScreencastFrame(frame) => {
                     let frame_epoch = frame.frame_epoch;
@@ -194,22 +194,23 @@ pub(super) fn start_surface_thread(
     Ok(())
 }
 
-/// tab-attention-v1: drop the tab's "needs you" mark once its page URL
-/// differs from the one `seen_url` last recorded. The marked page is gone.
+/// tab-attention-v1: the tab is on `browser.url()`; drop a "needs you" mark
+/// set on another page (the marked page is gone). `seen_url` only skips the
+/// read for a page this thread already asked about.
 pub(super) fn clear_attention_if_page_changed(
-    seen_url: &mut String,
+    seen_url: &mut Option<String>,
     browser: &BrowserSurface,
     mux: &Weak<Mux>,
     id: SurfaceId,
 ) {
     let url = browser.url();
-    if url.is_empty() || url == *seen_url {
+    if url.is_empty() || seen_url.as_deref() == Some(url.as_str()) {
         return;
     }
-    *seen_url = url;
     if let Some(mux) = mux.upgrade() {
-        mux.clear_attention_after_navigation(&crate::Actor::Daemon, id);
+        mux.clear_attention_after_navigation(&crate::Actor::Daemon, id, &url);
     }
+    *seen_url = Some(url);
 }
 
 pub(super) fn start_browser_worker(

@@ -58,7 +58,13 @@ fn an_agent_marks_a_tab_without_moving_focus_and_clears_it() {
     let cleared = mutate(&mux, "tab.update", json!({"tab": tab, "attention": null}), "attention-3");
     assert!(cleared["extra"].get("attention").is_none());
     assert_eq!(cleared["extra"]["zoom"], 1.5);
-    let bad_values = [json!(""), json!("two\nlines"), json!(true), json!("x".repeat(201))];
+    let bad_values = [
+        json!(""),
+        json!("two\nlines"),
+        json!("two\u{2028}lines"),
+        json!(true),
+        json!("x".repeat(201)),
+    ];
     for (index, bad) in bad_values.into_iter().enumerate() {
         assert_eq!(
             error_code(send(
@@ -92,6 +98,14 @@ fn a_browser_tab_drops_its_mark_when_its_page_changes_but_not_on_a_title_change(
     mux.update_frontend_browser_tab(browser, Some("https://github.com/".into()), None, None)
         .unwrap();
     assert!(listed_attention(&mux, &tab).is_null(), "another page clears the mark");
+    // The agent marks the page the tab is on now; that page's navigation
+    // clear, arriving after the mark, keeps it (it decides in its own commit).
+    mutate(&mux, "tab.update", json!({"tab": tab, "attention": REASON}), "attention-nav-2");
+    assert!(listed_attention(&mux, &tab).get("page").is_none(), "extra.attention shows no page");
+    mux.clear_attention_after_navigation(&crate::Actor::Daemon, browser, "https://github.com/");
+    assert_eq!(listed_attention(&mux, &tab)["reason"], REASON, "a late clear for its own page");
+    mux.clear_attention_after_navigation(&crate::Actor::Daemon, browser, "https://github.com/x");
+    assert!(listed_attention(&mux, &tab).is_null(), "the next page clears it");
 }
 
 #[test]

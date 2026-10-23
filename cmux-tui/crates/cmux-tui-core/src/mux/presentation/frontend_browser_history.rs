@@ -99,7 +99,7 @@ impl Mux {
             changed = true;
         }
         // tab-attention-v1: the page the agent asked the person to act on is gone.
-        let navigated = url.as_ref().is_some_and(|url| previous_url.as_ref() != Some(url));
+        let navigated_to = url.clone().filter(|url| previous_url.as_ref() != Some(url));
         if changed {
             if let Some(browser) = runtime.as_browser() {
                 browser.set_frontend_location(url, title.clone());
@@ -110,8 +110,8 @@ impl Mux {
             }
             self.emit_tab_changed(surface);
         }
-        if navigated {
-            self.clear_attention_after_navigation(actor, surface);
+        if let Some(page) = &navigated_to {
+            self.clear_attention_after_navigation(actor, surface, page);
         }
         Ok((record, changed))
     }
