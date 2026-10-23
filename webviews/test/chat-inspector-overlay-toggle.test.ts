@@ -226,13 +226,13 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
   // content's, the same in a tall pane as in a short one, floating or pushing, with nothing under its
   // last section but the body's own padding, and its body does not scroll. Folding a section shrinks
   // the card with it, so no fixed or minimum height holds it open either.
-  /// The card's height, the room under its last section (the sections themselves, not the
-  /// `data-section` blocks inside them) and the body's bottom padding.
+  /// The card's height, the room under its last block of sections (ChatInspector.tsx RAIL_LAYOUT; not
+  /// the `data-section` blocks inside them) and the body's bottom padding.
   const fit = (panel: Locator) =>
     panel.evaluate((node) => {
       const box = node.getBoundingClientRect();
       const body = node.querySelector(".acpmux-chat-inspector__body")!;
-      const sections = [...body.querySelectorAll(":scope > section[data-section]")];
+      const sections = [...body.querySelectorAll(":scope > .acpmux-chat-inspector-group")];
       const last = sections[sections.length - 1]!.getBoundingClientRect();
       return {
         top: box.top,
@@ -257,18 +257,24 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
             const open = await fit(panel);
             cards.push({ height, ...open });
             if (height !== 520) continue;
-            // Fold Environment: the card ends at its sections again, shorter by just its rows.
-            const environment = panel.locator('section[data-section="environment"]');
-            const rows = environment.locator(".ui-disclosure-panel");
+            // Open Context, then fold it: the card ends at its sections again, shorter by just its rows.
+            const context = panel.locator('section[data-section="context"]');
+            const frame = () =>
+              page.evaluate(
+                () => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))),
+              );
+            await context.locator(".ui-disclosure-trigger").click();
+            const rows = context.locator(".ui-disclosure-panel");
+            await rows.waitFor({ timeout: 5_000 });
+            await frame();
+            const unfolded = await fit(panel);
             const fold = await rows.evaluate((node) => node.getBoundingClientRect().height);
-            await environment.locator(".ui-disclosure-trigger").click();
+            await context.locator(".ui-disclosure-trigger").click();
             await rows.waitFor({ state: "detached", timeout: 5_000 });
-            await page.evaluate(
-              () => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))),
-            );
+            await frame();
             const after = await fit(panel);
             folded = {
-              shrank: fold > 0 && Math.abs(open.card - after.card - fold) < 0.5,
+              shrank: fold > 0 && Math.abs(unfolded.card - after.card - fold) < 0.5,
               endsAtContent: after.endsAtContent,
               scrolls: after.scrolls,
             };

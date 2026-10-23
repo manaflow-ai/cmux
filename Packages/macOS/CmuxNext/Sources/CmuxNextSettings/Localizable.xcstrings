@@ -156138,133 +156138,133 @@
       }
     },
     "settings.agentPane.display.inspector": {
-      "comment": "Settings > Appearance > Agent Chat: the row choosing how the Inspector (the chat's right-hand panel) opens",
+      "comment": "Settings > Appearance > Agent Chat: the row choosing how Session Info (the chat's right-hand panel, formerly the Inspector) opens",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "المراقِب"
+            "value": "معلومات الجلسة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inspektor"
+            "value": "Informacije o sesiji"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inspektør"
+            "value": "Sessionsinfo"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inspektor"
+            "value": "Sitzungsinfo"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inspector"
+            "value": "Session Info"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inspector"
+            "value": "Información de la sesión"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inspecteur"
+            "value": "Infos de la session"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ispettore"
+            "value": "Info sessione"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "インスペクタ"
+            "value": "セッション情報"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "អ្នកត្រួតពិនិត្យ"
+            "value": "ព័ត៌មានវគ្គ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "인스펙터"
+            "value": "세션 정보"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inspektør"
+            "value": "Øktinfo"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inspektor"
+            "value": "Informacje o sesji"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inspetor"
+            "value": "Informações da sessão"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Инспектор"
+            "value": "Сведения о сеансе"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ตัวตรวจสอบ"
+            "value": "ข้อมูลเซสชัน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Denetçi"
+            "value": "Oturum bilgileri"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Інспектор"
+            "value": "Відомості про сеанс"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Trình kiểm tra"
+            "value": "Thông tin phiên"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "检查器"
+            "value": "会话信息"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "檢閱器"
+            "value": "工作階段資訊"
           }
         }
       }
@@ -156276,127 +156276,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "مكان فتح المراقِب على يمين المحادثة. «دفع» يضيّق المحادثة بجانبه، و«تراكب» يظهر فوق المحادثة."
+            "value": "مكان فتح لوحة معلومات الجلسة على يمين المحادثة. «دفع» يضيّق المحادثة بجانبها، و«تراكب» يعرضها فوق المحادثة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gdje se Inspektor otvara desno od razgovora. Guranje sužava razgovor pored njega; Preklapanje ga prikazuje preko razgovora."
+            "value": "Gdje se ploča Informacije o sesiji otvara desno od razgovora. Guranje sužava razgovor pored nje; Preklapanje je prikazuje preko razgovora."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hvor Inspektøren åbner til højre for chatten. Skub gør chatten smallere ved siden af den; Overlejring lægger den over chatten."
+            "value": "Hvor panelet Sessionsinfo åbner til højre for chatten. Skub gør chatten smallere ved siden af det; Overlejring lægger det over chatten."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wo sich der Inspektor rechts vom Chat öffnet. „Verschieben“ macht den Chat daneben schmaler, „Überlagern“ legt ihn über den Chat."
+            "value": "Wo sich das Sitzungsinfo-Panel rechts vom Chat öffnet. „Verschieben“ macht den Chat daneben schmaler, „Überlagern“ legt es über den Chat."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Where the Inspector opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat."
+            "value": "Where the Session Info panel opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dónde se abre el Inspector a la derecha del chat. Desplazar estrecha el chat a su lado; Superponer lo coloca encima del chat."
+            "value": "Dónde se abre el panel Información de la sesión a la derecha del chat. Desplazar estrecha el chat a su lado; Superponer lo coloca encima del chat."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Où l’Inspecteur s’ouvre à droite du chat. Pousser rétrécit le chat à côté ; Superposer le place par-dessus le chat."
+            "value": "Où le panneau Infos de la session s’ouvre à droite du chat. Pousser rétrécit le chat à côté ; Superposer le place par-dessus le chat."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dove si apre l’Ispettore a destra della chat. Sposta restringe la chat accanto; Sovrapponi lo mostra sopra la chat."
+            "value": "Dove si apre il pannello Info sessione a destra della chat. Sposta restringe la chat accanto; Sovrapponi lo mostra sopra la chat."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "チャットの右側にインスペクタを開く方法。「押し出す」はチャットを狭めて横に並べ、「重ねる」はチャットの上に表示します。"
+            "value": "チャットの右側にセッション情報パネルを開く方法。「押し出す」はチャットを狭めて横に並べ、「重ねる」はチャットの上に表示します。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "កន្លែងដែលអ្នកត្រួតពិនិត្យបើកនៅខាងស្ដាំការជជែក។ រុញ ធ្វើឱ្យការជជែកតូចនៅក្បែរវា; ត្រួតលើ បង្ហាញវានៅលើការជជែក។"
+            "value": "កន្លែងដែលផ្ទាំងព័ត៌មានវគ្គបើកនៅខាងស្ដាំការជជែក។ រុញ ធ្វើឱ្យការជជែកតូចនៅក្បែរវា; ត្រួតលើ បង្ហាញវានៅលើការជជែក។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "채팅 오른쪽에 인스펙터를 여는 방식입니다. 밀어내기는 채팅을 옆으로 좁히고, 겹치기는 채팅 위에 표시합니다."
+            "value": "채팅 오른쪽에 세션 정보 패널을 여는 방식입니다. 밀어내기는 채팅을 옆으로 좁히고, 겹치기는 채팅 위에 표시합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hvor Inspektøren åpnes til høyre for chatten. Skyv gjør chatten smalere ved siden av; Overlegg legger den over chatten."
+            "value": "Hvor panelet Øktinfo åpnes til høyre for chatten. Skyv gjør chatten smalere ved siden av; Overlegg legger det over chatten."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gdzie Inspektor otwiera się po prawej stronie czatu. Przesuń zwęża czat obok niego; Nakładka wyświetla go nad czatem."
+            "value": "Gdzie panel Informacje o sesji otwiera się po prawej stronie czatu. Przesuń zwęża czat obok niego; Nakładka wyświetla go nad czatem."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Onde o Inspetor abre à direita do chat. Empurrar estreita o chat ao lado; Sobrepor o coloca sobre o chat."
+            "value": "Onde o painel Informações da sessão abre à direita do chat. Empurrar estreita o chat ao lado; Sobrepor o coloca sobre o chat."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Как Инспектор открывается справа от чата. «Сдвиг» сужает чат рядом с ним, «Поверх» показывает его над чатом."
+            "value": "Как панель «Сведения о сеансе» открывается справа от чата. «Сдвиг» сужает чат рядом с ней, «Поверх» показывает её над чатом."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ตำแหน่งที่ตัวตรวจสอบเปิดทางขวาของแชท ดัน จะทำให้แชทแคบลงข้างๆ ส่วน ซ้อนทับ จะแสดงทับแชท"
+            "value": "ตำแหน่งที่แผงข้อมูลเซสชันเปิดทางขวาของแชท ดัน จะทำให้แชทแคบลงข้างๆ ส่วน ซ้อนทับ จะแสดงทับแชท"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Denetçinin sohbetin sağında nasıl açılacağı. İt, sohbeti yanında daraltır; Üstte, sohbetin üzerinde açar."
+            "value": "Oturum bilgileri panelinin sohbetin sağında nasıl açılacağı. İt, sohbeti yanında daraltır; Üstte, sohbetin üzerinde açar."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Як Інспектор відкривається праворуч від чату. «Зсув» звужує чат поруч, «Поверх» показує його над чатом."
+            "value": "Як панель «Відомості про сеанс» відкривається праворуч від чату. «Зсув» звужує чат поруч, «Поверх» показує її над чатом."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nơi Trình kiểm tra mở ở bên phải cuộc trò chuyện. Đẩy thu hẹp cuộc trò chuyện bên cạnh; Phủ lên hiển thị trên cuộc trò chuyện."
+            "value": "Nơi bảng Thông tin phiên mở ở bên phải cuộc trò chuyện. Đẩy thu hẹp cuộc trò chuyện bên cạnh; Phủ lên hiển thị trên cuộc trò chuyện."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "检查器在对话右侧的打开方式。“推开”会让对话变窄并排显示；“叠放”会盖在对话上方。"
+            "value": "会话信息面板在对话右侧的打开方式。“推开”会让对话变窄并排显示；“叠放”会盖在对话上方。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "檢閱器在對話右側的開啟方式。「推開」會讓對話變窄並排顯示；「疊放」會蓋在對話上方。"
+            "value": "工作階段資訊面板在對話右側的開啟方式。「推開」會讓對話變窄並排顯示；「疊放」會蓋在對話上方。"
           }
         }
       }

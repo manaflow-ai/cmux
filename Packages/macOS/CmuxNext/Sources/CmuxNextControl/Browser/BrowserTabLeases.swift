@@ -42,12 +42,22 @@ actor BrowserTabLeases {
     /// lease on it has not lapsed; returns that agent then, nil once claimed.
     /// `opened` records the tab as the agent's own. One step, so two agents
     /// asking at once never both get the tab.
-    func acquire(_ tab: String, for agent: String, opened isOwn: Bool = false) -> String? {
+    /// `lasting` replaces `ttl` for this claim (a direct verb's shorter lease);
+    /// a renewal never shortens a lease the agent already holds.
+    func acquire(_ tab: String, for agent: String, opened isOwn: Bool = false, lasting: Duration? = nil) -> String? {
         let instant = now()
         if let lease = leases[tab], lease.agent != agent, lease.expires > instant { return lease.agent }
-        leases[tab] = Lease(agent: agent, expires: instant + ttl)
+        var expires = instant + (lasting ?? ttl)
+        if let lease = leases[tab], lease.agent == agent, lease.expires > expires { expires = lease.expires }
+        leases[tab] = Lease(agent: agent, expires: expires)
         if isOwn { opened[agent] = tab }
         return nil
+    }
+
+    /// The agent whose lease on `tab` has not lapsed, if any.
+    func holder(of tab: String) -> String? {
+        guard let lease = leases[tab], lease.expires > now() else { return nil }
+        return lease.agent
     }
 
     /// Drops every lease `agent` holds and forgets its tab; returns the tabs it held.

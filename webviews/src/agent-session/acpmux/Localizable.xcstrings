@@ -7693,6 +7693,402 @@
         }
       }
     },
+    "composer.slashFastOn": {
+      "comment": "Agent pane: the slash menu's description of the /fast row while the chat's fast mode is off: picking it turns Fast on (Composer.tsx). Fast is the speed tier's name (picker.tierFast)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "شغّل وضع سريع لردود أسرع"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uključi Brzo za brže odgovore"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slå Hurtig til for hurtigere svar"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Schnell einschalten für schnellere Antworten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn on Fast for quicker replies"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Activa Rápido para respuestas más ágiles"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Activer Rapide pour des réponses plus rapides"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Attiva Veloce per risposte più rapide"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "高速をオンにして応答を速くする"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បើក លឿន ដើម្បីទទួលបានចម្លើយលឿនជាងមុន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "빠름을 켜서 더 빠르게 답변받기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slå på Rask for raskere svar"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Włącz tryb Szybki, aby szybciej otrzymywać odpowiedzi"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ative Rápido para respostas mais ágeis"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Включить режим «Быстрый» для более быстрых ответов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปิด เร็ว เพื่อให้ตอบได้เร็วขึ้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Daha hızlı yanıtlar için Hızlı'yı aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Увімкнути режим «Швидкий» для швидших відповідей"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bật Nhanh để nhận phản hồi nhanh hơn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "开启快速以更快回复"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "開啟快速以更快回覆"
+          }
+        }
+      }
+    },
+    "composer.slashFastOff": {
+      "comment": "Agent pane: the slash menu's description of the /fast row while the chat's fast mode is on: picking it turns Fast off (Composer.tsx). Fast is the speed tier's name (picker.tierFast)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أوقف وضع سريع وعُد إلى السرعة القياسية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Isključi Brzo i vrati se na standardnu brzinu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slå Hurtig fra og vend tilbage til standardhastighed"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Schnell ausschalten und zur Standardgeschwindigkeit zurückkehren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn off Fast and return to standard speed"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desactiva Rápido y vuelve a la velocidad estándar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Désactiver Rapide et revenir à la vitesse standard"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Disattiva Veloce e torna alla velocità standard"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "高速をオフにして標準の速度に戻す"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បិទ លឿន ហើយត្រឡប់ទៅល្បឿនស្តង់ដារវិញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "빠름을 끄고 표준 속도로 돌아가기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slå av Rask og gå tilbake til standard hastighet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wyłącz tryb Szybki i wróć do standardowej prędkości"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desative Rápido e volte à velocidade padrão"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Выключить режим «Быстрый» и вернуться к стандартной скорости"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปิด เร็ว และกลับไปใช้ความเร็วมาตรฐาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hızlı'yı kapat ve standart hıza dön"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вимкнути режим «Швидкий» і повернутися до стандартної швидкості"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tắt Nhanh và trở về tốc độ tiêu chuẩn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "关闭快速并恢复标准速度"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "關閉快速並恢復標準速度"
+          }
+        }
+      }
+    },
+    "composer.slashFastToggle": {
+      "comment": "Agent pane: the slash menu's description of the /fast row when the chat reports no fast mode state (Composer.tsx). Fast is the speed tier's name (picker.tierFast)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "شغّل وضع سريع أو أوقفه"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uključi ili isključi Brzo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slå Hurtig til eller fra"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Schnell ein- oder ausschalten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn Fast on or off"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Activa o desactiva Rápido"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Activer ou désactiver Rapide"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Attiva o disattiva Veloce"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "高速のオン/オフを切り替える"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បើក ឬបិទ លឿន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "빠름 켜기 또는 끄기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slå Rask på eller av"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Włącz lub wyłącz tryb Szybki"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ative ou desative Rápido"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Включить или выключить режим «Быстрый»"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปิดหรือปิด เร็ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hızlı'yı aç veya kapat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Увімкнути або вимкнути режим «Швидкий»"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bật hoặc tắt Nhanh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "开启或关闭快速"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "開啟或關閉快速"
+          }
+        }
+      }
+    },
     "harness.updating": {
       "comment": "Agent pane: agent CLI update card (cx-1mbnu)",
       "extractionState": "manual",
@@ -119432,6 +119828,402 @@
         }
       }
     },
+    "question.skipped": {
+      "comment": "Agent pane: agent question card",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تم التخطي: {prompt}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Preskočeno: {prompt}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sprunget over: {prompt}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Übersprungen: {prompt}"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skipped: {prompt}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Omitida: {prompt}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ignorée : {prompt}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Saltata: {prompt}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "スキップ: {prompt}"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានរំលង៖ {prompt}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "건너뜀: {prompt}"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hoppet over: {prompt}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pominięto: {prompt}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ignorada: {prompt}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пропущено: {prompt}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ข้ามแล้ว: {prompt}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Atlandı: {prompt}"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пропущено: {prompt}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã bỏ qua: {prompt}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已跳过：{prompt}"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已略過：{prompt}"
+          }
+        }
+      }
+    },
+    "question.stopped": {
+      "comment": "Agent pane: agent question card",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "توقف قبل الإجابة: {prompt}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zaustavljeno prije odgovora: {prompt}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stoppet før et svar: {prompt}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vor einer Antwort gestoppt: {prompt}"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stopped before an answer: {prompt}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Detenida antes de responder: {prompt}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arrêtée avant une réponse : {prompt}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Interrotta prima di una risposta: {prompt}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "回答前に停止: {prompt}"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានបញ្ឈប់មុនពេលឆ្លើយ៖ {prompt}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "답변 전에 중지됨: {prompt}"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stoppet før et svar: {prompt}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zatrzymano przed odpowiedzią: {prompt}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Interrompida antes de uma resposta: {prompt}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Остановлено до ответа: {prompt}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หยุดก่อนได้คำตอบ: {prompt}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yanıttan önce durduruldu: {prompt}"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Зупинено до відповіді: {prompt}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã dừng trước khi trả lời: {prompt}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在回答前已停止：{prompt}"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在回答前已停止：{prompt}"
+          }
+        }
+      }
+    },
+    "question.answeredElsewhere": {
+      "comment": "Agent pane: agent question card",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تمت الإجابة على جهاز آخر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odgovoreno na drugom uređaju"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Besvaret på en anden enhed"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Auf einem anderen Gerät beantwortet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Answered on another device"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Respondida en otro dispositivo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Répondue sur un autre appareil"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Risposta su un altro dispositivo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "別のデバイスで回答済み"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានឆ្លើយនៅលើឧបករណ៍ផ្សេង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "다른 기기에서 답변함"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Besvart på en annen enhet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odpowiedziano na innym urządzeniu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Respondida em outro dispositivo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ответ дан на другом устройстве"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตอบบนอุปกรณ์อื่นแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Başka bir cihazda yanıtlandı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відповідь надано на іншому пристрої"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã trả lời trên thiết bị khác"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已在其他设备上回答"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已在其他裝置上回答"
+          }
+        }
+      }
+    },
     "question.cancelled": {
       "comment": "Agent pane: agent question card",
       "extractionState": "manual",
@@ -196284,259 +197076,259 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "إغلاق المراقِب"
+            "value": "إغلاق معلومات الجلسة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zatvori inspektor"
+            "value": "Zatvori informacije o sesiji"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Luk inspektør"
+            "value": "Luk sessionsinfo"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inspektor schließen"
+            "value": "Sitzungsinfo schließen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Close Inspector"
+            "value": "Close Session Info"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cerrar el inspector"
+            "value": "Cerrar la información de la sesión"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fermer l’inspecteur"
+            "value": "Fermer les infos de la session"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chiudi l’ispettore"
+            "value": "Chiudi info sessione"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "インスペクタを閉じる"
+            "value": "セッション情報を閉じる"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "បិទអ្នកត្រួតពិនិត្យ"
+            "value": "បិទព័ត៌មានវគ្គ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "인스펙터 닫기"
+            "value": "세션 정보 닫기"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lukk inspektør"
+            "value": "Lukk øktinfo"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zamknij inspektor"
+            "value": "Zamknij informacje o sesji"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fechar o inspetor"
+            "value": "Fechar informações da sessão"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Закрыть инспектор"
+            "value": "Закрыть сведения о сеансе"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ปิดตัวตรวจสอบ"
+            "value": "ปิดข้อมูลเซสชัน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Denetçiyi kapat"
+            "value": "Oturum bilgilerini kapat"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Закрити інспектор"
+            "value": "Закрити відомості про сеанс"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Đóng trình kiểm tra"
+            "value": "Đóng thông tin phiên"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "关闭检查器"
+            "value": "关闭会话信息"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "關閉檢閱器"
+            "value": "關閉工作階段資訊"
           }
         }
       }
     },
     "chatInspector.title": {
-      "comment": "Agent pane: the Inspector, the chat's right-hand panel (Environment, Context, Changes, Subagents...); also its header toggle's label",
+      "comment": "Agent pane: Session Info (formerly the Inspector), the chat's right-hand panel (Environment, Context, Changes, Subagents...); also its header toggle's label and its palette entry",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "المراقِب"
+            "value": "معلومات الجلسة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inspektor"
+            "value": "Informacije o sesiji"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inspektør"
+            "value": "Sessionsinfo"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inspektor"
+            "value": "Sitzungsinfo"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inspector"
+            "value": "Session Info"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inspector"
+            "value": "Información de la sesión"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inspecteur"
+            "value": "Infos de la session"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ispettore"
+            "value": "Info sessione"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "インスペクタ"
+            "value": "セッション情報"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "អ្នកត្រួតពិនិត្យ"
+            "value": "ព័ត៌មានវគ្គ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "인스펙터"
+            "value": "세션 정보"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inspektør"
+            "value": "Øktinfo"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inspektor"
+            "value": "Informacje o sesji"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inspetor"
+            "value": "Informações da sessão"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Инспектор"
+            "value": "Сведения о сеансе"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ตัวตรวจสอบ"
+            "value": "ข้อมูลเซสชัน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Denetçi"
+            "value": "Oturum bilgileri"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Інспектор"
+            "value": "Відомості про сеанс"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Trình kiểm tra"
+            "value": "Thông tin phiên"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "检查器"
+            "value": "会话信息"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "檢閱器"
+            "value": "工作階段資訊"
           }
         }
       }
