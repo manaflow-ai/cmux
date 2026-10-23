@@ -9,14 +9,26 @@ import Testing
 /// the signed `notes/flags.json` next to the feed lists `pr-N` switches to turn off; nothing else
 /// does. A missing, unsigned or mis-signed document turns nothing off, so a PR's change ships.
 @MainActor @Suite(.serialized) struct KillSwitchesTests {
-    /// Holds requests until released.
+    /// Holds requests until released, and counts the requests that reached it.
     actor Gate {
         private var isOpen = false
         private var waiters: [CheckedContinuation<Void, Never>] = []
+        private var arrived = 0
+        private var arrivals: [(count: Int, waiter: CheckedContinuation<Void, Never>)] = []
 
         func wait() async {
+            arrived += 1
+            let reached = arrivals.filter { $0.count <= arrived }
+            arrivals.removeAll { $0.count <= arrived }
+            reached.forEach { $0.waiter.resume() }
             guard !isOpen else { return }
             await withCheckedContinuation { waiters.append($0) }
+        }
+
+        /// Returns once `count` requests have reached the gate.
+        func reached(_ count: Int) async {
+            guard arrived < count else { return }
+            await withCheckedContinuation { arrivals.append((count, $0)) }
         }
 
         func release() {
@@ -196,7 +208,9 @@ import Testing
         let (updater, reader) = try Self.reader(store: try fixture.store(network), switches: switches)
         defer { withExtendedLifetime(updater) {} }
         let first = try #require(reader.read())
-        // A check publishes a new document while the first fetch is out: that fetch answers the old one.
+        // A check publishes a new document while the first fetch (the file and its signature) is out:
+        // that fetch answers the old one.
+        await gate.reached(2)
         await network.set(try fixture.served(#"{"version":1,"default":{"DisabledFeatures":["pr-2"]}}"#))
         let asked = try #require(reader.read())
         await gate.release()
