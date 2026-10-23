@@ -236584,6 +236584,51 @@
           }
         }
       }
+    },
+    "newTab.extra.widgets": {
+      "comment": "Accessible label for the optional New Tab widgets row.",
+      "extractionState": "manual",
+      "localizations": {"en": {"stringUnit": {"state": "translated", "value": "New Tab widgets"}}}
+    },
+    "newTab.extra.stopwatch": {
+      "comment": "Label for the optional New Tab stopwatch.",
+      "extractionState": "manual",
+      "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Stopwatch"}}}
+    },
+    "newTab.extra.morning": {
+      "comment": "Original warm time-of-day line for the optional New Tab widget.",
+      "extractionState": "manual",
+      "localizations": {"en": {"stringUnit": {"state": "translated", "value": "A good morning to you"}}}
+    },
+    "newTab.extra.afternoon": {
+      "comment": "Original warm time-of-day line for the optional New Tab widget.",
+      "extractionState": "manual",
+      "localizations": {"en": {"stringUnit": {"state": "translated", "value": "A bright afternoon to you"}}}
+    },
+    "newTab.extra.evening": {
+      "comment": "Original warm time-of-day line for the optional New Tab widget.",
+      "extractionState": "manual",
+      "localizations": {"en": {"stringUnit": {"state": "translated", "value": "A gentle evening to you"}}}
+    },
+    "newTab.quote.1": {
+      "comment": "Public-domain quote of the day, bundled for the optional New Tab widget.",
+      "extractionState": "manual",
+      "localizations": {"en": {"stringUnit": {"state": "translated", "value": "The secret of getting ahead is getting started."}}}
+    },
+    "newTab.quote.2": {
+      "comment": "Public-domain quote of the day, bundled for the optional New Tab widget.",
+      "extractionState": "manual",
+      "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Well begun is half done."}}}
+    },
+    "newTab.quote.3": {
+      "comment": "Public-domain quote of the day, bundled for the optional New Tab widget.",
+      "extractionState": "manual",
+      "localizations": {"en": {"stringUnit": {"state": "translated", "value": "What you do today can improve all your tomorrows."}}}
+    },
+    "newTab.quote.4": {
+      "comment": "Public-domain quote of the day, bundled for the optional New Tab widget.",
+      "extractionState": "manual",
+      "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Great things are done by a series of small things brought together."}}}
     }
   },
   "version": "1.0"
