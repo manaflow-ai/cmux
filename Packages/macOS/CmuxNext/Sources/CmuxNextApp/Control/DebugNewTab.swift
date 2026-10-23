@@ -50,6 +50,10 @@ enum DebugNewTab {
             case "bench_open": return await DebugNewTabBench.open(params, controller, services)
             default: return await DebugNewTabBench.bang(params, controller, services)
             }
+        case "bench_browser":
+            // A new Chromium tab: input to visible and to the page's first pixels (PL-cef-tab).
+            guard let controller = controller(params, services) else { return .object(["error": .string("no such window")]) }
+            return await DebugCEFTabBench.run(params, controller, services)
         case "bench_create":
             // Cmd-N / Cmd-T / Cmd-D / Cmd-Shift-D: key to visible and to confirmed (instant-new-surfaces).
             guard let controller = controller(params, services) else { return .object(["error": .string("no such window")]) }
