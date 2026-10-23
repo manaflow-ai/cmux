@@ -4,6 +4,7 @@ import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { useCwdValidation } from "../src/hooks/useCatalogs";
 import {
   applyCwdCheckResult,
+  sessionCwdRequestKey,
   type CwdCheck,
   type CwdHarnessRequest,
 } from "../src/session";
@@ -15,18 +16,21 @@ interface ProbeProps {
   committed: string;
   checks: Record<string, CwdCheck>;
   checkCwd: (cwd: string) => CwdHarnessRequest;
+  setCwd?: (cwd: string) => void;
+  setCommittedCwd?: (cwd: string) => void;
 }
 
-function CwdValidationProbe({ draft, committed, checks, checkCwd }: ProbeProps) {
+function CwdValidationProbe({ draft, committed, checks, checkCwd, setCwd, setCommittedCwd }: ProbeProps) {
   useCwdValidation(
     true,
     1,
     committed,
+    draft,
     "/default",
     checks,
     checkCwd,
-    () => {},
-    () => {},
+    setCwd ?? (() => {}),
+    setCommittedCwd ?? (() => {}),
   );
   return createElement("input", { value: draft, readOnly: true });
 }
@@ -79,6 +83,49 @@ try {
   });
   assert.strictEqual(stale, accepted, "a stale cwd failure must not update visible validation state");
   assert.equal(stale[final]?.ok, true, "the final success must remain selected after a stale failure");
+
+  const failedCommitted = "/missing";
+  const draftAfterCommit = "/new-draft";
+  const fallbackCalls: string[] = [];
+  const failedChecks: Record<string, CwdCheck> = {};
+  let failedRequest: CwdHarnessRequest | undefined;
+  const failedCheckCwd = (cwd: string): CwdHarnessRequest => {
+    failedRequest = { requestId: "failed-commit", cwd, connectionEpoch: 1 };
+    return failedRequest;
+  };
+  act(() => {
+    renderer!.update(probeElement({
+      draft: failedCommitted,
+      committed: failedCommitted,
+      checks: failedChecks,
+      checkCwd: failedCheckCwd,
+    }));
+  });
+  act(() => {
+    renderer!.update(probeElement({
+      draft: draftAfterCommit,
+      committed: failedCommitted,
+      checks: failedChecks,
+      checkCwd: failedCheckCwd,
+      setCwd: (cwd) => fallbackCalls.push(cwd),
+    }));
+  });
+  failedChecks[failedCommitted] = {
+    ok: false,
+    requestId: failedRequest!.requestId,
+    connectionEpoch: failedRequest!.connectionEpoch,
+  };
+  act(() => {
+    renderer!.update(probeElement({
+      draft: draftAfterCommit,
+      committed: failedCommitted,
+      checks: failedChecks,
+      checkCwd: failedCheckCwd,
+      setCwd: (cwd) => fallbackCalls.push(cwd),
+    }));
+  });
+  assert.deepEqual(fallbackCalls, [], "a committed cwd failure must not reset a newer draft");
+  assert.equal(sessionCwdRequestKey(2, "/repo"), `2\0/repo`, "cwd request keys include the connection epoch");
   console.log("cwd draft validation stays local during typing, validates on commit, and rejects stale failures: OK");
 } finally {
   if (renderer) act(() => renderer!.unmount());

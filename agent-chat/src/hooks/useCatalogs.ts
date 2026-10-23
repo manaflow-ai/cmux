@@ -85,7 +85,8 @@ export function loadingProviderOptionIds(
 export function useCwdValidation(
   ready: boolean,
   connectionEpoch: number,
-  cwd: string,
+  committedCwd: string,
+  draftCwd: string,
   defaultCwd: string,
   cwdChecks: Record<string, CwdCheck>,
   checkCwd: (cwd: string) => CwdHarnessRequest | null,
@@ -94,10 +95,10 @@ export function useCwdValidation(
 ) {
   const pendingRequest = useRef<CwdHarnessRequest | null>(null);
   useEffect(() => {
-    pendingRequest.current = ready && cwd ? checkCwd(cwd) : null;
-  }, [checkCwd, connectionEpoch, cwd, ready]);
+    pendingRequest.current = ready && committedCwd ? checkCwd(committedCwd) : null;
+  }, [checkCwd, committedCwd, connectionEpoch, ready]);
   useEffect(() => {
-    const checked = cwdChecks[cwd];
+    const checked = cwdChecks[committedCwd];
     const request = pendingRequest.current;
     if (
       !checked
@@ -106,11 +107,11 @@ export function useCwdValidation(
       || checked.connectionEpoch !== request.connectionEpoch
     ) return;
     pendingRequest.current = null;
-    if (checked.ok || !defaultCwd) return;
+    if (checked.ok || !defaultCwd || draftCwd !== committedCwd) return;
     setCwd(defaultCwd);
     setCommittedCwd(defaultCwd);
     preferenceStorage.setItem("agentui.cwd", defaultCwd);
-  }, [cwd, cwdChecks, defaultCwd, setCommittedCwd, setCwd]);
+  }, [committedCwd, cwdChecks, defaultCwd, draftCwd, setCommittedCwd, setCwd]);
 }
 
 export function useCwdErrorFallback(

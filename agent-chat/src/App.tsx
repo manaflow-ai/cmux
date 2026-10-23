@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { Tooltip } from "@base-ui-components/react/tooltip";
-import { useSession, type SessionState } from "./session";
+import { sessionCwdRequestKey, useSession, type SessionState } from "./session";
 import { RepositorySlugContext, SessionContext } from "./context";
 import { Composer } from "./components/Composer";
 import { Chat } from "./components/Chat";
@@ -37,12 +37,14 @@ export function App() {
 /// `cwdChecks`, because that map's identity changes on every check the composer
 /// makes and the session's own answer takes a round trip to arrive.
 function useSessionCwdCheck(state: SessionState) {
-  const { ready, phase, session, checkCwd } = state;
+  const { ready, connectionEpoch, phase, session, checkCwd } = state;
   const requested = useRef(new Set<string>());
   const cwd = session?.cwd;
   useEffect(() => {
-    if (!ready || phase !== "chat" || !cwd || requested.current.has(cwd)) return;
-    requested.current.add(cwd);
+    if (!ready || phase !== "chat" || !cwd) return;
+    const requestKey = sessionCwdRequestKey(connectionEpoch, cwd);
+    if (requested.current.has(requestKey)) return;
+    requested.current.add(requestKey);
     checkCwd(cwd);
-  }, [checkCwd, cwd, phase, ready]);
+  }, [checkCwd, connectionEpoch, cwd, phase, ready]);
 }
