@@ -182,10 +182,10 @@ struct AgentPageHibernationTests {
     /// (`WarmSetBudget.pageCapacity`, as for browser pages) the chats the person left longest ago
     /// let their pages go once hidden `HibernationPlanner.overBudgetMinimumHidden`; the most
     /// recently left stay, and each pane's shown chat (a parked workspace's, what a switch shows
-    /// again) stays out of the budget.
+    /// again) holds the first place in the budget.
     @Test func hiddenChatsPastTheWarmBudgetLetGoAfterAMinute() async throws {
         let rig = Rig()
-        rig.hibernation.warmPages = { 1 }
+        rig.hibernation.warmPages = { 2 }
         rig.hibernation.fronts = { ["tab_front"] }
         rig.hibernation.update(setting: BrowserHibernationSetting(mode: .moderate), pressure: .normal)
         let front = try rig.hiddenChat("tab_front", session: "s-front")
@@ -205,8 +205,28 @@ struct AgentPageHibernationTests {
         #expect(rig.tabs.existingView("tab_old") == nil, "a hidden chat past the warm budget kept its page until the timeout")
         #expect(rig.displaced == ["tab_old"])
         #expect(rig.tabs.existingView("tab_recent") === recent, "the most recently left chat (inside the budget) let its page go")
-        #expect(rig.tabs.existingView("tab_front") === front, "a pane's shown chat counted in the budget")
+        #expect(rig.tabs.existingView("tab_front") === front, "a pane's shown chat went before a chat nobody shows")
         #expect(rig.tabs.session(of: "tab_old") == "s-old", "the released chat lost its session")
+    }
+
+    /// Parked workspaces' shown chats count in the budget too (ranked last): a STRESS session's
+    /// parked workspaces each kept a 75 MB chat page for the whole 30 minute timeout, O(workspaces).
+    /// Past the budget the workspaces left longest ago let their chat page go after a minute.
+    @Test func parkedWorkspacesShownChatsCountInTheBudget() async throws {
+        let rig = Rig()
+        rig.hibernation.warmPages = { 1 }
+        rig.hibernation.fronts = { ["tab_ws_old", "tab_ws_recent"] }
+        rig.hibernation.update(setting: BrowserHibernationSetting(mode: .moderate), pressure: .normal)
+        let old = try rig.hiddenChat("tab_ws_old", session: "s-ws-old")
+        rig.elapsed += .seconds(1)
+        let recent = try rig.hiddenChat("tab_ws_recent", session: "s-ws-recent")
+        #expect(rig.hibernation.hasDeadline, "no deadline for the parked chat past the budget")
+
+        rig.advance(minutes: 1.5)
+        await rig.settle { rig.tabs.existingView("tab_ws_old") == nil }
+        #expect(rig.tabs.existingView("tab_ws_old") !== old, "a parked workspace's chat past the budget kept its page until the timeout")
+        #expect(rig.tabs.existingView("tab_ws_recent") === recent, "the most recently left workspace's chat let its page go")
+        #expect(rig.displaced == ["tab_ws_old"])
     }
 
     /// With the acpmux turn watch down no chat's turn is known: every chat counts as busy and
