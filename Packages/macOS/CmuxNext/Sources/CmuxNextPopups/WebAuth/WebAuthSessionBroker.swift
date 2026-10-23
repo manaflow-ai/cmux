@@ -5,7 +5,7 @@ import Foundation
 /// tab closes) or cancelled (the person closed the tab). One owner for the
 /// pending sessions; the shim and the tab only report events here.
 @MainActor
-final class WebAuthSessionBroker {
+package final class WebAuthSessionBroker {
     struct Session {
         let request: any WebAuthSessionRequest
         var surface: (any WebAuthSessionSurface)?
@@ -17,7 +17,7 @@ final class WebAuthSessionBroker {
     /// reach the main actor in separate tasks, in either order).
     private var cancelledEarly: Set<UUID> = []
 
-    init(opener: any WebAuthSessionOpening) {
+    package init(opener: any WebAuthSessionOpening) {
         self.opener = opener
     }
 

@@ -2,33 +2,7 @@ import AppKit
 import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextDesign
-import CmuxNextPopups
-
-/// Opens each sign-in in its own window with a Chromium page, the same
-/// window a page's sign-in popup uses (title, read-only location bar,
-/// traffic lights), where Escape cancels. It is not a daemon tab: nothing records, restores or lists it.
-/// A normal session uses the default browser profile, so a person already
-/// signed in stays signed in; an ephemeral one gets an off-the-record
-/// profile that ends with the panel.
-@MainActor
-final class WebAuthSessionWindows: WebAuthSessionOpening {
-    // crash-allow: AppServices owns this opener (through the broker) for the app's whole life.
-    private unowned let services: AppServices
-    private(set) var windows: [UUID: WebAuthSessionWindow] = [:]
-
-    init(services: AppServices) {
-        self.services = services
-    }
-
-    func open(_ request: any WebAuthSessionRequest, broker: WebAuthSessionBroker) -> (any WebAuthSessionSurface)? {
-        let window = WebAuthSessionWindow(request: request, broker: broker, services: services) { [weak self] id in
-            self?.windows[id] = nil
-        }
-        windows[request.id] = window
-        window.start()
-        return window
-    }
-}
+import os
 
 /// One sign-in's window and page. Every end (the callback, the close
 /// button, Escape, `window.close()`, the system cancelling) closes it once.
@@ -39,34 +13,51 @@ final class WebAuthSessionWindow: NSObject, WebAuthSessionSurface, BrowserTabDel
     private let callback: WebAuthCallback
     private let ephemeralProfile: BrowserProfileID?
     private weak var broker: WebAuthSessionBroker?
-    // crash-allow: AppServices outlives every sign-in window.
-    private unowned let services: AppServices
+    /// The app's services: the Chromium page and links out.
+    private let host: any WebAuthHost
+    private let logger: Logger
+    private let profiles: OffTheRecordProfiles
+    private let signInCallbacks: CEFSignInCallbacks
+    private let contextMenus: BrowserContextMenuBuilder
     private let onEnd: (UUID) -> Void
     private var page: (any BrowserTab)?
     private var panel: BrowserPopupWindow?
     private var observation: Task<Void, Never>?
     private var ended = false
 
-    init(request: any WebAuthSessionRequest, broker: WebAuthSessionBroker, services: AppServices, onEnd: @escaping (UUID) -> Void) {
+    init(
+        request: any WebAuthSessionRequest,
+        broker: WebAuthSessionBroker,
+        host: any WebAuthHost,
+        logger: Logger,
+        profiles: OffTheRecordProfiles,
+        signInCallbacks: CEFSignInCallbacks,
+        contextMenus: BrowserContextMenuBuilder,
+        onEnd: @escaping (UUID) -> Void
+    ) {
         id = request.id
         url = request.url
         callback = request.callback
-        ephemeralProfile = request.isEphemeral ? OffTheRecordProfiles.shared.begin() : nil
+        ephemeralProfile = request.isEphemeral ? profiles.begin() : nil
         self.broker = broker
-        self.services = services
+        self.host = host
+        self.logger = logger
+        self.profiles = profiles
+        self.signInCallbacks = signInCallbacks
+        self.contextMenus = contextMenus
         self.onEnd = onEnd
     }
 
     func start() {
         let configuration = BrowserTabConfiguration(profile: ephemeralProfile ?? .default)
-        let cef = services.cache.cef
+        let host = host
         Task { [weak self] in
             do {
-                let page = try await cef.makeTab(configuration)
+                let page = try await host.makeSignInPage(configuration)
                 guard let self, !self.ended else { return page.close() }
                 self.show(page)
             } catch {
-                self?.services.daemon.logger.error("sign-in window: no Chromium page: \(String(describing: error), privacy: .public)")
+                self?.logger.error("sign-in window: no Chromium page: \(String(describing: error), privacy: .public)")
                 self?.end()
             }
         }
@@ -77,10 +68,10 @@ final class WebAuthSessionWindow: NSObject, WebAuthSessionSurface, BrowserTabDel
         page.delegate = self
         // The shim stops the callback before it loads; set before the first navigation.
         if callback == .none {
-            services.daemon.logger.notice("sign-in window: callback unknown; the page URL check ends the session")
+            logger.notice("sign-in window: callback unknown; the page URL check ends the session")
         }
         if let cef = page as? CEFTab {
-            CEFSignInCallbacks.shared.set(Self.shimCallback(callback), on: cef) { [weak self] url in self?.shimStopped(url) }
+            signInCallbacks.set(Self.shimCallback(callback), on: cef) { [weak self] url in self?.shimStopped(url) }
         }
         let panel = BrowserPopupWindow(page: page, frame: Self.frame(), readOnlyAddress: true)
         panel.onEscape = { [weak self] in self?.close() }
@@ -88,8 +79,9 @@ final class WebAuthSessionWindow: NSObject, WebAuthSessionSurface, BrowserTabDel
         self.panel = panel
         observeNavigation(page)
         page.load(url)
-        WindowActivation.show(panel, services.environment.noActivate ? .raise : .focus)
-        if !services.environment.noActivate { NSApp.activate() }
+        // `.focus` makes the panel key and activates the app; under
+        // no-activate (`WindowPlacement.noActivate`) it only orders it front.
+        WindowActivation.show(panel, .focus)
         if panel.isKeyWindow { page.setFocused(true) }
     }
 
@@ -113,12 +105,12 @@ final class WebAuthSessionWindow: NSObject, WebAuthSessionSurface, BrowserTabDel
     /// have gone (a page loads, another app's link opens in that app).
     private func shimStopped(_ url: URL) {
         guard !ended, broker?.navigated(id, to: url) != true else { return }
-        services.daemon.logger.notice("sign-in window: the system did not take a stopped callback")
+        logger.notice("sign-in window: the system did not take a stopped callback")
         // An https page loads after all: the shim stops nothing more (or it
         // would stop this load again), and the page URL check stays. Another
         // app's link from a sign-in page does not open.
         guard url.scheme?.lowercased() == "https", let cef = page as? CEFTab else { return }
-        CEFSignInCallbacks.shared.set(nil, on: cef, onCallback: nil)
+        signInCallbacks.set(nil, on: cef, onCallback: nil)
         page?.load(url)
     }
 
@@ -148,7 +140,7 @@ final class WebAuthSessionWindow: NSObject, WebAuthSessionSurface, BrowserTabDel
         panel = nil
         page?.close()
         page = nil
-        if let ephemeralProfile { OffTheRecordProfiles.shared.end(ephemeralProfile) }
+        if let ephemeralProfile { profiles.end(ephemeralProfile) }
         broker?.surfaceClosed(id)
         onEnd(id)
     }
@@ -163,12 +155,12 @@ final class WebAuthSessionWindow: NSObject, WebAuthSessionSurface, BrowserTabDel
             // The callback in a new tab still ends this session; any other
             // link out of the sign-in (terms, help) opens as a normal tab.
             guard broker?.navigated(id, to: url) != true else { return }
-            services.externalOpen.openWebLink(url)
+            host.openSignInLink(url)
         case .adoptTab(let child, _), .openPopup(let child, _):
             // A sign-in page's own popups have no tab to belong to.
             child.close()
         case .contextMenu(let request):
-            BrowserContextMenuBuilder.shared.present(request, in: tab.contentView, leading: [])
+            contextMenus.present(request, in: tab.contentView, leading: [])
         default:
             break
         }
