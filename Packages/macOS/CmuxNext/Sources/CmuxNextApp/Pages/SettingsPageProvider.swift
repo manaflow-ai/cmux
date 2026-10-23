@@ -56,6 +56,8 @@ final class SettingsPageProvider: PageProvider {
     /// The registry's buttons for a section (`SettingsSchema.actions(in:)`): id, localized title,
     /// and whether it can run now.
     var sectionActions: (@MainActor (SettingsSection) -> JSONValue)?
+    /// Settings > Devices' Remove (plans/cmux-next/add-device-DESIGN.md 2.5): the error to show, or nil.
+    var removeDevice: (@MainActor (String) async -> String?)?
     /// Results of recent writes by idempotency key (a retried key replays its first answer).
     private var replies: [(key: String, value: JSONValue)] = []
     private static let replayLimit = 64
@@ -111,6 +113,9 @@ final class SettingsPageProvider: PageProvider {
                 return SettingsSchema.all.filter { $0.storedValue(in: before) != $0.storedValue(in: self.settings.snapshot.root) }.map(\.id)
             }
         case "cmux.settings.host.lists": return try Self.host(hostLists, "host lists")()
+        case "cmux.settings.devices.remove":
+            guard let id = params["id"]?.stringValue else { throw PageError.invalidParams("id is required") }
+            return try await Self.host(removeDevice, "devices")(id).map { ["error": .string($0)] } ?? .object([:])
         case "cmux.settings.accounts.state": return try Self.host(accountsState, "accounts")()
         case "cmux.settings.accounts.run": return try await Self.host(accountsRun, "accounts")(params)
         case "cmux.settings.agents.state": return try Self.host(agents, "agents").pageState

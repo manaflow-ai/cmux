@@ -31,6 +31,8 @@ final class WorkspaceRowView: SidebarRowView {
     /// color, small, before the title; hidden while the sidebar lists one machine.
     let machineMark = DecorativeImageView() // the row's label names the machine
     internal(set) var machine: SidebarMachineMark?
+    /// The side `machineMark`'s image was drawn at.
+    private var machineMarkSize: CGFloat = 0
     /// The workspace's tabs play sound (or are muted): a small speaker in the
     /// trailing cluster, always shown while they do, crossed out while they
     /// are muted. A click mutes or unmutes them (`onToggleAudio`).
@@ -75,7 +77,6 @@ final class WorkspaceRowView: SidebarRowView {
     var hasSubtitle = false, isExpanded = false, timeText: String?
     /// An idle workspace nobody named: its name reads in the secondary ink (`SidebarTunables.quietUnnamedRows`).
     var isQuiet = false
-    var grouped = false
     var iconKind: WorkspaceIcon?
     /// Selected but not active (the active row paints the selection fill).
     var isSecondarySelected = false {
@@ -224,7 +225,6 @@ final class WorkspaceRowView: SidebarRowView {
             disclosure: row.tabDisclosure, row: row.content
         )
         guard needsConfigure(content) else { return }
-        grouped = row.group != nil
         // A placeholder with a title (a connecting SSH machine, cx-gaq9) draws its text, not the bar.
         isShowingPlaceholder = ws.rowState == .placeholder && ws.title.isEmpty
         isPlaceholderRow = ws.rowState.isPending
@@ -288,11 +288,16 @@ final class WorkspaceRowView: SidebarRowView {
         // The bell-slash alone does not say what is muted: notifications, not the tabs' sound
         // (the row's accessibility label says it too).
         mutedMark.themedToolTip = mutedMark.isHidden ? nil : Strings.notificationsMuted
+        let previousMachine = machine
         machine = isShowingPlaceholder ? nil : shown.machine
+        // A new image only when the mark or its size changes: every patch and every row scrolled in configures the row.
         let machineSize = CGFloat.iconRowSize(forLabelPointSize: SidebarStyle.indicatorSize - Metrics.space1)
-        machineMark.image = machine.map { mark in
-            if let emoji = mark.emoji { return SidebarItemRowView.emojiImage(emoji, side: machineSize) }
-            return mark.symbol.map { NSImage.icon(symbol: $0, size: machineSize) } ?? NSImage.icon(mark.kindIcon, size: machineSize)
+        if machine != previousMachine || machineSize != machineMarkSize || (machine != nil && machineMark.image == nil) {
+            machineMarkSize = machineSize
+            machineMark.image = machine.map { mark in
+                if let emoji = mark.emoji { return SidebarItemRowView.emojiImage(emoji, side: machineSize) }
+                return mark.symbol.map { NSImage.icon(symbol: $0, size: machineSize) } ?? NSImage.icon(mark.kindIcon, size: machineSize)
+            }
         }
         machineMark.isHidden = machineMark.image == nil
         audio = isShowingPlaceholder ? nil : ws.audio
