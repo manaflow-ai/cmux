@@ -282,6 +282,26 @@ test("the strip keeps every image an envelope's text leaves out, ahead of the ca
   expect(toolResult(output).text).toBe("Four");
 });
 
+test("a shell that printed an envelope keeps its images in its output, out of the strip", () => {
+  const output = JSON.stringify([{ type: "text", text: "Shot" }, shot(0)]);
+  const shell = {
+    id: "c1",
+    title: "cat shot.json",
+    kind: "execute",
+    command: "cat shot.json",
+    status: "completed",
+    output,
+  };
+  expect(toolImages(shell)).toEqual([]);
+});
+
+test("the opened MCP call reads an envelope a host put its context around as the row does", () => {
+  const output = `${JSON.stringify([{ type: "text", text: "Shot" }, shot(0)])}\n<system-reminder>internal</system-reminder>`;
+  expect(prettyOutput(output)).toBe("Shot");
+  expect(prettyOutput(output)).toBe(toolResult(output, cleanText).text);
+  expect(envelopeImages(output, cleanText)).toEqual([url(0)]);
+});
+
 test("the opened MCP call reads text and images inside text as the row does", () => {
   const inner = JSON.stringify({ content: [{ type: "text", text: "Inner" }, shot(0)] });
   const output = JSON.stringify({ content: [{ type: "text", text: inner }] });

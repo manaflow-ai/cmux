@@ -276,11 +276,16 @@ function mcpValue(output: string | undefined): unknown {
 
 /// Whether the output is an envelope that holds more than text (structured content, an error's
 /// data, a block that is not text), at its top or in an envelope its text holds, as toolResult.ts
-/// reads text that is JSON again.
+/// reads text that is JSON again, and JSON a host put its context around once that is dropped.
 function holdsMore(output: string, depth = 0): boolean {
-  if (depth > 6 || !oneLine(output)) return false;
-  const parsed = parseJSON(output);
-  const peeled = parsed === undefined ? undefined : peelEnvelope(parsed);
+  if (depth > 6) return false;
+  let text = output;
+  let parsed = parseJSON(text);
+  if (parsed === undefined && depth === 0) {
+    text = cleanText(output).replace(/\n$/, "");
+    parsed = text === output ? undefined : parseJSON(text);
+  }
+  const peeled = parsed === undefined || !oneLine(text) ? undefined : peelEnvelope(parsed);
   if (!peeled) return false;
   // Parts besides its text, or images its text leaves out for the strip (toolResult.ts).
   if (peeled.rest.length || peeled.images.length) return true;

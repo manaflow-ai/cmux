@@ -23,7 +23,9 @@ export function toolImages(tool: Tool): string[] {
   // Images inside a result a harness passed on as JSON text (an MCP result's `image` blocks), read
   // as ToolRow reads its text: without the context a host put around it. They come first and always
   // fit (toolResult.ts keeps at most MAX_TOOL_IMAGES of them), since its text no longer shows them.
-  const found: string[] = [...new Set(envelopeImages(tool.output, cleanText))];
+  // A shell prints its output as it came, so an envelope it printed keeps its images there.
+  const shell = tool.kind === "execute" && Boolean(tool.command);
+  const found: string[] = shell ? [] : [...new Set(envelopeImages(tool.output, cleanText))];
   const add = (source: string) => {
     if (found.length < MAX_TOOL_IMAGES && !found.includes(source)) found.push(source);
   };
