@@ -33,7 +33,11 @@ public final class SidebarModel {
             groupPaths = nil
         }
     }
-    @ObservationIgnored private var storedSections: [SidebarSection]
+    @ObservationIgnored private var storedSections: [SidebarSection] { didSet { contentRevision &+= 1 } }
+    /// Moves on every write of the rows: a structural set, a fold, and a row patch (`patchWorkspaces`), which
+    /// `sectionsRevision` does not count. A reader that saves what the rows show (the sidebar snapshot) compares it
+    /// instead of every row.
+    @ObservationIgnored public private(set) var contentRevision: UInt64 = 0
     /// Moves on every structural set of `sections`: readers compare it instead
     /// of the rows themselves (one counter, not a deep compare of 1,000 rows).
     @ObservationIgnored public private(set) var sectionsRevision: UInt64 = 0
