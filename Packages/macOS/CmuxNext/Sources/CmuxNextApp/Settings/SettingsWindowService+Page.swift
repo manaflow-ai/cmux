@@ -15,7 +15,7 @@ extension SettingsWindowService {
     func pageHostLists() -> JSONValue {
         // The app scope is not observable; reading the store's generation makes the page's
         // host-lists watch re-send the Ghostty config preview after a config edit.
-        _ = ThemeStore.shared.generation
+        _ = services.themeStore.generation
         return [
             // The Development category (dev_only) shows only in DEV builds.
             "dev_build": .bool(DevTools.isDebugBuild),

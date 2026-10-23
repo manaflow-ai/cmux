@@ -1334,6 +1334,15 @@ pre.cv-math-source {
   max-inline-size: 100%;
   margin-inline-start: auto;
 }
+.acpmux-ask-scope {
+  flex-basis: 100%;
+  margin: 0;
+  padding-inline-start: 18px;
+  color: var(--cv-text-dim);
+  font-size: var(--text-detail);
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
 .acpmux-ask-action {
   all: unset;
   box-sizing: border-box;

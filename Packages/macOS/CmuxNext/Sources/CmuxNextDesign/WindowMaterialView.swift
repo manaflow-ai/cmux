@@ -28,7 +28,9 @@ public final class WindowMaterialView: NSView {
     public private(set) var materialView: NSView?
     private let tintView = NSView()
     private let glassTint = GlassTintBlend()
-    private let inactiveTintView = NSView()
+    /// The inactive wash sits under the in-app art. Native glass can still use it to cover the
+    /// desktop when it drops its active tint, while the person's own background remains visible.
+    let inactiveTintView = NSView()
     /// The inactive wash's alpha once its fade ends (`updateInactiveTint`).
     private var inactiveTintTarget: CGFloat = 0
     /// The theme tint at full alpha, the inactive wash's color; nil while opaque.
@@ -115,7 +117,9 @@ public final class WindowMaterialView: NSView {
         inactiveTintView.autoresizingMask = [.width, .height]
         inactiveTintView.isHidden = true
         inactiveTintView.layer?.opacity = 0
-        addSubview(inactiveTintView)
+        // The wash is a desktop shield, not a veil over the person's background. Keep it below
+        // art (and the glass/material stack above art) so losing focus cannot dim or hide that art.
+        addSubview(inactiveTintView, positioned: .below, relativeTo: artView)
         setAccessibilityElement(false)
     }
 

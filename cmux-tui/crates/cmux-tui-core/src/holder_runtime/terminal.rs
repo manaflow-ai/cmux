@@ -96,6 +96,21 @@ impl HolderTerminal {
         }
     }
 
+    /// Hand the holder a fresh snapshot of the screen now, at the offset the
+    /// parser confirmed (read at the replay's instant): after clear-history,
+    /// so a restarted daemon restores the cleared screen and only the output
+    /// since, not the history the older snapshot and ring still hold.
+    pub(crate) fn resnapshot(&self) {
+        let mut base = None;
+        let replay = self.replay_at(SNAPSHOT_MAX_BYTES, &mut || {
+            base = Some(self.sink.pending().confirmed);
+        });
+        if let Some(base) = base.filter(|_| !replay.is_empty()) {
+            self.service.snapshot(self.chan, base, &replay);
+            self.sink.snapshot_taken(base);
+        }
+    }
+
     /// What a new holder needs to take this terminal over after the old
     /// holder died (the replay race, holder item 1). The screen replay and
     /// the bytes the parser has not finished are read at one instant, under
