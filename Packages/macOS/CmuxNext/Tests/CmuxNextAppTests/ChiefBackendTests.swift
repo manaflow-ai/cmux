@@ -147,8 +147,8 @@ import Testing
     }
 
     /// Delete Chief on one of this Mac's Chiefs: the same `chief.profile.list` read names the deleted
-    /// ids (Home hides their conversations); an owner that does not list them hides nothing, and
-    /// an unread list changes nothing.
+    /// ids (Home hides their conversations); an owner that does not list them, or an unread list,
+    /// changes nothing (nil keeps the ids known).
     @Test func theOwnersListNamesThisMacsDeletedChiefs() async {
         let home = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-chief-deleted-\(UUID().uuidString)", isDirectory: true)
         let listed: JSONValue = .object(["chiefs": .array([.object(["id": .string("agent_mux")])]),
@@ -156,7 +156,7 @@ import Testing
         let read = await HomeChiefHarnesses(muxHome: home, list: { listed }).readWithDeleted(chiefs: ["agent_mux", "agent_gone01"])
         #expect(read.deleted == ["agent_gone01"])
         let older = await HomeChiefHarnesses(muxHome: home, list: { .object(["chiefs": .array([])]) }).readWithDeleted(chiefs: [])
-        #expect(older.deleted == [])
+        #expect(older.deleted == nil)
         let unread = await HomeChiefHarnesses(muxHome: home, list: { nil }).readWithDeleted(chiefs: [])
         #expect(unread.deleted == nil)
     }

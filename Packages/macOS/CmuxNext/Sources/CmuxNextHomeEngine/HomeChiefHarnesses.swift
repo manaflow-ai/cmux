@@ -69,12 +69,12 @@ public nonisolated struct HomeChiefHarnesses: Sendable {
     }
 
     /// The deleted Chiefs' ids of a `chief.profile.list` result (`deleted`); nil when there is no
-    /// result, empty from an owner that does not list them.
+    /// result or the owner does not list them (an older daemon), so the ids known stay.
     static func deletedIDs(_ listed: JSONValue?) -> Set<String>? {
         guard case .object(let reply)? = listed else { return nil }
         var object = reply
         if case .object(let value)? = reply["value"] { object = value }
-        guard case .array(let ids)? = object["deleted"] else { return [] }
+        guard case .array(let ids)? = object["deleted"] else { return nil }
         return Set(ids.compactMap { if case .string(let id) = $0 { id } else { nil } })
     }
 

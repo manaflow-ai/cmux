@@ -60,7 +60,7 @@ public nonisolated enum HomeStrings {
     }
     public static var deleteChiefBody: String {
         String(localized: "home.chief.delete.body",
-               defaultValue: "The Chief stops and is removed for good, with its memory and settings, and its conversation leaves the list. You can’t undo this. Archive Chief hides a Chief instead.",
+               defaultValue: "The Chief stops and is removed for good, and its conversation leaves the list. You can’t undo this. Archive Chief hides a Chief instead.",
                table: "Home", bundle: .module)
     }
     public static var deleteChiefButton: String {
