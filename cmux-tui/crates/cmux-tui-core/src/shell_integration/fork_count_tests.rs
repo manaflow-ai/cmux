@@ -33,7 +33,11 @@
 //! A PID gap is valid only when nothing else forks in the window. nextest
 //! runs these tests one at a time with every test thread (group
 //! `fork-count-alone` in `cmux-tui/.config/nextest.toml`), so no other test
-//! of the run forks beside them; other processes on the host still do. The
+//! of the run forks beside them; other processes on the host still do.
+//! Plain `cargo test` runs a binary's tests as threads of one process, so
+//! every other test of `cmux-tui-core` (the pty, daemon and prompt-redraw
+//! tests) forks inside the windows: its counts are valid only with
+//! `cargo test -p cmux-tui-core -- --test-threads 1 fork_count_`. The
 //! Mac verdict therefore comes from `scripts/measure/shell-integration.sh`,
 //! an exclusive fleet step (alone on an idle worker) that sets
 //! `CMUX_FORK_COUNT_REQUIRE=zsh,fish,bash5.3` itself:
@@ -49,7 +53,6 @@
 
 use super::test_pty::TestPty;
 use super::*;
-use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 const PROMPT: &[u8] = b"@@P@@ ";
@@ -61,18 +64,6 @@ const MAX_REPS: usize = 6;
 const COMMANDS: usize = 12;
 /// Reps a control minimum must reach to count as the baseline.
 const STABLE_REPS: usize = 2;
-/// The fork-count tests fork too: under `cargo test`, which runs a binary's
-/// tests as threads of one process, they take turns so they do not count
-/// each other (nextest runs each in its own process, kept apart by the
-/// `fork-count-alone` group instead).
-static SERIAL: Mutex<()> = Mutex::new(());
-
-/// Runs `test` alone among the fork-count tests.
-fn serial(test: impl FnOnce()) {
-    let _guard = SERIAL.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    test();
-}
-
 /// Whether `CMUX_FORK_COUNT_REQUIRE` names `what`.
 fn required(what: &str) -> bool {
     std::env::var("CMUX_FORK_COUNT_REQUIRE")
@@ -132,7 +123,7 @@ impl Session {
         let deadline = Instant::now() + Duration::from_secs(30);
         while !done(self.output.as_slice()) {
             let left = deadline.saturating_duration_since(Instant::now());
-            match self.pty.received.recv_timeout(left) {
+            match self.pty.recv_timeout(left) {
                 Ok(chunk) => self.output.extend_from_slice(&chunk),
                 Err(_) => {
                     let tail = &self.output[self.output.len().saturating_sub(600)..];
@@ -168,8 +159,8 @@ impl Session {
 
 impl Drop for Session {
     fn drop(&mut self) {
+        // The `TestPty` then kills and reaps the shell.
         self.pty.write_quietly(b"\x15exit\r");
-        let _ = self.pty.spawned.child.kill();
     }
 }
 
@@ -356,23 +347,19 @@ fn assert_no_extra_forks(
 
 #[test]
 fn fork_count_zsh_forks_nothing() {
-    serial(|| {
-        let Some(zsh) = find(&["/bin/zsh", "/usr/bin/zsh"]) else {
-            return skip("zsh", "zsh is not installed");
-        };
-        assert_no_extra_forks("zsh", Shell::Zsh, &zsh, "", 0);
-    });
+    let Some(zsh) = find(&["/bin/zsh", "/usr/bin/zsh"]) else {
+        return skip("zsh", "zsh is not installed");
+    };
+    assert_no_extra_forks("zsh", Shell::Zsh, &zsh, "", 0);
 }
 
 #[test]
 fn fork_count_fish_forks_nothing() {
-    serial(|| {
-        let Some(fish) = find(&["/opt/homebrew/bin/fish", "/usr/local/bin/fish", "/usr/bin/fish"])
-        else {
-            return skip("fish", "fish is not installed");
-        };
-        assert_no_extra_forks("fish", Shell::Fish, &fish, "", 0);
-    });
+    let Some(fish) = find(&["/opt/homebrew/bin/fish", "/usr/local/bin/fish", "/usr/bin/fish"])
+    else {
+        return skip("fish", "fish is not installed");
+    };
+    assert_no_extra_forks("fish", Shell::Fish, &fish, "", 0);
 }
 
 /// bash forks nothing at startup with any PROMPT_COMMAND, and nothing per
@@ -381,47 +368,36 @@ fn fork_count_fish_forks_nothing() {
 /// substitution and the history read in it), and no more.
 #[test]
 fn fork_count_bash_forks_nothing_at_startup_or_per_command_on_bash_5_3() {
-    serial(|| {
-        // Apple's /bin/bash gets no integration (see detect_shell).
-        let Some(bash) = find(&["/opt/homebrew/bin/bash", "/usr/local/bin/bash", "/usr/bin/bash"])
-        else {
-            skip("bash5.3", "an integrated bash is not installed");
-            return skip("bash", "an integrated bash is not installed");
-        };
-        let version = std::process::Command::new(&bash)
-            .args(["-c", "printf '%s %s' \"${BASH_VERSINFO[0]}\" \"${BASH_VERSINFO[1]}\""])
-            .output()
-            .unwrap();
-        let version = String::from_utf8_lossy(&version.stdout).into_owned();
-        let mut parts = version.split(' ').map(|part| part.parse::<u32>().unwrap_or(0));
-        let (major, minor) = (parts.next().unwrap_or(0), parts.next().unwrap_or(0));
-        let bash_5_3 = (major, minor) >= (5, 3);
-        if !bash_5_3 {
-            skip(
-                "bash5.3",
-                &format!("{} is bash {major}.{minor}, not 5.3 or later", bash.display()),
-            );
-        }
-        if (major, minor) < (4, 4) {
-            return skip(
-                "bash",
-                &format!("bash {major}.{minor} is older than 4.4 (Ghostty uses bash-preexec)"),
-            );
-        }
-        let budget = if bash_5_3 { 0 } else { 2 };
-        eprintln!("{}: bash {major}.{minor}, budget {budget} per command", bash.display());
-        for (home, bashrc_extra) in [
-            ("plain", ""),
-            ("pc-string", "PROMPT_COMMAND='history -a'\n"),
-            ("pc-array", "PROMPT_COMMAND=(history\\ -a)\n"),
-        ] {
-            assert_no_extra_forks(
-                &format!("bash-{home}"),
-                Shell::Bash,
-                &bash,
-                bashrc_extra,
-                budget,
-            );
-        }
-    });
+    // Apple's /bin/bash gets no integration (see detect_shell).
+    let Some(bash) = find(&["/opt/homebrew/bin/bash", "/usr/local/bin/bash", "/usr/bin/bash"])
+    else {
+        skip("bash5.3", "an integrated bash is not installed");
+        return skip("bash", "an integrated bash is not installed");
+    };
+    let version = std::process::Command::new(&bash)
+        .args(["-c", "printf '%s %s' \"${BASH_VERSINFO[0]}\" \"${BASH_VERSINFO[1]}\""])
+        .output()
+        .unwrap();
+    let version = String::from_utf8_lossy(&version.stdout).into_owned();
+    let mut parts = version.split(' ').map(|part| part.parse::<u32>().unwrap_or(0));
+    let (major, minor) = (parts.next().unwrap_or(0), parts.next().unwrap_or(0));
+    let bash_5_3 = (major, minor) >= (5, 3);
+    if !bash_5_3 {
+        skip("bash5.3", &format!("{} is bash {major}.{minor}, not 5.3 or later", bash.display()));
+    }
+    if (major, minor) < (4, 4) {
+        return skip(
+            "bash",
+            &format!("bash {major}.{minor} is older than 4.4 (Ghostty uses bash-preexec)"),
+        );
+    }
+    let budget = if bash_5_3 { 0 } else { 2 };
+    eprintln!("{}: bash {major}.{minor}, budget {budget} per command", bash.display());
+    for (home, bashrc_extra) in [
+        ("plain", ""),
+        ("pc-string", "PROMPT_COMMAND='history -a'\n"),
+        ("pc-array", "PROMPT_COMMAND=(history\\ -a)\n"),
+    ] {
+        assert_no_extra_forks(&format!("bash-{home}"), Shell::Bash, &bash, bashrc_extra, budget);
+    }
 }

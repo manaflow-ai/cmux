@@ -80,8 +80,7 @@ threads-required = 'num-test-threads'
 
 # The shell-integration fork counts read the system PID counter: a process any
 # other test starts in the window counts as a fork of the shell. nextest runs
-# each test in its own process, so the SERIAL mutex in fork_count_tests.rs
-# does not keep them apart; this group runs them one at a time, and taking
+# each test in its own process; this group runs them one at a time, and taking
 # every test thread keeps the rest of the run out of their windows. Processes
 # outside the run (other steps on a shared worker) still inflate the counts:
 # the verdict on a Mac comes from scripts/measure/shell-integration.sh, which
