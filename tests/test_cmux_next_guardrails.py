@@ -401,6 +401,14 @@ class RuleTests(Fixture):
         self.assertFalse(guardrails.glob_match("A/Motion/Spring.swift", "A/Motion*.swift"))
         self.assertTrue(guardrails.glob_match("A/B/C/D.swift", "A/**/D.swift"))
 
+    def test_a_moved_line_that_only_gains_an_access_modifier_is_no_new_debt(self):
+        (self.repo / "Packages/macOS/CmuxNext/Sources/CmuxNextOther").mkdir(parents=True)
+        self.git("mv", f"{KIT}/Old.swift", "Packages/macOS/CmuxNext/Sources/CmuxNextOther/Old.swift")
+        self.write("Packages/macOS/CmuxNext/Sources/CmuxNextOther/Old.swift",
+                   "package final class Old {\n    package static let shared = Old()\n}\n")
+        self.commit("git mv into another package; access internal -> package")
+        self.assertEqual(self.refused(), [])
+
     def test_the_generic_class_rule_reads_test_targets_and_honors_nonisolated(self):
         tests = "Packages/macOS/CmuxNext/Tests/CmuxNextFooTests"
         self.write(f"{tests}/Wait.swift", "final class Once<T> {\n    var value: T?\n}\n")

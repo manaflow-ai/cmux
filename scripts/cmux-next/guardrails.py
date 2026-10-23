@@ -208,6 +208,15 @@ def debt_in(version: Version, changed: list[Added], matcher: Matcher) -> list[Ad
     return out
 
 
+ACCESS_WORDS = re.compile(r"\b(public|package|internal|private|fileprivate|open)\s+(?!\()|\b(public|package|internal)\s+import\b")
+
+
+def debt_key(text: str) -> str:
+    """The text two debt lines are compared by: stripped, with access modifiers dropped, so a line that moved
+    to another module and only gained `package` or `public` (a git mv into a package) pairs with its old self."""
+    return re.sub(r"\s+", " ", ACCESS_WORDS.sub(lambda m: "import " if m.group(2) else "", text)).strip()
+
+
 def resolve(found: list[tuple[list[Added], list[Added]]]) -> list[Added]:
     """New debt from each file's (head debt the push changed, base debt the push changed), in file order.
 
@@ -221,10 +230,10 @@ def resolve(found: list[tuple[list[Added], list[Added]]]) -> list[Added]:
     left_added: list[list[Added]] = []
     pools: list[collections.Counter] = []
     for added, removed in found:
-        pool = collections.Counter(r.text.strip() for r in removed)
+        pool = collections.Counter(debt_key(r.text) for r in removed)
         rest = []
         for line in added:
-            key = line.text.strip()
+            key = debt_key(line.text)
             if pool[key] > 0:
                 pool[key] -= 1
             else:
@@ -234,7 +243,7 @@ def resolve(found: list[tuple[list[Added], list[Added]]]) -> list[Added]:
     for i, rest in enumerate(left_added):
         still = []
         for line in rest:
-            key = line.text.strip()
+            key = debt_key(line.text)
             sources = [j for j, pool in enumerate(pools) if j != i and pool[key] > 0]
             source = max(sources, key=lambda j: (sum(pools[j].values()) - len(left_added[j]), -j), default=None)
             if source is None:
