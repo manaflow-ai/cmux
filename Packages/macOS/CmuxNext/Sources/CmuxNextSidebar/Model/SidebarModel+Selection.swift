@@ -71,7 +71,12 @@ extension SidebarModel {
             selectionAnchor = anchor
             selectionExtent = id
             activeWorkspaceID = id
+            let rangeSelection = selection
             send(.select(id))
+            // `.select` is the singular activation intent used by the bridge to show the
+            // workspace. Keep the range this local Shift navigation just established after
+            // the bridge's optimistic echo applies that singular intent.
+            selection = rangeSelection
         } else {
             click(id)
         }
