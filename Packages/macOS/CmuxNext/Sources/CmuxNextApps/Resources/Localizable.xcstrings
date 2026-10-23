@@ -11293,7 +11293,7 @@
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Det tilføjer"
+            "value" : "Hvad den tilføjer"
           }
         },
         "de" : {
@@ -11347,7 +11347,7 @@
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Dette legger den til"
+            "value" : "Hva den legger til"
           }
         },
         "pl" : {

@@ -121,6 +121,15 @@ function wireIcon(icon: WireIcon): AppIconRef | undefined {
   return icon.symbol ? { symbol: icon.symbol } : undefined;
 }
 
+/** The owner's contributions, keeping only entries with a string kind and a non-blank title. */
+function contributionsFrom(value: unknown): AppContribution[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  return value.filter(
+    (item): item is AppContribution =>
+      typeof item?.kind === "string" && typeof item.title === "string" && item.title.trim() !== "",
+  );
+}
+
 export function fromDetail(detail: WireDetail): AppDetail {
   return {
     ...fromListing(detail),
@@ -128,7 +137,7 @@ export function fromDetail(detail: WireDetail): AppDetail {
     versions: detail.versions ?? [],
     repository: detail.repository,
     screenshots: detail.screenshots ?? [],
-    contributes: detail.contributes?.filter((item) => typeof item?.title === "string" && item.title.trim() !== ""),
+    contributes: contributionsFrom(detail.contributes),
   };
 }
 

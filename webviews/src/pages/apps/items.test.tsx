@@ -182,6 +182,16 @@ test("What it adds lists each contribution with its kind, and is absent when the
   expect(html).toContain("Pull Requests");
   expect(html).toContain(en["store.contribution.section"]!);
   expect(html).toContain(">panel<");
+  const twice = renderToStaticMarkup(
+    <AddsList
+      contributes={[
+        { kind: "command", title: "Stay Awake" },
+        { kind: "command", title: "Stay Awake" },
+      ]}
+      strings={strings}
+    />,
+  );
+  expect(twice.match(/Stay Awake/g)?.length).toBe(2);
 });
 
 test("settings show only once installed, with Enabled as the app's switch", () => {
@@ -215,4 +225,17 @@ test("the detail keeps the owner's contributions and drops untitled ones", () =>
   const detail: AppDetail = fromDetail(wire);
   expect(detail.contributes).toEqual([{ kind: "command", title: "Stay Awake" }]);
   expect(fromDetail({ ...wire, contributes: undefined }).contributes).toBeUndefined();
+  // A malformed payload never throws: a non-array is no list, and bad entries are dropped.
+  const malformed = (contributes: unknown) => fromDetail({ ...wire, contributes } as unknown as WireDetail).contributes;
+  expect(malformed("Stay Awake")).toBeUndefined();
+  expect(malformed({ kind: "command", title: "Stay Awake" })).toBeUndefined();
+  expect(
+    malformed([
+      null,
+      7,
+      { kind: { x: 1 }, title: "Bad" },
+      { kind: null, title: "Bad" },
+      { kind: "panel", title: "Inbox" },
+    ]),
+  ).toEqual([{ kind: "panel", title: "Inbox" }]);
 });

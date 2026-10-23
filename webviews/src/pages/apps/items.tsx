@@ -230,8 +230,8 @@ export function AddsList({ contributes, strings }: { contributes?: readonly AppC
   return (
     <DetailSection title={t("store.detail.adds")}>
       <ul className="apps-adds">
-        {contributes.map((item) => (
-          <li key={`${item.kind}\u0000${item.title}`} className="apps-add">
+        {contributes.map((item, index) => (
+          <li key={`${index}\u0000${item.kind}\u0000${item.title}`} className="apps-add">
             <span className="apps-add-title">{item.title}</span>
             <Badge text={CONTRIBUTION_KEYS[item.kind] ? t(CONTRIBUTION_KEYS[item.kind]!) : item.kind} />
           </li>
