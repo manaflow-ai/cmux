@@ -71,7 +71,9 @@ impl Hub {
         let (mut prompt_id, mut control, mut gate) = (None::<String>, None::<String>, None);
         let mut prompts: Vec<String> = Vec::new();
         let mut images: Vec<Value> = Vec::new();
-        let kinds = ["turn_started", "user_message"];
+        // A Web steer made the turn a Web turn (`web_control.rs` `check_steer`).
+        let mut raised_to_web = false;
+        let kinds = ["turn_started", "user_message", "turn_control"];
         let _ = self.store.scan_kinds(&session.id, &kinds, &mut |e: EventRecord| {
             if e.msg.get("turnId").and_then(Value::as_str) != Some(turn_id) {
                 return true;
@@ -83,6 +85,7 @@ impl Hub {
                     control = field("control");
                     gate = e.msg.get("trustGate").and_then(Value::as_bool);
                 }
+                "turn_control" => raised_to_web |= field("control").as_deref() == Some("web"),
                 _ => {
                     let named = e.msg.get("images").and_then(Value::as_array);
                     let shown = named.map_or(0, Vec::len);
@@ -112,7 +115,7 @@ impl Hub {
         self.append(session, "mux", "auto_resume_scheduled", msg);
         let text = continue_text(&prompts);
         let provenance = json!({"kind": "auto_resume", "reason": "daemon_restart", "promptId": root, "attempt": attempt, "turnId": turn_id});
-        let control = control.as_deref().unwrap_or("web");
+        let control = if raised_to_web { "web" } else { control.as_deref().unwrap_or("web") };
         let mut blocks = vec![json!({"type": "text", "text": text})];
         blocks.extend(super::super::prompt_images::blocks_of(&images));
         let mut queued = json!({
@@ -124,8 +127,9 @@ impl Hub {
             "prompt": blocks,
             "control": control,
             // Checked again as the cut turn was: the folder's trust may have changed across the
-            // restart. A log from before `turn_started` recorded it checks a web turn again.
-            "trustGate": gate.unwrap_or(control == "web"),
+            // restart. A Web turn (by its start or a Web steer) is always checked again, as is
+            // one from a log from before `turn_started` recorded its gate.
+            "trustGate": control == "web" || gate.unwrap_or(false),
         });
         if !images.is_empty() {
             queued["images"] = Value::Array(images);
