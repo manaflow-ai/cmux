@@ -84,6 +84,10 @@ pub mod error_code {
     pub const CHAN_IN_USE: u16 = 9;
     /// Another daemon authenticated and took this link's place.
     pub const SUPERSEDED: u16 = 10;
+    /// The holder could not dup a terminal's descriptors for a new daemon
+    /// (it is out of descriptors): it refuses the HELLO and keeps the link
+    /// it has. It never sends a LISTED without the master it lists.
+    pub const NO_DESCRIPTORS: u16 = 11;
 }
 
 struct Terminal {
@@ -200,6 +204,10 @@ struct Pending {
     reader: wire::Reader,
     deadline: Instant,
 }
+
+/// Every terminal for a new link's WELCOME: channel, LISTED payload and
+/// the descriptors it passes.
+type Listing = Vec<(u32, Vec<u8>, Vec<OwnedFd>)>;
 
 /// What one [`Holder::read_terminal`] call ended on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -563,21 +571,24 @@ impl Holder {
         if Kind::from_u16(frame.kind) != Some(Kind::Hello) {
             return;
         }
-        match self.check_hello(&frame.payload) {
-            Ok(version) => self.promote(pending, version),
-            Err(code) => {
-                // Best effort: the refused peer may already be gone.
-                let payload = Out::default().u16(Kind::Hello as u16).u16(code).0;
-                let frame = wire::encode(Kind::Error, 0, &payload);
-                let _ = wire::send_with_fds(pending.stream.as_raw_fd(), &frame, &[]);
-            }
-        }
+        let (code, message) = match self.check_hello(&frame.payload) {
+            Ok(version) => match self.listing(version >= wire::RING_VERSION) {
+                Ok(listing) => return self.promote(pending, version, listing),
+                Err(error) => (error_code::NO_DESCRIPTORS, format!("pass the terminals: {error}")),
+            },
+            Err(code) => (code, String::new()),
+        };
+        // Best effort: the refused peer may already be gone, and dropping
+        // it closes the connection either way.
+        let payload = Out::default().u16(Kind::Hello as u16).u16(code).bytes(message.as_bytes()).0;
+        let frame = wire::encode(Kind::Error, 0, &payload);
+        let _ = wire::send_with_fds(pending.stream.as_raw_fd(), &frame, &[]);
     }
 
     /// Make an authenticated connection the daemon link. The daemon it
     /// replaces hears SUPERSEDED (when its queue lets that through) so it
     /// does not take the holder back.
-    fn promote(&mut self, pending: Pending, version: u16) {
+    fn promote(&mut self, pending: Pending, version: u16, listing: Listing) {
         // A daemon that died with frames still unread (its last ACKs) ended
         // before this one connected: its end is a lost link (a strike, the
         // poison pill), not a takeover. A restart after a parser crash
@@ -611,7 +622,7 @@ impl Holder {
             bulk_per_chan: HashMap::new(),
             out_bytes: 0,
         });
-        self.welcome(version);
+        self.welcome(version, listing);
         // Frames the daemon sent right behind its HELLO.
         if !self.drain_link_frames() {
             self.drop_link(LinkDrop::Lost);
@@ -745,14 +756,14 @@ impl Holder {
         Ok(version.min(wire::VERSION))
     }
 
-    /// WELCOME the new link with every terminal, a master dup of each and,
-    /// for a daemon of [`wire::RING_VERSION`], a dup of its ring segment.
-    /// An older daemon gets no segment: it could hand a layout 2 segment to
-    /// a holder that knows only layout 1.
-    fn welcome(&mut self, version: u16) {
-        let rings = version >= wire::RING_VERSION;
-        let listed: Vec<(u32, Vec<u8>, Vec<OwnedFd>)> = self
-            .terminals
+    /// Every terminal for a new link's WELCOME, with a master dup of each
+    /// and (`rings`: a daemon of [`wire::RING_VERSION`]) a dup of its ring
+    /// segment; an older daemon gets no segment (it could hand a layout 2
+    /// segment to a holder that knows only layout 1). Fails when a dup
+    /// fails: the holder then refuses the HELLO rather than list a terminal
+    /// without the master it lists.
+    fn listing(&self, rings: bool) -> io::Result<Listing> {
+        self.terminals
             .iter()
             .map(|(chan, terminal)| {
                 let listed = Listed {
@@ -765,12 +776,16 @@ impl Holder {
                     master: None,
                     ring: None,
                 };
-                (*chan, listed.encode(), terminal.descriptors(rings))
+                Ok((*chan, listed.encode(), terminal.descriptors(rings)?))
             })
-            .collect();
-        let welcome = Out::default().u16(version).u32(listed.len() as u32).0;
+            .collect()
+    }
+
+    /// WELCOME the new link with `listing` ([`Self::listing`]).
+    fn welcome(&mut self, version: u16, listing: Listing) {
+        let welcome = Out::default().u16(version).u32(listing.len() as u32).0;
         self.queue(Kind::Welcome, 0, &welcome, Vec::new());
-        for (chan, payload, fds) in listed {
+        for (chan, payload, fds) in listing {
             self.queue_flagged(Kind::Listed, ring_flag(&fds), chan, &payload, fds);
         }
     }
@@ -788,10 +803,10 @@ impl Holder {
         // attached stream would.
         terminal.held = Some(terminal.ring.end());
         let rings = self.link.as_ref().is_some_and(|link| link.rings);
-        let fds = terminal.descriptors(rings);
-        if fds.is_empty() {
-            return Err((error_code::SPAWN_FAILED, "no custody dup of the master".to_string()));
-        }
+        // Dropping the terminal closes the only master: the child hangs up.
+        let fds = terminal.descriptors(rings).map_err(|error| {
+            (error_code::SPAWN_FAILED, format!("dup the terminal's descriptors: {error}"))
+        })?;
         self.terminals.insert(chan, terminal);
         let payload = Out::default().i32(spawned.pid).0;
         self.queue_flagged(Kind::Spawned, ring_flag(&fds), chan, &payload, fds);
@@ -1221,7 +1236,8 @@ impl Holder {
         fds: Vec<OwnedFd>,
     ) {
         if let Some(link) = self.link.as_mut() {
-            link.push(chan, wire::encode_flagged(kind, flags, chan, payload), fds);
+            let frame = wire::encode_with_fds(kind, flags, chan, payload, fds.len());
+            link.push(chan, frame, fds);
         }
     }
 
@@ -1297,11 +1313,14 @@ impl Terminal {
     }
 
     /// Dups for a daemon: the master, then (with `rings`, when the ring is
-    /// shared) the ring segment. Empty when the master cannot be dup'd.
-    fn descriptors(&self, rings: bool) -> Vec<OwnedFd> {
-        let Ok(master) = self.master.try_clone() else { return Vec::new() };
-        let ring = rings.then(|| self.ring.segment().and_then(|fd| fd.try_clone().ok())).flatten();
-        std::iter::once(master).chain(ring).collect()
+    /// shared) the ring segment. An error when either cannot be dup'd (the
+    /// holder is out of descriptors): never a frame without one it lists.
+    fn descriptors(&self, rings: bool) -> io::Result<Vec<OwnedFd>> {
+        let mut fds = vec![self.master.try_clone()?];
+        if rings && let Some(segment) = self.ring.segment() {
+            fds.push(segment.try_clone()?);
+        }
+        Ok(fds)
     }
 
     /// The child ended (or, adopted, cannot be waited for) and no more
