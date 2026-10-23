@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextIcons
+import CmuxNextStash
 import SwiftUI
 
 /// The Stashed page (a native OneTab): stashed groups, newest first, each

@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextStash
 import SwiftUI
 
 /// Hosts the Stashed page (as a top page). Resolves the History page's

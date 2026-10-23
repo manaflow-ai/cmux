@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextHistory
 import CmuxNextIcons
+import CmuxNextStash
 
 extension InternalPageID {
     /// Stashed Tabs as a top page: Show Stashed Tabs (the palette, Window menu, CLI and MCP),

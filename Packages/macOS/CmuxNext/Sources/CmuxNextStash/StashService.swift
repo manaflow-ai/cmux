@@ -1,7 +1,6 @@
 import CmuxNextCompat
 public import CmuxNextDaemon
 import CmuxNextDaemonService
-public import CmuxNextHistory
 import Foundation
 
 /// Stash (a native OneTab, `stash-v1`) on this Mac's daemon: serves the Stashed page
