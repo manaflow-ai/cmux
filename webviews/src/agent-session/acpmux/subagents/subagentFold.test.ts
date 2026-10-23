@@ -205,6 +205,14 @@ test("a Claude Agent call's result gives its subagent the agentId a SendMessage 
   expect(agentNames(agents).get("a39e817af38ddf5e7")).toBe("Fix grid jump");
 });
 
+test("the agentId is the last one a result names, after a report that mentions another", async () => {
+  const { agentIdIn } = await import("./subagentFold");
+  expect(agentIdIn("Found agentId: aaaa1111bbbb2222 in the log.\n\nagentId: a39e817af38ddf5e7 (internal ID)")).toBe(
+    "a39e817af38ddf5e7",
+  );
+  expect(agentIdIn("no id here")).toBeUndefined();
+});
+
 describe("a subagent's name in its rows", () => {
   const RAW = "01a15779-206b-72b0-96af-bdbe4868e19c/toolu_01H9Jk66ek2xu2m2SaOS09M1";
 
@@ -256,7 +264,7 @@ describe("a subagent's name in its rows", () => {
   });
 });
 
-test("a message to a subagent nothing named reads as the generic recipient, never its id", async () => {
+test("a subagent nothing named gives a message no recipient name (the card shows its short id)", async () => {
   const { agentNames, recipientName } = await import("../conversation/agentNames");
   const fold = new SubagentFold();
   feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "s/t8", parent: null, toolCallId: "t8" }] });
