@@ -49,8 +49,6 @@ parser.add_argument("--interval", type=float, default=0.25)
 parser.add_argument("--budget-ms", type=float, default=10.0)
 parser.add_argument("--no-gate", action="store_true")
 parser.add_argument("--json", help="also write the report here (the fleet measure step's artifact)")
-parser.add_argument("--sample", default="", help="ROW[,...]: `sample` the app (1 ms) while it runs ROW (OUT/sample-<session>-<row>.txt); "
-                    "the profiler's cost lands in that row's numbers, so use a separate run for timings")
 parser.add_argument("--sample", default="", help="ROW[,...]: also `sample` the app's main thread during those rows (OUT/sample-<session>-<row>.txt)")
 opts, _unknown = parser.parse_known_args()  # the fleet entry also passes --tag
 os.makedirs(opts.out, exist_ok=True)
@@ -101,32 +99,16 @@ class Bench:
 
     def time(self, method, step, count, label):
         """`count` inputs (`step(i)`), timed by `method`'s timer; the row's numbers."""
-        if label in opts.sample.split(","):
-            self.sampled(step, count, label)
+        hot = self.sampled(step, count, label) if label in opts.sample.split(",") else None
         self.rpc("debug.frames", {"action": "start"})  # the display link ticks, so commits map to vsyncs
         probe = self.rpc(method, {"action": "start"})
         if not isinstance(probe, dict) or "recording" not in probe:
             self.rpc("debug.frames", {"action": "stop"})
             return {"label": label, "error": f"{method} unavailable"}
-        sampler = None
-        if label in opts.sample.split(","):
-            path = os.path.join(opts.out, f"sample-{self.session}-{label}.txt")
-            seconds = int(count * opts.interval) + 2
-            sampler = subprocess.Popen(["/usr/bin/sample", str(self.app.process.pid), str(seconds), "1", "-mayDie", "-file", path],
-                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            time.sleep(0.5)  # bench: the sampler attaches
         for index in range(count):
             step(index)
             time.sleep(opts.interval)  # bench pacing: one input per interval, its commit lands meanwhile
         time.sleep(0.5)  # bench: the last commit lands
-        hot = None
-        if sampler:
-            sampler.wait(timeout=120)
-            try:
-                hot = anim.main_thread_hot(open(path, errors="replace").read(), limit=60)
-            except OSError:
-                hot = ["(no sample)"]
-            print(f"== sample {self.session} {label}", *hot, sep="\n", flush=True)
         reply = self.rpc(method, {"action": "stop"}) or {}
         self.rpc("debug.frames", {"action": "stop"})
         rows = reply.get("switches") or reply.get("inputs") or reply.get("moves") or []
@@ -140,7 +122,8 @@ class Bench:
                "work_before_commit": reply.get("work_before_commit"),
                "workspace_shown": [r.get("workspace_shown") for r in rows if "workspace_shown" in r] or None}
         stages = {}
-        for stage in ("input", "park", "content", "sidebar", "root", "theme", "did_show", "focus", "strip", "present", "record"):
+        for stage in ("input", "park", "content", "sidebar", "root", "theme", "did_show", "focus", "strip", "withdraw", "reveal",
+                      "stripSync", "view", "present", "record"):
             vals = [r[stage + "_ms"] for r in rows if isinstance(r.get(stage + "_ms"), (int, float))]
             if vals:
                 stages[stage] = pct(vals, 0.95)
@@ -154,7 +137,6 @@ class Bench:
 
     def sampled(self, step, count, label):
         """A separate pass of the row under /usr/bin/sample (1 ms), so the sampler stays out of the timed numbers."""
-        import subprocess
         path = os.path.join(opts.out, f"sample-{self.session}-{label}.txt")
         seconds = max(3, int(count * opts.interval) + 2)
         sampler = subprocess.Popen(["/usr/bin/sample", str(self.app.process.pid), str(seconds), "1", "-mayDie", "-file", path],
@@ -167,7 +149,12 @@ class Bench:
             sampler.wait(timeout=seconds + 90)
         except subprocess.TimeoutExpired:
             sampler.terminate()
-        print(f"  sampled {label}: {path}", flush=True)
+        try:
+            hot = anim.main_thread_hot(open(path, errors="replace").read(), limit=60)
+        except OSError:
+            hot = ["(no sample)"]
+        print(f"== sample {self.session} {label}: {path}", *hot, sep="\n", flush=True)
+        return hot
 
     def pair_switch(self, a, b, label, how="next_prev"):
         """Alternates a <-> b; `a` and `b` must be adjacent in the sidebar (b right after a) for next/prev."""
