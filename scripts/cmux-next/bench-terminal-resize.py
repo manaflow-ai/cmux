@@ -116,7 +116,7 @@ def write(text):
 
 
 def counter_delta(before, after):
-    keys = ("frames", "frame_updates", "full_resize", "full_swap", "host_display_passes", "host_main_draws", "host_fresh_presents",
+    keys = ("frames", "frame_updates", "full_resize", "full_swap", "host_display_passes", "host_present_calls", "host_main_draws", "host_fresh_presents",
             "host_late_presents")
     total = {k: 0 for k in keys}
     for b, a in zip(before, after):
