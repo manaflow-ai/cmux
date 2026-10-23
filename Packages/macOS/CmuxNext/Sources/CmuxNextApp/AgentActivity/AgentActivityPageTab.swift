@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextAgentActivity
 import CmuxNextBrowser
+import CmuxNextDesign
 import CmuxNextIcons
 import CmuxNextPages
 import Foundation
@@ -27,7 +28,9 @@ final class AgentActivityPageTab: BrowserTab {
     @ObservationIgnored let contentView: NSView
     @ObservationIgnored var onNavigate: ((URL) -> Void)?
 
-    init(id: BrowserTabID, engine: BrowserEngineKind, profile: BrowserProfileID, source: any AgentActivitySource) {
+    /// `lowPowerMode` is the app's: the page (or the fallback view) renders by it and follows it.
+    init(id: BrowserTabID, engine: BrowserEngineKind, profile: BrowserProfileID, source: any AgentActivitySource,
+         lowPowerMode: LowPowerMode) {
         self.id = id
         self.engineKind = engine
         self.profileID = profile
@@ -37,8 +40,9 @@ final class AgentActivityPageTab: BrowserTab {
         let model = AgentActivityModel(source: source)
         self.model = model
         let provider = AgentActivityPageProvider(requests: AgentActivityRequests(model: model, source: source))
-        contentView = PageWebView(descriptor: .agentActivity, routes: [PageRoute(prefix: AgentActivityPageProvider.prefix, provider: provider)])
-            ?? AgentActivityHostView(model: model, source: source)
+        contentView = PageWebView(descriptor: .agentActivity, routes: [PageRoute(prefix: AgentActivityPageProvider.prefix, provider: provider)],
+                                  lowPowerMode: lowPowerMode)
+            ?? AgentActivityHostView(model: model, source: source, lowPowerMode: lowPowerMode)
         model.start()
     }
 

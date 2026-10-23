@@ -11,7 +11,8 @@ import WebKit
 struct AgentActivityThemeTests {
     @Test func theActivityPageFollowsItsScopesTheme() async throws {
         let source = AgentActivityMockSource()
-        let view = AgentActivityHostView(model: AgentActivityModel(source: source), source: source)
+        let view = AgentActivityHostView(model: AgentActivityModel(source: source), source: source,
+                                         lowPowerMode: LowPowerMode(enabled: false))
         let scripts = view.webView.configuration.userContentController.userScripts.map(\.source)
         #expect(scripts.contains(WebTheme.bootstrapScript))
 

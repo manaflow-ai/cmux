@@ -228,8 +228,10 @@ final class AppServices {
     let homeSwitchKeys = HomeSwitchKeysSource()
     /// One prewarmed new tab page per window (instant open).
     private(set) lazy var newTabSpares = NewTabSparePool(services: self)
+    /// The app's one Low Power Mode observer: the render rate of pages and their spares follows it.
+    let lowPowerMode = LowPowerMode.system
     /// The spare React page hosts for Settings, History and Cloud.
-    private(set) lazy var pageHostPool = PageHostPool(lowPowerMode: .system)
+    private(set) lazy var pageHostPool = PageHostPool(lowPowerMode: lowPowerMode)
     /// The one icon picker (R94): Set Icon of workspaces, screens, spaces, browser profiles.
     private(set) lazy var iconPicker = IconPickerService(services: self)
     /// cmux.json command `actions`, registered as `cmuxConfig.<name>`.

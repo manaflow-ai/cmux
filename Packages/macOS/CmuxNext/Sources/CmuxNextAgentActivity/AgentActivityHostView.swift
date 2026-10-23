@@ -1,6 +1,6 @@
 public import AppKit
 public import WebKit
-import CmuxNextDesign
+public import CmuxNextDesign
 
 /// Hosts the Activity renderer in a web view while keeping socket and native
 /// operation ownership in ``AgentActivityModel`` and its injected source.
@@ -20,15 +20,25 @@ public final class AgentActivityHostView: NSView {
     }
     /// Pushes the theme again on every repaint of this view's scope (the glass mode included).
     private lazy var themeFollower = ThemeFollower(self) { [weak self] in self?.applyTheme() }
+    /// Follows Low Power Mode for the render rate while the view lives; releasing the view stops it.
+    private var renderRateObservation: LowPowerModeObservation?
+    /// The running re-show of a rate change on screen (`WebKitRenderRate.set`).
+    private var renderRateReshow: Task<Void, Never>?
 
     /// Makes an Activity web view for a model and its native data source.
-    public init(model: AgentActivityModel, source: any AgentActivitySource) {
+    ///
+    /// - Parameters:
+    ///   - model: The Activity model the page shows.
+    ///   - source: The native data source the page's requests go to.
+    ///   - lowPowerMode: The Low Power Mode the render rate follows, by the rule of cmux pages and
+    ///     browser tabs: the display's full rate outside it, near 60 fps inside it, applied live
+    ///     when it changes. The app passes its one instance; tests pass their own.
+    public init(model: AgentActivityModel, source: any AgentActivitySource, lowPowerMode: LowPowerMode) {
         self.model = model
         self.source = source
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
-        // The page host's rule (PageRenderRate.display): full rate outside Low Power Mode.
-        WebKitRenderRate.apply(fullRate: WebKitRenderRate.prefersFullRate(lowPowerMode: LowPowerMode.system.isEnabled),
+        WebKitRenderRate.apply(fullRate: WebKitRenderRate.prefersFullRate(lowPowerMode: lowPowerMode.isEnabled),
                                to: configuration.preferences)
         let bridge = AgentActivityBridge(model: model, source: source)
         model.layout = AgentActivityTunables.layout.value
@@ -53,14 +63,9 @@ public final class AgentActivityHostView: NSView {
         webView.isInspectable = true
         bridge.view = self
         model.onChange = { [weak self] in self?.scheduleStatePush() }
+        renderRateObservation = lowPowerMode.observe { [weak self] enabled in self?.applyRenderRate(lowPowerMode: enabled) }
         addSubview(webView)
         if let page = Self.bundledPage { webView.loadFileURL(page, allowingReadAccessTo: page.deletingLastPathComponent()) }
-    }
-
-    /// Compatibility initializer for prototype snapshot callers.
-    public convenience init(model: AgentActivityModel, layoutOverride: AgentActivityLayout? = nil) {
-        if let layoutOverride { model.layout = layoutOverride }
-        self.init(model: model, source: AgentActivityMockSource())
     }
 
     /// The bundled Activity page.
@@ -93,6 +98,14 @@ public final class AgentActivityHostView: NSView {
         }
         // After the theme, which sets `data-glass`; a reload is a new document with no still yet.
         glassFeed.refresh(newDocument: reload)
+    }
+
+    /// Sets the rate for a Low Power Mode change: the same path as cmux pages and browser tabs
+    /// (`WebKitRenderRate.set`), which re-shows the page under a snapshot when it is on screen.
+    private func applyRenderRate(lowPowerMode: Bool) {
+        guard let reshow = WebKitRenderRate.set(fullRate: WebKitRenderRate.prefersFullRate(lowPowerMode: lowPowerMode),
+                                                on: webView, replacing: renderRateReshow) else { return }
+        renderRateReshow = reshow
     }
 
     private static func theme(_ scope: ThemeScope) -> WebTheme {
