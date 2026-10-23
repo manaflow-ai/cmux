@@ -109,6 +109,12 @@ public final class AgentPaneDroppedPaths {
         if retainedPaths.count > 100 { retainedPaths.removeFirst(retainedPaths.count - 100) }
     }
 
+    /// Retained copies belong to the chat that requested them. A pane can be reused for another
+    /// chat, so never carry an exact-file grant across that session boundary.
+    func clearRetained() {
+        retainedPaths.removeAll()
+    }
+
     /// Whether WebKit names the file at `url` `name`. String equality is canonical: a name WebKit
     /// and the file system hold in different Unicode forms (é as one scalar or two) is the same
     /// name. WebKit names a folder (or a package such as an `.app`) `<name>.zip` with type

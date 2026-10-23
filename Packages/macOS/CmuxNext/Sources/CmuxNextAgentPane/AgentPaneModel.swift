@@ -388,6 +388,7 @@ public final class AgentPaneModel {
     /// The page's chat became session `id` (it started, or the quick panel moved it); no longer a new tab page.
     func adoptSession(_ id: String) {
         guard id != sessionId else { return }
+        droppedPaths.clearRetained()
         sessionId = id
         newTab = nil
         onSessionChange?(id)
