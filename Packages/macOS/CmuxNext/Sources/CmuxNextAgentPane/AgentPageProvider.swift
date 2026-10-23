@@ -80,6 +80,9 @@ public final class AgentPageProvider: PageProvider {
     /// ``AgentPaneView`` and is released with that view if no page returns, so this is a
     /// gap-lifetime queue rather than process-wide retention; a reconnect drains it once.
     private var bufferedEvents: [AgentPageEvent] = []
+    /// The socket connection whose frames last reached the page. A fresh socket is an
+    /// authoritative transport resync, so it clears an overflow latch left by the old socket.
+    private var transportConnection: Int?
     /// Set when the bounded replay queue cannot retain a dropped envelope. The next publish
     /// returns false so the transport closes and the page performs a full resync; no event is
     /// silently evicted.
@@ -125,6 +128,15 @@ public final class AgentPageProvider: PageProvider {
 
     public init(prepare: @escaping Prepare) {
         self.prepare = prepare
+    }
+
+    /// Marks a newly opened acpmux socket. The page keeps this subscription across socket
+    /// reconnects, so the overflow latch cannot wait for a WebView resubscribe to clear.
+    public func transportDidOpen(_ connection: Int) {
+        guard transportConnection != connection else { return }
+        transportConnection = connection
+        deliveryOverflowed = false
+        bufferedEvents.removeAll(keepingCapacity: true)
     }
 
     public var eventsAfterSubscribeReply: Bool { true }

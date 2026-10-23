@@ -156,6 +156,17 @@ struct AgentPageProviderEventsTests {
         #expect(!provider.publish(Self.command("backpressure")))
     }
 
+    @Test func transportReconnectClearsOverflowForTheExistingSubscription() {
+        let provider = AgentPageProvider { _ in nil }
+        for index in 0...AgentPageProvider.maximumBufferedEvents {
+            provider.eventDeliveryDropped(stream: AgentPageProvider.hostEvents,
+                                          data: Self.command("dropped-\(index)").data)
+        }
+        #expect(!provider.publish(Self.command("closed")))
+        provider.transportDidOpen(1)
+        #expect(provider.publish(Self.command("after-reconnect")))
+    }
+
     @Test func aPageResetRequeuesAnEnvelopeDroppedByTheScriptPipeline() async throws {
         let provider = AgentPageProvider { _ in nil }
         let page = Received()
