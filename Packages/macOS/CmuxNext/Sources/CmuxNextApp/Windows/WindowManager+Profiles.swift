@@ -38,17 +38,8 @@ extension WindowManager {
             return
         }
         let remembered = state.profileWorkspaces[profile].flatMap { visible.contains($0) ? $0 : nil }
-        guard let controller = controller(for: state.id) else {
-            state.enterProfile(profile)
-            return select(remembered ?? visible.first, in: state)
-        }
         state.enterProfile(profile)
-        // The room's colors, then its workspace, in this turn (I6), as a workspace switch swaps its
-        // content: no frame shows the new room's sidebar over the old room's workspace, and the
-        // window's room and show observers find both applied.
-        controller.applyRoomTheme()
         select(remembered ?? visible.first, in: state)
-        controller.showWorkspace(requested: state.workspaceID)
     }
 
     /// Next (+1) or previous (-1) profile of the local daemon, clamped at
