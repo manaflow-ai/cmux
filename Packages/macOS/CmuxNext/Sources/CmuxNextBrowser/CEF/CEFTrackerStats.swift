@@ -26,9 +26,6 @@ public nonisolated struct CEFTrackerStats: Equatable, Sendable {
     /// Layer hosting requests that left the page on its own window: the fork
     /// refused (no page window yet), or nothing could show its context.
     public var hostingRefused = 0
-    /// Page update requests a page answered with no post: nothing the fork reads had changed
-    /// since its last read (`CEFHostView.pagesNeedUpdate`).
-    public var geometrySkips = 0
 
     public init() {}
 

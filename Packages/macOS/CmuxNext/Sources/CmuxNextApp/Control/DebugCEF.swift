@@ -147,7 +147,6 @@ enum DebugCEF {
             "geometry_posts": .number(Double(stats.geometryPosts)),
             "hosted_pages": .number(Double(stats.hostedPages)),
             "hosting_refused": .number(Double(stats.hostingRefused)),
-            "geometry_skips": .number(Double(stats.geometrySkips)),
         ])
     }
 

@@ -60,8 +60,6 @@ final class WindowOverlayLayer {
     private var isTornDown = false
     /// A window geometry change whose layout pass has not run yet.
     private var pageUpdateAfterLayout = false
-    /// The deferred page update must reach every page (`requestPageUpdate(force:)`).
-    private var forcedPageUpdateAfterLayout = false
     /// Depth of the window's layout pass (`ShellWindow.layoutIfNeeded`).
     private(set) var layoutDepth = 0
     /// Interactive rects changed during the layout pass: applied after it.
@@ -194,10 +192,9 @@ final class WindowOverlayLayer {
         for plane in planes { recordRingLag(plane) }
         #endif
         guard pageUpdateAfterLayout else { return }
-        let force = forcedPageUpdateAfterLayout
-        (pageUpdateAfterLayout, forcedPageUpdateAfterLayout) = (false, false)
+        pageUpdateAfterLayout = false
         for plane in planes { plane.syncFrame() }
-        requestPageUpdate(force: force)
+        requestPageUpdate()
     }
 
     /// Planes in the overlay panel take their frame from the home's rect in
@@ -265,11 +262,7 @@ final class WindowOverlayLayer {
         }
         dividerAreas = areas
         if let sidebarResizeArea { areas.append(sidebarResizeArea) }
-        // A spring moves the dividers on every display frame until it lands: the catcher panels
-        // (one window move each, a new panel for a new divider) follow once, at the landing,
-        // which the root reports even when no rect changes then (`isInLayoutMotion`).
-        let springing = planes.contains { ($0.home as? LayoutRootView)?.isInLayoutMotion == true }
-        if areas != catcherAreas, !springing {
+        if areas != catcherAreas {
             catcherAreas = areas
             syncCatchers()
         }
@@ -330,7 +323,7 @@ final class WindowOverlayLayer {
         WindowOverlayHost.existingHost(for: window)?.reassertOrder()
     }
 
-    private func parentGeometryDidChange() { // perf-hot: 1ms cef-geometry (every window move or resize; posts to every changed page)
+    private func parentGeometryDidChange() {
         guard layoutDepth == 0 else {
             geometryAfterLayout = true
             return
@@ -354,12 +347,11 @@ final class WindowOverlayLayer {
         guard Self.isContent(child), child.isVisible, let controller = window.windowController as? WindowController else { return }
         let hosts = ChildPageGeometry.sample(controller).hosts
         guard !hosts.contains(where: { ChildPageGeometry.distance($0.screenRect, child.frame) <= ChildPageGeometry.tolerance }) else { return }
-        // The hosts did not move, so only a forced update re-places the page.
-        requestPageUpdate(force: true)
+        requestPageUpdate()
     }
 
     /// Click-catching panels over divider hit areas while pages show.
-    private func syncCatchers() { // perf-hot: 1ms cef-geometry (one window move per divider catcher panel)
+    private func syncCatchers() {
         if catchers.onHover == nil {
             catchers.onHover = { [weak self] id, hovered in
                 if id == Self.sidebarResizeAreaID {
@@ -382,19 +374,15 @@ final class WindowOverlayLayer {
         (window.contentView as? WindowRootView)?.sidebar.refreshResizeHover { [weak catchers] in catchers?.windowNumbers ?? [] }
     }
 
-    /// Every Chromium page of this window whose geometry, clip or occlusion
-    /// changed since the fork last read it re-applies them (`CEFHostView`
-    /// posts the fork's geometry notification; the others have nothing new).
-    /// `force`: every page re-applies, changed or not (a page window moved by another app).
-    private func requestPageUpdate(force: Bool = false) {
+    /// Every Chromium page of this window re-applies geometry, clip and
+    /// occlusion (`CEFHostView` posts the fork's geometry notification).
+    private func requestPageUpdate() {
         // Pages move their child windows on this: after the layout pass.
         guard layoutDepth == 0 else {
             pageUpdateAfterLayout = true
-            forcedPageUpdateAfterLayout = forcedPageUpdateAfterLayout || force
             return
         }
-        NotificationCenter.default.post(name: Notification.Name.browserChildWindowPagesNeedUpdate, object: window,
-                                        userInfo: force ? [browserPagesForceUpdateKey: true] : nil)
+        NotificationCenter.default.post(name: Notification.Name.browserChildWindowPagesNeedUpdate, object: window)
     }
 
     // MARK: Diagnostics
