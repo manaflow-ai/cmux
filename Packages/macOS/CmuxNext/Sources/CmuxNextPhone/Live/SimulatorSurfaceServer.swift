@@ -1,6 +1,9 @@
 public import Foundation
 import IOSurface
 import Network
+import os
+
+private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "phone.surface")
 
 /// A booted simulator as a phone's streamed surface: the `sf/1` source
 /// cmux-mobile-host connects to on loopback (cmux-mobile-host `surface.rs`,
@@ -207,6 +210,17 @@ extension SimulatorSurfaceServer {
             }
         }
 
+        /// Tells hostd why the stream cannot go on (it logs the reason), then ends once that line is out.
+        private func fail(_ message: String) {
+            logger.error("surface source \(self.udid, privacy: .public): \(message, privacy: .public)")
+            guard !closed else { return }
+            connection.send(content: SurfaceSourceWire.json(["t": "error", "message": message]),
+                            completion: .contentProcessed { [weak self] _ in
+                                // main-proof: connection.start(queue: .main), so Network completes on main.
+                                MainActor.assumeIsolated { self?.end() }
+                            })
+        }
+
         private func send(_ data: Data) {
             guard !closed else { return }
             connection.send(content: data, completion: .contentProcessed { _ in })
@@ -217,8 +231,7 @@ extension SimulatorSurfaceServer {
             let type = line["t"]?.string
             guard authorized else {
                 guard type == "hello", let given = line["secret"]?.string, Self.equal(given, secret) else {
-                    send(SurfaceSourceWire.json(["t": "error", "message": "unauthorized"]))
-                    return end()
+                    return fail("unauthorized")
                 }
                 authorized = true
                 return startFrames()
@@ -227,7 +240,10 @@ extension SimulatorSurfaceServer {
             case "encode": encode(idr: line["idr"]?.bool ?? false, kbps: Int(line["kbps"]?.number ?? 4000))
             case "visible": setVisible(line["visible"]?.bool ?? true)
             case "touch", "text", "key", "button":
-                guard stillShown() else { return stale() }
+                guard stillShown() else {
+                    logger.notice("surface source \(self.udid, privacy: .public): its tab no longer shows this simulator")
+                    return stale()
+                }
                 queue.yield(line)
             default: break
             }
@@ -245,17 +261,18 @@ extension SimulatorSurfaceServer {
             do {
                 watch = try live.startScreen(udid) { [weak self] surface in self?.frame(surface) }
             } catch {
-                send(SurfaceSourceWire.json(["t": "error", "message": String(describing: error)]))
-                return end()
+                return fail("no live screen for this simulator: \(error)")
             }
             guard latest != nil else {
-                send(SurfaceSourceWire.json(["t": "error", "message": "the simulator shows no screen yet"]))
-                return end()
+                return fail("the simulator shows no screen yet")
             }
         }
 
         private func frame(_ surface: IOSurface) {
-            guard stillShown() else { return stale() }
+            guard stillShown() else {
+                    logger.notice("surface source \(self.udid, privacy: .public): its tab no longer shows this simulator")
+                    return stale()
+                }
             let first = latest == nil
             latest = surface
             latestAt = Self.now()
@@ -265,8 +282,7 @@ extension SimulatorSurfaceServer {
                 encoder?.finish()
                 encoder = SurfaceFrameEncoder(sourceWidth: width, sourceHeight: height)
                 guard encoder != nil else {
-                    send(SurfaceSourceWire.json(["t": "error", "message": "VideoToolbox gave no H.264 encoder for this screen"]))
-                    return end()
+                    return fail("VideoToolbox gave no H.264 encoder for this screen")
                 }
                 let size = SurfaceFrameEncoder.encodedSize(width: width, height: height)
                 send(SurfaceSourceWire.json(["t": "size", "width": size.width, "height": size.height]))

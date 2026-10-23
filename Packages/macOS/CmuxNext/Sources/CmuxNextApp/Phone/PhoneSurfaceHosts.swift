@@ -2,6 +2,7 @@ import CmuxNextDaemon
 import CmuxNextMobile
 import CmuxNextPhone
 import Foundation
+import os
 
 /// The phone streams this Mac's phone tabs (cmux-next-ios/verify/simulator-surface.md):
 /// for hostd's `need_surface {tab}` it checks that `tab` (`s<surface>`) is a phone
@@ -76,6 +77,8 @@ final class PhoneSurfaceHosts: MobileHostSurfaceHosting {
             }
             let port = try await server.start()
             servers[tab] = server
+            Logger(subsystem: "com.cmuxterm.app.next", category: "phone.surface")
+                .info("surface source for \(tab, privacy: .public) streams \(id.description, privacy: .public) on port \(port, privacy: .public)")
             return (port, server.secret)
         }
 

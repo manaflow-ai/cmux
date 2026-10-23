@@ -459,7 +459,9 @@ pub async fn host_session(
             Ok(Some(_)) => {}
             Ok(None) => match tokio::time::timeout(SOURCE_TIMEOUT, app.read(&mut app_buffer)).await {
                 Ok(Ok(n)) if n > 0 => source_frames.extend(&app_buffer[..n]),
-                _ => return Err("the source said no size".into()),
+                Ok(Ok(_)) => return Err("the source closed before it said its size".into()),
+                Ok(Err(error)) => return Err(format!("the source: {error}")),
+                Err(_) => return Err("the source said no size in time".into()),
             },
             Err(reason) => return Err(reason.into()),
         }
