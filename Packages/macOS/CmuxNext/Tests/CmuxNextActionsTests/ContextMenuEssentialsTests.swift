@@ -108,7 +108,9 @@ struct ContextMenuEssentialsTests {
         let tab = rows(menu)
         #expect(tab == ["newTab.toRight", "reloadTab", "duplicateTab", "palette.toggleTabPin", "toggleTabAudioMute",
                         "closeTab", "closeOtherTabsInPane", "closeTabsToRight", "—", "More"])
-        #expect(allActions(menu).count == 47)
+        // Conditional essentials (PiP, agent identity and SSH disconnect) remain in the
+        // catalog; their target visibility keeps them out when they do not apply.
+        #expect(allActions(menu).count == 50)
         #expect(allActions(menu).contains("renameTab") && tab.contains("palette.toggleTabPin"))
         #expect(["tabGroup.create", "tabGroup.addTab", "tabGroup.removeTab"].allSatisfy { id in
             allActions(menu).contains(id)

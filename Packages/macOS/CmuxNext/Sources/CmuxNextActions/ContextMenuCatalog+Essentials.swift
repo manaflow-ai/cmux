@@ -25,10 +25,9 @@ nonisolated enum ContextMenuEssentials {
     static let tabMenuTrimmedActions: Set<ActionID> = [
         "terminal.keep", "terminal.setTheme", "terminal.clearTheme",
         "palette.toggleTabUnread", "palette.toggleFullWidthTab", "tab.muteOtherAudio",
-        "agentChat.toggleNotificationMute", "tab.showResources", "tab.pictureInPicture",
+        "agentChat.toggleNotificationMute", "tab.showResources",
         "hibernateTab", "wakeTab", "neverHibernateSite", "cloudMove", "cloudBringBack",
-        "home.messageAbout", "agentChat.copyIdentifier", "palette.copyIdentifiers",
-        "browser.resetPinnedTab", "tab.screenshot", "disconnectRemoteTab",
+        "home.messageAbout", "palette.copyIdentifiers", "browser.resetPinnedTab", "tab.screenshot",
     ]
 
     static let menus: [ActionMenuContext: Rows] = [
