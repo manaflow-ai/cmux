@@ -176,6 +176,7 @@ class Version:
     changed: set[int]
     touched: set[int] = field(default_factory=set)
     memo: dict = field(default_factory=dict)
+    kinds: Callable[[str], str | None] = lambda name: None  # TypeIndex.kind at this side's rev
 
 
 @dataclass
@@ -189,16 +190,61 @@ class FileChange:
     base_lines: list[str] = field(default_factory=list)
     is_new: bool = False
     has_perf_hot: bool = False
+    head_kinds: Callable[[str], str | None] = lambda name: None
+    base_kinds: Callable[[str], str | None] = lambda name: None
 
     @property
     def head(self) -> Version:
         changed = {a.number for a in self.added}
-        return Version(self.path, self.head_lines, changed, changed | self.touched)
+        return Version(self.path, self.head_lines, changed, changed | self.touched, kinds=self.head_kinds)
 
     @property
     def base(self) -> Version:
         changed = {r.number for r in self.removed}
-        return Version(self.path, self.base_lines, changed, changed | self.base_touched)
+        return Version(self.path, self.base_lines, changed, changed | self.base_touched, kinds=self.base_kinds)
+
+
+# A type declaration at the start of a line: `public final class Name`, `actor Name`, `enum Name`.
+TYPE_DECL = re.compile(r"^\s*(?:(?:@\w+(?:\([^)]*\))?|public|package|internal|private|fileprivate|final|open|"
+                       r"nonisolated|indirect|distributed)\s+)*(class|actor|struct|enum|protocol)\s+(\w+)")
+TYPE_DECL_GREP = (r"^[[:space:]]*((@[A-Za-z_]+(\([^)]*\))?|public|package|internal|private|fileprivate|final|open|"
+                  r"nonisolated|indirect|distributed)[[:space:]]+)*(class|actor|struct|enum|protocol)[[:space:]]+[A-Za-z_]")
+
+
+class TypeIndex:
+    """Whether a name is declared as a reference type (class, actor) or a value type in the Swift sources at a rev.
+
+    Read with one `git grep` per rev, and only when a rule asks (a named static outside a class or actor):
+    about 0.7 s on the whole tree, so a push that adds no such line pays nothing.
+    """
+
+    def __init__(self, repo: Path):
+        self.repo = repo
+        self.revs: dict[str, dict[str, set[str]]] = {}
+
+    def kind(self, rev: str, name: str) -> str | None:
+        """"reference", "value", or None (not declared in Sources, or declared both ways)."""
+        if rev not in self.revs:
+            self.revs[rev] = self.scan(rev)
+        kinds = self.revs[rev].get(name, set()) - {"protocol"}
+        if kinds and kinds <= {"class", "actor"}:
+            return "reference"
+        if kinds and kinds <= {"struct", "enum"}:
+            return "value"
+        return None
+
+    def scan(self, rev: str) -> dict[str, set[str]]:
+        result = git_batch.run(self.repo, ["grep", "-h", "-I", "-E", TYPE_DECL_GREP, rev, "--", SWIFT_SOURCES],
+                               env=git_env())
+        if result.returncode not in (0, 1):  # 1: no match
+            raise git_batch.GitError(f"git grep of type declarations at {rev} failed: "
+                                     f"{result.stderr.decode('utf-8', 'replace').strip()}")
+        declared: dict[str, set[str]] = collections.defaultdict(set)
+        for line in result.stdout.decode("utf-8", "replace").split("\n"):
+            match = TYPE_DECL.match(line)
+            if match:
+                declared[match.group(2)].add(match.group(1))
+        return declared
 
 
 @dataclass
@@ -368,12 +414,18 @@ def enclosing_openers(lines: list[str], index: int, stop: re.Pattern, prefix: st
 
 
 SINGLETON = re.compile(r"\bstatic\s+(let|var)\s+(shared|sharedInstance|instance)\b")
-# CLAUDE.md names these too; as stored statics of a class or actor, or mutable ones, they hold runtime state.
-# A struct or enum's `static let standard = Style()` is a value constant and passes.
+# CLAUDE.md names these too. They hold runtime state as stored statics of a class or actor (an extension of one
+# included), as mutable statics, or when the stored value is an instance of a class or actor (a namespace enum's
+# `static let live = DaemonClient()`). A struct or enum's `static let standard = Style()` is a value constant.
 SINGLETON_NAMED = re.compile(r"\bstatic\s+(let|var)\s+(`default`|standard|current|live)\s*(:[^={]*)?=")
 SINGLETON_ANY = re.compile(SINGLETON.pattern + "|" + SINGLETON_NAMED.pattern)
 STATEFUL = re.compile(r"\bstatic\s+var\b|=\s*(Mutex|NSHashTable|NSMapTable|OSAllocatedUnfairLock)\b")
 TYPE_OPENER = re.compile(r"\b(class|actor|struct|enum|extension|protocol)\b")
+CONTAINER = re.compile(r"\b(class|actor|struct|enum|protocol)\s+(\w+)|\bextension\s+(?:\w+\.)*(\w+)")
+# The type a named static's value is built from: `= Name(...)`, `= Name<T>.init(...)`, `= Self()`, `: Name = .init()`.
+CONSTRUCTED = re.compile(r"\bstatic\s+(?:let|var)\s+(?:`default`|standard|current|live)\s*"
+                         r"(?::\s*(?:any\s+)?(?:\w+\.)*(?P<annotated>[A-Z]\w*)(?:<[^>]*>)?\s*)?=\s*(?:\.init\s*\("
+                         r"|(?:try\s+)?(?:await\s+)?(?:\w+\.)*(?P<called>[A-Z]\w*)(?:<[^>]*>)?(?:\.init)?\s*\()")
 SINGLETON_ALLOW = re.compile(r"//\s*singleton-allow:\s*\S")
 
 
@@ -385,8 +437,18 @@ def holds_state(version: Version, index: int) -> tuple[bool, list[int]]:
     if not openers:
         return False, []
     opener, number = openers[-1]
-    kind = TYPE_OPENER.search(opener)
-    return kind is not None and kind.group(1) in ("class", "actor"), [number]
+    container = CONTAINER.search(opener)
+    if container is None:
+        return False, [number]
+    keyword, name = (container.group(1), container.group(2)) if container.group(1) else ("extension", container.group(3))
+    if keyword in ("class", "actor") or (keyword == "extension" and version.kinds(name) == "reference"):
+        return True, [number]
+    built = CONSTRUCTED.search(code)
+    if built is not None:
+        made = built.group("called") or built.group("annotated")
+        if made not in ("Self", name) and version.kinds(made) == "reference":
+            return True, [number]
+    return False, [number]
 
 
 # Creating a name: `Notification.Name("x")`, `.Name(rawValue:)`, `x: Notification.Name = .init("x")`. A typed
@@ -849,7 +911,8 @@ def module_of(path: str) -> str:
 
 
 RULES = (
-    Rule("singleton", "New singleton (`static let shared`, or a class's stored `standard`/`default`/`current`/`live`)",
+    Rule("singleton", "New singleton (`static let shared`, or a stored `standard`/`default`/`current`/`live` that "
+                      "holds a class or actor)",
          "a global hides runtime state: no injection, no test seam, every caller couples to one instance "
          "(codebase-health.md counts the ones already there)",
          "construct it once at the composition root (the App's startup) and pass it through `init`; "
@@ -1194,6 +1257,10 @@ def check(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Added
         change.head_lines = text.split("\n")
         change.base_lines = texts.get((base, path), "").split("\n")
         change.has_perf_hot = "perf-hot:" in text
+    types = TypeIndex(repo)
+    for change in changes.values():
+        change.head_kinds = lambda name, rev=head: types.kind(rev, name)
+        change.base_kinds = lambda name, rev=base: types.kind(rev, name)
     files = [changes[p] for p in paths]
     moved = collections.Counter(r.text.strip() for c in files for r in c.removed if r.text.strip())
     refusals = []
