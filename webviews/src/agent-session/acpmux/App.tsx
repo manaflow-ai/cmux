@@ -63,6 +63,7 @@ import { rememberRecentFolders } from "./newtab/recentProject";
 import { rememberStartedProject } from "./newtab/startedProject";
 import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
 import { TaskGoalStrip } from "./TaskGoalStrip";
+import { useSessionCommands } from "./newtab/useSessionCommands";
 import { PageDots } from "./newtab/PageDots";
 import { editedPageWidgets, editNewTabWidgets, shownPageWidgets } from "./newtab/pageWidgets";
 import { screenTemplate, shownTemplate } from "./newtab/templates";
@@ -7076,6 +7077,13 @@ function AcpmuxPane() {
     !snapshot.sessionId &&
     snapshot.rows.length === 0 &&
     (handshaken || hostError === undefined);
+  const commandSession = showNewTab ? switchView.intent?.sessionId : undefined;
+  const commandRevision = clientSnapshot.sessions.find((session) => session.sessionId === commandSession);
+  const readSessionCommands = useCallback(
+    (sessionId: string) => directClient.current?.sessionCommands(sessionId) ?? Promise.resolve([]),
+    [],
+  );
+  const pendingCommands = useSessionCommands(commandSession, commandRevision, readSessionCommands);
   const inspectorHiddenSurface = quick || showNewTab;
   inspectorHiddenSurfaceRef.current = inspectorHiddenSurface;
   useEffect(() => {
@@ -8246,7 +8254,7 @@ function AcpmuxPane() {
                     ),
                 })
               }
-              snapshot={newTabSnapshot}
+              snapshot={commandSession ? { ...newTabSnapshot, commands: pendingCommands ?? [] } : newTabSnapshot}
               omnibar={newTab.omnibar}
               location={newTab.location}
               lastAgent={newTab.lastAgent}

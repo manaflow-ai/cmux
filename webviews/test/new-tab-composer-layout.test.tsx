@@ -166,3 +166,28 @@ test("the location row names the machine the chat starts on and offers no other"
   expect(options).toContain("studio");
   expect(options).not.toContain("devbox");
 });
+
+test("a deferred chat's later command publication reaches New Tab and a superseded read stays behind", async () => {
+  const { useSessionCommands } = await import("../src/agent-session/acpmux/newtab/useSessionCommands");
+  const { createRoot } = await import("react-dom/client");
+  const goal = [{ name: "goal", description: "Set a goal" }];
+  let commands = [] as typeof goal;
+  let late!: (value: typeof goal) => void;
+  const read = (id: string) =>
+    id === "old" ? new Promise<typeof goal>((resolve) => (late = resolve)) : Promise.resolve(commands);
+  function Pending({ id, revision }: { id: string; revision: object }) {
+    const loaded = useSessionCommands(id, revision, read);
+    return <div>{loaded?.map((command) => command.name).join(",")}</div>;
+  }
+  act(() => root?.unmount());
+  root = createRoot(host);
+  await act(async () => root!.render(<Pending id="old" revision={{}} />));
+  await act(async () => root!.render(<Pending id="new" revision={{}} />));
+  expect(host.textContent).toBe("");
+  // Commands are published after session/new answered. Its metadata change triggers this read.
+  commands = goal;
+  await act(async () => root!.render(<Pending id="new" revision={{ commands: true }} />));
+  expect(host.textContent).toBe("goal");
+  await act(async () => late([{ name: "obsolete", description: "Old session" }]));
+  expect(host.textContent).toBe("goal");
+});
