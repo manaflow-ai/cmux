@@ -186,8 +186,9 @@ Web: `web/app/api/hang-reports/`, `web/services/hangReports/`, `web/db/schema.ts
   sidebar ask, WatchdogReporting, the Signposter MetricKit mirror (PL-arch agreed). Fleet:
   `cmux-ci compile-check --app` passed at d8b5cec67b2 (job 4db2acbad28f). Unit suites
   HangReportPrivacyTests, PrivacyLeakScannerTests, HangReportCollectorTests,
-  HangReportServiceTests, HangReportWireFormatTests: see the landing commit.
-- Web (main, PR #24541): route, Effect services, retention cron, top-frames script; 32 bun
+  HangReportServiceTests, HangReportWireFormatTests: 35 tests pass on cmuxs-Mac-mini-4 at
+  d8b5cec67b2 (step 096c30d39b3e).
+- Web (main, PR #24541, merged 108696d0d30): route, Effect services, retention cron, top-frames script; 32 bun
   tests pass, 3 Postgres behavior tests pass on local Postgres 17.
 - Schema: `hang_reports` on PlanetScale `cmux-prod` `staging` (drizzle journal id 219, hash
   df1ee749...) and on `main` (production) as the same additive DDL, 2026-10-23, before the web
