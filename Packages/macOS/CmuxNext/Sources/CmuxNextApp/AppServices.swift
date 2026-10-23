@@ -36,6 +36,14 @@ import CmuxNextTabs
 /// Process-wide services the window controllers share. Model state is not
 /// here: the daemon owns it, windows own their local state.
 final class AppServices {
+    /// The app's theme store (the one ``ThemeScope/app`` roots on), handed to the App's theme owners.
+    let themeStore = ThemeScope.app.store
+    /// The recovery-draft backstop of unsaved documents (R96).
+    let recoveryDrafts = RecoveryDraftStore(directory: RecoveryDraftFiles.defaultDirectory)
+    /// The quit hook's unsaved-document participants; drafts go to ``recoveryDrafts``.
+    private(set) lazy var quitUnsaved = QuitUnsavedRegistry(drafts: recoveryDrafts)
+    /// The open files' quit documents, shared by the markdown and editor pages.
+    private(set) lazy var fileQuitDocuments = FileQuitDocuments(drafts: recoveryDrafts, registry: quitUnsaved)
     let environment: AppEnvironment; let agentPaneEnvironment: [String: String]?
     /// Each window's last sidebar, drawn before the daemon answers.
     let sidebarSnapshots: SidebarSnapshotStore
