@@ -5355,6 +5355,8 @@ function AcpmuxPane() {
   const [retryQueued, setRetryQueued] = useState(false);
   /// Asks the host again now, after the user fixed what `hostError` says.
   const retryHost = useRef<(() => void) | undefined>(undefined);
+  /// Cancels the automatic retry waiting to run (Restart acpmux asks again itself when it ends).
+  const cancelRetry = useRef<(() => void) | undefined>(undefined);
   /// The host refused a daemon another binary runs on this app's socket: the card offers Restart
   /// acpmux, and once the pane stopped retrying on its own (`stopped`) it says so.
   const [acpmuxRestart, setAcpmuxRestart] = useState<{ stopped: boolean } | undefined>();
@@ -5704,7 +5706,7 @@ function AcpmuxPane() {
     let connecting = false;
     /// The user asked to retry while an attempt was in flight; run a full one when it ends.
     let retryPending = false;
-    /// Refusals in a row that offered Restart acpmux (hostRetry.ts afterHostFailure).
+    /// Refusals that offered Restart acpmux since the last connect (hostRetry.ts afterHostFailure).
     let refusedInRow = 0;
     // A seeded first prompt (onboarding's first task). Swift hands it out once, so it is kept
     // here until a connect succeeds: a first connect that fails retries without it.
@@ -6539,6 +6541,10 @@ function AcpmuxPane() {
       // Not `refusedInRow`: a refused Retry asks once and stops again; only a connect resets it.
       void connectHost();
     };
+    cancelRetry.current = () => {
+      if (retryTimer !== undefined) window.clearTimeout(retryTimer);
+      retryTimer = undefined;
+    };
     retryHost.current = () => {
       if (cancelled) return;
       if (!connecting) return retryNow();
@@ -6554,6 +6560,7 @@ function AcpmuxPane() {
       harnessSwitch.disconnect();
       setStartModeSource(undefined);
       retryHost.current = undefined;
+      cancelRetry.current = undefined;
       if (retryTimer !== undefined) window.clearTimeout(retryTimer);
       directClient.current?.close();
       directClient.current = undefined;
@@ -7835,12 +7842,15 @@ function AcpmuxPane() {
             ? () => {
                 // The person's click: the app stops the other binary's daemon (its chats are kept),
                 // and the next handshake starts this app's own acpmux.
+                // No automatic retry runs meanwhile: the old daemon is still there until it stops.
+                cancelRetry.current?.();
                 setRestartingAcpmux(true);
                 callNative("acpmux.restart")
                   .catch(() => undefined)
                   .finally(() => {
                     setRestartingAcpmux(false);
-                    retryHost.current?.();
+                    // A connect that landed meanwhile needs no second handshake.
+                    if (!directClient.current) retryHost.current?.();
                   });
               }
             : undefined

@@ -8,17 +8,19 @@ test("the pane stops asking on its own after a few refusals that offer Restart a
   const refused = { code: "host_unavailable", details: { restartAcpmux: true } };
   let count = 0;
   const stops: boolean[] = [];
-  for (let attempt = 0; attempt <= REFUSED_AUTO_RETRIES; attempt += 1) {
+  for (let attempt = 0; attempt < REFUSED_AUTO_RETRIES; attempt += 1) {
     const next = afterHostFailure(count, refused);
     expect(next.offersRestart).toBe(true);
     count = next.refusedInRow;
     stops.push(next.stopped);
   }
-  expect(stops).toEqual([...Array<boolean>(REFUSED_AUTO_RETRIES).fill(false), true]);
-  // A daemon that is not running yet, or a timeout, keeps the automatic retries.
-  expect(afterHostFailure(count, { code: "host_unavailable" })).toEqual({
-    refusedInRow: 0,
+  expect(stops).toEqual([...Array<boolean>(REFUSED_AUTO_RETRIES - 1).fill(false), true]);
+  // A daemon that is not running yet, or a timeout, keeps the automatic retries, and keeps the
+  // count: refusals between such failures still end the automatic retries.
+  expect(afterHostFailure(1, { code: "host_unavailable" })).toEqual({
+    refusedInRow: 1,
     offersRestart: false,
     stopped: false,
   });
+  expect(afterHostFailure(REFUSED_AUTO_RETRIES - 1, refused).stopped).toBe(true);
 });
