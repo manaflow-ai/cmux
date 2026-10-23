@@ -98,6 +98,33 @@ test("the shipped arm is the wave", () => {
   expect(Object.keys(threadMinimapLayout.arms).sort()).toEqual(["compact", "full", "off"]);
 });
 
+// The pane reads the arm from localStorage's `cmux.experiments` when the host sets none: a stored
+// dogfood choice still wins over the default, and a stale or unknown one falls back to the wave.
+test("a stored cmux.experiments choice is read, and an unknown one falls back to the wave", () => {
+  const scope = globalThis as { localStorage?: Storage };
+  const had = "localStorage" in scope;
+  const before = scope.localStorage;
+  scope.localStorage = dom.window.localStorage;
+  try {
+    const stored = (value: unknown) => {
+      dom.window.localStorage.setItem("cmux.experiments", JSON.stringify(value));
+      return experimentArm(threadMinimapLayout, { overrides: {} });
+    };
+    expect(stored({ "thread-minimap-layout": "full" })).toBe("full");
+    expect(stored({ "thread-minimap-layout": "off" })).toBe("off");
+    expect(stored({ "thread-minimap-layout": "minimap" })).toBe("compact");
+    expect(stored({ "another-experiment": "full" })).toBe("compact");
+    dom.window.localStorage.setItem("cmux.experiments", "not json");
+    expect(experimentArm(threadMinimapLayout, { overrides: {} })).toBe("compact");
+    dom.window.localStorage.removeItem("cmux.experiments");
+    expect(experimentArm(threadMinimapLayout, { overrides: {} })).toBe("compact");
+  } finally {
+    dom.window.localStorage.removeItem("cmux.experiments");
+    if (had) scope.localStorage = before;
+    else delete scope.localStorage;
+  }
+});
+
 /// Renders a 30-prompt chat scrolled to 900 px under `arms` (none: the default) and reads what the
 /// left edge draws and where the rows sit.
 async function render(arms?: Record<string, string>) {
