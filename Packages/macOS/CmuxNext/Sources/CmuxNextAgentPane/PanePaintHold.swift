@@ -58,7 +58,7 @@ public final class PanePaintHold {
         }
         incoming.alphaValue = 0
         #if DEBUG
-        ChatOpenTrace.shared.mark(.holdBegin)
+        ChatOpenTrace.shared.mark(.holdBegin, view: incoming)
         #endif
         gated.whenFirstPainted { [weak self] in self?.end(token) }
         // A later hold replaces this deadline; the token keeps it to its own hold.
@@ -105,7 +105,7 @@ public final class PanePaintHold {
         incoming?.alphaValue = 1
         CATransaction.commit()
         #if DEBUG
-        ChatOpenTrace.shared.mark(.holdEnd)
+        if let incoming { ChatOpenTrace.shared.mark(.holdEnd, view: incoming) }
         #endif
         outgoing = nil
         incoming = nil

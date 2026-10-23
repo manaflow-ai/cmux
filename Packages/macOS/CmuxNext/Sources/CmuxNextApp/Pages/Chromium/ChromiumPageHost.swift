@@ -49,9 +49,9 @@ final class ChromiumPageHost: PageChromiumHosting {
         // Its own pane id: a page is never a tab of a browser pane's Chromium window.
         let configuration = BrowserTabConfiguration(profile: profile, pane: BrowserPaneID(rawValue: "cmux-page-" + UUID().uuidString))
         #if DEBUG
-        // The first agent page made while a chat open is traced is that open's (``ChatOpenTrace``).
+        // The traced chat's page started Chromium just before this (``ChatOpenTrace``).
         let trace = ChatOpenTrace.shared
-        if trace.isArmed, trace.chromiumPane == nil, page.id == ChatOpenTrace.agentPageID { trace.chromiumPane = configuration.pane?.rawValue }
+        if page.id == ChatOpenTrace.agentPageID, trace.awaitsChromiumPane { trace.chromiumPane = configuration.pane?.rawValue }
         #endif
         let made = try await cef.makeTab(configuration)
         guard let tab = made as? CEFTab else {

@@ -96,6 +96,8 @@ public final class ChatOpenTrace {
         /// Each change of the bound pane's surface: uptime, surface.
         var frames: [(TimeInterval, Surface)] = []
         public internal(set) var frameCount = 0
+        /// When sampling stopped (finish or ``frameCap``): an empty run still on screen then ends here.
+        var endedAt: TimeInterval?
 
         var origin: TimeInterval { marks[Mark.action.rawValue] ?? armedAt }
 
@@ -126,6 +128,7 @@ public final class ChatOpenTrace {
                     start = nil
                 }
             }
+            if let begun = start, let endedAt { longest = max(longest, (endedAt - origin) * 1_000 - begun) }
             return longest
         }
     }
@@ -137,6 +140,9 @@ public final class ChatOpenTrace {
     /// The Chromium pane key of the traced chat's page (`ChromiumPageHost`), for the marks of the
     /// Chromium window and its first contentful paint.
     public var chromiumPane: String?
+    /// The traced chat's pane (``bind(view:page:surface:engine:)``). Pane marks of any other view are
+    /// not this open's.
+    private weak var view: NSView?
     private var current: Record?
     private var finished: [Record] = []
     private var nextID = 1
@@ -153,6 +159,7 @@ public final class ChatOpenTrace {
         surface = nil
         engine = nil
         page = nil
+        view = nil
         chromiumPane = nil
         isArmed = true
         return true
@@ -172,6 +179,20 @@ public final class ChatOpenTrace {
         if self.page == nil { self.page = id }
         if self.page == id { self.mark(mark) }
     }
+
+    /// Records `mark` of the pane `view` (the agent pane, or the pane hold's incoming view): once a
+    /// pane is bound, only it and views that contain it mark. Before the bind (a hold begins before
+    /// the pane shows its loading state) the first one counts.
+    public func mark(_ mark: Mark, view: NSView) {
+        guard isArmed else { return }
+        if let bound = self.view, bound !== view, !bound.isDescendant(of: view) { return }
+        self.mark(mark)
+    }
+
+    /// Whether the Chromium page about to be made for an agent page is the traced chat's: its page
+    /// is bound and started Chromium, and no Chromium pane is bound yet. A traced WebKit page never
+    /// starts Chromium, so a later Chromium agent page does not bind.
+    public var awaitsChromiumPane: Bool { isArmed && page != nil && chromiumPane == nil && has(.chromiumStart) }
 
     /// Records `mark` of the Chromium pane `pane`, when it is the traced chat's.
     public func mark(_ mark: Mark, chromiumPane pane: String?) {
@@ -194,6 +215,7 @@ public final class ChatOpenTrace {
         }
         self.surface = surface
         self.engine = engine
+        self.view = view
         mark(.paneMade)
         let client = FrameClient(owner: "chatOpenTrace", isAnimation: false, scheduler: { [weak view] in
             view.map(FrameScheduler.forView) ?? .app
@@ -237,6 +259,7 @@ public final class ChatOpenTrace {
         sampler = nil
         guard var record = current else { return nil }
         record.timedOut = timedOut
+        record.endedAt = min(Self.now(), record.armedAt + Self.frameCap)
         record.engine = engine?()
         current = nil
         surface = nil

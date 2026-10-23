@@ -17,6 +17,33 @@ struct ChatOpenTraceTests {
         #expect(abs(record.longestEmptyMilliseconds - 310) < 0.5)
     }
 
+    @Test func anEmptyStretchStillOnScreenAtTheEndCounts() {
+        var record = ChatOpenTrace.Record(id: 1, launch: false, armedAt: 0)
+        record.marks[ChatOpenTrace.Mark.action.rawValue] = 0
+        record.frames = [(0.010, .gone), (0.100, .cover)]
+        record.endedAt = 2.100
+        // A timed-out open still black at the end: 2 s of cover, not 0.
+        #expect(abs(record.longestEmptyMilliseconds - 2_000) < 0.5)
+    }
+
+    @Test func onlyTheBoundPaneAndItsAncestorsMark() {
+        let trace = ChatOpenTrace()
+        #expect(trace.begin())
+        let container = NSView()
+        let pane = NSView()
+        container.addSubview(pane)
+        let other = NSView()
+        #expect(trace.bind(view: pane, page: nil, surface: { .cover }, engine: { "test" }))
+        trace.mark(.loadingLeft, view: other)
+        #expect(!trace.has(.loadingLeft), "another pane's loading state counted as the traced chat's")
+        trace.mark(.holdEnd, view: container)
+        #expect(trace.has(.holdEnd), "a hold over the view holding the traced pane is the open's")
+        trace.mark(.loadingLeft, view: pane)
+        #expect(trace.has(.loadingLeft))
+        #expect(!trace.awaitsChromiumPane, "a page that never started Chromium took a Chromium pane")
+        _ = trace.finish(timedOut: false)
+    }
+
     @Test func aHeldOpenHasNoEmptyStretch() {
         var record = ChatOpenTrace.Record(id: 1, launch: false, armedAt: 0)
         record.marks[ChatOpenTrace.Mark.action.rawValue] = 0

@@ -157,7 +157,7 @@ public final class AgentPaneLoadingView: NSView {
         leaving = false
         removeFromSuperview()
         #if DEBUG
-        ChatOpenTrace.shared.mark(.loadingLeft)
+        ChatOpenTrace.shared.mark(.loadingLeft, view: self)
         #endif
         alphaValue = 1
         let waiters = revealWaiters
@@ -201,7 +201,9 @@ extension AgentPaneView {
     /// The page shows and the loading state goes (``AgentPaneLoadingView/leave(over:fades:)``).
     func endLoadingState() {
         #if DEBUG
-        ChatOpenTrace.shared.mark(.loadingLeave)
+        // The handshake's painted answer ends the loading state in the same turn.
+        ChatOpenTrace.shared.mark(.panePainted, view: self)
+        ChatOpenTrace.shared.mark(.loadingLeave, view: self)
         #endif
         loadingView.leave(over: pageContent,
                           fades: Self.pageFades(hasNewTab: model.newTab != nil, isVisible: alphaValue > 0,
