@@ -171,7 +171,11 @@ public final class LayoutModel {
     static let explicitReflowWindow: TimeInterval = 0.6
     /// An explicit equalize is in its window now.
     public var animatesReflow: Bool { ProcessInfo.processInfo.systemUptime < explicitReflowUntil }
-    @ObservationIgnored private var widthOverrides: [ColumnID: Override] = [:]
+    @ObservationIgnored var widthOverrides: [ColumnID: Override] = [:]
+    /// Widths a New Column holds on the columns of named panes from its key's frame until the
+    /// daemon's layout has them (``showNewColumnSizing(_:)``): by pane, since a column's id changes
+    /// when the daemon's column replaces the optimistic one.
+    @ObservationIgnored var columnWidthHolds: [PaneID: Override] = [:]
     /// A pane whose shown content the next structural change moves into the pane it adds, until an
     /// uptime (`handOffContent(of:)`).
     @ObservationIgnored var contentHandoff: (pane: PaneID, until: TimeInterval)?
@@ -211,6 +215,7 @@ public final class LayoutModel {
         resolvePaneCloses(in: newScreens)
         splitOverrides = splitOverrides.filter { !$0.value.settled }
         widthOverrides = widthOverrides.filter { !$0.value.settled }
+        columnWidthHolds = columnWidthHolds.filter { !$0.value.settled }
         // Equal screens (the echo of this client's own gesture, a snapshot
         // that changed another workspace) write nothing, so no observer runs.
         let next = overlaid(newScreens)
@@ -249,15 +254,19 @@ public final class LayoutModel {
         for (key, value) in widthOverrides where value.transaction == transaction && value.ended {
             widthOverrides[key]?.settled = true
         }
+        for (key, value) in columnWidthHolds where value.transaction == transaction && value.ended {
+            columnWidthHolds[key]?.settled = true
+        }
     }
 
     /// The daemon rejected the command carrying `transaction`: drop its
     /// overrides and show the last daemon value at once.
     public func rejectTransaction(_ transaction: LayoutTransactionID) {
-        let splits = splitOverrides.count, widths = widthOverrides.count
+        let splits = splitOverrides.count, widths = widthOverrides.count, holds = columnWidthHolds.count
         splitOverrides = splitOverrides.filter { $0.value.transaction != transaction }
         widthOverrides = widthOverrides.filter { $0.value.transaction != transaction }
-        guard splits != splitOverrides.count || widths != widthOverrides.count else { return }
+        columnWidthHolds = columnWidthHolds.filter { $0.value.transaction != transaction }
+        guard splits != splitOverrides.count || widths != widthOverrides.count || holds != columnWidthHolds.count else { return }
         showOverlaid()
     }
 
@@ -284,6 +293,16 @@ public final class LayoutModel {
                     if override.ended { splitOverrides[split] = nil }
                 } else {
                     layout = layout.settingRatio(override.value, for: split)
+                }
+            }
+            // A New Column's width changes, on whichever column holds the pane now (a
+            // drag of that column, below, wins).
+            for (pane, hold) in columnWidthHolds {
+                guard let column = layout.column(containing: pane) else { continue }
+                if abs(column.width - hold.value) < 0.002 {
+                    if hold.ended { columnWidthHolds[pane] = nil }
+                } else {
+                    layout = layout.settingWidth(hold.value, for: column.id)
                 }
             }
             for (column, override) in widthOverrides {
