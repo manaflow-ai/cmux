@@ -291,3 +291,19 @@ test('a subagent\'s "Subagent of" pill names a parent nothing named as its rows 
   expect(pill([{ ...parent, kind: "Explore" }, child])?.text).toBe("Explore");
   expect(pill([{ ...child, parent: null }])?.text).toBe("My chat");
 });
+
+test("a nested subagent nothing named takes its Agent call's description too", () => {
+  const fold = new SubagentFold();
+  feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "a", parent: null, name: "Lead" }] });
+  feed(
+    fold,
+    { sessionUpdate: "subagent_spawned" },
+    { subagents: [{ id: "a/t5", parent: "a", toolCallId: "t5" }] },
+  );
+  feed(
+    fold,
+    { sessionUpdate: "tool_call_update", toolCallId: "t5", rawInput: { description: "Check the docs" } },
+    { subagent: "a" },
+  );
+  expect(fold.all().find((agent) => agent.id === "a/t5")).toMatchObject({ name: "Check the docs" });
+});
