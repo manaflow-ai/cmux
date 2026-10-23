@@ -503,6 +503,7 @@
         if (fiberKey) {
           const components = [];
           let propKeys = null;
+          let sourceLocation = null;
           let fiber = node[fiberKey];
           let steps = 0;
           while (fiber && components.length < 4 && steps < 64) {
@@ -516,10 +517,22 @@
                 propKeys = Object.keys(fiber.memoizedProps).filter((key) => key !== "children").slice(0, 12);
               }
             }
+            // React dev builds retain this source hint. Production builds do
+            // not, so absence is represented by omission rather than a guess.
+            if (!sourceLocation && fiber._debugSource && typeof fiber._debugSource === "object") {
+              const source = fiber._debugSource;
+              if (typeof source.fileName === "string" && Number.isFinite(source.lineNumber)) {
+                sourceLocation = {
+                  file: source.fileName,
+                  line: Number(source.lineNumber),
+                  column: Number.isFinite(source.columnNumber) ? Number(source.columnNumber) : null,
+                };
+              }
+            }
             fiber = fiber.return;
             steps += 1;
           }
-          if (components.length) return { components, propKeys: propKeys || [] };
+          if (components.length || sourceLocation) return { components, propKeys: propKeys || [], sourceLocation };
           return null;
         }
         node = node.parentElement;
@@ -544,6 +557,7 @@
       computed_styles: computedStylesFor(element),
       react_components: react?.components || [],
       react_prop_keys: react?.propKeys || [],
+      source_location: react?.sourceLocation || null,
     };
   };
 
