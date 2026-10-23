@@ -444,6 +444,144 @@ test("a token streamed into one block of a long transcript measures that block o
   }
 });
 
+test("a Pierre host removed from a block takes its shadow root's watching with it, and stop ends the rest", async () => {
+  const { watchSideways } = await import("../src/agent-session/acpmux/conversation/sideways");
+  const document = window.document;
+  const page = window as unknown as Record<string, unknown>;
+  // What the watcher holds, counted: scroll listeners, boxes the size observer watches, roots the
+  // change observers watch, and every width read of a detached box.
+  const listeners = { scroll: 0 };
+  const sized = new Set<{ targets: Set<Element>; callback: (entries: { target: Element }[]) => void }>();
+  const roots = new Set<Set<Node>>();
+  const detachedReads = { count: 0 };
+  const held = () => ({
+    scroll: listeners.scroll,
+    sized: [...sized].reduce((sum, { targets }) => sum + targets.size, 0),
+    roots: [...roots].reduce((sum, targets) => sum + targets.size, 0),
+  });
+  const Mutations = window.MutationObserver;
+  const add = window.EventTarget.prototype.addEventListener;
+  const remove = window.EventTarget.prototype.removeEventListener;
+  // Pierre drawing into a host resizes it.
+  const resized = (target: Element) => {
+    for (const { targets, callback } of sized) if (targets.has(target)) callback([{ target }]);
+  };
+  page.ResizeObserver = class {
+    targets = new Set<Element>();
+    constructor(callback: (entries: { target: Element }[]) => void) {
+      sized.add({ targets: this.targets, callback });
+    }
+    observe(target: Element) {
+      this.targets.add(target);
+    }
+    unobserve(target: Element) {
+      this.targets.delete(target);
+    }
+    disconnect() {
+      this.targets.clear();
+    }
+  };
+  page.MutationObserver = class {
+    inner: MutationObserver;
+    targets = new Set<Node>();
+    constructor(callback: MutationCallback) {
+      this.inner = new Mutations(callback);
+      roots.add(this.targets);
+    }
+    observe(target: Node, options: MutationObserverInit) {
+      this.inner.observe(target, options);
+      this.targets.add(target);
+    }
+    disconnect() {
+      this.inner.disconnect();
+      this.targets.clear();
+    }
+  };
+  type Listener = EventListenerOrEventListenerObject | null;
+  window.EventTarget.prototype.addEventListener = function (
+    this: EventTarget,
+    type: string,
+    listener: Listener,
+    options?: boolean | AddEventListenerOptions,
+  ) {
+    if (type === "scroll") listeners.scroll++;
+    add.call(this, type, listener, options);
+  } as typeof add;
+  window.EventTarget.prototype.removeEventListener = function (
+    this: EventTarget,
+    type: string,
+    listener: Listener,
+    options?: boolean | EventListenerOptions,
+  ) {
+    if (type === "scroll") listeners.scroll--;
+    remove.call(this, type, listener, options);
+  } as typeof remove;
+  const nextFrame = () => new Promise((resolve) => window.requestAnimationFrame(resolve));
+  const settle = async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+    await nextFrame();
+  };
+  const body = document.createElement("pre");
+  host.append(body);
+  let stop: (() => void) | undefined;
+  try {
+    stop = watchSideways(body);
+    const mounted = held();
+    for (let round = 0; round < 6; round++) {
+      // Pierre's host, its shadow root attached before it is drawn in or after (every other round).
+      const pierre = document.createElement("cmux-test-pierre");
+      const code = document.createElement("div");
+      code.setAttribute("data-code", "");
+      code.append(document.createElement("div"));
+      for (const name of ["scrollWidth", "clientWidth"] as const)
+        Object.defineProperty(code, name, {
+          configurable: true,
+          get: () => {
+            if (!code.isConnected) detachedReads.count++;
+            return name === "scrollWidth" ? 900 : 300;
+          },
+        });
+      if (round % 2 === 0) pierre.attachShadow({ mode: "open" }).append(code);
+      body.append(pierre);
+      await settle();
+      if (round % 2 === 1) {
+        pierre.attachShadow({ mode: "open" }).append(code);
+        resized(pierre);
+        await settle();
+      }
+      expect(held()).toEqual({ scroll: mounted.scroll + 1, sized: mounted.sized + 2, roots: mounted.roots + 1 });
+      pierre.remove();
+      await settle();
+      // Pierre redraws the detached root: nothing measures it.
+      code.append(document.createElement("div"));
+      await settle();
+      expect({ round, ...held(), detachedReads: detachedReads.count }).toEqual({
+        round,
+        ...mounted,
+        detachedReads: 0,
+      });
+    }
+    // A host removed before its shadow root comes is let go too.
+    const late = document.createElement("cmux-test-pierre");
+    body.append(late);
+    await settle();
+    late.remove();
+    await settle();
+    expect(held()).toEqual(mounted);
+    stop();
+    stop = undefined;
+    expect(held()).toEqual({ scroll: 0, sized: 0, roots: 0 });
+  } finally {
+    stop?.();
+    delete page.ResizeObserver;
+    page.MutationObserver = Mutations;
+    window.EventTarget.prototype.addEventListener = add;
+    window.EventTarget.prototype.removeEventListener = remove;
+    body.remove();
+  }
+});
+
 test("the cuts are fades, a wrapped line hangs, and Pierre's rows get both", async () => {
   const css = readFileSync(
     path.join(import.meta.dir, "../src/agent-session/acpmux/conversation/conversation.css"),

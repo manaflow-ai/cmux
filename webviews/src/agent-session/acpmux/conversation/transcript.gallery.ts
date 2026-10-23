@@ -216,6 +216,31 @@ const SHELL_LONG_LOG = Array.from({ length: 6 }, (_, index) => shellLogLine(inde
 /// A log past the eight-line preview, every line wider than the column.
 const SHELL_LONG_LOG_CUT = Array.from({ length: 14 }, (_, index) => shellLogLine(index)).join("\n");
 
+/// A command still running, its output streaming in.
+const liveShellRows = (id: string, output: string) => [
+  user("Follow the retry log", 1, { id: `${id}-user` }),
+  activity(
+    [
+      tool("tail -f logs/retry.log", "execute", "in_progress", {
+        command: "tail -f logs/retry.log",
+        output,
+        startedAt: minutesAgo(0.3),
+      }),
+    ],
+    0.8,
+    { id: `${id}-activity` },
+  ),
+];
+
+/// Opens the one call's row (inside the turn's fold once it is done) and turns its Wrap lines off.
+const unwrapCall = (body: string, actions: string) => async (ctx: PlayContext) => {
+  if (ctx.document.querySelector(".cv-worked")) await openWorked(ctx);
+  await ctx.click({ selector: ".cv-tool.is-toggle" });
+  await ctx.waitFor(() => Boolean(ctx.document.querySelector(body)));
+  await ctx.click({ selector: `${actions} button[aria-label="Wrap lines"]` });
+  await ctx.waitFor(() => ctx.document.querySelector(body)?.getAttribute("data-wrap") === "false");
+};
+
 const shellDisclosureChecks = {
   layoutShiftMax: {
     value: 0.25,
@@ -2260,6 +2285,31 @@ export default agentPaneEntry({
         await ctx.click({ selector: '.cv-shell__actions button[aria-label="Wrap lines"]' });
         await ctx.waitFor(() => ctx.document.querySelector(".cv-shell__body")?.getAttribute("data-wrap") === "false");
       },
+    },
+    "shell-live-unwrapped-long-line": {
+      note: "A running command's output with Wrap lines off: the thin sideways scrollbar's lane stays under the lines while it runs, so a line that starts or stops running past the edge does not move the transcript.",
+      checks: shellDisclosureChecks,
+      snapshot: chat(liveShellRows("gallery-shell-live", SHELL_LONG_LOG), { isWorking: true }),
+      play: unwrapCall(".cv-shell__body", ".cv-shell__actions"),
+    },
+    "shell-live-unwrapped-long-cut": {
+      note: "A running command's long output with Wrap lines off: the first eight lines under a fade and the sideways scrollbar's lane under them while it runs.",
+      checks: shellDisclosureChecks,
+      snapshot: chat(liveShellRows("gallery-shell-live-cut", SHELL_LONG_LOG_CUT), { isWorking: true }),
+      play: unwrapCall(".cv-shell__body", ".cv-shell__actions"),
+    },
+    "output-unwrapped-long-line": {
+      note: "A call's output with Wrap lines off: each line stays whole and a thin sideways scrollbar shows at rest in the output's bottom padding.",
+      checks: shellDisclosureChecks,
+      snapshot: chat([
+        user("Fetch the retry log", 3, { id: "gallery-output-unwrapped-user" }),
+        activity([tool("Fetch the retry log", "fetch", "completed", { output: SHELL_LONG_LOG })], 2.8, {
+          id: "gallery-output-unwrapped-activity",
+        }),
+        assistant("The output stays inside the transcript row.", 2.6, { id: "gallery-output-unwrapped-answer" }),
+        summary(2.6, { id: "gallery-output-unwrapped-summary", status: "completed", toolCount: 1 }),
+      ]),
+      play: unwrapCall(".cv-tool-output", ".cv-tool-output__actions"),
     },
     "shell-failed-exit": {
       note: "A failed command exposes its nonzero exit status alongside its output.",

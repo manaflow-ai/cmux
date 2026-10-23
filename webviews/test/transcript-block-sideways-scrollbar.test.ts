@@ -9,6 +9,12 @@
 // preview ends with that lane, clear of the preview's bottom fade. Nothing over a block shows a
 // resize cursor (the same ask: "the cursor hover that turns into the resizing cursor").
 //
+// The lane never moves the transcript and is never an empty tail (Codex review of #23967): a diff
+// and a call output keep it inside their own bottom gap, so they are as tall with the scrollbar as
+// without it; a running command keeps it while it runs, so a streamed line that starts or stops
+// running past the edge does not move what is under it; a settled block whose lines fit, and any
+// wrapped one, has none.
+//
 // Before: the diff's thumb was transparent until the rows scrolled, the output had the engine's
 // own scroller (an overlay that shows only while it scrolls, or a 15px classic bar), and a cut
 // diff's lane lay past the preview's cut. Nothing at rest said the lines went on but the fade.
@@ -36,26 +42,54 @@ await requireBrowserLane("transcript-block-sideways-scrollbar.test.ts", async ()
   /// The cards' corner radius (12px) and a little more: the lane's right end a reading skips.
   const CORNER = 16;
 
-  /// A gallery state, its block and the box in it that scrolls sideways.
-  type Block = { variant: string; card: string; scroller: string; shadow: boolean; cut: boolean };
+  /// A gallery state, its block, the box in it that scrolls sideways and its Wrap lines button.
+  type Block = { variant: string; card: string; scroller: string; wrap: string; shadow: boolean; cut: boolean };
+  const diff = (variant: string, cut: boolean): Block => ({
+    variant,
+    card: ".cv-edit-diff",
+    scroller: ".cv-edit-diff__body",
+    wrap: ".cv-edit-diff__wrap",
+    shadow: true,
+    cut,
+  });
+  const shell = (variant: string, cut: boolean): Block => ({
+    variant,
+    card: ".cv-shell",
+    scroller: ".cv-shell__body",
+    wrap: '.cv-shell__actions button[aria-label="Wrap lines"]',
+    shadow: false,
+    cut,
+  });
+  const output: Block = {
+    variant: "output-unwrapped-long-line",
+    card: ".cv-tool-output-card",
+    scroller: ".cv-tool-output",
+    wrap: '.cv-tool-output__actions button[aria-label="Wrap lines"]',
+    shadow: false,
+    cut: false,
+  };
+  /// Unwrapped, every line past the edge, settled.
   const blocks: Block[] = [
-    {
-      variant: "edit-long-line-code",
-      card: ".cv-edit-diff",
-      scroller: ".cv-edit-diff__body",
-      shadow: true,
-      cut: false,
-    },
-    {
-      variant: "edit-long-line-code-cut",
-      card: ".cv-edit-diff",
-      scroller: ".cv-edit-diff__body",
-      shadow: true,
-      cut: true,
-    },
-    { variant: "shell-unwrapped-long-line", card: ".cv-shell", scroller: ".cv-shell__body", shadow: false, cut: false },
-    { variant: "shell-unwrapped-long-cut", card: ".cv-shell", scroller: ".cv-shell__body", shadow: false, cut: true },
+    diff("edit-long-line-code", false),
+    diff("edit-long-line-code-cut", true),
+    shell("shell-unwrapped-long-line", false),
+    shell("shell-unwrapped-long-cut", true),
+    output,
   ];
+  /// Blocks whose height holds while their lines start and stop running past the edge: a diff and
+  /// a call output always, a command while it runs.
+  const steady: Block[] = [
+    diff("edit-long-line-code", false),
+    diff("edit-long-line-code-cut", true),
+    shell("shell-live-unwrapped-long-line", false),
+    shell("shell-live-unwrapped-long-cut", true),
+    output,
+  ];
+  /// Settled blocks whose lines, once they fit, leave no lane: as tall as wrapped.
+  const settled: Block[] = [shell("shell-unwrapped-long-line", false), shell("shell-unwrapped-long-cut", true), output];
+  /// Wrapped diffs, cut and whole.
+  const wrapped: Block[] = [diff("edit-long-line-prose", true), diff("edit-preview-open", false)];
+  const variants = new Set([...blocks, ...steady, ...settled, ...wrapped].map(({ variant }) => variant));
 
   const webviews = path.resolve(import.meta.dir, "..");
   const { createServer } = await import("vite");
@@ -70,8 +104,8 @@ await requireBrowserLane("transcript-block-sideways-scrollbar.test.ts", async ()
     });
     await vite.listen();
     for (const [name, launch] of launchers) browsers.set(name, await launch());
-    for (const block of blocks)
-      await warmGalleryFrame(vite, ENTRY, { browser: browsers.get("chromium"), params: { variant: block.variant } });
+    for (const variant of variants)
+      await warmGalleryFrame(vite, ENTRY, { browser: browsers.get("chromium"), params: { variant } });
   });
   afterAll(async () => {
     for (const browser of browsers.values()) await browser.close();
@@ -170,6 +204,69 @@ await requireBrowserLane("transcript-block-sideways-scrollbar.test.ts", async ()
     return { thumb: columns >= 16, track: columns > end - CORNER - 8, columns, width: end - CORNER };
   }
 
+  const painted = (page: Page) =>
+    page.evaluate(async () => {
+      for (let left = 2; left > 0; left--) await window.cmuxPaintFrame();
+    });
+
+  /// The block's heights, its sideways box's lane and mark, and the gap above its first line and
+  /// under its last (rows: Pierre's `[data-line]`, or the body's `.cv-line`).
+  const look = (page: Page, block: Block) =>
+    page.evaluate(({ scroller, card, shadow }) => {
+      const body = document.querySelector<HTMLElement>(scroller)!;
+      const box = shadow
+        ? [...body.querySelectorAll("*")]
+            .map((element) => element.shadowRoot?.querySelector<HTMLElement>("[data-code]"))
+            .find(Boolean)!
+        : body;
+      const rows = [...box.querySelectorAll(shadow ? "[data-line]" : ".cv-line")];
+      const rect = box.getBoundingClientRect();
+      const style = getComputedStyle(body);
+      return {
+        sideways: box.hasAttribute("data-cmux-sideways"),
+        wrap: body.closest("[data-wrap]")?.getAttribute("data-wrap"),
+        body: Math.round(body.getBoundingClientRect().height),
+        card: Math.round(document.querySelector(card)!.getBoundingClientRect().height),
+        lane: box.offsetHeight - box.clientHeight,
+        inset: Math.round(rows[0]!.getBoundingClientRect().top - rect.top),
+        tail: Math.round(rect.bottom - rows.at(-1)!.getBoundingClientRect().bottom),
+        maxHeight: style.maxHeight,
+        lineHeight: style.getPropertyValue("--cmux-diff-line-height"),
+      };
+    }, block);
+
+  /// Makes the block's lines run past its edge again (`past`) or all fit, as streamed text would,
+  /// and waits for its sideways box's mark to follow: a command's or output's lines shortened, or a
+  /// diff's body widened past its rows.
+  async function runPast(page: Page, block: Block, past: boolean) {
+    await page.evaluate(
+      ({ scroller, shadow, past }) => {
+        const body = document.querySelector<HTMLElement>(scroller)!;
+        if (shadow) body.style.width = past ? "" : "8000px";
+        else
+          for (const line of body.querySelectorAll<HTMLElement>(".cv-line")) {
+            line.dataset.long ??= line.textContent ?? "";
+            line.textContent = past ? line.dataset.long : "ok";
+          }
+      },
+      { ...block, past },
+    );
+    await page.waitForFunction(
+      ({ scroller, shadow, past }) => {
+        const body = document.querySelector(scroller)!;
+        const box = shadow
+          ? [...body.querySelectorAll("*")]
+              .map((element) => element.shadowRoot?.querySelector("[data-code]"))
+              .find(Boolean)
+          : body;
+        return box?.hasAttribute("data-cmux-sideways") === past;
+      },
+      { ...block, past },
+      { timeout: 10_000 },
+    );
+    await painted(page);
+  }
+
   /// Every point of a grid over `selector`'s visible part whose element (inside shadow roots too)
   /// shows a resize cursor or can be resized.
   const resizeCursors = (page: Page, selector: string) =>
@@ -221,40 +318,59 @@ await requireBrowserLane("transcript-block-sideways-scrollbar.test.ts", async ()
           }
         });
 
-      // A command's output is as tall with its sideways scrollbar as without it: the lane is kept
-      // whether or not a line runs past, so the transcript under it does not jump when one starts
-      // or stops (Codex review of #23967).
-      for (const block of blocks.filter(({ shadow }) => !shadow))
-        test(`${block.variant}: the block is as tall with its sideways scrollbar as without it`, async () => {
+      // A block's height holds while its lines start or stop running past the edge (Codex review
+      // of #23967): the transcript under a streaming block never jumps by the scrollbar's lane.
+      for (const block of steady)
+        test(`${block.variant}: as tall while its lines start and stop running past the edge`, async () => {
           const page = await open(engine, block);
           try {
-            const heights = () =>
-              page.evaluate(({ scroller, card }) => {
-                const body = document.querySelector<HTMLElement>(scroller)!;
-                return {
-                  sideways: body.hasAttribute("data-cmux-sideways"),
-                  body: body.getBoundingClientRect().height,
-                  card: document.querySelector<HTMLElement>(card)!.getBoundingClientRect().height,
-                };
-              }, block);
-            const before = await heights();
+            const before = await look(page, block);
             expect(before.sideways).toBe(true);
-            // Every line made short enough to fit: the lines stop running past and the bar goes.
-            await page.evaluate((scroller) => {
-              for (const line of document.querySelector(scroller)!.querySelectorAll(".cv-line"))
-                line.textContent = "ok";
-            }, block.scroller);
+            await runPast(page, block, false);
+            const fits = await look(page, block);
+            await runPast(page, block, true);
+            const again = await look(page, block);
+            console.log(`${engine} ${block.variant} steady: ${JSON.stringify({ before, fits, again })}`);
+            const height = ({ body, card }: typeof before) => ({ body, card });
+            expect([height(fits), height(again)]).toEqual([height(before), height(before)]);
+          } finally {
+            await page.close();
+          }
+        });
+
+      // Settled, lines that fit leave no lane: the block is as tall unwrapped as wrapped, and a
+      // whole one ends as far under its last line as its first line starts under its top.
+      for (const block of settled)
+        test(`${block.variant}: settled, lines that fit leave no empty lane`, async () => {
+          const page = await open(engine, block);
+          try {
+            await runPast(page, block, false);
+            const unwrapped = await look(page, block);
+            await page.click(block.wrap);
             await page.waitForFunction(
-              (scroller) => !document.querySelector(scroller)!.hasAttribute("data-cmux-sideways"),
+              (scroller) => document.querySelector(scroller)?.getAttribute("data-wrap") === "true",
               block.scroller,
-              { timeout: 10_000 },
             );
-            await page.evaluate(async () => {
-              for (let left = 2; left > 0; left--) await window.cmuxPaintFrame();
-            });
-            const after = await heights();
-            console.log(`${engine} ${block.variant} heights: ${JSON.stringify({ before, after })}`);
-            expect({ body: after.body, card: after.card }).toEqual({ body: before.body, card: before.card });
+            await painted(page);
+            const shown = await look(page, block);
+            console.log(`${engine} ${block.variant} settled: ${JSON.stringify({ unwrapped, shown })}`);
+            expect({ body: unwrapped.body, card: unwrapped.card }).toEqual({ body: shown.body, card: shown.card });
+            if (!block.cut) expect([unwrapped.tail, shown.tail]).toEqual([unwrapped.inset, shown.inset]);
+          } finally {
+            await page.close();
+          }
+        });
+
+      // Wrapped rows never scroll sideways: Pierre's box keeps no lane, and a cut preview is eight rows.
+      for (const block of wrapped)
+        test(`${block.variant}: a wrapped diff keeps no lane`, async () => {
+          const page = await open(engine, block);
+          try {
+            const shown = await look(page, block);
+            console.log(`${engine} ${block.variant} wrapped: ${JSON.stringify(shown)}`);
+            expect({ wrap: shown.wrap, lane: shown.lane }).toEqual({ wrap: "true", lane: 0 });
+            if (block.cut) expect(shown.maxHeight).toBe(`${8 * (parseFloat(shown.lineHeight) || 18)}px`);
+            else expect(shown.tail).toBe(shown.inset);
           } finally {
             await page.close();
           }
