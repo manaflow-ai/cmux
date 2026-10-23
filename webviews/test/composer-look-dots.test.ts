@@ -2,8 +2,9 @@
 // The composer's two looks (composerLook.ts; Leo 2026-10-22: "first dot claude, second dot codex.
 // since it's just all looks anyways. first 2 dots minimal on the new tab page"):
 //
-// - The New Tab page shows two dots under it, Claude then Codex, Claude checked by default. The
-//   second dot gives the page's composer Codex's look (data-composer-look="codex"): the model sits in
+// - The New Tab page shows two look dots under it, Claude then Codex, Claude checked by default,
+//   then the page's template dots (on by default, Leo 2026-10-22: "let's turn it back on"). The
+//   second look dot gives the page's composer Codex's look (data-composer-look="codex"): the model sits in
 //   the box's own row, no quiet row under it. The pick is remembered across a reload.
 // - On another page style (Classic) the look dots switch the look only: the page keeps its style,
 //   whose own dot (Minimal among them) stays marked, and draws the look; Cards draws Codex's tray.
@@ -76,10 +77,12 @@ await requireBrowserLane("composer-look-dots.test.ts", async () => {
     const context = await browser.newContext({ viewport: { width: 760, height: 600 } });
     const page = await context.newPage();
     await open(page, "agent-pane.new-tab", "minimal-default");
-    expect(await dots(page, ".nt-style")).toEqual([
+    expect(await dots(page, ".nt-look-dots")).toEqual([
       { value: "claude", name: "Claude", checked: true },
       { value: "codex", name: "Codex", checked: false },
     ]);
+    // The template dots follow the looks, Minimal's marked.
+    expect(await page.$(".nt-style:not(.nt-look-dots) input[value=minimal]:checked")).not.toBeNull();
     expect(await page.$(".nt-composer[data-composer-look]")).toBeNull();
 
     await pickDot(page, ".nt-style", "codex");
@@ -94,7 +97,7 @@ await requireBrowserLane("composer-look-dots.test.ts", async () => {
     await page.reload();
     await ready(page);
     await page.waitForSelector('.nt-composer[data-composer-look="codex"]');
-    expect((await dots(page, ".nt-style")).find((dot) => dot.checked)?.value).toBe("codex");
+    expect((await dots(page, ".nt-look-dots")).find((dot) => dot.checked)?.value).toBe("codex");
     await context.close();
   });
 
