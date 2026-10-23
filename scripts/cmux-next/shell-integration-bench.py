@@ -84,10 +84,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SHIMS_SRC = ROOT / "cmux-tui/crates/cmux-tui-core/src/shell_integration"
-# cmux's interim fix to Ghostty's bash preexec hook, appended to ghostty.bash in the daemon's
-# copy (shell_integration.rs) and the bundle's (bundle-ghostty-resources.sh). Interim: delete with
-# the ghostty-next bump to 72578da (see that file).
-BASH_FIX = SHIMS_SRC / "ghostty-preexec.bash"
 PROMPT = b"@@P@@ "
 BARRIER = b"^"
 KILL_LINE = b"\x15"
@@ -346,7 +342,7 @@ def daemon_integration(ghostty: Path, dest: Path) -> Path:
     files = {
         "zsh/.zshenv": [ghostty / "zsh/.zshenv"],
         "zsh/ghostty-integration": [ghostty / "zsh/ghostty-integration", SHIMS_SRC / "agent-shims.zsh"],
-        "bash/ghostty.bash": [ghostty / "bash/ghostty.bash", BASH_FIX, SHIMS_SRC / "agent-shims.bash"],
+        "bash/ghostty.bash": [ghostty / "bash/ghostty.bash", SHIMS_SRC / "agent-shims.bash"],
         "bash/bash-preexec.sh": [ghostty / "bash/bash-preexec.sh"],
         "fish/vendor_conf.d/ghostty-shell-integration.fish":
             [ghostty / "fish/vendor_conf.d/ghostty-shell-integration.fish"],
@@ -364,10 +360,7 @@ def source_resources(ghostty_integration: Path, dest: Path) -> Path:
     resources = dest / "cmux DEV bench.app/Contents/Resources"
     (resources / "ghostty").mkdir(parents=True)
     (resources / "bin").mkdir()
-    # A copy, with the bash fix appended as bundle-ghostty-resources.sh appends it.
-    shutil.copytree(ghostty_integration, resources / "ghostty/shell-integration")
-    with open(resources / "ghostty/shell-integration/bash/ghostty.bash", "a") as script:
-        script.write(BASH_FIX.read_text())
+    (resources / "ghostty/shell-integration").symlink_to(ghostty_integration)
     (resources / "cmux-cli-path").symlink_to(ROOT / "Resources/cmux-cli-path")
     cli = resources / "bin/cmux"
     cli.write_text("#!/bin/sh\nexit 0\n")
@@ -555,8 +548,7 @@ def main() -> int:
                 print(f"error: {needed} is missing", file=sys.stderr)
                 return 2
         # The daemon embeds ghostty-next's files (shell_integration.rs SCRIPTS); with --app and
-        # no ghostty-next checkout, the bundle's copy of them (its ghostty.bash then carries the
-        # bash fix twice, which defines the same function twice).
+        # no ghostty-next checkout, the bundle's copy of them.
         ghostty_source = args.ghostty_integration or ROOT / "ghostty-next/src/shell-integration"
         if not (ghostty_source / "bash/ghostty.bash").is_file():
             ghostty_source = app_integration
