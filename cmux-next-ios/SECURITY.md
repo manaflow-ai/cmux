@@ -505,6 +505,38 @@ these terminals. The lock-screen notification reply (`cmux.terminal.reply`,
 `notification-reply`) is a different path. It stays held behind #13742 in
 the push-fallback branch, and this branch adds no notification action.
 
+### Answering a terminal agent's question from the phone (`rich-push-termq`)
+
+A terminal-hosted Claude Code AskUserQuestion is answered from the Feed card or
+its notification by typing the answer into that terminal. No command is added
+to the allowlist: the phone uses `read-screen {surface}` and `send {surface,
+bytes}`, which its own keyboard already uses on the person's terminals.
+
+- Where the question comes from: the agent hook reads the tool input before
+  redaction and sends it beside the journal event (`live_question`); the daemon
+  keeps it in memory only while the agent waits (never the journal, the ledger,
+  the database or a log; `an_agent_question_reaches_the_notification_and_its_row_in_memory_only`
+  checks the state folder). A program's OSC notification never carries a
+  question; a program that runs the agent hook helper itself can post one, which still
+  only lets the person's chosen option numbers and printable text reach that terminal (`a_terminal_agent_question_pushes_as_a_question`).
+- What is typed: only keys that select the person's chosen options
+  (`TerminalQuestionKeys`): option numbers, Tab, arrow-down, Return, Escape,
+  and "Other" text limited to printable characters, so a free-text answer can
+  never press Return, an arrow or Escape it was not meant to.
+- Where it is typed: only while `read-screen` shows this question with each of
+  its options at its own number. A terminal that moved on (a shell, another
+  prompt, another question) gets nothing, and the card says so.
+- Which question: a notification answers only the question it was sent for (its push is
+  named `q-<tool use id>`; the phone types only while that question is pending), never a
+  newer one on the same tab.
+- When: a notification's answer is a foreground action (the app is open and
+  unlocked); nothing is typed from the lock screen. Lock-screen terminal input
+  is PR B's held policy (`verify/notifications-trust.md`).
+- Residual: the screen check reads text, so an agent that draws a lookalike
+  question screen in the same terminal could receive the keys; they are still
+  only the person's chosen option numbers and printable text, into a terminal
+  the person already types into from the phone.
+
 ## `acpmux`: agent chats in the person's workspaces (`feat-cnx-ios-agentcwd`, in `feat-cnx-ios-parity`)
 
 Implemented on `feat-cnx-ios-parity` (2026-10-14) after the person asked that
