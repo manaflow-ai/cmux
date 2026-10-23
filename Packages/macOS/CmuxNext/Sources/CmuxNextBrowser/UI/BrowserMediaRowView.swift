@@ -97,11 +97,12 @@ public final class BrowserMediaRowView: NSView {
         update()
     }
 
-    /// Takes back a Picture in Picture press the app refused after the card showed it (the setting
-    /// turned off before the press reached the page): the button reads as before and, while the
-    /// setting is off, hides.
-    public func undoPictureInPicturePress() {
-        media.isPictureInPicture.toggle()
+    /// Shows whether the page's video floats now (`floating`, read from the tab), after a Picture in
+    /// Picture press the app refused once the card showed it (the setting turned off before the press
+    /// reached the page). Sets the state rather than flipping it, so a late refusal never inverts a
+    /// card that was shown again meanwhile; while the setting is off the button hides.
+    public func showPictureInPicture(_ floating: Bool) {
+        media.isPictureInPicture = floating
         update()
     }
 

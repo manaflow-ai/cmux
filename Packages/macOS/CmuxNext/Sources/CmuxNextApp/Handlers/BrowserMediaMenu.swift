@@ -45,9 +45,11 @@ enum BrowserMediaMenu {
                     return muting.setAudioMuted(false)
                 }
                 Task {
-                    // Turned off between the press and this task: nothing floats, and the card takes
-                    // back the Exit it showed.
-                    if command == .pictureInPicture, !pictureInPicture() { return row.view?.undoPictureInPicturePress() }
+                    // Turned off between the press and this task: nothing floats, and the card shows
+                    // the page's real state again instead of the Exit it showed.
+                    if command == .pictureInPicture, !pictureInPicture() {
+                        return row.view?.showPictureInPicture(tab.state.media?.isPictureInPicture == true)
+                    }
                     await tab.media(command)
                 }
             },
