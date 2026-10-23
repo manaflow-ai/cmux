@@ -1,0 +1,175 @@
+# Opt-in hang reports from cmux NEXT Nightly
+
+Status: design and v1, 2026-10-23. Owner: PL-telemetry (Performance Lead). Branch `feat-cmux-next`
+(app), `main` (web route, table, script).
+Lawrence (2026-10-23): "collect opt-in hang reports from nightly users. Make sure to redact privacy
+stuff."
+
+Related: `perf-lead.md` (the lab numbers these reports check in the field),
+`hang-reports-privacy-policy-DRAFT.md` (the privacy policy change; legal step, not published),
+`CmuxNextControl/Diagnostics/MainThreadWatchdog.swift` (the in-process detector),
+`CmuxNextCrashReporting` (Sentry crash reports: a separate, opt-out channel this does not change).
+
+## 1. What the person sees
+
+- Off by default, on every channel. Only NIGHTLY builds (`com.cmuxterm.app.nightly`, tagged
+  nightlies too) ever send. Other channels keep the setting and send nothing.
+- `diagnostics.hangReports` (cmux-next.json, boolean, default `false`). Settings > Advanced >
+  Privacy has the switch and a **View Hang Report** button. `cmux settings set
+  diagnostics.hangReports true --confirm` and the palette's Toggle Setting write the same key
+  through `SettingsController.setSetting` (one write path). The key is agent-refused
+  (`AgentRefusal.privacy`): an agent cannot turn it on without the person's confirmation sheet.
+- One ask, once, on NIGHTLY: a sidebar notice card (`SidebarAsks`, the same card as an agent's
+  Cloud machine request; no dialog, no sheet) with **Send Hang Reports** and **Not Now**. Either
+  answer, or the x, records that it was asked (`cmux.next.hangReports.asked` in the app's
+  defaults); it never shows again. The card waits for the first window and never takes focus.
+- **View Hang Report** (`diagnostics.viewHangReport`, palette, Settings button, `cmux settings
+  view-hang-report`) opens the exact JSON of the last report sent, in a cmux file tab. Before
+  any report was sent it opens a preview: what would be sent now.
+
+## 2. Sources
+
+| Source | What we take | Cost |
+|---|---|---|
+| MetricKit `MXHangDiagnostic` | hang duration, main-thread call stack | none: the OS records it; delivered to our subscriber (at most daily, diagnostics usually at the next launch) |
+| MetricKit `MXCPUExceptionDiagnostic` | total CPU and sampled time, heaviest call stack | none |
+| MetricKit `MXAppLaunchMetric` | time-to-first-draw, resume, optimized and extended launch histograms | none |
+| MetricKit `MXAppResponsivenessMetric` | hang-time histogram | none |
+| MetricKit `MXAnimationMetric` | scroll hitch ratio, hitch ratio (macOS 26) | none |
+| MetricKit `MXSignpostMetric` | duration histograms and hitch ratio of allowlisted Release intervals (below) | none: aggregated by the OS |
+| `MainThreadWatchdog` (in process) | each finished stall over 50 ms into a duration histogram; the stacks of the 8 longest stalls of 250 ms and more; each 2 s hang's stack | one lock and a few integer adds per finished stall, on the stall's own end; nothing while the app is idle |
+
+`MXAppLaunchDiagnostic` is iOS only (`API_UNAVAILABLE(macos)` in the macOS 26 SDK): launch on
+the Mac is the launch metric histograms plus watchdog stalls during launch.
+
+**Release intervals.** MetricKit aggregates only intervals emitted with `mxSignpost` on a log
+from `MXMetricManager.makeLogHandle(category:)`; `OSSignposter` intervals (the Debug `stalls`
+category) are not seen by MetricKit. A report includes an interval only when its category is in
+`HangReportSignposts.categories` (`perf.motion`, `perf.key`, `perf.switch`, `perf.create`,
+`perf.cef`) and its name is a short static identifier (`[a-z0-9_.-]{1,48}`); everything else is
+dropped. PL-arch's Release intervals use these categories through
+`HangReportSignposts.log(_:)`; histograms only, never a single event.
+
+## 3. Redaction (privacy first)
+
+The report is built by allow-list: `HangReportBuilder` copies only the fields in section 4
+from typed inputs. Nothing from a MetricKit payload passes through as text; the call stack JSON
+is read for five keys (`binaryName`, `binaryUUID`, `offsetIntoBinaryTextSegment`, `sampleCount`,
+`subFrames`) and the rest is never read.
+
+Sent: call-stack frames as (image name, image UUID, offset), app version and build, channel,
+macOS version (major.minor.patch), hardware class (architecture, chip family, core count,
+memory rounded to a standard size), durations, coarse counts (windows, workspaces, panes, tabs,
+each a bucket: `0`, `1`, `2-5`, `6-10`, `11-30`, `31-100`, `101+`), the UTC day.
+
+Never sent: file paths, user names, the home folder, URLs, page titles, terminal text, window
+titles, workspace names, host names, IP addresses, environment variables, emails, tokens,
+clipboard, chat content, process command lines, locale or region, process ids, exact times.
+
+**Frames.** An image is kept by name only when it is ours or Apple's:
+- ours: an image loaded from inside the running app bundle (the executable, its frameworks,
+  helpers), or a name in our own list (`cmux*`, `CmuxNext*`, `GhosttyKit`, `Chromium Embedded
+  Framework`, `Sparkle`, `Sentry`);
+- Apple's: an image loaded from `/System/`, `/usr/lib/` or the dyld shared cache.
+
+Every other image (an input method, a plug-in, an injected library, anything under a home
+folder or `/Applications/Other.app`) becomes `{"image": "other"}` with no UUID and no offset.
+A kept name is the last path component, must match `[A-Za-z0-9 ._+()-]{1,64}`, and must not
+contain the user's short or full name. MetricKit frames are classified by matching their UUID
+against the images loaded now; an unknown UUID with a name in neither list is `other`.
+
+**Last check.** `PrivacyLeakScanner` walks every string of the encoded report and refuses the
+whole report when one looks like a path (`/`, `~`), an email, a URL (`://`), an IP address, the
+user's name or home folder, the host name, or a token (long base64/hex runs other than a UUID).
+A refused report is not sent and not stored; the refusal is logged as a count.
+
+**Identity.** `installId` is a random UUID made on this Mac, replaced every 30 days
+(`InstallIdentity`), never derived from the hardware, the account or the Sentry id. No account,
+cookie or device token is sent. The server stores no IP address and logs none (section 5).
+
+Unit tests (`CmuxNextHangReportsTests`) feed realistic MetricKit call stack trees and watchdog
+samples with planted paths (`/Users/alice/...`, an input method under `~/Library`), emails,
+URLs, host names, tokens and environment text, and check that no planted string appears in the
+encoded report, that third-party frames lose their name, UUID and offset, and that the scanner
+refuses a report that carries one.
+
+## 4. Wire format (schema 1)
+
+`POST https://cmux.com/api/hang-reports`, `content-type: application/json`, body at most 64 KiB,
+user agent `cmux-hang-reports/1`. Answers: `204` stored (or a duplicate `reportId`), `400`
+invalid, `413` too large, `429` rate limited (`retry-after`). The client keeps a failed report
+in its outbox (at most 3, at most 14 days) and tries again at the next trigger.
+
+```json
+{
+  "schema": 1,
+  "reportId": "5f1c7c1e-2b9b-4a8e-9c62-0f0d2b0b8a11",
+  "installId": "0b8d4a51-6c9e-4f0f-8f53-3c2d7b4f9e20",
+  "day": "2026-10-23",
+  "app": {"version": "0.70.0", "build": "70123", "channel": "nightly"},
+  "os": {"version": "15.7.4"},
+  "hardware": {"arch": "arm64", "chip": "Apple M4 Pro", "cores": 14, "memoryGB": 48},
+  "counts": {"windows": "1", "workspaces": "11-30", "panes": "6-10", "tabs": "31-100"},
+  "hangs": [
+    {"source": "metrickit", "kind": "hang", "durationMs": 2340, "cpuMs": null,
+     "frames": [{"image": "AppKit", "uuid": "8B1E...", "offset": 1234567}, {"image": "other"}]}
+  ],
+  "cpuExceptions": [{"cpuMs": 90000, "sampledMs": 180000, "frames": []}],
+  "stallHistogram": [{"lowMs": 50, "highMs": 100, "count": 12}],
+  "metrics": {
+    "hangTime": [{"lowMs": 0, "highMs": 100, "count": 40}],
+    "launchFirstDraw": [], "launchResume": [], "launchOptimizedFirstDraw": [], "launchExtended": [],
+    "scrollHitchMsPerS": 1.5, "hitchMsPerS": null
+  },
+  "intervals": [{"category": "perf.motion", "name": "frame", "count": 1200,
+                 "buckets": [{"lowMs": 0, "highMs": 10, "count": 1100}], "hitchMsPerS": 0.4}]
+}
+```
+
+Limits: 20 hangs, 5 CPU exceptions, 64 frames per stack, 32 buckets per histogram, 64
+intervals. `hangs[].source` is `metrickit` or `watchdog`; `kind` is `hang` (2 s and more, or
+a MetricKit hang) or `stall` (250 ms to 2 s, watchdog). Frames are innermost first; for a
+MetricKit tree, the heaviest path (largest `sampleCount` at each level). `offset` is from the
+start of the image's `__TEXT` segment (MetricKit's `offsetIntoBinaryTextSegment`; for the
+watchdog, return address minus the image's load address). The server checks every field with
+the same limits and patterns and rejects unknown keys.
+
+## 5. Server
+
+- `web/app/api/hang-reports/route.ts`: a thin Next route handler that runs one Effect program
+  (`web/services/hangReports/`): size cap (64 KiB, read bounded), JSON parse, `effect/Schema`
+  decode of schema 1 (strict), per-install daily cap (8 reports per UTC day), insert into
+  `hang_reports` (`report_id` primary key, `on conflict do nothing`). Rate limit: the Vercel
+  firewall rule `CMUX_HANG_REPORTS_RATE_LIMIT_ID` (per client at the edge; a limited request gets
+  `429`). The handler reads no IP header, writes no IP into logs, spans or rows, and logs no
+  body.
+- Table `hang_reports` (PlanetScale Postgres `cmux-prod`, migration rehearsed on `staging`, then
+  applied to `main` before the web PR merges): report id, install id, UTC day, app version and
+  build, channel, macOS version, hardware class columns, counts and the validated report as
+  `jsonb`, `received_at`. Rows older than 90 days are deleted by the daily
+  `/api/cron/hang-reports-retention` job.
+- `web/scripts/hang-reports-top-frames.ts` (read only, `DATABASE_URL`): groups hangs by their
+  top frames (the first frames in our own images, else the top frame), with count, installs,
+  p50 and p95 duration, versions and the frames; `--symbolicate DSYM_DIR` runs `atos` on our
+  frames. The perf agents run it; there is no public dashboard.
+
+## 6. Client cost
+
+No timers and no polling. Triggers: a MetricKit delivery, and the launch (an outbox retry, or a
+watchdog-only report when the last report is over 24 hours old). Off, the watchdog sink is one
+atomic load per finished stall (stalls are already measured); on, a lock and a few adds per
+finished stall, plus an array copy of the stack for the 8 longest stalls of the period. Report
+building, image classification and upload run on a utility task when a trigger fires, at most a
+few times a day. Idle: 0 extra wakeups, 0 extra CPU (measured in section 8).
+
+## 7. Files
+
+App: `Packages/macOS/CmuxNext/Sources/CmuxNextHangReports/` (builder, redaction, scanner,
+collector, identity, store, uploader, MetricKit adapter), `CmuxNextApp/HangReports/` (wiring,
+ask card, action handler), `CmuxNextSettings/HangReportsSetting.swift` and its schema row.
+Web: `web/app/api/hang-reports/`, `web/services/hangReports/`, `web/db/schema.ts`,
+`web/db/migrations/<stamp>_hang_reports/`, `web/scripts/hang-reports-top-frames.ts`.
+
+## 8. Results
+
+Filled in as slices land (sha ranges, test runs, idle cost on a fleet GUI host).

@@ -111,6 +111,9 @@ import PackageDescription
 //     path bar, Quick Look, drag in and out)
 //   CmuxNextCrashReporting -> CmuxSentryReporting, Sentry (crash and exception reports to Sentry:
 //     consent, channel environment, release, scrubbing; no UI, no daemon; cx-urd.58)
+//   CmuxNextHangReports -> Compat, system frameworks, MetricKit (opt-in hang reports for NIGHTLY:
+//     MetricKit and watchdog inputs, allow-list redaction, leak scan, rotating install id, outbox,
+//     upload; no UI, no daemon; plans/cmux-next/hang-reports-DESIGN.md)
 
 /// Settings shared by every UI target: Swift 6 mode, main-actor by default.
 let uiSwiftSettings: [SwiftSetting] = [
@@ -213,6 +216,7 @@ let package = Package(
                 "CmuxNextMallocZone",
                 "CmuxNextProcessEnvironment",
                 "CmuxNextCrashReporting",
+                "CmuxNextHangReports",
                 "CmuxNextErrorJournal",
                 "CmuxNextDiff",
                 "CmuxNextHome",
@@ -1175,6 +1179,18 @@ let package = Package(
         .target(
             name: "CmuxNextProcessEnvironment",
             dependencies: ["CmuxNextCompat"],
+            swiftSettings: daemonSwiftSettings
+        ),
+        // Opt-in hang reports from NIGHTLY (plans/cmux-next/hang-reports-DESIGN.md):
+        // MetricKit and watchdog inputs, redaction by allow-list, leak scan, upload.
+        .target(
+            name: "CmuxNextHangReports",
+            dependencies: ["CmuxNextCompat"],
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextHangReportsTests",
+            dependencies: ["CmuxNextHangReports"],
             swiftSettings: daemonSwiftSettings
         ),
         // Crash and exception reports to Sentry (cx-urd.58): consent, channel
