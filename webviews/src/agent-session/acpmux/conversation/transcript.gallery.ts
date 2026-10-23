@@ -666,6 +666,68 @@ const MCP_READ = mcpTool(
   }),
 );
 
+/// A render call (renderCall.ts); one with `update` redraws the card it names and draws nothing itself.
+function renderTool(page: string, update?: string) {
+  return tool("mcp__cmux__render", "other", "completed", {
+    inputSummary: JSON.stringify({ html: `<title>Batch report</title><p>${page}</p>`, ...(update && { id: update }) }),
+    output: '{"rendered": true}',
+  });
+}
+
+/// Short thoughts that draw no row once done (thoughts.ts isQuietThought).
+const quietThoughts = (count: number) => Array.from({ length: count }, () => thought("ok"));
+
+/// A long turn among turns opened by what the person never typed (incomingMessage.ts): a background
+/// task's notification, a system reminder alone (no row) and another agent's message.
+const foldNoBlankRows = [
+  user("<task-notification><summary>Background build finished</summary></task-notification>", 9, {
+    incoming: { kind: "notice", text: "Background build finished" },
+  }),
+  assistant("The background build finished cleanly.", 8.9),
+  summary(8.9, { status: "completed", durationMs: 4_000 }),
+  user("<system-reminder>bookkeeping</system-reminder>", 8, { incoming: { kind: "hidden" } }),
+  activity([tool("git status", "execute", "completed", { command: "git status", output: "clean" })], 7.9),
+  assistant("The tree is clean.", 7.8),
+  summary(7.8, { status: "completed", toolCount: 1, durationMs: 6_000 }),
+  user("[coord-deputy] The batch is next.", 7, {
+    incoming: {
+      kind: "message",
+      message: { name: "coord-deputy", text: "The batch is next.", raw: "[coord-deputy] The batch is next." },
+    },
+  }),
+  user("Run the batch and report what it changed", 6, { id: "fold-no-blank-user" }),
+  activity(
+    [
+      thought("Check how the batch script is laid out before running it, then run it once."),
+      tool("ls /tmp/batch", "execute", "completed", { command: "ls /tmp/batch", output: "batch32.sh\nout.log" }),
+      tool("cat /tmp/batch/batch32.sh", "execute", "completed", {
+        command: "cat /tmp/batch/batch32.sh",
+        output: "set -e",
+      }),
+    ],
+    5.8,
+  ),
+  activity(quietThoughts(6), 5.6),
+  activity(
+    [
+      tool("Edit batch32.sh", "edit", "completed", {
+        diffs: [{ path: "/tmp/batch/batch32.sh", oldText: "set -e\n", newText: "set -e\necho one\necho two\n" }],
+      }),
+      tool("bash /tmp/batch/batch32.sh", "execute", "completed", {
+        command: "bash /tmp/batch/batch32.sh",
+        output: Array.from({ length: 40 }, (_, index) => `step ${index + 1}: ok`).join("\n"),
+      }),
+      renderTool("first page"),
+      renderTool("second page", "batch-report"),
+      renderTool("third page", "batch-report"),
+    ],
+    4,
+  ),
+  activity(quietThoughts(4), 3.2),
+  assistant("The batch ran. It changed three files:\n\n- one\n- two\n- three", 3),
+  summary(3, { status: "completed", toolCount: 6, durationMs: 132_000 }),
+];
+
 // A Claude Bash call's permission as claude-agent-acp sends it: its title is the command line (so
 // its first line reads "bash -c '"), its description says what it does, and the script runs long.
 const BASH_SCRIPT = [
@@ -1394,7 +1456,7 @@ export default agentPaneEntry({
       ),
     },
     "agent-messages": {
-      note: "Messages to other agents say how far they got (Sending…, Sent, Delivered to …) without the receipt's id; a shell call reads without its leading cd and, opened, names its folder beside Shell.",
+      note: "Messages to other agents say how far they got in one word at the line's end (Sent, Queued, Delivered, or why not) without the receipt's id; a shell call reads without its leading cd and, opened, names its folder beside Shell.",
       snapshot: chat(
         [
           user("Tell the coordinator the fix is pushed, then check the branch.", 2),
@@ -2429,6 +2491,25 @@ export default agentPaneEntry({
         await clickHoldsLine(ctx, ".cv-command", true);
         await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-shell__command")));
         await clickHoldsLine(ctx, ".cv-command", false);
+      },
+    },
+    "fold-no-blank-collapsed": {
+      note: "A long turn after a background task's notification, bookkeeping the person never typed and another agent's message, folded: Worked for, then the reply right under it. Before, each render row that draws nothing (in the app, an update that joined the first card; the gallery page draws no render frames) left a 34px band between them.",
+      snapshot: chat(foldNoBlankRows),
+    },
+    "fold-no-blank-open": {
+      note: "The same turn opened: the work in order, with no band where a step of only quiet thoughts sits (it draws nothing). Before, that step kept its estimate, 26px a thought, as a blank band under the first commands. Play: open Worked for.",
+      snapshot: chat(foldNoBlankRows),
+      checks: {
+        layoutShiftMax: {
+          value: 0.5,
+          reason: "Opening the disclosure intentionally reveals its folded tool rows below the clicked line.",
+        },
+      },
+      play: async (ctx) => {
+        const worked = { selector: '[data-row-id="worked-fold-no-blank-user"] .cv-worked' };
+        await ctx.click(worked);
+        await ctx.waitFor(() => ctx.find(worked).getAttribute("aria-expanded") === "true");
       },
     },
   },
