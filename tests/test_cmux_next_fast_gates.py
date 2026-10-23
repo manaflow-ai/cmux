@@ -721,6 +721,20 @@ class WebviewsChecksGate(unittest.TestCase):
                                   "/w/merge", "/w/base")
         self.assertEqual(added, [])
 
+    def test_replay_of_23990_the_formatters_summary_is_not_a_finding(self):
+        # #23990's fast gates: the base and the merge failed `vp fmt --check` on the same file, and the merge, which
+        # adds webview files, formatted more of them, so the run's summary read as a finding the merge added.
+        def fmt(files: int, issues: int, ms: int) -> str:
+            return ("Checking formatting...\n\nsrc/pages/HostSections.tsx (12ms)\n\n"
+                    f"Format issues found in above {issues} files. Run without `--check` to fix.\n"
+                    f"Finished in {ms}ms on {files} files using 4 threads.\n")
+        self.assertEqual(self.module.added(fmt(2482, 1, 712), fmt(2479, 1, 690)), [])
+        self.assertEqual(self.module.added(fmt(2482, 1, 712), fmt(2482, 2, 712)), [])  # a fixed issue adds nothing
+        new = self.module.added(fmt(2482, 2, 712).replace("HostSections.tsx (12ms)\n",
+                                                          "HostSections.tsx (12ms)\nsrc/Row.tsx (3ms)\n"),
+                                fmt(2482, 1, 712))
+        self.assertEqual(new, ["src/Row.tsx (3ms)"])  # the file the merge misformats is still its own
+
     def test_replay_of_24252_unicode_frames_in_another_order_add_nothing(self):
         # #24252's fast gates: Oxlint printed its Unicode frame (`╭─[`, `│`, `·`, `╰`), and with 4 threads the
         # base and the merge listed the same 84 errors in another order. The run's summary glued onto whichever

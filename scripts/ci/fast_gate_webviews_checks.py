@@ -47,8 +47,12 @@ DIAGNOSTIC = re.compile(r"^\s*[x!×⚠]\s+(?P<code>[\w/@-]+\([^)]*\)):\s*(?P<mes
 LOCATION = re.compile(r"^\s*(?:,-|╭─)\[(?P<path>[^\]]+?)(?::\d+:\d+)?\]\s*$")
 FRAME = re.compile(r"^\s*(?:\d+\s*[|│]|[:·]|`-+|╰─+)")
 HELP = re.compile(r"^\s*help:")
-# Lines that describe a run, not a finding: a count that falls when the change fixes one of the base's errors.
-NOISE = re.compile(r"^(?:error: (?:Type errors|Formatting issues|Lint issues) found$|Found \d+ errors? and \d+ warnings?\b|note: You are running)")
+# Lines that describe a run, not a finding: a count that falls when the change fixes one of the base's errors, or
+# `vp fmt`'s summary, whose file count grows whenever a change adds a webview file (#23990's fast gates charged it
+# "Finished in 712ms on 2482 files using 4 threads." as a finding of its own).
+NOISE = re.compile(r"^(?:error: (?:Type errors|Formatting issues|Lint issues) found$|Found \d+ errors? and \d+ warnings?\b"
+                   r"|note: You are running|Finished in \S+ on \d+ files? using \d+ threads?\.?$"
+                   r"|Format issues found in above \d+ files?\b)")
 
 
 def run_check(webviews: Path, check: str) -> tuple[int, str]:
