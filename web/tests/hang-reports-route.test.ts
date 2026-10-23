@@ -129,14 +129,14 @@ describe("POST /api/hang-reports", () => {
       { version: "1.2.3.4", build: "1.2.3.4", os: "26.0.1.2", arch: "x86_64" },
     ];
     for (const value of cases) {
-      const report = { ...realisticReport(), reportId: crypto.randomUUID() };
+      const report = { ...realisticReport(), reportId: crypto.randomUUID(), installId: crypto.randomUUID() };
       report.app = { ...report.app, version: value.version, build: value.build };
       report.os = { version: value.os };
       report.hardware = { ...report.hardware, arch: value.arch, chip: "Intel" };
       expect((await POST(reportRequest(report))).status).toBe(204);
     }
     for (const bad of [{ version: "0.70.0.1.2" }, { build: "70123a" }, { os: "15.7.4-beta" }, { arch: "arm64e" }]) {
-      const report = { ...realisticReport(), reportId: crypto.randomUUID() };
+      const report = { ...realisticReport(), reportId: crypto.randomUUID(), installId: crypto.randomUUID() };
       if (bad.version) report.app = { ...report.app, version: bad.version };
       if (bad.build) report.app = { ...report.app, build: bad.build };
       if (bad.os) report.os = { version: bad.os };
@@ -188,26 +188,27 @@ describe("POST /api/hang-reports", () => {
   });
 
   test("accepts only the chip families and memory sizes the client can send", async () => {
+    // A new install id per report: the per-install daily cap (8) must not be what answers.
     for (const chip of ["Apple M1", "Apple M4 Pro", "Apple M2 Max", "Apple M3 Ultra", "Apple M10", "Intel", "other"]) {
-      const report = { ...realisticReport(), reportId: crypto.randomUUID() };
+      const report = { ...realisticReport(), reportId: crypto.randomUUID(), installId: crypto.randomUUID() };
       report.hardware = { ...report.hardware, chip };
       expect((await POST(reportRequest(report))).status).toBe(204);
     }
     for (const memoryGB of [4, 18, 36, 512]) {
-      const report = { ...realisticReport(), reportId: crypto.randomUUID() };
+      const report = { ...realisticReport(), reportId: crypto.randomUUID(), installId: crypto.randomUUID() };
       report.hardware = { ...report.hardware, memoryGB };
       expect((await POST(reportRequest(report))).status).toBe(204);
     }
     const stored = repository.rows.size;
     for (const chip of ["Alice Liddell", "alices-macbook-pro", "Apple M4 Pro Max", "Apple M4 pro", "apple m1", "Intel(R) Core(TM) i9", "Other", "Apple M123", " Apple M1"]) {
-      const report = { ...realisticReport(), reportId: crypto.randomUUID() };
+      const report = { ...realisticReport(), reportId: crypto.randomUUID(), installId: crypto.randomUUID() };
       report.hardware = { ...report.hardware, chip };
       const response = await POST(reportRequest(report));
       expect(response.status).toBe(400);
       expect(await response.text()).not.toContain("Alice");
     }
     for (const memoryGB of [0, 1, 17, 47, 1024, 16_384]) {
-      const report = { ...realisticReport(), reportId: crypto.randomUUID() };
+      const report = { ...realisticReport(), reportId: crypto.randomUUID(), installId: crypto.randomUUID() };
       report.hardware = { ...report.hardware, memoryGB };
       expect((await POST(reportRequest(report))).status).toBe(400);
     }
@@ -290,7 +291,7 @@ describe("POST /api/hang-reports", () => {
 
   test("caps one install at 8 reports per server UTC day", async () => {
     for (let index = 0; index < HANG_REPORTS_PER_INSTALL_PER_DAY; index += 1) {
-      const report = { ...realisticReport(), reportId: crypto.randomUUID() };
+      const report = { ...realisticReport(), reportId: crypto.randomUUID(), installId: crypto.randomUUID() };
       expect((await POST(reportRequest(report))).status).toBe(204);
     }
     const capped = await POST(reportRequest({ ...realisticReport(), reportId: crypto.randomUUID() }));
