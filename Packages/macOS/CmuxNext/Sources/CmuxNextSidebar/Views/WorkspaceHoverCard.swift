@@ -640,8 +640,11 @@ extension WorkspaceHoverCardView {
         let out = NSMutableAttributedString()
         for run in rendered.runs {
             let intent = run.inlinePresentationIntent ?? []
-            var font = intent.contains(.code) ? Typography.system(.monospaced, size: body.pointSize, weight: .regular) : body
-            if intent.contains(.stronglyEmphasized) { font = Typography.bodyEmphasized }
+            let strong = intent.contains(.stronglyEmphasized)
+            // Bold code stays monospaced, in the emphasized body's weight.
+            var font = intent.contains(.code)
+                ? Typography.system(.monospaced, size: body.pointSize, weight: strong ? .medium : .regular)
+                : strong ? Typography.bodyEmphasized : body
             if intent.contains(.emphasized) { font = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask) }
             out.append(NSAttributedString(string: String(rendered[run.range].characters), attributes: [.font: font, .foregroundColor: color]))
         }

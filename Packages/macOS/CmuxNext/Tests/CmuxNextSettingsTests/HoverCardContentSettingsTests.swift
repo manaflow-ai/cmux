@@ -6,14 +6,15 @@ import Testing
 /// (`sidebar.hoverCards.layout`, `.sections.*`, `.maxRows`): Settings rows, cmux.json, the
 /// palette's settings rows and `cmux settings set` all read the same schema rows.
 struct HoverCardContentSettingsTests {
-    @Test func defaultsAreTheStatsAndHistoryCardWithEveryPart() throws {
+    /// Leo 2026-10-20 ("more useful, no scroll, crisp"): the compact card is the default.
+    @Test func defaultsAreTheCompactCardWithEveryPart() throws {
         let snapshot = CmuxConfigSnapshot.parse(.object([:]), validDensities: [], validMetrics: [])
         let options = snapshot.hoverCards.workspaceCardOptions
         #expect(options == WorkspaceHoverCardOptions())
-        #expect(options.layout == .timeline)
+        #expect(options.layout == .compact)
         #expect(options.maxRows == 20)
         let layout = try #require(SettingsSchema.descriptor(for: HoverCardSettings.layoutPath))
-        #expect(layout.defaultValue == .string("timeline"))
+        #expect(layout.defaultValue == .string("compact"))
         for path in [HoverCardSettings.timingsPath, HoverCardSettings.promptsPath, HoverCardSettings.waitingPath,
                      HoverCardSettings.gitPath, HoverCardSettings.portsPath] {
             let row = try #require(SettingsSchema.descriptor(for: path), "no Settings row for \(path)")
@@ -41,7 +42,7 @@ struct HoverCardContentSettingsTests {
     @Test func aBadLayoutKeepsTheDefaultWithADiagnostic() {
         let root = JSONValue.object(["sidebar": .object(["hoverCards": .object(["layout": .string("huge"), "maxRows": .number(500)])])])
         let snapshot = CmuxConfigSnapshot.parse(root, validDensities: [], validMetrics: [])
-        #expect(snapshot.hoverCards.workspaceCardOptions.layout == .timeline)
+        #expect(snapshot.hoverCards.workspaceCardOptions.layout == .compact)
         #expect(snapshot.hoverCards.workspaceCardOptions.maxRows == 100)
         #expect(snapshot.diagnostics.contains { $0.path == "sidebar.hoverCards.layout" })
     }

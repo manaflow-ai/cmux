@@ -90,6 +90,12 @@ final class WorkspaceHoverCardTimelineView: NSView {
         underHeader?.isActive = scrolls
         atTop?.isActive = !scrolls
         scrollView.hasVerticalScroller = scrolls
+        // A list that does not scroll starts at its top, also when the same entries scrolled
+        // before under another layout (the laid-out cache below keeps the clip view as it was).
+        if !scrolls, scrollView.contentView.bounds.origin != .zero {
+            scrollView.contentView.scroll(to: .zero)
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+        }
         let textLines = scrolls ? textLines : 1
         let maxHeight = scrolls ? maxHeight : .greatestFiniteMagnitude
         while rows.count < entries.count { addRow() }
