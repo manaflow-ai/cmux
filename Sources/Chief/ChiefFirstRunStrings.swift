@@ -3,6 +3,15 @@ import Foundation
 /// The first-run panel's strings beyond the row titles in ``ChiefStrings``
 /// (`Resources/Localizable.xcstrings`).
 extension ChiefStrings {
+    /// The intro's first line: what Chief is.
+    static var firstRunIntroTitle: String {
+        String(localized: "chief.firstRun.intro.title", defaultValue: "Chief runs your coding agents and terminals.")
+    }
+    /// The intro's sentence under the title: what Chief does.
+    static var firstRunIntroBody: String {
+        String(localized: "chief.firstRun.intro.body",
+               defaultValue: "It starts coding agents and checks on them, works in your terminals, and sets up Cloud machines with a desktop it can use for you.")
+    }
     /// Over the agent rows.
     static var firstRunAgentsHeader: String {
         String(localized: "chief.firstRun.agentsHeader", defaultValue: "Your agents")

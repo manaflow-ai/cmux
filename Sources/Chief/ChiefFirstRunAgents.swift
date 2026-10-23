@@ -100,14 +100,16 @@ enum ChiefAgentGlanceSource {
     /// a way back to existing workspaces.
     static func glances(in tabManager: TabManager) -> [ChiefAgentGlance] {
         let notifications = TerminalNotificationStore.shared
-        let agents = tabManager.tabs.compactMap { workspace -> ChiefAgentGlance? in
+        // Home is where this panel shows; it never lists itself.
+        let workspaces = tabManager.tabs.filter { !$0.isChiefHome }
+        let agents = workspaces.compactMap { workspace -> ChiefAgentGlance? in
             let unread = notifications.unreadCount(forTabId: workspace.id) > 0
             guard let status = ChiefAgentGlance.status(lifecycles: workspace.agentLifecycleStatesByPanelId,
                                                        unread: unread) else { return nil }
             return ChiefAgentGlance(workspaceId: workspace.id, title: title(of: workspace), status: status)
         }
         guard agents.isEmpty else { return agents }
-        return ChiefAgentGlance.plainWorkspaces(tabManager.tabs.map { (id: $0.id, title: title(of: $0)) })
+        return ChiefAgentGlance.plainWorkspaces(workspaces.map { (id: $0.id, title: title(of: $0)) })
     }
 
     private static func title(of workspace: Workspace) -> String {

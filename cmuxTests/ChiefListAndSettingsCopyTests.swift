@@ -1,3 +1,4 @@
+import AppKit
 import CmuxChief
 import CmuxHomeCore
 import Foundation
@@ -95,7 +96,55 @@ import Testing
 
     @Test func aTurnTellsTheCLIItIsChiefs() {
         let home = ChiefHome(root: URL(fileURLWithPath: "/tmp/chief-home", isDirectory: true))
-        let environment = ChiefTurnContextBuilder.environment(socketPath: "/tmp/cmux.sock", home: home, base: [:])
+        let workspaceID = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
+        let surfaceID = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
+        let environment = ChiefTurnContextBuilder.environment(socketPath: "/tmp/cmux.sock", home: home,
+                                                              workspaceID: workspaceID, surfaceID: surfaceID, base: [:])
         #expect(environment["CMUX_CHIEF_TURN"] == "1")
+        #expect(environment["CMUX_WORKSPACE_ID"] == workspaceID.uuidString)
+        #expect(environment["CMUX_SURFACE_ID"] == surfaceID.uuidString)
+    }
+
+    @Test func theFirstRunPanelSaysWhatChiefDoes() throws {
+        let panel = ChiefFirstRunView(frame: NSRect(x: 0, y: 0, width: 520, height: 720))
+        panel.setShowsActions(true)
+        panel.needsLayout = true
+        panel.layoutSubtreeIfNeeded()
+        #expect(panel.introTitle.stringValue == ChiefStrings.firstRunIntroTitle)
+        #expect(panel.introBody.stringValue == ChiefStrings.firstRunIntroBody)
+        #expect(!panel.introTitle.isHidden && !panel.introBody.isHidden)
+        // Title, then body, then the action rows, with no overlap.
+        let firstAction = try #require(panel.actionRows.first?.frame)
+        #expect(panel.introTitle.frame.maxY <= panel.introBody.frame.minY)
+        #expect(panel.introBody.frame.maxY <= firstAction.minY)
+        // The body wraps to its full height instead of being cut to one line.
+        let cell = try #require(panel.introBody.cell)
+        let needed = cell.cellSize(forBounds: NSRect(x: 0, y: 0, width: panel.introBody.frame.width,
+                                                     height: .greatestFiniteMagnitude)).height
+        #expect(panel.introBody.frame.height >= floor(needed))
+        #expect(needed > ceil(cell.cellSize.height))
+    }
+
+    @Test func aShortPanelDropsTheIntroBeforeTheActions() {
+        let panel = ChiefFirstRunView(frame: NSRect(x: 0, y: 0, width: 520, height: 150))
+        panel.setShowsActions(true)
+        panel.needsLayout = true
+        panel.layoutSubtreeIfNeeded()
+        #expect(panel.introTitle.isHidden)
+        #expect(panel.actionRows.contains { !$0.isHidden })
+    }
+
+    @Test func aTurnFindsToolsOnTheLoginShellPath() {
+        let home = ChiefHome(root: URL(fileURLWithPath: "/tmp/chief-home", isDirectory: true))
+        let environment = ChiefTurnContextBuilder.environment(socketPath: "/tmp/cmux.sock", home: home,
+                                                              loginShellPath: "/custom/tools:/usr/bin",
+                                                              base: ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin"])
+        let path = (environment["PATH"] ?? "").split(separator: ":").map(String.init)
+        #expect(path.contains("/custom/tools"))
+        #expect(path.contains("/opt/homebrew/bin"))
+        #expect(path.contains("/usr/sbin"))
+        if let cli = ChiefTurnContextBuilder.bundledCLI {
+            #expect(path.first == cli.deletingLastPathComponent().path)
+        }
     }
 }

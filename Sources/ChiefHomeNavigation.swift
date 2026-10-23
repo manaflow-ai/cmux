@@ -24,7 +24,6 @@ extension Notification.Name {
 @MainActor
 struct ChiefHomeNavigation {
     static let homeGroupExternalID = "cmux.chief.home"
-    static let hiddenConversationsKey = "chief.home.hiddenConversations"
 
     let sidebarSelectionState: SidebarSelectionState
     let tabManager: TabManager
@@ -98,38 +97,20 @@ struct ChiefHomeNavigation {
         return home
     }
 
-    /// Opens a conversation as an ordinary workspace under Home; existing views are reused.
+    /// Selects a conversation in the canonical Home pane.
     @discardableResult
     static func openConversation(_ id: ConversationID, in manager: TabManager, select: Bool = true) -> Workspace? {
-        guard let home = ensureHome(in: manager), let groupID = home.groupId else { return nil }
-        if id == ChiefService.shared.defaultConversationID {
-            if select { manager.selectWorkspace(home) }
-            return home
+        guard let home = ensureHome(in: manager) else { return nil }
+        if let chief = home.panels.values.compactMap({ $0 as? ChiefPanel }).first(where: \.isHome) {
+            chief.conversationID = id
         }
-        let row = ChiefService.shared.conversations.first { $0.id == id }
-        let title = row?.title.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if let existing = manager.tabs.first(where: { workspace in
-            workspace.groupId == groupID && workspace.panels.values.contains {
-                ($0 as? ChiefPanel)?.conversationID == id
-            }
-        }) {
-            if !title.isEmpty, existing.effectiveCustomTitleSource != .user, existing.customTitle != title {
-                manager.setCustomTitle(tabId: existing.id, title: title, source: .auto)
-            }
-            if select { manager.selectWorkspace(existing) }
-            return existing
-        }
-        guard let workspace = makeWorkspace(
-            in: manager,
-            title: title.isEmpty ? ChiefStrings.chiefName : title,
-            conversationID: id
-        ) else { return nil }
-        manager.addWorkspaceToGroup(workspaceId: workspace.id, groupId: groupID)
         if select {
-            manager.setWorkspaceGroupCollapsed(groupId: groupID, isCollapsed: false)
-            manager.selectWorkspace(workspace)
+            manager.selectWorkspace(home)
+            if let chief = home.panels.values.compactMap({ $0 as? ChiefPanel }).first(where: \.isHome) {
+                home.focusPanel(chief.id)
+            }
         }
-        return workspace
+        return home
     }
 
     /// Plus in Home and New Conversation in Chief Settings share this action.
@@ -146,13 +127,39 @@ struct ChiefHomeNavigation {
         }
     }
 
-    /// Imports earlier conversations into the native list, respecting the local archive.
-    static func restoreConversations(in manager: TabManager) {
-        guard ensureHome(in: manager) != nil else { return }
-        let hidden = Set(UserDefaults.standard.stringArray(forKey: hiddenConversationsKey) ?? [])
-        for row in ChiefService.shared.conversations where !hidden.contains(row.id.rawValue) {
-            _ = openConversation(row.id, in: manager, select: false)
+    /// The workspace a window opens on: `candidate`, unless it is Home, then
+    /// the first other workspace (Home when it is the only one).
+    static func openingWorkspace(_ candidate: Workspace?, in tabs: [Workspace]) -> Workspace? {
+        guard let candidate, candidate.isChiefHome else { return candidate }
+        return tabs.first { !$0.isChiefHome } ?? candidate
+    }
+
+    /// Moves a window that shows Home onto a terminal, creating a terminal
+    /// workspace when Home is the only one. Runs right after a window's
+    /// session restore, never later: a `cmux chief open` sent at launch
+    /// selects Home on purpose and must not be undone.
+    static func openOnTerminal(in manager: TabManager) {
+        guard manager.selectedWorkspace?.isChiefHome == true else { return }
+        if let other = openingWorkspace(manager.selectedWorkspace, in: manager.tabs), !other.isChiefHome {
+            manager.selectWorkspace(other)
+        } else {
+            _ = manager.addWorkspaceIfActive(select: true, autoWelcomeIfNeeded: false)
         }
+    }
+
+    /// Whether a main window makes Home when it appears. Not in a test host: its
+    /// windows stand for plain cmux windows, and Chief tests call ``ensureHome(in:)``.
+    static func makesHomeWhenAWindowAppears(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Bool {
+        !MacSentryStartupPolicy.isRunningUnderXCTest(environment: environment)
+    }
+
+    /// Ensures the canonical Home workspace exists. Conversations are loaded by
+    /// the list inside that pane rather than materialized as sidebar workspaces.
+    static func restoreConversations(in manager: TabManager) {
+        guard let home = ensureHome(in: manager) else { return }
+        manager.removeLegacyChiefConversationWorkspaces(in: home)
     }
 
     private static func makeWorkspace(

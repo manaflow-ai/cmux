@@ -12,7 +12,7 @@ import CmuxHomeCoreTestSupport
 @Suite struct OwnerAbsentSendTests {
     let conversation = ConversationID("conv_austin")
 
-    func started(clock: any Clock<Duration> = ContinuousClock()) async throws -> (HomeStore, AbsentOwnerSource) {
+    func started(clock: any Clock<Duration> = HomeSleepClock()) async throws -> (HomeStore, AbsentOwnerSource) {
         let source = AbsentOwnerSource(MockHomeSource(options: .immediate))
         let store = HomeStore(source: source, blobCacheDirectory: try temporaryDirectory(), clock: clock)
         store.start()

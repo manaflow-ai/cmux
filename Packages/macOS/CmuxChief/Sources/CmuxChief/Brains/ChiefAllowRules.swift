@@ -33,13 +33,18 @@ public final class ChiefAllowRules: @unchecked Sendable {
     /// no rules). A rules object may be reused by tests or a switched Chief home, so a home change
     /// replaces the in-memory snapshot instead of carrying grants across homes.
     public func load(_ home: ChiefHome) {
-        let url = home.stateDirectory.appendingPathComponent("allow-rules.json", isDirectory: false)
+        let url = Self.fileURL(home)
         lock.lock()
         defer { lock.unlock() }
         guard file != url else { return }
         file = url
         let stored = (try? Data(contentsOf: url)).flatMap { try? JSONDecoder().decode(Stored.self, from: $0) }
         rules = stored?.rules.filter { (2...4).contains($0.count) && Self.ruleWords($0) == $0 } ?? []
+    }
+
+    /// Where `home` keeps its rules.
+    static func fileURL(_ home: ChiefHome) -> URL {
+        home.stateDirectory.appendingPathComponent("allow-rules.json", isDirectory: false)
     }
 
     /// The rules now.
@@ -70,11 +75,25 @@ public final class ChiefAllowRules: @unchecked Sendable {
     /// - Throws: A file error when the rules cannot be written (the rule still holds for this session).
     @discardableResult
     public func add(rule words: [String]) throws -> [String]? {
+        try add(rule: words, savingTo: nil)
+    }
+
+    /// Reads `home`'s rules, then saves an eligible rule to `home` itself, so a ``load(_:)`` of
+    /// another home in between cannot send it elsewhere.
+    ///
+    /// - Throws: A file error when the rules cannot be written (the rule still holds for this session).
+    @discardableResult
+    public func add(rule words: [String], in home: ChiefHome) throws -> [String]? {
+        load(home)
+        return try add(rule: words, savingTo: Self.fileURL(home))
+    }
+
+    private func add(rule words: [String], savingTo destination: URL?) throws -> [String]? {
         guard Self.ruleWords(words) == words else { return nil }
         lock.lock()
         if !rules.contains(words) { rules.append(words) }
         let snapshot = rules
-        let url = file
+        let url = destination ?? file
         lock.unlock()
         guard let url else { return words }
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)

@@ -199,20 +199,22 @@ import Testing
     // MARK: Localized text
 
     @Test func transcriptTextIsLocalized() throws {
-        // SwiftPM uses both a flat resource directory and an app-style
-        // Contents/Resources wrapper across its package and Xcode runners.
-        // Read the catalog file directly so the test checks the resource that
-        // ships instead of relying on Bundle(path:) accepting an .lproj URL.
-        let roots = [ChiefText.bundle.resourceURL, ChiefText.bundle.bundleURL].compactMap { $0 }
-        let candidates = roots.flatMap { root in
-            [root.appendingPathComponent("ja.lproj/Localizable.strings"),
-             root.appendingPathComponent("Contents/Resources/ja.lproj/Localizable.strings")]
+        // Reads the source catalog: the SwiftPM command-line runner does not
+        // compile .xcstrings into per-language .strings files, so a bundle
+        // lookup finds nothing there even though the app ships them.
+        var packageRoot = URL(fileURLWithPath: #filePath)
+        for _ in 0..<3 { packageRoot.deleteLastPathComponent() }
+        let catalogURL = packageRoot.appendingPathComponent("Sources/CmuxChief/Resources/Localizable.xcstrings")
+        let catalog = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: catalogURL)) as? [String: Any])
+        let entry = try #require((catalog["strings"] as? [String: Any])?["chief.turn.failed"] as? [String: Any])
+        let localizations = try #require(entry["localizations"] as? [String: Any])
+        func value(_ language: String) throws -> String {
+            let unit = (localizations[language] as? [String: Any])?["stringUnit"] as? [String: Any]
+            return try #require(unit?["value"] as? String)
         }
-        let stringsURL = try #require(candidates.first { FileManager.default.isReadableFile(atPath: $0.path) })
-        let strings = try #require(NSDictionary(contentsOf: stringsURL) as? [String: String])
-        let failed = try #require(strings["chief.turn.failed"])
+        let failed = try value("ja"), english = try value("en")
         #expect(failed != "chief.turn.failed")
-        #expect(failed.contains("%@") && !failed.contains("could not finish"))
+        #expect(failed.contains("%@") && failed != english)
         #expect(ChiefText.turnFailed("boom").contains("boom"))
     }
 }

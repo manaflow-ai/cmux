@@ -1114,8 +1114,10 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         }
         // A deleted message (tombstone) owns no rows: the cut below must start at a message
         // that does, or it finds nothing and keeps every row (rows doubled: the scrolled-up
-        // send after a delete showed empty bands, self-test coverage step).
-        while from > 0, msgs[checked: from]?.deletedAt != nil { from -= 1 } // checked (a missing message counts as deleted)
+        // send after a delete showed empty bands, self-test coverage step). cmux-classic: so does
+        // a message with no parts (a later call of a Chief tool run, folded into the run's first
+        // message): after a turn that ended on its tool calls, the reply doubled my ask and its receipt.
+        while from > 0, msgs[checked: from].map({ $0.deletedAt != nil || $0.parts.isEmpty }) ?? true { from -= 1 } // checked (a missing message counts as deleted)
         guard from > 0, let first = msgs[checked: from] else { return (0, RowBuilder.rows(state, messages: msgs, now: now, width: bounds.width, scale: renderScale)) }
         let firstID = Substring(first.id)
         // Rows of `firstID` and later messages are at the tail: scan back over the live rows from
@@ -1129,6 +1131,9 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             if trailing { if r.spec.key == "typing" || r.spec.key == "notice" { cut = live; continue }; trailing = false }
             if RowBuilder.owner(r.spec.key) == firstID { found = true; cut = live } else if found { break }
         }
+        // No row of `firstID` (a message that shows nothing): keeping every row and adding the tail
+        // would show the tail's rows twice. Every row is derived again instead.
+        guard found else { return (0, RowBuilder.rows(state, messages: msgs, now: now, width: bounds.width, scale: renderScale)) }
         // The live row above the cut (its kind decides the first new row's spacing).
         var above: RowSpec.Kind?
         var j = model.modelIndex(ofLive: cut)

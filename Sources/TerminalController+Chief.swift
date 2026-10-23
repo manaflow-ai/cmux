@@ -417,7 +417,7 @@ extension TerminalController {
     private nonisolated static func waitForChiefCursor(owner: ChiefConversationOwner, after cursor: String) async {
         await withTaskGroup(of: Void.self) { group in
             group.addTask { await owner.waitForChange(after: cursor) }
-            group.addTask { try? await ContinuousClock().sleep(for: Self.chiefReadWaitDuration) }
+            group.addTask { try? await HomeSleepClock().sleep(for: Self.chiefReadWaitDuration) }
             _ = await group.next()
             group.cancelAll()
         }
@@ -426,7 +426,7 @@ extension TerminalController {
     private nonisolated static func waitForChiefInboxCursor(owner: ChiefConversationOwner, after cursor: String) async {
         await withTaskGroup(of: Void.self) { group in
             group.addTask { await owner.waitForInboxChange(after: cursor) }
-            group.addTask { try? await ContinuousClock().sleep(for: Self.chiefReadWaitDuration) }
+            group.addTask { try? await HomeSleepClock().sleep(for: Self.chiefReadWaitDuration) }
             _ = await group.next()
             group.cancelAll()
         }
@@ -462,7 +462,7 @@ extension TerminalController {
                 }
             }
             group.addTask {
-                try? await ContinuousClock().sleep(for: Self.chiefReadWaitDuration)
+                try? await HomeSleepClock().sleep(for: Self.chiefReadWaitDuration)
             }
             _ = await group.next()
             group.cancelAll()

@@ -25,6 +25,12 @@ public struct ChiefPromptContext: Sendable, Equatable {
     public var chiefHomePath: String?
     /// A short text summary of the user's workspaces at session start.
     public var workspacesSummary: String?
+    /// The workspace containing the Chief surface that started this turn.
+    /// This is refreshed by the app for every turn; unlike the workspace
+    /// summary it is an actionable target for `cmux` mutations.
+    public var currentWorkspaceRef: String?
+    /// The Chief surface that started this turn, when it is still mounted.
+    public var currentSurfaceRef: String?
     /// Whether the user explicitly enabled dangerous permission bypasses.
     public var dangerouslySkipPermissions: Bool
     /// The session's start time.
@@ -43,6 +49,8 @@ public struct ChiefPromptContext: Sendable, Equatable {
                 socketPath: String? = nil,
                 chiefHomePath: String? = nil,
                 workspacesSummary: String? = nil,
+                currentWorkspaceRef: String? = nil,
+                currentSurfaceRef: String? = nil,
                 dangerouslySkipPermissions: Bool = false,
                 date: Date = Date(),
                 timeZone: TimeZone = .current) {
@@ -56,6 +64,8 @@ public struct ChiefPromptContext: Sendable, Equatable {
         self.socketPath = socketPath
         self.chiefHomePath = chiefHomePath
         self.workspacesSummary = workspacesSummary
+        self.currentWorkspaceRef = currentWorkspaceRef
+        self.currentSurfaceRef = currentSurfaceRef
         self.dangerouslySkipPermissions = dangerouslySkipPermissions
         self.date = date
         self.timeZone = timeZone
@@ -112,6 +122,18 @@ public struct ChiefSystemPrompt: Sendable, Equatable {
             A snapshot; check again with the CLI before acting on it.
 
             \(summary)
+            """)
+        }
+        if let workspace = context.currentWorkspaceRef?.trimmingCharacters(in: .whitespacesAndNewlines), !workspace.isEmpty {
+            let surfaceLine = context.currentSurfaceRef.map { "\n- Chief surface: \($0)" } ?? ""
+            sections.append("""
+            # Current Chief target
+
+            This turn was sent from Chief in workspace `\(workspace)`.\(surfaceLine)
+            Use this exact workspace for cmux actions. Browser splits should use
+            `cmux new-pane --type browser --direction right --workspace \(workspace) --url <url> --focus false`.
+            After every layout mutation, inspect the returned refs and verify with
+            `cmux tree --all --json`; report the actual CLI error if verification fails.
             """)
         }
         let memory = context.memory.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -175,6 +197,8 @@ public struct ChiefSystemPrompt: Sendable, Equatable {
     - Prefer plain `cmux` commands with `--json` and read the JSON yourself. Don't add pipes, `2>&1`, `head`, `jq` or `grep` unless the output is too large to read; never redirect into files or use `$(…)` for a read.
     - Batch what you need: one `cmux tree --all --json` (or `cmux workspace list --json` plus `cmux current --json`) usually answers a question; don't run a command per workspace when one call covers them all.
     - Read-only commands run at once: `cmux tree`, `list-*`, `current`, `read-screen`, `sidebar-state`, `vm ls`, `vm tree`, `vm terminal read`, `git status` and the like. So does `cmux workspace create` without `--command` or `--layout`. Every other `cmux` command (renaming, sending text or keys, notifying, closing, `vm new`, `vm exec`, `config set`, `chief dispatch`), file edits and anything that writes outside cmux show the user an approval card and wait for them. Reading credential files (`~/.ssh`, `.env`, keychains) and fetching URLs ask too.
+
+    Other tools: your shell searches the user's login-shell `PATH` plus the usual install places. If a tool says `command not found`, it is missing from that `PATH`, which says nothing about whether the user is signed in; check with `command -v <tool>` and say the tool was not found. Check sign-in with the tool itself (`gh auth status` for GitHub) before saying the user is not signed in.
 
     `cmux <command> --help` prints a command's exact flags and works offline; `cmux help <start|agents|navigate|inspect|customize|automation|browser|remote|diagnostics>` lists a group. Check there instead of guessing a flag.
 
@@ -269,9 +293,14 @@ public struct ChiefSystemPrompt: Sendable, Equatable {
     6. Verify a launched agent: `cmux vm terminal wait <machine> <term> --pattern 'Working|esc to interrupt' --timeout 60`, then `cmux vm terminal read <machine> <term>`. Report it started only when the screen shows the agent working; if it asks to sign in despite the preflight, end with the needs-sign-in card; on another error, say so.
     7. End with a result card (below) for the workspace, `"status": "working"` once verified, plus one sentence. The card's Open button runs `cmux vm workspace open <machine> <ws>` for the user; don't open it yourself.
 
-    Desktop and computer use:
-    - `cmux vm open <machine>:desktop` presents the machine's remote display as a cmux browser pane. Use it when the user wants to inspect or operate the desktop; do not claim a visual result until you have checked the remote screen.
-    - The devbox includes `cua-driver`. From a machine terminal, run `cua-driver doctor` and `cua-driver list-tools` with the desktop environment (`DISPLAY=:1`) before using it. Use `cua-driver call <tool> [JSON args]` for visible UI actions, then read the screen again to verify. Use `agent-browser` for web pages and `cua-driver` for desktop windows.
+    Desktop and computer use. A machine whose `cmux vm ls --json` entry has `capabilities.desktop` true has a 1440×900 Linux desktop with Chrome and `cua-driver` (computer use for its windows). Machines made shell-only have no screen; say so instead of trying.
+    - Show it: `cmux vm open <machine>:desktop` opens the machine's screen as a pane beside the user. Open it when you start working on the desktop so they can watch, and when they ask to see it.
+    - Act on it yourself for a short task (open an app or page, click, type, check what is on screen). Each step is one `vm exec`; this shape loads the desktop environment, starts the driver's daemon when it is not running (later calls reuse it), runs one tool and saves a screenshot. The tool, its JSON and the screenshot JSON go as separate arguments after `cua`, so they need no escaping beyond your own shell's single quotes (inside them, write each ' as '\\''):
+      `cmux vm exec <machine> -- sh -c 'export HOME=/home/cmux; . /etc/cmux/desktop-env.sh; cua-driver status >/dev/null 2>&1 || { setsid -f cua-driver serve >/dev/null 2>&1 </dev/null; for i in 1 2 3 4 5 6 7 8 9 10; do cua-driver status >/dev/null 2>&1 && break; sleep 0.5; done; }; mkdir -p $HOME/.cache/chief; cua-driver call "$1" "$2" && cua-driver call get_desktop_state "$3"' cua <tool> '<json>' '{"screenshot_out_file": "/home/cmux/.cache/chief/screen.png"}'`
+      That is `cua-driver call <tool> '<json>'` plus a screenshot. Useful tools: `list_windows` (`{}`: windows with pid, `window_id`, title, bounds), `launch_app` (`{"name": "google-chrome-stable", "additional_arguments": ["--new-window", "--start-maximized", "--no-first-run", "--hide-crash-restore-bubble", "<url>"]}`), `get_window_state` (a window's accessibility elements, to click by `element_index`), `click`, `type_text`, `press_key`, `hotkey`, `scroll`, `zoom`. Before a tool's first use, read its arguments with `cua-driver describe <tool>` in the same exec; `cua-driver list-tools` lists them all. `cua-driver doctor` explains a failure (display, accessibility bus).
+    - Look before you claim: text results (`list_windows`, `get_window_state`) are enough to confirm a window or title. To see the screen, `cmux vm pull <machine> /home/cmux/.cache/chief/screen.png "${TMPDIR:-/tmp}/chief-<machine>.png"` and view that image with your image tool. Never say something happened on the desktop until a result or the screenshot shows it.
+    - Hand a longer desktop task (many steps, a whole flow to test) to a coding agent on the machine instead, launched as above with the task in its prompt: machines made from the current image give Codex, Claude Code and OpenCode `cua-driver mcp` as a computer-use tool. The tool is added when the agent first starts, so don't check for it beforehand; older machines lack it. Say in the task that the desktop is `DISPLAY=:1` and that, without a `cua-driver` tool, it can run `cua-driver call` from its shell after `. /etc/cmux/desktop-env.sh` (and `cua-driver serve` when `cua-driver status` fails). Open the desktop for the user and verify the agent is working as usual.
+    - Use `agent-browser` for web pages when the task is only in a browser, `cua-driver` for desktop windows. Close only windows you opened. Leave the driver's daemon running when you are done; an agent on the machine may be using it.
     - If a real Cloud command reports that Cloud is unavailable or the plan limit is reached, explain the limit once and gently offer the cmux Pro upgrade. Do not mention Pro when Cloud is available, and do not promise a feature the command did not report.
 
     Later: `cmux vm terminal read` shows its screen, `cmux vm terminal output <machine> <term>` the whole log, and `cmux vm terminal wait-exit <machine> <term>` whether the process ended.

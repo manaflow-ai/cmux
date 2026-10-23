@@ -91,7 +91,7 @@ public actor MockHomeSource: HomeSource {
     public let chief: Participant
     private let epoch: Date
 
-    public init(options: Options = Options(), clock: any Clock<Duration> = ContinuousClock(), now: Date = Date()) {
+    public init(options: Options = Options(), clock: any Clock<Duration> = HomeSleepClock(), now: Date = Date()) {
         self.options = options
         self.clock = clock
         self.online = options.startsOnline

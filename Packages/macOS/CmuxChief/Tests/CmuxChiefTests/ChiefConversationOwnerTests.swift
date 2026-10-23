@@ -151,7 +151,7 @@ import Testing
             continuation.yield(.toolStarted(id: "t1", title: "Long job", detail: nil))
             continuation.yield(.textDelta("partial"))
             // Runs until the stream is terminated (the stop cancels this task).
-            try? await Task.sleep(for: .seconds(120))
+            try? await Task.sleep(nanoseconds: 120_000_000_000)
         }
         let owner = try ChiefFixture().owner(brain)
         let working = await owner.workingConversations()

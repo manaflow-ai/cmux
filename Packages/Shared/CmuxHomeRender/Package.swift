@@ -36,6 +36,7 @@ let package = Package(
         .testTarget(
             name: "CmuxHomeRenderTests",
             dependencies: ["CmuxHomeRender", .product(name: "CmuxHomeCore", package: "CmuxHomeCore")],
+            resources: [.copy("Resources/four-frames.mp4")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
     ]

@@ -4331,6 +4331,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             deferBrowserPanels: true,
             workspaceCreateIdempotencyCache: TerminalController.shared.workspaceCreateIdempotencyCache
         )
+        ChiefHomeNavigation.openOnTerminal(in: context.tabManager)
         context.restoreWindowDockSessionSnapshot(
             snapshot,
             notificationStore: notificationStore,
@@ -10716,6 +10717,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 deferBrowserPanels: true,
                 workspaceCreateIdempotencyCache: TerminalController.shared.workspaceCreateIdempotencyCache
             )
+            ChiefHomeNavigation.openOnTerminal(in: tabManager)
             if let configFrames = sessionWindowSnapshot.configFrames {
                 windowConfigFrames[windowId] = SessionConfigFrameRing(entries: configFrames)
             }
