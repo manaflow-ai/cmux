@@ -109,16 +109,15 @@ printf 'shared temp marker\n' > "$SHARED_TMP_MARKER"
 cat > "$FIXTURE_ROOT/$ZIG_NAME/zig" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
-# A Linux Zig invocation can retain the public symlink in argv[0]; the wrapper
-# installed by install-zig-ci must provide the real library root explicitly.
+# The hosted Linux Zig 0.16 invocation can report a false lib_dir from its env command;
+# the installer must validate the extracted install root directly.
 self="\$0"
 case "\${1:-}" in
   version)
     echo "$ZIG_REQUIRED"
     ;;
   env)
-    zig_lib_dir="\${ZIG_LIB_DIR:-\$(cd "\$(dirname "\$self")" && pwd -P)/lib}"
-    printf '.{\\n    .lib_dir = "%s",\\n}\\n' "\$zig_lib_dir"
+    printf '.{\\n    .lib_dir = "%s",\\n}\\n' "$BROKEN_ZIG_LIB_DIR"
     ;;
   *)
     echo "$ZIG_REQUIRED"
@@ -297,10 +296,9 @@ if [ "$(canonical_install_root "$(readlink "$SUDO_SYSTEM_PREFIX/lib/zig")")" != 
   exit 1
 fi
 
-SUDO_LIB_DIR="$("$SUDO_SYSTEM_PREFIX/bin/zig" env | read_zig_lib_dir_from_stdin)"
-if [ ! -f "$SUDO_LIB_DIR/compiler/build_runner.zig" ]; then
+if [ ! -f "$SUDO_SYSTEM_PREFIX/lib/$ZIG_NAME/lib/compiler/build_runner.zig" ]; then
   cat "$SUDO_OUTPUT_FILE"
-  echo "FAIL: sudo-installed zig does not resolve compiler/build_runner.zig through zig env" >&2
+  echo "FAIL: sudo-installed zig is missing compiler/build_runner.zig in its extracted root" >&2
   exit 1
 fi
 
