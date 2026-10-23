@@ -13,13 +13,20 @@ struct AgentPaneReplyImageScopeTests {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("reply-image-scope-\(UUID().uuidString)", isDirectory: true)
         let project = folder.appendingPathComponent("project", isDirectory: true)
         let home = folder.appendingPathComponent("home", isDirectory: true)
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("reply-image-scope-tmp-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: folder) }
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        try Data([0]).write(to: home.appendingPathComponent("sidebar.png"))
+        try Data([0]).write(to: tmp.appendingPathComponent("sidebar.png"))
+        defer {
+            try? FileManager.default.removeItem(at: folder)
+            try? FileManager.default.removeItem(at: tmp)
+        }
 
         let paths = AgentPaneReplyPaths(roots: [project.path], imageRoots: [home.path, "/tmp"], home: home.path, base: project.path)
-        #expect(paths.resolve("/tmp/sidebar.png")?.place == .outside)
-        #expect(paths.resolveImage("/tmp/sidebar.png")?.place == .root)
+        #expect(paths.resolve(tmp.appendingPathComponent("sidebar.png").path)?.place == .outside)
+        #expect(paths.resolveImage(tmp.appendingPathComponent("sidebar.png").path)?.place == .root)
         #expect(paths.resolveImage(home.appendingPathComponent("sidebar.png").path)?.place == .root)
         #expect(paths.resolveImage("/var/tmp/sidebar.png")?.place == .outside)
         #expect(paths.resolveImage(home.appendingPathComponent(".ssh/key.png").path)?.place == .denied)
