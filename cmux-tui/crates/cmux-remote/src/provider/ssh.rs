@@ -16,7 +16,7 @@ use crate::provider::{
     ProviderCapabilities, ProviderError, SupportedClientAuthModes, TransportProvider,
     sanitized_route,
 };
-use crate::ssh_args::background_ssh_arguments;
+use crate::ssh_args::carrier_ssh_arguments;
 
 const SSH_GRACEFUL_CLOSE_TIMEOUT: Duration = Duration::from_secs(2);
 
@@ -176,11 +176,11 @@ impl LinkGroup for SshLinkGroup {
             return Err(ProviderError::Transport("SSH connection group is closed".into()));
         }
         let mut command = Command::new(&self.config.ssh_binary);
-        // Forwarding stays as configured unless `extra_args` pin
-        // `ControlMaster=no`: otherwise this run can become the shared master
-        // that interactive sessions reuse.
+        // The remote-link run that starts the remote daemon passes its agent
+        // socket and display to the shells, and any carrier may be that run,
+        // so agent and X11 forwarding stay as configured.
         command
-            .args(background_ssh_arguments(self.port, &self.config.extra_args, &self.destination))
+            .args(carrier_ssh_arguments(self.port, &self.config.extra_args, &self.destination))
             .args(remote_link_command(&self.config));
         command
             .stdin(Stdio::piped())

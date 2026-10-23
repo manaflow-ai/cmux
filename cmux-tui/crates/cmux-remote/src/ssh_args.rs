@@ -19,13 +19,54 @@ pub(crate) fn background_ssh_arguments(
     extra_args: &[String],
     destination: &str,
 ) -> Vec<String> {
+    let overrides = forwarding_overrides(extra_args);
+    ssh_arguments(port, overrides, !overrides.is_empty(), extra_args, destination)
+}
+
+/// Arguments for the `remote-link` carrier, up to and including the
+/// destination.
+///
+/// The remote-link run that starts the remote daemon passes its
+/// `SSH_AUTH_SOCK` and `DISPLAY` to the shells, and any carrier may be that
+/// run, so agent and X11 forwarding stay as configured even when the carrier
+/// can't become the shared master (the app passes `ControlPath=none` in place
+/// of a ControlPath from ssh_config when an agent socket is set). Port
+/// forwards from ssh_config are still cleared then: each terminal, browser
+/// proxy and forward carrier is its own ssh process, and without a master
+/// they would all try to bind the same ports. A caller's own forwards and
+/// `ClearAllForwardings` value are left alone.
+pub(crate) fn carrier_ssh_arguments(
+    port: Option<u16>,
+    extra_args: &[String],
+    destination: &str,
+) -> Vec<String> {
+    let options = CallerOptions::parse(extra_args);
+    let overrides: &[&str] = if options.can_become_master
+        || options.forwards_ports
+        || options.sets_clear_all_forwardings
+    {
+        &[]
+    } else {
+        &["-o", "ClearAllForwardings=yes"]
+    };
+    ssh_arguments(port, overrides, false, extra_args, destination)
+}
+
+/// `drops_forwarding_flags` removes `-A`, `-X` and `-Y`, which would turn
+/// forwarding back on after the overrides.
+fn ssh_arguments(
+    port: Option<u16>,
+    overrides: &[&str],
+    drops_forwarding_flags: bool,
+    extra_args: &[String],
+    destination: &str,
+) -> Vec<String> {
     let mut arguments = vec!["-T".to_owned()];
     if let Some(port) = port {
         arguments.extend(["-p".to_owned(), port.to_string()]);
     }
-    let overrides = forwarding_overrides(extra_args);
     arguments.extend(overrides.iter().map(|argument| (*argument).to_owned()));
-    let (extra, has_separator) = normalized_caller_arguments(extra_args, !overrides.is_empty());
+    let (extra, has_separator) = normalized_caller_arguments(extra_args, drops_forwarding_flags);
     arguments.extend(extra);
     if !has_separator {
         arguments.push("--".to_owned());
@@ -97,6 +138,7 @@ fn forwarding_overrides(extra_args: &[String]) -> &'static [&'static str] {
 struct CallerOptions {
     can_become_master: bool,
     forwards_ports: bool,
+    sets_clear_all_forwardings: bool,
 }
 
 impl CallerOptions {
@@ -108,6 +150,7 @@ impl CallerOptions {
         let mut control_master = None;
         let mut control_path_disabled = false;
         let mut forwards_ports = false;
+        let mut sets_clear_all_forwardings = false;
         let mut arguments = extra_args.iter();
         while let Some(argument) = arguments.next() {
             if argument == "--" {
@@ -137,6 +180,8 @@ impl CallerOptions {
                                 control_master.get_or_insert(value);
                             } else if keyword.eq_ignore_ascii_case("ControlPath") {
                                 control_path_disabled |= value.eq_ignore_ascii_case("none");
+                            } else if keyword.eq_ignore_ascii_case("ClearAllForwardings") {
+                                sets_clear_all_forwardings = true;
                             } else if ["LocalForward", "RemoteForward", "DynamicForward"]
                                 .iter()
                                 .any(|forward| keyword.eq_ignore_ascii_case(forward))
@@ -156,6 +201,7 @@ impl CallerOptions {
         Self {
             can_become_master: master_flag || (!pinned_off && !control_path_disabled),
             forwards_ports,
+            sets_clear_all_forwardings,
         }
     }
 }
