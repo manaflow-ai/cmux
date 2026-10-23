@@ -15,9 +15,13 @@ enum BrowserMediaMenu {
         // Read when a card draws and again at a press: a menu left open while the setting turns off
         // keeps its cards.
         let pictureInPicture: () -> Bool = { [weak services] in PictureInPictureHandlers.isEnabled(services) }
-        let cards = sessions.map { card($0.entry.tab, $0.media, pictureInPicture: pictureInPicture, registry: services.registry) }
+        let shown = sessions.map { _ in ShownRow() }
+        let cards = zip(sessions, shown).map { session, row in
+            card(session.entry.tab, session.media, pictureInPicture: pictureInPicture, row: row, registry: services.registry)
+        }
         let menu = rows.menu(cards, empty: BrowserHitStrings.mediaNothingPlaying)
-        for (view, session) in zip(menu.items.compactMap { $0.view as? BrowserMediaRowView }, sessions) {
+        for ((view, session), row) in zip(zip(menu.items.compactMap { $0.view as? BrowserMediaRowView }, sessions), shown) {
+            row.view = view
             loadArtwork(view, tab: session.entry.tab, url: session.media.artworkURL)
         }
         return menu
@@ -25,8 +29,9 @@ enum BrowserMediaMenu {
 
     /// `pictureInPicture` reads `media.pictureInPicture.enabled`; off, the card has no Picture in
     /// Picture button, and a button still on screen after it turns off does nothing.
+    /// `row`: the card's view once the menu holds it, so a press refused after it drew can be undone.
     private static func card(_ tab: any BrowserTab, _ media: BrowserMediaState, pictureInPicture: @escaping () -> Bool,
-                             registry: ActionRegistry) -> BrowserMediaRows.Card {
+                             row: ShownRow, registry: ActionRegistry) -> BrowserMediaRows.Card {
         let site = tab.state.url?.host() ?? ""
         let title = media.title.isEmpty ? (tab.state.title ?? site) : media.title
         let subtitle = [media.artist, site].filter { !$0.isEmpty }.joined(separator: " · ")
@@ -40,14 +45,20 @@ enum BrowserMediaMenu {
                     return muting.setAudioMuted(false)
                 }
                 Task {
-                    // Turned off between the press and this task: nothing floats.
-                    if command == .pictureInPicture, !pictureInPicture() { return }
+                    // Turned off between the press and this task: nothing floats, and the card takes
+                    // back the Exit it showed.
+                    if command == .pictureInPicture, !pictureInPicture() { return row.view?.undoPictureInPicturePress() }
                     await tab.media(command)
                 }
             },
             onReveal: { [weak registry] in
                 registry?.perform("tab.focus", invocation: ActionInvocation(target: target, origin: .user))
             })
+    }
+
+    /// A card's view, filled in once the menu holds it.
+    final class ShownRow {
+        weak var view: BrowserMediaRowView?
     }
 
     /// Loads the artwork through the tab's own context (`fetchFavicon`) once per address.

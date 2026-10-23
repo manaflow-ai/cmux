@@ -102,13 +102,22 @@ struct PictureInPictureSettingOffTests {
         await off.reload()
         #expect(off.snapshot.nowPlaying.pictureInPicture == false)
         func floats() -> Int { tab.commands.filter { $0 == .evaluate(BrowserMediaCommand.pictureInPictureScript) }.count }
-        let before = floats()
+        // The media card's run (it acts on the tab the card shows) reaches the page while on.
+        let cardRun = ActionInvocation(arguments: [PictureInPictureHandlers.cardArgument: .bool(true)])
+        var before = floats()
+        #expect(services.registry.perform(id, invocation: cardRun))
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(floats() == before + 1, "the card's run never reached the page with the setting on")
+        before = floats()
         let hubButton = try #require(hubButtons(BrowserMediaMenu.menu(services, rows: BrowserMediaRows())).first { !$0.isHidden })
-        #expect(services.registry.perform(id, invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: key))))
+        #expect(services.registry.perform(id, invocation: cardRun))
         hubButton.performClick(nil)
+        #expect(hubButton.accessibilityLabel() == BrowserMediaStrings.exitPictureInPicture, "the hub's press shows Exit at once")
         services.settings = off
         try await Task.sleep(for: .milliseconds(200))
         #expect(floats() == before, "a run or press queued before the setting turned off still floated the video")
+        #expect(hubButton.isHidden && hubButton.accessibilityLabel() == BrowserMediaStrings.pictureInPicture,
+                "the hub's refused press still shows Exit")
         services.settings = settings
     }
 }

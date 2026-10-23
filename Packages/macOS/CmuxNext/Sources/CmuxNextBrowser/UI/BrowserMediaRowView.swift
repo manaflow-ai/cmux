@@ -97,6 +97,14 @@ public final class BrowserMediaRowView: NSView {
         update()
     }
 
+    /// Takes back a Picture in Picture press the app refused after the card showed it (the setting
+    /// turned off before the press reached the page): the button reads as before and, while the
+    /// setting is off, hides.
+    public func undoPictureInPicturePress() {
+        media.isPictureInPicture.toggle()
+        update()
+    }
+
     /// The artwork, once loaded.
     public func setArtwork(_ image: NSImage) { artwork.image = image }
 

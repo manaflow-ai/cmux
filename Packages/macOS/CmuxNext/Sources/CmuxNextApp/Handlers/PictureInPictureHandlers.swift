@@ -28,7 +28,7 @@ enum PictureInPictureHandlers {
             let work = Task { @MainActor () -> String? in
                 // Turned off between the run and this task: nothing floats.
                 guard enabled() else { return PictureInPictureStrings.off }
-                switch await page.togglePictureInPicture() {
+                return switch await page.togglePictureInPicture() {
                 case .noVideo?: PictureInPictureStrings.noVideo
                 case .unsupported?: PictureInPictureStrings.unsupported
                 case .entered?, .exited?, nil: nil
