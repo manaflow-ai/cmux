@@ -10,6 +10,12 @@ target's layer from plans/cmux-next/architecture-layers.json, then prints:
                upward: any other edge that points up (core -> service, core -> domain)
                (the classes and the map reader are scripts/cmux-next/arch_counts.py's `edge_class` and
                `LayerMap`, the ones the arch ratchet and the pre-push layer gate use)
+  impure core  a target labeled core whose Swift holds runtime state or I/O (a shared instance,
+               stored static state, a lock, file or defaults I/O, a notification observation,
+               observable state), with the first file:line of each kind. The label is what the
+               target holds (the _doc rule), so such a target is labeled at its highest layer
+               with `mixes`, or the state moves out (72673e48762 labeled DesignTokens core by its
+               imports alone, and the report dropped an edge that had not changed).
   app          Swift lines in CmuxNextApp (the composition root's target)
 
 This is a report for the refactor lane, not a CI gate (Lawrence 2026-10-23: no new CI gates).
@@ -84,6 +90,83 @@ COUNTS = {
 }
 
 
+# What a core target may not hold (architecture-refactor-DESIGN.md section 2: Sendable values, IDs, protocol seams,
+# pure rules). Matched on code with comments and string contents blanked. AppKit imports are allowed in core
+# for platform value types, so imports are not evidence.
+IMPURE = (
+    ("shared instance", re.compile(r"\bstatic\s+(?:let|var)\s+shared\b")),
+    # A `@TaskLocal` static is scoped to a task, not process-wide.
+    ("stored static state", re.compile(r"^(?!.*@TaskLocal\b).*\bstatic\s+var\s+\w+\s*(?::[^={]*)?(?:=|$)")),
+    ("lock", re.compile(r"\b(?:OSAllocatedUnfairLock|NSLock|NSRecursiveLock|Mutex)\s*(?:<[^()]*>)?\s*\(|\bos_unfair_lock\b"
+                        r"|\bpthread_mutex_t\b")),
+    ("file or defaults I/O", re.compile(r"\b(?:FileManager|FileHandle|UserDefaults|URLSession)\b|\bData\(contentsOf:"
+                                        r"|\bProcess\(\)")),
+    ("notification observation", re.compile(r"\b(?:Distributed)?NotificationCenter\b")),
+    ("observable state", re.compile(r"@Observable\b|\bObservableObject\b")),
+)
+# A class or actor's `static let system`/`standard`/`current`/`live`/`default` is a shared instance by another name;
+# a struct or enum's is a value constant (CLAUDE.md "No shared-singleton accessors").
+NAMED_INSTANCE = re.compile(r"\bstatic\s+let\s+(?:system|standard|current|live|`default`)\b")
+TYPE_OPENER = re.compile(r"\b(class|actor|struct|enum|extension|protocol)\b[^{]*$")
+
+
+def code_lines(text: str) -> list[str]:
+    """TEXT's lines with comments removed and string contents blanked (line count kept)."""
+    out, line, i, n = [], [], 0, len(text)
+    block = in_string = False
+    while i < n:
+        c = text[i]
+        if c == "\n":
+            out.append("".join(line))
+            line = []
+            in_string = False  # a single-line literal never spans lines; a multi-line one is blanked line by line
+        elif block:
+            if text.startswith("*/", i):
+                block = False
+                i += 1
+        elif in_string:
+            if c == "\\":
+                i += 1
+            elif c == '"':
+                in_string = False
+                line.append(c)
+        elif text.startswith("//", i):
+            j = text.find("\n", i)
+            i = (n if j < 0 else j) - 1
+        elif text.startswith("/*", i):
+            block = True
+            i += 1
+        elif c == '"':
+            in_string = True
+            line.append(c)
+        else:
+            line.append(c)
+        i += 1
+    out.append("".join(line))
+    return out
+
+
+def impurities(target: Path) -> dict[str, str]:
+    """{kind: first file:line} of the runtime state and I/O in TARGET's Swift files (path order)."""
+    found: dict[str, str] = {}
+    for path in sorted(target.rglob("*.swift")):
+        kinds: list[str] = []  # the type kind of each open brace
+        for number, code in enumerate(code_lines(path.read_text(errors="ignore")), 1):
+            where = f"{path.relative_to(target)}:{number}"
+            for kind, pattern in IMPURE:
+                if kind not in found and pattern.search(code):
+                    found[kind] = where
+            if "shared instance" not in found and NAMED_INSTANCE.search(code) and kinds and kinds[-1] in ("class", "actor"):
+                found["shared instance"] = where
+            for at, c in enumerate(code):
+                if c == "{":
+                    opener = TYPE_OPENER.search(code[:at])
+                    kinds.append(opener.group(1) if opener else "")
+                elif c == "}" and kinds:
+                    kinds.pop()
+    return found
+
+
 def grep_counts() -> dict[str, int]:
     totals = dict.fromkeys(COUNTS, 0)
     for path in SOURCES.rglob("*.swift"):
@@ -117,6 +200,13 @@ def main() -> int:
                 found[kind].append((source, layer_map.placed(source), dep, layer_map.placed(dep)))
     hard, soft, upward = found["hard"], found["soft"], found["upward"]
 
+    impure = {}
+    for name in sorted(graph):
+        if layer_map.placed(name) == "core":
+            found_here = impurities(SOURCES / name)
+            if found_here:
+                impure[name] = found_here
+
     per_layer: dict[str, list[int]] = {name: [0, 0] for name in layer_map.order}
     for name in graph:
         layer = layer_map.placed(name)
@@ -133,6 +223,7 @@ def main() -> int:
         "soft_violations": len(soft),
         "upward_violations": len(upward),
         "layers": {name: {"targets": t, "lines": n} for name, (t, n) in per_layer.items()},
+        "impure_core": impure,
     }
     if args.counts:
         report["counts"] = grep_counts()
@@ -153,6 +244,11 @@ def main() -> int:
     print(f"upward violations {len(upward)} (core -> service/domain; edges only point down):")
     for source, a, dep, b in upward:
         print(f"  {source} ({a}) -> {dep} ({b})")
+    if impure:
+        print(f"core targets that hold state or I/O {len(impure)} (label each at its highest layer with mixes, "
+              "or move the state out):")
+        for name, found in impure.items():
+            print(f"  {name}: " + ", ".join(f"{kind} {where}" for kind, where in found.items()))
     if args.counts:
         print("counts: " + ", ".join(f"{k} {v}" for k, v in report["counts"].items()))
     return 0
