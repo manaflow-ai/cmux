@@ -124,6 +124,18 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
                 guard let self else { throw AgentSessionRemoteError(code: Self.unsupported, message: "closed") }
                 return try await self.page(method, page, client: client)
             }
+        case "link.inspect":
+            // Remote paths are classified by the host that owns the chat. Image paths are
+            // deliberately marked readable so ReplyImage starts `image.load`; the local app
+            // never probes or resolves the same spelling here. Ordinary path chips remain
+            // outside this machine's roots and are shown as elsewhere/locked by the page.
+            let paths = (params["paths"] as? [String] ?? []).reduce(into: [String: Any]()) { result, path in
+                if Self.remoteImagePath(path) != nil { result[path] = ["place": "root", "folder": false] }
+                else { result[path] = ["place": "outside", "folder": false] }
+            }
+            reply(id, ["paths": paths, "sites": [:], "policy": [
+                "outsideRoots": "text", "remoteImages": "always", "clickFreeImageHosts": [String](),
+            ]])
         case "session/prompt":
             guard !isReadOnly else { return refuseReadOnly(id, method) }
             guard names(params["sessionId"]), let text = Self.text(params["prompt"]) else { return refuse(id, method) }
@@ -357,7 +369,8 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     /// this boundary because the page's `image.load` request is untrusted.
     private static func remoteImagePath(_ text: String) -> String? {
         guard AgentPaneReplyPaths.isImagePath(text) else { return nil }
-        if text.lowercased().hasPrefix("file://"), let url = URL(string: text), url.isFileURL {
+        if text.lowercased().hasPrefix("file://"), let url = URL(string: text), url.isFileURL,
+           let host = url.host(percentEncoded: false), host.isEmpty || host == "localhost" {
             return url.path(percentEncoded: false)
         }
         return text.split(maxSplits: 1, whereSeparator: { $0 == "?" || $0 == "#" }).first.map(String.init)
