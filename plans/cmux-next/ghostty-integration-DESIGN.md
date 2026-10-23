@@ -126,6 +126,18 @@ ghostty-next (PR 46, then one GhosttyNextKit pin bump), each with a red test com
 cmux: G4 (output off the main actor, `TerminalOutputOffMainTests`), `bench-terminal-resize.py`,
 `debug.terminal_display`.
 
+Open after this batch:
+- G1 evidence: the before run (light drag, d4a404a02ae, mac26 60 Hz) recorded 0 calls of
+  `-[IOSurfaceLayer display]` on main, so in this path Core Animation may not run the layer's display
+  pass and the stale-text frame comes from `contentsGravity` top-left over a held drawable, not from
+  a main-thread draw. The after run's `host_display_passes` / `host_fresh_presents` say which; if
+  passes stay 0, the fresh frame must be presented from `TerminalSurfaceView.setFrameSize` instead
+  (same futex wait, called from the size change, not from a display pass).
+- bash 5.3 `${ }` captures through 2 anonymous temp files in $TMPDIR per command (PS0 hook and the
+  history read): cheaper than a fork, not zero (PL-shell-integration, perf-lead.md row 20).
+- G6 rest (one IO thread fewer per manual surface, shared atlas textures) and G7 per-process idle
+  owner: not started.
+
 ## 5. Measurements
 
 Filled in as fleet runs land: host, build sha, refresh rate, light and STRESS side by side.
