@@ -389,7 +389,7 @@ final class CEFRuntime {
         // Pages use the theme color, never white or Chromium's #292929
         // (PageBackground); theme changes reach live tabs (fork API 12).
         shim.setBackgroundColor(PageBackground.appThemeARGB)
-        ThemeStore.shared.addResponder(self)
+        ThemeScope.app.store.addResponder(self)
         // Extension popup windows keep their window id (CEFPopupWindows).
         if CEFPopupWindows.isEnabled(forkAPIVersion: Int(shim.forkAPIVersion())) { shim.setPopupWindowsEnabled(1) }
         // chrome://newtab without an extension override (BrowserNewTabPage).

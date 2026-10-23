@@ -296,7 +296,7 @@ pub struct PtyTerminalRuntime {
     /// every protocol-v7 render attachment.
     pub(super) render: Arc<RankedMutex<RenderHub>>,
     pub(super) render_generation: AtomicU64,
-    pub(super) frame_requests: SyncSender<u64>,
+    pub(super) frame_requests: frame_producer::FrameRequests,
     #[cfg(test)]
     pub(super) frame_producer_before_upgrade: FrameProducerTestHook,
 }

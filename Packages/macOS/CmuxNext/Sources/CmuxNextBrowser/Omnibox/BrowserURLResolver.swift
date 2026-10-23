@@ -12,8 +12,10 @@ public import Foundation
 ///    `chrome-extension://` pages and `about:` aliases of WebUI pages, in
 ///    Chromium's canonical form (ChromiumInternalURL: `chrome://extensions`
 ///    is `chrome://extensions/`); every tab also takes the `chrome://` pages
-///    cmux shows itself (ChromiumPageRoute), and `cmux://stashed`, the
-///    Stashed Tabs page (`cmuxAppPageHosts`; the App opens it). Every other scheme (`javascript:`,
+///    cmux shows itself (ChromiumPageRoute), `cmux://stashed`, the Stashed Tabs page
+///    (`cmuxAppPageHosts`; the App opens it), and Mac Screen addresses
+///    (`cmux://mac-screen`; an old `cmux-vnc://pair?…` pairing link, which the host refuses
+///    with a word and never loads). Every other scheme (`javascript:`,
 ///    `data:`, `mailto:`, ...) is searched, so typed text can never run
 ///    script or open another app.
 /// 3. `/abs/path`, `~`, and `~/path` are file URLs, spaces allowed.
@@ -31,6 +33,23 @@ public nonisolated struct BrowserURLResolver: Sendable {
     public init(homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser, allowsChromiumSchemes: Bool = false) {
         self.homeDirectory = homeDirectory
         self.allowsChromiumSchemes = allowsChromiumSchemes
+    }
+
+    /// Whether `text` holds an old Mac Screen pairing link (`cmux-vnc://pair?…`
+    /// or `cmux-vnc:pair?…`, any case, anywhere in the text). The link carries a
+    /// room secret, so no input surface loads, searches or sends such text to an
+    /// agent: the address bar, the New Tab field and `newTab.submit` refuse it with
+    /// Mac Screen's word. The New Tab page's `newTabIntent.ts` keeps the same rule;
+    /// `webviews/test/fixtures/new-tab-intents.json` holds both to it.
+    public static func containsPairingLink(_ text: String) -> Bool {
+        let lower = text.lowercased()
+        var rest = lower[...]
+        while let scheme = rest.range(of: "cmux-vnc:") {
+            let after = rest[scheme.upperBound...]
+            if after.hasPrefix("pair") || after.hasPrefix("//pair") { return true }
+            rest = after
+        }
+        return false
     }
 
     /// A URL to load, or nil when the text should be searched.
@@ -140,11 +159,24 @@ public nonisolated struct BrowserURLResolver: Sendable {
             return chromiumPage(text, scheme: scheme)
         case "chrome", "chrome-extension":
             return chromiumPage(text, scheme: scheme)
+        case "cmux-vnc":
+            return macScreenAddress(text, scheme: scheme)
         case "cmux":
-            return cmuxAppPage(text)
+            return macScreenAddress(text, scheme: scheme) ?? cmuxAppPage(text)
         default:
             return nil
         }
+    }
+
+    /// A Mac Screen address the host handles itself, never searched: a Mac
+    /// Screen tab record (`cmux://mac-screen`), or an old pairing link
+    /// (`cmux-vnc://pair?…`, which carries a room secret that must not reach a
+    /// search engine or its suggestions; the host refuses it, pairing links
+    /// being gone). No engine loads either.
+    private func macScreenAddress(_ text: String, scheme: String) -> URL? {
+        guard let url = URL(string: text) else { return nil }
+        if scheme == "cmux-vnc" { return Self.containsPairingLink(text) ? url : nil }
+        return url.host?.lowercased() == "mac-screen" ? url : nil
     }
 
     /// cmux's own pages that are no browser page, which the App opens instead of loading

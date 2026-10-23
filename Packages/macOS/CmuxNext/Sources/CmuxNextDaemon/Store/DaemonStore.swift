@@ -167,6 +167,15 @@ public final class DaemonStore: StateResourceQueries {
     /// connection found already there (page history skips their reload).
     @ObservationIgnored public private(set) var restoredTabIDs: Set<String> = []
     @ObservationIgnored var restoredEpoch: Int?
+    /// The connection epoch of the last live snapshot applied: it changes once
+    /// per connection, when that connection's first tree lands. Observers that
+    /// must look at every workspace once per connection key off it.
+    public internal(set) var liveTreeEpoch: Int?
+    /// Bumped each time the set of loaded workspaces changes (one joined or
+    /// left, or a provisional one was confirmed), never for a move or a
+    /// change to one workspace: observers that track membership read it
+    /// instead of `workspaces`, whose order every move changes.
+    public internal(set) var workspaceSetRevision: UInt64 = 0
 
     public init() {}
 
@@ -246,6 +255,7 @@ public final class DaemonStore: StateResourceQueries {
                 isLoaded = true
                 DaemonLaunchTimings.shared.mark("daemon.first_tree_applied")
             }
+            if liveTreeEpoch != connectionEpoch { liveTreeEpoch = connectionEpoch }
             if restoredEpoch != connectionEpoch {
                 restoredEpoch = connectionEpoch
                 restoredTabIDs = currentTabIDs
@@ -406,6 +416,7 @@ public final class DaemonStore: StateResourceQueries {
         let list = Set(workspaces.map(\.listID))
         guard list != notifiedWorkspaceList else { return }
         notifiedWorkspaceList = list
+        workspaceSetRevision &+= 1
         onWorkspaceListChanged?()
     }
 

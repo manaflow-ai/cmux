@@ -24,10 +24,13 @@ struct CmuxMobileApp: App {
         // or Demo install left in this container, before anything reads them.
         DeveloperOptions.removeStoredValues()
         #endif
-        _auth = State(initialValue: CmuxMobileAuthModel.live(
+        let auth = CmuxMobileAuthModel.live(
             environment: ProcessInfo.processInfo.environment,
             bundleIdentifier: Bundle.main.bundleIdentifier
-        ))
+        )
+        _auth = State(initialValue: auth)
+        // A notification reply on a cold background launch signs in with it (no scene runs then).
+        PushReplies.shared.auth = auth
     }
 
     var body: some Scene {

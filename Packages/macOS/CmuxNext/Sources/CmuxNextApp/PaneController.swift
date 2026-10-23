@@ -155,8 +155,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
         // This pane's own workspace record: reading its fields observes them
         // only, never the workspace list (a lookup by pane would).
         let ownWorkspace = workspace?.workspace ?? store.workspace(containing: pane.handle)
-        // A dock-bound chat stays hidden under the id the store gave it (`dockBound`).
-        let hidden = dockBound
+        // A dock-bound chat (`dockBound`) or a tab on its way to the side (`OutboundTab`) stays hidden.
+        let hidden = dockBound.union(OutboundTab.hidden(in: self))
         var local: [StripTabItem] = []
         for tab in state?.localBrowserTabs[paneKey] ?? [] where !hidden.contains(tab.id) {
             let page = services.cache.existingBrowser(tab.id)?.tab.state
@@ -269,7 +269,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         if stripModel.showsNewTabButton != snapshot.takesNewTabs { stripModel.showsNewTabButton = snapshot.takesNewTabs }
         if !snapshot.items.isEmpty { LaunchReveal.shared.markReady(.tabs) }
         var selectNew = false
-        if let pending = pendingSelectSurface, let tab = pane.tabs.first(where: { $0.surface == pending }) {
+        if let pending = pendingSelectSurface, let tab = snapshot.tabs.first(where: { $0.surface == pending }) { // once listed (OutboundTab)
             state?.selection.select(tab.id, in: paneKey)
             pendingSelectSurface = nil
             selectNew = true

@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "5d3ff5ed972a33f5c4bb6a49a9dd6aeed437faa9b1ef702813aa5522af7f0eb0";
+pub const ir_sha256 = "1e8ed8d1c9488496f61ce39773888417486f7d9a3ecf0469f4e801cd383fe3bd";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -9508,6 +9508,7 @@ pub const UpdateBrowserProfileRequest = struct {
     color: wire.Field([]const u8) = .absent,
     icon: wire.Field([]const u8) = .absent,
     name: wire.Field([]const u8) = .absent,
+    proxy: wire.Field(JsonValue) = .absent,
 };
 
 pub const UpdateBrowserProfileResult = JsonValue;

@@ -242,7 +242,7 @@ function blurs(block: Block): boolean {
 
 /** The selector's subject, not a row or control inside a named glass surface. Functional pseudo
  * selectors and attribute values do not contribute class names or descendant combinators. */
-function targetsRequiredGlass(selector: string): boolean {
+export function targetsRequiredGlass(selector: string): boolean {
   return splitArgs(selector).some((part) => {
     let depth = 0;
     let subject = "";

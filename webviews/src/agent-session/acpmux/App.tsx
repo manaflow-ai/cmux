@@ -68,6 +68,7 @@ import { heldPick, withDraftFolder } from "./newtab/draftFolder";
 import { rememberRecentFolders } from "./newtab/recentProject";
 import { rememberStartedProject } from "./newtab/startedProject";
 import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
+import { TaskGoalStrip } from "./TaskGoalStrip";
 import { PageDots } from "./newtab/PageDots";
 import { useSessionCommands } from "./newtab/useSessionCommands";
 import { editNewTabWidgets, shownPageWidgets, withWidgetEdit } from "./newtab/pageWidgets";
@@ -2158,18 +2159,12 @@ export function VirtualTranscript({
             // A late size change (a font loading) must not paint a frame of overlap first. Sizes
             // that did not change render nothing: a synchronous render here for nothing was the
             // "ResizeObserver loop completed with undelivered notifications" while streaming.
-            // That render can grow a row it measured: it also commits the streaming reply's next
-            // reveal step. The observer reports a target at the same depth once a frame, so the new
-            // size came a frame late, and that frame painted the reply's newest line past the view's
-            // foot (#23807). The rows are measured again after each render, until they hold.
-            for (let pass = 0; pass < 3; pass += 1) {
-              if (!changesDrawn(drawnRef.current, pendingDrawn.current)) {
-                pendingDrawn.current = new Map();
-                break;
-              }
-              acpmuxPerf.timed("flush.drawn", () => flushSync(flushDrawn));
-              measure();
-            }
+            // The observer reports a target at the same depth once a frame, so the new size can
+            // arrive a frame late. Queue the changed drawn heights through React's normal batch;
+            // the layout effect after that render measures again before the next paint. A forced
+            // sync commit here made every streaming resize block the main thread.
+            if (changesDrawn(drawnRef.current, pendingDrawn.current)) flushDrawn();
+            else pendingDrawn.current = new Map();
           }),
     [reportDrawn, flushDrawn],
   );
@@ -5431,7 +5426,7 @@ function AcpmuxPane() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- runningCommandList is new on every snapshot; its key is not
     [subagentTray, chatAgents, commandsKey, childSessions, snapshot.isWorking],
   );
-  // What ended, behind the tray's one folded line; never in its count.
+  // What ended, behind the tray's bounded status cards; never in its count.
   const trayFinished = useMemo(
     () => (subagentTray ? finishedTrayItems(chatAgents, childSessions) : []),
     [subagentTray, chatAgents, childSessions],
@@ -7931,8 +7926,8 @@ function AcpmuxPane() {
           </output>
         </Notice>
         {/* The tray (subagents/SubagentTray.tsx): in the bottom stack, right above the composer, every
-          running subagent, background command and started chat, one line each. */}
-        {!quick && !freshView && trayList.length > 0 && (
+          running or recently ended subagent, background command and started chat, one card each. */}
+        {!quick && !freshView && (trayList.length > 0 || trayFinished.length > 0) && (
           <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
             <SubagentTray
               key={shownSessionId}
@@ -8406,6 +8401,13 @@ function AcpmuxPane() {
               show={(next) => setNewTab((current) => current && { ...current, template: next })}
               showWidgets={(done) => setNewTab((current) => current && withWidgetEdit(current, done))}
               onCancel={() => window.dispatchEvent(new Event(FOCUS_LOCATION_EVENT))}
+            />
+          )}
+          {!showNewTab && snapshot.summary?.goal && (
+            <TaskGoalStrip
+              key={snapshot.summary.sessionId}
+              goal={snapshot.summary.goal}
+              command={(action) => callNative("chat.send", { text: `/goal ${action}`, attachments: [] })}
             />
           )}
           {harnessesOpen ? (
