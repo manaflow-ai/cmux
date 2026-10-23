@@ -22,27 +22,17 @@ public final class CloudAuth {
     public var isSignedIn: Bool { coordinator.isAuthenticated }
     public var isRestoring: Bool { coordinator.isRestoringSession }
     public var user: CMUXAuthUser? { coordinator.currentUser }
-    /// `RestrictToManagedTeam` with `ManagedTeam` (enterprise P17-3): the
-    /// only team this device may use, or nil. The account's other teams are
-    /// neither listed nor selectable, and without that team there is none.
-    public var managedTeamID: String?
-    public var teams: [CMUXAuthTeam] { Self.allowedTeams(coordinator.availableTeams, managed: managedTeamID) }
-    public var teamID: String? {
-        Self.allowedTeamID(resolved: coordinator.resolvedTeamID, available: coordinator.availableTeams.map(\.id), managed: managedTeamID)
+    /// The team cmux works in; every team-scoped feature reads it (``ActiveTeam``).
+    @ObservationIgnored public let activeTeam: ActiveTeam
+    /// The device's managed team (``ActiveTeam/managedTeamID``).
+    public var managedTeamID: String? {
+        get { activeTeam.managedTeamID }
+        set { activeTeam.managedTeamID = newValue }
     }
-
-    /// The account's teams this device may use.
-    nonisolated static func allowedTeams(_ teams: [CMUXAuthTeam], managed: String?) -> [CMUXAuthTeam] {
-        guard let managed else { return teams }
-        return teams.filter { $0.id == managed }
-    }
-
-    /// The team API calls use: the resolved one, or only the managed one
-    /// (when the account belongs to it) while the device is restricted.
-    nonisolated static func allowedTeamID(resolved: String?, available: [String], managed: String?) -> String? {
-        guard let managed else { return resolved }
-        return available.contains(managed) ? managed : nil
-    }
+    /// The account's teams this device may use (``ActiveTeam/teams``).
+    public var teams: [CMUXAuthTeam] { activeTeam.teams }
+    /// The team API calls use (``ActiveTeam/id``).
+    public var teamID: String? { activeTeam.id }
 
     /// The variables that choose a debug build's sign-in account. main strips
     /// inherited CMUX_* variables before anything reads them (LaunchIdentity),
@@ -118,6 +108,7 @@ public final class CloudAuth {
             launch: AuthLaunchOptions(clearAuthRequested: false, mockDataEnabled: false, environment: launchEnvironment,
                                       includesDevAuth: devAuth, replaceStoredSessionWithAutoLogin: replaceSession)
         )
+        activeTeam = ActiveTeam(source: coordinator)
         callbackRouter = AuthCallbackRouter(extraAllowedScheme: configuration.callbackScheme)
         let coordinator = coordinator
         browserSignIn = HostBrowserSignInFlow(
@@ -179,14 +170,6 @@ public final class CloudAuth {
     public func cancelSignIn() { browserSignIn.cancelSignIn() }
 
     public func signOut() async { await browserSignIn.signOut() }
-
-    /// Selects `id`; refused (false) when the device is restricted to another team.
-    @discardableResult
-    public func selectTeam(_ id: String) -> Bool {
-        guard managedTeamID == nil || id == managedTeamID else { return false }
-        coordinator.selectedTeamID = id
-        return true
-    }
 
     /// Whether `url` is a sign-in callback this build accepts, in any form
     /// (`<scheme>://auth-callback`, `<scheme>:auth-callback`), so URL
