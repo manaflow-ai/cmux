@@ -1,20 +1,4 @@
-public import AppKit
-
-/// A view a toast must never cover (the Home composer and its buttons).
-/// The toast host lifts each toast above every such view in its window
-/// whose rect lies under the toast, and moves shown toasts when one posts
-/// `cmuxToastAvoidanceDidChange`.
-@MainActor
-public protocol CmuxToastAvoiding: NSView {
-    /// The rect toasts stay clear of, in the view's own coordinates.
-    var toastAvoidanceRect: NSRect { get }
-}
-
-extension Notification.Name {
-    /// Posted (object: the view) when a `CmuxToastAvoiding` view's rect
-    /// changes, so shown toasts move clear of it.
-    public static let cmuxToastAvoidanceDidChange = Notification.Name("CmuxNextDesign.toastAvoidanceDidChange")
-}
+import AppKit
 
 extension CmuxToastOverlayHost {
     /// The gap between a toast and the view it avoids.
