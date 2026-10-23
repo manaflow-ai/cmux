@@ -4,9 +4,11 @@ struct OpenPanelDefaults: Sendable {
     var prompt: String
     var message: String
 
-    /// The texts of `panel` as it was made.
-    @MainActor init(of panel: some OpenPanelLabels) {
-        prompt = panel.openPanelPrompt ?? ""
+    /// The texts of `panel` as it was made, or nil when it has no prompt: its view service never answered (no
+    /// GUI session, 2026-10-23), so the panel is not worth keeping. Never unwraps the texts.
+    @MainActor init?(of panel: some OpenPanelLabels) {
+        guard let prompt = panel.openPanelPrompt else { return nil }
+        self.prompt = prompt
         message = panel.openPanelMessage ?? ""
     }
 

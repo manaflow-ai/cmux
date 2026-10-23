@@ -55,9 +55,12 @@ public final class MadeAheadOpenPanel {
         check(after: .seconds(2), triesLeft: 10)
     }
 
+    /// Keeps `panel` for later clicks, unless its view service never answered (no prompt): then the next
+    /// click makes a new one, and the launch goes on.
     private func keep(_ panel: NSOpenPanel) {
+        guard let defaults = OpenPanelDefaults(of: panel) else { return }
         made = panel
-        madeDefaults = OpenPanelDefaults(of: panel)
+        madeDefaults = defaults
     }
 
     private func check(after delay: Duration, triesLeft: Int) {
