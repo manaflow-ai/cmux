@@ -34,7 +34,10 @@ CONTROL = re.compile(r"\.(?:" + "|".join(re.escape(name) for name in CONTROLS) +
 SIZE = re.compile(r"^(?:padding(?:-[a-z-]+)?|height|min-height|block-size|min-block-size|border(?:-[a-z]+)*-radius|gap|column-gap|row-gap)$")
 WIDTH = re.compile(r"^(?:width|min-width|inline-size|min-inline-size)$")
 LAYOUT_WIDTH = re.compile(r"^(?:auto|0|0px|100%|max-content|min-content|fit-content|inherit|initial|unset)$")
-JSX_CONTROLS = set(CONTROLS) - {"acpmux-pill", "acpmux-access-trigger"}
+JSX_CONTROLS = set(CONTROLS) - {"acpmux-pill"}
+# A transcript row is `<article className="acpmux-row acpmux-plan">` (App.tsx): a plain element, not
+# the Plan control. Only an intrinsic element that is not a button (and has no button role) is exempt.
+ROW_HOSTS_NOT_CONTROLS = re.compile(r"^[a-z][\w-]*$")
 
 
 def rules(css):
@@ -229,14 +232,35 @@ def class_attributes(text):
             yield match.start(), text[start + 1:skip_group(text, start) - 1]
 
 
+def owning_tag(text, offset):
+    """The JSX element a className at `offset` belongs to, and its attributes before the className:
+    the last `<Name` opened before it."""
+    opened = None
+    for match in re.finditer(r"<([A-Za-z][\w.-]*)", text[:offset]):
+        opened = match
+    return (opened.group(1), text[opened.end():offset]) if opened else ("", "")
+
+
+def transcript_row(names, tag, attributes):
+    """The one non-control form of a control's class: a transcript row (acpmux-row acpmux-plan)
+    drawn by a plain, non-button element."""
+    return (
+        "acpmux-row" in names
+        and names & JSX_CONTROLS == {"acpmux-plan"}
+        and ROW_HOSTS_NOT_CONTROLS.match(tag) is not None
+        and tag != "button"
+        and not re.search(r"\brole=[\"'{]*button", attributes)
+    )
+
+
 def jsx_failures(path, relative):
     failures = []
     with open(path, encoding="utf-8") as handle:
         text = handle.read()
     for offset, expression in class_attributes(text):
+        tag, attributes = owning_tag(text, offset)
         for names in branches(expression):
-            # A transcript row is `acpmux-row acpmux-plan` (App.tsx): only a button is the Plan control.
-            if names & JSX_CONTROLS and "acpmux-pill" not in names and not ("acpmux-plan" in names and "acpmux-row" in names):
+            if names & JSX_CONTROLS and "acpmux-pill" not in names and not transcript_row(names, tag, attributes):
                 line = text.count("\n", 0, offset) + 1
                 failures.append("%s:%d: %s is a composer control without the pill primitive in one of its class branches (%s); add acpmux-pill (acpmux-pill-icon for a square)"
                                 % (relative, line, ", ".join(sorted(names & JSX_CONTROLS)), " ".join(sorted(names))[:120]))

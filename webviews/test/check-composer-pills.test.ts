@@ -1,8 +1,10 @@
 // The composer pill guard (scripts/cmux-next/check-composer-pills.py; Leo 2026-10-22,
 // ask-d4eed794c9): every composer control is the `.acpmux-pill` primitive. A computed className is
 // checked arm by arm, so a control that drops the primitive in one branch of a ternary, a template or
-// a `cond && "acpmux-pill"` fails, not only one that never names it. Runs the real script on temp
-// trees and on this checkout.
+// a `cond && "acpmux-pill"` fails, not only one that never names it. The one non-control form, a
+// transcript row (`<article className="acpmux-row acpmux-plan">`), is exempt only on a plain element:
+// a Plan or access-trigger button without the primitive fails. Runs the real script on temp trees and
+// on this checkout.
 import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
@@ -14,12 +16,16 @@ setDefaultTimeout(30_000);
 const roots: string[] = [];
 afterAll(() => roots.forEach((root) => rmSync(root, { recursive: true, force: true })));
 
+/** `view` is a whole JSX element, or a className attribute put on a <button>. */
 function run(view: string) {
   const root = mkdtempSync(path.join(tmpdir(), "composer-pills-"));
   roots.push(root);
   const folder = path.join(root, "webviews/src/agent-session/acpmux");
   mkdirSync(folder, { recursive: true });
-  writeFileSync(path.join(folder, "View.tsx"), `export const View = (ok: boolean) => <button ${view} />;\n`);
+  writeFileSync(
+    path.join(folder, "View.tsx"),
+    `export const View = (ok: boolean) => ${view.startsWith("<") ? view : `<button ${view} />`};\n`,
+  );
   const result = spawnSync("python3", ["-I", script, root], { encoding: "utf8" });
   return { status: result.status, out: `${result.stdout}${result.stderr}` };
 }
@@ -30,7 +36,8 @@ describe("check-composer-pills: a control's className, branch by branch", () => 
     'className={ok ? "acpmux-send acpmux-pill" : "acpmux-send acpmux-pill acpmux-pill-icon"}',
     'className={`acpmux-mic acpmux-pill ${ok ? "is-on" : ""}`}',
     'className={cx("acpmux-plan acpmux-pill", ok && "is-on")}',
-    'className="acpmux-row acpmux-plan"',
+    '<article className="acpmux-row acpmux-plan" />',
+    '<span className="acpmux-picker-button acpmux-pill acpmux-access-trigger" />',
   ];
   const failing = [
     'className="acpmux-send"',
@@ -38,6 +45,14 @@ describe("check-composer-pills: a control's className, branch by branch", () => 
     'className={`acpmux-mic ${ok ? "acpmux-pill" : ""}`}',
     'className={["acpmux-fast", ok && "acpmux-pill"].join(" ")}',
     'className={ok ? (ok ? "acpmux-plan acpmux-pill" : "acpmux-plan") : "other"}',
+    // A Plan button is the control, whatever other classes it carries.
+    'className="acpmux-plan"',
+    'className="acpmux-row acpmux-plan"',
+    '<div role="button" className="acpmux-row acpmux-plan" />',
+    '<PlanButton className="acpmux-row acpmux-plan" />',
+    // The permission mode's trigger is a control too, as a button or as the span that draws it.
+    'className="acpmux-access-trigger"',
+    '<span className="acpmux-access-trigger" />',
   ];
   for (const view of passing)
     test(`passes: ${view}`, () => {
