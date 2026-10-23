@@ -45,9 +45,6 @@ final class DiffPageService: InternalPageProvider {
     /// Prefs (`diff.*` settings) and viewed marks (next to the recents), shared by every tab.
     private lazy var stores = DiffPageStores(prefs: SettingsDiffPrefs { [weak services] in services?.settings },
                                              viewed: DiffViewedFiles(url: DiffViewedFiles.standardURL(recents: recentsStore.url)))
-    /// The diff page draws at the display's full rate (120 Hz), as the agent pane does, not
-    /// WebKit's default nearest 60 fps.
-    static let engineOptions = PageEngineOptions(fullFrameRate: true)
     /// Every tab's Stage, Commit and Push (cx-ueuc8), through this Mac's agent git link.
     private lazy var diffGit: any DiffGitRunning = DiffAgentGit(link: services.agentGit.local)
     /// The folder picker of `cmux.diff.chooseFolder`.
@@ -183,7 +180,7 @@ final class DiffPageService: InternalPageProvider {
                                         stores: stores, git: diffGit)
         let native = AppPageNativeProvider(services: services, page: .diff)
         let routes = [PageRoute(prefix: "cmux.diff.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
-        guard let page = PageWebView(descriptor: .diff, routes: routes, options: Self.engineOptions, surface: .diff,
+        guard let page = PageWebView(descriptor: .diff, routes: routes, surface: .diff,
                                      dynamicResources: DiffPatchSource { [weak provider] in provider?.ready }) else {
             ready?.cancel()
             return NSView()

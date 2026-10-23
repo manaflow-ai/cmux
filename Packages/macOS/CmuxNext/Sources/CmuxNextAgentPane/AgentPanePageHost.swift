@@ -12,7 +12,7 @@ enum AgentPanePageHost {
         let page = PageWebView(descriptor: .agent, root: root,
                                routes: [PageRoute(prefix: AgentPageOps.namespace, provider: provider)],
                                documentAttributes: AgentPaneTunables.documentAttributes,
-                               options: PageEngineOptions(fullFrameRate: renderRate != .capped,
+                               options: PageEngineOptions(capsFrameRate: renderRate == .capped,
                                                                   chromiumAgentChat: AgentPaneTunables.chromium.value),
                                chromium: chromium)
         // The composer menu's edits run as the page view's own responder actions.

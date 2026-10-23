@@ -59,8 +59,6 @@ final class FilePageService: InternalPageProvider {
     /// The local live links of the Markdown Share menu, started on the first link.
     private(set) lazy var liveShare = MarkdownLiveShareServer(clock: clock)
 
-    /// The file pages draw at the display's full rate, as the diff and agent pages do.
-    static let engineOptions = PageEngineOptions(fullFrameRate: true)
     /// How long a closed editor tab's page may take to save its pending edits.
     static let flushTimeout: Duration = .seconds(3)
 
@@ -359,7 +357,7 @@ final class FilePageService: InternalPageProvider {
         tab.reveal = nil
         let native = AppPageNativeProvider(services: services, page: kind.descriptor)
         let routes = [PageRoute(prefix: kind.namespace + ".", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
-        guard let page = PageWebView(descriptor: kind.descriptor, routes: routes, options: Self.engineOptions, surface: kind.surface,
+        guard let page = PageWebView(descriptor: kind.descriptor, routes: routes, surface: kind.surface,
                                      dynamicResources: kind == .markdown ? provider : nil) else {
             return NSView()
         }
