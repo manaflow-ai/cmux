@@ -10,11 +10,12 @@ import CmuxNextDesign
 @MainActor
 enum DebugWorkspaceSwitch {
     static let timer = SwitchFrameTimer(owner: "debug.workspace_switch")
-    /// The window whose switch is timed now (a switch is keyed by its window's state).
-    static func began(_ owner: AnyObject) {
-        guard timer.isRecording else { return }
-        let event = NSApp.currentEvent
-        let input = event.flatMap { [.leftMouseDown, .leftMouseUp, .keyDown].contains($0.type) ? $0.timestamp : nil }
+    /// `debug.input_commit` (``InputCommitTimer``): any key or click to its commit, with the workspaces it showed in its turn.
+    static let inputCommit = InputCommitTimer(owner: "debug.input_commit")
+    /// The window whose switch is timed now (a switch is keyed by its window's state); nil: none.
+    static func began(_ owner: AnyObject?) {
+        guard timer.isRecording, let owner else { return }
+        let input = NSApp.currentEvent.flatMap { [.leftMouseDown, .leftMouseUp, .keyDown].contains($0.type) ? $0.timestamp : nil }
         timer.began(ObjectIdentifier(owner), inputTimestamp: input)
     }
 
@@ -26,12 +27,8 @@ enum DebugWorkspaceSwitch {
         if timer.isRecording { timer.setKind(ObjectIdentifier(owner), kind) }
     }
 
-    /// Workspace contents shown since launch (`WindowController.show`), recording or not: an input's
-    /// dispatch that shows one in its own turn moves it (`debug.input_commit` `workspace_shown`).
-    private(set) static var shows = 0
-
     static func shown(_ owner: AnyObject, in window: NSWindow?) {
-        shows &+= 1
+        inputCommit.noteShown()
         if timer.isRecording { timer.shown(ObjectIdentifier(owner), in: window) }
     }
 }
