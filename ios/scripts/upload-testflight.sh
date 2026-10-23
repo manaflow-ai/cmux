@@ -1616,6 +1616,9 @@ if [[ ! -f "$IPA_PATH" ]]; then
   echo "error: IPA was not exported at $IPA_PATH" >&2
   exit 1
 fi
+# The VPN strip runs from a temporary unpack directory; keep the output path
+# absolute so a caller-provided relative CMUX_IOS_UPLOAD_DIR still works.
+IPA_PATH="$(cd "$(dirname "$IPA_PATH")" && pwd)/$(basename "$IPA_PATH")"
 
 if [[ "$APPSTORE_SYSTEM_VPN_DISABLED" -eq 1 ]]; then
   VPN_STRIP_DIR="$(mktemp -d)"
