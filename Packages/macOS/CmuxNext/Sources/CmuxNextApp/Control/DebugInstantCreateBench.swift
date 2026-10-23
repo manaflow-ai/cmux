@@ -6,14 +6,15 @@ import CmuxNextSettings
 private typealias JSON = CmuxNextSettings.JSONValue
 
 /// `debug.new_tab {action: "bench_create", command}` (DEBUG builds): the instant-create budget of
-/// Cmd-N, Cmd-T, Ctrl-` (New Terminal Tab), Cmd-D and Cmd-Shift-D, each driven through the real
-/// key path (`debug.key`).
+/// Cmd-N, Cmd-T, Ctrl-` (New Terminal Tab), Cmd-D, Cmd-Shift-D, Ctrl-Cmd-D (New Column) and Cmd-I
+/// (New Agent Chat), each driven through the real key path (`debug.key`).
 ///
 /// Per run it reports, in ms after the key:
 /// - `key_ms`: the key's synchronous main-thread time (handler included);
 /// - `visible_ms`: the first display frame at which the result shows (Cmd-N: the window shows
-///   another workspace; Cmd-T, Ctrl-`: the focused pane shows another tab; Cmd-D / Cmd-Shift-D: the
-///   window's focused pane is a new pane);
+///   another workspace; Cmd-T, Ctrl-`: the focused pane shows another tab; Cmd-D / Cmd-Shift-D /
+///   New Column: the window's focused pane is a new pane; New Agent Chat: a tab the window did not
+///   show before is in one of its panes, wherever the chat placement puts it);
 /// - `confirmed_ms`: the first frame at which the daemon's object replaced the provisional one
 ///   (no `pending_tab_` id, no provisional pane handle), or null within 5 s;
 /// - `frames_to_visible`: display frames from the key to `visible_ms` (1 = the next frame);
@@ -24,6 +25,7 @@ enum DebugInstantCreateBench {
 
     enum Command: String, CaseIterable {
         case newWorkspace = "new_workspace", newTab = "new_tab", newTerminal = "new_terminal", splitRight = "split_right", splitDown = "split_down"
+        case newColumn = "new_column", newChat = "new_chat"
 
         var key: (String, [String]) {
             switch self {
@@ -32,6 +34,8 @@ enum DebugInstantCreateBench {
             case .newTerminal: ("`", ["control"])
             case .splitRight: ("d", ["command"])
             case .splitDown: ("d", ["command", "shift"])
+            case .newColumn: ("d", ["control", "command"])
+            case .newChat: ("i", ["command"])
             }
         }
     }
@@ -50,7 +54,7 @@ enum DebugInstantCreateBench {
         let keyMilliseconds = BenchSpans.ms(.now - start)
         let visible = await frames.settled(until: { before.changed(command, Probe(controller)) }, start: start, window: 0, deadline: 5_000)
         let confirmed = visible == nil ? nil
-            : await frames.settled(until: { Probe(controller).confirmed(command) }, start: start, window: 0, deadline: 5_000)
+            : await frames.settled(until: { Probe(controller).confirmed(command, since: before) }, start: start, window: 0, deadline: 5_000)
         let spans = BenchSpans.end()
         let stats = frames.stop()
         var refresh = 1_000.0 / 60
@@ -74,6 +78,8 @@ enum DebugInstantCreateBench {
         var paneHandle: UInt64?
         var paneCount: Int
         var tab: String?
+        /// Every tab id the window's panes hold (a new chat may open in another pane or a dock).
+        var tabs: Set<String>
 
         init(_ controller: WindowController) {
             let content = controller.content
@@ -83,21 +89,26 @@ enum DebugInstantCreateBench {
             paneHandle = focused?.pane.handle.rawValue
             paneCount = content?.panes.count ?? 0
             tab = focused?.currentTabKey
+            tabs = Set(content?.panes.values.flatMap { $0.pane.tabs.map(\.id) } ?? [])
         }
 
         func changed(_ command: Command, _ now: Probe) -> Bool {
             switch command {
             case .newWorkspace: now.workspace != nil && now.workspace != workspace
             case .newTab, .newTerminal: now.pane == pane && now.tab != nil && now.tab != tab
-            case .splitRight, .splitDown: now.workspace == workspace && now.pane != pane && now.paneCount > paneCount
+            case .splitRight, .splitDown, .newColumn: now.workspace == workspace && now.pane != pane && now.paneCount > paneCount
+            case .newChat: now.workspace == workspace && !now.tabs.subtracting(tabs).isEmpty
             }
         }
 
-        func confirmed(_ command: Command) -> Bool {
+        func confirmed(_ command: Command, since before: Probe) -> Bool {
             let realTab = tab.map { !$0.hasPrefix(ProvisionalTab.idPrefix) } ?? false
             switch command {
             case .newWorkspace, .newTab, .newTerminal: return realTab
-            case .splitRight, .splitDown: return realTab && (paneHandle ?? .max) < (1 << 62)
+            case .splitRight, .splitDown, .newColumn: return realTab && (paneHandle ?? .max) < (1 << 62)
+            case .newChat:
+                let added = tabs.subtracting(before.tabs)
+                return !added.isEmpty && !added.contains { $0.hasPrefix(ProvisionalTab.idPrefix) }
             }
         }
     }

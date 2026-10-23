@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Cmd-N, Cmd-T, Ctrl-`, Cmd-D and Cmd-Shift-D: key to visible, idle and under load (instant-new-surfaces).
+"""Every create on the key: Cmd-N, Cmd-T, Ctrl-`, Cmd-D, Cmd-Shift-D, Ctrl-Cmd-D (New Column) and Cmd-I
+(New Agent Chat): key to visible, idle and under load (instant-new-surfaces, perf-lead issue 11).
 
 Launches the tagged app itself (no activation, scratch config), makes a terminal workspace, then
 runs `debug.new_tab {action: bench_create, command}` for each command `--runs` times: the key goes
@@ -10,14 +11,29 @@ daemon's object replaced the provisional one (`confirmed_ms`) and its BenchSpans
 Two phases: `idle`, then `load` (every core busy with `yes`, plus `--storm` workers looping the
 tag's CLI against its daemon). With `--budget-frames N` the run fails when any command's p95
 display frame of visibility (1 = the first frame drawn after the key) is above N or a key's main-thread time is above `--budget-key-ms`.
+`--budget-key-p95-ms X` also fails a command whose p95 key main-thread time is above X (perf-lead target: 4 ms).
+
+`--browser-tabs N` first opens N browser tabs (6 per workspace, in workspaces of their own) on pages a
+local HTTP server serves, each with its own title and favicon, so every visit is a history entry with
+an icon: the New Tab page that Cmd-N and Cmd-T build then lists N open tabs and up to 40 history pages
+with favicons, as a working session does. Without it the session holds only the bench's terminals.
+`--browser-engine` (default chromium) picks the engine. Only Chromium tabs get these icons: a WebKit
+tab fetches its icon through BrowserFaviconLoader, which refuses loopback hosts, so with webkit the
+pages and history are there but without icons. Check `debug.cef` first (perf-lead-brief measurement
+validity): a build without the Chromium artifact silently opens WebKit tabs.
+
+Create-on-the-key guard (red before the fix, green after):
+  instant-new-surfaces-bench.py --tag T --app APP --phases idle --browser-tabs 60 \
+    --commands new_workspace,new_tab,new_terminal,split_right,split_down,new_chat \
+    --budget-frames 1 --budget-key-p95-ms 4
 
 `--commands` picks the commands (default all); `--workspaces 10,100` runs every phase again at
 each workspace count (the app holds that many terminal workspaces; the bench's is the shown one).
 
 Usage: instant-new-surfaces-bench.py --tag TAG --app PATH [--runs 12] [--commands new_terminal]
-       [--workspaces 10,100] [--out DIR] [--json FILE]
+       [--workspaces 10,100] [--browser-tabs 60] [--budget-key-p95-ms 4] [--out DIR] [--json FILE]
 """
-import argparse, glob, json, os, re, signal, socket, subprocess, sys, tempfile, time
+import argparse, glob, http.server, json, os, re, signal, socket, struct, subprocess, sys, tempfile, threading, time, zlib
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -25,10 +41,13 @@ parser.add_argument("--app", required=True)
 parser.add_argument("--runs", type=int, default=12)
 parser.add_argument("--storm", type=int, default=8)
 parser.add_argument("--phases", default="idle,load")
-parser.add_argument("--commands", default="split_right,split_down,new_tab,new_terminal,new_workspace")
+parser.add_argument("--commands", default="split_right,split_down,new_tab,new_terminal,new_workspace,new_column,new_chat")
 parser.add_argument("--workspaces", default="", help="comma-separated workspace counts to run every phase at (empty: as launched)")
 parser.add_argument("--budget-frames", type=float, default=0, help="fail when a command's p95 display frame of visibility is above this (1: the first frame; 0: report only)")
 parser.add_argument("--budget-key-ms", type=float, default=16.7)
+parser.add_argument("--budget-key-p95-ms", type=float, default=0, help="fail when a command's p95 key main-thread ms is above this (0: off)")
+parser.add_argument("--browser-tabs", type=int, default=0, help="open this many browser tabs with favicons (and history) before the bench")
+parser.add_argument("--browser-engine", choices=["chromium", "webkit"], default="chromium")
 parser.add_argument("--out", default="/tmp")
 parser.add_argument("--json")
 opts = parser.parse_args()
@@ -204,7 +223,8 @@ def summary(rows):
             vis = [r.get("visible_ms") for r in sel]
             out[f"{phase}/{command}"] = {
                 "n": len(sel), "missed": sum(v is None for v in vis),
-                "key_p50": pct([r.get("key_ms") for r in sel], .5), "key_max": pct([r.get("key_ms") for r in sel], 1),
+                "key_p50": pct([r.get("key_ms") for r in sel], .5), "key_p95": pct([r.get("key_ms") for r in sel], .95),
+                "key_max": pct([r.get("key_ms") for r in sel], 1),
                 "visible_p50": pct(vis, .5), "visible_p95": pct(vis, .95), "visible_max": pct(vis, 1),
                 "frames_p50": pct([frame_of(r) for r in sel], .5),
                 "frames_p95": pct([frame_of(r) for r in sel], .95),
@@ -214,6 +234,55 @@ def summary(rows):
                 "confirmed_p95": pct([r.get("confirmed_ms") for r in sel], .95),
             }
     return out
+
+
+def png(seed):
+    """A 16x16 solid PNG whose color follows `seed`: each page gets its own favicon image."""
+    color = bytes(((seed * 67) % 256, (seed * 131) % 256, (seed * 29 + 90) % 256))
+    raw = b"".join(b"\x00" + color * 16 for _ in range(16))
+    chunk = lambda kind, data: struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 16, 16, 8, 2, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b"")
+
+
+class PageHandler(http.server.BaseHTTPRequestHandler):
+    """/p/N: a page titled "Bench page N" whose icon is /icon/N.png."""
+
+    def do_GET(self):
+        match = re.fullmatch(r"/(p|icon)/(\d+)(?:\.png)?", self.path)
+        if not match:
+            self.send_error(404)
+            return
+        n = int(match.group(2))
+        if match.group(1) == "p":
+            body, kind = f'<!doctype html><title>Bench page {n}</title><link rel="icon" href="/icon/{n}.png"><p>page {n}'.encode(), "text/html"
+        else:
+            body, kind = png(n), "image/png"
+        self.send_response(200)
+        self.send_header("Content-Type", kind)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *args):
+        pass
+
+
+def seed_browser_tabs(count):
+    """`count` browser tabs, 6 per workspace of their own, each on its own page with its own favicon."""
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), PageHandler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+    for index in range(count):
+        if index % 6 == 0:
+            rpc("action.run", {"action": "newTab", "args": {"focus": True, "name": f"bench-web-{index // 6}"}, "wait": True})
+            wait(lambda: (focused() or {}).get("kind") == "terminal", 30)
+        rpc("action.run", {"action": f"openBrowser.{opts.browser_engine}", "args": {"url": f"{base}/p/{index}"}, "focus": True})
+    listed = lambda: sum(str(t.get("title", "")).startswith("Bench page") for t in (rpc("debug.new_tab") or {}).get("omnibar_tabs") or [])
+    seen = wait(lambda: listed() >= count and listed(), 120, step=1)
+    time.sleep(3)  # test harness: the pages' favicons land after their titles
+    print(f"browser tabs ({opts.browser_engine}): {listed()} of {count} listed by the New Tab bar ({seen}); "
+          f"debug.cef: {json.dumps(rpc('debug.cef'))[:400]}", flush=True)
+    return server
 
 
 app = None
@@ -261,6 +330,7 @@ def main():
         sys.exit("the tagged app did not come up")
     time.sleep(2)  # test harness: shell prompt
     window = window_key()
+    server = seed_browser_tabs(opts.browser_tabs) if opts.browser_tabs else None
     rows = []
     counts = [int(c) for c in opts.workspaces.split(",") if c] or [None]
     for count in counts:
@@ -279,9 +349,16 @@ def main():
     print("\nSUMMARY", json.dumps(result["summary"], indent=1), flush=True)
     if opts.json:
         open(opts.json, "w").write(json.dumps(result, indent=1))
-    if opts.budget_frames:
+    if server:
+        server.shutdown()
+    if opts.budget_frames or opts.budget_key_p95_ms:
         bad = [k for k, v in result["summary"].items()
-               if v["missed"] or (v["frames_p95"] or 99) > opts.budget_frames or (v["key_max"] or 0) > opts.budget_key_ms]
+               if v["missed"] or (opts.budget_frames and (v["frames_p95"] or 99) > opts.budget_frames)
+               or (opts.budget_frames and (v["key_max"] or 0) > opts.budget_key_ms)
+               or (opts.budget_key_p95_ms and (v["key_p95"] or 99) > opts.budget_key_p95_ms)]
+        for k, v in result["summary"].items():
+            print(f"BUDGET {k}: key p50/p95/max {v['key_p50']}/{v['key_p95']}/{v['key_max']} ms, "
+                  f"frame p95 {v['frames_p95']}, missed {v['missed']}", flush=True)
         print("BUDGET", "FAIL " + ", ".join(bad) if bad else "PASS", flush=True)
         return not bad
     return True

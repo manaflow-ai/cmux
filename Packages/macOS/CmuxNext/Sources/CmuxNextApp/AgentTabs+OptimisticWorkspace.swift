@@ -47,9 +47,11 @@ extension AgentTabStore {
                          transaction: transaction)
         }
         seeds[tabKey] = AgentPaneSeedSource(AgentPaneSeed(cwd: cwd))
-        newTabPages[tabKey] = firstPage(cwd: cwd, token: token)
+        newTabPages[tabKey] = BenchSpans.measure("cmdN.page") { firstPage(cwd: cwd, token: token) }
         track(tabKey, in: store)
-        if let spare = takeSpare?(), let page = newTabPages[tabKey]?.page { adoptSpare(spare, key: tabKey, page: page) }
+        BenchSpans.measure("cmdN.adopt") {
+            if let spare = takeSpare?(), let page = newTabPages[tabKey]?.page { adoptSpare(spare, key: tabKey, page: page) }
+        }
         let fail: @MainActor () -> Void = { [weak self] in
             store.rejectIntent(transaction)
             self?.release(tabKey)

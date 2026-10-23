@@ -43,7 +43,7 @@ extension NewTabPage {
             openingPanes.remove(openingKey)
             return
         }
-        var page = Self.page(services, selected: pane.selectedTab, window: pane.view.window, pane: pane)
+        var page = BenchSpans.measure("newTab.page") { Self.page(services, selected: pane.selectedTab, window: pane.view.window, pane: pane) }
         // The page's folder: the selected tab's, or (an empty pane of another machine) its workspace's there.
         let cwd = page.cwd
         page.inputToken = inputToken

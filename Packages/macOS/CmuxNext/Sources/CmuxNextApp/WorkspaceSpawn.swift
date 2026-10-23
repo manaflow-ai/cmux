@@ -164,8 +164,10 @@ struct WorkspaceSpawner {
             let opensPage = WorkspaceCreation.opensPage(spawn, on: daemon, tabs: services.agentTabs)
             let face = SidebarMapping.shared.creatingRow(id: key.rawValue, machine: machine, name: name, opensPage: opensPage)
             SidebarNewRowTimer.shared.began(key.rawValue)
-            PendingWorkspaceRows.shared.add(.init(id: key.rawValue, window: windowID, machine: machine, face: face,
-                                                  slot: spawn.slot, byDefault: rule), name: name)
+            BenchSpans.measure("cmdN.row") {
+                PendingWorkspaceRows.shared.add(.init(id: key.rawValue, window: windowID, machine: machine, face: face,
+                                                      slot: spawn.slot, byDefault: rule), name: name)
+            }
         }
         WorkspaceLanes.shared.prune(windowID ?? "") { services.workspace(id: $0) != nil }
         if let windowID, let name, let instant = shown(key, name: name, window: windowID, rule: rule) { return instant }
@@ -202,8 +204,10 @@ struct WorkspaceSpawner {
         guard services.agentTabs.showsWorkspaceAtOnce(on: daemon) else { return nil }
         // Claimed first, so the reconcile the intent runs places and selects it in this window in this turn;
         // its slot is placed in the turn the daemon's workspace takes the stand-in over.
-        NewWorkspacePlacements.expect(key.rawValue, in: windowID, slot: spawn.slot, byDefault: rule, then: spawn.onListed, windows: windows)
-        windows.claimNew(workspaceID: key.rawValue, window: windowID, frame: frame)
+        BenchSpans.measure("cmdN.claim") {
+            NewWorkspacePlacements.expect(key.rawValue, in: windowID, slot: spawn.slot, byDefault: rule, then: spawn.onListed, windows: windows)
+            windows.claimNew(workspaceID: key.rawValue, window: windowID, frame: frame)
+        }
         guard let shown = services.agentTabs.showWorkspace(key, name: name, index: nil, cwd: cwd, token: spawn.inputToken,
                                                            on: daemon, repair: repair) else { return nil }
         // The keys held since the press may go to its page's field once that reports ready.
