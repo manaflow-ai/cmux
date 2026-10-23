@@ -315,6 +315,7 @@ test("a call's output has Wrap lines and the same preview", async () => {
 
 test("a box wider than its content area marks its right edge until scrolled to the end, inside shadow roots too", async () => {
   const { watchSideways, MORE_RIGHT } = await import("../src/agent-session/acpmux/conversation/sideways");
+  const { SIDEWAYS_ATTRIBUTE } = await import("../src/scrollers");
   const box = window.document.createElement("pre");
   host.append(box);
   const size = (element: Element, scrollWidth: number, clientWidth: number) => {
@@ -330,19 +331,254 @@ test("a box wider than its content area marks its right edge until scrolled to t
   code.setAttribute("data-code", "");
   shadow.append(code);
   size(code, 1200, 300);
+  // A box whose lines fit marks neither.
+  const fits = window.document.createElement("pre");
+  box.append(fits);
+  size(fits, 300, 300);
   const stop = watchSideways(box);
+  const stopFits = watchSideways(fits);
   try {
     expect(box.hasAttribute(MORE_RIGHT)).toBe(true);
     expect(code.hasAttribute(MORE_RIGHT)).toBe(true);
+    // Both scroll sideways, so both keep their thumb at rest (scrollers.ts SIDEWAYS_ATTRIBUTE).
+    expect([box.hasAttribute(SIDEWAYS_ATTRIBUTE), code.hasAttribute(SIDEWAYS_ATTRIBUTE)]).toEqual([true, true]);
+    expect([fits.hasAttribute(MORE_RIGHT), fits.hasAttribute(SIDEWAYS_ATTRIBUTE)]).toEqual([false, false]);
     box.scrollLeft = 600;
     box.dispatchEvent(new window.Event("scroll"));
     expect(box.hasAttribute(MORE_RIGHT)).toBe(false);
     code.scrollLeft = 900;
     code.dispatchEvent(new window.Event("scroll"));
     expect(code.hasAttribute(MORE_RIGHT)).toBe(false);
+    // Scrolled to the end they still scroll: the thumb stays.
+    expect([box.hasAttribute(SIDEWAYS_ATTRIBUTE), code.hasAttribute(SIDEWAYS_ATTRIBUTE)]).toEqual([true, true]);
   } finally {
+    stopFits();
     stop();
     box.remove();
+  }
+});
+
+test("a token streamed into one block of a long transcript measures that block once a frame, never the others", async () => {
+  const { watchSideways } = await import("../src/agent-session/acpmux/conversation/sideways");
+  const document = window.document;
+  // A transcript of many blocks of many lines, each watched as BlockParts.tsx does, one of them
+  // with Pierre's shadow root (a diff), counting every width read and every element walked.
+  const BLOCKS = 200;
+  const LINES = 20;
+  const reads = new Map<Element, number>();
+  const counted = (element: Element, scrollWidth: number, clientWidth: number) => {
+    const read = (value: number) => () => (reads.set(element, (reads.get(element) ?? 0) + 1), value);
+    Object.defineProperty(element, "scrollWidth", { configurable: true, get: read(scrollWidth) });
+    Object.defineProperty(element, "clientWidth", { configurable: true, get: read(clientWidth) });
+  };
+  const transcript = document.createElement("div");
+  host.append(transcript);
+  const bodies: HTMLElement[] = [];
+  for (let block = 0; block < BLOCKS; block++) {
+    const body = document.createElement("pre");
+    for (let line = 0; line < LINES; line++) {
+      const span = document.createElement("span");
+      span.className = "cv-line";
+      span.textContent = `line ${line}`;
+      body.append(span);
+    }
+    counted(body, 300, 300);
+    transcript.append(body);
+    bodies.push(body);
+  }
+  // A custom element of its own: the earlier tests' Pierre defines `diffs-container`, which makes
+  // its own shadow root.
+  const diff = document.createElement("cmux-test-diff");
+  bodies[3]!.append(diff);
+  const code = document.createElement("div");
+  code.setAttribute("data-code", "");
+  for (let line = 0; line < LINES; line++) code.append(document.createElement("div"));
+  diff.attachShadow({ mode: "open" }).append(code);
+  counted(code, 300, 300);
+  const stops = bodies.map((body) => watchSideways(body));
+  const walked = { elements: 0 };
+  const queryAll = window.Element.prototype.querySelectorAll;
+  const queryAllFragment = window.DocumentFragment.prototype.querySelectorAll;
+  try {
+    window.Element.prototype.querySelectorAll = function (this: Element, selectors: string) {
+      const found = queryAll.call(this, selectors);
+      walked.elements += found.length;
+      return found;
+    } as typeof queryAll;
+    window.DocumentFragment.prototype.querySelectorAll = function (this: DocumentFragment, selectors: string) {
+      const found = queryAllFragment.call(this, selectors);
+      walked.elements += found.length;
+      return found;
+    } as typeof queryAllFragment;
+    reads.clear();
+    const streamed = bodies[100]!;
+    const line = streamed.children[LINES - 1]!;
+    const nextFrame = () => new Promise((resolve) => window.requestAnimationFrame(resolve));
+    // Fifty tokens, each its own change, inside one frame: nothing is measured yet.
+    for (let token = 0; token < 50; token++) {
+      line.append(document.createTextNode(` token${token}`));
+      await Promise.resolve();
+      await Promise.resolve();
+    }
+    const duringStream = reads.size;
+    await nextFrame();
+    await nextFrame();
+    const measured = [...reads.keys()].map((element) => bodies.indexOf(element as HTMLElement));
+    expect({ duringStream, measured }).toEqual({ duringStream: 0, measured: [100] });
+    // Once (both widths) for the fifty tokens.
+    expect(reads.get(streamed)).toBeLessThanOrEqual(4);
+    // No token walks the block's lines, nor any other block's.
+    expect(walked.elements).toBeLessThan(LINES);
+    // A token in the diff's shadow root measures only the diff's code box.
+    reads.clear();
+    code.lastElementChild!.append(document.createTextNode(" token"));
+    await Promise.resolve();
+    await nextFrame();
+    await nextFrame();
+    expect([...reads.keys()]).toEqual([code]);
+  } finally {
+    window.Element.prototype.querySelectorAll = queryAll;
+    window.DocumentFragment.prototype.querySelectorAll = queryAllFragment;
+    for (const stop of stops) stop();
+    transcript.remove();
+  }
+});
+
+test("a Pierre host removed from a block takes its shadow root's watching with it, and stop ends the rest", async () => {
+  const { watchSideways } = await import("../src/agent-session/acpmux/conversation/sideways");
+  const document = window.document;
+  const page = window as unknown as Record<string, unknown>;
+  // What the watcher holds, counted: scroll listeners, boxes the size observer watches, roots the
+  // change observers watch, and every width read of a detached box.
+  const listeners = { scroll: 0 };
+  const sized = new Set<{ targets: Set<Element>; callback: (entries: { target: Element }[]) => void }>();
+  const roots = new Set<Set<Node>>();
+  const detachedReads = { count: 0 };
+  const held = () => ({
+    scroll: listeners.scroll,
+    sized: [...sized].reduce((sum, { targets }) => sum + targets.size, 0),
+    roots: [...roots].reduce((sum, targets) => sum + targets.size, 0),
+  });
+  const Mutations = window.MutationObserver;
+  const add = window.EventTarget.prototype.addEventListener;
+  const remove = window.EventTarget.prototype.removeEventListener;
+  // Pierre drawing into a host resizes it.
+  const resized = (target: Element) => {
+    for (const { targets, callback } of sized) if (targets.has(target)) callback([{ target }]);
+  };
+  page.ResizeObserver = class {
+    targets = new Set<Element>();
+    constructor(callback: (entries: { target: Element }[]) => void) {
+      sized.add({ targets: this.targets, callback });
+    }
+    observe(target: Element) {
+      this.targets.add(target);
+    }
+    unobserve(target: Element) {
+      this.targets.delete(target);
+    }
+    disconnect() {
+      this.targets.clear();
+    }
+  };
+  page.MutationObserver = class {
+    inner: MutationObserver;
+    targets = new Set<Node>();
+    constructor(callback: MutationCallback) {
+      this.inner = new Mutations(callback);
+      roots.add(this.targets);
+    }
+    observe(target: Node, options: MutationObserverInit) {
+      this.inner.observe(target, options);
+      this.targets.add(target);
+    }
+    disconnect() {
+      this.inner.disconnect();
+      this.targets.clear();
+    }
+  };
+  type Listener = EventListenerOrEventListenerObject | null;
+  window.EventTarget.prototype.addEventListener = function (
+    this: EventTarget,
+    type: string,
+    listener: Listener,
+    options?: boolean | AddEventListenerOptions,
+  ) {
+    if (type === "scroll") listeners.scroll++;
+    add.call(this, type, listener, options);
+  } as typeof add;
+  window.EventTarget.prototype.removeEventListener = function (
+    this: EventTarget,
+    type: string,
+    listener: Listener,
+    options?: boolean | EventListenerOptions,
+  ) {
+    if (type === "scroll") listeners.scroll--;
+    remove.call(this, type, listener, options);
+  } as typeof remove;
+  const nextFrame = () => new Promise((resolve) => window.requestAnimationFrame(resolve));
+  const settle = async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+    await nextFrame();
+  };
+  const body = document.createElement("pre");
+  host.append(body);
+  let stop: (() => void) | undefined;
+  try {
+    stop = watchSideways(body);
+    const mounted = held();
+    for (let round = 0; round < 6; round++) {
+      // Pierre's host, its shadow root attached before it is drawn in or after (every other round).
+      const pierre = document.createElement("cmux-test-pierre");
+      const code = document.createElement("div");
+      code.setAttribute("data-code", "");
+      code.append(document.createElement("div"));
+      for (const name of ["scrollWidth", "clientWidth"] as const)
+        Object.defineProperty(code, name, {
+          configurable: true,
+          get: () => {
+            if (!code.isConnected) detachedReads.count++;
+            return name === "scrollWidth" ? 900 : 300;
+          },
+        });
+      if (round % 2 === 0) pierre.attachShadow({ mode: "open" }).append(code);
+      body.append(pierre);
+      await settle();
+      if (round % 2 === 1) {
+        pierre.attachShadow({ mode: "open" }).append(code);
+        resized(pierre);
+        await settle();
+      }
+      expect(held()).toEqual({ scroll: mounted.scroll + 1, sized: mounted.sized + 2, roots: mounted.roots + 1 });
+      pierre.remove();
+      await settle();
+      // Pierre redraws the detached root: nothing measures it.
+      code.append(document.createElement("div"));
+      await settle();
+      expect({ round, ...held(), detachedReads: detachedReads.count }).toEqual({
+        round,
+        ...mounted,
+        detachedReads: 0,
+      });
+    }
+    // A host removed before its shadow root comes is let go too.
+    const late = document.createElement("cmux-test-pierre");
+    body.append(late);
+    await settle();
+    late.remove();
+    await settle();
+    expect(held()).toEqual(mounted);
+    stop();
+    stop = undefined;
+    expect(held()).toEqual({ scroll: 0, sized: 0, roots: 0 });
+  } finally {
+    stop?.();
+    delete page.ResizeObserver;
+    page.MutationObserver = Mutations;
+    window.EventTarget.prototype.addEventListener = add;
+    window.EventTarget.prototype.removeEventListener = remove;
+    body.remove();
   }
 });
 
@@ -357,7 +593,11 @@ test("the cuts are fades, a wrapped line hangs, and Pierre's rows get both", asy
   // The preview's bottom edge and the overflow's right edge fade out (a mask), never a hard edge.
   expect(rule(/\[data-preview="cut"\]/)).toMatch(/--cv-fade-bottom:\s*\d/);
   expect(rule(/\[data-more-right\]/)).toMatch(/--cv-fade-right:\s*\d/);
-  expect(css).toMatch(/mask-image:\s*linear-gradient\(to bottom[^;]*var\(--cv-fade-bottom/);
+  expect(css).toMatch(/mask-image:\s*linear-gradient\(\s*to bottom[^;]*var\(--cv-fade-bottom/);
+  // The fade ends above the sideways scrollbar's lane, and the bar in it stays opaque.
+  expect(css).toMatch(
+    /linear-gradient\(\s*to bottom[^;]*transparent calc\(100% - var\(--cv-lane[^;]*#000 calc\(100% - var\(--cv-bar/,
+  );
   expect(css).toMatch(/linear-gradient\(to left[^;]*var\(--cv-fade-right/);
   // A wrapped line hangs: its second row starts further in than its first.
   expect(rule(/\[data-wrap="true"\] \.cv-line/)).toMatch(/text-indent:\s*-/);

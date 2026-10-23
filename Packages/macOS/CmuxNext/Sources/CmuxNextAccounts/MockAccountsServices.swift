@@ -23,6 +23,8 @@ public final class MockAccountsServices: AccountsServices {
     public var failure: (any Error)?
     /// Fails only the account list (CodeRouter answered the add or remove, then not the reload).
     public var linkedFailure: (any Error)?
+    /// False: no local pane, so a login or logout opens nothing.
+    public var opensTabs = true
     public private(set) var calls: [String] = []
 
     public init() {}
@@ -77,8 +79,10 @@ public final class MockAccountsServices: AccountsServices {
         linked.removeAll { $0.id == account.id }
     }
 
-    public func reauthenticate(_ provider: AIProvider, plan: ReauthPlan) {
-        calls.append("reauth:\(provider.rawValue)")
+    @discardableResult
+    public func reauthenticate(_ provider: AIProvider, plan: ReauthPlan) -> Bool {
+        calls.append(plan == provider.signOutPlan ? "signOut:\(provider.rawValue)" : "reauth:\(provider.rawValue)")
+        return opensTabs
     }
 
     public func runClaudeSetupToken() { calls.append("setupToken") }

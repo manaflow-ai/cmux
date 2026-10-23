@@ -37,6 +37,7 @@ enum TunableCatalog {
             + AgentActivityTunables.all + TasksTunables.all + AppsTunables.all + PageTunables.all + AgentPaneTunables.all + PaletteTunables.all + ServerTunables.all + FeedTunables.all
             + SettingsPresentation.tunables + NewTabTunables.all + WhatsNewTunables.all + WorkspaceAutoNameTunables.all + QuickComposerTunables.all + HomeTunables.all + HomeTunables.headerPanels + [SidebarToggleIcon.tunable.descriptor] + BrowserImportTunables.all + NavigationTunables.all + BrowserResizeTunables.all + BrowserPageTunables.all + AccountTunables.all
             + TitlebarHistoryTunables.all + HibernationTunables.all
+            + HangFileTunables.all + HostPressureTunables.all
     }
 }
 
@@ -163,7 +164,7 @@ final class DebugSettingsService: InternalPageProvider {
     /// (`DebugSettingsWindowController`), so the page needs no title bar inset.
     private func webPage(model: DebugSettingsModel) -> PageWebView? {
         guard PageTunables.debugSettings.value == .web else { return nil }
-        let provider = DebugSettingsPageProvider(model: model)
+        let provider = DebugSettingsPageProvider(model: model, hangs: services.quit.watchdog?.episodes)
         let native = AppPageNativeProvider(services: services, page: .debugSettings)
         let routes = [PageRoute(prefix: "cmux.debug.tunables.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
         guard let page = PageWebView(descriptor: .debugSettings, routes: routes) else { return nil }

@@ -78,6 +78,7 @@ final class ThemeCoordinator {
     private var chromeObservation: Task<Void, Never>?
     private var accentObservation: Task<Void, Never>?
     private var artAccentObservation: Task<Void, Never>?
+    private var machineColorsObservation: Task<Void, Never>?
 
     /// Follows `appearance.appTheme`: the app theme pages get (`--cmux-app-*`, `WebTheme`),
     /// resolved like the other theme levels (the variant for the system appearance, the user's
@@ -107,6 +108,11 @@ final class ThemeCoordinator {
                 self.chromeTheme = theme
                 self.applyChromeTheme()
             }
+        }
+        // `appearance.machineColors`: every machine mark reads the store's picks (MachineColor).
+        ThemeStore.shared.setMachineColors(settings.applied.machineColors)
+        machineColorsObservation = Task {
+            for await colors in ObservationStream({ settings.applied.machineColors }) { ThemeStore.shared.setMachineColors(colors) }
         }
     }
 
@@ -173,7 +179,7 @@ final class ThemeCoordinator {
                     + [String(describing: store.personal.terminalThemes), String(describing: terminalThemes.themes),
                        String(describing: workspaceBackgrounds.backgrounds), String(describing: workspaceOpacities.backgrounds),
                        String(describing: appearanceScopes.backgrounds),
-                       String(store.identity?.supports(DaemonCapabilities.shared.personalTerminals) ?? false)]
+                       String(store.identity?.supports(DaemonCapabilities.personalTerminals) ?? false)]
             }) {
                 self?.migrateTerminalThemes()
                 self?.apply()

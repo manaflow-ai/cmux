@@ -6,6 +6,7 @@ mod agent_wrapper;
 mod agents_doctor;
 mod app_control;
 mod attach;
+mod billing;
 mod browser;
 mod cli_connection;
 mod coderouter;
@@ -36,6 +37,7 @@ pub(crate) use agent_wrapper::AgentWrapperMessages;
 pub(crate) use agents_doctor::AgentsDoctorMessages;
 pub(crate) use app_control::{AppControlMessages, VersionLabels};
 pub(crate) use attach::AttachMessages;
+pub(crate) use billing::BillingMessages;
 pub(crate) use browser::BrowserMessages;
 pub(crate) use cli_connection::CliConnectionMessages;
 pub(crate) use coderouter::CodeRouterMessages;
@@ -149,6 +151,7 @@ pub(crate) struct Catalog {
     pub agents_doctor: AgentsDoctorMessages,
     pub app_control: AppControlMessages,
     pub coderouter: CodeRouterMessages,
+    pub billing: BillingMessages,
     pub update_notice: UpdateNoticeMessages,
 }
 
@@ -162,6 +165,7 @@ impl Catalog {
 static ENGLISH: Catalog = Catalog {
     japanese: false,
     coderouter: coderouter::ENGLISH,
+    billing: billing::ENGLISH,
     update_notice: update_notice::ENGLISH,
     app_control: app_control::ENGLISH,
     agent_wrapper: agent_wrapper::ENGLISH,
@@ -193,6 +197,7 @@ static ENGLISH: Catalog = Catalog {
 static JAPANESE: Catalog = Catalog {
     japanese: true,
     coderouter: coderouter::JAPANESE,
+    billing: billing::JAPANESE,
     update_notice: update_notice::JAPANESE,
     app_control: app_control::JAPANESE,
     agent_wrapper: agent_wrapper::JAPANESE,

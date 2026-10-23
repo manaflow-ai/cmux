@@ -47,6 +47,8 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     let events: AsyncStream<TerminalIOEvent>
     private let driver: TerminalAttachDriver<TerminalAttachment>
     private let creatingInput: CreatingTerminalInput?
+    /// The id of the terminal still being created whose keys go to the daemon by id, nil otherwise.
+    var creatingTerminalID: String? { creatingInput?.terminalID }
 
     /// - Parameter policyBlocked: true while an administrator turned off the
     ///   feature that reaches this terminal's machine: every disconnect shows

@@ -117,13 +117,14 @@ extension AppActions {
     private static func newWorkspace(_ services: AppServices, _ invocation: ActionInvocation) {
         SidebarNewRowTimer.shared.pressed() // debug.new_workspace times the row from here
         var spawn = WorkspaceSpawn(invocation)
+        spawn.followClassicMode(services) // before the key hold below, which waits only for a page
         let focus = NewWorkspaceFocus(invocation)
         let show = focus.shows
         // A person's Cmd-N starts where they work: the focused terminal's folder or the focused
         // agent chat's exact folder, unless `window-inherit-working-directory = false`.
         if invocation.origin == .user, invocation["machine"] == nil, NewTerminalStart.inherits(.window),
            let focused = services.windows.active?.focusedPane, focused.daemon === services.daemon {
-            spawn.inheritedCwd = NewTerminalStart.folder(of: focused.selectedTab, services: services)
+            spawn.inheritedCwd = NewTerminalStart.inherited(besides: focused.selectedTab, in: focused.pane, services: services)
         }
 
         let windows = services.windows

@@ -165,6 +165,13 @@ extension KeyRouter {
             && registry.descriptor(for: id)?.requires.contains(.browserFocused) == true
     }
 
+    /// Chromium's report that the page left a key-down unhandled: runs the cmux action the
+    /// dispatcher held for it (``runUnhandledPageKey(_:)``), such as Find after a page that has
+    /// no search of its own.
+    func browserTab(_ tab: any BrowserTab, unhandledKeyEquivalent event: NSEvent) -> Bool {
+        runUnhandledPageKey(event)
+    }
+
     func pageOwnsAllKeys(_ tab: any BrowserTab) -> Bool {
         window(showing: tab)?.focus.state.isBrowserFocusModeActive ?? false
     }

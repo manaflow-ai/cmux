@@ -40,11 +40,12 @@ import Testing
         }
     }
 
-    /// An update state keeps its detail as the tooltip (the badge already shows the words).
+    /// An optional update shows no words on the header (Lawrence 2026-10-21): the tooltip names it
+    /// with its detail.
     @Test func anUpdateStateKeepsItsDetail() {
         let detail = "cmux-tui 0.9 on build-box lacks agent tabs."
         let view = Self.header(SidebarMachine(id: MachineID("box"), name: "build-box", kind: .ssh, status: .updateAvailable, detail: detail))
-        #expect(view.themedToolTip == detail)
+        #expect(view.themedToolTip == Strings.statusUpdateAvailable + " — " + detail)
         #expect(SectionHeaderRowView.statusToolTip(words: Strings.statusOffline, detail: detail, bareDot: true)
             == Strings.statusOffline + " — " + detail)
     }

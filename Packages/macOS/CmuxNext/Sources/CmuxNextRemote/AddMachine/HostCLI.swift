@@ -42,6 +42,15 @@ public struct HostCLI: Sendable {
         return Data(result.stdout.utf8)
     }
 
+    /// The stdout of one short `cmux-tui <arguments>` run that prints JSON (`device list --json`,
+    /// `device remove ID --yes --json`); nil when it failed or passed `deadline`.
+    public func json(_ arguments: [String], deadline: Duration = .seconds(20), label: String) async -> Data? {
+        guard let result = try? await SSHProcessRunner.run([binary.path] + arguments, environment: await Self.grouped(environment()),
+                                                           deadline: deadline, label: label, stop: Self.stop),
+              result.status == 0 else { return nil }
+        return Data(result.stdout.utf8)
+    }
+
     /// The stdout lines of `cmux-tui <arguments>` (an `acp host enroll|doctor --json` run). A run that
     /// exits non-zero ends the stream with ``HostCLIStop``; a run whose report says not ok exits
     /// non-zero too, after its report line.

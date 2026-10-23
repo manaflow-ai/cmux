@@ -97,6 +97,15 @@ final class MachineRegistry {
         session(machineID)?.machine.title ?? sshSession(machineID)?.host.label ?? server(machineID)?.name
     }
 
+    /// The name a tab's machine badge takes its color from (`TabItem.machineName`): the sidebar
+    /// name of `machineID` when `badge` is that machine's short name (an SSH host's badge shows
+    /// its destination, the sidebar its label), so the tab wears its rows' MachineColor. Nil for
+    /// any other badge (a "this Mac" chip) or a machine not known here: the badge's own text.
+    func tabColorName(_ machineID: String?, badge: String?) -> String? {
+        guard let machineID, let badge, badge == machineBadge(machineID) else { return nil }
+        return machineName(machineID)
+    }
+
     /// What `daemon` can do for the app. A remote daemon never needs the
     /// home-only capabilities, nor, once the local daemon keeps personal
     /// state (`profiles-v1`), workspace groups and saved tab groups.
@@ -107,9 +116,9 @@ final class MachineRegistry {
     /// from the app's own tree still read as limited).
     func compatibility(of daemon: DaemonService) -> DaemonCompatibility? {
         guard !daemon.isLocal else { return daemon.compatibility }
-        var notNeeded = Set(DaemonCapabilities.shared.homeOnly)
-        notNeeded.insert(DaemonCapabilities.shared.terminalReaperActive)
-        if local.supports(DaemonCapabilities.shared.profiles) { notNeeded.formUnion(DaemonCapabilities.shared.personalOnHome) }
+        var notNeeded = Set(DaemonCapabilities.homeOnly)
+        notNeeded.insert(DaemonCapabilities.terminalReaperActive)
+        if local.supports(DaemonCapabilities.profiles) { notNeeded.formUnion(DaemonCapabilities.personalOnHome) }
         return daemon.compatibility(notNeeded: notNeeded)
     }
 

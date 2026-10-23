@@ -4,6 +4,63 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_enum! {
+    HomeGrantableRole {
+        Admin = "admin",
+        Member = "member",
+        ReadOnly = "read_only",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeInboxEntry {
+    pub conversation: ConversationId,
+    pub rev: i64,
+    pub kind: ConversationKind,
+    pub title: String,
+    pub last_seq: i64,
+    pub last_at: Timestamp,
+    pub preview: String,
+    /// Attachments of the last message, for a localized preview ("2 photos"); preview is empty for an attachment-only message.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preview_attachments: Option<HomeInboxEntryPreviewAttachments>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dm_peer: Option<ParticipantId>,
+    pub removed: bool,
+    /// A large group: inbox.list pulls this row from the conversation, and the inbox stream bumps it only when you are named (a mention, your own message, being added or removed).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub large: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub member_count: Option<i64>,
+    pub unread: i64,
+    pub mentions: i64,
+    pub counts_rev: i64,
+    pub pinned: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pin_position: Option<i64>,
+    pub muted: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub muted_until: Option<WireNumber>,
+    pub archived: bool,
+    pub archived_seq: i64,
+    pub marked_unread: bool,
+}
+
+wire_enum! {
+    HomeInboxEntryPreviewAttachmentsKind {
+        Photo = "photo",
+        Video = "video",
+        Audio = "audio",
+        File = "file",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeInboxEntryPreviewAttachments {
+    pub kind: HomeInboxEntryPreviewAttachmentsKind,
+    pub count: i64,
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct HomeInvite {
     pub id: InviteId,
@@ -842,63 +899,5 @@ wire_enum! {
         AutomationRunsList = "automation.runs.list",
         AutomationRun = "automation.run",
         UsageSummary = "usage.summary",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct StepOp {
-    pub r#type: LitOp,
-    pub op: StepOpOp,
-    pub params: Value,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct StepMachine {
-    pub r#type: LitMachine,
-    pub machine: MachineId,
-    pub command: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub input_from: Option<i64>,
-    pub timeout_seconds: i64,
-}
-
-wire_enum! {
-    StepAgentHarness {
-        Claude = "claude",
-        Codex = "codex",
-        Opencode = "opencode",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct StepAgent {
-    pub r#type: LitAgent,
-    pub machine: MachineId,
-    pub harness: StepAgentHarness,
-    pub prompt: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub input_from: Option<i64>,
-    pub timeout_seconds: i64,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-#[serde(untagged)]
-pub enum TargetPolicy {
-    CloudVm(TargetPolicyCloudVm),
-    Host(TargetPolicyHost),
-    /// A member this build does not know (a newer backend), kept verbatim.
-    Unknown(Value),
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TargetPolicyCloudVm {
-    pub kind: LitCloudVm,
-}
-
-wire_enum! {
-    TargetPolicyHostFallback {
-        CloudVm = "cloud_vm",
-        Wait = "wait",
-        Fail = "fail",
     }
 }

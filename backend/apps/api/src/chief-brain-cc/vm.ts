@@ -37,9 +37,9 @@ export class CcError extends Error {}
 
 const base = (env: Env) => (env.CHIEF_CC_FREESTYLE_API_URL || API).replace(/\/+$/, "")
 /** One Freestyle API call with the route's key (sandbox.ts uses it too; the key never leaves the Worker). */
-export const freestyle = async (env: Env, method: string, path: string, body?: unknown, ms = CALL_MS): Promise<Response> => {
+export const freestyle = async (env: Env, method: string, path: string, body?: unknown, ms = CALL_MS, headers: Record<string, string> = {}): Promise<Response> => {
   try {
-    return await fetch(`${base(env)}${path}`, { method, redirect: "manual", signal: AbortSignal.timeout(ms), headers: { authorization: `Bearer ${env.CHIEF_CC_FREESTYLE_API_KEY}`, "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) })
+    return await fetch(`${base(env)}${path}`, { method, redirect: "manual", signal: AbortSignal.timeout(ms), headers: { ...headers, authorization: `Bearer ${env.CHIEF_CC_FREESTYLE_API_KEY}`, "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) })
   } catch {
     throw new CcError(`${method} ${path.split("/").slice(0, 3).join("/")}: no answer`)
   }

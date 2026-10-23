@@ -185,17 +185,31 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 cliName: "home archive-chief",
                 surfacePlan: ActionSurfacePlan(palette: .exempt(.noTargetSurface), cli: .offered, contextMenuExemption: .noTargetSurface)
             ),
-            // No keys: Cmd-Shift-[ / ] are Chrome tab keys everywhere, Home too (KeyBindingDefaults.tabSwitching).
+            // On Home the tab keys move through the chat list (Lawrence 2026-10-21): Ctrl-Tab /
+            // Ctrl-Shift-Tab, Cmd-Shift-] / [ and Ctrl-1…9, scoped to the Home page and the docked Home
+            // (KeyBindingDefaults.homeChatSwitching); a Chief opened as a pane tab keeps the tab keys.
             ActionDescriptor(
                 id: "home.previousConversation", title: t("action.home.previousConversation", "Previous Conversation"),
-                keywords: ["home", "conversation", "previous", "person", "people", "chief", "up"],
+                keywords: ["home", "conversation", "previous", "person", "people", "chief", "up", "cycle", "tab"],
+                defaultShortcut: Shortcut("\t", modifiers: [.control, .shift]),
                 category: .window, symbol: "chevron.up", surfaces: [.palette, .keyboard, .menu], mainMenu: .view,
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.focusMove), contextMenuExemption: .focusMove)
             ),
             ActionDescriptor(
                 id: "home.nextConversation", title: t("action.home.nextConversation", "Next Conversation"),
-                keywords: ["home", "conversation", "next", "person", "people", "chief", "down"],
+                keywords: ["home", "conversation", "next", "person", "people", "chief", "down", "cycle", "tab"],
+                defaultShortcut: Shortcut("\t", modifiers: [.control]),
                 category: .window, symbol: "chevron.down", surfaces: [.palette, .keyboard, .menu], mainMenu: .view,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.focusMove), contextMenuExemption: .focusMove)
+            ),
+            // Ctrl-1…9 on Home: the nth conversation in the list, 9 the last (as Select Tab 1…9).
+            ActionDescriptor(
+                id: "home.selectConversationByNumber",
+                title: t("action.home.selectConversationByNumber", "Select Conversation 1…9"),
+                keywords: ["home", "conversation", "chief", "number", "index", "switch", "jump"],
+                defaultShortcut: Shortcut("1", modifiers: [.control]), shortcutFamily: .digits,
+                category: .window, symbol: "number.square", surfaces: [.keyboard],
+                arguments: [CatalogArgument.indexNumber],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.focusMove), contextMenuExemption: .focusMove)
             ),
             ActionDescriptor(

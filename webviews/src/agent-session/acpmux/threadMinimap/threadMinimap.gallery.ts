@@ -3,6 +3,7 @@ import { agentPaneEntry } from "../../../gallery/format";
 import { assistant, chat, summary, user } from "../../../gallery/fixtures/acpmux";
 import { setBookmarkTransport } from "./bookmarks";
 import { threadMinimapLayout } from "./layout.experiment";
+import { LANDING_OFFSET } from "./model";
 
 // The gallery has no acpmux: the chat's marks live in this page, answered as acpmux answers them.
 const galleryMarks = new Map<string, Set<number>>();
@@ -110,7 +111,7 @@ export default agentPaneEntry({
   },
   variants: {
     rest: {
-      note: "At rest mid-thread. Off (the default): no minimap, the left edge empty. Full height: the rail spans the transcript, each prompt a longer tick and each reply a shorter one set in, at its place in the chat, under a bar for the view. Compact: every tick the same 6 px, the prompts on screen brighter.",
+      note: "At rest mid-thread. Compact (the default, the wave): every unbookmarked tick stays a quiet 6 px and the prompts on screen are brighter; only a bookmarked prompt has a white dot. Full height: the rail spans the transcript, each prompt a longer tick and each reply a shorter one set in, at its place in the chat, under a bar for the view. Off: no minimap, the left edge empty.",
       snapshot: chat(rows, { title: "Thread minimap at rest" }),
       play: async (ctx) => {
         if (!ctx.document.querySelector('[data-tick="8"]')) return;
@@ -140,6 +141,21 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-minimap__list[data-fade-top][data-fade-bottom]"));
       },
     },
+    "seventy-prompts-bottom": {
+      note: "Seventy prompts, scrolled back down to the bottom after reading mid-thread. Compact: the rail's list has scrolled to its end with the chat, so the last prompts' ticks show lit at the rail's foot with no fade over them.",
+      snapshot: chat(long, { title: "Thread minimap, a long chat at the bottom" }),
+      play: async (ctx) => {
+        if (!ctx.document.querySelector('[data-tick="40"]')) return;
+        await ctx.scroll({ selector: ".acpmux-scroll" }, 4000);
+        await ctx.scroll({ selector: ".acpmux-scroll" }, 1_000_000);
+        if (ctx.document.querySelector(".acpmux-scrollmap")) return;
+        await ctx.waitFor(
+          () =>
+            !!ctx.document.querySelector('[data-tick="69"][aria-current="true"]') &&
+            !ctx.document.querySelector(".acpmux-minimap__list[data-fade-bottom]"),
+        );
+      },
+    },
     "long-chat": {
       note: "Eighteen prompts as the Codex rail: 10 px rows 16 px from the left edge, the prompts on screen brighter. Hovering row 8 magnifies it and its neighbors (26, 20, 14, 10 px) and opens the preview card 250 ms later, flush right of the row.",
       snapshot: chat(rows, { title: "Thread minimap review" }),
@@ -148,6 +164,44 @@ export default agentPaneEntry({
         if (!ctx.document.querySelector('[data-tick="8"]')) return;
         await ctx.hover({ selector: '[data-tick="8"]' });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-minimap__card"));
+      },
+    },
+    hovered: {
+      note: "Hovering the rail keeps the default cursor and turns only the highlighted tick white; unbookmarked rows do not grow a dot.",
+      snapshot: chat(rows, { title: "Thread minimap hover" }),
+      play: async (ctx) => {
+        if (!ctx.document.querySelector('[data-tick="8"]')) return;
+        await ctx.hover({ selector: '[data-tick="8"]' });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-minimap__rail[data-hovering]"));
+      },
+    },
+    landing: {
+      note: "Clicking row 8 jumps to prompt 8, whose bubble flashes a step brighter (scrollMotion.ts highlightBubble). A still cannot catch the flash in flight, so once the jump lands this state stops it and paints its first color on the landed bubble: the bubble's glass tint over transparent, the backdrop still showing through it, never the opaque base.",
+      snapshot: chat(rows, { title: "Thread minimap landing" }),
+      play: async (ctx) => {
+        // Off (the default arm) draws no minimap, and a narrow base width can hide the rail: skip there.
+        if (!ctx.document.querySelector('[data-tick="8"]')) return;
+        await ctx.click({ selector: '[data-tick="8"]' });
+        // The landed bubble: tick 8's prompt, once the jump has settled it LANDING_OFFSET below the
+        // transcript's top (ThreadMinimap.tsx settleScroll). The wait fails the state if it never lands.
+        const target = rows.filter((row) => row.kind === "user")[8]?.id;
+        let landed: HTMLElement | undefined;
+        await ctx.waitFor(() => {
+          const scroller = ctx.document.querySelector<HTMLElement>(".acpmux-scroll");
+          const bubble = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-row")]
+            .find((node) => node.dataset.rowId === target)
+            ?.querySelector<HTMLElement>(".cv-user__bubble");
+          if (!scroller || !bubble) return false;
+          const offset = bubble.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
+          if (Math.abs(offset - LANDING_OFFSET) > 1) return false;
+          landed = bubble;
+          return true;
+        });
+        if (!landed) return;
+        // The flash animates background-color over the inline fill: stop it so the still shows its first color.
+        for (const animation of landed.getAnimations()) if (animation.id === "acpmux-landing") animation.cancel();
+        landed.style.backgroundColor = getComputedStyle(landed).getPropertyValue("--acpmux-landing-highlight").trim();
+        landed.dataset.galleryLanding = "";
       },
     },
     bookmarked: {

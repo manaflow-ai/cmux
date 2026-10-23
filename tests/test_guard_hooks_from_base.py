@@ -13,6 +13,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -24,6 +25,12 @@ GIT_ENV = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAM
 GUARD = """import json, sys
 json.dump({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
            "permissionDecisionReason": "merge guard %s"}}, sys.stdout)
+"""
+# A stand-in guard that lets the merge through with a warning, as the real guard does for a pending compile.
+HOLD = """import json, sys
+text = "merge guard %s holds nothing; merging anyway"
+json.dump({"systemMessage": text, "hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": text}},
+          sys.stdout)
 """
 WARNING = """import json, sys
 print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": "base merge warning %s"}}))
@@ -126,20 +133,99 @@ class GuardsRunFromTheBase(unittest.TestCase):
         self.assertEqual(code, 0, err)
         self.assertEqual(out["hookSpecificOutput"]["permissionDecisionReason"], "merge guard base v1")
 
-    def test_a_merge_whose_guards_cannot_be_read_is_refused(self):
-        """The merge guard fails closed (it refuses when it can't read GitHub), so the hook does too: a merge it can't
-        judge is denied, never let through with only a stderr line."""
+    def test_a_merge_whose_guards_cannot_be_read_goes_ahead_with_a_warning(self):
+        """The merge guard refuses only a compile that finished red; a merge it can't judge, because GitHub or the
+        guards could not be read, goes ahead with a warning the agent and the person both see (2026-10-21: the
+        guard's timed-out reads held #23660 and #23371 for hours with every gate met)."""
         old = self.old_base()
         git(self.lane, "remote", "set-url", "origin", str(self.tmp / "gone.git"))
         git(self.lane, "update-ref", "refs/remotes/origin/feat-cmux-next", old)
         code, out, err = self.hook("gh pr merge 5 --squash")
         self.assertEqual(code, 0, err)
-        self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")
-        self.assertIn("merge guards did not run", out["hookSpecificOutput"]["permissionDecisionReason"])
+        self.assertNotIn("permissionDecision", out["hookSpecificOutput"])
+        self.assertIn("merge guards did not run", out["hookSpecificOutput"]["additionalContext"])
+        self.assertEqual(out["systemMessage"], out["hookSpecificOutput"]["additionalContext"])
         # The update-branch warning only warns: unreadable, it does not block.
         code, out, err = self.hook("gh api -X PUT repos/manaflow-ai/cmux/pulls/5/update-branch")
         self.assertIsNone(out)
         self.assertNotEqual(code, 2)
+
+    def test_a_base_without_the_guards_lets_a_merge_through_with_a_warning(self):
+        """guards-from-base.sh itself is on the base but the guards are not (`git archive` fails)."""
+        git(self.seed, "rm", "-q", "scripts/ci/merge_compile_guard.py")
+        git(self.seed, "commit", "-qm", "the guard leaves the base")
+        git(self.seed, "push", "-q", "origin", "feat-cmux-next")
+        code, out, err = self.hook("gh pr merge 5 --squash")
+        self.assertEqual(code, 0, err)
+        self.assertNotIn("permissionDecision", out["hookSpecificOutput"])
+        self.assertIn("cannot read the guards", out["systemMessage"])
+        self.assertEqual(out["systemMessage"], out["hookSpecificOutput"]["additionalContext"])
+
+    def land_on_base(self, path: str, text: str) -> None:
+        (self.seed / path).write_text(text)
+        git(self.seed, "commit", "-qam", f"the base changes {path}")
+        git(self.seed, "push", "-q", "origin", "feat-cmux-next")
+
+    def test_a_guard_that_crashes_never_blocks_a_merge(self):
+        """Codex review of #24265: a hook that exits 2 (a bash syntax error does) blocks the tool call in Claude
+        Code, though no compile finished red. Every failure of a guard is a warning."""
+        for broken in ("if then fi\n", "exit 2\n", "exit 3\n"):
+            with self.subTest(hook=broken):
+                self.land_on_base("scripts/ci/merge-compile-guard-hook.sh", broken)
+                code, out, err = self.hook("gh pr merge 5 --squash")
+                self.assertNotEqual(code, 2, err)
+                if out is not None:
+                    self.assertNotIn("permissionDecision", out["hookSpecificOutput"])
+                    self.assertIn("merging anyway", out["systemMessage"])
+        self.land_on_base("scripts/ci/base-merge-warning-hook.sh", "exit 2\n")
+        code, out, err = self.hook("gh api -X PUT repos/manaflow-ai/cmux/pulls/5/update-branch")
+        self.assertNotEqual(code, 2, err)
+
+    def test_the_settings_hook_never_exits_2_when_the_launcher_itself_breaks(self):
+        self.land_on_base("scripts/ci/guards-from-base.sh", "exit 2\n")
+        code, out, err = self.hook("gh pr merge 5 --squash")
+        self.assertNotEqual(code, 2, err)
+
+    def test_a_merge_warning_does_not_hide_the_update_branch_warning(self):
+        """Codex review of #24265: `gh pr merge ...; gh api .../update-branch` used to be refused whole; now the merge
+        may go ahead with a warning, and the update-branch warning must still be said."""
+        self.land_on_base("scripts/ci/merge_compile_guard.py", HOLD % "base v1")
+        code, out, err = self.hook("gh pr merge 5 --squash; gh api -X PUT repos/manaflow-ai/cmux/pulls/5/update-branch")
+        self.assertEqual(code, 0, err)
+        context = out["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("merge guard base v1 holds nothing", context)
+        self.assertIn("base merge warning base v1", context)
+        self.assertNotIn("permissionDecision", out["hookSpecificOutput"])
+        self.assertIn("merge guard base v1 holds nothing", out["systemMessage"])
+
+    def test_a_refusal_still_wins_over_a_warning(self):
+        code, out, err = self.hook("gh pr merge 5 --squash; gh api -X PUT repos/manaflow-ai/cmux/pulls/5/update-branch")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertEqual(out["hookSpecificOutput"]["permissionDecisionReason"], "merge guard base v1")
+
+    def test_a_refusal_in_any_json_spacing_still_refuses(self):
+        """Codex review of #24265 (round 2): the loop matched `"permissionDecision": "deny"` as text, so a valid
+        refusal written with other spacing was merged into a warning and the red compile's refusal was lost."""
+        spaced = GUARD.replace("sys.stdout)", "sys.stdout, separators=(',', ':  '), indent=2)")
+        self.land_on_base("scripts/ci/merge_compile_guard.py", spaced % "base v1")
+        for command in ("gh pr merge 5 --squash",
+                        "gh pr merge 5 --squash; gh api -X PUT repos/manaflow-ai/cmux/pulls/5/update-branch"):
+            with self.subTest(command=command):
+                code, out, err = self.hook(command)
+                self.assertEqual(code, 0, err)
+                self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")
+                self.assertEqual(out["hookSpecificOutput"]["permissionDecisionReason"], "merge guard base v1")
+
+    def test_a_refusal_never_waits_for_the_next_guard(self):
+        """Codex review of #24265 (round 3): both guards ran before the refusal was read, so a slow update-branch
+        warning could run the hook past its timeout with the refusal unprinted, and the merge went through."""
+        self.land_on_base("scripts/ci/base-merge-warning-hook.sh", "sleep 30\n")
+        started = time.monotonic()
+        code, out, err = self.hook("gh pr merge 5 --squash; gh api -X PUT repos/manaflow-ai/cmux/pulls/5/update-branch")
+        self.assertLess(time.monotonic() - started, 20)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")
 
     def old_base(self) -> str:
         """A commit on the base from before the launcher existed."""

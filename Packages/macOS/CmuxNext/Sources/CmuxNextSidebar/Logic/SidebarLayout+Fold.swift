@@ -38,7 +38,7 @@ nonisolated extension SidebarLayout {
         guard group.parent == nil, !(o.foldsDone && group.workspaces.contains { $0.taskStatus == .done }),
               o.rowLimit == 0 || group.members.count <= o.rowLimit + 1,
               !section.nodes.contains(where: { if case let .group(child) = $0 { child.parent == group.id } else { false } }) else { return false }
-        let m = o.minimal ? base.minimal : base
+        let m = base.resolved(for: o)
         let header = rows[headerIndex]
         guard header.section == section.id else { return false }
         // The group's block: its header and the member rows right after it.
@@ -80,6 +80,11 @@ nonisolated extension SidebarLayout {
                 return shown.first(where: { $0.id == member.id }).map { (i, $0) }
             }
             for (n, (childIndex, ws)) in kept.enumerated() { workspaceRow(ws, at: childIndex, last: n == kept.count - 1) }
+        } else if members.isEmpty {
+            // Subgroups and filters already sent the full layout above; the empty row is `make`'s.
+            if Self.listsEmptyRow(group, filtering: false, hasSubgroups: false) {
+                y = Self.appendEmptyRow(group, section: section.id, parent: parent, metrics: m, to: &built, y: y)
+            }
         } else {
             for (childIndex, member) in members.enumerated() {
                 switch member {

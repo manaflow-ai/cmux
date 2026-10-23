@@ -40,6 +40,7 @@ use detached_terminals::require_live_workspace;
 mod effect_store;
 pub(crate) mod feed_local_store;
 pub use compact::{RegistryCompactError, RegistryCompaction, compact_registry};
+mod browser_profile_proxy;
 mod idle_policy_store;
 mod journal_extensions;
 mod mutation_ledger;
@@ -2391,7 +2392,7 @@ fn open_registry_database_with_flags(path: &Path, flags: OpenFlags) -> anyhow::R
 }
 
 pub(crate) fn open_registry_database(path: &Path) -> anyhow::Result<Connection> {
-    open_registry_database_with_flags(path, OpenFlags::default()).map(crate::debug_spans::traced)
+    open_registry_database_with_flags(path, OpenFlags::default()).map(registry_connection::hooked)
 }
 
 fn open_registry_database_read_only(path: &Path) -> anyhow::Result<Connection> {
@@ -3281,6 +3282,23 @@ impl WorkspaceRegistry {
             result: serde_json::from_str(&stored_result)?,
             replayed: true,
         }))
+    }
+
+    /// Make this thread's deferred commits durable: one fully synced commit
+    /// (a write to `meta`, so SQLite flushes the WAL with F_FULLFSYNC). The
+    /// WAL is ordered, so it also makes every earlier commit durable
+    /// (`registry_connection::DeferredDurability`).
+    pub(crate) fn flush_deferred_commits(&mut self) -> anyhow::Result<()> {
+        debug_assert!(!registry_connection::current_thread_commits_deferred());
+        let connection = self.connection.get();
+        let tx = connection.unchecked_transaction()?;
+        tx.execute(
+            "INSERT INTO meta(key, value) VALUES('durability_barrier', '1')
+             ON CONFLICT(key) DO UPDATE SET value = CAST(value AS INTEGER) + 1",
+            [],
+        )?;
+        tx.commit()?;
+        Ok(())
     }
 
     /// Atomically replace the live ordered registry and record the mutation.

@@ -8,7 +8,7 @@ import { installDom } from "./testDom";
 
 const restore = installDom();
 afterAll(() => restore());
-const { renderPage, settle } = await import("./testing");
+const { renderPage, settle, ops } = await import("./testing");
 
 test("General lists the spaces and Browser the browser profiles, with no open-in-window link", async () => {
   // The old section route (`#/settings/rooms`, `app settings rooms`) opens General.
@@ -110,15 +110,77 @@ test("a space and a browser profile with a stored image or SVG icon draw it from
   browser.unmount();
 });
 
-test("Machines offers Add Server…, which opens the Add Server card through the palette's action", async () => {
-  // u3849: pairing left the menu bar; Settings is one of the ways to add a server by hand. The page
-  // passes no code, so it only opens the card and never approves a server itself.
+test("Machines offers Add Device…, which opens the one Add Device card through the palette's action", async () => {
+  // add-device-DESIGN.md 2.2: one entry for every new device. The page passes no way, so it only
+  // opens the card; the card hands off to Add Machine or Add Server and never approves by itself.
   const page = await renderPage({ path: "/settings/machines" });
-  const button = page.container.querySelector<HTMLButtonElement>('[data-card="machines"] [data-add-server]');
+  const button = page.container.querySelector<HTMLButtonElement>('[data-card="machines"] [data-add-device]');
   expect(button).not.toBeNull();
+  expect(button!.textContent).toBe("Add Device…");
+  expect(page.container.querySelector("[data-add-server]")).toBeNull();
   await act(async () => button!.click());
   await settle();
   const run = page.provider.log.filter((entry) => entry.op === "cmux.app.action.run").at(-1)!;
-  expect(run.params).toEqual({ action: "server.addServer", args: {} });
+  expect(run.params).toEqual({ action: "device.add", args: {} });
+  page.unmount();
+});
+
+test("Devices lists every device with its role and state, and the recent activity", async () => {
+  const page = await renderPage({ path: "/settings/machines" });
+  const rows = page.container.querySelectorAll('[data-card="devices"] [data-device-row]');
+  expect(Array.from(rows).map((row) => row.getAttribute("data-device-row"))).toEqual(["peer:mini-7", "phone:p1"]);
+  expect(page.container.textContent).toContain("Runs your agents · Connected");
+  expect(page.container.querySelector("[data-device-activity]")?.textContent).toContain("Added mini-7");
+  page.unmount();
+});
+
+test("Remove asks once more, then removes the device everywhere and the list updates", async () => {
+  const page = await renderPage({ path: "/settings/machines" });
+  const remove = () => page.container.querySelector<HTMLButtonElement>('[data-remove-device="peer:mini-7"]');
+  await act(async () => remove()!.click());
+  await settle();
+  expect(remove()!.textContent).toBe("Remove for Good");
+  expect(page.provider.log.some((entry) => entry.op === "cmux.settings.devices.remove")).toBe(false);
+  await act(async () => remove()!.click());
+  await settle();
+  const call = page.provider.log.filter((entry) => entry.op === "cmux.settings.devices.remove").at(-1)!;
+  expect(call.params).toEqual({ id: "peer:mini-7" });
+  expect(remove()).toBeNull();
+  page.unmount();
+});
+
+// A machine's color (appearance.machineColors): each Machines row shows the color its marks draw in
+// (the sidebar row, the tab badge), a well that picks another, and Automatic, which takes the pick
+// back. The map is keyed by the machine's color key (its name trimmed and lowercased, as the app
+// keys it), and a write keeps every other machine's pick.
+test("a machine row picks its color and Automatic takes the pick back", async () => {
+  const page = await renderPage({
+    path: "/settings/machines",
+    mock: { values: { "appearance.machineColors": { "big-red": "cyan" } } },
+  });
+  const row = () => page.container.querySelector<HTMLElement>('[data-card="machines"] [data-host-row="ssh:build"]')!;
+  const well = () => row().querySelector<HTMLInputElement>('input[type="color"]')!;
+  // Automatic: the well shows the color the app draws, and there is nothing to take back.
+  expect(well().value).toBe("#7f5fa8");
+  expect(row().querySelector("[data-machine-color-reset]")).toBeNull();
+  // The card draws the row: no plain map editor for it below.
+  expect(page.container.querySelector('.row[data-row-key="appearance.machineColors"]')).toBeNull();
+
+  await act(async () => {
+    well().value = "#12ab34";
+    well().dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  await settle();
+  expect(ops(page.provider, "cmux.settings.set")).toEqual([
+    { key: "appearance.machineColors", value: { "big-red": "cyan", "build-mac": "#12ab34" } },
+  ]);
+
+  await act(async () => row().querySelector<HTMLButtonElement>("[data-machine-color-reset]")!.click());
+  await settle();
+  expect(ops(page.provider, "cmux.settings.set").at(-1)).toEqual({
+    key: "appearance.machineColors",
+    value: { "big-red": "cyan" },
+  });
+  expect(row().querySelector("[data-machine-color-reset]")).toBeNull();
   page.unmount();
 });

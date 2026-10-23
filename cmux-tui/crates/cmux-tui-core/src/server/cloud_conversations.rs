@@ -5,6 +5,7 @@
 //! on a worker thread, so a slow cloud never delays the connection's other
 //! requests; their replies are matched by `id`.
 
+use crate::panic_free::JsonFields;
 use std::sync::Arc;
 
 use serde::Deserialize;
@@ -338,11 +339,11 @@ pub(super) fn session_status(mux: &Mux, client: u64) -> anyhow::Result<Value> {
     }
     let mut status = service.session_status();
     if person && let Some((account, project)) = service.lease_person() {
-        status["participant"] = json!(worker_user_id(&project, &account));
+        status.insert("participant", json!(worker_user_id(&project, &account)));
     }
     // A self-hosted server names the person itself (`cloud-selfhost-info`).
     if person && let Some((_, Some(user))) = service.lease_selfhost() {
-        status["participant"] = json!(user);
+        status.insert("participant", json!(user));
     }
     Ok(status)
 }
@@ -360,7 +361,7 @@ fn worker_user_id(project: &str, account: &str) -> String {
     use sha2::{Digest, Sha256};
     let digest = Sha256::digest(format!("stack:{project}:{account}").as_bytes());
     let hex: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
-    format!("user_{}", &hex[..20])
+    format!("user_{}", hex.get(..20).unwrap_or(&hex))
 }
 
 pub(super) fn inbox_list(mux: &Mux, client: u64, params: InboxListParams) -> anyhow::Result<Value> {

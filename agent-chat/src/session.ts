@@ -116,10 +116,21 @@ export interface CwdHarnessResponse {
   requestId?: unknown;
   cwd?: unknown;
   connectionEpoch?: unknown;
+  ok?: unknown;
+  message?: unknown;
+  repositorySlug?: unknown;
 }
 
-/** Only the latest request on the current WebSocket may update visible harnesses. */
-export function acceptsCwdHarnessResponse(
+export interface CwdCheck {
+  ok: boolean;
+  message?: string;
+  repositorySlug?: string;
+  requestId: string;
+  connectionEpoch: number;
+}
+
+/** Only the latest request on the current WebSocket may update visible cwd state. */
+export function acceptsCwdCheckResponse(
   active: CwdHarnessRequest | null,
   response: CwdHarnessResponse,
 ): boolean {
@@ -129,6 +140,33 @@ export function acceptsCwdHarnessResponse(
     && response.cwd === active.cwd
     && response.connectionEpoch === active.connectionEpoch,
   );
+}
+
+/** Only the latest request on the current WebSocket may update visible harnesses. */
+export function acceptsCwdHarnessResponse(
+  active: CwdHarnessRequest | null,
+  response: CwdHarnessResponse,
+): boolean {
+  return acceptsCwdCheckResponse(active, response);
+}
+
+/** Apply a cwd result only when it belongs to the active validation request. */
+export function applyCwdCheckResult(
+  current: Record<string, CwdCheck>,
+  active: CwdHarnessRequest | null,
+  response: CwdHarnessResponse,
+): Record<string, CwdCheck> {
+  if (!acceptsCwdCheckResponse(active, response) || typeof response.cwd !== "string" || !active) return current;
+  return {
+    ...current,
+    [response.cwd]: {
+      ok: Boolean(response.ok),
+      message: typeof response.message === "string" ? response.message : undefined,
+      repositorySlug: typeof response.repositorySlug === "string" ? response.repositorySlug : undefined,
+      requestId: active.requestId,
+      connectionEpoch: active.connectionEpoch,
+    },
+  };
 }
 
 /** Harness recommendations and the cwd they were discovered for. */
@@ -283,7 +321,7 @@ export interface SessionState {
   providerOptions: Record<string, SessionOption[]>;
   providerCommands: Record<string, CommandGroup[]>;
   filesByCwd: Record<string, string[]>;
-  cwdChecks: Record<string, { ok: boolean; message?: string; repositorySlug?: string }>;
+  cwdChecks: Record<string, CwdCheck>;
   fileDiffs: Record<string, string>;
   fileDiffErrors: Record<string, string>;
   lastError: string;
@@ -303,7 +341,7 @@ export interface SessionState {
   requestProviderCommands(provider: string, cwd: string): void;
   requestFiles(cwd: string, query?: string): void;
   requestFileDiff(sessionId: string, path: string): void;
-  checkCwd(cwd: string): void;
+  checkCwd(cwd: string): CwdHarnessRequest | null;
   clearError(): void;
 }
 
@@ -407,7 +445,7 @@ export function useSession(): SessionState {
   const [providerCommands, setProviderCommands] = useState<Record<string, CommandGroup[]>>({});
   const latestCommandRequestsRef = useRef(new Map<string, { requestId: string; cwd: string; pending: boolean }>());
   const [filesByCwd, setFilesByCwd] = useState<Record<string, string[]>>({});
-  const [cwdChecks, setCwdChecks] = useState<Record<string, { ok: boolean; message?: string; repositorySlug?: string }>>({});
+  const [cwdChecks, setCwdChecks] = useState<Record<string, CwdCheck>>({});
   const [fileDiffs, setFileDiffs] = useState<Record<string, string>>({});
   const [fileDiffErrors, setFileDiffErrors] = useState<Record<string, string>>({});
   const [lastError, setLastError] = useState("");
@@ -579,6 +617,7 @@ export function useSession(): SessionState {
             setProviders(h.providers);
             setHarnessCatalogs(h.harnessCatalogs ?? {});
             latestCwdRequestRef.current = null;
+            setCwdChecks({});
             setHarnessSnapshot(helloHarnessSnapshot(h));
             setCapabilities(h.capabilities ?? {});
             setDefaultCwd(h.defaultCwd);
@@ -781,7 +820,11 @@ export function useSession(): SessionState {
             setFilesByCwd((m) => ({ ...m, [msg.cwd]: msg.files ?? [] }));
             break;
           case "cwd-check":
-            setCwdChecks((m) => ({ ...m, [msg.cwd]: { ok: Boolean(msg.ok), message: msg.message, repositorySlug: typeof msg.repositorySlug === "string" ? msg.repositorySlug : undefined } }));
+            {
+              const active = latestCwdRequestRef.current;
+              if (!acceptsCwdCheckResponse(active, msg)) break;
+              setCwdChecks((current) => applyCwdCheckResult(current, active, msg));
+            }
             if (Array.isArray(msg.harnesses) && acceptsCwdHarnessResponse(latestCwdRequestRef.current, msg)) {
               setHarnessSnapshot({ cwd: String(msg.cwd), harnesses: msg.harnesses as HarnessRecommendation[] });
             }
@@ -997,12 +1040,12 @@ export function useSession(): SessionState {
       return next;
     });
   }, [sendRaw]);
-  const checkCwd = useCallback((cwd: string) => {
+  const checkCwd = useCallback((cwd: string): CwdHarnessRequest | null => {
     const requestId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
     const request: CwdHarnessRequest = { requestId, cwd, connectionEpoch };
     latestCwdRequestRef.current = request;
     setHarnessSnapshot((current) => harnessSnapshotForCwdCheck(current, cwd));
-    sendRaw({ op: "check-cwd", ...request });
+    return sendRaw({ op: "check-cwd", ...request }) ? request : null;
   }, [connectionEpoch, sendRaw]);
   const clearError = useCallback(() => setLastError(""), []);
 

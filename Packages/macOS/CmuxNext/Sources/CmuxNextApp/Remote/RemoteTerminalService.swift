@@ -111,15 +111,17 @@ final class RemoteTerminalService {
     /// The placeholder tab `key` shows now, if any.
     func existingPlaceholder(_ key: String) -> RemoteTerminalPlaceholderView? { placeholders[key] }
 
-    /// The machine name on a remote-terminal tab (the subtle machine badge).
-    func badge(for tab: TabModel) -> String? {
-        guard let ref = tab.remote else { return nil }
-        return machineName(ref)
+    /// The machine name on a remote-terminal tab (the subtle machine badge), and the name its
+    /// color comes from (`MachineRegistry.tabColorName`: the machine's sidebar name).
+    func badge(for tab: TabModel) -> (text: String?, colorName: String?) {
+        guard let ref = tab.remote else { return (nil, nil) }
+        let text = machineName(ref)
+        return (text, services.machines.tabColorName(services.machines.daemon(session: ref.sessionID)?.machineID, badge: text))
     }
 
     func machineName(_ ref: RemoteTerminalRef) -> String {
         if let daemon = services.machines.daemon(session: ref.sessionID) {
-            if daemon.isLocal { return daemon.identity?.machineName ?? MacName().kernelHostName() }
+            if daemon.isLocal { return daemon.identity?.machineName ?? MacName().hostName() }
             return services.machines.machineBadge(daemon.machineID) ?? daemon.identity?.machineName ?? ref.sessionName
         }
         return ref.sessionName
@@ -192,7 +194,7 @@ final class RemoteTerminalService {
     }
 
     private func loadSnapshot(into view: RemoteTerminalPlaceholderView, surface: SurfaceID, home: DaemonService) {
-        guard let connection = home.connection, home.supports(DaemonCapabilities.shared.remoteTerminalTabs) else { return }
+        guard let connection = home.connection, home.supports(DaemonCapabilities.remoteTerminalTabs) else { return }
         // task-owner: one bounded read into a weak view; a closed tab drops the result
         Task { [weak view] in
             guard let text = try? await connection.remoteTerminalSnapshot(surface) else { return }
@@ -267,6 +269,22 @@ final class RemoteTerminalService {
     /// terminal's only view.
     func workspaceClosing(_ workspace: WorkspaceModel) {
         for tab in workspace.screens.flatMap(\.panes).flatMap(\.tabs) where tab.kind == .remoteTerminal { viewClosed(tab) }
+    }
+
+    /// Workspaces went into a stash (Save and Close): their remote-terminal
+    /// tabs `tabIDs` stop being followed and drop their surfaces, as a close
+    /// does, but their terminals stay kept on their own sessions, because
+    /// Restore reopens each tab on the same terminal from the stash's record.
+    func stashed(_ tabIDs: [String]) {
+        for tabID in tabIDs {
+            forget(tabID: tabID)
+            services.cache.discardTerminal(tabID)
+        }
+    }
+
+    /// The remote-terminal tabs of `workspace`, every screen.
+    static func remoteTabIDs(in workspace: WorkspaceModel) -> [String] {
+        workspace.screens.flatMap(\.panes).flatMap(\.tabs).filter { $0.kind == .remoteTerminal }.map(\.id)
     }
 
     /// The tab closed or moved away: stop following it.

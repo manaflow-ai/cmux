@@ -4,6 +4,7 @@
 //! between "list" and "subscribe" cannot be missed.
 
 use super::*;
+use crate::no_panic::JsonExt;
 use std::collections::HashMap;
 
 /// What a caller can wait for.
@@ -128,13 +129,16 @@ pub(super) async fn wait(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcErr
                 .unwrap_or(true);
             let hit = seq_ok && until.iter().any(|u| u.matches(&s));
             let mut row = s.clone();
-            row["resolved"] = json!(hit);
-            row["matched"] = json!(
-                until
-                    .iter()
-                    .filter(|u| seq_ok && u.matches(&s))
-                    .map(|u| format!("{u:?}").to_lowercase())
-                    .collect::<Vec<_>>()
+            row.set("resolved", json!(hit));
+            row.set(
+                "matched",
+                json!(
+                    until
+                        .iter()
+                        .filter(|u| seq_ok && u.matches(&s))
+                        .map(|u| format!("{u:?}").to_lowercase())
+                        .collect::<Vec<_>>()
+                ),
             );
             if hit {
                 resolved.push(row.clone());

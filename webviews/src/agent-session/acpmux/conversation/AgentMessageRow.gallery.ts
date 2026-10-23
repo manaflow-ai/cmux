@@ -42,6 +42,48 @@ const gridAgent = (minutes: number) =>
     ],
   });
 
+// Two background subagents, each sent a message by its agentId as Claude Code's SendMessage
+// writes it (`to` and `recipient` both the id), and a third id whose Agent call is not in the
+// loaded transcript: the first two read by their descriptions, the third as a short id, and each
+// chip's tooltip holds the full id.
+const REVIEW_ID = "a997582716e0ae335";
+const UNNAMED_ID = "a5b7309ddf7afa44d";
+const backgroundAgent = (id: string, name: string, agentId: string, minutes: number) => ({
+  id: `gallery-session/${id}`,
+  parent: null,
+  name,
+  task: name,
+  kind: "general-purpose",
+  state: "cancelled",
+  startedAt: minutesAgo(minutes),
+  endedAt: minutesAgo(minutes - 4),
+  background: true,
+  agentId,
+});
+const subagentSend = (to: string, message: string, summary: string) =>
+  tool("SendMessage", "other", "completed", {
+    inputSummary: JSON.stringify({ to, recipient: to, recipient_kind: "agent", type: "message", summary, message }),
+    output: JSON.stringify({ success: true, message: `Message queued for delivery to ${to} at its next tool round.` }),
+  });
+const subagentSends = () =>
+  chat([
+    user("Resume both subagents where they stopped.", 12),
+    row(SUBAGENTS, 12, {
+      subagents: [
+        backgroundAgent("toolu_grid", "Fix grid jump", AGENT_ID, 12),
+        backgroundAgent("toolu_review", "Review and merge the release notes PR", REVIEW_ID, 11.5),
+      ],
+    }),
+    activity(
+      [
+        subagentSend(AGENT_ID, "Resume: carry on from where you stopped, then report in 5 lines.", "Resume grid fix"),
+        subagentSend(REVIEW_ID, "Resume: finish the review and merge it (squash). Report in 3 lines.", "Resume review"),
+        subagentSend(UNNAMED_ID, "Resume: rerun the pre-push check and report.", "Resume pre-push check"),
+      ],
+      2.9,
+    ),
+  ]);
+
 const QUEUED = JSON.stringify({
   success: true,
   message: `Message queued for delivery to ${AGENT_ID} at its next tool round.`,
@@ -89,6 +131,70 @@ const sends = () =>
     ),
   ]);
 
+const STOPPED_ID = "a5b7309ddf7afa44d";
+const stoppedAgent = (minutes: number) =>
+  row(SUBAGENTS, minutes, {
+    subagents: [
+      {
+        id: "gallery-session/toolu_cap",
+        parent: null,
+        name: "Time-cap pre-push owner check",
+        task: "Time-cap pre-push owner check",
+        kind: "general-purpose",
+        state: "cancelled",
+        startedAt: minutesAgo(minutes),
+        endedAt: minutesAgo(minutes - 1),
+        agentId: STOPPED_ID,
+      },
+    ],
+  });
+
+// A coordinator's chat: one message delivered, one to an agent the person stopped, and a lane's
+// message back.
+const outcomes = () =>
+  chat([
+    user("Check on the pre-push lane and the grid lane", 6),
+    gridAgent(6),
+    stoppedAgent(6),
+    activity(
+      [
+        sendMessage(
+          AGENT_ID,
+          "Rebase on the base branch, then rerun the grid tests.",
+          "completed",
+          JSON.stringify({ success: true, message: `Message delivered to ${AGENT_ID}.` }),
+        ),
+      ],
+      4,
+    ),
+    activity(
+      [
+        sendMessage(
+          STOPPED_ID,
+          "Cap the owner check at 45 s and say so in the hook's output.",
+          "completed",
+          JSON.stringify({
+            success: false,
+            message: `Agent ${STOPPED_ID} was stopped by the user and won't be resumed.`,
+          }),
+        ),
+      ],
+      3.9,
+    ),
+    user("Grid fix is rebased; tests pass.", 2, {
+      incoming: {
+        kind: "message",
+        message: {
+          name: "grid-lane",
+          sessionId: "child-4",
+          text: "Grid fix is rebased; tests pass.",
+          raw: "Grid fix is rebased; tests pass.",
+        },
+      },
+      untyped: true,
+    }),
+  ]);
+
 const long = () =>
   chat([
     user("Send the grid agent the plan", 3),
@@ -131,6 +237,10 @@ export default agentPaneEntry({
       note: 'Sends start collapsed: an envelope, "Sent to" and the recipient as a chip (a subagent by its description, never its agentId), the first line muted, a chevron, and one muted word for how far it got: Queued, Delivered, Sent. A send still going out reads "Sending to" with the working mark.',
       snapshot: sends(),
     },
+    "sent-subagents": {
+      note: "Messages to subagents read by the subagent's description (the Agent call's), never its agentId; an id no Agent call in the loaded transcript names reads as a short id. Each chip's tooltip holds the full id.",
+      snapshot: subagentSends(),
+    },
     "sent-hover": {
       note: "Pointed at, a send shows Copy at the line's end, after its status word, clear of the line's words.",
       snapshot: sends(),
@@ -153,6 +263,10 @@ export default agentPaneEntry({
         await ctx.click({ selector: ".cv-agentmsg__toggle" });
         await ctx.waitFor(() => ctx.document.querySelector(".cv-message__text"));
       },
+    },
+    outcomes: {
+      note: "How each send ended, at its line's end: Delivered, muted; a send to an agent the person stopped reads Not delivered: agent stopped in a muted warning tone, never Sent. A lane's message back sits under them.",
+      snapshot: outcomes(),
     },
     "both-directions": {
       note: "A message this agent sent and the answer another agent sent back, one line each at the transcript's left.",

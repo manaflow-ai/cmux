@@ -171,22 +171,31 @@ def peer_owner(peer: str, peer_port: int, server_port: int) -> str | None:
     """name:pid of the process that owns the client end of a loopback
     connection. Through the workspace proxy, the session daemon (`cmux` or
     `cmux-tui`) connects to its own loopback, so it owns the peer socket; a
-    direct browser connection is owned by a Chromium network helper. macOS
-    only (libproc, macsockets.py; netstat prints nothing under Python)."""
+    direct browser connection is owned by a Chromium network helper. macOS:
+    libproc (macsockets.py; netstat prints nothing under Python). Linux:
+    /proc (linuxsockets.py)."""
     if not peer.startswith("127.") and peer not in ("::1", "::ffff:127.0.0.1"):
         return None
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     try:
+        import linuxsockets
         import macsockets
     except ImportError:
         return None
-    if not macsockets.available():
+    if macsockets.available():
+        found = macsockets.connection_owner(peer_port, server_port)
+    elif linuxsockets.available():
+        found = linuxsockets.connection_owner(peer_port, server_port)
+    else:
         return None
-    found = macsockets.connection_owner(peer_port, server_port)
     return f"{found[1]}:{found[0]}" if found else None
 
 
-DAEMON_NAMES = ("cmux-tui", "cmux")
+def is_daemon(name: str) -> bool:
+    """A cmux session daemon: `cmux` (the app's bundled CLI name) or any
+    `cmux-tui*` binary (a pushed build such as cmux-tui-nightly-eeb26d8 on a
+    Mac mini). Process names are cut at 16 bytes by the kernel."""
+    return name == "cmux" or name.startswith("cmux-tui")
 
 
 def hop_summary(peer: str, headers: dict[str, str], owner: str | None = None) -> dict[str, object]:
@@ -200,7 +209,7 @@ def hop_summary(peer: str, headers: dict[str, str], owner: str | None = None) ->
     seen = {k: v for k, v in headers.items() if k.lower() in PROXY_HEADERS}
     loopback = peer.startswith("127.") or peer in ("::1", "::ffff:127.0.0.1")
     owner_name = (owner or "").rpartition(":")[0]
-    via_daemon = owner_name in DAEMON_NAMES
+    via_daemon = is_daemon(owner_name)
     if seen:
         summary = "proxy headers reached the server: " + ", ".join(sorted(seen))
     elif not loopback:

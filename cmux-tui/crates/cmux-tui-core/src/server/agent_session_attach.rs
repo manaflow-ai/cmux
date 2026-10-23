@@ -5,6 +5,7 @@
 //! refused. Attachments have bounded pages, calls and outbound buffering, and
 //! close with a replay cursor when acpmux or the client falls behind.
 
+use crate::panic_free::JsonFields;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -564,10 +565,10 @@ fn page_params(session: &str, params: &PageParams, attach: bool) -> Result<Value
     let mut out =
         json!({"sessionId": session, "limit": params.limit.unwrap_or(200).clamp(1, MAX_PAGE)});
     if let Some(after) = params.after_seq {
-        out["afterSeq"] = json!(after);
+        out.insert("afterSeq", json!(after));
     }
     if let Some(before) = params.before_seq {
-        out["beforeSeq"] = json!(before);
+        out.insert("beforeSeq", json!(before));
     }
     if let Some(kinds) = &params.kinds {
         let valid = kinds.len() <= MAX_KINDS
@@ -578,10 +579,10 @@ fn page_params(session: &str, params: &PageParams, attach: bool) -> Result<Value
         if !valid {
             return Err(Refusal::BadRequest);
         }
-        out["kinds"] = json!(kinds);
+        out.insert("kinds", json!(kinds));
     }
     if attach {
-        out["eventStream"] = json!(true);
+        out.insert("eventStream", json!(true));
     }
     Ok(out)
 }
@@ -815,7 +816,7 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
                 );
             }
             if !meta.is_empty() {
-                params["_meta"] = json!({"acpmux": meta});
+                params.insert("_meta", json!({"acpmux": meta}));
             }
             let answered = attachment.link.call("_acpmux/permission_respond", params, CALL_TIMEOUT);
             // A failed answer stays answerable; a delivered one is spent.

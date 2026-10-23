@@ -78,9 +78,14 @@ public final class HomeSidebarSource {
     public private(set) var unreadMarks: Set<ConversationID> = []
     @ObservationIgnored public var onSelect: (ConversationID) -> Void = { _ in }
     @ObservationIgnored public var onStart: (HomeContact) -> Void = { _ in }
+    /// This Mac's marks changed here (a Mark as Unread or Read of a row no owner lists): other
+    /// sources over the same account read them again (``reloadMarks()``).
+    @ObservationIgnored public var onMarksChanged: () -> Void = {}
     #if DEBUG
     /// DEBUG: conversations listed besides the store's (`debug.home.sidebar_fixture`).
     @ObservationIgnored public var debugRows: [InboxRow] = []
+    /// DEBUG: team members listed besides the directory's (`debug.home.sidebar_fixture` `team`).
+    @ObservationIgnored public var debugTeam: [HomeContact] = []
     #endif
 
     public init(store: HomePinStore, inboxes: [HomeInboxSource] = [], account: @escaping @MainActor () -> String,
@@ -105,6 +110,15 @@ public final class HomeSidebarSource {
     /// The owners' replies (nil: that owner does not serve `home-inbox`), for observers of the list.
     public var ownerRows: [HomeInboxRequest.Response?] { inboxes.map(\.reply) }
 
+    /// What the list shows now beyond the conversations, for the next launch's first frame
+    /// (`HomeSidebarLaunchCache`). `archivedChiefs` is the directory's.
+    public func launchSnapshot(archivedChiefs: Set<String>) -> HomeSidebarLaunchSnapshot {
+        var replies: [String: HomeInboxRequest.Response] = [:]
+        for inbox in inboxes { if let reply = inbox.reply { replies[HomeSidebarLaunchSnapshot.key(inbox)] = reply } }
+        return HomeSidebarLaunchSnapshot(account: account(), replies: replies, chiefAvatars: chiefAvatars(),
+                                         chiefHarnesses: chiefHarnesses(), archivedChiefs: archivedChiefs, roster: chiefRoster())
+    }
+
     /// The store's rows (plus DEBUG fixture rows).
     private func listed() -> [InboxRow] {
         #if DEBUG
@@ -116,17 +130,26 @@ public final class HomeSidebarSource {
 
     public func model(now: Date = Date()) -> HomeSidebarModel { model(query: query, now: now) }
 
+    /// The people the list offers (plus DEBUG fixture teammates).
+    private func people() -> [HomeContact] {
+        #if DEBUG
+        return debugTeam.isEmpty ? contacts() : debugTeam + contacts()
+        #else
+        return contacts()
+        #endif
+    }
+
     private func model(query: String, now: Date) -> HomeSidebarModel {
         let listed = listed()
         let replies = inboxes.compactMap(\.reply)
         guard !replies.isEmpty else {
-            return HomeSidebarModel(rows: listed, pins: pins, me: me(), query: query, contacts: query.isEmpty ? [] : contacts(),
+            return HomeSidebarModel(rows: listed, pins: pins, me: me(), query: query, contacts: people(),
                                     unreadMarks: unreadMarks, chiefAvatars: chiefAvatars(), defaultChiefAvatar: defaultChiefAvatar(),
                                     chiefHarnesses: chiefHarnesses(), chiefRoster: chiefRoster(), now: now)
         }
         let owned = HomeInboxMapping.ordered(replies.map(\.rows))
         let list = HomeInboxMapping(owned: owned, listed: listed, pins: pins, unreadMarks: unreadMarks)
-        var model = HomeSidebarModel(ordered: list.rows, pinned: list.pinned, me: me(), query: query, contacts: query.isEmpty ? [] : contacts(),
+        var model = HomeSidebarModel(ordered: list.rows, pinned: list.pinned, me: me(), query: query, contacts: people(),
                                      unreadMarks: list.unreadMarks, chiefAvatars: chiefAvatars(), defaultChiefAvatar: defaultChiefAvatar(),
                                      chiefHarnesses: chiefHarnesses(), chiefRoster: chiefRoster(), now: now)
         model.cloudState = replies.compactMap(\.cloud).first { $0 != "not_asked" }
@@ -188,6 +211,16 @@ public final class HomeSidebarSource {
         guard unreadMarks.contains(id) != on else { return }
         if on { unreadMarks.insert(id) } else { unreadMarks.remove(id) }
         store.save(unreadMarks: unreadMarks, account: account())
+        onMarksChanged()
+    }
+
+    /// The conversations the list dots, unfiltered by the search (``HomeSidebarModel/unreadConversations``).
+    public var unreadConversations: [ConversationID] { model(query: "", now: Date()).unreadConversations }
+
+    /// Reads this account's marks again (another source changed them).
+    public func reloadMarks() {
+        let marks = store.unreadMarks(account: account())
+        if marks != unreadMarks { unreadMarks = marks }
     }
 
     /// Hide Alerts or Show Alerts for `id`, with the owner that lists it (Cloud conversations only).

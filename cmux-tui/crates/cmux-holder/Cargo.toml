@@ -1,0 +1,18 @@
+[package]
+name = "cmux-holder"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "One small process that holds every PTY of an install: no VT, std and libc only"
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "cmux-holder"
+path = "src/main.rs"
+
+[dependencies]
+libc.workspace = true

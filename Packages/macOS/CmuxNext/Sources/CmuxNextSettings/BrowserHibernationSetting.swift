@@ -22,7 +22,8 @@
 public nonisolated struct BrowserHibernationSetting: Sendable, Hashable {
     public enum Mode: Sendable, Hashable {
         case off
-        /// After 60 minutes hidden; earlier under memory pressure.
+        /// After 30 minutes hidden (later for a tab the person keeps coming back to); earlier
+        /// under memory pressure.
         case moderate
         /// After 10 minutes hidden; every eligible hidden page under pressure.
         case aggressive
@@ -63,6 +64,7 @@ public nonisolated struct BrowserHibernationSetting: Sendable, Hashable {
     public static let configPath = ["browser", "hibernation"]
     public static let fallback = BrowserHibernationSetting(mode: .moderate)
     public static let neighborRadiusPath = ["browser", "keepNeighborTabsAwake"]
+    public static let exclusionsPath = ["browser", "hibernationExclusions"]
 
     public var isEnabled: Bool { mode != .off }
 
@@ -70,7 +72,7 @@ public nonisolated struct BrowserHibernationSetting: Sendable, Hashable {
     public var hiddenMinutes: Double? {
         switch mode {
         case .off: nil
-        case .moderate: 60
+        case .moderate: 30
         case .aggressive: 10
         case .minutes(let minutes): minutes
         }
@@ -84,6 +86,15 @@ public nonisolated struct BrowserHibernationSetting: Sendable, Hashable {
         case .aggressive: .string("aggressive")
         case .minutes(let minutes): .number(minutes)
         }
+    }
+
+    /// The setting with `host` added to the exclusions ("Never Hibernate This Site"), lowercased;
+    /// unchanged when an exclusion already matches it or there is no host.
+    public func addingExclusion(host: String?) -> BrowserHibernationSetting {
+        guard let host = host?.lowercased(), !host.isEmpty, !excludes(host: host) else { return self }
+        var setting = self
+        setting.exclusions.append(host)
+        return setting
     }
 
     /// True when `host` matches an exclusion.

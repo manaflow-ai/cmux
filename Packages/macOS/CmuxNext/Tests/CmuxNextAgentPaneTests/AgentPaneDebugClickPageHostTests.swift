@@ -1,6 +1,7 @@
 #if DEBUG
 import AppKit
 import CmuxNextPages
+import CmuxNextPagesTestSupport
 import CmuxNextSettings
 import Foundation
 import Testing
@@ -46,7 +47,15 @@ struct AgentPaneDebugClickPageHostTests {
     /// element is found by a script in the Chromium page and pressed with DevTools input there.
     @Test func clickFindsAndPressesAnElementOfAChromiumChat() async throws {
         let file = try #require(AgentPageTestRoot.page)
-        let hosting = LocatingHosting()
+        let hosting = FakeChromiumHosting()
+        // The click verb's locate script finds a button at 308,18.
+        hosting.onMade = { page in
+            page.answer = { method, params in
+                guard method == "Runtime.evaluate",
+                      (params["expression"] as? String)?.contains("no visible element matches") == true else { return nil }
+                return #"{"result":{"type":"string","value":"{\"x\":308,\"y\":18,\"tag\":\"button\"}"}}"#
+            }
+        }
         let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), pageHost: true,
                                               chromium: hosting))
         view.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
@@ -58,50 +67,9 @@ struct AgentPaneDebugClickPageHostTests {
         #expect(remove["tag"] as? String == "button", "\(remove)")
         #expect(remove["x"] as? Double == 308, "\(remove)")
         #expect(await view.debugPress(x: 308, y: 18))
-        let presses = hosting.page?.calls.filter { $0.method == "Input.dispatchMouseEvent" } ?? []
+        let presses = hosting.made.last?.calls.filter { $0.method == "Input.dispatchMouseEvent" } ?? []
         #expect(presses.map { $0.params["type"] as? String } == ["mousePressed", "mouseReleased"])
         #expect(presses.allSatisfy { $0.params["x"] as? Double == 308 && $0.params["y"] as? Double == 18 })
     }
-}
-
-/// A Chromium host whose one page answers the click verb's locate script with a button at 308,18.
-@MainActor
-private final class LocatingHosting: PageChromiumHosting {
-    let preference: BrowserDefaultEngine = .chromium
-    let isAvailable = true
-    private(set) var page: LocatingPage?
-
-    func serves(_ page: PageDescriptor) -> Bool { true }
-
-    func makePage(_ page: PageDescriptor) async throws -> any PageChromiumPage {
-        let made = LocatingPage()
-        self.page = made
-        return made
-    }
-}
-
-@MainActor
-private final class LocatingPage: PageChromiumPage {
-    let contentView = NSView()
-    var onEvent: ((PageChromiumEvent) -> Void)?
-    var resources: (@MainActor (URL) async -> PageChromiumResponse)?
-    var occlusionRects: [CGRect] = []
-    private(set) var calls: [(method: String, params: [String: any Sendable])] = []
-
-    func devTools(_ method: String, params: [String: any Sendable]) async throws -> String {
-        calls.append((method, params))
-        if method == "Runtime.evaluate", (params["expression"] as? String)?.contains("no visible element matches") == true {
-            return #"{"result":{"type":"string","value":"{\"x\":308,\"y\":18,\"tag\":\"button\"}"}}"#
-        }
-        return #"{"result":{}}"#
-    }
-
-    func load(_ url: URL) {}
-    func reload() {}
-    func setZoom(_ zoom: Double) {}
-    func setFocused(_ focused: Bool) {}
-    func setVisible(_ visible: Bool) {}
-    func setSeeThrough(_ seeThrough: Bool) {}
-    func close() {}
 }
 #endif

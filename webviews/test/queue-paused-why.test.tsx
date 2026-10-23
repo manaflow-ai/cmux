@@ -1,6 +1,8 @@
 // A queue a failed turn paused says why (the turn's error) and offers one Resume; the prompts it
 // holds never claim they send after this turn, because they wait for Resume (Leo hit a paused
-// queue that held every message silently, 2026-10-21).
+// queue that held every message silently, 2026-10-21). The rows carry no header either way: the
+// queue is one muted line per prompt (Leo, 2026-10-21), and the paused note above them is what says
+// they wait.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -68,13 +70,15 @@ async function draw(paused: boolean, reason?: string) {
   );
 }
 
-test("a paused queue says the turn's error, offers one Resume, and its prompts wait for Resume", async () => {
+test("a paused queue says the turn's error over its prompts and offers one Resume", async () => {
   await draw(true, "429 rate limited");
   const note = host.querySelector(".acpmux-queue-paused");
   expect(note?.textContent).toContain("Paused after an error: 429 rate limited");
   expect(host.querySelectorAll(".acpmux-queue-resume").length).toBe(1);
   expect(host.textContent).not.toContain("Sends after this turn");
-  expect(host.querySelector(".acpmux-queue-header")?.textContent).toContain("Waits for Resume");
+  expect(host.querySelector(".acpmux-queue-header")).toBeNull();
+  // The note comes first, over the prompts it holds.
+  expect(host.querySelector(".acpmux-composer-queue > li")?.className).toBe("acpmux-queue-paused");
 });
 
 test("a paused queue with no error to name still says it paused", async () => {
@@ -83,11 +87,12 @@ test("a paused queue with no error to name still says it paused", async () => {
   expect(host.textContent).not.toContain("Sends after this turn");
 });
 
-test("a queue that is not paused sends after this turn and shows no Resume", async () => {
+test("a queue that is not paused shows no note, no Resume and no header", async () => {
   await draw(false);
   expect(host.querySelector(".acpmux-queue-paused")).toBeNull();
   expect(host.querySelectorAll(".acpmux-queue-resume").length).toBe(0);
-  expect(host.querySelector(".acpmux-queue-header")?.textContent).toContain("Sends after this turn");
+  expect(host.querySelector(".acpmux-queue-header")).toBeNull();
+  expect(host.querySelectorAll(".acpmux-queued").length).toBe(2);
 });
 
 test("the reason is the error of the chat's latest failed turn", () => {

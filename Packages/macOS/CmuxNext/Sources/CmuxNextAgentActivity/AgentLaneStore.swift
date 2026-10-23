@@ -3,14 +3,34 @@ public import Observation
 /// Every acpmux session's lane (cx-v9k2f): this Mac's and the acpmux peers' it mirrors, from the
 /// same `_acpmux/watch` as the turn states (`AgentTurnStateFeed`). The sidebar's Priority view,
 /// Chief item and session tree read it.
+///
+/// Reading ``lanes`` observes every session: any lane's change notifies the reader. A reader that
+/// needs one session (a sidebar row, its "Now:" line) reads ``lane(_:)`` instead, which observes that
+/// session alone, and a reader that needs only what links a session to its folder and pull requests
+/// (and its state) reads ``links(_:)``, which a new step leaves alone. A working agent changes its lane many
+/// times a second, so a whole-store read in a per-row mapping maps every row on every agent event
+/// (sidebar-lag-DESIGN.md).
 @Observable @MainActor
 public final class AgentLaneStore {
     public static let shared = AgentLaneStore()
     /// The Chief home's lanes (its subagents), apart from this Mac's own: the Priority view reads both.
     public static let chief = AgentLaneStore()
 
-    /// Keyed by session id; empty while the watch is down.
-    public var lanes: [String: AgentActivityLane] = [:]
+    /// Keyed by session id; empty while the watch is down. Writing it updates the per-session
+    /// cells of ``lane(_:)`` and ``links(_:)`` whose value changed, and notifies readers of the whole map.
+    public var lanes: [String: AgentActivityLane] {
+        get {
+            access(keyPath: \.lanes)
+            return storage
+        }
+        set {
+            withMutation(keyPath: \.lanes) { storage = newValue }
+            syncCells()
+        }
+    }
+    @ObservationIgnored private var storage: [String: AgentActivityLane] = [:]
+    /// One observable cell per session a reader asked for (``lane(_:)``, ``links(_:)``).
+    @ObservationIgnored private var cells: [String: AgentLaneCell] = [:]
     /// The acpmux socket whose watch fills the store (set by `AgentTurnStateFeed`), for requests
     /// about its sessions such as the Priority view's Archive.
     @ObservationIgnored public var socketPath: String?
@@ -18,4 +38,32 @@ public final class AgentLaneStore {
     public var live = false
 
     public init() {}
+
+    /// The lane of `session`, observing that session only: another session's change does not
+    /// notify the reader.
+    public func lane(_ session: String) -> AgentActivityLane? { cell(session).lane }
+
+    /// What links `session` to its folder, its pull requests and the chat that started it, and its
+    /// state, observing only that: a new step of the session does not notify the reader.
+    public func links(_ session: String) -> AgentLaneLinks? { cell(session).links }
+
+    private func cell(_ session: String) -> AgentLaneCell {
+        if let cell = cells[session] { return cell }
+        let cell = AgentLaneCell(storage[session])
+        cells[session] = cell
+        return cell
+    }
+
+    /// Writes each cell whose session's lane changed; drops cells of ended sessions once they are
+    /// told (their readers re-read and get a fresh cell).
+    private func syncCells() {
+        guard !cells.isEmpty else { return }
+        var ended: [String] = []
+        for (session, cell) in cells {
+            let lane = storage[session]
+            cell.update(lane)
+            if lane == nil { ended.append(session) }
+        }
+        for session in ended { cells[session] = nil }
+    }
 }

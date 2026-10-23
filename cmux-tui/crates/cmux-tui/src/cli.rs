@@ -22,10 +22,14 @@ mod app_browser_route;
 mod app_focus;
 #[cfg(unix)]
 mod apps_run;
+#[cfg(unix)]
+mod billing;
 mod capability_cache;
 #[cfg(unix)]
 mod chief;
 mod chief_target;
+#[cfg(unix)]
+mod cloud_machines;
 mod code_mode;
 #[cfg(unix)]
 mod coderouter;
@@ -100,6 +104,7 @@ const PUBLIC_SCOPES: &[&str] = &[
     "terminal",
     "browser",
     "notification",
+    "attention",
     "agent",
     "room",
     "closed",
@@ -290,6 +295,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| chief::run_if_requested(args))
         .or_else(|| chief::run_avatar_if_requested(args))
         .or_else(|| coderouter::run_if_requested(args))
+        .or_else(|| billing::run_if_requested(args))
         .or_else(|| apps_run::run_if_requested(args))
         .or_else(|| script::run_if_requested(args))
         .or_else(|| setup::run_if_requested(args))
@@ -847,6 +853,7 @@ fn scope_help_for(
         }
         "browser" => Cow::Borrowed(scope_help::BROWSER_HELP),
         "notification" => Cow::Borrowed(scope_help::NOTIFICATION_HELP),
+        "attention" => Cow::Borrowed(scope_help::ATTENTION_HELP),
         "agent" => Cow::Borrowed(AGENT_HELP),
         "room" => Cow::Borrowed(scope_help::ROOM_HELP),
         "closed" => Cow::Borrowed(scope_help::CLOSED_HELP),
@@ -910,6 +917,7 @@ const ROOT_HELP_SCOPES_SUFFIX: &str = "\
   terminal      Read, write, and attach to terminals
   browser       Navigate and attach to browsers
   notification  List and create notifications
+  attention     Mark the tab where the person must act (no focus change)
   agent         List and report agent state
   room          Organize workspaces into rooms
   closed        List and reopen closed tabs, screens, workspaces

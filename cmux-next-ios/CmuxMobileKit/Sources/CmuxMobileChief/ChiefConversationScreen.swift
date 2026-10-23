@@ -246,6 +246,44 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         for recognizer in sendButton?.gestureRecognizers ?? [] where recognizer is UILongPressGestureRecognizer {
             recognizer.isEnabled = sends
         }
+        updateCloudHandOff()
+    }
+
+    /// With the Mac offline (the Mac Chief on its cloud copy), one tap hands the
+    /// composer's text, or my newest message, to the Cloud Chief with the recent
+    /// messages as context (``ChiefSources/askCloudChief(_:)``).
+    private func updateCloudHandOff() {
+        let offlineMac = session === ChiefSources.shared.mac && session.backend is ChiefReplicaBackend
+        guard offlineMac else {
+            if navigationItem.rightBarButtonItem?.accessibilityIdentifier == "chief.askCloudChief" {
+                navigationItem.rightBarButtonItem = nil
+            }
+            return
+        }
+        guard navigationItem.rightBarButtonItem?.accessibilityIdentifier != "chief.askCloudChief" else { return }
+        let item = UIBarButtonItem(title: String(localized: "Ask Cloud Chief"), primaryAction: UIAction { [weak self] _ in
+            self?.askCloudChief()
+        })
+        item.accessibilityIdentifier = "chief.askCloudChief"
+        navigationItem.rightBarButtonItem = item
+    }
+
+    private func askCloudChief() {
+        let typed = composerTextView?.text.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let mine = session.store.messages.last { $0.senderID == session.identity.meID }?.text ?? ""
+        let request = typed.isEmpty ? mine : typed
+        guard !request.isEmpty else { return }
+        Task { await ChiefSources.shared.askCloudChief(request) }
+        if !typed.isEmpty, let field = composerTextView {
+            field.text = ""
+            field.delegate?.textViewDidChange?(field)
+        }
+        let alert = UIAlertController(
+            title: String(localized: "Sent to Cloud Chief"),
+            message: String(localized: "Cloud Chief has your message and the recent messages from this chat. Its answer is in the Cloud Chief chat."),
+            preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: String(localized: "OK"), style: .cancel))
+        present(alert, animated: true)
     }
 
     private struct GatedViews {

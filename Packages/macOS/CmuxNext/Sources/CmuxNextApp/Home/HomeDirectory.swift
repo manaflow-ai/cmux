@@ -52,7 +52,19 @@ final class HomeDirectory {
            let value = try? Self.value(reply) {
             chiefs = HomeChiefRecord.list(from: value)
             archivedChiefs = HomeChiefRecord.archivedIDs(from: value)
+            chiefsRead = true
         }
+    }
+
+    /// `chief.list` answered this launch; until then `archivedChiefs` may be the last launch's.
+    @ObservationIgnored private(set) var chiefsRead = false
+
+    /// The last launch's list state (`HomeSidebarLaunchSnapshot`), for what has not been read yet:
+    /// the list's first frame hides the same archived Chiefs and draws the same avatars and tags.
+    func seedLaunch(_ snapshot: HomeSidebarLaunchSnapshot) {
+        if !chiefsRead, archivedChiefs.isEmpty { archivedChiefs = snapshot.archivedChiefs }
+        if chiefAvatars.isEmpty { chiefAvatars = snapshot.chiefAvatars }
+        if chiefHarnesses.isEmpty { chiefHarnesses = snapshot.chiefHarnesses }
     }
 
     /// `chief.create` with a display name; the new Chief's main conversation

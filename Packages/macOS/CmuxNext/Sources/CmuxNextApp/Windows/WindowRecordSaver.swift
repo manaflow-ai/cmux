@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextWakeups
 
 /// Pending window record saves: at most one in flight and one after it, in order.
@@ -23,6 +24,16 @@ final class WindowRecordSaver {
     unowned let manager: WindowManager
     /// Debounced save of window geometry (architecture.md 1: 500 ms).
     let geometryTimer = DemandTimer(owner: "WindowManager.geometry")
+    /// The focused pane's save waits for the commit that shows the move (``focusDidSettle(_:pane:)``).
+    private var afterCommit: CommitProbe?
+    /// A focused-pane save waits for that commit, or for ``afterCommitDeadline``.
+    private var awaitingCommit = false
+    /// Tickets of the focus moves that wait for that commit: they join the save that follows it
+    /// (not a write already in flight, which does not carry their pane).
+    private var focusTickets: [CommandTicket] = []
+    /// The deadline of a focused-pane save whose window shows no commit (occluded, unlit).
+    private let afterCommitTimer = DemandTimer(owner: "WindowRecordSaver.afterCommit")
+    static let afterCommitDeadline: Duration = .milliseconds(100)
     /// Coalesced saves of the window records.
     var saves = WindowRecordSaves()
     /// The daemon's window records of this install (`window-records-v1`).
@@ -55,13 +66,41 @@ final class WindowRecordSaver {
     func focusDidSettle(_ state: WindowState, pane: String?) {
         guard state.savedFocusedPane != pane else { return }
         state.savedFocusedPane = pane
-        stateDidChange(state)
+        guard manager.restored, !manager.isTerminating else { return }
+        // The move's frame first (speed-of-sound-DESIGN.md 3.2): the save builds every window's
+        // records on the main actor, so it starts once the commit that shows the move ran. The
+        // ticket opens now, so the action that moved focus still answers once the record is stored.
+        guard let host = manager.controller(for: state.id)?.window?.contentView?.layer else { return requestSave() }
+        if let ticket = services.daemon.openTicket() { focusTickets.append(ticket) }
+        guard !awaitingCommit else { return }
+        awaitingCommit = true
+        let probe = afterCommit ?? CommitProbe { [weak self] _, _ in self?.commitShowedFocus() }
+        afterCommit = probe
+        probe.mark(in: host)
+        // Bounded, cancellable deadline (DemandTimer): a window that commits nothing still saves.
+        afterCommitTimer.schedule(after: Self.afterCommitDeadline) { @MainActor [weak self] in self?.commitShowedFocus() }
+    }
+
+    /// The commit that shows a focus move ran (or its deadline passed): the save it waited for starts.
+    private func commitShowedFocus() {
+        guard awaitingCommit else { return }
+        awaitingCommit = false
+        afterCommitTimer.cancel()
+        afterCommit?.remove()
+        saves.requested = true
+        saves.tickets += focusTickets
+        focusTickets = []
+        scheduleDrain()
     }
 
     private func requestSave() {
         saves.requested = true
         if let ticket = services.daemon.openTicket() { saves.tickets.append(ticket) }
-        guard !saves.inFlight, !saves.scheduled else { return }
+        scheduleDrain()
+    }
+
+    private func scheduleDrain() {
+        guard saves.requested, !saves.inFlight, !saves.scheduled else { return }
         saves.scheduled = true
         // Not part of any action's scope: a projection write keeps a fresh
         // mutation id (its CAS retries must not replay an earlier write).
@@ -73,6 +112,7 @@ final class WindowRecordSaver {
 
     /// Writes the records once more after any write in flight, so an older one cannot land after it (quit).
     func flushSaves() async {
+        commitShowedFocus()
         requestSave()
         await saves.drain?.value
     }
@@ -101,6 +141,7 @@ final class WindowRecordSaver {
     @discardableResult
     func saveNow() async -> (any Error)? {
         guard let windowState = services.daemon.windowState else { return DaemonError.notConnected }
+        DebugPaneFocus.noteMainWork("record_saves")
         manager.captureGeometry()
         let records = currentRecords()
         // Keys on every machine, plus those whose machine has not loaded yet
@@ -123,7 +164,7 @@ final class WindowRecordSaver {
     /// Mirrors the windows into the daemon's window records (`WindowRecordMirror`).
     private func mirror(_ records: [WindowRecord]) async {
         let daemon = services.daemon
-        guard daemon.supports(DaemonCapabilities.shared.windowRecords), let connection = daemon.connection,
+        guard daemon.supports(DaemonCapabilities.windowRecords), let connection = daemon.connection,
               let install = try? services.cloud.localDeviceID() else { return }
         await recordMirror.sync(records, installID: install, client: connection.state) { message in
             daemon.logger.error("\(message, privacy: .public)")

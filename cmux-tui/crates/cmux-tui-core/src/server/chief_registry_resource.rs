@@ -829,7 +829,10 @@ fn with_store<T>(
         let directory = mux.session_state_directory();
         *store = Some(ChiefStore::open(directory.as_deref()).map_err(|e| internal(operation, &e))?);
     }
-    run(store.as_mut().expect("chief registry opened above"))
+    match store.as_mut() {
+        Some(store) => run(store),
+        None => Err(internal(operation, &anyhow::anyhow!("chief registry is not open"))),
+    }
 }
 
 /// `conversation-agent-token`'s mint, under the registry lock (lock order:

@@ -76,7 +76,16 @@ const accounts = (patch: Partial<AccountsRow> = {}, state: Partial<AccountsState
   ...state,
 });
 const host: Partial<HostLists> = {
-  machines: [{ id: "sample-build", title: "Research build machine", subtitle: "Online · local network", active: true }],
+  machines: [
+    {
+      id: "sample-build",
+      title: "Research build machine",
+      subtitle: "Online · local network",
+      active: true,
+      color: "#7F5FA8",
+      color_key: "research build machine",
+    },
+  ],
   settings_file: "/Users/sample/.config/cmux/cmux.json",
   // Most variants omit artwork; the backdrop variant supplies sample thumbnails.
   backdrops: [],

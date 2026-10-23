@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesignTokens
 
 /// What a hit test found: a target and its frame on screen.
 public struct HoverCardHit {
@@ -49,8 +50,13 @@ public protocol HoverCardSource: AnyObject {
     /// Whether `screenPoint`, on none of the source's targets, is between them
     /// (a gap in a tab strip): a card that hides on leave then waits for the next.
     func hoverCardBridges(at screenPoint: CGPoint) -> Bool
+    /// `id`'s own frame on screen when its anchor is wider (a sidebar row's band across the
+    /// sidebar, `HoverCardEscapeGeometry.rowBand`): the room between it and the card keeps the
+    /// card only for a pointer heading into the card. Nil when the anchor is the target itself.
+    func hoverCardTargetFrame(for id: HoverTargetID) -> CGRect?
 }
 
 public extension HoverCardSource {
     func hoverCardBridges(at screenPoint: CGPoint) -> Bool { false }
+    func hoverCardTargetFrame(for id: HoverTargetID) -> CGRect? { nil }
 }

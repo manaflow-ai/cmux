@@ -16,6 +16,7 @@ use crate::MuxEvent;
 use crate::SurfaceId;
 use crate::SurfaceKind;
 use crate::browser::BrowserPointerOwner;
+use crate::panic_free::JsonFields;
 use crate::sizing_policy::TerminalDetachActor;
 use crate::sizing_policy::TerminalSizingState;
 use crate::sizing_policy::detach_reason;
@@ -30,10 +31,10 @@ pub(super) fn detached_event_json(
 ) -> Value {
     let mut event = json!({"event": "detached", "surface": surface, "reason": notice.reason});
     if let Some(by) = notice.by.as_ref().filter(|by| !by.is_empty()) {
-        event["by"] = json!(by);
+        event.insert("by", json!(by));
     }
     if let Some(view) = view {
-        event["view"] = json!(view);
+        event.insert("view", json!(view));
     }
     event
 }
@@ -76,7 +77,7 @@ pub(super) fn size_state_event_json(
     if let Some((client, _)) = client {
         let id = crate::mux::view_participant_id(runtime, surface, client);
         if state.participant(&id).is_some() {
-            event["self_participant"] = json!(id);
+            event.insert("self_participant", json!(id));
         }
     }
     event
@@ -130,6 +131,8 @@ fn disconnect_client_with_notice(
     let record = {
         let _lifecycle = mux.lock_client_sizing_lifecycle();
         let Some(record) = mux.control_clients.remove(client) else { return false };
+        // Its size leases now bound the departed-view holds it sets (size_lease.rs).
+        mux.control_clients.size_leases.client_left(client);
         mux.remove_size_client_from_attached_surfaces(client, record.attached.keys().copied());
         record
     };
@@ -228,7 +231,7 @@ pub(super) fn detach_own_view(
     mux.release_terminal_grid_holds(&[placement]);
     let notice = DetachNotice { reason: detach_reason::DISCONNECTED_BY, by: Some(by) };
     let mut event = detached_event_json(placement, &notice, None);
-    event["scope"] = json!("view");
+    event.insert("scope", json!("view"));
     mux.control_clients.send_surface_event(owner, placement, None, &event);
 }
 

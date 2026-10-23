@@ -31,6 +31,8 @@ final class WorkspaceRowView: SidebarRowView {
     /// color, small, before the title; hidden while the sidebar lists one machine.
     let machineMark = DecorativeImageView() // the row's label names the machine
     internal(set) var machine: SidebarMachineMark?
+    /// The side `machineMark`'s image was drawn at.
+    private var machineMarkSize: CGFloat = 0
     /// The workspace's tabs play sound (or are muted): a small speaker in the
     /// trailing cluster, always shown while they do, crossed out while they
     /// are muted. A click mutes or unmutes them (`onToggleAudio`).
@@ -286,11 +288,16 @@ final class WorkspaceRowView: SidebarRowView {
         // The bell-slash alone does not say what is muted: notifications, not the tabs' sound
         // (the row's accessibility label says it too).
         mutedMark.themedToolTip = mutedMark.isHidden ? nil : Strings.notificationsMuted
+        let previousMachine = machine
         machine = isShowingPlaceholder ? nil : shown.machine
+        // A new image only when the mark or its size changes: every patch and every row scrolled in configures the row.
         let machineSize = CGFloat.iconRowSize(forLabelPointSize: SidebarStyle.indicatorSize - Metrics.space1)
-        machineMark.image = machine.map { mark in
-            if let emoji = mark.emoji { return SidebarItemRowView.emojiImage(emoji, side: machineSize) }
-            return mark.symbol.map { NSImage.icon(symbol: $0, size: machineSize) } ?? NSImage.icon(mark.kindIcon, size: machineSize)
+        if machine != previousMachine || machineSize != machineMarkSize || (machine != nil && machineMark.image == nil) {
+            machineMarkSize = machineSize
+            machineMark.image = machine.map { mark in
+                if let emoji = mark.emoji { return SidebarItemRowView.emojiImage(emoji, side: machineSize) }
+                return mark.symbol.map { NSImage.icon(symbol: $0, size: machineSize) } ?? NSImage.icon(mark.kindIcon, size: machineSize)
+            }
         }
         machineMark.isHidden = machineMark.image == nil
         audio = isShowingPlaceholder ? nil : ws.audio

@@ -1,6 +1,7 @@
 //! ACP → claude stdin: requests from the hub become stream-json lines.
 
 use super::*;
+use crate::no_panic::JsonExt;
 
 impl Translator {
     /// Translate one ACP request from the hub into zero or more lines for
@@ -71,7 +72,7 @@ impl Translator {
                                 Some("text") => {
                                     let mut text = json!({"type": "text", "text": b.get("text").and_then(Value::as_str).unwrap_or("")});
                                     if let Some(marker) = b.get("cache_control").filter(|m| !m.is_null()) {
-                                        text["cache_control"] = marker.clone();
+                                        text.set("cache_control", marker.clone());
                                     }
                                     text
                                 }
@@ -79,7 +80,7 @@ impl Translator {
                                 Some("document") => {
                                     let mut document = json!({"type": "document", "source": {"type": "base64", "media_type": b.get("mimeType").and_then(Value::as_str).unwrap_or("application/pdf"), "data": b.get("data").and_then(Value::as_str).unwrap_or("")}});
                                     if let Some(name) = b.get("name").and_then(Value::as_str).filter(|name| !name.is_empty()) {
-                                        document["title"] = json!(name);
+                                        document.set("title", json!(name));
                                     }
                                     document
                                 }
@@ -89,7 +90,7 @@ impl Translator {
                                     if mime == "application/pdf" {
                                         let mut document = json!({"type": "document", "source": {"type": "base64", "media_type": mime, "data": resource.get("blob").and_then(Value::as_str).unwrap_or("")}});
                                         if let Some(uri) = resource.get("uri").and_then(Value::as_str).filter(|uri| !uri.is_empty()) {
-                                            document["title"] = json!(uri.strip_prefix("attachment://").unwrap_or(uri));
+                                            document.set("title", json!(uri.strip_prefix("attachment://").unwrap_or(uri)));
                                         }
                                         document
                                     } else {
@@ -287,7 +288,7 @@ impl Translator {
                             .insert(id.to_string(), Pending::Background(asked, deadline));
                         let mut request = json!({"subtype": "background_tasks"});
                         if let Some(tool) = tool {
-                            request["tool_use_id"] = json!(tool);
+                            request.set("tool_use_id", json!(tool));
                         }
                         Outbound::Lines(vec![
                             json!({"type": "control_request", "request_id": format!("bg-{}", id), "request": request}),
@@ -377,7 +378,7 @@ impl Translator {
                     if selected == "allow_always"
                         && let Some(rules) = suggested
                     {
-                        allow["updatedPermissions"] = rules;
+                        allow.set("updatedPermissions", rules);
                     }
                     allow
                 };

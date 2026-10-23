@@ -1,18 +1,20 @@
 // The buttons of a message's action row, shared by a prompt's (UserBubble.tsx, PromptActions for
 // the Chief's), another agent's message's (ReceivedActions) and an answer's (TurnRows.tsx TurnFooter), as Claude Code desktop
 // draws them: the message's age ("8 minutes ago"; "Oct 20, 2026, 10:16 PM" above it on hover), a
-// prompt's read receipt, Copy, Retry, Fork from here (its title and what it does), Pin and Read
-// aloud, each glyph ROW_ICON px in a 24 px button. The rows show on hover or keyboard focus only,
+// prompt's read receipt, Copy, Retry, Fork from here (its title and what it does), Pin, Read
+// aloud and More (the message's right-click menu), each glyph ROW_ICON px in a 24 px button. The rows show on hover or keyboard focus only,
 // with Claude's fade (conversation.css).
 import { useContext } from "react";
 import { useMinuteClock } from "../clock";
 import { usePaneLanguage, useT } from "../i18n";
+import { Icon } from "../icons/Icon";
 import type { AcpmuxRow } from "../model";
 import { useRowMark } from "../threadMinimap/promptMarks";
 import { Check, DoubleCheck, Pin, Retry, Speaker, TurnFork } from "./icons";
 import { canReadAloud, readAloud, useReadingAloud } from "./readAloud";
 import { exactTime, relativeTime } from "./relativeTime";
 import { CopyButton } from "./CopyButton";
+import { hasMessageMenuHost, openMessageMenu } from "./messageMenu";
 import { RetryModelMenu } from "./RetryModelMenu";
 import { TurnActionsContext } from "./turnActions";
 
@@ -88,6 +90,28 @@ export function PinButton({ rowId }: { rowId: string }) {
       onClick={mark.toggle}
     >
       <Pin size={ROW_ICON} filled={mark.marked} />
+    </button>
+  );
+}
+
+/// More (…): opens the menu a right-click on message row `rowId` opens (Quote in Reply, Copy as
+/// Plain Text, Edit and Resend, Fork from Here, Open in Side Chat, Open Link...), under the button,
+/// so every message action shows on hover (Leo, 2026-10-22). The host builds the menu from the
+/// right-click's report (messageMenu.ts); nothing where no host shows that menu.
+export function MessageMore({ rowId }: { rowId: string }) {
+  const t = useT();
+  if (!hasMessageMenuHost()) return null;
+  const label = t("message.moreMenu");
+  return (
+    <button
+      type="button"
+      className="cv-iconbtn cv-iconbtn--compact"
+      aria-haspopup="menu"
+      aria-label={label}
+      title={label}
+      onClick={(event) => openMessageMenu(rowId, event.currentTarget)}
+    >
+      <Icon name="action.more" size={ROW_ICON} />
     </button>
   );
 }

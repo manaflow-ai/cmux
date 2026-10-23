@@ -87,7 +87,7 @@ public actor TerminalAttachment: TerminalByteChannel {
     /// (`terminal-snapshot-v1`) followed by their scrollback as `history`
     /// snapshots. A READY alone would drop the scrollback at every attach
     /// and grid change, so a host without it gets a byte replay attach.
-    public static let snapshotCapability = DaemonCapabilities.shared.terminalSnapshotHistory
+    public static let snapshotCapability = DaemonCapabilities.terminalSnapshotHistory
 
     /// Opens a connection, attaches in byte mode at `size`, and optionally
     /// claims canonical geometry (the focused view in the key window does).
@@ -178,7 +178,7 @@ public actor TerminalAttachment: TerminalByteChannel {
                 name: clientName, kind: "frontend",
                 // A view that names its device joins shared sizing: `size-state` events, and its
                 // device in the size state ("Sized for <device>" on every other view).
-                capabilities: DaemonCapabilities.shared.advertised + (device == nil ? [] : [DaemonCapabilities.shared.sharedSizing]),
+                capabilities: DaemonCapabilities.advertised + (device == nil ? [] : [DaemonCapabilities.sharedSizing]),
                 deviceKind: device?.kind, deviceName: device?.name)),
         ], timeout: DaemonConnection.defaultRequestTimeout)
         let identity = try WireCoding.decodeResponse(IdentifyRequest.Response.self, from: replies[0].get().line)
@@ -195,8 +195,8 @@ public actor TerminalAttachment: TerminalByteChannel {
             expectedTerminalID: useIdentity ? target.terminalResourceID : nil,
             size: size,
             snapshotVersion: identity.supports(Self.snapshotCapability) ? snapshotVersion : nil,
-            snapshotLocalHistory: localHistory && identity.supports(DaemonCapabilities.shared.terminalSnapshotLocalHistory),
-            snapshotImages: images && identity.supports(DaemonCapabilities.shared.terminalSnapshotImages)
+            snapshotLocalHistory: localHistory && identity.supports(DaemonCapabilities.terminalSnapshotLocalHistory),
+            snapshotImages: images && identity.supports(DaemonCapabilities.terminalSnapshotImages)
         )
         // The reply carries the replay (up to 32 MiB): a longer, still bounded deadline.
         let response = try await DaemonConnection.perform(request, on: transport, timeout: .seconds(10))
@@ -206,7 +206,7 @@ public actor TerminalAttachment: TerminalByteChannel {
         control.value.withLock { control in
             control.lease = response.lease
             control.lastReported = size
-            control.hidesInPlace = identity.supports(DaemonCapabilities.shared.sharedSizing)
+            control.hidesInPlace = identity.supports(DaemonCapabilities.sharedSizing)
             if let participant = response.participant { control.participant = participant }
             // The reply's state, or a newer one held before the participant was known, now with it.
             // Pushed inside the lock: a newer stream state admitted meanwhile cannot go first.

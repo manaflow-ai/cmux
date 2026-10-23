@@ -50,6 +50,19 @@ final class ResultExecutor: ControlActionExecutor {
         #expect(result["inline"] == false)
     }
 
+    /// A list answer (`cloud list-machines`) reaches the caller as JSON arrays,
+    /// objects and nulls, not as a string it has to parse again.
+    @Test func structuredFieldsAnswerAsJSON() async throws {
+        let fields: [String: ActionResultValue] = [
+            "machines": .array([.object(["machine_id": .string("vm-1"), "created_at": .null])]),
+            "account": .object(["signed_in": .bool(true)]),
+        ]
+        let reply = try await run(ResultExecutor(.success(fields))).get()
+        let result = try #require(reply["result"], "\(reply)")
+        #expect(result["machines"] == .array([.object(["machine_id": "vm-1", "created_at": .null])]))
+        #expect(result["account"]?["signed_in"] == true)
+    }
+
     @Test func aFailureWithItsOwnCodeAnswersThatCode() async {
         let failure = ActionWorkFailure(code: "screenshot.unavailable", reason: "The window is minimized")
         let reply = await run(ResultExecutor(.failure(failure)))

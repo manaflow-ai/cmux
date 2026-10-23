@@ -3942,6 +3942,88 @@
    },
    "additional_properties": false
   },
+  "TerminalPortsListener": {
+   "kind": "object",
+   "fields": {
+    "port": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint16"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "host": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "The host as the terminal printed it: localhost, 127.0.0.1, 0.0.0.0, [::1], ..."
+    },
+    "url": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "The printed URL, or http://HOST:PORT/ when the text had no scheme."
+    },
+    "bound": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "The loopback address that accepted the daemon's connect: 127.0.0.1 or ::1."
+    }
+   },
+   "additional_properties": false
+  },
+  "TerminalPortsResult": {
+   "kind": "object",
+   "fields": {
+    "surface": {
+     "type": {
+      "kind": "ref",
+      "name": "Id"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "listeners": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "TerminalPortsListener"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "closed": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "scalar",
+       "name": "uint16"
+      }
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "Ports the text names that refused the connect."
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "Ports come from the terminal's text (the active screen with scrollback, the last 1 MiB) on loopback or wildcard hosts, newest mention first, at most 32.",
+    "A port is listed only when a TCP connect to 127.0.0.1 or ::1 succeeds within 150 ms."
+   ]
+  },
   "TerminalResourcesResult": {
    "kind": "object",
    "fields": {
@@ -7094,6 +7176,24 @@
       "kind": "scalar",
       "name": "string"
      }
+    },
+    "pane_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "capability": "row-client-keys-v1"
+    },
+    "tab_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "capability": "row-client-keys-v1"
     }
    },
    "kind": "object"
@@ -13347,6 +13447,34 @@
    "stream": null,
    "constraints": [
     "PTY surfaces only."
+   ]
+  },
+  "terminal-ports": {
+   "authority": "control",
+   "since": 12,
+   "capability": "terminal-ports-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "TerminalPortsResult"
+   },
+   "stream": null,
+   "constraints": [
+    "PTY surfaces only.",
+    "Read when the request arrives; the daemon keeps no poller or cache and never scans processes."
    ]
   },
   "terminal-resources": {
@@ -22306,6 +22434,38 @@
        "kind": "scalar",
        "name": "string"
       }
+     },
+     "pane_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "row-client-keys-v1",
+      "constraints": [
+       {
+        "pattern": "^pane_[0-9a-f]{32}$",
+        "format": "client-minted public pane id"
+       }
+      ]
+     },
+     "tab_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "row-client-keys-v1",
+      "constraints": [
+       {
+        "pattern": "^tab_[0-9a-f]{32}$",
+        "format": "client-minted public tab id"
+       }
+      ]
      }
     },
     "kind": "object"

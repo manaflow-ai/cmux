@@ -1262,7 +1262,7 @@ for expected in \
   "LEGACY_ACTION: \${{ needs.legacy-identity-target.outputs.action }}" \
   "vars.NIGHTLY_NEXT_LEGACY_IDENTITY != 'off'" \
   "group: nightly-next-legacy-identity" \
-  "- name: Skip a build older than the old feed's" \
+  "- name: Skip a build the old feed already has" \
   "CMUX_NOTARY_WAIT_TIMEOUT=20m" \
   "CMUX_NOTARY_PENDING_ON_TIMEOUT=true" \
   "CMUX_NOTARY_CONTINUE_STATE=" \

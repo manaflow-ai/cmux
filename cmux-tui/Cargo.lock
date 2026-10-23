@@ -1038,7 +1038,7 @@ dependencies = [
 [[package]]
 name = "cmux-codex-acp"
 version = "0.1.0"
-source = "git+https://github.com/manaflow-ai/cmux-codex-acp?rev=e0a27f2f4210ad1a7dd1b33d5f33b273ac647e9b#e0a27f2f4210ad1a7dd1b33d5f33b273ac647e9b"
+source = "git+https://github.com/manaflow-ai/cmux-codex-acp?rev=6e476aa8220e18aad1eaeaabd59659b53f7eca31#6e476aa8220e18aad1eaeaabd59659b53f7eca31"
 dependencies = [
  "serde_json",
 ]
@@ -1130,6 +1130,13 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "url",
+]
+
+[[package]]
+name = "cmux-holder"
+version = "0.1.0"
+dependencies = [
+ "libc",
 ]
 
 [[package]]
@@ -1532,6 +1539,7 @@ dependencies = [
  "cmux-agent-pane-policy",
  "cmux-build-identity",
  "cmux-config",
+ "cmux-holder",
  "cmux-host",
  "cmux-link",
  "cmux-panic-log",
@@ -1620,6 +1628,7 @@ dependencies = [
  "cmux-feed-core",
  "cmux-git",
  "cmux-history",
+ "cmux-holder",
  "cmux-layout-reducer",
  "cmux-link",
  "cmux-local-auth",
@@ -1760,6 +1769,33 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "tempfile",
+]
+
+[[package]]
+name = "cmux-weft"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "base64",
+ "cmux-wg",
+ "futures-util",
+ "getrandom 0.3.4",
+ "hex",
+ "ip_network",
+ "proptest",
+ "reqwest",
+ "ring",
+ "rusqlite",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "subtle",
+ "tokio",
+ "tokio-tungstenite",
+ "x25519-dalek",
+ "zeroize",
 ]
 
 [[package]]

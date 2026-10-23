@@ -189,6 +189,7 @@ async fn connect_once(
         .or_else(|| claims(&token).sub)
         .context("the access token has no sub; set CMUX_MOBILE_OWNER_USER_ID")?;
     let api = ApiClient::new(&config.base_url, &token);
+    let (machine_id, sibling_device_ids) = config.machine(&owner);
     let device = api
         .register_device(&DeviceRegistration {
             device_id: config.device_id.clone(),
@@ -196,6 +197,8 @@ async fn connect_once(
             name: config.device_name.clone(),
             team_id: config.team_id.clone(),
             wg_public_key: None,
+            machine_id,
+            sibling_device_ids,
         })
         .await
         .context("POST /v1/devices")?;

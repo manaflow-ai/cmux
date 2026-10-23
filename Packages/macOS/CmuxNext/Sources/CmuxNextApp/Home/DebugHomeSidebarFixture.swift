@@ -12,7 +12,8 @@ import Foundation
 /// window that has only its Chief. `count: 0` removes them.
 /// `chiefs` [{id, name, mascot?}] lists one Chief DM each after them, each Chief wearing the
 /// character `mascot` picks for it (``ChiefMascotPicks``; none: its own or the default).
-/// `width`, `select`, `search`, `unread` set the list's look (`HomeSidebarView.debugLook`),
+/// `team` (at most 12) lists that many fixture team members with no DM after the conversations
+/// (`team: 0` removes them). `width`, `select`, `search`, `unread` set the list's look (`HomeSidebarView.debugLook`),
 /// after the rows (no `count` keeps them); the answer carries the header's frames.
 @MainActor
 enum DebugHomeSidebarFixture {
@@ -24,7 +25,13 @@ enum DebugHomeSidebarFixture {
         guard let page = HomeDockTab.view(services)?.messages ?? services.windows.active?.topPages.views[.home] as? TopHomePageView else {
             return .object(["error": .string("no Home page in the active window")])
         }
-        if params["count"] != nil || params["chiefs"] != nil || !["width", "select", "search", "unread"].contains(where: { params[$0] != nil }) {
+        if let team = params["team"]?.intValue {
+            page.sidebar.debugTeam = names.prefix(min(names.count, max(0, team))).reversed().enumerated().map { i, name in
+                HomeContact(id: ParticipantID("user_fixture_team_\(i)"), name: name, source: .team)
+            }
+            page.list.update(page.sidebar.model())
+        }
+        if params["count"] != nil || params["chiefs"] != nil || !["width", "select", "search", "unread", "team"].contains(where: { params[$0] != nil }) {
             let count = min(names.count, max(0, params["count"]?.intValue ?? 5)), pinned = min(count, max(0, params["pinned"]?.intValue ?? 3))
             let me = services.home.homeStore.me ?? Participant(id: ParticipantID("user_debug_me"), kind: .human, displayName: "Me")
             let chiefs = (params["chiefs"]?.arrayValue ?? []).compactMap { entry -> (id: String, name: String)? in

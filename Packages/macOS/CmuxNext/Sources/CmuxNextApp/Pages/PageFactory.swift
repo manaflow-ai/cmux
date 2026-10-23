@@ -5,12 +5,14 @@ import CmuxNextApps
 import CmuxNextDesign
 import CmuxNextHomeEngine
 import CmuxNextPages
+import CmuxNextServer
 import CmuxNextSettings
 import CmuxNextTerminal
 import CmuxNextUpdater
 import Foundation
 import UniformTypeIdentifiers
 import CmuxNextMobileHost
+import CmuxNextWebUpdates
 
 /// Builds the app's React pages with their routes (its own type, not an `AppServices` member:
 /// that type's line budget is frozen).
@@ -30,12 +32,11 @@ struct PageFactory {
         return page
     }
 
-    /// The React App Store page (react-pages.md 3) on `route` (`#/discover?app=<id>`,
-    /// `#/installed`) when Debug Settings `apps.store.surface` is `web`, else nil (the Swift
-    /// store). `cmux.apps.` goes to the daemon relay behind the native sheet of
-    /// ``AppsPageConfirmations``; the sheet reads the listing first so it can name the scopes.
+    /// The App Store page (react-pages.md 3, apps-web-DESIGN.md) on `route` (`#/discover?app=<id>`,
+    /// `#/installed`); nil only when the page resources are missing.
+    /// `cmux.apps.` goes to the daemon relay behind the native sheet of ``AppsPageConfirmations``
+    /// (the sheet reads the listing first so it can name the scopes); `glyph/` is ``AppsGlyphResource``.
     func appsWebPage(route: String?) -> PageWebView? {
-        guard PageTunables.appStore.value == .web else { return nil }
         // The organization's DisabledFeatures `apps` turns the store off for this page too (the
         // native store reads the same transport state), checked on every call.
         let relay = PolicyGatedPageProvider(inner: DaemonPageRelay(services: services)) { [weak apps = services.apps] in
@@ -49,7 +50,7 @@ struct PageFactory {
         }
         let native = AppPageNativeProvider(services: services, page: .apps)
         let routes = [PageRoute(prefix: "cmux.apps.", provider: confirming), PageRoute(prefix: "cmux.app.", provider: native)]
-        guard let page = PageWebView(descriptor: .apps, routes: routes, route: route) else { return nil }
+        guard let page = PageWebView(descriptor: .apps, routes: routes, route: route, dynamicResources: AppsGlyphResource()) else { return nil }
         confirming.anchor = { [weak page] in page }
         native.anchor = { [weak page] in page }
         PageConnectionWatch(page: page, store: services.machines.local.store).start()
@@ -113,6 +114,7 @@ struct PageFactory {
         let provider = SettingsPageProvider(settings: settings, domains: { [weak services] in
             ["themes": services?.themes.catalog.names ?? [], "font_families": SettingsPageDomains.fontFamilies, "sounds": SettingsPageDomains.sounds, "recent_fonts": services?.settings?.recentFonts.families ?? []]
         }, hostLists: { [weak services] in services?.settingsWindow.pageHostLists() ?? .null })
+        provider.removeDevice = { [weak services] id in await services?.devices.remove(id: id) }
         let accounts = services.accounts.model
         provider.accountsState = { (try? JSONValue.parse(JSONEncoder().encode(accounts.pageState))) ?? .null }
         provider.accountsRun = { params in
@@ -126,10 +128,7 @@ struct PageFactory {
         provider.agents = services.agentHarnesses
         let harnesses = SettingsHarnesses(
             environment: { [weak services] in services.flatMap(QuitAgents.environment) },
-            openTerminal: { [weak services] line in
-                guard let pane = services?.windows.active?.focusedPane else { return }
-                pane.newTerminalTab(typing: line + "\r")
-            },
+            openTerminal: { [weak services] line in _ = services?.inFrontPane { $0.newTerminalTab(typing: line + "\r") } },
             runUpdate: { [weak services] params, context in
                 guard let services, let updates = services.agentHarnesses.updates else { throw PageError.closed }
                 return try await updates.runPage(params, context: context, registry: services.registry)
@@ -196,6 +195,7 @@ struct PageFactory {
                       PageRoute(prefix: ChiefBackendPageRoute.prefix, provider: ChiefBackendPageRoute(center: services.agentHarnesses)),
                       PageRoute(prefix: "cmux.settings.mobile.", provider: MobilePageProvider(host: services.iphone)),
                       PageRoute(prefix: ChannelsPageProvider.prefix, provider: ChannelsPageProvider(updater: services.updater)),
+                      PageRoute(prefix: WebUpdatesPageProvider.prefix, provider: WebUpdatesPageProvider()),
                       // Chief > Voice input: the home.voiceInput tunable (DEV and NIGHTLY).
                       PageRoute(prefix: ChiefVoiceInputPageRoute.prefix, provider: ChiefVoiceInputPageRoute())]
             + (images.map { [PageRoute(prefix: BackdropImagesPageProvider.prefix, provider: $0)] } ?? [])

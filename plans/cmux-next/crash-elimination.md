@@ -217,6 +217,10 @@ aborts), plus a gate that forbids `shim.` calls outside it.
 
 ## 6. Rust daemon panics (phase 1, CORE window)
 
+Superseded by [rust-panic-free.md](rust-panic-free.md) (2026-10-22): the
+compiler-accurate panic ratchet, the supervisor and the fuzz targets live
+there; the lint step below is replaced by its section 3.
+
 Counts (production code, ratchet v2 at 406a70f2f39e): cmux-tui-core 2010
 (unwrap 1675, most of them `lock().unwrap()`), cmux-tui 696, acpmux 200,
 chatmux-relay 153, cmux-remote 148, 18 crates under 35 each. `panic` is

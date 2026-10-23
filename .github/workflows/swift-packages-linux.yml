@@ -51,6 +51,13 @@ jobs:
               Packages/Shared/CmuxTheme
               Packages/iOS/CmuxMobilePairedMac
               Packages/iOS/CmuxMobileShellModel
+          # CryptoKit packages: on Linux their manifests add swift-crypto (`import Crypto`).
+          - group: crypto
+            packages: >-
+              Packages/Shared/CmuxChiefVoiceCore
+              Packages/Shared/CmuxFeedPushCore
+              Packages/Shared/CmuxInstallAuthCore
+              Packages/Shared/CmuxTextConfirmCore
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -80,8 +87,9 @@ jobs:
       - name: Build and test
         env:
           PACKAGES: ${{ matrix.packages }}
-          # The manifests' Linux-only changes (CmuxSentryTelemetry, CmuxMobilePairedMac) apply only with
-          # this: the fleet reads the same manifests on Linux hosts to build for macOS.
+          # The manifests' Linux-only changes (CmuxSentryTelemetry, CmuxMobilePairedMac, the crypto
+          # group's swift-crypto) apply only with this: the fleet reads the same manifests on Linux
+          # hosts to build for macOS.
           CMUX_SWIFTPM_TARGET_LINUX: "1"
         run: |
           failed=""

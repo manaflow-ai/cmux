@@ -64,6 +64,8 @@ struct ForkApi {
   int (*browser_set_background_color)(int, unsigned int) = nullptr;
   // API version 17: see-through pages.
   int (*tab_set_transparent_background)(int, int) = nullptr;
+  uint32_t (*browser_set_layer_hosting)(int, int) = nullptr;
+  int (*browser_set_resize_sync)(int, int) = nullptr;
   void (*set_new_tab_page_url)(const char*) = nullptr;
   void (*set_install_prompt_handler)(void (*)(void*, int, int, const char*), void*) = nullptr;
   int (*install_prompt_reply)(int, int) = nullptr;
@@ -112,6 +114,7 @@ struct Host {
   cmux_shim_event_fn event = nullptr;
   cmux_shim_key_fn key = nullptr;
   cmux_shim_key_fn devtools_key = nullptr;
+  cmux_shim_key_fn unhandled_key = nullptr;
   cmux_shim_window_request_fn window_request = nullptr;
   cmux_shim_focus_request_fn focus_request = nullptr;
 };

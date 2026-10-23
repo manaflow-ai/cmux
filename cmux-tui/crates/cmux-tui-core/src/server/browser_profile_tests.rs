@@ -207,3 +207,65 @@ fn deleting_a_browser_profile_moves_its_tabs_to_the_default_profile() {
     });
     assert!(announced, "no tab-changed for the tab that moved to the default profile");
 }
+
+/// #24432: a browser profile carries its own network identity. The proxy is
+/// part of the record (scheme, host, port, optional bypass list), never a
+/// secret: credentials stay out of cmux's records, so an authenticated
+/// upstream goes behind a local relay the profile points at.
+#[test]
+fn a_browser_profile_carries_a_proxy_and_never_a_secret() {
+    let mux = profiles_mux();
+    run(&mux, json!({"cmd":"create-browser-profile","browser_profile":WORK,"name":"US-A"}))
+        .unwrap();
+    let set = run(
+        &mux,
+        json!({"cmd":"update-browser-profile","browser_profile":"US-A",
+               "proxy":{"scheme":"socks5","host":"127.0.0.1","port":1080,"bypass":["*.corp.test"]}}),
+    )
+    .unwrap();
+    assert_eq!(set["changed"], true);
+    assert_eq!(
+        set["browser_profile"]["proxy"],
+        json!({"scheme":"socks5","host":"127.0.0.1","port":1080,"bypass":["*.corp.test"]})
+    );
+    let profiles = listed(&mux)["browser_profiles"].as_array().unwrap().clone();
+    let default = profiles.iter().find(|p| p["id"] == "default").unwrap();
+    // A profile without one stays direct, exactly as before.
+    assert!(default.get("proxy").is_none_or(Value::is_null), "{default}");
+    let work = profiles.iter().find(|p| p["id"] == WORK).unwrap();
+    assert_eq!(work["proxy"]["port"], 1080);
+    // The same proxy again changes nothing; null clears it.
+    let again = run(
+        &mux,
+        json!({"cmd":"update-browser-profile","browser_profile":WORK,
+               "proxy":{"scheme":"socks5","host":"127.0.0.1","port":1080,"bypass":["*.corp.test"]}}),
+    )
+    .unwrap();
+    assert_eq!(again["changed"], false);
+    let cleared =
+        run(&mux, json!({"cmd":"update-browser-profile","browser_profile":WORK,"proxy":null}))
+            .unwrap();
+    assert!(cleared["browser_profile"]["proxy"].is_null());
+    for bad in [
+        json!({"scheme":"socks5","host":"127.0.0.1","port":1080,"password":"hunter2"}),
+        json!({"scheme":"http","host":"gw.test","port":8080,"username":"me"}),
+        json!({"scheme":"http","host":"me:pw@gw.test","port":8080}),
+        json!({"scheme":"ftp","host":"gw.test","port":21}),
+        json!({"scheme":"http","host":"","port":8080}),
+        json!({"scheme":"http","host":"gw test","port":8080}),
+        json!({"scheme":"http","host":"gw.test","port":0}),
+        json!({"scheme":"http","host":"gw.test","port":70000}),
+        json!({"scheme":"http","host":"gw.test"}),
+        json!("socks5://127.0.0.1:1080"),
+    ] {
+        let error = run(
+            &mux,
+            json!({"cmd":"update-browser-profile","browser_profile":WORK,"proxy":bad.clone()}),
+        )
+        .expect_err(&format!("{bad} must be refused"));
+        if bad.get("password").is_some() || bad.get("username").is_some() {
+            assert!(error.to_string().contains("local relay"), "{error}");
+        }
+    }
+    assert!(listed(&mux)["browser_profiles"][1]["proxy"].is_null());
+}

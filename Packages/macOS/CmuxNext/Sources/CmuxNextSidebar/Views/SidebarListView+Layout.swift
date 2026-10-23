@@ -44,6 +44,7 @@ extension SidebarListViewComponents {
         if let drag, !drag.isValid(in: model) { cancelDrag() }
         // The rows changed under a held drag (a batch, an adopt, a close): its hit geometry is rebuilt at the next move.
         if let drag, drag.geometryRevision != model.sectionsRevision { drag.docGeometry = nil }
+        if let drag, drag.group.map({ $0.revision != model.sectionsRevision }) == true { rebaseGroupDrag(drag) }
         let settled = settleDrop()
         // A drag's look hands over to the model on the same spring (DESIGN "Drag feel" 6).
         // Also a non-animated reload (provisional rows, a space switch) under a held drag or a settle: rows never snap then.
@@ -93,7 +94,7 @@ extension SidebarListViewComponents {
         case let .item(item):
             o.excludedItem = item
         }
-        if includeGap, drag.pinTarget == nil, case let .position(position) = drag.target {
+        if includeGap, drag.pinTarget == nil, drag.group == nil, case let .position(position) = drag.target {
             o.gap = position
             o.gapHeight = drag.gapHeight
         }
@@ -102,18 +103,40 @@ extension SidebarListViewComponents {
     func frame(for row: SidebarRow) -> NSRect {
         // A block's region draws its own insets, as the band did.
         if case .block = row.key { return NSRect(x: 0, y: row.y, width: bounds.width, height: row.height) }
-        // A top-level group's rows keep the ungrouped rows' left edge; its line sits in the inset
-        // beside them (`SidebarStyle.groupLineX`). A nested group's header and members step in one
-        // gutter per level below the top (remote-groups-DESIGN.md slice 2).
-        let gutter: CGFloat = switch row.key {
-        case .workspace, .tab, .item, .doneFold, .showMore: row.group == nil ? 0 : SidebarStyle.groupOffset(depth: row.depth)
-        case .group: SidebarStyle.groupOffset(depth: row.depth)
-        default: 0
-        }
+        // The one indent rule (`SidebarIndent`): from the drawn tree, a top-level group's rows flush with ungrouped
+        // rows (#23975), each deeper level one gutter in, capped in a narrow list.
+        let gutter = indentOffset(for: row)
+        // A group header reaches left over its members' rail (`groupRailReach`): the rail and the bar share one left edge.
+        let reach = railReach(for: row)
         // Rows end `rowTrailingTrim` short of the list's right inset, so a row's pill never runs to
         // the sidebar's edge (Leo 2026-10-20, Chrome's vertical tabs).
-        return NSRect(x: inset + gutter, y: row.y, width: max(0, bounds.width - inset * 2 - gutter - SidebarStyle.rowTrailingTrim),
-                      height: row.height)
+        return NSRect(x: inset + gutter - reach, y: row.y,
+                      width: max(0, bounds.width - inset * 2 - gutter - SidebarStyle.rowTrailingTrim) + reach, height: row.height)
+    }
+    /// How far left of its members' x `row` starts: a group header's reach over its rail
+    /// (`SidebarStyle.groupLineX`, never past the list's edge), 0 for every other row.
+    func railReach(for row: SidebarRow) -> CGFloat {
+        guard case .group = row.key else { return 0 }
+        let membersX = inset + indentOffset(for: row)
+        return membersX - SidebarStyle.groupLineX(membersMinX: membersX)
+    }
+    /// Whether `group` sits somewhere under `ancestor`, by the groups' parent links (cycle-safe).
+    static func isNested(_ group: SidebarGroup, under ancestor: GroupID, in groups: [GroupID: SidebarGroup]) -> Bool {
+        var current = group.parent
+        var seen = Set<GroupID>()
+        while let id = current, seen.insert(id).inserted {
+            if id == ancestor { return true }
+            current = groups[id]?.parent
+        }
+        return false
+    }
+    /// The indent rule every row, rail, lifted card and drop line of this list uses.
+    var indent: SidebarIndent { SidebarIndent(step: SidebarStyle.groupGutter) }
+    /// The width a level-0 row has: the indent cap is computed from it.
+    var indentWidth: CGFloat { max(0, bounds.width - inset * 2 - SidebarStyle.rowTrailingTrim) }
+    /// How far `row` moves in from the list's inset.
+    func indentOffset(for row: SidebarRow) -> CGFloat {
+        indent.offset(level: row.indentLevel, width: indentWidth)
     }
     func realizationRect() -> NSRect {
         // A space page never scrolls: the rows in its frame, no overscan.
@@ -205,6 +228,11 @@ extension SidebarListViewComponents {
             guard case let .emptySection(section) = row.key, old.row(for: row.key) == nil else { return nil }
             return section
         })
+        // So do an empty group's row and the group's last member.
+        let emptied = Set(layout.rows.compactMap { row -> GroupID? in
+            guard case let .emptyGroup(group) = row.key, old.row(for: row.key) == nil else { return nil }
+            return group
+        })
         var leaving: [(SidebarRowView, NSRect)] = []
         let removeRuns = SidebarRowTransition.runTops(of: old, missingFrom: layout)
         for (key, view) in rowViews where !keep.contains(key) {
@@ -214,8 +242,8 @@ extension SidebarListViewComponents {
                 view.layoutSubtreeIfNeeded()
             }
             rowViews[key] = nil
-            let placeholder = if case .emptySection = key { true } else { false }
-            let replaced = old.row(for: key).map { returning.contains($0.section) } ?? false
+            let placeholder = switch key { case .emptySection, .emptyGroup: true; default: false }
+            let replaced = old.row(for: key).map { returning.contains($0.section) || $0.group.map(emptied.contains) == true } ?? false
             if adopting, !suppressed.contains(key) {
                 // A row the drop or the model took away fades where it is (its slot closes on the rows' spring).
                 leaving.append((view, view.frame))
@@ -236,12 +264,16 @@ extension SidebarListViewComponents {
         let gapFrame = layout.gapHeight > 0 ? layout.gapY.map { NSRect(x: inset, y: $0, width: max(0, bounds.width - inset * 2), height: layout.gapHeight) } : nil
         decorations.frame = bounds
         decorations.setGap(gapFrame, animated: animate || adopting)
-        chatHistory.place(layout, state: SidebarChatHistory.shared.state, metrics: model.minimal ? metrics.minimal : metrics, in: self,
-                          animated: animate || adopting)
+        let history = chatHistory.place(layout, state: SidebarChatHistory.shared.state, metrics: model.minimal ? metrics.minimal : metrics,
+                                        in: self, animated: animate || adopting)
         let lines = groupLineViews.update(groupLines(layout), from: animate || adopting ? groupLines(layout, current: true) : [], in: self, above: decorations,
                                           animated: animate || adopting)
-        if adopting { return adoptRows(targets: targets, leaving: leaving, lines: lines) }
-        RowMotion(targets: targets, appearing: appearing, leaving: leaving, lines: lines).run(in: self, from: old, to: layout, animated: animate)
+        if adopting {
+            SidebarDragSpring.move(history + lines.springs, in: self)
+            return adoptRows(targets: targets, leaving: leaving, lines: lines)
+        }
+        RowMotion(targets: targets, appearing: appearing, leaving: leaving, lines: lines, companions: history)
+            .run(in: self, from: old, to: layout, animated: animate)
     }
     func configure(_ view: SidebarRowView, row: SidebarRow, animated: Bool) {
         SidebarPerfCounters.add(.rowConfigures)
@@ -265,15 +297,28 @@ extension SidebarListViewComponents {
             view.configure(tab, row: row)
         case let (.group(id), view as GroupHeaderRowView):
             // The model's own group when the cache (rebuilt on reload) lags it: a held drag shows the live sections.
-            guard let group = groups[id] ?? model.group(id) else { return }
+            guard var group = groups[id] ?? model.group(id) else { return }
+            // `sidebar.showColors` off: the header draws as a group with no color; its stored color stays.
+            if !model.showsColors { group.tint = .none }
             var details = model.groupHeaderDetails
             details.otherStates = model.detailedStatus
+            // A collapsed group holding subgroups shows their unread and loading too (nested-groups prototype):
+            // its header is the only row left of the whole subtree.
+            if row.isCollapsed {
+                let nested = (groupSubtrees[id] ?? []).filter { $0 != id }.compactMap { groups[$0] }
+                if !nested.isEmpty {
+                    group.workspaces += nested.flatMap(\.workspaces)
+                    details.unreadCount = true
+                }
+            }
             view.configure(group, row: row, details: details, animated: animated)
+            view.railReach = railReach(for: row)
             view.isDropTarget = drag?.target == .intoGroup(id) || external?.proposal == .intoGroup(id)
         case let (.section(id), view as SectionHeaderRowView):
             guard let section = sections[id] else { return }
             view.configure(section, row: row)
         case let (.emptySection(id), view as EmptySectionRowView): view.configure(pinned: id == .pinned || id == .custom(SidebarDocStore.pinnedSection))
+        case let (.emptyGroup(id), view as EmptyGroupRowView): view.configure(groupName: groups[id]?.name ?? model.group(id)?.name ?? "")
         case let (.folder(_, folder), view as FolderHeaderRowView): view.configure(folder: folder)
         case let (.status, view as StatusHeaderRowView): view.configure(row)
         case (.doneFold, let view as SidebarDoneFoldRowView), (.showMore, let view as SidebarDoneFoldRowView): view.configure(row)
@@ -300,8 +345,9 @@ extension SidebarListViewComponents {
         let widthChanged = newSize.width != frame.width
         super.setFrameSize(newSize)
         guard widthChanged else { return }
-        for row in displayed.rows {
-            guard let view = rowViews[row.key] else { continue }
+        // Only the realized rows have views: visit those, never every row (a live resize runs this each frame).
+        for (key, view) in rowViews {
+            guard let row = displayed.row(for: key) else { continue }
             let target = frame(for: row)
             view.targetSize = target.size
             view.frame = target

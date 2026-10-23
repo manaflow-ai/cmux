@@ -4,6 +4,7 @@ import { chiefOwnedBy } from "./brain-io.ts"
 import { brainName, type ConfigPatch } from "./brain-do.ts"
 import { childObject } from "./brain-spawn.ts"
 import { chiefMainConversation } from "../domains/user-chief.ts"
+import { PEER_NAME, PEER_TEXT_MAX } from "./brain-turn.ts"
 import { type ImportBody, type ImportFail, type ImportStatus, MAX_IMPORT_BODY, parseImportBody } from "./memory-import.ts"
 
 /**
@@ -13,6 +14,8 @@ import { type ImportBody, type ImportFail, type ImportStatus, MAX_IMPORT_BODY, p
  *   PUT  /v1/chiefs/<agent>/brain           the owner: {enabled?, model?, effort?, compactor_model?, role?, personality?, instructions?, chiefs?}
  *        model: fake | claude-opus-5-5 | claude-sonnet-5-5 | claude-haiku-5-5 | openrouter:<vendor>/<model> | @cf/<vendor>/<model>
  *        effort: off | minimal | low | medium | high | xhigh | max (default low); model-gateway/routes.ts says who may use which
+ *   POST /v1/chiefs/<agent>/peer            the owner: {from, text, key}: a message from one of the owner's Chiefs on
+ *        another machine (the agent hub's forward, brain-turn.ts peerNote), queued in the chief's main conversation
  *   GET  /v1/chiefs/<agent>/memory?conversation=<id>   the owner: the memory copy's state {count, nodes, state}
  *   PUT  /v1/chiefs/<agent>/memory?conversation=<id>   the owner: one batch of a Mac Chief's memory copy (memory-import.ts)
  *   GET  /v1/chiefs/<agent>/runs?conversation=<id>&before=<ms>&limit=<n>   a member: the chief's runs there, newest first
@@ -25,7 +28,7 @@ import { type ImportBody, type ImportFail, type ImportStatus, MAX_IMPORT_BODY, p
  * "The owner" is the chief's owner_user (MuxDO head) with a session, or an install whose grant
  * covers mutate-own; a chief's own token never changes its brain.
  */
-export const CHIEF_BRAIN_PATH = /^\/v1\/chiefs\/(agent_[0-9A-HJKMNP-TV-Z]{26})\/(brain|memory|runs(?:\/((?:run|sub)_[0-9]{1,15}))?)$/
+export const CHIEF_BRAIN_PATH = /^\/v1\/chiefs\/(agent_[0-9A-HJKMNP-TV-Z]{26})\/(brain|memory|peer|runs(?:\/((?:run|sub)_[0-9]{1,15}))?)$/
 
 const NO_STORE = { "cache-control": "no-store" }
 const fail = (f: Fail) => Response.json({ ok: false, error: { code: f.code, message: f.message, ...f.extra } }, { status: f.status, headers: NO_STORE })
@@ -36,6 +39,7 @@ export const handleChiefBrain = async (request: Request, env: Env, agent: string
   if (env.CHIEF_BRAIN_ENABLED !== "1") return fail({ status: 404, code: "not_found", message: "Chief brains are off on this deployment" })
   const brain = env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(agent))
   if (path === "memory") return handleMemoryImport(request, env, agent, brain)
+  if (path === "peer") return handlePeer(request, env, agent)
   if (path === "brain") {
     if (request.method !== "GET" && request.method !== "PUT") return fail({ status: 405, code: "method_not_allowed", message: "GET or PUT" })
     const caller = await callerOf(request, env, "read")
@@ -140,4 +144,26 @@ const capped = async (request: Request, max: number): Promise<string | null> => 
   let at = 0
   for (const c of chunks) all.set(c, (at += c.byteLength) - c.byteLength)
   return new TextDecoder().decode(all)
+}
+
+/** POST /v1/chiefs/<agent>/peer: the owner (a session, or an install whose grant covers mutate-own) forwards a peer Chief's message. */
+const handlePeer = async (request: Request, env: Env, agent: string): Promise<Response> => {
+  if (request.method !== "POST") return fail({ status: 405, code: "method_not_allowed", message: "POST" })
+  const caller = await callerOf(request, env, "read")
+  if ("status" in caller) return fail(caller)
+  const p = caller.principal
+  if (p.kind !== "session" && !(p.grant_classes ?? []).includes("mutate-own")) return fail({ status: 403, code: "auth.forbidden", message: "grant does not cover mutate-own" })
+  const owned = await chiefOwnedBy(env, agent, p)
+  if (!owned) return fail({ status: 403, code: "auth.forbidden", message: "only the chief's owner forwards peer messages" })
+  const body = (await request.json().catch(() => null)) as { from?: unknown; text?: unknown; key?: unknown } | null
+  const from = typeof body?.from === "string" ? body.from : ""
+  const text = typeof body?.text === "string" ? body.text.trim() : ""
+  const key = typeof body?.key === "string" ? body.key : ""
+  if (!PEER_NAME.test(from) || !text || text.length > PEER_TEXT_MAX || !/^[A-Za-z0-9._:-]{1,128}$/.test(key)) {
+    return fail({ status: 400, code: "validation.invalid", message: `body is {from: a hub name, text: 1 to ${PEER_TEXT_MAX} characters, key: 1 to 128 of A-Z a-z 0-9 . _ : -}` })
+  }
+  const conversation = chiefMainConversation(agent)
+  const brain = env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(brainName(agent, conversation)))
+  const r = await brain.peerNote({ agent, owner: owned.owner, conversation, from, text, key })
+  return "skipped" in r ? fail({ status: 409, code: "chief_not_answering", message: `the chief does not answer now (${r.skipped})` }) : ok({ conversation, queued: r.queued })
 }

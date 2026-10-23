@@ -47,6 +47,13 @@ CI_WEB = ROOT / ".github/workflows/ci-web.yml"
 WEBVIEWS_CHECKS = ROOT / "scripts/ci/fast_gate_webviews_checks.py"
 
 
+def load(path: Path):
+    spec = importlib.util.spec_from_file_location(path.stem, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def workflow() -> dict:
     return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
 
@@ -207,16 +214,64 @@ class WorkflowShape(unittest.TestCase):
     def test_the_webviews_checks_are_ci_webs_fail_mode_checks(self):
         # The gate reruns what a pull request's ci-web fails on, so a check that landed after the PR's CI
         # (2026-10-21: check:fixed-waits, past which #22967, #22975 and #23094 merged) runs before the merge.
-        # The type check compiles and stays with ci-web.
+        # ci-web runs the same script, with the merge parent as the base, so both compare per error.
         doc = yaml.safe_load(CI_WEB.read_text(encoding="utf-8"))
         steps = [s for j in doc["jobs"].values() for s in j.get("steps", []) if s.get("id") == "webviews-check"]
         self.assertEqual(len(steps), 1)
-        failing = set(re.findall(r"bun run (\S+) \|\| status=1", steps[0]["run"])) - {"typecheck"}
-        spec = importlib.util.spec_from_file_location("fast_gate_webviews_checks", WEBVIEWS_CHECKS)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        self.assertEqual(set(module.CHECKS), failing)
+        self.assertIn("scripts/ci/fast_gate_webviews_checks.py", steps[0]["run"])
+        self.assertIn('--base "$BASE_REF"', steps[0]["run"])
+        self.assertEqual(steps[0]["env"]["BASE_REF"], "${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }}")
+        self.assertNotRegex(steps[0]["run"], r"bun run \S+ \|\| status=1")
+        module = load(WEBVIEWS_CHECKS)
         self.assertIn("check:fixed-waits", module.CHECKS)
+        self.assertIn("typecheck", module.CHECKS)  # #23763's TS2339 hid behind a red base
+
+    def test_no_web_check_waits_on_an_earlier_red(self):
+        # #23763 (2026-10-21): the bundle build was red on the base, so `Build the web bundles` failed and every
+        # check after it, the type check and the tests included, was skipped; the PR's own TS2339 in
+        # test/composer-row-layout.test.ts merged unseen. Every step between the setup and the tests keeps going
+        # on a red, and the last step fails the job on any of them.
+        doc = yaml.safe_load(CI_WEB.read_text(encoding="utf-8"))
+        steps = doc["jobs"]["react-apps-check-shard"]["steps"]
+        names = [s.get("name", "") for s in steps]
+        first, last = names.index("Setup Node") + 1, names.index("Test webviews")
+        gate = steps[names.index("Fail on the gate checks")]
+        self.assertEqual(gate["if"], "${{ !cancelled() }}")
+        gated = list(gate["env"].values())
+        for step in steps[first:last]:
+            with self.subTest(step=step["name"]):
+                self.assertIs(step.get("continue-on-error"), True)
+        # A red that keeps going must still fail the job: every continue-on-error step, an action's too, has an id
+        # whose outcome the last step reads.
+        for step in steps:
+            if step.get("continue-on-error") is True:
+                with self.subTest(gated=step["name"]):
+                    self.assertIn("id", step)
+                    self.assertIn(f"${{{{ steps.{step['id']}.outcome }}}}", gated)
+
+    def test_format_never_hides_lint_or_type_errors(self):
+        # `vp check` stops at its first red: one unformatted file on the base hid every lint and type error
+        # (#23763's fast gates log shows only "Formatting issues found"). Format and lint are separate pieces.
+        for package in ("webviews", "cmux-tui/frontends/web"):
+            path = ROOT / package / "package.json"
+            if not path.is_file():
+                continue
+            pieces = [p.strip() for p in json.loads(path.read_text())["scripts"]["check"].split("&&")]
+            with self.subTest(package=package):
+                self.assertNotIn("vp check", pieces)
+                self.assertIn("vp fmt --check", pieces)
+                self.assertIn("vp lint", pieces)
+                # Every caller of `check` (the hook, the fast gates, ci-web off feat-cmux-next) gets the type check.
+                self.assertIn("vp check --no-fmt --no-lint", pieces)
+
+    def test_the_type_check_covers_every_webviews_test_file(self):
+        tsconfig = json.loads((ROOT / "webviews/tsconfig.json").read_text())
+        roots = tuple(f"{root.rstrip('/')}/" for root in tsconfig["include"])
+        tracked = subprocess.run(["git", "-C", str(ROOT), "ls-files", "--", "webviews"], capture_output=True,
+                                 text=True, check=True).stdout.split()
+        tests = [t[len("webviews/"):] for t in tracked if re.search(r"\.(test|spec)\.[cm]?tsx?$", t)]
+        self.assertGreater(len(tests), 100)
+        self.assertEqual([t for t in tests if not t.startswith(roots)], [])
 
     def test_wired_into_the_guards_tooling_tests(self):
         guards = yaml.safe_load(GUARDS.read_text(encoding="utf-8"))
@@ -334,6 +389,66 @@ class ScriptBehavior(unittest.TestCase):
         self.assertIn("#7", result.stdout + result.stderr)
         self.assertIn(tip, result.stderr)
 
+    def test_dispatch_deepens_past_a_stale_merge_base_the_shallow_fetch_shows(self):
+        # #24250 (run 39743273392): the head had merged the tip partway along and touched none of the
+        # conflicting files, yet the shallow fetch's merge base was an older commit a side merge on the
+        # base reaches, because the true one sat behind the base's shallow boundary.
+        spec = importlib.util.spec_from_file_location("cmux_next_fast_gates", SCRIPT)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        seed = self.seed
+        git(seed, "checkout", "-q", "feat-cmux-next")
+        merged_in = commit(seed, {"shared.txt": "two\n"}, "the base change the pull request merges in")
+        git(seed, "checkout", "-q", "pr")
+        git(seed, "merge", "-q", "--no-edit", "feat-cmux-next")
+        git(seed, "checkout", "-q", "feat-cmux-next")
+        for n in range(module.FETCH_DEPTH + 10):
+            git(seed, "commit", "-q", "--allow-empty", "-m", f"base moves on {n}")
+        git(seed, "checkout", "-q", "-b", "side", self.root)
+        commit(seed, {"side.txt": "side\n"}, "an old branch")
+        git(seed, "checkout", "-q", "feat-cmux-next")
+        git(seed, "merge", "-q", "--no-ff", "--no-edit", "side")
+        commit(seed, {"shared.txt": "three\n"}, "the base edits a file the pull request never touched")
+        git(seed, "push", "-q", "-f", str(self.remote), "feat-cmux-next", "pr:refs/pull/7/head")
+        work = self.clone()
+        result = self.dispatch(work)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(git(work, "merge-base", "--all", "refs/fast-gates/head", "HEAD^1"), merged_in)
+        self.assertEqual((work / "shared.txt").read_text(), "three\n")
+
+    def test_dispatch_deepens_when_a_cut_hides_that_one_merge_base_descends_from_another(self):
+        # Both sides reach the true base A at the cut and its ancestor B through short side branches, so the
+        # shallow fetch reports {A, B}: no cut lies ahead of them, yet B is stale and the virtual base conflicts.
+        spec = importlib.util.spec_from_file_location("cmux_next_fast_gates", SCRIPT)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        seed = self.seed
+        git(seed, "checkout", "-q", "feat-cmux-next")
+        b = self.tip
+        a = commit(seed, {"shared.txt": "two\n"}, "A: the true merge base")
+
+        def side(name: str) -> str:
+            git(seed, "checkout", "-q", "-b", name, b)
+            return commit(seed, {f"{name}.txt": f"{name}\n"}, f"{name} off B")
+
+        def tip(branch: str, files: dict[str, str]) -> None:
+            git(seed, "checkout", "-q", "-B", branch, a)
+            commit(seed, files, f"{branch} after A")
+            for n in range(module.FETCH_DEPTH - 3):
+                git(seed, "commit", "-q", "--allow-empty", "-m", f"{branch} moves on {n}")
+            git(seed, "merge", "-q", "--no-ff", "--no-edit", f"side-{branch}")
+
+        side("side-pr")
+        side("side-feat-cmux-next")
+        tip("pr", {"pr.txt": "pr\n"})
+        tip("feat-cmux-next", {"shared.txt": "three\n"})
+        git(seed, "push", "-q", "-f", str(self.remote), "feat-cmux-next", "pr:refs/pull/7/head")
+        work = self.clone()
+        result = self.dispatch(work)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(git(work, "merge-base", "--all", "refs/fast-gates/head", "HEAD^1"), a)
+        self.assertEqual((work / "shared.txt").read_text(), "three\n")
+
     def test_dispatch_refuses_a_head_that_moved_after_resolve(self):
         work = self.clone()
         result = self.dispatch(work, head="e" * 40)
@@ -449,6 +564,7 @@ class ScriptBehavior(unittest.TestCase):
         self.assertEqual(set(calls), set(GATE_SCRIPTS))
         base, merge = self.tip, out["merge"]
         self.assertEqual(calls["web lint"]["argv"][:4], ["--base", base, "--head", merge])
+        self.assertIn("--new-only", calls["web lint"]["argv"])  # per error over the base, not per job
         self.assertEqual(calls["prepush gate"]["argv"][:4], ["--base", base, "--head", merge])
         self.assertEqual(calls["defaults stamp"]["argv"], ["check-stamp", "--base", base])
         self.assertEqual(calls["webviews checks"]["argv"], ["--base", base])
@@ -501,11 +617,17 @@ class ScriptBehavior(unittest.TestCase):
 # fails when that file has any.
 FAKE_BUN = textwrap.dedent("""\
     #!/bin/sh
-    [ "$1" = install ] && exit 0
+    if [ "$1" = install ]; then [ -n "$BUN_LOG" ] && pwd -P >> "$BUN_LOG"; exit 0; fi
     f="findings/$2"
     [ -s "$f" ] || { echo "$2: ok"; exit 0; }
     echo "$2: found"; cat "$f"; exit 1
 """)
+
+
+def type_error(code: str, message: str, where: str) -> str:
+    """One type error as `vp check --no-fmt --no-lint` prints it (Oxlint's graphical report)."""
+    return (f"  x typescript({code}): {message}\n     ,-[{where}]\n 1 | const a = 1;\n"
+            "     :       ^\n     `----\n\n")
 
 
 class WebviewsChecksGate(unittest.TestCase):
@@ -598,6 +720,159 @@ class WebviewsChecksGate(unittest.TestCase):
         added = self.module.added("  /w/merge/webviews/a.ts: bad (12.5s)\n", "  /w/base/webviews/a.ts: bad (3s)\n",
                                   "/w/merge", "/w/base")
         self.assertEqual(added, [])
+
+    def test_replay_of_24274_the_format_check_file_count_is_not_a_finding(self):
+        # #24274's fast gates: the base's `vp fmt --check` was red on the same files as the merge, and the merge
+        # (with the pull request's new test files) closed on 2481 files where the base closed on 2479. That closing
+        # line read as the one finding the merge added.
+        red = "src/a.ts (2ms)\nFormat issues found in above 1 files. Run without `--check` to fix.\n"
+        self.assertEqual(self.module.added(red + "Finished in 528ms on 2481 files using 4 threads.\n",
+                                           red + "Finished in 2057ms on 2479 files using 4 threads.\n"), [])
+        self.assertEqual(self.module.added("src/b.ts (1ms)\n" + red + "Finished in 5ms on 2481 files using 4 threads.\n",
+                                           red + "Finished in 9ms on 2479 files using 4 threads.\n"), ["src/b.ts (1ms)"])
+        # Only the whole closing line is noise: a file whose name starts like it is still a finding.
+        self.assertEqual(self.module.added("Finished in 1ms on 2 files.ts (1ms)\n" + red, red),
+                         ["Finished in 1ms on 2 files.ts (1ms)"])
+
+    def test_a_format_issue_the_change_fixes_adds_no_finding(self):
+        # The merge fixes one of the base's two misformatted files, so its count line reads "1 files" where the
+        # base's reads "2 files"; that line is the run's, not a finding the merge adds.
+        def fmt(*files: str) -> str:
+            return "".join(f"{name} (2ms)\n" for name in files) + (
+                f"Format issues found in above {len(files)} files. Run without `--check` to fix.\n"
+                "Finished in 5ms on 2481 files using 4 threads.\n")
+        self.assertEqual(self.module.added(fmt("src/a.ts"), fmt("src/a.ts", "src/b.ts")), [])
+        self.assertEqual(self.module.added(fmt("src/a.ts", "src/c.ts"), fmt("src/a.ts", "src/b.ts")), ["src/c.ts (2ms)"])
+
+    def test_replay_of_24524_the_lint_file_count_is_not_a_finding(self):
+        # #24524's fast gates: the base's `vp lint` was red with the same 4 findings as the merge, and the merge
+        # (with the pull request's one new test file) closed on 2465 files. `vp lint`'s closing line names its rules
+        # too, so the `vp fmt` pattern missed it and it read as the one finding the merge added.
+        red = "  x eslint(no-unused-vars): 'a' is declared but never used.\n"
+        self.assertEqual(self.module.added(red + "Finished in 4.8s on 2465 files with 162 rules using 4 threads.\n",
+                                           red + "Finished in 5.1s on 2464 files with 162 rules using 4 threads.\n"), [])
+        self.assertEqual(self.module.added("Finished in 1ms on 2 files with 3 rules.ts (1ms)\n" + red, red),
+                         ["Finished in 1ms on 2 files with 3 rules.ts (1ms)"])
+
+    def test_replay_of_24252_unicode_frames_in_another_order_add_nothing(self):
+        # #24252's fast gates: Oxlint printed its Unicode frame (`╭─[`, `│`, `·`, `╰`), and with 4 threads the
+        # base and the merge listed the same 84 errors in another order. The run's summary glued onto whichever
+        # error came last, so the base's Toasts.tsx TS2339 read as one the merge added.
+        def unicode_error(message: str, where: str) -> str:
+            return (f"  × typescript(TS2339): {message}\n    ╭─[{where}]\n 18 │           </div>\n"
+                    f" 19 │           <button onClick={{() => onDismiss(toast.notification)}}>\n"
+                    "    ·                                                ────────────\n 20 │             ×\n    ╰────\n\n")
+        toast = unicode_error("Property 'notification' does not exist on type 'Toast'.", "src/components/Toasts.tsx:19:64")
+        row = unicode_error("Property 'muted' does not exist on type 'Row'.", "src/components/Row.tsx:7:9")
+        summary = ("Found 2 errors and 0 warnings in 2 files ({} 4 threads)\nnote: You are running `vp check` as a Vite+ "
+                   "built-in command.\nerror: Type errors found\n")
+        self.assertEqual(self.module.added(row + toast + summary.format("715ms,"), toast + row + summary.format("9ms,")), [])
+        self.assertEqual([found for found, _ in self.module.findings(toast + summary.format("1ms,"))],
+                         ["src/components/Toasts.tsx: typescript(TS2339): Property 'notification' does not exist on type 'Toast'."])
+
+    def test_replay_of_23763_a_new_type_error_fails_over_a_base_red_with_another(self):
+        # The base's type check is already red (a missing module); the merge moves that error two lines and adds
+        # #23763's TS2339. Per error, the new one fails the gate and the base one stays a warning.
+        base = self.findings({"typecheck": type_error("TS2307", "Cannot find module './x.json'.", "src/a.ts:4:21")},
+                             "red base")
+        self.findings({"typecheck": type_error("TS2307", "Cannot find module './x.json'.", "src/a.ts:6:21")
+                       + type_error("TS2339", "Property 'muted' does not exist on type 'Row'.",
+                                    "test/composer-row-layout.test.ts:350:22")}, "#23763 merged")
+        result = self.gate(base)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        added = result.stdout.split("typecheck adds, over the base", 1)[1].split("webviews checks:", 1)[0]
+        self.assertIn("test/composer-row-layout.test.ts: typescript(TS2339): Property 'muted'", added)
+        self.assertNotIn("src/a.ts", added)
+        self.assertIn("::error title=webviews typecheck::", result.stdout)
+        self.assertRegex(result.stdout, r"::warning title=webviews typecheck \(base\)::\d+ error")
+        self.assertIn("base: src/a.ts: typescript(TS2307)", result.stdout)
+
+    def test_a_base_only_type_error_is_a_warning(self):
+        red = type_error("TS2307", "Cannot find module './x.json'.", "src/a.ts:4:21")
+        base = self.findings({"typecheck": red + type_error("TS2322", "Type 'string' is not assignable.", "src/b.ts:9:3")},
+                             "red base")
+        self.findings({"typecheck": red.replace(":4:21", ":40:21")}, "the merge fixes one, adds none")
+        result = self.gate(base)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("::warning title=webviews typecheck (base)::", result.stdout)
+        self.assertIn("src/a.ts: typescript(TS2307)", result.stdout)
+
+    def test_the_same_type_error_twice_in_a_file_is_new_the_second_time(self):
+        red = type_error("TS2339", "Property 'muted' does not exist on type 'Row'.", "test/r.test.ts:350:22")
+        base = self.findings({"typecheck": red}, "red base")
+        self.findings({"typecheck": red + red.replace(":350:", ":351:")}, "the merge")
+        self.assertEqual(self.gate(base).returncode, 1)
+
+    def test_a_type_error_keys_on_file_code_and_message_not_line_or_frame(self):
+        output = ("\x1b[31m  x typescript(TS2339): Property 'muted' does not exist on type 'Row'.\x1b[0m\n"
+                  "     ,-[test/composer-row-layout.test.ts:350:22]\n"
+                  " 349 |       expect(running.fill).toBe(\"rgba(0, 0, 0, 0)\");\n"
+                  " 350 |       expect(running.muted).not.toBe(running.text);\n"
+                  "     :                      ^^^^^\n"
+                  "     `----\n\nFound 1 error and 0 warnings in 2325 files (3.3s, 12 threads)\n")
+        self.assertEqual([key for key, _ in self.module.findings(output)],
+                         ["test/composer-row-layout.test.ts: typescript(TS2339): "
+                          "Property 'muted' does not exist on type 'Row'."])
+
+    def test_a_push_with_no_base_charges_every_red(self):
+        self.findings({"typecheck": type_error("TS2307", "Cannot find module './x.json'.", "src/a.ts:4:21")}, "red")
+        env = {**os.environ, "PATH": f"{self.bin}:{os.environ['PATH']}"}
+        result = subprocess.run([sys.executable, str(WEBVIEWS_CHECKS), "--repo", str(self.repo)],
+                                capture_output=True, text=True, env=env)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("typecheck failed", result.stdout)
+
+    def base_installs(self, base_lock: str, head_lock: str) -> list[str]:
+        """The base checks' bun installs when the merge's webviews/node_modules exists and the locks are as given."""
+        (self.repo / ".gitignore").write_text("node_modules/\n")
+        git(self.repo, "add", ".gitignore")
+        (self.repo / "webviews/bun.lock").parent.mkdir(parents=True, exist_ok=True)
+        (self.repo / "webviews/bun.lock").write_text(base_lock)
+        git(self.repo, "add", "webviews/bun.lock")
+        red = type_error("TS2307", "Cannot find module './x.json'.", "src/a.ts:4:21")
+        base = self.findings({"typecheck": red}, "base")
+        (self.repo / "webviews/bun.lock").write_text(head_lock)
+        git(self.repo, "add", "webviews/bun.lock")
+        self.findings({"typecheck": red}, "the merge")
+        (self.repo / "webviews/node_modules").mkdir()
+        log = self.tmp / "bun-installs.log"
+        env = {**os.environ, "PATH": f"{self.bin}:{os.environ['PATH']}", "BUN_LOG": str(log)}
+        result = subprocess.run([sys.executable, str(WEBVIEWS_CHECKS), "--base", base, "--repo", str(self.repo)],
+                                capture_output=True, text=True, env=env)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        merge = str((self.repo / "webviews").resolve())
+        return [line for line in log.read_text().splitlines() if line != merge]
+
+    def test_the_base_installs_its_own_dependencies_when_the_pull_request_changes_them(self):
+        # A pull request that bumps a dependency and so adds a type error must not have the base checked with the
+        # bumped dependency, where the same error would show and pass as the base's.
+        installs = self.base_installs("lock: typescript 5.9\n", "lock: typescript 6.0\n")
+        self.assertEqual(len(installs), 1, installs)
+        self.assertIn("fast-gate-webviews-base-", installs[0])
+
+    def test_the_base_shares_the_merges_dependencies_when_they_install_the_same(self):
+        self.assertEqual(self.base_installs("lock: same\n", "lock: same\n"), [])
+
+    def test_a_new_failure_beside_a_known_diagnostic_is_new(self):
+        known = type_error("TS2307", "Cannot find module './x.json'.", "src/a.ts:4:21")
+        new = self.module.added(known + "error: Failed to resolve vite config: ENOENT\n", known)
+        self.assertEqual(new, ["error: Failed to resolve vite config: ENOENT"])
+
+    def test_a_wrapped_message_compares_whole(self):
+        def wrapped(detail: str) -> str:
+            return (f"  x typescript(TS2322): Type '{{ a: number; }}' is not assignable to type 'Props'.\n"
+                    f"  |   {detail}\n     ,-[src/a.tsx:3:7]\n 3 | <A a={{1}} />\n     :  ^\n     `----\n")
+        self.assertEqual(len(self.module.added(wrapped("Property 'y' is missing in type"),
+                                               wrapped("Property 'x' is missing in type"))), 1)
+        self.assertEqual(self.module.added(wrapped("Property 'x' is missing in type"),
+                                           wrapped("Property 'x' is missing in type")), [])
+
+    def test_fewer_errors_than_the_base_adds_nothing(self):
+        a = type_error("TS2307", "Cannot find module './x.json'.", "src/a.ts:4:21")
+        b = type_error("TS2322", "Type 'string' is not assignable.", "src/b.ts:9:3")
+        self.assertEqual(self.module.added(f"error: Type errors found\n{a}Found 1 error and 0 warnings in 9 files (1.0s)\n",
+                                           f"error: Type errors found\n{a}{b}Found 2 errors and 0 warnings in 9 files (2.1s)\n"),
+                         [])
 
     def test_the_base_worktree_is_removed(self):
         base = self.findings({}, "base")

@@ -49,12 +49,12 @@
     },
     "agentPane.display.inspector.placement" : {
       "default" : "overlay",
-      "description" : "Where the Inspector opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat.",
+      "description" : "Where the Session Info panel opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat.",
       "enum" : [
         "push",
         "overlay"
       ],
-      "title" : "Inspector",
+      "title" : "Session Info",
       "type" : "string"
     },
     "agentPane.display.width" : {
@@ -115,6 +115,12 @@
       ],
       "title" : "Files Outside the Project",
       "type" : "string"
+    },
+    "agentPane.needsYou.enabled" : {
+      "default" : false,
+      "description" : "A badge in the chat header counts what your agents wait on; a click lists every ask with its answers. New agent tabs.",
+      "title" : "Needs You",
+      "type" : "boolean"
     },
     "agentPane.showContextUsage" : {
       "default" : true,
@@ -863,6 +869,17 @@
       "title" : "Interface Size",
       "type" : "number"
     },
+    "appearance.machineColors" : {
+      "default" : {
+
+      },
+      "description" : "The color of each machine's sidebar rows and tab badges, by machine name: \"#RRGGBB\", or an accent name (red, green, yellow, purple, cyan, orange, pink, blue) that follows the theme. A machine without one gets a color from its name.",
+      "properties" : {
+
+      },
+      "title" : "Machine Color",
+      "type" : "object"
+    },
     "appearance.metrics.chromeFontSize" : {
       "description" : "Text size of tabs, the sidebar and other controls. Terminal text has its own size.",
       "maximum" : 16,
@@ -1595,6 +1612,30 @@
       "title" : "Fill Codes from Verification Emails",
       "type" : "boolean"
     },
+    "chief.reactionClassifier.harness" : {
+      "default" : "",
+      "description" : "The agent harness the reaction classifier runs on, for example claude or codex. Empty uses the Chief's Claude route.",
+      "title" : "Reaction Classifier Harness",
+      "type" : "string"
+    },
+    "chief.reactionClassifier.model" : {
+      "default" : "claude-haiku-5-5",
+      "description" : "The model that decides whether a reaction starts a turn. Claude Haiku by default: it is fast and cheap.",
+      "title" : "Reaction Classifier Model",
+      "type" : "string"
+    },
+    "chief.reactionClassifier.prompt" : {
+      "default" : "",
+      "description" : "What the classifier is told when it decides. Empty uses the built-in instructions.",
+      "title" : "Reaction Classifier Instructions",
+      "type" : "string"
+    },
+    "chief.reactionsCanWake" : {
+      "default" : true,
+      "description" : "A reaction you put on a Chief message can start a turn when it asks for one, such as a question mark on a question or a thumbs down on a plan. A cheap model decides first, so a reaction that needs no answer never shows the typing dots. Off, reactions are only noted.",
+      "title" : "Reactions Can Wake the Chief",
+      "type" : "boolean"
+    },
     "computerUse.driver" : {
       "default" : "legacy",
       "description" : "Legacy runs the current cmux Computer Use helper. Upstream runs the new helper built on the upstream Cua Driver; macOS asks for its permissions separately.",
@@ -1609,6 +1650,12 @@
       "default" : false,
       "description" : "Lets agents see and use your apps through the signed cmux Computer Use helper. macOS asks for Accessibility and Screen Recording when you first allow them.",
       "title" : "Computer Use",
+      "type" : "boolean"
+    },
+    "diagnostics.hangReports" : {
+      "default" : false,
+      "description" : "Nightly builds send a daily report of hangs and slow frames: call stacks of cmux and macOS code, timings, your app and macOS versions, your Mac's chip and memory size, and rounded counts of open windows and tabs. It never includes file names, web addresses, terminal text, names or anything you type. View Hang Report shows exactly what is sent.",
+      "title" : "Send Hang Reports",
       "type" : "boolean"
     },
     "diff.colors" : {
@@ -2636,6 +2683,25 @@
       "title" : "New Terminal Opens a Workspace",
       "type" : "boolean"
     },
+    "notifications.attention.agentChatBlinkCount" : {
+      "default" : 1,
+      "description" : "notifications.attention.agentChatBlinkCount",
+      "maximum" : 10,
+      "minimum" : 1,
+      "title" : "Agent Chat Blinks",
+      "type" : "number"
+    },
+    "notifications.attention.agentChats" : {
+      "default" : "none",
+      "description" : "Ring an agent chat's pane when its turn ends, until you click or type in it.",
+      "enum" : [
+        "glow",
+        "ring",
+        "none"
+      ],
+      "title" : "Ring Agent Chat Panes",
+      "type" : "string"
+    },
     "notifications.attention.blinkCount" : {
       "default" : 2,
       "description" : "notifications.attention.blinkCount",
@@ -2703,6 +2769,17 @@
         "none"
       ],
       "title" : "Style",
+      "type" : "string"
+    },
+    "notifications.attention.terminals" : {
+      "default" : "glow",
+      "description" : "notifications.attention.terminals",
+      "enum" : [
+        "glow",
+        "ring",
+        "none"
+      ],
+      "title" : "Ring Terminal Panes",
       "type" : "string"
     },
     "notifications.attention.width" : {
@@ -3348,6 +3425,12 @@
       "title" : "Show Now Playing",
       "type" : "boolean"
     },
+    "sidebar.nowPlaying.otherApps" : {
+      "default" : false,
+      "description" : "Also show what plays in other apps, such as Spotify, Music or another browser. Off: only what plays in cmux.",
+      "title" : "Include Other Apps in Now Playing",
+      "type" : "boolean"
+    },
     "sidebar.numbering" : {
       "default" : "allItems",
       "description" : "Every item: Home is Command-1, the App Store Command-2, the first workspace Command-3. Workspaces only: the first workspace is Command-1.",
@@ -3399,6 +3482,12 @@
       "default" : true,
       "description" : "On the New Tab page, the Threads and Console styles list every coding agent chat on this computer, newest first. Off, they show the recent chats only.",
       "title" : "Show All Chats on New Tab",
+      "type" : "boolean"
+    },
+    "sidebar.showColors" : {
+      "default" : true,
+      "description" : "Workspaces and groups draw their colors in the sidebar. Off, the sidebar draws no colors and keeps the colors you set.",
+      "title" : "Show Workspace Colors",
       "type" : "boolean"
     },
     "sidebar.showLocalMachine" : {
@@ -3488,6 +3577,16 @@
       "description" : "Past the last item, the next item is the first again.",
       "title" : "Wrap Around",
       "type" : "boolean"
+    },
+    "sidebar.style" : {
+      "default" : "standard",
+      "description" : "Rail shrinks the sidebar to a thin strip with a mark for each workspace. Point at the strip to open the full sidebar over your work.",
+      "enum" : [
+        "standard",
+        "rail"
+      ],
+      "title" : "Sidebar Style",
+      "type" : "string"
     },
     "sidebar.topBandMaxShare" : {
       "default" : 0.3333333333333333,
@@ -3580,7 +3679,7 @@
       "type" : "boolean"
     },
     "sidebar.workspaceRow.agentStatus" : {
-      "default" : true,
+      "default" : false,
       "description" : "The status agents and hooks report, one line each.",
       "title" : "Agent Status",
       "type" : "boolean"
@@ -3692,7 +3791,7 @@
       "type" : "boolean"
     },
     "sidebar.workspaceRow.log" : {
-      "default" : true,
+      "default" : false,
       "description" : "The newest line agents and scripts log: cmux workspace log append <text>.",
       "title" : "Log",
       "type" : "boolean"
@@ -3984,7 +4083,7 @@
       "type" : "boolean"
     },
     "tabs.newTabNowPlaying" : {
-      "default" : true,
+      "default" : false,
       "description" : "A player for what is playing, on the New Tab page.",
       "title" : "Show Now Playing on New Tab",
       "type" : "boolean"
@@ -4029,10 +4128,34 @@
       "type" : "boolean"
     },
     "tabs.newTabWidgets.greeting" : {
-      "default" : true,
-      "description" : "A short greeting over the composer.",
-      "title" : "Show Greeting on New Tab",
+      "default" : false,
+      "description" : "A headline over the composer that asks what to work on, with the project as a picker.",
+      "title" : "Ask What to Work On on New Tab",
       "type" : "boolean"
+    },
+    "tabs.newTabWidgets.machines" : {
+      "default" : false,
+      "description" : "Your machines and whether each is online.",
+      "title" : "Show Machines on New Tab",
+      "type" : "boolean"
+    },
+    "tabs.newTabWidgets.order" : {
+      "default" : [
+        "projects",
+        "actions",
+        "chats"
+      ],
+      "description" : "The order of the widgets on New Tab. Right-click New Tab and choose Edit New Tab to drag them.",
+      "items" : {
+        "enum" : [
+          "projects",
+          "actions",
+          "chats"
+        ],
+        "type" : "string"
+      },
+      "title" : "New Tab Widget Order",
+      "type" : "array"
     },
     "tabs.newTabWidgets.projects" : {
       "default" : false,
@@ -4045,6 +4168,18 @@
       "description" : "Dots under the page that switch its template.",
       "title" : "Show Template Dots on New Tab",
       "type" : "boolean"
+    },
+    "tabs.newTabWidgets.weather" : {
+      "default" : false,
+      "description" : "The current weather and today's high and low, for the city below or your time zone's city.",
+      "title" : "Show Weather on New Tab",
+      "type" : "boolean"
+    },
+    "tabs.newTabWidgets.weatherCity" : {
+      "default" : "",
+      "description" : "A city for the weather widget. Empty uses your time zone's city.",
+      "title" : "Weather City",
+      "type" : "string"
     },
     "tabs.overflow" : {
       "default" : "shrink",
@@ -4074,8 +4209,8 @@
     },
     "tabs.terminalFirst" : {
       "default" : false,
-      "description" : "When on, Cmd-T, Cmd-D and Cmd-Shift-D open a terminal, as in cmux classic, instead of the New Tab page.",
-      "title" : "New Tabs and Splits Open a Terminal",
+      "description" : "New tabs (Cmd-T, the tab bar's +), splits (Cmd-D, Cmd-Shift-D), new workspaces (Cmd-N, the sidebar's +) and new windows open a terminal, as in cmux classic, instead of the New Tab page. To open the New Tab page while this is on, right-click or press and hold the tab bar's +, or run New Tab Page from the command palette (Cmd-Shift-P). Cmd-I still opens an agent chat and Cmd-Shift-L a browser tab.",
+      "title" : "cmux Classic Mode",
       "type" : "boolean"
     },
     "tabs.toolbarButtons" : {
@@ -4119,6 +4254,23 @@
       "minimum" : 4,
       "title" : "Font Size",
       "type" : "number"
+    },
+    "terminal.linkOpener.default" : {
+      "default" : "cmux",
+      "description" : "Where a URL goes when a program in a terminal opens a browser, such as aws login or gh auth login: cmux, system, chrome, safari, arc, firefox, edge, brave, app:<name>, a profile after @ (chrome@Profile 1), or command:<command> to let your script decide. A BROWSER you set yourself wins.",
+      "title" : "Open Program Links In",
+      "type" : "string"
+    },
+    "terminal.linkOpener.rules" : {
+      "default" : [
+
+      ],
+      "description" : "Checked in order before the default; the first match wins. Write <match> -> <target>: caller:aws matches the program that opened the URL, and text, * wildcards or re: match the URL. Example: caller:gh github.com -> safari",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Program Link Rules",
+      "type" : "array"
     },
     "ui.animations.bounce" : {
       "default" : "none",
@@ -4234,6 +4386,12 @@
       "default" : true,
       "description" : "Splits, closes, moves, zooms, column scrolls and screen switches slide into place. Off: they change at once.",
       "title" : "Animate Panes",
+      "type" : "boolean"
+    },
+    "ui.reducedBackgrounds" : {
+      "default" : false,
+      "description" : "Draws windows in the plain theme color, without paintings, wallpapers or glass. Your background choices stay as they are and come back when you turn it off.",
+      "title" : "Plain Backgrounds",
       "type" : "boolean"
     },
     "UpdateChannel" : {

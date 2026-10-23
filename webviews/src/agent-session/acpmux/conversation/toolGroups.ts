@@ -7,12 +7,14 @@ import { isBareShellName } from "../toolPaths";
 import { agentMessage, type AgentMessage } from "./agentMessages";
 import { mcpCall, mcpKey } from "./mcpCalls";
 import { subsessionCall, type SubsessionCall } from "./subsessionCalls";
-import { mergeThoughts } from "./thoughts";
+import { isThought, mergeThoughts } from "./thoughts";
 
 /// The kinds of call that group with their neighbors.
 export type ToolGroupKind = "commands" | "reads" | "edits" | "searches";
 
 export type ToolGroup =
+  /// Its calls, with any thought that came between two of them in its place (`groupCalls` lists
+  /// only the calls).
   | { type: "group"; kind: ToolGroupKind; items: AcpmuxActivity[] }
   | { type: "message"; item: AcpmuxActivity; message: AgentMessage }
   /// A sub-session started, sent a message or waited on (subsessionCalls.ts), each its own card.
@@ -44,25 +46,37 @@ export function toolGroupKind(tool: Tool): ToolGroupKind | undefined {
   }
 }
 
-/// Consecutive calls of one kind form a group; a thought or a call of another kind ends it.
-/// Commands, reads and searches group from two calls; an edit with a diff groups alone, so it
-/// still reads "Edited App.tsx +12 -3". Calls to one MCP tool group from one call, so even a lone
-/// one reads as what it did. A lone call of any other kind keeps its own row and title.
-/// Consecutive thoughts are one thought (thoughts.ts `mergeThoughts`).
+/// Consecutive calls of one kind form a group; a call of another kind ends it. A thought between
+/// two commands, reads or searches stays inside their group, in its place, so thinking between
+/// calls never splits one run of reads into many small groups (Leo 2026-10-21: "it can consolidate
+/// a ton of these tool calls"); a thought before any other entry ends the group. Commands, reads
+/// and searches group from two calls; an edit with a diff groups alone, so it still reads "Edited
+/// App.tsx +12 -3". Calls to one MCP tool group from one call, so even a lone one reads as what it
+/// did. A lone call of any other kind keeps its own row and title. Consecutive thoughts are one
+/// thought (thoughts.ts `mergeThoughts`).
 export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
   const groups: ToolGroup[] = [];
   let run: { kind: ToolGroupKind; items: AcpmuxActivity[] } | undefined;
   let mcp: { key: string; items: AcpmuxActivity[] } | undefined;
+  // Thoughts after the open run's latest call: they join it if a call of its kind comes next.
+  let held: AcpmuxActivity[] = [];
   const close = () => {
     if (mcp) groups.push({ type: "mcp", items: mcp.items });
     mcp = undefined;
-    if (!run) return;
-    const lone = run.items[0]!.tool!;
-    if (run.items.length >= 2 || (run.kind === "edits" && lone.diffs?.length)) groups.push({ type: "group", ...run });
-    else groups.push({ type: "item", item: run.items[0]! });
-    run = undefined;
+    if (run) {
+      const lone = run.items[0]!.tool!;
+      if (run.items.length >= 2 || (run.kind === "edits" && lone.diffs?.length)) groups.push({ type: "group", ...run });
+      else groups.push({ type: "item", item: run.items[0]! });
+      run = undefined;
+    }
+    for (const thought of held) groups.push({ type: "item", item: thought });
+    held = [];
   };
   for (const item of mergeThoughts(items)) {
+    if (run && run.kind !== "edits" && isThought(item)) {
+      held.push(item);
+      continue;
+    }
     const tool = item.tool;
     const message = tool && agentMessage(tool);
     const named = tool && !message ? mcpCall(tool) : undefined;
@@ -75,7 +89,8 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
     }
     const kind = tool && !message && !subsession && !call ? toolGroupKind(tool) : undefined;
     if (kind && run?.kind === kind) {
-      run.items.push(item);
+      run.items.push(...held, item);
+      held = [];
       continue;
     }
     close();
@@ -87,6 +102,20 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
   }
   close();
   return groups;
+}
+
+/// A group's calls, without the thoughts between them.
+export function groupCalls(items: readonly AcpmuxActivity[]): AcpmuxActivity[] {
+  return items.filter((item) => item.tool);
+}
+
+/// A file change (an edit, a delete, a move) still waiting for its permission: its row stays in
+/// sight, never folded under a run's summary line, so the change it asks about can be seen.
+export function awaitsPermission(tool: Tool | undefined): boolean {
+  return (
+    tool?.status === "pending" &&
+    (tool.kind === "edit" || tool.kind === "delete" || tool.kind === "move" || tool.kind === "fileChange")
+  );
 }
 
 export function isRunning(tool: Tool): boolean {
@@ -140,19 +169,20 @@ export function toolGroupLabel(
   items: readonly AcpmuxActivity[],
   files: readonly string[] = [],
 ): string {
-  const running = items.some((item) => item.tool && isRunning(item.tool));
+  const calls = groupCalls(items);
+  const running = calls.some((item) => isRunning(item.tool!));
   switch (kind) {
     case "commands":
-      return t(running ? "tools.running" : "tools.ran", { n: items.length });
+      return t(running ? "tools.running" : "tools.ran", { n: calls.length });
     case "reads": {
-      const n = readCount(items);
+      const n = readCount(calls);
       return t(n === 1 ? "tools.read.one" : "tools.read.other", { n });
     }
     case "searches":
-      return t("tools.searched", { n: items.length });
+      return t("tools.searched", { n: calls.length });
     case "edits": {
       // Calls without a diff (a delete or move the agent did not diff) count as a file each.
-      const n = files.length + items.filter((item) => !item.tool?.diffs?.length).length;
+      const n = files.length + calls.filter((item) => !item.tool?.diffs?.length).length;
       return n === 1 && files.length === 1
         ? t("tools.edited.file", { file: fileName(files[0]!) })
         : t("tools.edited.files", { n });

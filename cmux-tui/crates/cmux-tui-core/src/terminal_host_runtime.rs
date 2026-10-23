@@ -44,6 +44,9 @@ use crate::terminal_host_protocol::{
 mod grant_failure;
 // Neutral code compiles on every platform; until the Windows host uses it,
 // only Unix calls it.
+/// The Colors frame payload codec.
+mod colors_wire;
+pub use colors_wire::{decode_terminal_color_overrides, encode_terminal_color_overrides};
 #[cfg_attr(not(unix), allow(dead_code))]
 mod shared;
 #[cfg_attr(not(unix), allow(dead_code))]
@@ -342,118 +345,6 @@ impl std::fmt::Debug for RendererGrant {
     }
 }
 
-/// Encode a complete dynamic render-metadata state.
-///
-/// Wire layout is little-endian: schema_version:u16, flags:u16 (foreground,
-/// background, cursor color, cursor visual), palette_count:u16, reserved:u16,
-/// each flagged RGB in that order, the atomic cursor style/blink pair when
-/// flagged, then palette_count repetitions of index:u8 + RGB. RGB and palette
-/// fields remain sparse theme overrides. Version 2 producers populate the
-/// host-resolved cursor visual. An absent visual is the version 1 fallback:
-/// the cursor state is unknown and the receiving renderer must preserve its
-/// current raw-VT/default cursor rather than infer a reset.
-pub fn encode_terminal_color_overrides(colors: &TerminalColorOverrides) -> Vec<u8> {
-    let cursor_visual =
-        colors.cursor_visual.expect("terminal-host Colors v2 requires a resolved cursor visual");
-    let mut flags = 0u16;
-    flags |= colors.foreground.is_some() as u16;
-    flags |= (colors.background.is_some() as u16) << 1;
-    flags |= (colors.cursor.is_some() as u16) << 2;
-    flags |= 1 << 3;
-    let palette_count = colors.palette.iter().filter(|color| color.is_some()).count() as u16;
-    let rgb_bytes = (flags & 0b111).count_ones() as usize * 3;
-    let mut payload = Vec::with_capacity(8 + rgb_bytes + 2 + usize::from(palette_count) * 4);
-    payload.extend_from_slice(&TERMINAL_COLORS_WIRE_VERSION.to_le_bytes());
-    payload.extend_from_slice(&flags.to_le_bytes());
-    payload.extend_from_slice(&palette_count.to_le_bytes());
-    payload.extend_from_slice(&0u16.to_le_bytes());
-    for color in [colors.foreground, colors.background, colors.cursor].into_iter().flatten() {
-        payload.extend_from_slice(&[color.r, color.g, color.b]);
-    }
-    let (style, blink) = cursor_visual;
-    let style = match style {
-        ghostty_vt::CursorShape::Block | ghostty_vt::CursorShape::BlockHollow => 1,
-        ghostty_vt::CursorShape::Underline => 2,
-        ghostty_vt::CursorShape::Bar => 3,
-    };
-    payload.extend_from_slice(&[style, blink as u8]);
-    for (index, color) in colors.palette.iter().enumerate() {
-        if let Some(color) = color {
-            payload.extend_from_slice(&[index as u8, color.r, color.g, color.b]);
-        }
-    }
-    debug_assert!(payload.len() <= MAX_TERMINAL_COLORS_PAYLOAD);
-    payload
-}
-
-pub fn decode_terminal_color_overrides(payload: &[u8]) -> anyhow::Result<TerminalColorOverrides> {
-    if payload.len() < 8 || payload.len() > MAX_TERMINAL_COLORS_PAYLOAD {
-        anyhow::bail!("terminal-host Colors payload length is out of range");
-    }
-    let version = u16::from_le_bytes(payload[0..2].try_into().unwrap());
-    let flags = u16::from_le_bytes(payload[2..4].try_into().unwrap());
-    let palette_count = u16::from_le_bytes(payload[4..6].try_into().unwrap()) as usize;
-    let reserved = u16::from_le_bytes(payload[6..8].try_into().unwrap());
-    let allowed_flags = match version {
-        TERMINAL_COLORS_WIRE_VERSION_V1 => 0b111,
-        TERMINAL_COLORS_WIRE_VERSION if flags & 0b1000 != 0 => 0b1111,
-        TERMINAL_COLORS_WIRE_VERSION => {
-            anyhow::bail!("terminal-host Colors v2 is missing the cursor visual")
-        }
-        _ => anyhow::bail!("unsupported terminal-host Colors payload version"),
-    };
-    if flags & !allowed_flags != 0 || reserved != 0 {
-        anyhow::bail!("unsupported terminal-host Colors payload header");
-    }
-    if palette_count > 256 {
-        anyhow::bail!("terminal-host Colors palette count is out of range");
-    }
-    let expected = 8
-        + (flags & 0b111).count_ones() as usize * 3
-        + usize::from(flags & 0b1000 != 0) * 2
-        + palette_count * 4;
-    if payload.len() != expected {
-        anyhow::bail!("malformed terminal-host Colors payload");
-    }
-    fn take_rgb(payload: &[u8], offset: &mut usize) -> Rgb {
-        let color = Rgb { r: payload[*offset], g: payload[*offset + 1], b: payload[*offset + 2] };
-        *offset += 3;
-        color
-    }
-    let mut offset = 8;
-    let foreground = (flags & 1 != 0).then(|| take_rgb(payload, &mut offset));
-    let background = (flags & 2 != 0).then(|| take_rgb(payload, &mut offset));
-    let cursor = (flags & 4 != 0).then(|| take_rgb(payload, &mut offset));
-    let cursor_visual = if flags & 8 != 0 {
-        let style = match payload[offset] {
-            1 => ghostty_vt::CursorShape::Block,
-            2 => ghostty_vt::CursorShape::Underline,
-            3 => ghostty_vt::CursorShape::Bar,
-            _ => anyhow::bail!("terminal-host Colors cursor style is out of range"),
-        };
-        let blink = match payload[offset + 1] {
-            0 => false,
-            1 => true,
-            _ => anyhow::bail!("terminal-host Colors cursor blink is out of range"),
-        };
-        offset += 2;
-        Some((style, blink))
-    } else {
-        None
-    };
-    let mut palette = [None; 256];
-    for _ in 0..palette_count {
-        let index = payload[offset] as usize;
-        if palette[index].is_some() {
-            anyhow::bail!("duplicate terminal-host Colors palette index");
-        }
-        palette[index] =
-            Some(Rgb { r: payload[offset + 1], g: payload[offset + 2], b: payload[offset + 3] });
-        offset += 4;
-    }
-    Ok(TerminalColorOverrides { foreground, background, cursor, cursor_visual, palette })
-}
-
 #[derive(Debug)]
 pub(crate) struct DeferredCellPixelAck;
 
@@ -532,7 +423,9 @@ mod unix {
     /// alive, so a failed reader, writer, callback, or thread setup cannot
     /// leave the interactive child detached from its parent.
     pub(crate) struct SpawnedPtyChild {
-        child: Option<Box<dyn cmux_pty::Child + Send + Sync>>,
+        child: Box<dyn cmux_pty::Child + Send + Sync>,
+        /// False once the child is reaped: Drop then leaves it alone.
+        armed: bool,
         process_groups: [Option<libc::pid_t>; 2],
     }
 
@@ -568,15 +461,15 @@ mod unix {
             process_group_leader: Option<libc::pid_t>,
         ) -> Self {
             let child_pid = child.process_id().and_then(|pid| libc::pid_t::try_from(pid).ok());
-            Self { child: Some(child), process_groups: [child_pid, process_group_leader] }
+            Self { child, armed: true, process_groups: [child_pid, process_group_leader] }
         }
 
         fn child(&self) -> &dyn cmux_pty::Child {
-            self.child.as_deref().expect("PTY child is present")
+            self.child.as_ref()
         }
 
         fn child_mut(&mut self) -> &mut (dyn cmux_pty::Child + Send + Sync) {
-            self.child.as_deref_mut().expect("PTY child is present")
+            self.child.as_mut()
         }
 
         fn wait_and_disarm(&mut self) -> TerminalExit {
@@ -588,7 +481,7 @@ mod unix {
         }
 
         fn disarm(&mut self) {
-            let _ = self.child.take();
+            self.armed = false;
             self.process_groups = [None, None];
         }
     }
@@ -607,7 +500,8 @@ mod unix {
                     unsafe { libc::killpg(group, signal) == 0 }
                 },
             );
-            if let Some(child) = self.child.as_deref_mut() {
+            if self.armed {
+                let child = self.child.as_mut();
                 // A valid process group already includes the child. Avoid a
                 // second direct PID signal unless group signaling failed, which
                 // could leave the child running while the guard waits below.
@@ -713,8 +607,11 @@ mod unix {
         // recorded launch command stays the shell's.
         let login = crate::login_shell::wrap(&launch.command, &launch.extra_env);
         let argv = login.as_deref().unwrap_or(&launch.command);
-        let mut command = PtyCommand::new(&argv[0]);
-        command.args(argv[1..].iter().cloned());
+        let Some((program, args)) = argv.split_first() else {
+            anyhow::bail!("terminal-host launch command is empty");
+        };
+        let mut command = PtyCommand::new(program);
+        command.args(args.iter().cloned());
         command.env("TERM", &launch.term);
         // Terminal-host children get the same truecolor guarantee as directly
         // spawned surfaces (see Surface spawn in surface.rs); extra_env wins.
@@ -765,6 +662,7 @@ pub use shared::codec::{decode_host_snapshot_payload, encode_host_snapshot_paylo
 pub(crate) use shared::control_responses::{ControlResponses, DeferredCellPixelResolution};
 #[cfg(any(unix, windows))]
 pub use shared::host_serve::{serve_terminal_host_process, serve_terminal_host_stdio};
+pub(crate) use shared::host_state::HOST_TERMINATE_WAIT;
 pub use shared::host_state::set_dev_host_orphan_grace;
 #[cfg(any(unix, windows))]
 pub(crate) use shared::records::live_successor_record;
@@ -860,11 +758,12 @@ mod tests {
 
     #[test]
     fn colors_payload_v2_requires_resolved_cursor_visual() {
-        assert!(
-            std::panic::catch_unwind(|| {
-                encode_terminal_color_overrides(&TerminalColorOverrides::default())
-            })
-            .is_err()
+        // Without a resolved cursor visual the encoder falls back to v1.
+        let fallback = encode_terminal_color_overrides(&TerminalColorOverrides::default());
+        assert_eq!(fallback, [1, 0, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(
+            decode_terminal_color_overrides(&fallback).unwrap(),
+            TerminalColorOverrides::default()
         );
         assert!(
             decode_terminal_color_overrides(&[2, 0, 0, 0, 0, 0, 0, 0]).is_err(),
