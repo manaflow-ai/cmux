@@ -271,6 +271,27 @@ Review fixes (2026-10-23):
   `keptHold(times:)`), not a fixed 60 s. Test:
   `aPageKeptTwiceIsNotProbedAgainAfterAMinute`.
 
+Fleet test fixes (2026-10-23, after 04c2a95e2f7):
+- A chat release counted as in flight only until its frame was taken, not
+  while the frame was held (encoded): the pace undercounted, and
+  `chatsPastTheBudgetGoAFewAtATime` ended while a release still ran, which then
+  read the freed test rig (the crash on macOS 26 and 27). A release now counts
+  until the page is gone or stays; the plan ranks the releases in flight (they
+  are live until they go) and a pass starts only the others, so a release that
+  checks it is still due sees the same plan.
+- A connected chat that did not say in time what it holds stayed first in the
+  budget order, so every pass asked it again and the chats behind it never went
+  (the chats check: 1 of 3 released). It now stays out of the budget for
+  `keptHold(times:)`, as a page the probe kept, and is asked again after that.
+  Test: `aChatThatDoesNotSayWhatItHoldsDoesNotHoldUpTheOthers`.
+- A one-line `<select>` with no default option counted as form input to a probe
+  without the recorder's baseline (Chromium's late recorder, or no recorder):
+  it shows its first enabled option, which no option's `defaultSelected` says.
+  The field probe and the recorder share one comparison
+  (`BrowserPageBusy.differsFromDefault`). The light bench's 4-5 kept pages.
+  Test: `HiddenPageHibernationTests.aMenuWithNoDefaultOptionIsNoEditToTheFieldProbe`.
+  `bench_hidden_memory.py` prints the reasons of the live bench pages (`live_kept`).
+
 Wake picture: a hibernated page's JPEG took 10 to 30 ms to decode off the
 main thread after its placeholder entered a window, so a woken tab showed an
 empty pane for those frames. Each large picture now also keeps a decoded

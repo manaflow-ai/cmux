@@ -29,7 +29,7 @@ final class HibernationSnapshots {
     nonisolated struct Picture: Sendable {
         let data: Data?
         let image: CGImage
-        var preview: CGImage? = nil
+        var preview: CGImage?
 
         /// Bytes it holds in the store: the encoded picture and the decoded preview.
         var cost: Int { (data?.count ?? 0) + (preview.map { $0.bytesPerRow * $0.height } ?? 0) }

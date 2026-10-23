@@ -47,17 +47,37 @@ public nonisolated struct BrowserPageBusy: Equatable, Sendable {
     /// A page that does not answer within the deadline is treated as busy and kept.
     package static let fieldProbeScript = """
     (() => {
+      const differs = \(differsFromDefault);
       const media = [...document.querySelectorAll('audio,video')].some(m => !m.paused && !m.ended && !m.muted && m.volume > 0)
         || !!document.pictureInPictureElement
         || [...document.querySelectorAll('video')].some(v => v.webkitPresentationMode === 'picture-in-picture');
       const form = [...document.querySelectorAll('input,textarea,select')].some(e => {
         if (e.disabled || e.type === 'hidden' || e.type === 'submit' || e.type === 'button') return false;
-        if (e.tagName === 'SELECT') return [...e.options].some(o => o.selected !== o.defaultSelected);
-        if (e.type === 'checkbox' || e.type === 'radio') return e.checked !== e.defaultChecked;
-        return e.value !== e.defaultValue;
+        return differs(e);
       });
       return JSON.stringify({media, form});
     })()
+    """
+
+    /// Whether a form field's value differs from what its markup gives it, as a JS function. A
+    /// one-line `<select>` with no default option shows its first enabled option (HTML's
+    /// selectedness setting), so that option is its default; comparing each option's `selected`
+    /// with `defaultSelected` called every such menu edited (the 2026-10-23 light bench: a
+    /// Chromium page whose recorder attached late kept its page as form input). Shared by
+    /// ``fieldProbeScript`` and ``recorderScript``.
+    static let differsFromDefault = """
+    (e) => {
+      if (e.tagName === 'SELECT') {
+        const options = Array.from(e.options);
+        if (e.multiple || e.size > 1) return options.some((o) => o.selected !== o.defaultSelected);
+        let shown = -1;
+        options.forEach((o, i) => { if (o.defaultSelected) shown = i; });
+        if (shown < 0) shown = options.findIndex((o) => !o.disabled);
+        return e.selectedIndex !== shown;
+      }
+      if (e.type === 'checkbox' || e.type === 'radio') return e.checked !== e.defaultChecked;
+      return e.value !== e.defaultValue;
+    }
     """
 
     static let recorderScript = #"""
@@ -76,12 +96,8 @@ public nonisolated struct BrowserPageBusy: Equatable, Sendable {
         !e.disabled && e.type !== 'hidden' && e.type !== 'submit' && e.type !== 'button');
       const current = (e) => e.tagName === 'SELECT' ? Array.from(e.options).map((o) => o.selected).join()
         : e.type === 'checkbox' || e.type === 'radio' ? String(e.checked) : e.value;
-      const changed = (e) => {
-        if (!e.isConnected || e.disabled) return false;
-        if (e.tagName === 'SELECT') return Array.from(e.options).some((o) => o.selected !== o.defaultSelected);
-        if (e.type === 'checkbox' || e.type === 'radio') return e.checked !== e.defaultChecked;
-        return e.value !== e.defaultValue;
-      };
+      const differs = \#(differsFromDefault);
+      const changed = (e) => e.isConnected && !e.disabled && differs(e);
       const busy = () => {
         const state = { audio: false, capturing: Array.from(streams).some(live), form: false };
         for (const ref of fields) {
