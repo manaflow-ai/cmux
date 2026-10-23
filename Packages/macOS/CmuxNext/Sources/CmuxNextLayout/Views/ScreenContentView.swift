@@ -81,6 +81,9 @@ final class ScreenContentView: NSView {
     /// Pane strip clips computed, cumulative (PaneMotionWorkTests: per frame it is the panes that
     /// moved or whose covers changed, not every pane).
     var stripClipsComputed = 0
+    /// The last `panesAbove()` walk, reused while the hosts are as they were (one walk per frame,
+    /// shared by the presentation pass and the overlay sync).
+    var panesAboveMemo = PanesAboveMemo()
     init(screenID: ScreenID, layout: ScreenLayout, context: LayoutViewContext,
          paneMotionVariant: @escaping () -> PaneMotionVariant = { LayoutTunables.paneMotionVariant.value }) {
         self.screenID = screenID
