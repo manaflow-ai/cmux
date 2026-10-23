@@ -724,6 +724,22 @@ struct AgentResumeArgvTests {
         #expect(!argv.joined(separator: " ").contains("127.0.0.1"))
     }
 
+    @Test("A markerless reroute needs argv[0] to match the captured executable")
+    func markerlessRerouteRejectsMismatchedExecutable() {
+        #expect(AgentResumeArgv().builtInKind(
+            kind: "codex",
+            sessionId: "SID",
+            executablePath: "/opt/bin/codex",
+            arguments: ["evil", "-c", "model_provider=subrouter"]
+        ) == nil)
+        #expect(AgentResumeArgv().builtInKind(
+            kind: "codex",
+            sessionId: "SID",
+            executablePath: "/opt/bin/codex",
+            arguments: ["/opt/bin/codex", "-c", "model_provider=subrouter"]
+        )?.first == "sr")
+    }
+
     @Test("Argv routing proof rejects mixed providers")
     func argvRoutingProofRejectsMixedProviders() {
         #expect(!SubrouterCodexResumeRouting().usesSubrouterProvider(in: [
