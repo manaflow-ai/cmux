@@ -26,6 +26,7 @@ let package = Package(
         .library(name: "CmuxMobileArtifacts", targets: ["CmuxMobileArtifacts"]),
         .library(name: "CmuxMobileBrowserStream", targets: ["CmuxMobileBrowserStream"]),
         .library(name: "CmuxMobileVoice", targets: ["CmuxMobileVoice"]),
+        .library(name: "CmuxMobileNotifications", targets: ["CmuxMobileNotifications"]),
     ],
     dependencies: [
         .package(path: "../../Packages/Shared/CmuxGhosttyKit"),
@@ -44,6 +45,10 @@ let package = Package(
     ],
     targets: [
         .target(name: "CmuxMobileDesign"),
+        // Push payloads, notification buttons, the App Group outbox and chat
+        // snapshots: Foundation and UserNotifications only, so the notification
+        // extensions link it without the app's modules (verify/rich-push.md).
+        .target(name: "CmuxMobileNotifications"),
         .target(name: "CmuxMobileModel"),
         .binaryTarget(name: "CmuxMobileLinkFFIFFI", path: "Frameworks/CmuxMobileLinkFFI.xcframework"),
         .target(
@@ -107,9 +112,10 @@ let package = Package(
         // daemon tree, acpmux chats, Feed events and Chief over the link.
         .target(name: "CmuxMobileLive", dependencies: [
             "CmuxMobileDesign", "CmuxMobileModel", "CmuxMobileTransport", "CmuxMobileAgentChat", "CmuxMobileArtifacts", "CmuxMobileFeed", "CmuxMobileChief", "CmuxMobileTerminal",
-            "CmuxMobileBrowserStream",
+            "CmuxMobileBrowserStream", "CmuxMobileNotifications",
             .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
             .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
+            .product(name: "CmuxConversationCore", package: "CmuxConversation"),
         ]),
         .target(
             name: "CmuxMobileTerminal",
@@ -132,21 +138,22 @@ let package = Package(
             dependencies: [
                 "CmuxMobileDesign", "CmuxMobileModel", "CmuxMobileAuth", "CmuxMobileOnboarding", "CmuxMobileSettings",
                 "CmuxMobileAgentChat", "CmuxMobileFeed", "CmuxMobileTransport", "CmuxMobileWorkspaces", "CmuxMobileChief", "CmuxMobileLive", "CmuxMobileTerminal",
-                "CmuxMobileBrowserStream",
+                "CmuxMobileBrowserStream", "CmuxMobileNotifications",
                 .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
             ]
         ),
         .testTarget(name: "CmuxMobileModelTests", dependencies: ["CmuxMobileModel"]),
+        .testTarget(name: "CmuxMobileNotificationsTests", dependencies: ["CmuxMobileNotifications"]),
         .testTarget(name: "CmuxMobileTransportTests", dependencies: ["CmuxMobileTransport"]),
         .testTarget(name: "CmuxMobileAgentChatTests", dependencies: ["CmuxMobileAgentChat", "CmuxMobileDiff", "CmuxMobileMarkdown", "CmuxMobileArtifacts", "CmuxMobileDesign"]),
         .testTarget(name: "CmuxMobileTerminalTests", dependencies: ["CmuxMobileTerminal"]),
         .testTarget(name: "CmuxMobileBrowserStreamTests", dependencies: ["CmuxMobileBrowserStream", "CmuxMobileTransport"]),
         .testTarget(name: "CmuxMobileWorkspacesTests", dependencies: ["CmuxMobileWorkspaces", "CmuxMobileModel", "CmuxMobileAgentChat"]),
         .testTarget(name: "CmuxMobileLiveTests", dependencies: [
-            "CmuxMobileLive", "CmuxMobileTransport", "CmuxMobileModel", "CmuxMobileAgentChat", "CmuxMobileFeed", "CmuxMobileTerminal", "CmuxMobileDesign",
+            "CmuxMobileLive", "CmuxMobileNotifications", "CmuxMobileTransport", "CmuxMobileModel", "CmuxMobileAgentChat", "CmuxMobileFeed", "CmuxMobileTerminal", "CmuxMobileDesign",
             .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
         ]),
-        .testTarget(name: "CmuxMobileShellTests", dependencies: ["CmuxMobileShell", "CmuxMobileDesign"]),
+        .testTarget(name: "CmuxMobileShellTests", dependencies: ["CmuxMobileShell", "CmuxMobileNotifications", "CmuxMobileModel", "CmuxMobileDesign"]),
         .testTarget(name: "CmuxMobileOnboardingTests", dependencies: ["CmuxMobileOnboarding"]),
         .testTarget(name: "CmuxMobileChiefTests", dependencies: [
             "CmuxMobileChief", "CmuxMobileTransport", "CmuxMobileModel", "CmuxMobileAgentChat",

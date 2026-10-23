@@ -173,8 +173,11 @@ public struct LiveAPI: Sendable {
     }
 
     /// `PUT /v1/devices/:id/push`: this phone's APNs token and the events it wants.
-    public func putPush(deviceID: String, token: String, environment: String, topic: String, kinds: [String]) async throws {
-        let body: [String: Any] = ["token": token, "environment": environment, "topic": topic, "kinds": kinds]
+    public func putPush(deviceID: String, token: String, environment: String, topic: String, kinds: [String],
+                        mutedMacs: [String] = [], previews: Bool = true) async throws {
+        // `mutedMacs` and `previews` are API 0.13.0; an older service ignores them.
+        let body: [String: Any] = ["token": token, "environment": environment, "topic": topic, "kinds": kinds,
+                                   "mutedMacs": mutedMacs, "previews": previews]
         _ = try await call("PUT", "v1/devices/\(deviceID)/push", body: body)
     }
 
