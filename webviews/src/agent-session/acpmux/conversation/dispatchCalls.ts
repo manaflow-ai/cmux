@@ -78,6 +78,19 @@ export function dispatchCall(item: AcpmuxActivity): DispatchCall | undefined {
 
 function operationName(tool: Tool): DispatchKind | undefined {
   const title = tool.title.trim();
+  const input = parseJSON(tool.inputSummary);
+  if (isRecord(input) && typeof input.tool === "string") {
+    const codexTool = input.tool.toLowerCase();
+    if (["dispatch", "steer", "report", "briefs", "briefs_ls", "briefs_list"].includes(codexTool)) {
+      return codexTool === "dispatch"
+        ? "dispatch"
+        : codexTool === "steer"
+          ? "steer"
+          : codexTool === "report"
+            ? "report"
+            : "briefs";
+    }
+  }
   const explicit =
     EXPLICIT_TOOL.exec(title) ?? CLI_TITLE.exec(title) ?? (tool.command && CLI_ACTION.exec(tool.command));
   const args = parseJSON(tool.inputSummary);

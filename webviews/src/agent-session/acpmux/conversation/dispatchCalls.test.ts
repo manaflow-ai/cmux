@@ -61,6 +61,27 @@ test("parses a non-Claude/Codex ACP dispatch event from the shared metadata enve
   ).toMatchObject({ kind: "report", briefId: "b-17" });
 });
 
+test("parses Codex MCP envelopes for dispatch and reports", () => {
+  expect(
+    dispatchCall(
+      activity("codex_apps.dispatch call", {
+        server: "codex_apps",
+        tool: "dispatch",
+        arguments: { title: "Qwen task", brief: "Inspect it." },
+      }),
+    ),
+  ).toMatchObject({ kind: "dispatch", title: "Qwen task", text: "Inspect it." });
+  expect(
+    dispatchCall(
+      activity("codex_apps.report call", {
+        server: "codex_apps",
+        tool: "report",
+        arguments: { brief_id: "b-17", summary: "Done" },
+      }),
+    ),
+  ).toMatchObject({ kind: "report", briefId: "b-17", summary: "Done" });
+});
+
 test("recognizes steer, report and briefs aliases without classifying ordinary shell work", () => {
   expect(
     dispatchCall(activity("mcp__acpmux__steer", { brief_id: "b-17", text: "Keep the title short." })),
