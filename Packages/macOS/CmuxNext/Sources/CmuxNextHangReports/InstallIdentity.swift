@@ -14,8 +14,8 @@ public nonisolated struct InstallIdentity: Sendable {
     /// How long one id lives.
     public static let rotation: TimeInterval = 30 * 24 * 60 * 60
 
-    // UserDefaults is documented thread-safe; the service actor is its only writer.
-    private nonisolated(unsafe) let defaults: UserDefaults
+    /// UserDefaults is Sendable (documented thread-safe); the service actor is its only writer.
+    private let defaults: UserDefaults
     private let now: @Sendable () -> Date
     private let makeID: @Sendable () -> UUID
 
