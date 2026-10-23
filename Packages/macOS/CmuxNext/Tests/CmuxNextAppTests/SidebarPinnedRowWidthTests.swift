@@ -7,7 +7,8 @@ import Testing
 /// is overflow maybe like it's not rounded properly)", then "width of home seems hard coded fix".
 /// The pinned Home and App Store rows draw in a block row of the list; their fill must keep the
 /// group header's leading and trailing inset and corner radius at every density and sidebar width,
-/// also after the sidebar is resized.
+/// also after the sidebar is resized. Since Leo 2026-10-20 (#22733) list rows end
+/// `SidebarStyle.rowTrailingTrim` short of the right inset, and the pinned rows end there too.
 @MainActor @Suite(.serialized)
 struct SidebarPinnedRowWidthTests {
     static let home = LayoutItemID("itm_home"), store = LayoutItemID("itm_app_store")
@@ -103,8 +104,9 @@ struct SidebarPinnedRowWidthTests {
         let inset = SidebarDensityTokens.horizontalInset
         let width = h.list.bounds.width
         let (header, headerRadius) = try h.headerPill()
-        #expect(abs(header.minX - inset) < 0.5 && abs(header.maxX - (width - inset)) < 0.5,
-                "group header \(header) is not inset \(inset) in \(width)")
+        // Since #22733 every list row ends `rowTrailingTrim` short of the right inset.
+        #expect(abs(header.minX - inset) < 0.5 && abs(header.maxX - (width - inset - SidebarStyle.rowTrailingTrim)) < 0.5,
+                "group header \(header) is not inset \(inset) (and the trim on the right) in \(width)")
         for id in [Self.home, Self.store] {
             let (pill, radius) = try h.itemPill(id)
             #expect(abs(pill.minX - header.minX) < 0.5, "\(id) starts at \(pill.minX), the group header at \(header.minX)")

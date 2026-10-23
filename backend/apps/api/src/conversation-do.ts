@@ -341,9 +341,10 @@ export class ConversationDO extends OwnerDO<Head> {
     const q = (params ?? {}) as { before_seq?: unknown; limit?: unknown }
     const limit = typeof q.limit === "number" && q.limit > 0 ? Math.min(q.limit, MAX_HISTORY_PAGE) : 50
     const before = typeof q.before_seq === "number" ? q.before_seq : undefined
-    const rows = engine.rows.range<conversation.Message>(conversation.TABLE_MSG, { ...(before === undefined ? {} : { before }), after: floor, limit, desc: true })
-    const messages = rows.reverse().map((r) => r.row)
-    return { ok: true, value: { messages, threads: threadsOf(this.sqlStore, messages), has_more: rows.length === limit }, revision: "" }
+    // One row past the page says whether older messages exist (an exactly full last page has none).
+    const rows = engine.rows.range<conversation.Message>(conversation.TABLE_MSG, { ...(before === undefined ? {} : { before }), after: floor, limit: limit + 1, desc: true })
+    const messages = rows.slice(0, limit).reverse().map((r) => r.row)
+    return { ok: true, value: { messages, threads: threadsOf(this.sqlStore, messages), has_more: rows.length > limit }, revision: "" }
   }
 
   /** One thread: a root the member may see (not a reply, above its floor) and its replies after after_seq. */

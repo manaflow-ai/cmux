@@ -1,20 +1,24 @@
 import React, { type ReactNode } from "react";
-import { openProcessTerminal } from "../processTerminal";
 import { Counts } from "../changes/Counts";
 import { changedByTools } from "../changes/turnCheckpoint";
-import { useT, type StringKey } from "../i18n";
+import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import type { TurnFile } from "../diff";
-import type { SessionSummary, SummaryBackgroundTask } from "./sessionSummary";
+import { type BackgroundCommand, backgroundCommands } from "../inspector/processes";
+import type { SessionSummary } from "./sessionSummary";
+import { SourcesAddMenu, type ChatToolsControl } from "./SourcesAddMenu";
 import { SubagentStack } from "./SubagentStack";
 import { SummarySection } from "./SummarySection";
+import { SummaryTasks } from "./SummaryTasks";
 
 const ROW_ICON = rowIconSize(12);
 
-/// The chat's summary, a section per kind of thing it produced. Outputs, Subagents and Sources
-/// always show, in the Codex app's order, with "None" while empty; pull requests, background
-/// tasks and wakeups follow when there are any.
+/// The chat's summary, a section per kind of thing it produced: its background tasks first (they
+/// are live, SummaryTasks.tsx), then Outputs, Subagents and Sources in the Codex app's order, then
+/// Changes, pull requests and wakeups. A section with nothing is not drawn; a chat with nothing
+/// at all says so in one quiet line. Sources' + (Attach files or folders) stays: with no sources
+/// it is a row at the end.
 /// Pull requests and sources are links, so they open, copy and open in a new tab as links do;
 /// an output opens the changes view at that file. Outputs lists every file the chat changed, once
 /// (hq#2569 item 4, cx-0h4xq). A file the last turn changed, by a tool or as only its checkpoint
@@ -24,13 +28,6 @@ const ROW_ICON = rowIconSize(12);
 /// with images or renders offers its gallery under Outputs (GalleryDialog.tsx). A chat whose
 /// subagents acpmux reports lists them with their live state (SubagentStatusList.tsx) in the
 /// Subagents place. The summary card (SummaryCard.tsx) draws it.
-const TASK_STATES: Record<SummaryBackgroundTask["state"], StringKey> = {
-  running: "bgTask.state.running",
-  completed: "bgTask.state.completed",
-  failed: "bgTask.state.failed",
-  stopped: "bgTask.state.stopped",
-};
-
 /// The last turn that edited files: its files as its diff shows them (the checkpoint's once
 /// loaded) and their totals.
 export type SummaryChanges = {
@@ -48,7 +45,10 @@ export function SummaryBody({
   onOpenGallery,
   onFollow,
   onAttach,
+  tools,
   subagents,
+  commands,
+  onStopCommand,
 }: {
   summary: SessionSummary;
   galleryCount?: number;
@@ -60,10 +60,21 @@ export function SummaryBody({
   onFollow?: () => void;
   /// Sources' +: files or folders on this computer for the next prompt (a local chat's).
   onAttach?: () => void;
-  /// The Subagents section, when acpmux reports the chat's subagents.
+  /// Sources' + also offers Use tools: the chat's tools, when acpmux can change them and it has some.
+  tools?: ChatToolsControl;
+  /// The Subagents section, when the card draws it (SubagentStatusList.tsx).
   subagents?: ReactNode;
+  /// The chat's background commands, the registry's merged in (inspector/processes.ts); without them,
+  /// the transcript's.
+  commands?: readonly BackgroundCommand[];
+  /// Stop for a running command the registry lists.
+  onStopCommand?: (processId: string) => Promise<unknown>;
 }) {
   const t = useT();
+  // With tools to offer, Sources' + is a menu (Attach files or folders, Use tools), and Sources
+  // draws with no sources so the menu has a place.
+  const toolsMenu = tools && tools.rows.length > 0 ? tools : undefined;
+  const tasks = commands ?? backgroundCommands([], summary.backgroundTasks, false);
   // A loaded checkpoint lists its files under the repository root, outputs as the agent wrote them.
   // A file the last turn changed opens that turn's diff, also when an earlier turn's edit tool made
   // it an output: its last change is the one to show.
@@ -95,11 +106,21 @@ export function SummaryBody({
     }),
     ...checkpointOnly.map((file) => ({ file, inTurnDiff: true })),
   ];
+  const empty =
+    !subagents &&
+    tasks.length === 0 &&
+    outputs.length === 0 &&
+    galleryCount === 0 &&
+    !changes &&
+    summary.subagents.length === 0 &&
+    summary.sources.length === 0 &&
+    summary.pullRequests.length === 0 &&
+    summary.scheduled.length === 0;
   return (
     <>
+      <SummaryTasks commands={tasks} onStop={onStopCommand} onFollow={onFollow} />
       <SummarySection
         title={t("summary.outputs")}
-        fixed
         items={outputs}
         row={({ file, inTurnDiff }) => {
           const open = inTurnDiff ? onOpenChanges : onOpenOutput;
@@ -133,32 +154,33 @@ export function SummaryBody({
           )
         }
       />
-      {subagents ?? (
-        <section className="acpmux-summary-section" aria-label={t("summary.subagents")}>
-          <h3 className="acpmux-summary-title">{t("summary.subagents")}</h3>
-          <ul className="acpmux-summary-list">
-            {summary.subagents.length > 0 ? (
+      {subagents ??
+        (summary.subagents.length > 0 && (
+          <section className="acpmux-summary-section" aria-label={t("summary.subagents")}>
+            <h3 className="acpmux-summary-title">{t("summary.subagents")}</h3>
+            <ul className="acpmux-summary-list">
               <SubagentStack subagents={summary.subagents} />
-            ) : (
-              <li className="acpmux-summary-row acpmux-summary-none">{t("summary.none")}</li>
-            )}
-          </ul>
-        </section>
-      )}
+            </ul>
+          </section>
+        ))}
       <SummarySection
         title={t("summary.sources")}
-        fixed
         items={summary.sources}
+        keep={toolsMenu !== undefined}
         action={
-          onAttach && (
-            <button
-              type="button"
-              className="acpmux-summary-add"
-              aria-label={t("summary.sources.attach")}
-              onClick={onAttach}
-            >
-              <Icon name="action.add" size={ROW_ICON} />
-            </button>
+          toolsMenu ? (
+            <SourcesAddMenu attach={onAttach} tools={toolsMenu} />
+          ) : (
+            onAttach && (
+              <button
+                type="button"
+                className="acpmux-summary-add"
+                aria-label={t("summary.sources.attach")}
+                onClick={onAttach}
+              >
+                <Icon name="action.add" size={ROW_ICON} />
+              </button>
+            )
           )
         }
         row={(source) => (
@@ -219,28 +241,6 @@ export function SummaryBody({
         )}
       />
       <SummarySection
-        title={t("summary.backgroundTasks")}
-        items={summary.backgroundTasks}
-        row={(task) => (
-          <li key={task.id}>
-            {/* A click opens its terminal beside the chat (processTerminal.ts). */}
-            <button
-              type="button"
-              className="acpmux-summary-row acpmux-summary-link"
-              data-state={task.state}
-              onClick={() => {
-                onFollow?.();
-                void openProcessTerminal(task.id);
-              }}
-            >
-              <Icon name="terminal" size={ROW_ICON} row />
-              <span className="acpmux-summary-text">{task.command}</span>
-              <span className="acpmux-summary-meta">{t(TASK_STATES[task.state])}</span>
-            </button>
-          </li>
-        )}
-      />
-      <SummarySection
         title={t("summary.scheduled")}
         items={summary.scheduled}
         row={(wakeup) => (
@@ -251,6 +251,17 @@ export function SummaryBody({
           </li>
         )}
       />
+      {empty && <p className="acpmux-summary-empty">{t("summary.empty")}</p>}
+      {onAttach && !toolsMenu && summary.sources.length === 0 && (
+        <button
+          type="button"
+          className="acpmux-summary-row acpmux-summary-link acpmux-summary-attach"
+          onClick={onAttach}
+        >
+          <Icon name="action.add" size={ROW_ICON} row />
+          <span className="acpmux-summary-text">{t("summary.sources.attach")}</span>
+        </button>
+      )}
     </>
   );
 }

@@ -335,7 +335,96 @@ test("each connect choice runs its own host action", async () => {
     ssh: "remote.connect",
     cloud: "newCloudMachine",
     cloudPage: "palette.openCloudPane",
+    move: "cloudMove",
+    bringBack: "cloudBringBack",
   });
+});
+
+// A started chat's computer is fixed, so its picker lists no other machine to pick: it shows where
+// the chat runs and the one move that chat can make, the same action as the tab's right-click menu.
+// Which move applies is the app's call (`pane.tabState` `moves`, from that menu), never the page's.
+const startedOn = (hostKind: "local" | "cloud" | "ssh") => ({
+  started: true,
+  onProject: undefined,
+  onOffload: undefined as unknown,
+  offloads: (hostKind === "local" ? ["move"] : hostKind === "cloud" ? ["bringBack"] : []) as unknown,
+  summary:
+    hostKind === "local"
+      ? { sessionId: "s", harness: "claude", host: "This Mac", hostKind: "local", cwd: "/Users/you/src/cmux" }
+      : hostKind === "cloud"
+        ? { sessionId: "s", harness: "claude", host: "build-cloud", hostKind: "cloud", cwd: "/home/you/cache" }
+        : {
+            sessionId: "s",
+            harness: "claude",
+            host: "gpu-box",
+            peer: "gpu-box",
+            hostKind: "remote",
+            cwd: "/home/dev/model",
+          },
+});
+
+async function mountStarted(hostKind: "local" | "cloud" | "ssh", offload = true, offloads?: string[]) {
+  const calls: unknown[][] = [];
+  const extra = startedOn(hostKind);
+  if (offloads) extra.offloads = offloads;
+  if (offload) extra.onOffload = (kind: string) => calls.push(["offload", kind]);
+  const mounted = await mount(true, extra);
+  return { calls, mounted };
+}
+
+test("a started chat on this Mac: the picker shows this Mac and Move to Cloud, which runs the move", async () => {
+  const { calls, mounted } = await mountStarted("local");
+  await openPicker();
+  expect(machineRows().map(rowText)).toEqual([expect.stringContaining("cosmic-gray")]);
+  expect(newRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toEqual([
+    t("composer.moveToCloud"),
+  ]);
+  expect(newRows()[0]!.querySelector(".acpmux-env-detail")?.textContent).toBe(t("composer.moveToCloudDetail"));
+  await act(async () => newRows()[0]!.click());
+  expect(doc().querySelector(".acpmux-env-popover")).toBeNull();
+  expect(calls).toEqual([["offload", "move"]]);
+  expect(mounted).toEqual([]);
+});
+
+test("a started Cloud chat: the picker shows its machine and Bring Back Local", async () => {
+  const { calls } = await mountStarted("cloud");
+  await openPicker();
+  expect(machineRows().map(rowText)).toEqual([expect.stringContaining("build-cloud")]);
+  expect(newRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toEqual([
+    t("composer.bringBackLocal"),
+  ]);
+  await act(async () => newRows()[0]!.click());
+  expect(calls).toEqual([["offload", "bringBack"]]);
+});
+
+test("Return on a search never moves a chat by itself", async () => {
+  const { calls } = await mountStarted("local");
+  await openPicker();
+  await press(await typeKeys("cloud"), { key: "Enter" });
+  expect(calls).toEqual([]);
+});
+
+test("a started chat with no move to offer keeps the fixed computer label", async () => {
+  const fixed = () =>
+    [...host.querySelectorAll(".acpmux-location-readonly")].some((label) =>
+      (label.getAttribute("aria-label") ?? "").startsWith(t("composer.computer") + ":"),
+    );
+  // An SSH machine's chat has no move; the floating chat offers none (the host passes no onOffload);
+  // a Cloud chat that no move from this Mac put there, or a chat the app won't move, gets none
+  // from the app, whatever its machine's kind.
+  const cases: [hostKind: "local" | "cloud" | "ssh", offload: boolean, offloads?: string[]][] = [
+    ["ssh", true],
+    ["local", false],
+    ["cloud", true, []],
+    ["local", true, []],
+  ];
+  for (const [hostKind, offload, offloads] of cases) {
+    await mountStarted(hostKind, offload, offloads);
+    expect(computerButton()).toBeUndefined();
+    expect(fixed()).toBe(true);
+    act(() => root?.unmount());
+    root = undefined;
+  }
 });
 
 test("Return on a search runs no action Base UI highlighted by itself, but picks a matching machine", async () => {

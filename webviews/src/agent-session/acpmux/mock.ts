@@ -417,8 +417,14 @@ export class MockAcpmuxSocket {
           session: {
             ...this.sessions.find((entry) => entry.sessionId === target),
             enforcement: { policy: "default", label: "native_policy", isolation: "unverified", detail: null },
+            // The newest command list, as acpmux keeps it in the session.
+            ...this.availableCommands(target),
           },
-          events: this.events.filter((event) => event.sessionId === target),
+          // The newest page, as acpmux pages an attach (hub/paging.rs): at most `limit` records
+          // and `maxBytes` of them, `hasMore` when older ones remain. Answering the whole log made
+          // a long mock chat open as slowly as its history is long (perf100).
+          ...this.page(target, params, true),
+          lastSeq: this.lastSeqOf(target),
         };
       }
       case "_acpmux/archive": {
@@ -471,7 +477,7 @@ export class MockAcpmuxSocket {
         const named = this.events.some(
           (event) =>
             event.sessionId === target &&
-            event.kind === "user_message" &&
+            ["user_message", "queued", "queue_updated"].includes(event.kind) &&
             Array.isArray(event.msg?.images) &&
             event.msg.images.some((image: { id?: string }) => image.id === id),
         );
@@ -525,7 +531,8 @@ export class MockAcpmuxSocket {
             return { id, mimeType: block.mimeType ?? "image/png", ...(block.name ? { name: block.name } : {}) };
           });
         const queued = this.pending > 0 && promptId !== undefined;
-        if (queued) this.emit(target, { mux: "queued", msg: { promptId, text } });
+        // A queued prompt's record names its images too, so its row shows them (ComposerQueue.tsx).
+        if (queued) this.emit(target, { mux: "queued", msg: { promptId, text, ...(images.length && { images }) } });
         this.pending += 1;
         const turn = this.queue
           .then(() => {
@@ -542,6 +549,15 @@ export class MockAcpmuxSocket {
       case "session/set_model":
         this.touch(target, { model: String(params.modelId) }, false);
         return {};
+      // The Access chip's mode, as an agent that offers it reports the switch.
+      case "session/set_mode": {
+        const session = this.sessions.find((entry) => entry.sessionId === target);
+        const modes = session?.modes as { availableModes: { id: string }[]; currentModeId?: string } | undefined;
+        const modeId = String(params.modeId);
+        if (!modes?.availableModes.some((mode) => mode.id === modeId)) throw new Error(`no mode ${modeId}`);
+        this.touch(target, { modes: { ...modes, currentModeId: modeId } }, false);
+        return {};
+      }
       case "session/set_config_option": {
         const session = this.sessions.find((entry) => entry.sessionId === target);
         const options = (session?.configOptions ?? []) as { id: string; currentValue?: string }[];
@@ -691,19 +707,58 @@ export class MockAcpmuxSocket {
     this.deliver({ jsonrpc: "2.0", method: "_acpmux/session_changed", params: { kind: "updated", session: changed } });
   }
 
-  /// A page of a session's events, as `_acpmux/events` returns it: after `afterSeq`, or the
-  /// newest `limit` before `beforeSeq`; `kinds` keeps the commands or the transcript.
-  private page(target: string, params: Record<string, any>): { events: EventRecord[]; hasMore: boolean } {
+  /// `{availableCommands}`: the newest command list `target`'s agent sent, as acpmux keeps it.
+  private availableCommands(target: string): { availableCommands?: unknown } {
+    for (let index = this.events.length - 1; index >= 0; index -= 1) {
+      const event = this.events[index]!;
+      if (event.sessionId === target && event.kind === "available_commands_update")
+        return { availableCommands: (event.msg as any)?.params?.update };
+    }
+    return {};
+  }
+
+  /// The newest record's seq in `target`'s log, 0 when it has none.
+  private lastSeqOf(target: string): number {
+    for (let index = this.events.length - 1; index >= 0; index -= 1)
+      if (this.events[index]!.sessionId === target) return this.events[index]!.seq;
+    return 0;
+  }
+
+  /// A page of a session's events, as acpmux's `_acpmux/events` and `_acpmux/attach` return it
+  /// (hub/paging.rs): after `afterSeq` oldest first, or (`beforeSeq`, or an attach without
+  /// `afterSeq`) the newest `limit` before `beforeSeq`; a page also ends before its records pass
+  /// `maxBytes` and always holds one. `kinds` keeps the commands, other exact kinds, or the transcript.
+  private page(
+    target: string,
+    params: Record<string, any>,
+    attach = false,
+  ): { events: EventRecord[]; hasMore: boolean } {
     const kinds: string[] = Array.isArray(params.kinds) ? params.kinds : [];
     const wanted = (event: EventRecord) =>
       kinds.length === 0 ||
-      (event.kind === "available_commands_update" ? kinds.includes(event.kind) : kinds.includes("transcript"));
-    const own = this.events.filter((event) => event.sessionId === target && wanted(event));
-    if (params.beforeSeq === undefined)
-      return { events: own.filter((event) => event.seq > Number(params.afterSeq ?? 0)), hasMore: false };
-    const older = own.filter((event) => event.seq < Number(params.beforeSeq));
-    const limit = Math.max(1, Number(params.limit ?? older.length));
-    return { events: older.slice(-limit), hasMore: older.length > limit };
+      kinds.includes(event.kind) ||
+      (event.kind !== "available_commands_update" && kinds.includes("transcript"));
+    const after = Number(params.afterSeq ?? 0);
+    const before = params.beforeSeq === undefined ? Infinity : Number(params.beforeSeq);
+    const newest = params.beforeSeq !== undefined || (attach && params.afterSeq === undefined);
+    const limit = params.limit === undefined ? (attach ? 2000 : Infinity) : Math.max(1, Number(params.limit));
+    const maxBytes = params.maxBytes === undefined ? Infinity : Number(params.maxBytes);
+    const events: EventRecord[] = [];
+    let bytes = 0;
+    let hasMore = false;
+    const take = (event: EventRecord) => {
+      if (event.sessionId !== target || event.seq <= after || event.seq >= before || !wanted(event)) return true;
+      if (events.length >= limit) return !(hasMore = true);
+      bytes += JSON.stringify(event.msg).length + event.kind.length + 120;
+      if (events.length > 0 && bytes > maxBytes) return !(hasMore = true);
+      events.push(event);
+      return true;
+    };
+    if (newest) {
+      for (let index = this.events.length - 1; index >= 0 && take(this.events[index]!); index -= 1);
+      events.reverse();
+    } else for (let index = 0; index < this.events.length && take(this.events[index]!); index += 1);
+    return { events, hasMore };
   }
 
   private record(target: string, step: Step, at = Date.now()): EventRecord {

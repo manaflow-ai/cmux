@@ -132,7 +132,13 @@ await requireBrowserLane("editor-csp.test.ts", async () => {
         if (ready) {
           await page.evaluate(() => window.__cmuxEditor!.view()!.monacoEditor.focus());
           await page.keyboard.type("x");
-          await page.waitForTimeout(300);
+          await page
+            .waitForFunction(
+              () => window.__cmuxEditor?.view()?.monacoEditor.getModel()?.getLineContent(1).startsWith("x") === true,
+              null,
+              { timeout: 5_000 },
+            )
+            .catch(() => {});
         }
         const result = await page.evaluate(() => ({
           violations: (window as unknown as { __violations: string[] }).__violations,

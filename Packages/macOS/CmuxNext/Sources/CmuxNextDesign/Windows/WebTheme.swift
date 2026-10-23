@@ -1,4 +1,5 @@
 public import Foundation
+public import CmuxNextDesignTokens
 
 /// The one web theme (plans/cmux-next/windows.md, "One background token"):
 /// the CSS custom properties every cmux web page reads, from the same
@@ -31,10 +32,16 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     /// page's stylesheets stop their status loops. Static under Reduce Motion or
     /// `appearance.statusIndicator.animation: "static"` (`StatusIndicatorConfig.isStatic`).
     public let statusIndicators: String
+    /// `breathe`, `shimmer` or `spinner` (``StatusWorkingLook``): `data-working-look` on `<html>`,
+    /// how a page draws agent work.
+    public let workingLook: String
     /// `off`, `reduced` or `full` (``motionValue(_:)``): `data-cmux-motion` on `<html>`. Under
     /// `off` the bootstrap stylesheet makes every CSS transition and animation instant
     /// (`ui.animations.web` or the master switch `ui.animations.enabled` off).
     public let motion: String
+    /// `lens`, `plain` or `spectrum` (``GlassLensMode/current``, already `plain` under Reduce
+    /// Transparency and Low Power Mode): `data-glass` on `<html>`, which `.ui-glass` reads.
+    public let glass: String
 
     /// The terminal colors a page highlights code with: the scope's opaque background and
     /// readable foreground, and its ANSI palette as the theme names it (the page lifts each
@@ -71,10 +78,11 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     /// - Parameter scrollers: `overlay` or `legacy`; nil reads the system setting.
     /// - Parameter app: The app theme the page's `--cmux-app-*` tokens come from: the store's
     ///   (`appearance.appTheme`) when it names one, else the scope's own (`tokens.app`).
+    /// - Parameter glass: The glass mode pages draw; nil reads ``GlassLensMode/current``.
     @MainActor
     public init(_ tokens: ThemeTokens, reduceTransparency: Bool = false, surface surfaceKind: SurfaceKind? = nil,
                 backgrounds: SurfaceBackgrounds = ThemeScope.app.surfaceBackgrounds, scrollers: String? = nil,
-                app: AppTheme? = nil) {
+                app: AppTheme? = nil, glass: GlassLensMode? = nil) {
         let pageOpaque = WindowBackdrop.current(tokens, reduceTransparency: reduceTransparency).panesPaintBackground
         let surface = tokens.surfaceBackground
         let windowTint = WindowBackdrop.currentTint(tokens)
@@ -82,6 +90,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
             ?? (pageOpaque ? surface.withAlpha(1) : surface.withAlpha(0))
         let cardMaterial = CardMaterial(tokens, lift: ChromeTunables.opaqueOverlayLift.value,
                                         minimumOpacity: ChromeTunables.cardOpacity.value)
+        let tooltip = TooltipSurface(tokens, lift: ChromeTunables.opaqueOverlayLift.value)
         variables = [
             "--cmux-surface-background": Self.css(page),
             "--cmux-surface-token": Self.css(surface),
@@ -94,9 +103,11 @@ public nonisolated struct WebTheme: Equatable, Sendable {
             // The solid surface of menus, popovers and tooltips (`--surface-popup`), the same
             // opaque fill as native overlays (`Palette.popupSurface`).
             "--cmux-popup-surface": Self.css(tokens.opaqueOverlayFill(lift: ChromeTunables.opaqueOverlayLift.value)),
-            // The tooltip's frosted tint (`TooltipSurface`, the native tooltip's): the popup
-            // surface at the least alpha that keeps the text 4.5:1 over any backdrop.
-            "--cmux-tooltip-tint": Self.css(TooltipSurface(tokens, lift: ChromeTunables.opaqueOverlayLift.value).tint),
+            // The tooltip's frosted tint and its ink (`TooltipSurface`, the native tooltip's): the
+            // popup surface at the least alpha that keeps the ink 4.5:1 over any backdrop, never
+            // solid; the ink is the text unless a low-contrast theme needs it pushed.
+            "--cmux-tooltip-tint": Self.css(tooltip.tint),
+            "--cmux-tooltip-ink": Self.css(tooltip.ink),
             // Floating cards' material (`CardMaterial`, the native `makeOverlayPanel` cards and the
             // find pill): the popup surface, mostly opaque, at the least alpha that keeps primary
             // and secondary text 4.5:1 over any backdrop, and its rim.
@@ -117,16 +128,20 @@ public nonisolated struct WebTheme: Equatable, Sendable {
             // theme's own hue with appearance.accent).
             "--cmux-accent": Self.css(tokens.accent),
             "--cmux-on-accent": Self.css(tokens.onAccent),
+            // A lit (pressed, on) control's glyph: the accent, never fainter than at rest (`ThemeTokens.litGlyph`).
+            "--cmux-lit-glyph": Self.css(tokens.litGlyph),
             // The modal scrim (`Scrim`), the same as native dialogs'.
             "--cmux-scrim": Self.css(tokens.scrim),
-        ].merging((app ?? ThemeStore.shared.appTheme ?? tokens.app).cssVariables) { own, _ in own }
+        ].merging((app ?? ThemeScope.app.store.appTheme ?? tokens.app).cssVariables) { own, _ in own }
         colorScheme = tokens.isDark ? "dark" : "light"
         let colors = ColorTransition.current
         transition = ["duration": colors.cssDuration, "easing": colors.cssEasing, "space": colors.space.rawValue]
         self.scrollers = scrollers ?? SystemScrollers.pageValue
         terminal = Terminal(tokens, fontFamily: DesignSettings.shared.effectiveTerminalFontFamily)
         statusIndicators = !Motion.indicators.animatesLoops || DesignSettings.shared.statusIndicator.animation == .static ? "static" : "animated"
+        workingLook = StatusWorkingLook.tunable.value.rawValue
         motion = Self.motionValue(Motion.web.policy)
+        self.glass = (glass ?? .current).rawValue
     }
 
     /// `data-cmux-motion` for `policy`: `off` when the web category, the master switch or speed
@@ -137,7 +152,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         return policy.reduceMotion ? "reduced" : "full"
     }
 
-    /// The payload `window.cmuxTheme.apply` takes: `{variables, colorScheme, scrollers, terminal, statusIndicators, motion}`
+    /// The payload `window.cmuxTheme.apply` takes: `{variables, colorScheme, scrollers, terminal, statusIndicators, workingLook, motion, glass}`
     /// (`terminal.fontFamily` is null when the terminal has no named face).
     /// How the page's color variables move to new values (`appearance.colorTransition`, the same
     /// duration, curve and blend space as native): `{duration, easing, space}`.
@@ -146,7 +161,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     public var payloadJSON: String {
         let object: [String: Any] = ["variables": variables, "colorScheme": colorScheme, "scrollers": scrollers,
                                      "terminal": terminal.json, "transition": transition, "statusIndicators": statusIndicators,
-                                     "motion": motion]
+                                     "workingLook": workingLook, "motion": motion, "glass": glass]
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
               let json = String(data: data, encoding: .utf8) else { return "{}" }
         return json
@@ -155,8 +170,9 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     /// Applies this theme to a page that ran ``bootstrapScript``.
     public var applyScript: String { "window.cmuxTheme && window.cmuxTheme.apply(\(payloadJSON));" }
 
-    /// Defines `window.cmuxTheme` and the page background rule. Install it
-    /// at document start in every cmux-owned web view.
+    /// Defines `window.cmuxTheme` (`apply(payload)` and `backdrop(partial)`, which merges into
+    /// `window.cmuxBackdropState` and dispatches `cmux-backdrop`) and the page background rule.
+    /// Install it at document start in every cmux-owned web view.
     public static let bootstrapScript = """
     (function () {
       if (window.cmuxTheme) return;
@@ -183,6 +199,23 @@ public nonisolated struct WebTheme: Equatable, Sendable {
       var registered = {};
       var applied = {};
       var transitionStyle = null;
+      // A theme applied before <html> exists (Chromium new-document scripts), and the watch that
+      // applies it, with the page background rule, once the parser inserts the root.
+      var pendingPayload = null;
+      var rootWatch = null;
+      function awaitRoot() {
+        if (rootWatch || !window.MutationObserver) return;
+        rootWatch = new MutationObserver(function () {
+          if (!document.documentElement) return;
+          rootWatch.disconnect();
+          rootWatch = null;
+          ensureStyle();
+          var payload = pendingPayload;
+          pendingPayload = null;
+          if (payload) window.cmuxTheme.apply(payload);
+        });
+        rootWatch.observe(document, { childList: true });
+      }
       // rgb()/rgba() parsed without a regular expression: the literal stays free of backslashes
       // (Swift escapes), so the gallery runs the same script (webviews/dev-server/galleryHost.ts).
       function rgba(value) {
@@ -237,6 +270,15 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         current: null,
         apply: function (payload) {
           var root = document.documentElement;
+          // Chromium runs new-document scripts before the parser makes <html>, so its document-start
+          // apply finds no root. It waits for one (awaitRoot): registering every color first and then
+          // throwing in setTransition left each one at its initial transparent, text and background.
+          if (!root) {
+            pendingPayload = payload;
+            awaitRoot();
+            return;
+          }
+          pendingPayload = null; // a theme applied since wins over one still waiting for the root
           ensureStyle();
           var first = window.cmuxTheme.current === null;
           var space = payload.transition && payload.transition.space;
@@ -257,13 +299,23 @@ public nonisolated struct WebTheme: Equatable, Sendable {
           root.style.colorScheme = payload.colorScheme;
           if (payload.scrollers) root.setAttribute('data-scrollers', payload.scrollers);
           if (payload.statusIndicators) root.setAttribute('data-status-indicators', payload.statusIndicators);
+          if (payload.workingLook) root.setAttribute('data-working-look', payload.workingLook);
           if (payload.motion) root.setAttribute('data-cmux-motion', payload.motion);
+          if (payload.glass) root.setAttribute('data-glass', payload.glass);
           window.cmuxTheme.current = payload;
           window.dispatchEvent(new CustomEvent('cmux-theme', { detail: payload }));
           if (!first) settled(payload);
+        },
+        // The wallpaper still the page's glass lenses (GlassBackdropFeed): each push carries only
+        // what changed, merged over the last state, then `cmux-backdrop` tells the page.
+        backdrop: function (partial) {
+          var next = Object.assign({}, window.cmuxBackdropState || {});
+          for (var field in partial) if (Object.prototype.hasOwnProperty.call(partial, field)) next[field] = partial[field];
+          window.cmuxBackdropState = next;
+          window.dispatchEvent(new Event('cmux-backdrop'));
         }
       };
-      ensureStyle();
+      if (document.documentElement) ensureStyle(); else awaitRoot();
       // ui.animations.web off: script animations (Element.animate) and smooth scrolls end at once
       // too, which the stylesheet above cannot reach. One wrapper per prototype, read on each call,
       // so turning the switch back on restores them with no reload.
@@ -310,5 +362,12 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         func channel(_ value: Double) -> Int { Int((value * 255).rounded()) }
         let alpha = (color.alpha * 1000).rounded() / 1000
         return "rgba(\(channel(color.red)), \(channel(color.green)), \(channel(color.blue)), \(alpha))"
+    }
+
+    /// `color` as pages read it from `css`: each channel rounded to 8 bits, the alpha to 3 decimals.
+    public static func cssRounded(_ color: ThemeRGB) -> ThemeRGB {
+        func channel(_ value: Double) -> Double { (value * 255).rounded() / 255 }
+        return ThemeRGB(red: channel(color.red), green: channel(color.green), blue: channel(color.blue),
+                        alpha: (color.alpha * 1000).rounded() / 1000)
     }
 }

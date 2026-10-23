@@ -11,7 +11,7 @@ enum RoomHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let local: @MainActor () -> DaemonService? = { context.services.machines.local }
         func bind(_ id: ActionID, _ run: @escaping @MainActor (ActionInvocation) throws -> Void) {
-            registry.bind(id, requires: DaemonCapabilities.shared.profiles, daemon: local(), run: { invocation in
+            registry.bind(id, requires: DaemonCapabilities.profiles, daemon: local(), run: { invocation in
                 try context.requireRooms()
                 try run(invocation)
             })
@@ -36,10 +36,8 @@ enum RoomHandlers {
             let room = try context.room(invocation)
             if let name = invocation["name"]?.stringValue, !name.isEmpty {
                 update(room.id, context) { try await $0.updateProfile($1, name: name) }
-            } else if let window = context.activeWindow?.window {
-                RenamePrompt.run(title: RoomStrings.renameTitle, initial: room.name, in: window) { name in
-                    update(room.id, context) { try await $0.updateProfile($1, name: name) }
-                }
+            } else {
+                context.services.registry.ask("space.rename", invocation, ActionArgumentAsk(argument: "name", initialText: room.name))
             }
         }
         bind("space.setColor") { invocation in
@@ -84,6 +82,16 @@ enum RoomHandlers {
         }
         bind("space.setDefaults") { invocation in
             let room = try context.room(invocation)
+            // Neither argument named (the palette or the space menu with nothing collected): ask
+            // for the directory, never clear. Clearing takes both named empty (`cwd=` `env=`).
+            guard RoomDefaultsArguments.names(invocation) else {
+                guard invocation.origin == .user,
+                      context.services.registry.ask("space.setDefaults", RoomDefaultsArguments.keepingEnv(of: room.defaults, invocation),
+                                                    ActionArgumentAsk(argument: "cwd", initialText: room.defaults?.cwd)) else {
+                    throw ActionFailure.invalidTarget(RoomStrings.defaultsArgumentRequired)
+                }
+                return
+            }
             let defaults = try RoomDefaultsArguments.parse(invocation)
             update(room.id, context) { try await $0.updateProfile($1, defaults: defaults.isEmpty ? .clear : .set(defaults)) }
         }

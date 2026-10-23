@@ -55,17 +55,35 @@ pub struct Options {
     pub tty: bool,
 }
 
-/// The text one prompt sends to the program.
+/// The text one prompt sends to the program: its text blocks, or with
+/// `last_block` only the last one the person typed. A paste cmux's composer
+/// sent as its own block (`_meta.cmux.pasted`) always goes with it, after a
+/// blank line, so the typed question never reaches the agent without it nor
+/// the paste without the question.
 pub fn prompt_text(blocks: &[Value], last_block: bool) -> String {
-    let texts: Vec<&str> = blocks
+    let texts = blocks
         .iter()
         .filter(|b| b.get("type").and_then(Value::as_str) == Some("text"))
-        .filter_map(|b| b.get("text").and_then(Value::as_str))
-        .collect();
-    if last_block {
-        return texts.last().map(|t| (*t).to_owned()).unwrap_or_default();
+        .filter_map(|b| Some((b.get("text").and_then(Value::as_str)?, is_pasted(b))));
+    let (pasted, typed): (Vec<_>, Vec<_>) = texts.partition(|(_, pasted)| *pasted);
+    let mut text = if last_block {
+        typed.last().map(|(t, _)| (*t).to_owned()).unwrap_or_default()
+    } else {
+        typed.iter().map(|(t, _)| *t).collect()
+    };
+    for (paste, _) in pasted {
+        if !text.is_empty() {
+            text.push_str("\n\n");
+        }
+        text.push_str(paste);
     }
-    texts.join("")
+    text
+}
+
+/// Whether a text block is a paste cmux's composer sent apart from the typed
+/// text (`_meta.cmux.pasted`).
+pub fn is_pasted(block: &Value) -> bool {
+    block.pointer("/_meta/cmux/pasted").and_then(Value::as_bool) == Some(true)
 }
 
 /// `text` without terminal escape sequences (CSI and OSC) or carriage returns.
@@ -554,6 +572,30 @@ mod tests {
         assert_eq!(prompt_text(&blocks, true), "hello unii");
         assert_eq!(prompt_text(&blocks, false), "view line 1\nhello unii");
         assert_eq!(prompt_text(&[], true), "");
+    }
+
+    /// A huge paste in cmux's composer goes as its own text block after the
+    /// typed one (`_meta.cmux.pasted`): the turn is the typed text and every
+    /// paste, a blank line between them, in both modes.
+    #[test]
+    fn a_pasted_block_goes_with_the_typed_text() {
+        let pasted =
+            |text: &str| json!({"type": "text", "text": text, "_meta": {"cmux": {"pasted": true}}});
+        let blocks = vec![
+            json!({"type": "text", "text": "view line 1\n"}),
+            json!({"type": "text", "text": "why does this fail?"}),
+            pasted("line 1\n\nline 3"),
+            pasted("second paste"),
+        ];
+        assert_eq!(
+            prompt_text(&blocks, true),
+            "why does this fail?\n\nline 1\n\nline 3\n\nsecond paste"
+        );
+        assert_eq!(
+            prompt_text(&blocks, false),
+            "view line 1\nwhy does this fail?\n\nline 1\n\nline 3\n\nsecond paste"
+        );
+        assert_eq!(prompt_text(&[pasted("only a paste")], true), "only a paste");
     }
 
     #[test]

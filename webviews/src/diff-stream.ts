@@ -199,6 +199,13 @@ export async function streamPatch(options: StreamPatchOptions): Promise<void> {
       flushPendingItems();
       await measuredYield();
       lastYieldAt = performance.now();
+    } else if (now - lastYieldAt >= PARSE_SLICE_MS) {
+      // Between later batches the parse still gives the page a turn every slice: it ran up to
+      // the 100 ms batch wait in one task, which held back the first files' rows (the highlight
+      // pool's start-up and React's commit wait for the main thread) and any input.
+      await yieldToTask();
+      metrics.yieldCount += 1;
+      lastYieldAt = performance.now();
     }
   }
 
@@ -567,12 +574,23 @@ async function appendParsedPatchText(
   }
 }
 
-function createStreamingPatchFileSplitter() {
+/**
+ * Splits a streamed patch into one text per file. Exported for its tests.
+ *
+ * Text that cannot hold a file boundary (no `diff --git ` in it, or across its seam with what came
+ * before) waits in `held` instead of joining `buffer`: `buffer += text` makes a rope, and the next
+ * `indexOf` flattens it, copying the whole buffer once per network chunk. Inside one big file (a
+ * 60 MB generated bundle) that was quadratic, 4.4 s of copying before the file's header drew.
+ */
+export function createStreamingPatchFileSplitter() {
   let boundaryIndex: number | undefined;
   let buffer = "";
   let consumed = 0;
   let searchStart = 0;
   let sawGitBoundary = false;
+  /** Pushed text not yet in `buffer`, and the last characters pushed (a marker can span pushes). */
+  let held: string[] = [];
+  let seam = "";
   const gitMarker = "diff --git ";
   const gitMarkerWithNewline = "\n" + gitMarker;
   const gitMarkerSearchTailLength = gitMarkerWithNewline.length - 1;
@@ -624,15 +642,30 @@ function createStreamingPatchFileSplitter() {
     }
   }
 
+  function release(): void {
+    if (held.length === 0) {
+      return;
+    }
+    compactConsumedPrefix();
+    buffer += held.length === 1 ? held[0] : held.join("");
+    held = [];
+  }
+
   return {
     push(text: string) {
-      if (text.length > 0) {
-        compactConsumedPrefix();
-        buffer += text;
+      if (text.length === 0) {
+        return;
+      }
+      held.push(text);
+      const probe = seam + text;
+      seam = probe.slice(-gitMarkerSearchTailLength);
+      if (probe.includes(gitMarker)) {
+        release();
       }
     },
     takeAvailableFile,
     finish() {
+      release();
       const fileText = takeAvailableFile();
       if (fileText != null) {
         return { fileText };
@@ -842,6 +875,35 @@ function gitStatusType(changeType: string | undefined): string {
     default:
       return "modified";
   }
+}
+
+/** How long the parse runs before it yields between batches (one task, under a 60 Hz frame). */
+const PARSE_SLICE_MS = 12;
+
+/**
+ * A turn of the event loop without waiting for a frame: the parse goes to the back of the task
+ * queue, so input, the highlight workers' replies, React's commits and a due frame run first.
+ * (Not `scheduler.yield()`: its continuation runs ahead of those tasks, so worker replies waited
+ * for the whole parse.)
+ * One channel for the page, as React's scheduler does: a started port that is still connected is
+ * never collected, so a channel per yield would keep hundreds alive after a big patch.
+ */
+let yieldChannel: MessageChannel | null = null;
+const yieldWaiters: (() => void)[] = [];
+
+function yieldToTask(): Promise<void> {
+  if (typeof MessageChannel === "undefined") {
+    return new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  if (yieldChannel == null) {
+    yieldChannel = new MessageChannel();
+    yieldChannel.port1.onmessage = () => yieldWaiters.shift()?.();
+  }
+  const channel = yieldChannel;
+  return new Promise((resolve) => {
+    yieldWaiters.push(resolve);
+    channel.port2.postMessage(undefined);
+  });
 }
 
 function yieldToNextFrame(): Promise<void> {

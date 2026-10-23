@@ -42,6 +42,7 @@ import argparse
 import glob
 import json
 import os
+import plistlib
 import re
 import shutil
 import select
@@ -64,7 +65,7 @@ MARKS = [
     ("main.warmup_started", "main: launch warm-up started"),
     ("main.prestart", "main: daemon prestart"),
     ("main.nsapp", "main: NSApp and delegate"),
-    ("main.run", "main: agent page warm-up, run()"),
+    ("main.run", "main: run()"),
     ("did_finish_launching_start", "AppKit ready (applicationDidFinishLaunching)"),
     ("dfl.settings_read", "dfl: settings read"),
     ("dfl.theme", "dfl: Ghostty runtime and theme"),
@@ -87,6 +88,7 @@ MARKS = [
     ("first_window_frame_committed", "first window frame committed"),
     ("launch.non_paint_services", "non-paint services started (updater, ssh, reach)"),
     ("launch.post_window_warmups", "warm-ups started (Chromium, spares, page hosts)"),
+    ("launch.agent_page_warmup", "agent page WebKit warm-up started"),
     ("daemon.connect_start", "first connect attempt"),
     ("daemon.status_start", "server status spawn"),
     ("daemon.status_end", "server status exit"),
@@ -124,6 +126,7 @@ REALISTIC_WORKSPACES = 24
 LAUNCH_ORDER = [
     "first_window_frame_committed<launch.non_paint_services",
     "first_window_frame_committed<launch.post_window_warmups",
+    "first_window_frame_committed<launch.agent_page_warmup",
 ]
 
 # Apps given with --app, by tag; other tags are DerivedData builds.
@@ -150,7 +153,9 @@ def bundle_root(tag):
 
 def app_binary(tag):
     if tag in APPS:
-        return os.path.join(APPS[tag], "Contents/MacOS/cmux DEV")
+        # A Release build names its executable differently; the bundle says which.
+        with open(os.path.join(APPS[tag], "Contents/Info.plist"), "rb") as info:
+            return os.path.join(APPS[tag], "Contents/MacOS", plistlib.load(info)["CFBundleExecutable"])
     matches = glob.glob(f"{DERIVED}/cmux-{tag}/Build/Products/Debug/cmux DEV*.app/Contents/MacOS/cmux DEV")
     if not matches:
         raise SystemExit(f"no tagged app for {tag} under {DERIVED}/cmux-{tag}")

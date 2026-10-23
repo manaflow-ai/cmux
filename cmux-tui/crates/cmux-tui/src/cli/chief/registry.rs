@@ -289,10 +289,11 @@ pub(in crate::cli) fn agent_operation_refusal(operation: &str) -> Option<Value> 
 
 /// The app actions that write a Chief through the app's own connection:
 /// their ids and their CLI names (`cmux action run` takes either).
-const APP_ACTIONS: [&str; 5] = [
+const APP_ACTIONS: [&str; 6] = [
     "home.newChief",
     "home.archiveChief",
     "home.stopChief",
+    "home.stopAllAgents",
     "home new-chief",
     "home archive-chief",
 ];

@@ -15,6 +15,10 @@ public nonisolated protocol AgentPaneHostProviding: Sendable {
     /// The folder of the daemon's session `sessionId`, nil when it has none.
     /// Never starts a daemon.
     func sessionFolder(sessionId: String) async throws -> AgentPaneSessionFolder?
+    /// Saves a file the person dropped into session `sessionId` on the machine that runs it (an
+    /// ssh peer's chat: on that peer) and answers its path there. Throws
+    /// ``AgentPaneFilePutFailure``. Never starts a daemon.
+    func putFile(sessionId: String, name: String, data: Data) async throws -> String
 }
 
 extension AgentPaneHostProviding {
@@ -27,6 +31,11 @@ extension AgentPaneHostProviding {
 
     /// Hosts without a daemon know no session folders.
     public func sessionFolder(sessionId: String) async throws -> AgentPaneSessionFolder? { nil }
+
+    /// Hosts without a daemon take no files.
+    public func putFile(sessionId: String, name: String, data: Data) async throws -> String {
+        throw AgentPaneFilePutFailure.unsupported
+    }
 }
 
 /// A host's own refusal of a handshake, already in the user's language (a chat on another
@@ -62,7 +71,8 @@ public nonisolated enum AgentPaneHostError: Error, Equatable, Sendable {
     /// A daemon answers on `socketPath`, but this build may not use it: it runs another
     /// executable (`holder`, the cmux app that owns it, when known) or failed the peer check
     /// for `reason`. Its log says nothing, since the daemon itself never saw a failure.
-    case daemonRefused(holder: String?, socketPath: String, reason: String)
+    /// `executable` is this app's own acpmux: the message's shutdown command runs it.
+    case daemonRefused(holder: String?, socketPath: String, reason: String, executable: String = "acpmux")
     case timedOut
 }
 
@@ -76,9 +86,9 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     /// The Computer Use socket and agent token now (`AcpmuxEnvironment.computerUse`),
     /// read at each daemon start, since Computer Use turns on and off while the app runs.
     private let computerUse: @Sendable () -> [String: String]
-    /// Whether the daemon gets the session offer tools now (`AcpmuxEnvironment.offersSessionTools`,
-    /// the `agent.suggestedTasks` Debug Settings toggle), read at each daemon start: a toggle applies to the next daemon
-    /// this app starts, never to the one already running.
+    /// Whether the daemon gets the session offer tools now (`AcpmuxEnvironment.offersSessionTools`:
+    /// ``AgentPaneSuggestedTasks/forNextDaemon``: `sessions.promptSuggestions` or the forcing tunable), read at each
+    /// daemon start: a change applies to the next daemon this app starts, never to the one running.
     private let offersSessionTools: @Sendable () -> Bool
     /// Whether the daemon keeps the agent message runaway guard on now (`AcpmuxEnvironment.agentPairGuard`,
     /// the `agent.pairGuard` Debug Settings toggle), read at each daemon start like the offer tools.
@@ -120,7 +130,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     /// off the main thread, at the first handshake that needs it.
     public init(resolve: @escaping @Sendable () -> AcpmuxEnvironment?,
                 computerUse: @escaping @Sendable () -> [String: String] = { [:] },
-                offersSessionTools: @escaping @Sendable () -> Bool = { AgentPaneTunables.suggestedTasks.value },
+                offersSessionTools: @escaping @Sendable () -> Bool = { AgentPaneSuggestedTasks.forNextDaemon.isOn },
                 agentPairGuard: @escaping @Sendable () -> Bool = { AgentPaneTunables.agentPairGuard.value },
                 agentPairCap: @escaping @Sendable () -> (messages: Int, windowSeconds: Int) = {
                     (Int(AgentPaneTunables.agentPairCap.value), Int(AgentPaneTunables.agentPairWindow.value))
@@ -159,6 +169,12 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         if environment == nil { environment = resolveEnvironment() }
         guard let environment else { throw AgentPaneHostError.acpmuxNotFound }
         return try await AcpmuxStatusClient.sessionFolder(socketPath: environment.socketPath, sessionId: sessionId)
+    }
+
+    public func putFile(sessionId: String, name: String, data: Data) async throws -> String {
+        if environment == nil { environment = resolveEnvironment() }
+        guard let environment else { throw AgentPaneFilePutFailure.unsupported }
+        return try await AcpmuxStatusClient.putFile(socketPath: environment.socketPath, sessionId: sessionId, name: name, data: data)
     }
 
     private func endpoint(startsDaemon asked: Bool) async throws -> AcpmuxWebEndpoint {
@@ -214,7 +230,8 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         if case .otherExecutable(let path) = refusal { holder = AcpmuxServerPeer.holderName(executablePath: path) }
         AcpmuxFailureLog(logPath: environment.logPath).record(.peerRefused, detail: "\(environment.socketPath): \(refusal.description)")
         logger.error("acpmux at \(environment.socketPath, privacy: .public) refused: \(refusal.description, privacy: .public); held by \(holder ?? "unknown", privacy: .public); this app runs \(environment.executable.path, privacy: .public)")
-        return .daemonRefused(holder: holder, socketPath: environment.socketPath, reason: reason ?? refusal.description)
+        return .daemonRefused(holder: holder, socketPath: environment.socketPath, reason: reason ?? refusal.description,
+                              executable: environment.executable.path)
     }
 
     /// Each stale daemon's heal, by pid: one heal per daemon, however many panes ask,
@@ -256,7 +273,8 @@ public actor AcpmuxHost: AgentPaneHostProviding {
                 AcpmuxFailureLog(logPath: environment.logPath).record(.foreignHome, detail: "home \(status.home ?? "?")")
                 let holder = status.pid.flatMap(AcpmuxVersionHandoff.executablePath(pid:)).map(AcpmuxServerPeer.holderName(executablePath:))
                 throw AgentPaneHostError.daemonRefused(holder: holder, socketPath: environment.socketPath,
-                                                       reason: "it serves the acpmux home \(status.home ?? ""), not \(environment.home.path)")
+                                                       reason: "it serves the acpmux home \(status.home ?? ""), not \(environment.home.path)",
+                                                       executable: environment.executable.path)
             }
             // After an update the daemon may be the previous build's: hand it
             // off (its agents keep running under their hosts) and start ours.
@@ -283,8 +301,10 @@ public actor AcpmuxHost: AgentPaneHostProviding {
                 }
             }
             // After an update, or for this launch's person key (`AcpmuxPersonKey`): a daemon
-            // that cannot take the key is handed off and ours starts with it.
-            let stale = await AcpmuxVersionHandoff.handOffIfStale(status, environment: environment)
+            // that cannot take the key is handed off and ours starts with it. A daemon no cmux
+            // install runs (`~/.local/bin/acpmux`) is taken over first (`AcpmuxStrayDaemon`).
+            let stray = await AcpmuxStrayDaemon.handOffIfStray(status, environment: environment)
+            let stale = stray ? true : await AcpmuxVersionHandoff.handOffIfStale(status, environment: environment)
             let stopped = stale ? true : await AcpmuxPersonKey.enroll(status, environment: environment)
             guard stopped else {
                 await AcpmuxComputerUse.enroll(environment)

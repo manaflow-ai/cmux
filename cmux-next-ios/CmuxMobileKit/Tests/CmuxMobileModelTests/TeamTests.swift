@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import CmuxMobileModel
 
@@ -27,6 +28,53 @@ import Testing
         #expect(appearance.glyph == .automatic)
         appearance.glyph = .automatic
         #expect(appearance.emoji == nil)
+    }
+
+    @Test func transparentNeedsAnIcon() {
+        var appearance = TeamAppearance(colorHex: "#30D158")
+        #expect(!appearance.canBeTransparent)
+        appearance.isTransparent = true
+        #expect(!appearance.isTransparent, "automatic letter is not an icon")
+        appearance.glyph = .none
+        appearance.isTransparent = true
+        #expect(!appearance.isTransparent, "color only has no icon")
+        appearance.glyph = .custom("🚀")
+        #expect(appearance.canBeTransparent)
+        appearance.isTransparent = true
+        #expect(appearance.isTransparent && appearance.colorHex == "#30D158")
+    }
+
+    @Test func removingTheIconFallsBackToThePreviousColor() {
+        for glyph in [TeamGlyph.automatic, .none] {
+            var appearance = TeamAppearance(colorHex: "#BF5AF2", emoji: "🚀", transparent: true)
+            #expect(appearance.isTransparent)
+            appearance.glyph = glyph
+            #expect(!appearance.isTransparent)
+            #expect(appearance.colorHex == "#BF5AF2")
+            // Putting an icon back does not bring transparency back on its own.
+            appearance.glyph = .custom("Q")
+            #expect(!appearance.isTransparent)
+        }
+        // A stored value with transparency but no icon draws its color.
+        #expect(!TeamAppearance(colorHex: "#BF5AF2", emoji: nil, transparent: true).isTransparent)
+        #expect(!TeamAppearance(colorHex: "#BF5AF2", emoji: "", transparent: true).isTransparent)
+    }
+
+    @Test func choosingAColorClearsTransparent() {
+        var appearance = TeamAppearance(colorHex: "#30D158", emoji: "🚀", transparent: true)
+        appearance.choose(colorHex: "#FF453A")
+        #expect(!appearance.isTransparent && appearance.colorHex == "#FF453A")
+    }
+
+    @Test func storedAppearanceDecodesWithoutTransparent() throws {
+        // Saved by a build that predates transparent backgrounds.
+        let legacy = Data(##"{"colorHex":"#0A84FF","emoji":"🚀"}"##.utf8)
+        let decoded = try JSONDecoder().decode(TeamAppearance.self, from: legacy)
+        #expect(decoded == TeamAppearance(colorHex: "#0A84FF", emoji: "🚀"))
+        #expect(!decoded.isTransparent)
+        let transparent = TeamAppearance(colorHex: "#0A84FF", emoji: "🚀", transparent: true)
+        let roundTrip = try JSONDecoder().decode(TeamAppearance.self, from: JSONEncoder().encode(transparent))
+        #expect(roundTrip == transparent && roundTrip.isTransparent)
     }
 
     @Test func characterTakesTheNewestGrapheme() {

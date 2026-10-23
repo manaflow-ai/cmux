@@ -28,10 +28,14 @@ struct NewTabJumpToTabTests {
             #expect(services.registry.perform("splitRight", invocation: Self.at(a)))
             try await PinnedPageTests.until({ Self.shown(controller, workspace: id).count == 2 }, report: { Self.describe(controller) })
             let b = try #require(Self.shown(controller, workspace: id).first { $0 !== a })
+            // The split shows its pane before the daemon has it (split-client-keys-v1): a tab made
+            // in it meanwhile names a handle the daemon does not know. The daemon's pane, first.
+            try await PinnedPageTests.until({ Self.isDaemonPane(b) }, report: { Self.describe(controller) })
             let before = Set(b.orderedIDs.map(\.rawValue))
             #expect(services.registry.perform("newSurface", invocation: Self.at(b)))
-            try await PinnedPageTests.until({ b.orderedIDs.count == before.count + 1 }, report: { Self.describe(controller) })
-            let target = try #require(b.orderedIDs.map(\.rawValue).first { !before.contains($0) })
+            // The daemon's tab, not the stand-in `newSurface` shows until the daemon's takes its place.
+            try await PinnedPageTests.until({ Self.daemonTab(in: b, beyond: before) != nil }, report: { Self.describe(controller) })
+            let target = try #require(Self.daemonTab(in: b, beyond: before))
             let other = try #require(before.first)
             b.select(CmuxNextTabs.TabID(other), source: .programmatic)
             controller.focus.send(.focusPane(a.paneKey, source: .intent))
@@ -54,9 +58,24 @@ struct NewTabJumpToTabTests {
             try await PinnedPageTests.until({ shownB()?.stripModel.selectedID?.rawValue == target }, within: .seconds(10),
                                             report: { "the tab was not selected\n" + Self.describe(controller) })
             try await PinnedPageTests.until({ controller.focus.state.pane == pane }, within: .seconds(10),
-                                            report: { "the tab's pane did not take the focus\n" + Self.describe(controller) })
+                                            report: { "the tab's pane did not take the focus\n" + Self.describe(controller) + Self.describeFocus(controller) })
             #expect(controller.workspaceContent?.focusedPane?.paneKey == pane)
         }
+    }
+
+    /// The one tab `pane` lists beyond `known`, once it is the daemon's: `newSurface` shows a
+    /// stand-in first (`pending_tab_…`, ctrl-backtick-instant) whose id goes when the daemon's
+    /// tab takes its place, and the New Tab page lists the daemon's tab.
+    private static func daemonTab(in pane: PaneController, beyond known: Set<String>) -> String? {
+        let fresh = pane.orderedIDs.map(\.rawValue).filter { !known.contains($0) }
+        guard fresh.count == 1, let tab = fresh.first, !ProvisionalTab.isProvisional(tab) else { return nil }
+        return tab
+    }
+
+    /// `pane` is the daemon's, not a split's provisional one (``ProvisionalPane``: its handle and
+    /// its tab's surface live at 1 << 62 and above until the daemon's pane takes its place).
+    private static func isDaemonPane(_ pane: PaneController) -> Bool {
+        pane.pane.handle.rawValue < 1 << 62 && !pane.pane.tabs.contains { ProvisionalTab.isProvisional(surface: $0.surface) }
     }
 
     private static func at(_ pane: PaneController) -> ActionInvocation {
@@ -71,6 +90,14 @@ struct NewTabJumpToTabTests {
         }
         guard let content = controller.workspaceContent, content.workspace.id == workspace else { return [] }
         return Array(content.panes.values)
+    }
+
+    /// The focus machine's side: what it shows, remembers and last reduced.
+    private static func describeFocus(_ controller: WindowController) -> String {
+        let focus = controller.focus
+        return "\nfocus topology=\(focus.state.topology.workspace ?? "-") panes=\(focus.state.topology.panes.map(\.id)) generation=\(focus.state.generation)"
+            + " expectation=\(focus.state.expectation.map { String(describing: $0) } ?? "-")"
+            + "\nremembered=\(focus.rememberedPanes())\nrecent:\n" + focus.recent.joined(separator: "\n")
     }
 
     private static func describe(_ controller: WindowController) -> String {

@@ -85,6 +85,7 @@ Status: **fixed** (this work), **ok** (event-driven, one-shot, or stops itself),
 | GhosttyRuntime wakeup_cb | Terminal | libghostty | per tick | coalesced by an atomic flag | ok |
 | ~25 `for await` over `Observations` | App | model change | owner deinit | no self-writes found; Observations does not dedupe equal writes | ok; `assignIfChanged` for writers |
 | ControlSnapshotPublisher `withObservationTracking` | App | model change + every frame after a batch | never cancelled | stacked registrations multiply work under compat reads (not idle) | open |
+| HostPressureMonitor read timer (cmuxterm-hq#2995) | HostPressure | 15 s timer (2 s leeway) for load, swap and acpmux's `host_pressure`, which have no event; memory pressure is a DispatchSource event | Runs only while the Debug toggle `hostPressure.enabled` (default off, cmux#22662) is on and at least one window can be seen. Each window's indicator unsubscribes when the toggle goes off or its window hides, minimizes, is fully occluded or closes (`HostPressureSampling`); the last unsubscribe, and app quit, call `stop()`, which cancels the source, timer and read. Cleanup: the indicator removes its window observers and cancels its toggle and level observations on leaving the window and in deinit | one timer for the app, not one per window: 4 wakeups a minute while a window with the toggle on is visible, 0 while off or hidden; one sysctl batch each; a missing acpmux verdict is retried every 20th read, not every read | reviewed |
 
 ### Polling sites removed
 

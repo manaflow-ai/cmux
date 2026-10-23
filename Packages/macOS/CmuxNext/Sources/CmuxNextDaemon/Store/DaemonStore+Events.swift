@@ -191,6 +191,8 @@ extension DaemonStore {
 
         case .paneAdded(let delta):
             guard let screen = screensByHandle[delta.screen] else { return .resync }
+            // A pending split's pane, seen once: if it closes before a layout places it, the split settles.
+            if !intentLog.isEmpty { intentLog.noteDaemonPane(PaneModel.identity(delta.entity)) }
             if let existing = screen.panes.first(where: { $0.id == PaneModel.identity(delta.entity) }) {
                 existing.update(delta.entity)
                 indexed(existing, in: screen)

@@ -1,0 +1,60 @@
+# Check paths: the files that decide what a pull request's checks enforce, not what they check.
+#
+# A pull request's CI judges it against the base it ran on. When one of these changes on
+# feat-cmux-next after that base, the result is stale even though no file of the pull request
+# changed: on 2026-10-21 #22967, #22975 and #23094 merged after #23365 landed
+# webviews/scripts/check-fixed-waits.ts, without ever running it, and turned check:fixed-waits red
+# on the base. A merger (next-autoland, gh-merge-green) reads this file from the base it merges
+# into and, when any changed file since the pull request's `cmux-next/fast-gates` base matches a
+# line here, dispatches cmux-next-fast-gates.yml for the pull request (the cheap gates and the
+# webviews checks on the pull request merged with the current tip) and merges only on a
+# success at a fresh base.
+#
+# One pattern a line, matched against the repository path with Python's fnmatch (a `*` also
+# matches `/`). Blank lines and lines starting with `#` are ignored. tests/test_check_paths.py
+# keeps every pattern matching at least one tracked file.
+
+# the check scripts
+scripts/check-*
+scripts/ci/check-*
+scripts/ci/check_*
+scripts/cmux-next/check-*
+webviews/scripts/check-*
+web/scripts/check-*
+
+# their baselines and lint configuration: a lowered ratchet or a new rule fails a pull request that passed the old one
+scripts/cmux-next/*baseline*
+webviews/scripts/*baseline*
+scripts/lint-*baseline*
+web/oxlint-complexity-baseline.txt
+web/.oxlintrc.json
+scripts/cmux-next/lint-tools.lock
+scripts/cmux-next/lint/*
+scripts/cmux-next/*allowlist*
+config/vite-plus/*
+
+# the webviews checks are package scripts (check:*); acpmux-protocol:check's generator
+webviews/package.json
+webviews/scripts/acpmux-protocol-codegen.ts
+webviews/src/protocol/codegen/*
+
+# the fast gates and every script a gate runs (tests/test_check_paths.py keeps them covered)
+scripts/ci/cmux_next_fast_gates.py
+scripts/ci/fast_gate_webviews_checks.py
+scripts/web_lint_prepush.py
+scripts/ci/crash_ratchet_compare.py
+scripts/cmux-next/crash_ratchet.py
+scripts/ci/defaults_guard.py
+scripts/cmux-next/prepush-gate.py
+scripts/ci/crash_class_fast_gate.py
+scripts/ci/crash-class-gate.sh
+
+# the workflows that run what a dispatch reruns (the webviews checks, web lint, the guards behind the crash ratchet
+# and defaults stamp, the crash-class rules, the fast gates). Not every workflow: a dispatch reruns only the fast
+# gates, so another workflow's change makes nothing stale that a dispatch could catch, and on 2026-10-21 144 of the
+# day's 1610 feat-cmux-next commits changed some workflow (with these five, 62 commits changed a check path).
+.github/workflows/ci-web.yml
+.github/workflows/cmux-next-web.yml
+.github/workflows/cmux-next-guards.yml
+.github/workflows/cmux-next-crash-class.yml
+.github/workflows/cmux-next-fast-gates.yml

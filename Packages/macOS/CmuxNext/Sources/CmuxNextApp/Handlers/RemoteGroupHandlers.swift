@@ -21,10 +21,8 @@ enum RemoteGroupHandlers {
                 if interactive { RemoteHandlers.showWhenConnected(session, context) }
             }
             if let text = invocation["destination"]?.stringValue { return try make(text) }
-            CloudPresenter.askText(RemoteStrings.newGroupTitle, initial: "", button: RemoteStrings.connect, in: CloudHandlers.window(context)) { text in
-                guard let text, !text.trimmingCharacters(in: .whitespaces).isEmpty else { return }
-                do { try make(text) } catch { CloudPresenter.failure(error, in: CloudHandlers.window(context)) }
-            }
+            // The host as a Cmd-Shift-P step; Return runs this again with it.
+            registry.ask("remote.newGroup", invocation, ActionArgumentAsk(argument: "destination"))
         }
         // Back to rows of the one list; the host stays connected and its workspaces stay.
         registry.bind("remote.removeGroup", run: { invocation in
@@ -34,8 +32,7 @@ enum RemoteGroupHandlers {
             guard let store = SidebarDocStore.current, SidebarDocWiring.isActive else {
                 throw ActionFailure.invalidTarget(WorkspaceVerbStrings.subgroupNeedsDocument)
             }
-            let ops = SidebarDocHostGroupPlan(session: session, records: store.records, on: false).ops
-            guard !ops.isEmpty else { return }
+            let ops = try removalOps(session: session, records: store.records)
             do throws(SidebarDocSendRefusal) {
                 try store.sendChecked(ops: ops, title: RemoteStrings.newGroupTitle)
             } catch {
@@ -64,6 +61,14 @@ enum RemoteGroupHandlers {
             guard let session = session(invocation, context), let store = SidebarDocStore.current else { return true }
             return store.records.sections["sec_m_\(session)"]?.hostGroup != true
         }
+    }
+
+    /// The ops that turn daemon session `session`'s remote group back into rows of the one list.
+    /// Throws when its machine section is not a remote group: nothing to remove is not a success.
+    static func removalOps(session: String, records: SidebarDocRecords) throws(ActionFailure) -> [[String: Any]] {
+        let ops = SidebarDocHostGroupPlan(session: session, records: records, on: false).ops
+        guard !ops.isEmpty else { throw ActionFailure.invalidTarget(RemoteStrings.notARemoteGroup) }
+        return ops
     }
 
     private static func route(_ machine: String, _ machines: MachineRegistry) -> MachineReconnectRoute {

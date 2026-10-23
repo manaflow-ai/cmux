@@ -25,6 +25,9 @@ final class WindowState {
     var workspaceID: String? {
         didSet { if workspaceID != oldValue { noteShown(workspaceID, after: oldValue) } }
     }
+    /// The workspaces shown side by side, `workspaceID` focused among them (Debug Settings `sidebar.multiView`,
+    /// `WindowController.arrangeOnScreen`); nil shows `workspaceID` alone. Persisted in the record.
+    var viewSet: WorkspaceViewSet?
     /// The top page this window shows in place of its workspace
     /// (TOP-SECTION-ITEMS-ARE-PAGES); nil shows the workspace. Selecting a
     /// workspace clears it (`showWorkspace(_:)`). Persisted in the record.
@@ -109,6 +112,7 @@ extension WindowState {
         id = record.id
         workspaceID = record.workspaceKey?.rawValue
         page = record.page.flatMap(TopPageRoute.init(rawValue:))
+        viewSet = record.multiView.flatMap(WorkspaceViewSet.init(record:)).flatMap { Set($0.ids).count == $0.ids.count ? $0 : nil }
         machineID = record.machine ?? MachineRegistry.localID
         for (pane, tab) in record.selectedTabs { selection.select(tab, in: pane) }
         sidebarWidth = record.sidebarWidth

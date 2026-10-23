@@ -107,6 +107,15 @@ fn public_viewport_node(
             if let Some(dock) = column.dock {
                 value["dock"] = serde_json::to_value(dock)?;
             }
+            // `rows-v1`: omitted for a column with one row. Row 2..n's
+            // `row_id` is its compat chain split in `root`.
+            if column.rows.len() >= 2 {
+                value["rows"] = column
+                    .rows
+                    .iter()
+                    .map(|row| json!({"row_id": row.id, "height": row.height}))
+                    .collect();
+            }
             Ok(value)
         })
         .collect::<anyhow::Result<Vec<_>>>()?;

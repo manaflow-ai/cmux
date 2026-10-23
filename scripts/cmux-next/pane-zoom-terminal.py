@@ -65,7 +65,7 @@ def rpc(method, params=None, timeout=30):
 
 
 def action(name, args=None, settle=0.0, timeout=60):
-    reply = rpc("action.run", {"action": name, "args": args or {}, "focus": True, "origin": "user"}, timeout=timeout)
+    reply = rpc("action.run", {"action": name, "args": args or {}, "focus": True, "origin": "script"}, timeout=timeout)
     if settle:
         time.sleep(settle)  # test harness: the layout settles before the next step
     return reply

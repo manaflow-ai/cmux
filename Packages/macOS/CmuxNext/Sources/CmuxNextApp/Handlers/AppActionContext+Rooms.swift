@@ -7,8 +7,8 @@ extension AppActionContext {
     var roomStore: DaemonStore { services.machines.local.store }
 
     func requireRooms() throws {
-        guard services.machines.local.supports(DaemonCapabilities.shared.profiles) else {
-            throw ActionFailure(message: services.machines.local.missingCapabilityMessage(DaemonCapabilities.shared.profiles))
+        guard services.machines.local.supports(DaemonCapabilities.profiles) else {
+            throw ActionFailure(message: services.machines.local.missingCapabilityMessage(DaemonCapabilities.profiles))
         }
     }
 
@@ -42,8 +42,26 @@ extension AppActionContext {
 }
 
 /// `space.setDefaults` arguments: `cwd` (a directory, `~` expanded) and
-/// `env` (a JSON object of strings). Both empty clears the defaults.
+/// `env` (a JSON object of strings). Both named and empty clears the
+/// defaults; a run that names neither sets nothing (the handler asks).
 enum RoomDefaultsArguments {
+    /// Whether the run names `cwd` or `env`, even empty.
+    static func names(_ invocation: ActionInvocation) -> Bool {
+        invocation["cwd"] != nil || invocation["env"] != nil
+    }
+
+    /// `invocation` plus the space's current `env`, so the palette's answer
+    /// (which supplies only `cwd`) keeps the environment it does not show.
+    static func keepingEnv(of defaults: ProfileDefaults?, _ invocation: ActionInvocation) -> ActionInvocation {
+        var invocation = invocation
+        if let env = defaults?.env, !env.isEmpty,
+           let data = try? JSONSerialization.data(withJSONObject: env, options: [.sortedKeys]),
+           let text = String(data: data, encoding: .utf8) {
+            invocation.arguments["env"] = .string(text)
+        }
+        return invocation
+    }
+
     static func parse(_ invocation: ActionInvocation) throws -> ProfileDefaults {
         var defaults = ProfileDefaults()
         if let cwd = invocation["cwd"]?.stringValue?.trimmingCharacters(in: .whitespaces), !cwd.isEmpty {

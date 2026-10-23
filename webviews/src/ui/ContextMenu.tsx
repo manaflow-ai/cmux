@@ -208,7 +208,7 @@ export function ContextMenu({
             >
               <div
                 ref={attach}
-                className={cx("ui-popup ui-context-menu", popupClassName)}
+                className={cx("ui-popup ui-glass ui-context-menu", popupClassName)}
                 role="menu"
                 data-focus-ring="rows"
                 tabIndex={-1}

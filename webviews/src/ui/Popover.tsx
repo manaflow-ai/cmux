@@ -96,7 +96,7 @@ export function Popover({
           sideOffset={UI_ANCHOR_GAP}
         >
           <BasePopover.Popup
-            className={cx("ui-popup ui-popover", className)}
+            className={cx("ui-popup ui-glass ui-popover", className)}
             aria-label={label}
             initialFocus={initialFocus}
             finalFocus={finalFocus}

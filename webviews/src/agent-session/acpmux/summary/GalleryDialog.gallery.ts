@@ -1,7 +1,9 @@
 // l10n-allow-file: gallery fixtures (sample prompts, replies and render HTML), not shipped UI.
 // The chat's gallery (GalleryDialog.tsx): the summary's Outputs section offers it once the chat has
 // images or renders; it opens over the pane as a grid, filtered by kind, and an image opens the
-// image viewer.
+// image viewer. In the gallery's widths the pane has no room for the summary's inline column
+// (summary/cardState.ts, #21564), so the summary is the popover the header's Summary button opens;
+// a pane wide enough shows the column on its own.
 import { agentPaneEntry } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
 import { activity, assistant, chat, summary, user } from "../../../gallery/fixtures/acpmux";
@@ -38,8 +40,16 @@ const media = () =>
     { title: "Make sample images for the docs" },
   );
 
-const openGallery = async (ctx: PlayContext) => {
+/** Shows the summary from the header's Summary button unless it shows already (a pane wide enough
+ * for its inline column shows it on its own), and waits for Outputs' gallery row. */
+const showOutputs = async (ctx: PlayContext) => {
+  if (ctx.find({ selector: ".acpmux-summary-button" }).getAttribute("aria-pressed") !== "true")
+    await ctx.click({ selector: ".acpmux-summary-button" });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-summary-gallery"));
+};
+
+const openGallery = async (ctx: PlayContext) => {
+  await showOutputs(ctx);
   await ctx.click({ selector: ".acpmux-summary-gallery" });
 };
 
@@ -61,11 +71,9 @@ export default agentPaneEntry({
   },
   variants: {
     outputs: {
-      note: "The wide pane keeps the summary inline; Outputs offers the gallery with its five items.",
+      note: "Play: show the summary; Outputs offers the gallery with its five items.",
       snapshot: media(),
-      play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-summary-gallery"));
-      },
+      play: showOutputs,
     },
     open: {
       note: "Play: open the gallery from Outputs; three images, then two render cards waiting to run.",

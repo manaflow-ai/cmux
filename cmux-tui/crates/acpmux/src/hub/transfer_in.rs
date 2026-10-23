@@ -241,6 +241,7 @@ impl Hub {
                 let e = transfer_error("cwd", "the chat's folder is not here; pass cwd");
                 return Err(e.with_data(json!({"reason": "cwd_missing", "cwd": cwd})));
             }
+            old.replaced.store(true, Ordering::SeqCst);
             self.kill(&old, true).await?;
         }
         let name = text("name").map(str::to_owned);

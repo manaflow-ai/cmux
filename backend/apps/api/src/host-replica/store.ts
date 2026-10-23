@@ -29,6 +29,21 @@ export interface InFlight {
   readonly stream: string
 }
 
+/** A Chief message kept for an offline host (the mailbox, a450 logs/iphone-chief-DESIGN.md). */
+export interface Queued {
+  readonly stream: string
+  readonly key: string
+  /** The reader's op frame, JSON, without routing fields. */
+  readonly frame: string
+  /** The reader's principal, JSON. */
+  readonly principal: string
+}
+
+/** Mailbox bounds per host: entries, bytes of one op frame, and age (ms) before an entry expires. */
+export const MAILBOX_MAX = 200
+export const MAILBOX_FRAME_MAX_BYTES = 64 * 1024
+export const MAILBOX_TTL_MS = 7 * 24 * 60 * 60 * 1000
+
 /**
  * Tail bounds per stream (DESIGN.md section 12). The tail is never trimmed on its own (a snapshot
  * plus every event after it is the only consistent answer): past these bounds HostDO asks the host
@@ -58,6 +73,7 @@ export class ReplicaStore {
     sql.exec(`CREATE TABLE IF NOT EXISTS replica_stream (stream TEXT PRIMARY KEY, snapshot_seq INTEGER NOT NULL, snapshot TEXT NOT NULL, head INTEGER NOT NULL, tail_bytes INTEGER NOT NULL)`)
     sql.exec(`CREATE TABLE IF NOT EXISTS replica_event (stream TEXT NOT NULL, seq INTEGER NOT NULL, event TEXT NOT NULL, PRIMARY KEY (stream, seq))`)
     sql.exec(`CREATE TABLE IF NOT EXISTS replica_presence (id INTEGER PRIMARY KEY CHECK (id = 1), publisher TEXT, since INTEGER NOT NULL)`)
+    sql.exec(`CREATE TABLE IF NOT EXISTS replica_mailbox (n INTEGER PRIMARY KEY AUTOINCREMENT, stream TEXT NOT NULL, key TEXT NOT NULL, frame TEXT NOT NULL, principal TEXT NOT NULL, at INTEGER NOT NULL, UNIQUE (stream, key))`)
     sql.exec(`CREATE TABLE IF NOT EXISTS replica_inflight (reader TEXT NOT NULL, key TEXT NOT NULL, stream TEXT NOT NULL, PRIMARY KEY (reader, key))`)
   }
 
@@ -88,6 +104,45 @@ export class ReplicaStore {
     if (reader === undefined) this.sql.exec(`DELETE FROM replica_inflight`)
     else this.sql.exec(`DELETE FROM replica_inflight WHERE reader = ?`, reader)
     return rows.map((r) => ({ reader: r.reader, key: r.key, stream: r.stream }))
+  }
+
+  /**
+   * Keeps one op for the offline host. The same (stream, key) is one entry: a resend answers its
+   * position again and changes nothing. Returns the 1-based position among the stream's entries,
+   * or why it was refused.
+   */
+  enqueue(stream: string, key: string, frame: string, principal: string, now: number): { readonly kind: "queued"; readonly position: number } | { readonly kind: "full" | "too_large" } {
+    this.expire(now)
+    if (bytes(frame) > MAILBOX_FRAME_MAX_BYTES) return { kind: "too_large" }
+    const existing = this.sql.exec<{ n: number }>(`SELECT n FROM replica_mailbox WHERE stream = ? AND key = ?`, stream, key).toArray()[0]
+    if (!existing) {
+      const count = Number(this.sql.exec<{ c: number }>(`SELECT COUNT(*) AS c FROM replica_mailbox`).toArray()[0]?.c ?? 0)
+      if (count >= MAILBOX_MAX) return { kind: "full" }
+      this.sql.exec(`INSERT INTO replica_mailbox (stream, key, frame, principal, at) VALUES (?, ?, ?, ?, ?)`, stream, key, frame, principal, now)
+    }
+    const n = existing ? Number(existing.n) : Number(this.sql.exec<{ n: number }>(`SELECT n FROM replica_mailbox WHERE stream = ? AND key = ?`, stream, key).toArray()[0]!.n)
+    const position = Number(this.sql.exec<{ c: number }>(`SELECT COUNT(*) AS c FROM replica_mailbox WHERE stream = ? AND n <= ?`, stream, n).toArray()[0]?.c ?? 1)
+    return { kind: "queued", position }
+  }
+
+  /** Every kept op, oldest first (expired ones are dropped first). */
+  mailbox(now: number): Array<Queued> {
+    this.expire(now)
+    return this.sql
+      .exec<{ stream: string; key: string; frame: string; principal: string }>(`SELECT stream, key, frame, principal FROM replica_mailbox ORDER BY n`)
+      .toArray()
+      .map((r) => ({ stream: r.stream, key: r.key, frame: r.frame, principal: r.principal }))
+  }
+
+  /** Removes one kept op; true when it was there. */
+  settleQueued(stream: string, key: string): boolean {
+    const had = this.sql.exec(`SELECT 1 FROM replica_mailbox WHERE stream = ? AND key = ?`, stream, key).toArray().length > 0
+    this.sql.exec(`DELETE FROM replica_mailbox WHERE stream = ? AND key = ?`, stream, key)
+    return had
+  }
+
+  private expire(now: number): void {
+    this.sql.exec(`DELETE FROM replica_mailbox WHERE at < ?`, now - MAILBOX_TTL_MS)
   }
 
   /** The newest seq stored per stream (what the host must resume after). */
@@ -163,6 +218,7 @@ export class ReplicaStore {
     this.sql.exec(`DELETE FROM replica_event`)
     this.sql.exec(`DELETE FROM replica_stream`)
     this.sql.exec(`DELETE FROM replica_inflight`)
+    this.sql.exec(`DELETE FROM replica_mailbox`)
   }
 
   private streamCount(): number {

@@ -43,7 +43,8 @@
   text-decoration-color: currentColor;
 }
 /* A pull request, an issue or a file is a reference chip: a pill with its icon, as Claude
-   desktop draws "owner/repo#N · title". It wraps with the line (box-decoration-break). */
+   desktop draws them. It wraps with the line (box-decoration-break). Its title is in the hover
+   card, never in the line: a title arriving later would widen the chip and reflow the reply. */
 .cv-chip.is-ref,
 .cv-chip.is-path {
   padding: 1px 6px 1px 5px;
@@ -52,9 +53,9 @@
   -webkit-box-decoration-break: clone;
   box-decoration-break: clone;
 }
-/* A reference stays whole on one line: its mark, owner/repo#N and its title, which is cut off
-   only when the chip is as wide as the line (it moves to a line of its own first). The negative
-   margin keeps the padding out of the line's height, as an inline chip's is. */
+/* A reference stays whole on one line: its mark and owner/repo#N, cut off only when the chip is
+   as wide as the line (it moves to a line of its own first). The negative margin keeps the
+   padding out of the line's height, as an inline chip's is. */
 .cv-chip.is-ref {
   display: inline-flex;
   align-items: baseline;
@@ -68,12 +69,6 @@
   align-self: center;
 }
 .cv-chip.is-ref .cv-chip__label {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.cv-chip.is-ref .cv-chip__title {
-  flex-shrink: 1000;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -93,13 +88,6 @@
 .cv-chip__icon--gh {
   vertical-align: -1.5px;
 }
-.cv-chip__title {
-  color: var(--cv-text);
-}
-.cv-chip__title::before {
-  content: " · ";
-  color: var(--cv-text-muted);
-}
 .cv-chip:focus-visible {
   outline: 1px solid var(--cv-link);
   outline-offset: 1px;
@@ -109,6 +97,15 @@
   vertical-align: -1px;
   margin: 0 0 0 3px;
   color: var(--cv-link);
+}
+/* A file on the machine an agent's message came from (LinkChips.tsx ElsewhereChip): the chip
+   without a click, a little quieter. */
+.cv-chip.is-elsewhere {
+  cursor: default;
+  color: var(--cv-text-dim);
+}
+.cv-chip.is-elsewhere:hover {
+  background: color-mix(in srgb, currentColor 10%, transparent);
 }
 .cv-chip__favicon {
   border-radius: 3px;
@@ -233,24 +230,101 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.cv-media__expand {
+/* The video's frame: the poster with its play button and length until a click plays it. */
+.cv-media__frame {
+  position: relative;
+  display: block;
+  max-width: 100%;
+}
+.cv-media__poster {
+  appearance: none;
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+}
+.cv-media__poster:focus-visible {
+  outline: 2px solid var(--agent-accent-soft);
+  outline-offset: 2px;
+}
+/* The play button: a round glass lens over the frame, its triangle in the text color. */
+.cv-media__play {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding-left: 3px; /* the triangle's visual center */
+  box-sizing: border-box;
+  border-radius: 50%;
+  color: var(--cv-text);
+}
+.cv-media__poster:hover .cv-media__play {
+  transform: scale(1.06);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cv-media__play {
+    transition: transform var(--cmux-motion-micro, 120ms);
+  }
+}
+/* The length, in the frame's corner on its own dark scrim so it reads over any frame. */
+.cv-media__duration {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: #fff; /* theme-fixed: on its own black scrim over media */
+  background: rgb(0 0 0 / 0.55);
+  font-size: var(--text-detail);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+}
+/* Every control on a playing video takes the pointing hand too (WebKit's own controls). */
+.cv-media__frame.is-playing video,
+.cv-media__frame video::-webkit-media-controls-panel,
+.cv-media__frame video::-webkit-media-controls-play-button,
+.cv-media__frame video::-webkit-media-controls-timeline,
+.cv-media__frame video::-webkit-media-controls-mute-button,
+.cv-media__frame video::-webkit-media-controls-fullscreen-button {
+  cursor: pointer;
+}
+/* Open in tab and Expand: small glass buttons in the top corner, shown while the pointer is on it. */
+.cv-media__actions {
   position: absolute;
   top: 6px;
   right: 6px;
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cv-media__actions {
+    transition: opacity var(--cmux-motion-micro, 120ms);
+  }
+}
+.cv-media__action {
   display: grid;
   place-items: center;
   width: 24px;
   height: 24px;
+  padding: 0;
   border: 0;
   border-radius: 6px;
-  color: #fff; /* theme-fixed: on its own black scrim over media */
-  background: rgb(0 0 0 / 0.5);
-  opacity: 0;
-  transition: opacity 120ms;
+  color: var(--cv-text);
+  cursor: pointer;
 }
-.cv-media:hover .cv-media__expand,
-.cv-media__expand:focus-visible {
+.cv-media:hover .cv-media__actions,
+.cv-media__actions:focus-within {
   opacity: 1;
+}
+.cv-media__action:focus-visible {
+  outline: 2px solid var(--agent-accent-soft);
+  outline-offset: 1px;
 }
 .cv-media-stage {
   flex: 1;
@@ -277,4 +351,96 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* A reply's image thumbnail (ReplyImage.tsx `thumb`): glass of one fixed shape in every state
+ * (waiting, Load image, unavailable, shown), so an image that loads never moves the reply. The image
+ * fits inside whole; a click opens it in the image viewer. */
+.cv-thumb {
+  box-sizing: border-box;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: min(100%, 480px);
+  aspect-ratio: 16 / 10;
+  margin: 6px 0;
+  padding: 4px;
+  overflow: hidden;
+  vertical-align: top;
+  border: 0;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--cv-fg) 4%, transparent);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--cv-fg) 10%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #fff 6%, transparent);
+  color: var(--cv-text-muted);
+  font: inherit;
+  font-size: var(--text-detail);
+}
+button.cv-thumb {
+  appearance: none;
+  cursor: zoom-in;
+}
+button.cv-thumb:focus-visible {
+  outline: 2px solid var(--agent-accent-soft);
+  outline-offset: 2px;
+}
+.cv-thumb__img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: 7px;
+}
+.cv-thumb__name {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* A placeholder or an unavailable file's card sits in the frame's middle, without its own border. */
+.cv-thumb .cv-image-placeholder,
+.cv-thumb .cv-image-file {
+  flex-wrap: wrap;
+  justify-content: center;
+  padding: 0 8px;
+  border: 0;
+  text-align: center;
+}
+/* Thumbnails of one paragraph or list item (Markdown.tsx Thumbs): one alone, or a row where each
+ * takes the same share, so a before/after pair sits side by side, its label under each. */
+.cv-thumbs {
+  display: block;
+  max-width: 100%;
+}
+.cv-thumbs.is-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+  width: min(100%, 968px);
+  margin: 6px 0;
+}
+.cv-thumbs.is-row .cv-thumb {
+  width: 100%;
+  margin: 0;
+}
+.cv-thumbs__item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.cv-thumbs__caption {
+  overflow: hidden;
+  color: var(--cv-text-muted);
+  font-size: var(--text-detail);
+  line-height: 16px;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-li__images {
+  display: block;
 }

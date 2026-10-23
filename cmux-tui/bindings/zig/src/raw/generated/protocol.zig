@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "96e61acfae440a8a09afd96f3fcebb5b2aa189cff1cdcb74d026be328dd4ea67";
+pub const ir_sha256 = "1e8ed8d1c9488496f61ce39773888417486f7d9a3ecf0469f4e801cd383fe3bd";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -1318,12 +1318,16 @@ pub const NameSource = enum {
 
 pub const NewRowResult = struct {
     pane: Id,
+    pane_id: ?[]const u8 = null,
     surface: Id,
+    tab_id: ?[]const u8 = null,
     terminal_id: wire.Field([]const u8) = .absent,
     terminal_incarnation: wire.Field([]const u8) = .absent,
     transaction: ?[]const u8 = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "pane_id",
+        "tab_id",
         "transaction",
     };
 };
@@ -1783,6 +1787,10 @@ pub const Screen = struct {
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "short_id",
     };
+};
+
+pub const SendExpectAgent = struct {
+    session: wire.Field([]const u8) = .absent,
 };
 
 pub const ServerStatsConnections = struct {
@@ -2942,6 +2950,23 @@ pub const TerminalPlacement = struct {
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "terminal_resource_id",
     };
+};
+
+pub const TerminalPortsListener = struct {
+    /// The loopback address that accepted the daemon's connect: 127.0.0.1 or ::1.
+    bound: []const u8,
+    /// The host as the terminal printed it: localhost, 127.0.0.1, 0.0.0.0, [::1], ...
+    host: []const u8,
+    port: u16,
+    /// The printed URL, or http://HOST:PORT/ when the text had no scheme.
+    url: []const u8,
+};
+
+pub const TerminalPortsResult = struct {
+    /// Ports the text names that refused the connect.
+    closed: []const u16,
+    listeners: []const TerminalPortsListener,
+    surface: Id,
 };
 
 pub const TerminalReadRangeResult = struct {
@@ -4515,6 +4540,23 @@ pub fn cloudRequestsList(client: anytype, request: CloudRequestsListRequest) !wi
     );
 }
 
+pub const CloudSelfhostInfoRequest = struct {};
+
+pub const CloudSelfhostInfoResult = JsonValue;
+
+pub fn cloudSelfhostInfo(client: anytype, request: CloudSelfhostInfoRequest) !wire.Decoded(CloudSelfhostInfoResult) {
+    return client.callTyped(
+        CloudSelfhostInfoResult,
+        .{
+            .name = "cloud-selfhost-info",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "cloud-selfhost-v1",
+        },
+        request,
+    );
+}
+
 pub const CloudSessionClearRequest = struct {};
 
 pub const CloudSessionClearResult = JsonValue;
@@ -4533,10 +4575,16 @@ pub fn cloudSessionClear(client: anytype, request: CloudSessionClearRequest) !wi
 }
 
 pub const CloudSessionSetRequest = struct {
-    access_token: []const u8,
+    access_token: ?[]const u8 = null,
     api_base_url: []const u8,
+    auth: wire.Field([]const u8) = .absent,
     client_version: wire.Field([]const u8) = .absent,
-    expires_at: u64,
+    expires_at: ?u64 = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "access_token",
+        "expires_at",
+    };
 };
 
 pub const CloudSessionSetResult = JsonValue;
@@ -7226,8 +7274,10 @@ pub const NewRowRequest = struct {
     height_permille: u64,
     keep: ?bool = null,
     pane: Id,
+    pane_id: wire.Field([]const u8) = .absent,
     rows: wire.Field(u16) = .absent,
     shell_args: wire.Field([]const []const u8) = .absent,
+    tab_id: wire.Field([]const u8) = .absent,
     terminal_id: wire.Field([]const u8) = .absent,
     transaction: wire.Field([]const u8) = .absent,
 
@@ -7244,6 +7294,10 @@ pub fn newRow(client: anytype, request: NewRowRequest) !wire.Decoded(NewRowResul
             .authority = "control",
             .since = 12,
             .capability = "rows-v1",
+            .fields = &.{
+                .{ .name = "pane_id", .since = null, .capability = "row-client-keys-v1" },
+                .{ .name = "tab_id", .since = null, .capability = "row-client-keys-v1" },
+            },
         },
         request,
     );
@@ -8270,14 +8324,17 @@ pub fn selectWorkspace(client: anytype, request: SelectWorkspaceRequest) !wire.D
 
 pub const SendRequest = struct {
     bytes: wire.Field(Base64) = .absent,
+    expect_agent: wire.Field(SendExpectAgent) = .absent,
     expect_foreground: wire.Field([]const u8) = .absent,
     paste: ?bool = null,
+    submit: ?bool = null,
     surface: wire.Field(Id) = .absent,
     terminal_id: wire.Field([]const u8) = .absent,
     text: wire.Field([]const u8) = .absent,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "paste",
+        "submit",
     };
 };
 
@@ -8298,8 +8355,10 @@ pub fn send(client: anytype, request: SendRequest) !wire.Decoded(SendResult) {
             .since = 5,
             .capability = null,
             .fields = &.{
+                .{ .name = "expect_agent", .since = null, .capability = "send-expect-agent-v1" },
                 .{ .name = "expect_foreground", .since = null, .capability = "send-expect-foreground-v1" },
                 .{ .name = "paste", .since = 7, .capability = null },
+                .{ .name = "submit", .since = null, .capability = "send-expect-agent-v1" },
                 .{ .name = "terminal_id", .since = null, .capability = "terminal-input-while-creating-v1" },
             },
         },
@@ -9195,6 +9254,23 @@ pub fn terminalHistory(client: anytype, request: TerminalHistoryRequest) !wire.D
     );
 }
 
+pub const TerminalPortsRequest = struct {
+    surface: Id,
+};
+
+pub fn terminalPorts(client: anytype, request: TerminalPortsRequest) !wire.Decoded(TerminalPortsResult) {
+    return client.callTyped(
+        TerminalPortsResult,
+        .{
+            .name = "terminal-ports",
+            .authority = "control",
+            .since = 12,
+            .capability = "terminal-ports-v1",
+        },
+        request,
+    );
+}
+
 pub const TerminalReadRangeRequest = struct {
     format: wire.Field([]const u8) = .absent,
     from: RowMarkerPoint,
@@ -9432,6 +9508,7 @@ pub const UpdateBrowserProfileRequest = struct {
     color: wire.Field([]const u8) = .absent,
     icon: wire.Field([]const u8) = .absent,
     name: wire.Field([]const u8) = .absent,
+    proxy: wire.Field(JsonValue) = .absent,
 };
 
 pub const UpdateBrowserProfileResult = JsonValue;
@@ -11374,7 +11451,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 281;
+pub const command_count: usize = 283;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -11434,6 +11511,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "cloud-mux-unsubscribe", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
     .{ .name = "cloud-participant-avatar-get", .authority = "local-admin", .since = 12, .capability = "participant-avatars-v1", .stream = null },
     .{ .name = "cloud-requests-list", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
+    .{ .name = "cloud-selfhost-info", .authority = "local-admin", .since = 12, .capability = "cloud-selfhost-v1", .stream = null },
     .{ .name = "cloud-session-clear", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
     .{ .name = "cloud-session-set", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
     .{ .name = "cloud-session-status", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
@@ -11630,6 +11708,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "terminal-clipboard-subscribe", .authority = "frontend", .since = 12, .capability = "terminal-clipboard-read-v1", .stream = "subscribe" },
     .{ .name = "terminal-events", .authority = "control", .since = 9, .capability = null, .stream = null },
     .{ .name = "terminal-history", .authority = "control", .since = 12, .capability = "terminal-snapshot-v1", .stream = null },
+    .{ .name = "terminal-ports", .authority = "control", .since = 12, .capability = "terminal-ports-v1", .stream = null },
     .{ .name = "terminal-read-range", .authority = "control", .since = 12, .capability = "terminal-snapshot-v1", .stream = null },
     .{ .name = "terminal-resources", .authority = "control", .since = 12, .capability = "terminal-resources-v1", .stream = null },
     .{ .name = "terminal-resume-command", .authority = "control", .since = 12, .capability = "resume-command", .stream = null },

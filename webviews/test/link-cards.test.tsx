@@ -2,8 +2,8 @@
 // Leo 2026-10-20, "did we fix this bullshit yet": an agent's bare http://127.0.0.1:47811?token=… drew a
 // full-width card (globe, the raw address with its token, Open in tab, Open in, then a ~300px empty
 // see-through box around Load preview). A link in a reply now reads as text: no globe, a secret
-// query value as •••, the real href kept; a favicon only beside a title cmux already has; a local or
-// private address never dressed as a site; the turn's preview card only behind the Debug toggle
+// query value as •••, the real href kept; a site's title and favicon only in the hover card; a local
+// or private address never dressed as a site; the turn's preview card only behind the Debug toggle
 // agentPane.debug.turnPreviewCards, and opaque.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -177,12 +177,69 @@ test("a web address with no title cmux knows is plain link text, no globe", asyn
   await chip.done();
 });
 
-test("a site cmux has a title for is one compact chip: its favicon and its title", async () => {
+// Leo 2026-10-21: "[#22896](…/pull/22896)" grew into "#22896 · cmux-next updates: pulled-build banner
+// (…)" once its page title came in, and the paragraph reflowed under him. A chip's text and icon are
+// fixed when it first draws; the title and the favicon live in the hover card.
+const PR_HREF = "https://github.com/manaflow-ai/cmux/pull/22896";
+const PR_PAGE_TITLE =
+  "cmux-next updates: pulled-build banner (staged) by teamleaderleo · Pull Request #22896 · manaflow-ai/cmux · GitHub";
+
+async function seedLater(sites: Record<string, { title?: string; icon?: string }>) {
+  const { act } = await import("react");
+  const { seedLinkStore } = await import("../src/agent-session/acpmux/chips/linkStore");
+  await act(async () => {
+    seedLinkStore({ sites });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+}
+
+test("a pull request chip keeps its text when the pull request's title comes in; the title is in the card", async () => {
+  const chip = await renderChip(PR_HREF, "#22896");
+  const before = chip.link.innerHTML;
+  expect(chip.link.textContent).toBe("#22896");
+  await seedLater({ [PR_HREF]: { title: PR_PAGE_TITLE, icon: FAVICON } });
+  expect(chip.link.textContent).toBe("#22896");
+  expect(chip.link.innerHTML).toBe(before);
+  expect(chip.link.querySelector(".cv-chip__title, img")).toBeNull();
+  const card = await chip.hover();
+  expect(card.querySelector(".cv-link-preview__site")?.textContent).toBe(
+    "cmux-next updates: pulled-build banner (staged)",
+  );
+  // Hovering changes nothing in the line either.
+  expect(chip.link.textContent).toBe("#22896");
+  await chip.done();
+});
+
+test("a pull request chip whose title cmux already has draws the same as one it has no title for", async () => {
+  const chip = await renderChip(PR_HREF, "#22896", { [PR_HREF]: { title: PR_PAGE_TITLE, icon: FAVICON } });
+  expect(chip.link.textContent).toBe("#22896");
+  expect(chip.link.querySelector(".cv-chip__title, img")).toBeNull();
+  expect(chip.link.querySelector("svg")).not.toBeNull();
+  await chip.done();
+});
+
+test("a bare address keeps its text and draws no favicon when the site's title and icon come in", async () => {
+  const href = "https://docs.example.test/guide";
+  const chip = await renderChip(href, href);
+  const before = chip.link.innerHTML;
+  await seedLater({ [href]: { title: "Example docs", icon: FAVICON } });
+  expect(chip.link.textContent).toBe(href);
+  expect(chip.link.innerHTML).toBe(before);
+  expect(chip.link.querySelector("svg, img")).toBeNull();
+  const card = await chip.hover();
+  expect(card.querySelector(".cv-link-preview__site")?.textContent).toBe("Example docs");
+  expect(card.querySelector(".cv-link-preview__icon img")?.getAttribute("src")).toBe(FAVICON);
+  await chip.done();
+});
+
+test("a site cmux already has a title for still reads as its address; the card has the favicon and title", async () => {
   const href = "https://docs.example.test/guide";
   const chip = await renderChip(href, href, { [href]: { title: "Example docs", icon: FAVICON } });
-  expect(chip.link.querySelector("img")?.getAttribute("src")).toBe(FAVICON);
-  expect(chip.link.textContent).toBe("Example docs");
-  expect(chip.link.classList.contains("is-titled")).toBe(true);
+  expect(chip.link.textContent).toBe(href);
+  expect(chip.link.querySelector("svg, img")).toBeNull();
+  const card = await chip.hover();
+  expect(card.querySelector(".cv-link-preview__site")?.textContent).toBe("Example docs");
+  expect(card.querySelector(".cv-link-preview__icon img")?.getAttribute("src")).toBe(FAVICON);
   await chip.done();
 });
 
@@ -224,4 +281,19 @@ test("the preview card masks its address's secrets and draws on an opaque surfac
   const rule = (selector: string) => new RegExp(`\\${selector}\\{[^}]*\\}`).exec(styles)?.[0] ?? "";
   for (const selector of [".acpmux-turn-preview", ".acpmux-turn-preview-frame"])
     expect(rule(selector)).toContain("var(--cmux-surface-solid");
+});
+
+test("a web card's head names the site; its address shows only when it says more than the host", async () => {
+  const root = await renderChip("https://example.test/", "https://example.test/");
+  const rootCard = await root.hover();
+  expect(rootCard.querySelector(".cv-link-preview__site")?.textContent).toBe("example.test");
+  expect(rootCard.querySelector(".cv-link-preview__target")).toBeNull();
+  await root.done();
+  const deep = await renderChip("https://example.test/docs/start", "https://example.test/docs/start");
+  const deepCard = await deep.hover();
+  expect(deepCard.querySelector(".cv-link-preview__site")?.textContent).toBe("example.test");
+  expect(deepCard.querySelector(".cv-link-preview__target")?.textContent).toBe("https://example.test/docs/start");
+  // No "host · address" footer: the address sits under the title, inside the head.
+  expect(deepCard.querySelector(".cv-link-preview__head .cv-link-preview__target")).not.toBeNull();
+  await deep.done();
 });

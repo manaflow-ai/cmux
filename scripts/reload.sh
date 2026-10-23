@@ -17,6 +17,8 @@ BUNDLE_ID="com.cmuxterm.app.debug"
 BASE_APP_NAME="cmux DEV"
 # The configuration xcodebuild builds and the app it produces (Release: cmux.app).
 BUILD_CONFIGURATION="Debug"
+# --config bench: Release optimization with the debug control surface compiled in (BENCH_HOOKS=1).
+BENCH_HOOKS=0
 PRODUCT_APP_NAME="$BASE_APP_NAME"
 DERIVED_DATA=""
 NAME_SET=0
@@ -731,6 +733,14 @@ Options:
   --release              Build the Release configuration (optimized, no DEBUG) of
                          this tagged app, for dogfooding real performance. The
                          debug.* socket commands are compiled out.
+  --config <debug|release|bench>
+                         debug (default) and release as above. bench: the Release
+                         configuration (-O, whole module, the shipped flags) plus
+                         -DDEBUG -DCMUX_BENCH_HOOKS, so the debug.* socket commands
+                         the benches and the STRESS builder drive exist in an
+                         optimized app. Never for a shipped product:
+                         scripts/cmux-next/check-no-bench-hooks.sh refuses such an
+                         app in the release and nightly pipelines.
   --credentials-file <path>
                          Bake only the path to a current-user-owned 0600 auth file.
                          The credential values never enter argv, Info.plist, or
@@ -944,6 +954,15 @@ validate_app_bundle() {
   if [[ -x "$SCRIPT_DIR/cmux-next/check-app-bundle.sh" ]]; then
     "$SCRIPT_DIR/cmux-next/check-app-bundle.sh" "$app_path" || return 1
   fi
+  # A bench build must carry the bench marker (the flags reached the app's modules); any other build
+  # must not (scripts/cmux-next/check-no-bench-hooks.sh, also run by the release and nightly pipelines).
+  if [[ -x "$SCRIPT_DIR/cmux-next/check-no-bench-hooks.sh" ]]; then
+    if [[ "$BENCH_HOOKS" -eq 1 ]]; then
+      "$SCRIPT_DIR/cmux-next/check-no-bench-hooks.sh" --expect "$app_path" || return 1
+    else
+      "$SCRIPT_DIR/cmux-next/check-no-bench-hooks.sh" "$app_path" || return 1
+    fi
+  fi
   # Every version surface (app, bundled CLIs) says the cmux-next version. A dev
   # build warns only: a branch may bundle its base tree's cmux-tui (tree
   # fallback) until its own tree publishes. nightly.yml fails on it.
@@ -1121,6 +1140,15 @@ while [[ $# -gt 0 ]]; do
     --release)
       BUILD_CONFIGURATION="Release"
       shift
+      ;;
+    --config|--config=*)
+      if [[ "$1" == --config=* ]]; then config_name="${1#--config=}"; shift; else config_name="${2:-}"; shift 2 || true; fi
+      case "$config_name" in
+        debug) BUILD_CONFIGURATION="Debug" BENCH_HOOKS=0 ;;
+        release) BUILD_CONFIGURATION="Release" BENCH_HOOKS=0 ;;
+        bench) BUILD_CONFIGURATION="Release" BENCH_HOOKS=1 ;;
+        *) echo "error: --config takes debug, release or bench (got '${config_name}')" >&2; exit 1 ;;
+      esac
       ;;
     --credentials-file)
       AUTH_CREDENTIALS_FILE="${2:-}"
@@ -1313,9 +1341,19 @@ fi
 # sized for the legacy app and many agents at once. A cold cmux-next tagged
 # build (2026-09-29, tag nxpipe) left 5.8 GiB of DerivedData and lowered
 # free space by at most 10.6 GiB while it ran, so cmux-next reloads use their
-# own floor, CMUX_NEXT_MIN_FREE_GIB (default 40 GiB, about 4x that peak), and
-# lift the guard's floor only for this build.
-cmux_next_min_free_gib="${CMUX_NEXT_MIN_FREE_GIB:-40}"
+# own floor, CMUX_NEXT_MIN_FREE_GIB, and lift the guard's floor only for this
+# build. Its default (40 GiB, about 4x that peak) is the one number in
+# cmux-next/tour-requirements.json, so the runners that take tours read the
+# same floor instead of copying it.
+cmux_next_requirements="$SCRIPT_DIR/cmux-next/tour-requirements.json"
+cmux_next_default_min_free_gib="$(python3 -c '
+import json, sys
+value = json.load(open(sys.argv[1]))["min_free_gib"]
+if type(value) is not int or value <= 0:
+    raise SystemExit(1)
+print(value)' "$cmux_next_requirements" 2>/dev/null)" \
+  || { echo "error: $cmux_next_requirements must hold a positive whole number of GiB as min_free_gib" >&2; exit 1; }
+cmux_next_min_free_gib="${CMUX_NEXT_MIN_FREE_GIB:-$cmux_next_default_min_free_gib}"
 [[ "$cmux_next_min_free_gib" =~ ^[0-9]+$ ]] \
   || { echo "error: CMUX_NEXT_MIN_FREE_GIB must be a whole number of GiB" >&2; exit 1; }
 cmux_next_free_gib="$(df -Pk "$HOME" | awk 'NR==2{print int($4/1048576)}')"
@@ -1653,6 +1691,12 @@ if [[ "${CMUX_SKIP_ZIG_BUILD:-}" == "1" ]]; then
   XCODEBUILD_ARGS+=(CMUX_SKIP_ZIG_BUILD=1)
 fi
 SWIFT_OTHER_FLAGS='$(inherited)'
+if [[ "$BENCH_HOOKS" -eq 1 ]]; then
+  # Optimized as shipped; DEBUG keeps the debug.* control surface and its counters compiled in, and
+  # CMUX_BENCH_HOOKS marks the binary (check-no-bench-hooks.sh) so it can never ship.
+  SWIFT_OTHER_FLAGS+=" -DDEBUG -DCMUX_BENCH_HOOKS"
+  echo "==> bench configuration: Release optimization with -DDEBUG -DCMUX_BENCH_HOOKS"
+fi
 if [[ "$SWIFT_FRONTEND_WORKAROUND" -eq 1 || "${CMUX_SWIFT_FRONTEND_WORKAROUND:-}" == "1" || "${CMUX_SWIFT_DISABLE_GLOBAL_ISEL:-}" == "1" ]]; then
   SWIFT_FRONTEND_WORKAROUND_EFFECTIVE=1
   echo "==> Swift frontend workaround enabled for this reload"

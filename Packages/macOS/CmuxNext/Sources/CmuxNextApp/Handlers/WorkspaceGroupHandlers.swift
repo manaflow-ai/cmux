@@ -2,6 +2,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextSettings
 import CmuxNextSidebar
 
 /// Workspace groups (sidebar sections): every verb from architecture.md 7
@@ -23,26 +24,27 @@ enum WorkspaceGroupHandlers {
         ActionTargetTitles.set("toggleFocusedWorkspaceGroupCollapsed", in: registry) { invocation in
             (try? context.group(invocation)).map { isCollapsed($0, context) ? WorkspaceVerbStrings.expandGroup : WorkspaceVerbStrings.collapseGroup }
         }
-        registry.bind("nextWorkspaceGroup", requires: DaemonCapabilities.shared.profiles, daemon: context.services.machines.local,
-                      run: { _ in selectGroup(context, offset: 1) })
-        registry.bind("prevWorkspaceGroup", requires: DaemonCapabilities.shared.profiles, daemon: context.services.machines.local,
-                      run: { _ in selectGroup(context, offset: -1) })
+        registry.bind("nextWorkspaceGroup", requires: DaemonCapabilities.profiles, daemon: context.services.machines.local,
+                      run: { _ in try selectGroup(context, offset: 1) })
+        registry.bind("prevWorkspaceGroup", requires: DaemonCapabilities.profiles, daemon: context.services.machines.local,
+                      run: { _ in try selectGroup(context, offset: -1) })
     }
 
     private static func bindMembers(_ registry: ActionRegistry, _ context: AppActionContext) {
         let home = context.services.machines.local
-        registry.bind("newWorkspaceGroup", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
+        registry.bind("newWorkspaceGroup", requires: DaemonCapabilities.profiles, daemon: home, run: { invocation in
             let members = (try? context.workspace(invocation).model).map { [SidebarWorkspaceID($0.id)] } ?? []
             let name = invocation["name"]?.stringValue ?? ""
             if members.isEmpty, invocation.origin == .user, name.isEmpty { return try context.sidebar().groupFlow.newEmptyGroup(name: name) }
             try createGroup(named: name, members: members, byUser: invocation.origin == .user, context)
         })
-        registry.bind("groupSelectedWorkspaces", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
-            var members = try context.sidebar().model.orderedSelection
-            if members.isEmpty { members = [SidebarWorkspaceID(try context.workspace(invocation).model.id)] }
+        registry.bind("groupSelectedWorkspaces", requires: DaemonCapabilities.profiles, daemon: home, run: { invocation in
+            // The right-clicked row's selection, or the row alone: a right-click no longer selects its row (Leo
+            // 2026-10-21), so a row outside the selection must not group the selection.
+            let members = try WindowMembershipHandlers.workspaces(invocation, context).map(SidebarWorkspaceID.init)
             try createGroup(named: "", members: members, byUser: invocation.origin == .user, context)
         })
-        registry.bind("moveWorkspaceToGroup", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
+        registry.bind("moveWorkspaceToGroup", requires: DaemonCapabilities.profiles, daemon: home, run: { invocation in
             guard invocation["group"]?.targetValue != nil else { throw ActionFailure.invalidTarget(RefusalStrings.groupRequired) }
             let group = try context.group(ActionInvocation(arguments: invocation.arguments))
             let workspace = try context.workspace(invocation).model
@@ -55,7 +57,7 @@ enum WorkspaceGroupHandlers {
             }
             sidebar.handle(.move(ids, toGroup: sidebar.model.groupID(personal: group.id.rawValue)))
         })
-        registry.bind("removeWorkspaceFromGroup", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
+        registry.bind("removeWorkspaceFromGroup", requires: DaemonCapabilities.profiles, daemon: home, run: { invocation in
             guard context.usesPersonalGroups else { throw ActionFailure(message: home.personalStateUnavailableReason) }
             // Every grouped row of the selection the right-clicked row belongs to.
             let grouped = try WindowMembershipHandlers.workspaces(invocation, context).compactMap(context.services.workspace(id:))
@@ -63,8 +65,8 @@ enum WorkspaceGroupHandlers {
             for workspace in grouped { context.ungroupPersonal(workspace) }
         })
         ActionTargetVisibility.hide("removeWorkspaceFromGroup", in: registry) { (try? context.workspace($0).model).map { (try? WorkspaceVerbHandlers.group(of: $0, context)) == nil } ?? false }
-        ActionTargetVisibility.hide("groupSelectedWorkspaces", in: registry) { _ in ((try? context.sidebar().model.orderedSelection.count) ?? 0) < 2 }
-        registry.bind("workspaceGroup.newWorkspace", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
+        ActionTargetVisibility.hide("groupSelectedWorkspaces", in: registry) { ((try? WindowMembershipHandlers.workspaces($0, context).count) ?? 0) < 2 }
+        registry.bind("workspaceGroup.newWorkspace", requires: DaemonCapabilities.profiles, daemon: home, run: { invocation in
             try newPersonalWorkspace(in: context.group(invocation).id, newTabPage: invocation.origin == .user, context)
         })
         registry.bind("workspaceGroup.newSubgroup", run: { invocation in
@@ -73,28 +75,32 @@ enum WorkspaceGroupHandlers {
             let parent = try explicit.map { CmuxNextSidebar.GroupID($0.id) } ?? sidebarID(context.group(invocation), context)
             try newSubgroup(in: parent, byUser: invocation.origin == .user, context)
         })
-        registry.bind("workspaceGroup.markRead", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in try acknowledge(invocation, context) })
-        registry.bind("workspaceGroup.clearNotifications", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in try acknowledge(invocation, context) })
+        registry.bind("workspaceGroup.markRead", requires: DaemonCapabilities.profiles, daemon: home, run: { invocation in try acknowledge(invocation, context) })
+        registry.bind("workspaceGroup.clearNotifications", requires: DaemonCapabilities.profiles, daemon: home, run: { invocation in try acknowledge(invocation, context) })
     }
 
     private static func bindEdits(_ registry: ActionRegistry, _ context: AppActionContext) {
         let home = context.services.machines.local
-        registry.bind("toggleFocusedWorkspaceGroupCollapsed", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in try setCollapsed(nil, invocation, context) })
-        registry.bind("workspaceGroup.collapse", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in try setCollapsed(true, invocation, context) })
-        registry.bind("workspaceGroup.expand", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in try setCollapsed(false, invocation, context) })
-        registry.bind("workspaceGroup.setColor", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
+        registry.bind("toggleFocusedWorkspaceGroupCollapsed", requires: DaemonCapabilities.profiles, daemon: home, run: { invocation in try setCollapsed(nil, invocation, context) })
+        registry.bind("workspaceGroup.collapse", requires: DaemonCapabilities.profiles, daemon: home, run: { invocation in try setCollapsed(true, invocation, context) })
+        registry.bind("workspaceGroup.expand", requires: DaemonCapabilities.profiles, daemon: home, run: { invocation in try setCollapsed(false, invocation, context) })
+        registry.bind("workspaceGroup.setColor", requires: DaemonCapabilities.profiles, daemon: home, run: { invocation in
             // A palette token or a custom `#RRGGBB` (cx-25az), the group editor's two kinds.
             guard let raw = invocation["color"]?.stringValue, let color = GroupTint(wire: raw) else {
                 throw ActionFailure.invalidTarget(RefusalStrings.colorMustBeOneOf((GroupColor.allCases.map(\.rawValue) + ["#RRGGBB"]).joined(separator: ", ")))
             }
             try edit(invocation, context) { .setGroupColor($0, color) }
         })
+        // No color (`none`): the header draws no dot, band or line (Lawrence 2026-10-22).
+        registry.bind("workspaceGroup.clearColor", requires: DaemonCapabilities.profiles, daemon: home, run: { invocation in
+            try edit(invocation, context) { .setGroupColor($0, GroupTint.none) }
+        })
         for color in GroupColor.allCases {
-            registry.bind(ActionID(rawValue: "workspaceGroup.color.\(color.rawValue)"), requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
+            registry.bind(ActionID(rawValue: "workspaceGroup.color.\(color.rawValue)"), requires: DaemonCapabilities.profiles, daemon: home, run: { invocation in
                 try edit(invocation, context) { .setGroupColor($0, .palette(color)) }
             })
         }
-        registry.bind("workspaceGroup.rename", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
+        registry.bind("workspaceGroup.rename", requires: DaemonCapabilities.profiles, daemon: home, run: { invocation in
             let group = try context.group(invocation)
             let sidebar = try context.sidebar()
             if let name = invocation["name"]?.stringValue, !name.isEmpty {
@@ -107,37 +113,43 @@ enum WorkspaceGroupHandlers {
         let moves: [(ActionID, SidebarGroupMove)] = [("workspaceGroup.moveToTop", .top), ("workspaceGroup.moveUp", .up),
                                                      ("workspaceGroup.moveDown", .down), ("workspaceGroup.moveToBottom", .bottom)]
         for (id, direction) in moves {
-            registry.bind(id, requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in try move(invocation, direction, context) })
+            registry.bind(id, requires: DaemonCapabilities.profiles, daemon: home, run: { invocation in try move(invocation, direction, context) })
+            // At the edge of its section the row is disabled with the reason (the first group's Move Up).
+            context.setTargetReason(id) { invocation in
+                guard let group = try? sidebarID(context.group(invocation), context), let sidebar = try? context.sidebar(),
+                      sidebar.model.group(group) != nil, SidebarEdits.groupIndex(group, direction, in: sidebar.model.sections) == nil else { return nil }
+                return edgeReason(direction)
+            }
         }
-        registry.bind("workspaceGroup.collapseOthers", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
+        registry.bind("workspaceGroup.collapseOthers", requires: DaemonCapabilities.profiles, daemon: home, run: { invocation in
             let group = sidebarID(try context.group(invocation), context)
             let sidebar = try context.sidebar()
             for id in SidebarEdits.groupsToggledByCollapsingOthers(keeping: group, in: sidebar.model.sections) {
                 sidebar.handle(.toggleCollapse(.group(id)))
             }
         })
-        registry.bind("workspaceGroup.ungroup", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
+        registry.bind("workspaceGroup.ungroup", requires: DaemonCapabilities.profiles, daemon: home, run: { invocation in
             try WorkspaceGroupUndo.remove(invocation, context, message: WorkspaceGroupUndo.ungroupedToast, toast: false)
         })
-        registry.bind("workspaceGroup.closeWorkspaces", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
+        registry.bind("workspaceGroup.closeWorkspaces", requires: DaemonCapabilities.profiles, daemon: home, run: { invocation in
             try WorkspaceGroupClose.close(invocation, context)
         })
-        registry.bind("workspaceGroup.delete", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
+        registry.bind("workspaceGroup.delete", requires: DaemonCapabilities.profiles, daemon: home, run: { invocation in
             // RECOVERABLE-BY-DEFAULT: deleting a group keeps its workspaces
-            // (Close All Workspaces in Group is the verb that closes them).
+            // (Close Workspaces in Group is the verb that closes them).
             try WorkspaceGroupUndo.remove(invocation, context, message: WorkspaceGroupUndo.deletedToast)
         })
         registry.bind("workspaceGroup.copyID", run: { invocation in context.copy(try context.group(invocation).id.rawValue) })
-        registry.bind("workspaceGroup.editConfig", run: { _ in try SettingsHandlers.openCmuxConfig(context) })
+        registry.bind("workspaceGroup.editConfig", run: { invocation in try WorkspaceGroupConfigEditor(context: context).open(invocation) })
 
         // A pinned (saved) group stays when its workspaces close.
-        registry.bind("workspaceGroup.togglePin", requires: DaemonCapabilities.shared.workspaceGroupPin, daemon: home, run: { invocation in
+        registry.bind("workspaceGroup.togglePin", requires: DaemonCapabilities.workspaceGroupPin, daemon: home, run: { invocation in
             // On the sidebar document a pinned group is one in Pinned, as shown (pending changes included).
             let group = try context.group(invocation), id = sidebarID(group, context)
             try context.sidebar().handle(.setGroupPinned(id, !(SidebarDocStore.current?.showsPinned(group: id.rawValue) ?? isPinned(group, context))))
         })
         // The group icon: the shared icon string, same rule as workspace and tab icons.
-        registry.bind("workspaceGroup.setIcon", requires: DaemonCapabilities.shared.workspaceGroupIcon, daemon: home, run: { invocation in
+        registry.bind("workspaceGroup.setIcon", requires: DaemonCapabilities.workspaceGroupIcon, daemon: home, run: { invocation in
             // An icon argument (CLI, MCP, scripts) sets it; without one (palette, menu)
             // the shared icon picker opens and its pick takes the same path.
             let group = try context.group(invocation)
@@ -159,12 +171,12 @@ enum WorkspaceGroupHandlers {
                 }
             }
         })
-        registry.bind("workspaceGroup.clearIcon", requires: DaemonCapabilities.shared.workspaceGroupIcon, daemon: home, run: { invocation in
+        registry.bind("workspaceGroup.clearIcon", requires: DaemonCapabilities.workspaceGroupIcon, daemon: home, run: { invocation in
             let group = try context.group(invocation)
             try IconHistory.workspaceGroup(context).change(group.id.rawValue, from: group.icon, to: nil, origin: invocation.origin)
         })
-        registry.bind("workspaceGroup.markUnread", requires: DaemonCapabilities.shared.notificationMarkUnread, daemon: context.services.activeDaemon, run: { invocation in
-            try context.require(DaemonCapabilities.shared.notificationMarkUnread)
+        registry.bind("workspaceGroup.markUnread", requires: DaemonCapabilities.notificationMarkUnread, daemon: context.services.activeDaemon, run: { invocation in
+            try context.require(DaemonCapabilities.notificationMarkUnread)
             WorkspaceUnreadMark.set(true, on: try members(invocation, context), machines: context.services.machines)
         })
     }
@@ -190,7 +202,9 @@ enum WorkspaceGroupHandlers {
         // The group's slot, the path a double-click in the group takes: the row shows in the group from the press
         // and is placed once the daemon lists it. Setting the group right after the create raced that listing:
         // without the workspace's public id the place went out as the raw command, and it stayed outside the group.
-        let slot = windows.controller(for: target).flatMap { shownGroupID(id, in: $0.sidebar.model) }.map(WorkspaceSlot.endOfGroup)
+        let slot = windows.controller(for: target).flatMap { controller in
+            shownGroupID(id, in: controller.sidebar.model).map { groupSlot($0, in: controller.sidebar.model, context) }
+        }
         spawn.slot = slot
         spawn.onListed = { key, bridge in
             // A slot that did not resolve where it is listed (the group is in another room) placed nothing.
@@ -203,7 +217,30 @@ enum WorkspaceGroupHandlers {
                 try await $0.state.placePersonalWorkspace(session: session, key: workspace, resource: resource, group: .set(id))
             }
         }
-        Task { _ = try? await windows.createWorkspace(spawn, on: daemon, into: target) }
+        // The CLI answers after the create, and a palette or menu run shows its failure.
+        context.report {
+            do {
+                _ = try await windows.createWorkspace(spawn, on: daemon, into: target)
+                return nil
+            } catch {
+                return ActionWorkFailure("new workspace", error)
+            }
+        }
+    }
+
+    /// Where New Workspace in Group puts the new workspace in group `shown` (cmux.json
+    /// `workspaceGroups`, by the group's anchor folder): after its first workspace (`top`, and
+    /// `afterCurrent`, whose reference is the anchor for the header's + and the CLI), else last.
+    private static func groupSlot(_ shown: CmuxNextSidebar.GroupID, in model: SidebarModel, _ context: AppActionContext) -> WorkspaceSlot {
+        let members = model.group(shown)?.workspaces.map(\.id.rawValue) ?? []
+        let config = context.services.settings?.snapshot.workspaceGroups ?? WorkspaceGroupConfig()
+        let anchor = WorkspaceGroupConfigLook.anchorDirectory(of: members.compactMap { context.services.machines.workspace(id: $0)?.0 })
+        switch config.placement(for: anchor) {
+        case .top, .afterCurrent:
+            return members.first.map(WorkspaceSlot.below) ?? .endOfGroup(shown)
+        case .end:
+            return .endOfGroup(shown)
+        }
     }
 
     /// The id `model` lists personal group `id` under (`SidebarModel.groupID(personal:)`), nil when it lists none.
@@ -267,10 +304,13 @@ enum WorkspaceGroupHandlers {
         try context.sidebar().handle(.toggleCollapse(.group(sidebarID(group, context))))
     }
 
-    private static func selectGroup(_ context: AppActionContext, offset: Int) {
-        guard let window = context.activeWindow, let sidebar = try? context.sidebar(),
-              !context.roomGroups.isEmpty else { return }
+    /// Shows the first workspace of the next (or previous) group of the room. A navigation with
+    /// nowhere to go (R136: no group, or no group with a workspace) is refused quietly.
+    private static func selectGroup(_ context: AppActionContext, offset: Int) throws {
+        guard let window = context.activeWindow else { throw ActionFailure.invalidTarget(RefusalStrings.noWindowOpen) }
+        let sidebar = try context.sidebar()
         let groups = context.roomGroups
+        guard !groups.isEmpty else { throw ActionFailure.noTarget(RefusalStrings.noWorkspaceGroups) }
         // By personal id: on the sidebar document the group lists as its item (`itm_g_<id>`).
         let activeGroupIndex = sidebar.model.activeGroupPersonalID.flatMap { current in groups.firstIndex { $0.id.rawValue == current } }
         let start = activeGroupIndex ?? (offset > 0 ? -1 : groups.count)
@@ -282,6 +322,7 @@ enum WorkspaceGroupHandlers {
                 return
             }
         }
+        throw ActionFailure.noTarget(RefusalStrings.noWorkspaceGroupToGoTo)
     }
 
     /// Moves the targeted group among its section's rows. `reorderGroup` counts every row of the
@@ -289,8 +330,18 @@ enum WorkspaceGroupHandlers {
     private static func move(_ invocation: ActionInvocation, _ direction: SidebarGroupMove, _ context: AppActionContext) throws {
         let group = sidebarID(try context.group(invocation), context)
         let sidebar = try context.sidebar()
-        guard let index = SidebarEdits.groupIndex(group, direction, in: sidebar.model.sections) else { return }
+        guard let index = SidebarEdits.groupIndex(group, direction, in: sidebar.model.sections) else {
+            throw ActionFailure.invalidTarget(sidebar.model.group(group) == nil ? RefusalStrings.noWorkspaceGroup(group.rawValue) : edgeReason(direction))
+        }
         sidebar.handle(.reorderGroup(group, index: index))
+    }
+
+    /// Why a group move toward `direction` cannot go further.
+    private static func edgeReason(_ direction: SidebarGroupMove) -> String {
+        switch direction {
+        case .top, .up: RefusalStrings.groupAlreadyAtTop
+        case .down, .bottom: RefusalStrings.groupAlreadyAtBottom
+        }
     }
 
     private static func acknowledge(_ invocation: ActionInvocation, _ context: AppActionContext) throws {

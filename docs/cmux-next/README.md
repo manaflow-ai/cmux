@@ -87,3 +87,10 @@ the destination. A cmux-next agent chat moves into the destination's acpmux with
 queued prompts and unsent draft (`acpmux transfer`), then opens there; a chat in the middle of a
 reply moves only with `{interrupt: true}`. Builds that share one acpmux (Release and NIGHTLY)
 move only the tab. Classic agent chats resume by session id.
+
+## Hot reload for the web UI
+
+A Debug or NIGHTLY app picks up web UI edits from your own checkout live, with no build or
+relaunch: `scripts/cmux-next/web-overlay.sh server --local`. A NIGHTLY can also follow each merge's
+web UI (Settings > Updates > Web UI Updates > Every Merge). Details and troubleshooting are in
+[hot-reload.md](hot-reload.md).

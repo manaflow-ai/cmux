@@ -42,6 +42,7 @@
 //! (default deny); a WebSocket client is refused here. Unknown params are a
 //! bad request; `ids` are only names acpmux matches against its own rows.
 
+use crate::panic_free::JsonFields;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -250,7 +251,7 @@ pub(in crate::server) fn try_handle(
             }
             .map(|mut value| {
                 if expects_owner {
-                    value["machine"] = json!(worker_mux.machine_public_id);
+                    value.insert("machine", json!(worker_mux.machine_public_id));
                 }
                 value
             });
@@ -313,7 +314,7 @@ fn plan(socket: &Path) -> Result<Value, Failure> {
                 [("name", name), ("version", row.get("version")), ("latest", row.get("latest"))]
             {
                 if let Some(text) = value.and_then(Value::as_str) {
-                    out[key] = json!(text);
+                    out.insert(key, json!(text));
                 }
             }
             Some(out)
@@ -327,11 +328,11 @@ fn plan(socket: &Path) -> Result<Value, Failure> {
 /// outdated, with an update plan that needs no elevated rights and whose
 /// program does not raise them.
 fn updatable(row: &Value) -> bool {
-    let plan = &row["update"];
-    let program = plan["argv"].get(0).and_then(Value::as_str).unwrap_or_default();
+    let plan = &row.field("update");
+    let program = plan.field("argv").get(0).and_then(Value::as_str).unwrap_or_default();
     let name = Path::new(program).file_name().and_then(|n| n.to_str()).unwrap_or(program);
-    row["outdated"] == json!(true)
-        && plan["elevated"] == json!(false)
+    *row.field("outdated") == json!(true)
+        && *plan.field("elevated") == json!(false)
         && !program.is_empty()
         && !ELEVATING.contains(&name)
 }
@@ -350,7 +351,7 @@ fn threads(sessions: &Value) -> (usize, usize) {
         if summary.get("peer").is_some_and(|peer| !peer.is_null()) || is_chief(summary) {
             continue;
         }
-        match summary["status"].as_str() {
+        match summary.field("status").as_str() {
             Some("ready") => live += 1,
             Some("running" | "waiting") => {
                 live += 1;
@@ -366,7 +367,7 @@ fn threads(sessions: &Value) -> (usize, usize) {
 /// `AcpmuxSessionCensus.isChief`).
 fn is_chief(summary: &Value) -> bool {
     let text = |key: &str| summary[key].as_str().unwrap_or_default();
-    summary["tags"].get("cmux.chief").is_some()
+    summary.field("tags").get("cmux.chief").is_some()
         || text("name").starts_with("optchat-")
         || text("harness").starts_with("optchat-compact-")
 }
@@ -402,17 +403,21 @@ fn apply(mux: &Arc<Mux>, socket: &Path, params: ApplyParams) -> Result<Value, Fa
         .into_iter()
         .flatten()
         .filter_map(|result| {
-            let mut out = json!({"id": result.get("id")?.as_str()?, "ok": result["ok"] == true});
+            let mut out =
+                json!({"id": result.get("id")?.as_str()?, "ok": *result.field("ok") == true});
             for key in ["version", "error"] {
                 if let Some(text) = result.get(key).and_then(Value::as_str) {
-                    out[key] = json!(text);
+                    out.insert(key, json!(text));
                 }
             }
             Some(out)
         })
         .collect();
-    let current: Vec<&Value> =
-        results.iter().filter(|result| result["ok"] == true).map(|result| &result["id"]).collect();
+    let current: Vec<&Value> = results
+        .iter()
+        .filter(|result| *result.field("ok") == true)
+        .map(|result| result.field("id"))
+        .collect();
     let mut out = json!({"results": results, "threads_restarted": 0, "threads_after_turn": 0,
                          "threads_failed": 0});
     if params.continue_threads && !current.is_empty() {
@@ -423,18 +428,28 @@ fn apply(mux: &Arc<Mux>, socket: &Path, params: ApplyParams) -> Result<Value, Fa
             RESTART_TIMEOUT,
         ) {
             Ok(moved) => {
-                out["threads_restarted"] = json!(moved["restarted"].as_u64().unwrap_or(0));
-                out["threads_after_turn"] = json!(moved["after_turn"].as_u64().unwrap_or(0));
+                out.insert(
+                    "threads_restarted",
+                    json!(moved.field("restarted").as_u64().unwrap_or(0)),
+                );
+                out.insert(
+                    "threads_after_turn",
+                    json!(moved.field("after_turn").as_u64().unwrap_or(0)),
+                );
                 // A chat acpmux could not restart keeps its old agent: counted, with why.
-                let failed = moved["failed"].as_u64().unwrap_or(0);
-                out["threads_failed"] = json!(failed);
+                let failed = moved.field("failed").as_u64().unwrap_or(0);
+                out.insert("threads_failed", json!(failed));
                 if failed > 0 {
-                    let why =
-                        moved["errors"][0]["error"].as_str().unwrap_or("a chat did not restart");
-                    out["threads_error"] = json!(why);
+                    let why = moved
+                        .field("errors")
+                        .get(0)
+                        .and_then(|error| error.get("error"))
+                        .and_then(Value::as_str)
+                        .unwrap_or("a chat did not restart");
+                    out.insert("threads_error", json!(why));
                 }
             }
-            Err(error) => out["threads_error"] = json!(Failure::of(error).message()),
+            Err(error) => out.insert("threads_error", json!(Failure::of(error).message())),
         }
     }
     Ok(out)

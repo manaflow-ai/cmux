@@ -77,3 +77,20 @@ fn protocol_registry_names_every_served_method() {
     }
     assert!(missing.is_empty(), "declare these in protocol::registry(): {missing:?}");
 }
+
+/// `_acpmux/sessions` pages (`hub::session_pages`): the IR names its `limit`
+/// and `cursor` params and the reply's `nextCursor`, so typed clients may send
+/// and read them.
+#[test]
+fn protocol_sessions_names_its_page_fields() {
+    let ir: serde_json::Value = serde_json::from_str(&ir_text()).expect("IR is JSON");
+    let fields = |ty: &str| -> BTreeSet<String> {
+        ir["types"][ty]["properties"]
+            .as_object()
+            .map(|props| props.keys().cloned().collect())
+            .unwrap_or_default()
+    };
+    let params = fields("SessionsParams");
+    assert!(params.contains("limit") && params.contains("cursor"), "SessionsParams: {params:?}");
+    assert!(fields("SessionsResult").contains("nextCursor"), "SessionsResult lacks nextCursor");
+}

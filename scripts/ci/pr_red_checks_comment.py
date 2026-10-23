@@ -23,7 +23,11 @@ NEW and blocks; the same signature is a base red and does not; a base with no fi
 check cannot excuse it. A new advisory check is one more entry
 in TRACKED. The comment this used to keep on its own (LEGACY_MARKER) is deleted on the first write.
 
-Env: GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER, HEAD_SHA, GITHUB_API_URL (default api.github.com).
+OWN_CHECKS_GREEN=true (the caller's tracked jobs all passed or were skipped) reads only the status
+comment and stops when its line names no red: then this call has nothing to change.
+
+Env: GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER, HEAD_SHA, GITHUB_API_URL (default api.github.com),
+BASE_SHA, OWN_CHECKS_GREEN.
 """
 import json
 import os
@@ -42,6 +46,7 @@ TRACKED = (
     ("prefix", "web / "),                            # ci-web.yml jobs (ci.yml `web` caller)
     ("name", "cmux-next CmuxNextApp size cap"),       # cmux-next-guards.yml app-size job (hq-11)
     ("name", "cmux-next crash ratchet"),              # cmux-next-guards.yml crash-ratchet job
+    ("name", "cmux-next page strings generate"),      # cmux-next-guards.yml page-strings job
     ("name", "cmux-next checks (god files, concurrency, crash safety, l10n)"),  # cmux-next.yml checks job
 )
 RED = {"failure", "timed_out", "action_required", "startup_failure"}
@@ -175,8 +180,14 @@ def main():
     gh = GitHub(os.environ.get("GITHUB_API_URL", "https://api.github.com"), os.environ["GITHUB_REPOSITORY"],
                 os.environ["GITHUB_TOKEN"])
     pr, sha = os.environ["PR_NUMBER"], os.environ["HEAD_SHA"]
-    runs = gh.pages(f"/repos/{gh.repo}/commits/{sha}/check-runs?filter=latest", key="check_runs")
     current = pr_status.section(gh.repo, int(pr), "checks", api=gh.call)
+    if os.environ.get("OWN_CHECKS_GREEN") == "true" and (current is None or "red: " not in current):
+        # The caller's own tracked checks passed and the line names no red: reading the head's
+        # check runs could only find another workflow's red, which that workflow's own call (after
+        # its checks) writes. Nothing for this call to change; skip the check-runs pages.
+        print(f"pr-red-checks: #{pr} {sha[:12]}: own checks green, no red line; action=none")
+        return 0
+    runs = gh.pages(f"/repos/{gh.repo}/commits/{sha}/check-runs?filter=latest", key="check_runs")
     lines = base_lines(gh, runs, os.environ.get("BASE_SHA", "").strip())
     line = decide(runs, current, lines)
     action = None

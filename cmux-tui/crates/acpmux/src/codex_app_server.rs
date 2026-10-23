@@ -10,7 +10,7 @@
 //! permission requests and native subagent sessions. Nothing outside this
 //! file and the library knows the app-server wire format.
 
-use crate::rpc::Message;
+use crate::rpc::{Message, RpcError};
 use cmux_codex_acp::{Options, Out};
 use serde_json::Value;
 use std::path::Path;
@@ -127,7 +127,7 @@ pub fn split(outs: Vec<Out>) -> Split {
     for o in outs {
         match o {
             Out::Server(v) => s.server.push(v),
-            Out::Client(v) => match Message::from_value(v) {
+            Out::Client(v) => match into_message(v) {
                 Ok(m) => s.hub.push(m),
                 Err(e) => {
                     tracing::warn!("cmux-codex-acp produced a message acpmux cannot parse: {e}")
@@ -136,6 +136,68 @@ pub fn split(outs: Vec<Out>) -> Split {
         }
     }
     s
+}
+
+/// `Message::from_value`, moving the fields out of the translator's value
+/// instead of copying them: each streamed delta is one `session/update`, and
+/// the copy of its params was most of the bridge's work per delta.
+fn into_message(v: Value) -> Result<Message, RpcError> {
+    let Value::Object(mut obj) = v else { return Message::from_value(v) };
+    let method = match obj.remove("method") {
+        Some(Value::String(m)) => Some(m),
+        _ => None,
+    };
+    let id = obj.remove("id").filter(|v| !v.is_null());
+    match (method, id) {
+        (Some(method), Some(id)) => {
+            Ok(Message::Request { id, method, params: obj.remove("params") })
+        }
+        (Some(method), None) => Ok(Message::Notification { method, params: obj.remove("params") }),
+        (None, Some(id)) => {
+            let error = match obj.remove("error") {
+                Some(e) if !e.is_null() => Some(
+                    serde_json::from_value::<RpcError>(e.clone())
+                        .unwrap_or_else(|_| RpcError::internal(e.to_string())),
+                ),
+                _ => None,
+            };
+            Ok(Message::Response { id, result: obj.remove("result"), error })
+        }
+        (None, None) => Err(RpcError::new(-32600, "Invalid request: no method or id")),
+    }
+}
+
+/// `Message::to_value`, moving the params instead of copying them.
+pub fn into_value(m: Message) -> Value {
+    let mut obj = serde_json::Map::new();
+    obj.insert("jsonrpc".into(), Value::from("2.0"));
+    match m {
+        Message::Request { id, method, params } => {
+            obj.insert("id".into(), id);
+            obj.insert("method".into(), Value::String(method));
+            if let Some(p) = params {
+                obj.insert("params".into(), p);
+            }
+        }
+        Message::Notification { method, params } => {
+            obj.insert("method".into(), Value::String(method));
+            if let Some(p) = params {
+                obj.insert("params".into(), p);
+            }
+        }
+        Message::Response { id, result, error } => {
+            obj.insert("id".into(), id);
+            match error {
+                Some(e) => {
+                    obj.insert("error".into(), serde_json::to_value(e).unwrap_or(Value::Null));
+                }
+                None => {
+                    obj.insert("result".into(), result.unwrap_or(Value::Null));
+                }
+            }
+        }
+    }
+    Value::Object(obj)
 }
 
 /// The session-log kind of a raw app-server line (`codex.<method>`, or

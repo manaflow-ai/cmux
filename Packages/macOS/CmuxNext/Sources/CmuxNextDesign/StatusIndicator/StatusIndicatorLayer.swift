@@ -1,5 +1,6 @@
 public import AppKit
 public import QuartzCore
+public import CmuxNextDesignTokens
 
 /// The one status indicator every surface draws (sidebar rows and group
 /// headers, sidebar section items, tabs, Home, pane headers). It owns one
@@ -21,13 +22,17 @@ public final class StatusIndicatorLayer {
         public var success: CGColor
         /// Agent work (`Tint.accent`); the loading color when nil.
         public var accent: CGColor?
+        /// The working dot (`Tint.working`, the theme accent); `accent` when nil.
+        public var working: CGColor?
 
-        public init(loading: CGColor, attention: CGColor, danger: CGColor, success: CGColor, accent: CGColor? = nil) {
+        public init(loading: CGColor, attention: CGColor, danger: CGColor, success: CGColor, accent: CGColor? = nil,
+                    working: CGColor? = nil) {
             self.loading = loading
             self.attention = attention
             self.danger = danger
             self.success = success
             self.accent = accent
+            self.working = working
         }
 
         /// The theme's colors (call inside `performWithTheme` / a theme
@@ -38,7 +43,8 @@ public final class StatusIndicatorLayer {
                    attention: Palette.attention.cgColor,
                    danger: Palette.danger.cgColor,
                    success: Palette.success.cgColor,
-                   accent: Palette.textPrimary.cgColor)
+                   accent: Palette.textPrimary.cgColor,
+                   working: Palette.accentFill.cgColor)
         }
 
         /// The unread dot: ``Palette/notificationBlue``.
@@ -54,6 +60,7 @@ public final class StatusIndicatorLayer {
             case .accent: accent ?? loading
             case .spinner: (accent ?? loading).copy(alpha: (accent ?? loading).alpha * 0.66) ?? loading
             case .unread: Self.unread
+            case .working: working ?? accent ?? loading
             }
         }
     }
@@ -123,7 +130,7 @@ public final class StatusIndicatorLayer {
 
     /// The animation running now (tests, diagnostics).
     public var runningAnimation: StatusIndicatorPlan.Animation? {
-        for (sublayer, key) in [(glyphLayer as CALayer?, "spin"), (markLayer, "spin"), (nativeLayer, "step"), (glyphLayer, "pulse"), (markLayer, "pulse"), (brailleLayer?.mask, "frames"), (dotsLayer?.sublayers?.first, "wave")] {
+        for (sublayer, key) in [(glyphLayer as CALayer?, "spin"), (markLayer, "spin"), (nativeLayer, "step"), (glyphLayer, "pulse"), (markLayer, "pulse"), (glyphLayer, "breathe"), (markLayer, "breathe"), (brailleLayer?.mask, "frames"), (dotsLayer?.sublayers?.first, "wave")] {
             if let sublayer, sublayer.animation(forKey: key) != nil {
                 return StatusIndicatorPlan.Animation(key: key)
             }
@@ -374,6 +381,7 @@ public final class StatusIndicatorLayer {
         case .pulse: Motion.indicators.pulseAnimation(low: Float(config.pulseLow))
         case .frames: Motion.indicators.framesAnimation(brailleFrames)
         case .wave: waveAnimation()
+        case .breathe: Motion.indicators.breathAnimation(low: Float(config.breathLow))
         }
         guard let animation else { return }
         // Every indicator loop runs on one clock (Lawrence 2026-10-14: "all spinners need to be
@@ -390,7 +398,7 @@ public final class StatusIndicatorLayer {
         switch animation {
         case .step?: nativeLayer
         case .frames?: brailleLayer?.mask
-        case .spin?, .pulse?: markLayer ?? glyphLayer
+        case .spin?, .pulse?, .breathe?: markLayer ?? glyphLayer
         case .wave?: dotsLayer?.sublayers?.first
         case nil: nil
         }

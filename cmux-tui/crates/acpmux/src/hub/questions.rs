@@ -8,9 +8,16 @@
 //! every client renders the same model, and it checks a client's `answers`
 //! against it before they reach the agent.
 //!
+//! A preview's `format` is `monospace` (Claude Code's default: Markdown in a
+//! monospace box), or `html` when the session's Claude Code was launched with
+//! `CLAUDE_CODE_QUESTION_PREVIEW_FORMAT=html` ([`PreviewFormat::of`]): it then
+//! writes each preview as an HTML fragment with inline styles and no script
+//! or style tag, and refuses one that is not before the card is shown.
+//!
 //! A question is never answered by policy: approve-all, approve rules and
 //! the chat allowance do not apply to it (only deny-all and deny rules may
-//! decline it), so an answer always comes from a person.
+//! decline it), so an answer always comes from a person, or, for a
+//! sub-session, from a session above it (`subsession_answer.rs`).
 
 use crate::rpc::RpcError;
 use serde_json::{Map, Value, json};
@@ -18,6 +25,14 @@ use serde_json::{Map, Value, json};
 /// The normalized question of a request, when it carries one.
 pub(super) fn question(request: &Value) -> Option<&Value> {
     request.pointer("/toolCall/_meta/acpmux/question").filter(|q| q["items"].is_array())
+}
+
+/// The folder a trust request asks about (`hub/trust_wait.rs`): a card the daemon raises on a
+/// session that wants to start a sub-session in a folder nobody answered for. It renders as a
+/// choice question (`question` with the `acp` harness: the answer is the picked option, no
+/// `answers`), and only a person answers it, never a policy.
+pub(super) fn trust_cwd(request: &Value) -> Option<&str> {
+    request.pointer("/toolCall/_meta/acpmux/trust/cwd").and_then(Value::as_str)
 }
 
 /// True when policy and batches must not answer the request: a question.
@@ -28,6 +43,28 @@ pub(super) fn needs_person(request: &Value) -> bool {
             request.pointer("/toolCall/_meta/claude/tool").and_then(Value::as_str),
             Some("AskUserQuestion")
         )
+}
+
+/// Whether a session above the asking one may answer `request`
+/// (`subsession_answer.rs`): a question by a signal the agent's tool input
+/// cannot forge, with a one-time allow. `from_agent` is false for a request
+/// acpmux builds itself from Grok's or Cursor's own ask kinds (`xai.rs`,
+/// `cursor_ext.rs`); an agent's `session/request_permission` counts only as
+/// Claude Code's AskUserQuestion (`_meta.claude.tool`, which the adapter
+/// writes from the tool's name). Any other tool whose input holds
+/// `questions` (an MCP tool, ExitPlanMode), a writer's own
+/// `_meta.acpmux.question`, a Codex user-input request (its adapter's
+/// shape is unverified) and the folder-trust card (`trust_cwd`) stay the person's.
+pub(super) fn ancestor_answerable(request: &Value, from_agent: bool) -> bool {
+    let asks = question(request).is_some()
+        && trust_cwd(request).is_none()
+        && (!from_agent
+            || request.pointer("/toolCall/_meta/claude/tool").and_then(Value::as_str)
+                == Some("AskUserQuestion"));
+    let allow_once = request["options"]
+        .as_array()
+        .is_some_and(|options| options.iter().any(|o| o["kind"] == "allow_once"));
+    asks && allow_once
 }
 
 /// Checks a reply to `request`: answers go only with an allow option, and a
@@ -45,9 +82,11 @@ pub(super) fn check_reply(
     match answers {
         Some(_) if !allows => Err(RpcError::invalid_params("answers go only with an allow option")),
         Some(answers) => check_answers(request, answers),
-        None if allows && needs_person(request) => Err(RpcError::invalid_params(
-            "this is a question: answer it with `acpmux answer <session> --answer \"<question or id>=<choice>\"` (one --answer per question), in the agent tab or Home card, or decline it with `acpmux deny <session>`",
-        )),
+        None if allows && needs_person(request) && trust_cwd(request).is_none() => {
+            Err(RpcError::invalid_params(
+                "this is a question: answer it with `acpmux answer <session> --answer \"<question or id>=<choice>\"` (one --answer per question), in the agent tab or Home card, or decline it with `acpmux deny <session>`",
+            ))
+        }
         None => Ok(()),
     }
 }
@@ -56,7 +95,11 @@ pub(super) fn check_reply(
 /// options: [{label, description?, preview?}], multiSelect?}`), answered by
 /// question text: the shape Grok's `x.ai/ask_user_question` also uses.
 pub(super) fn items_by_text(questions: &[Value]) -> Vec<Value> {
-    questions.iter().enumerate().filter_map(|(index, q)| item(q, index, false)).collect()
+    questions
+        .iter()
+        .enumerate()
+        .filter_map(|(index, q)| item(q, index, false, PreviewFormat::Monospace))
+        .collect()
 }
 
 /// The normalized items of Codex-shaped `questions` (`{id, question,
@@ -64,12 +107,62 @@ pub(super) fn items_by_text(questions: &[Value]) -> Vec<Value> {
 /// item id with `{answers: [labels]}`: the shape Cursor's
 /// `cursor/ask_question` maps onto.
 pub(super) fn items_by_id(questions: &[Value]) -> Vec<Value> {
-    questions.iter().enumerate().filter_map(|(index, q)| item(q, index, true)).collect()
+    questions
+        .iter()
+        .enumerate()
+        .filter_map(|(index, q)| item(q, index, true, PreviewFormat::Monospace))
+        .collect()
+}
+
+/// How the asking agent writes its option previews.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PreviewFormat {
+    /// Markdown or plain text for a monospace box (every agent but the one below).
+    #[default]
+    Monospace,
+    /// An HTML fragment: a Claude Code told so by its launch environment.
+    Html,
+}
+
+/// The variable Claude Code reads its preview format from (the Agent SDK's
+/// `toolConfig.askUserQuestion.previewFormat` sets the same one).
+pub(crate) const PREVIEW_FORMAT_ENV: &str = "CLAUDE_CODE_QUESTION_PREVIEW_FORMAT";
+
+impl PreviewFormat {
+    /// The format a Claude Code launched with `env` writes. Only the literal
+    /// `html` counts: anything else (unset, `markdown`, a reference not
+    /// resolved here) keeps the monospace box, which shows any text as it is.
+    pub fn of(claude: bool, env: &std::collections::BTreeMap<String, String>) -> Self {
+        match env.get(PREVIEW_FORMAT_ENV).map(|v| v.trim()) {
+            Some("html") if claude => Self::Html,
+            _ => Self::Monospace,
+        }
+    }
+
+    pub(super) fn from_flag(html: bool) -> Self {
+        if html { Self::Html } else { Self::Monospace }
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::Monospace => "monospace",
+            Self::Html => "html",
+        }
+    }
+
+    /// The value of [`PREVIEW_FORMAT_ENV`] that makes Claude Code write this format.
+    pub(crate) fn claude_value(self) -> &'static str {
+        match self {
+            Self::Monospace => "markdown",
+            Self::Html => "html",
+        }
+    }
 }
 
 /// Adds `toolCall._meta.acpmux.question` when the tool input holds
-/// questions and no writer added one yet.
-pub(super) fn normalize(request: &mut Value) {
+/// questions and no writer added one yet. `previews` is how the asking
+/// agent writes previews; a Codex-shaped ask has none, so it never matters there.
+pub(super) fn normalize(request: &mut Value, previews: PreviewFormat) {
     if question(request).is_some() {
         return;
     }
@@ -81,8 +174,11 @@ pub(super) fn normalize(request: &mut Value) {
     }
     let codex =
         tool.pointer("/_meta/codex").is_some() || questions.iter().any(|q| q["id"].is_string());
-    let items: Vec<Value> =
-        questions.iter().enumerate().filter_map(|(index, q)| item(q, index, codex)).collect();
+    let items: Vec<Value> = questions
+        .iter()
+        .enumerate()
+        .filter_map(|(index, q)| item(q, index, codex, previews))
+        .collect();
     if items.is_empty() {
         return;
     }
@@ -109,7 +205,7 @@ fn text(value: &Value) -> Option<String> {
     value.as_str().map(str::trim).filter(|s| !s.is_empty()).map(str::to_owned)
 }
 
-fn item(q: &Value, index: usize, codex: bool) -> Option<Value> {
+fn item(q: &Value, index: usize, codex: bool, previews: PreviewFormat) -> Option<Value> {
     // The prompt keeps its exact text: Claude Code matches answers by it.
     text(&q["question"])?;
     let prompt = q["question"].as_str()?.to_owned();
@@ -128,7 +224,7 @@ fn item(q: &Value, index: usize, codex: bool) -> Option<Value> {
                 option["detail"] = json!(detail);
             }
             if let Some(preview) = text(&o["preview"]) {
-                option["preview"] = json!({"text": preview, "format": "monospace"});
+                option["preview"] = json!({"text": preview, "format": previews.name()});
             }
             Some(option)
         })
@@ -220,4 +316,66 @@ pub(super) fn check_answers(request: &Value, answers: &Value) -> Result<(), RpcE
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ask(preview: &str) -> Value {
+        json!({
+            "toolCall": {
+                "toolCallId": "toolu_1",
+                "rawInput": {"questions": [{
+                    "question": "Which card?", "header": "Card",
+                    "options": [
+                        {"label": "Glass", "description": "Frosted", "preview": preview},
+                        {"label": "Plain", "description": "Flat"},
+                    ],
+                }]},
+                "_meta": {"claude": {"tool": "AskUserQuestion", "interactive": true}},
+            },
+            "options": [{"optionId": "allow_once", "name": "Answer", "kind": "allow_once"}],
+        })
+    }
+
+    fn preview_of(request: &Value) -> &Value {
+        &question(request).unwrap()["items"][0]["options"][0]["preview"]
+    }
+
+    #[test]
+    fn previews_are_monospace_unless_the_launch_says_html() {
+        let mut plain = ask("┌──┐\n│ab│\n└──┘");
+        normalize(&mut plain, PreviewFormat::Monospace);
+        assert_eq!(preview_of(&plain), &json!({"text": "┌──┐\n│ab│\n└──┘", "format": "monospace"}));
+
+        let fragment = r#"<div style="padding:8px">Glass</div>"#;
+        let mut html = ask(fragment);
+        normalize(&mut html, PreviewFormat::Html);
+        assert_eq!(preview_of(&html), &json!({"text": fragment, "format": "html"}));
+        // An option without a preview stays without one.
+        assert!(question(&html).unwrap()["items"][0]["options"][1].get("preview").is_none());
+    }
+
+    #[test]
+    fn only_a_claude_launch_with_the_literal_html_writes_html() {
+        let env = |value: &str| {
+            std::collections::BTreeMap::from([(PREVIEW_FORMAT_ENV.to_owned(), value.to_owned())])
+        };
+        assert_eq!(PreviewFormat::of(true, &env("html")), PreviewFormat::Html);
+        assert_eq!(PreviewFormat::of(true, &env(" html ")), PreviewFormat::Html);
+        assert_eq!(PreviewFormat::of(true, &env("markdown")), PreviewFormat::Monospace);
+        assert_eq!(PreviewFormat::of(true, &env("${FORMAT}")), PreviewFormat::Monospace);
+        assert_eq!(PreviewFormat::of(true, &Default::default()), PreviewFormat::Monospace);
+        // Another harness reading the variable is not Claude Code's preview format.
+        assert_eq!(PreviewFormat::of(false, &env("html")), PreviewFormat::Monospace);
+    }
+
+    #[test]
+    fn a_question_normalized_earlier_keeps_its_format() {
+        let mut request = ask("<b>x</b>");
+        normalize(&mut request, PreviewFormat::Html);
+        normalize(&mut request, PreviewFormat::Monospace);
+        assert_eq!(preview_of(&request)["format"], "html");
+    }
 }

@@ -97,7 +97,8 @@ export function MarkdownPage({
     >
       <header className="md-toolbar-host">
         <Toolbar className="md-toolbar" label={t(L.toolbarLabel)}>
-          {state.canBack || state.canForward ? (
+          {/* The native omnibar's Back and Forward stand in for these when it is above the page. */}
+          {!state.config?.omnibar && (state.canBack || state.canForward) ? (
             <ToolbarGroup>
               <ToolbarButton
                 className="md-history-button"

@@ -4,6 +4,8 @@
 
 use crate::config::PermissionPolicy;
 use crate::hub::{EventFilter, Hub, HubEvent, VERSION};
+use crate::no_panic::JsonExt;
+use crate::no_panic::LockExt;
 use crate::rpc::{Message, RpcError, method};
 use crate::session_identity::SessionReceipt;
 use anyhow::{Context, Result};
@@ -68,6 +70,12 @@ pub struct Conn {
     caller: std::sync::OnceLock<String>,
     /// The session a first unix `initialize` named with a token that did not prove it.
     pub(super) unproven_caller: std::sync::OnceLock<String>,
+    /// The peers this connection leased (`hub/peer_lease.rs`); None once it
+    /// closed, so a lease that settles after the close ends at once.
+    peer_leases: StdMutex<Option<Vec<crate::hub::PeerLease>>>,
+    /// The ephemeral sessions it created, purged when it closes (`ephemeral.rs`);
+    /// None once it closed.
+    ephemeral: StdMutex<Option<Vec<String>>>,
 }
 
 impl Conn {
@@ -116,31 +124,68 @@ impl Conn {
         }
     }
 
+    /// Hold `lease` until this connection closes; ended now if it already did.
+    pub(super) fn hold_peer_lease(&self, hub: &Hub, lease: crate::hub::PeerLease) {
+        let mut leases = self.peer_leases.lock().unwrap_or_else(|e| e.into_inner());
+        match leases.as_mut() {
+            Some(held) => {
+                // A renewal supersedes the earlier lease of its name, whose
+                // end would be a no-op (another generation holds the name).
+                held.retain(|old| old.name != lease.name);
+                held.push(lease);
+            }
+            None => {
+                drop(leases);
+                hub.end_peer_lease(&lease);
+            }
+        }
+    }
+
+    /// The connection closed: every peer it leased stops.
+    fn end_peer_leases(&self, hub: &Hub) {
+        let held = self.peer_leases.lock().unwrap_or_else(|e| e.into_inner()).take();
+        for lease in held.unwrap_or_default() {
+            hub.end_peer_lease(&lease);
+        }
+    }
+
     fn send(&self, msg: &Message) {
         let masked = (!self.raw_text).then(|| peer_text::masked(msg)).flatten();
-        let _ = self.out.try_send(masked.as_ref().unwrap_or(msg).to_line());
+        let msg = masked.as_ref().unwrap_or(msg);
+        // No message larger than one frame (`rpc::MAX_MESSAGE_BYTES`): a reply goes as its error,
+        // a notification is left out and the client reads again from its last record.
+        match msg.bounded_line() {
+            Ok(line) => {
+                let _ = self.out.try_send(line);
+            }
+            Err(bytes) => {
+                tracing::warn!(conn = %self.id, method = ?msg.method(), bytes, "left out a notification too large to send");
+                let _ = self.out.try_send(
+                    Message::notification("_acpmux/lagged", json!({"dropped": 1})).to_line(),
+                );
+            }
+        }
     }
     fn sub_opts(&self, session_id: &str) -> Option<SubOpts> {
-        self.subs.lock().unwrap().get(session_id).cloned()
+        self.subs.lock_or_recover().get(session_id).cloned()
     }
     pub(super) fn bind_mailbox_receipt(&self, receipt: SessionReceipt) {
-        self.mailbox_bindings.lock().unwrap().insert(receipt.mux_session_id.clone(), receipt);
+        self.mailbox_bindings.lock_or_recover().insert(receipt.mux_session_id.clone(), receipt);
     }
     pub(super) fn mailbox_receipt(&self, session_id: &str) -> Option<SessionReceipt> {
         let key = session_id.strip_prefix("acp:").unwrap_or(session_id);
         self.mailbox_bindings
-            .lock()
-            .unwrap()
+            .lock_or_recover()
             .values()
             .find(|receipt| key == receipt.mux_session_id || key == receipt.qualified_id())
             .cloned()
     }
     pub(super) fn unbind_mailbox_receipt(&self, session_id: &str) {
-        self.mailbox_bindings.lock().unwrap().remove(session_id);
+        self.mailbox_bindings.lock_or_recover().remove(session_id);
     }
     /// Subscribe with default options; keeps options already set.
     fn subscribe(&self, session_id: &str) -> bool {
-        let mut subs = self.subs.lock().unwrap();
+        let mut subs = self.subs.lock_or_recover();
         if subs.contains_key(session_id) {
             return false;
         }
@@ -149,11 +194,15 @@ impl Conn {
     }
     /// Subscribe, replacing any options. True when the subscription is new.
     fn subscribe_with(&self, session_id: &str, opts: SubOpts) -> bool {
-        self.subs.lock().unwrap().insert(session_id.to_owned(), opts).is_none()
+        self.subs.lock_or_recover().insert(session_id.to_owned(), opts).is_none()
     }
     fn label(&self) -> String {
-        let n = self.name.lock().unwrap().clone();
-        if n.is_empty() { self.id.clone() } else { format!("{n}#{}", &self.id[..6]) }
+        let n = self.name.lock_or_recover().clone();
+        if n.is_empty() {
+            self.id.clone()
+        } else {
+            format!("{n}#{}", self.id.get(..6).unwrap_or(self.id.as_str()))
+        }
     }
 }
 
@@ -319,6 +368,19 @@ pub struct WsAuth {
 /// is the local app (`local_app.rs`); after it, it is remote-origin.
 const FIRST_FRAME: std::time::Duration = std::time::Duration::from_secs(10);
 
+/// The largest WebSocket frame or message a connection reads. The app's agent pane sends a frame
+/// of up to 32 MiB (`AcpmuxPaneMethods.maximumFrameBytes`); a prompt with a few screenshots is
+/// past tungstenite's 16 MiB frame default, which ended the read with no log line and reset the
+/// socket mid-send ("The agent connection was interrupted", 2026-10-20).
+pub const WS_MAX_MESSAGE_BYTES: usize = 64 << 20;
+
+/// The listener's and the peer client's WebSocket limits (`WS_MAX_MESSAGE_BYTES`).
+pub fn ws_config() -> tokio_tungstenite::tungstenite::protocol::WebSocketConfig {
+    tokio_tungstenite::tungstenite::protocol::WebSocketConfig::default()
+        .max_message_size(Some(WS_MAX_MESSAGE_BYTES))
+        .max_frame_size(Some(WS_MAX_MESSAGE_BYTES))
+}
+
 /// `serve_ws` with this launch's LocalApp and peer tokens: a connection
 /// that meets every LocalApp condition is served as `Origin::LocalApp`, one
 /// that proves the peer token as `Origin::Peer`, any other as `Origin::Web`.
@@ -375,7 +437,7 @@ pub async fn serve_ws_with(
             // The peek only routes the request. Each path checks the full
             // head it parses: serve_http reads it, tungstenite parses the
             // upgrade request for the callback.
-            let head_text = String::from_utf8_lossy(&head[..n]).into_owned();
+            let head_text = String::from_utf8_lossy(head.get(..n).unwrap_or(&head)).into_owned();
             if !head_text.to_ascii_lowercase().contains("upgrade: websocket") {
                 serve_http(stream, &policy, &token, peer).await;
                 return;
@@ -387,6 +449,9 @@ pub async fn serve_ws_with(
             // Its peer token headers, for the Peer check.
             let seen_peer: Arc<StdMutex<Vec<String>>> = Arc::default();
             let record_peer = seen_peer.clone();
+            // A ticket or a paired machine's credential (`pairing.rs`).
+            let admitted: Arc<StdMutex<pairing::Admitted>> = Arc::default();
+            let (record_admitted, pairing_hub) = (admitted.clone(), hub.clone());
             let callback = move |req: &tokio_tungstenite::tungstenite::handshake::server::Request,
                                  resp: tokio_tungstenite::tungstenite::handshake::server::Response| {
                 let values = |name: &str| {
@@ -397,10 +462,11 @@ pub async fn serve_ws_with(
                         .collect::<Vec<_>>()
                 };
                 let refuse = |refusal: Refusal| {
-                    tokio_tungstenite::tungstenite::http::Response::builder()
-                        .status(refusal.status())
-                        .body(Some(refusal.reason().to_owned()))
-                        .expect("static response")
+                    use tokio_tungstenite::tungstenite::http::{Response, StatusCode};
+                    let mut response = Response::new(Some(refusal.reason().to_owned()));
+                    *response.status_mut() =
+                        StatusCode::from_u16(refusal.status()).unwrap_or(StatusCode::FORBIDDEN);
+                    response
                 };
                 if let Err(refusal) = policy.check(&values("host"), &values("origin")) {
                     return Err(refuse(refusal));
@@ -415,16 +481,31 @@ pub async fn serve_ws_with(
                     .and_then(|v| v.to_str().ok())
                     .and_then(cmux_local_auth::bearer_token);
                 let query = req.uri().query().and_then(cmux_local_auth::query_token);
-                cmux_local_auth::check_token(header.or(query), &expected)
-                    .map(|()| resp)
-                    .map_err(refuse)
+                let tickets = values(crate::pairing::TICKET_HEADER);
+                let proof = pairing::admit(&pairing_hub, peer, header.or(query), &tickets, &expected);
+                *record_admitted.lock().unwrap_or_else(|e| e.into_inner()) = proof.map_err(refuse)?;
+                Ok(resp)
             };
-            let ws = match tokio_tungstenite::accept_hdr_async(stream, callback).await {
+            let ws = match tokio_tungstenite::accept_hdr_async_with_config(
+                stream,
+                callback,
+                Some(ws_config()),
+            )
+            .await
+            {
                 Ok(ws) => ws,
                 Err(e) => {
                     tracing::warn!("ws handshake from {peer} rejected: {e}");
                     return;
                 }
+            };
+            let admitted = std::mem::take(&mut *admitted.lock().unwrap_or_else(|e| e.into_inner()));
+            let device = match admitted {
+                pairing::Admitted::Ticket(secret) => {
+                    return pairing::serve_redeem(hub, ws, secret).await;
+                }
+                pairing::Admitted::Device(device) => Some(device),
+                pairing::Admitted::Dashboard => None,
             };
             let (mut sink, mut source) = ws.split();
             let (in_tx, in_rx) = mpsc::channel::<String>(256);
@@ -438,7 +519,9 @@ pub async fn serve_ws_with(
             let mut first = None;
             let presented =
                 std::mem::take(&mut *seen_peer.lock().unwrap_or_else(|e| e.into_inner()));
-            if peer_auth.as_ref().is_some_and(|a| a.is_peer(peer, &presented)) {
+            if let Some(device) = &device {
+                (origin, proof) = pairing::origin_of(device);
+            } else if peer_auth.as_ref().is_some_and(|a| a.is_peer(peer, &presented)) {
                 origin = Origin::Peer;
                 proof = ConnAuth::PeerToken;
             } else if let Some(auth) = &local_app {
@@ -472,7 +555,15 @@ pub async fn serve_ws_with(
                 return;
             }
             let reader = tokio::spawn(async move {
-                while let Some(Ok(frame)) = source.next().await {
+                while let Some(frame) = source.next().await {
+                    let frame = match frame {
+                        Ok(frame) => frame,
+                        // A read error ends the connection; say why, or the client sees only a reset.
+                        Err(e) => {
+                            tracing::warn!("closing a {origin:?} connection from {peer}: {e}");
+                            break;
+                        }
+                    };
                     if let tokio_tungstenite::tungstenite::Message::Text(t) = frame
                         && in_tx.send(t.to_string()).await.is_err()
                     {
@@ -503,15 +594,22 @@ pub async fn serve_ws_with(
                 let _ = sink.close().await;
             });
             // A rotation ends a Web or Peer connection, which presented the
-            // dashboard token. Ending its read half closes `in_rx`, so
+            // dashboard token; a revocation ends a paired machine's, which
+            // presented its own. Ending its read half closes `in_rx`, so
             // `serve_connection_with` returns through its own cleanup
             // (detach counts, fan-out task) before the writer sends Close.
             // LocalApp also proved this launch's LocalApp token, so it stays.
+            let _open = device.as_ref().map(|d| hub.pairing.opened(&d.id));
+            let ends: std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> =
+                match &device {
+                    Some(d) => Box::pin(hub.pairing.revoked(&d.id)),
+                    None => Box::pin(rotated),
+                };
             let watcher = matches!(origin, Origin::Web | Origin::Peer).then(|| {
                 let read_half = reader.abort_handle();
                 tokio::spawn(async move {
-                    rotated.await;
-                    tracing::info!("closing a {origin:?} connection: the web token rotated");
+                    ends.await;
+                    tracing::info!("closing a {origin:?} connection: its credential ended");
                     read_half.abort();
                 })
             });
@@ -577,7 +675,7 @@ async fn read_http_head(stream: &mut tokio::net::TcpStream) -> Option<String> {
             if n == 0 {
                 return None;
             }
-            head.extend_from_slice(&chunk[..n]);
+            head.extend_from_slice(chunk.get(..n).unwrap_or(&chunk));
         }
         Some(String::from_utf8_lossy(&head).into_owned())
     };
@@ -727,6 +825,8 @@ async fn serve_connection_from(
         holds_calls: std::sync::atomic::AtomicU32::new(0),
         caller: std::sync::OnceLock::new(),
         unproven_caller: std::sync::OnceLock::new(),
+        peer_leases: StdMutex::new(Some(Vec::new())),
+        ephemeral: StdMutex::new(Some(Vec::new())),
     });
     tracing::debug!(conn = %conn.id, "client connected");
 
@@ -758,6 +858,8 @@ async fn serve_connection_from(
                     });
                 });
             }
+            // A read-only machine's notifications (a cancel) change nothing.
+            Message::Notification { .. } if conn.auth == ConnAuth::ReadOnlyDevice => {}
             Message::Notification { method: m, params } => {
                 let hub = hub.clone();
                 let conn = conn.clone();
@@ -773,6 +875,12 @@ async fn serve_connection_from(
     }
     fan.abort();
     view::release_all(&hub, &conn);
+    // Leases first: ending one is cheap and synchronous, while the ephemeral
+    // release awaits each session's kill. A leased peer must not keep
+    // reconnecting to a forward port its bridge already closed, which another
+    // process could bind (`hub/peer_lease.rs`).
+    conn.end_peer_leases(&hub);
+    ephemeral::release_all(&hub, &conn).await;
     tracing::debug!(conn = %conn.id, "client disconnected");
 }
 
@@ -803,6 +911,12 @@ async fn refuse_unauthenticated(
 
 /// Turn a hub record into client notifications for one connection.
 fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
+    if ev.record.kind == crate::hub::PEER_LAGGED {
+        if conn.sub_opts(&ev.session_id).is_some() {
+            conn.send(&Message::notification("_acpmux/lagged", ev.record.msg.clone()));
+        }
+        return;
+    }
     chats::push_activity(hub, conn, &ev);
     processes::push_update(conn, &ev);
     let rec = &ev.record;
@@ -830,7 +944,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
                 && m == method::SESSION_UPDATE
             {
                 let mut params = rec.msg.get("params").cloned().unwrap_or(json!({}));
-                params["sessionId"] = Value::String(ev.session_id.clone());
+                params.set("sessionId", Value::String(ev.session_id.clone()));
                 crate::hub::merge_mux_meta(
                     &mut params,
                     json!({"seq": rec.seq, "at": rec.at, "kind": rec.kind}),
@@ -880,13 +994,17 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             return;
         }
         if rec.dir == "mux" && rec.kind == "purged" {
-            conn.send(&Message::notification(
-                method::MUX_SESSION_CHANGED,
-                json!({"sessionId": ev.session_id, "session": {"sessionId": ev.session_id}, "kind": "purged", "recordKind": "purged", "seq": rec.seq}),
-            ));
+            // `replaced`: the same chat came back under this id (`Session::replaced`).
+            let mut params = json!({"sessionId": ev.session_id, "session": {"sessionId": ev.session_id}, "kind": "purged", "recordKind": "purged", "seq": rec.seq});
+            if rec.msg.get("replaced") == Some(&Value::Bool(true)) {
+                params.set("replaced", Value::Bool(true));
+            }
+            conn.send(&Message::notification(method::MUX_SESSION_CHANGED, params));
             return;
         }
-        if rec.dir != "mux" {
+        // A deferred new chat has no attachment yet. Its command publication must still wake
+        // the page's read of that chat's command list, including when skills arrive after creation.
+        if rec.dir != "mux" && rec.kind != "available_commands_update" {
             return;
         }
         let Some(kind) = change_kind::session_change_kind(&rec.kind) else { return };
@@ -921,53 +1039,35 @@ fn mux_meta(params: &Value) -> Option<&Value> {
     params.get("_meta").and_then(|m| m.get("acpmux"))
 }
 
-pub(crate) fn iso(ms: u64) -> String {
-    // Minimal RFC3339 without pulling a date crate.
-    let secs = (ms / 1000) as i64;
-    let days = secs.div_euclid(86_400);
-    let rem = secs.rem_euclid(86_400);
-    let (y, m, d) = civil_from_days(days);
-    format!(
-        "{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}.{:03}Z",
-        rem / 3600,
-        (rem % 3600) / 60,
-        rem % 60,
-        ms % 1000
-    )
-}
-
-fn civil_from_days(z: i64) -> (i64, u32, u32) {
-    let z = z + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z.rem_euclid(146_097);
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let y = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
-    (if m <= 2 { y + 1 } else { y }, m, d)
-}
-
 mod agent_messages;
+mod app_reply;
+mod clock_text;
+pub(crate) use clock_text::iso;
 mod change_kind;
 mod chats;
 pub mod conn_auth;
+mod ephemeral;
 mod fanout;
+mod forum;
 pub use conn_auth::ConnAuth;
 mod fork_through;
 mod harness_admin;
 mod harness_enable;
 mod inventory_watch;
 pub mod local_app;
+mod models_fanout;
+mod new_worktree;
+pub(crate) mod outbox;
+mod pairing;
 pub mod peer_auth;
 mod peer_forward;
 pub mod peer_text;
 mod pending;
 mod processes;
 mod worktrees;
-pub use pending::event_value;
-use pending::{is_permission_ask, peer_permission_pending, permission_pending};
+use crate::hub::is_permission_ask;
+pub use pending::{event_value, into_event_value};
+use pending::{peer_permission_pending, permission_pending};
 mod redact;
 pub(crate) mod remote_guard;
 mod requests;

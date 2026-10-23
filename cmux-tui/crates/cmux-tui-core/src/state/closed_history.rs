@@ -77,9 +77,9 @@ pub(super) struct Reopened {
     pub(super) screens: Vec<String>,
     pub(super) tabs: Vec<String>,
     /// (closed workspace key, reopened workspace key) per reopened workspace.
-    placements: Vec<(String, String)>,
+    pub(super) placements: Vec<(String, String)>,
     /// A closed tab's id to the id it reopened as.
-    reopened_as: std::collections::HashMap<String, String>,
+    pub(super) reopened_as: std::collections::HashMap<String, String>,
     /// A closed pane's id to the pane split off its neighbor again; the
     /// group's kept tabs of that pane follow it there.
     panes: std::collections::HashMap<String, super::closed_pane_split::SplitPane>,
@@ -276,7 +276,7 @@ fn commit_reopen(
 /// Give the reopened workspace the closed one's personal row: its group,
 /// its place in the personal sidebar order and its theme
 /// (LAST-TAB-CLOSES-WORKSPACE rule 3). Nothing when that row is gone.
-fn restore_placement(
+pub(super) fn restore_placement(
     transaction: &rusqlite::Transaction<'_>,
     closed_key: &str,
     reopened_key: &str,
@@ -366,6 +366,8 @@ impl Mux {
             None => request.members.clone(),
         };
         let (restore, _) = choose(members, chosen.as_deref())?;
+        // A closed pane split off another pane of the same gesture comes back after it.
+        let restore = super::closed_pane_split::neighbors_first(restore);
         let fallback_pane = request
             .fallback_pane
             .as_deref()
@@ -453,7 +455,7 @@ impl Mux {
     /// tabs this reopen brought back, which are already in `reopened`. A
     /// live group of that id (an earlier partial reopen formed it) takes
     /// them in.
-    fn reopen_tab_group(
+    pub(super) fn reopen_tab_group(
         self: &Arc<Self>,
         actor: &Actor,
         archive: &Value,
@@ -714,10 +716,7 @@ impl Mux {
                 let running = reattach
                     .then(|| tab["terminal_id"].as_str())
                     .flatten()
-                    .and_then(|terminal| self.resolve_terminal(terminal).ok().flatten())
-                    .filter(|resolution| {
-                        resolution.terminal.lifecycle == TerminalLifecycle::Running
-                    });
+                    .and_then(|terminal| self.resolve_running_terminal(terminal));
                 match running.and_then(|resolution| {
                     same_id(&mut || {
                         self.project_terminal_into_pane(
@@ -782,7 +781,7 @@ impl Mux {
         let (home, neighbor) = self.with_state(|state| {
             (
                 super::closed_pane_split::home_pane(state, record, &reopened.panes),
-                super::closed_pane_split::split_neighbor(state, record),
+                super::closed_pane_split::split_neighbor(state, record, &reopened.panes),
             )
         });
         let fallback = reopened.fallback_pane;
@@ -824,8 +823,26 @@ impl Mux {
                 self.reopen_tab_record(actor, pane, tab, true)?
             }
         };
-        let home = match (home, neighbor) {
-            (None, Some(neighbor)) => {
+        // With its neighbor gone too (two sibling panes of one Close Other Panes), a closed
+        // pane still comes back as a pane of its own: split off the pane its first tab landed
+        // in, in its workspace, rather than joining that pane's tabs.
+        let landed_home = || {
+            self.with_state(|state| {
+                let landed = state.pane_of(surface)?;
+                let (workspace, _) = state.screen_of(landed)?;
+                (record["split"].is_object()
+                    && record["workspace_id"].as_str()
+                        == Some(state.workspaces[workspace].public_id.as_str()))
+                .then_some(landed)
+            })
+        };
+        let split_from = match (home, neighbor) {
+            (None, Some(neighbor)) => Some(neighbor),
+            (None, None) => landed_home(),
+            _ => None,
+        };
+        let home = match split_from {
+            Some(neighbor) => {
                 let pane = self.split_closed_pane_again(actor, surface, neighbor, &record["split"]);
                 let split = pane.and_then(|pane| {
                     self.with_state(|state| super::closed_pane_split::SplitPane::of(state, pane))
@@ -835,7 +852,7 @@ impl Mux {
                 }
                 pane
             }
-            (home, _) => home,
+            None => home,
         };
         self.restore_tab_index(actor, surface, home, record, tab);
         let pane =
@@ -994,7 +1011,7 @@ impl Mux {
         Ok(())
     }
 
-    fn reopen_closed_workspace(
+    pub(super) fn reopen_closed_workspace(
         self: &Arc<Self>,
         actor: &Actor,
         record: &Value,

@@ -30,6 +30,8 @@ const STATE_CHECK_EVERY_MS = 30_000
 export class CloudDO extends CloudIdle {
   override async readOp(entity: string, principal: Principal, op: string, params: unknown): Promise<ReadResult> {
     if (principal.team !== entity) return { ok: false, code: "auth.forbidden", message: "not this team's machines" }
+    // cloud.plan.get answers the team's current paid plan (cloud-entitlements.ts).
+    if (op === "cloud.plan.get") await this.entitlements.refresh(entity, principal)
     // G8 (cx-wb5.65): the person's own session reads the exact Cloud request it is asked to approve.
     if (op === "integration.approval.get") return ((r) => (r.ok ? { ...r, revision: String(this.boundEngine?.currentSeq ?? 0) } : r))(readCloudApproval(this.ctx.storage.sql, principal, params))
     if (op === "cloud.vm.self.get") return ((r) => (r.ok ? { ...r, revision: String(this.boundEngine?.currentSeq ?? 0) } : r))(vmSelfGet(entity, principal, params, this.isBound(entity) ? this.bind(entity).rows : undefined))
@@ -289,9 +291,10 @@ export class CloudDO extends CloudIdle {
   }
 
   /** Test only (ENVIRONMENT=test): drive the fake provider and the object's clock. */
-  async fakeControl(cmd: { snapshot_delete_refuse?: number; power_refuse?: number; vm_state?: { name: string; state: string }; image_size?: { cpu: number; memory: number; storage: number }; resize_partial?: number; resize_refuse?: number; power_then_fail?: number; fail_revokes?: number; link_keys?: string; unset?: ReadonlyArray<"CLOUD_API_ORIGIN" | "ENVIRONMENT_TAG" | "CLOUD_ALLOWED_TEAMS">; fail_next?: number; drop_results?: number; advance_ms?: number; delete_vm?: string; fail_list?: boolean; add_vm?: { name: string; team: string; machine: string }; edge_host?: string | null }) {
+  async fakeControl(cmd: { snapshot_delete_refuse?: number; power_refuse?: number; vm_state?: { name: string; state: string }; image_size?: { cpu: number; memory: number; storage: number }; resize_partial?: number; resize_refuse?: number; power_then_fail?: number; fail_revokes?: number; link_keys?: string; unset?: ReadonlyArray<"CLOUD_API_ORIGIN" | "ENVIRONMENT_TAG" | "CLOUD_ALLOWED_TEAMS">; fail_next?: number; drop_results?: number; advance_ms?: number; delete_vm?: string; fail_list?: boolean; add_vm?: { name: string; team: string; machine: string }; edge_host?: string | null; entitlements?: "on" | "off" }) {
     if (this.env.ENVIRONMENT !== "test") throw new Error("fakeControl is test only")
     cloudDriver(this.env, this.sqlStore)
+    if (cmd.entitlements !== undefined) this.entitlements.enabled = cmd.entitlements === "on"
     if (cmd.edge_host !== undefined) this.edge.testHost = cmd.edge_host
     if (cmd.unset) this.testUnset = new Set(cmd.unset)
     if (cmd.link_keys !== undefined) this.testLinkKeys = cmd.link_keys

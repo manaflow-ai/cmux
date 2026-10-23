@@ -70,7 +70,13 @@ fn mask_text(v: &mut Value) -> bool {
                     changed |= mask_field(map.get_mut(key));
                 }
                 changed |= mask_field(map.get_mut("lastMessage").and_then(|m| m.get_mut("text")));
-                changed |= mask_field(map.get_mut("turn").and_then(|t| t.get_mut("prompt")));
+                changed |= mask_field(map.get_mut("waitingPrompt"));
+                if let Some(turn) = map.get_mut("turn") {
+                    // What it does now: a tool call's title, often a command with its arguments.
+                    for key in ["prompt", "activity", "planStep"] {
+                        changed |= mask_field(turn.get_mut(key));
+                    }
+                }
                 changed |= mask_field(map.get_mut("lastTurn").and_then(|t| t.get_mut("errorText")));
                 if let Some(Value::Array(queue)) = map.get_mut("queue") {
                     for queued in queue {

@@ -615,6 +615,12 @@ final class RowCell: UICollectionViewCell {
     /// typing clip use it. The window view sets it before each configure (decorate) and on its setRenderScale; a cell
     /// that no window view placed yet (iOS) keeps the process value.
     var renderScale: CGFloat = Fixture.renderScale
+    /// The inactive-window state of the window view that shows this cell (MessagesWindowView.inactive; cx-3cb
+    /// inactive-per-view): the typing indicator's colours follow it (Fixture.typingColors). The window view sets it
+    /// before each configure (decorate), as `renderScale`; a cell no window view placed yet (iOS) keeps false.
+    var inactive = false
+    /// The state this cell's typing colours were set for (configure repaints the row when `inactive` differs).
+    private var appliedInactive = false
     /// The scale this cell's layers were set for (configure sets them again when `renderScale` differs).
     private var appliedScale: CGFloat = 0
     /// Runs `body` with `Fixture.renderScale` = this cell's scale (the static drawing it calls reads it).
@@ -655,7 +661,8 @@ final class RowCell: UICollectionViewCell {
         // ends). UIBezierPath(roundedRect:cornerRadius:) curves continuously at this radius: no flat part at all.
         let r = RowDraw.typingBubble.height / 2
         typingBody.path = CGPath(roundedRect: typingBody.bounds, cornerWidth: r, cornerHeight: r, transform: nil)
-        typingBody.fillColor = Fixture.typingFill.cgColor
+        let typing = Fixture.typingColors(inactive: inactive)
+        typingBody.fillColor = typing.fill.cgColor
         connector.fillColor = nil
         connector.strokeColor = Fixture.connector.cgColor
         connector.lineWidth = 2.6
@@ -673,12 +680,12 @@ final class RowCell: UICollectionViewCell {
         for i in 0..<3 {
             let d = CALayer()
             d.actions = noActions
-            // Dot levels (Fixture.typingDotDim / typingDotLit; tintTypingDiscs follows a palette change).
-            d.backgroundColor = Fixture.typingDotDim.cgColor
+            // Dot levels (Fixture.typingColors; tintTypingDiscs follows a palette or key state change).
+            d.backgroundColor = typing.dotDim.cgColor
             d.cornerRadius = 3.25
             let hi = CALayer()
             hi.actions = noActions
-            hi.backgroundColor = Fixture.typingDotLit.cgColor
+            hi.backgroundColor = typing.dotLit.cgColor
             hi.cornerRadius = 3.25
             hi.opacity = 0
             hi.name = "hi"
@@ -805,12 +812,15 @@ final class RowCell: UICollectionViewCell {
         // new palette, new scale or new content) before anything changes.
         let showingThisRow = key == spec.key && bitmap.contents != nil
         let rescaled = appliedScale != renderScale
-        let repaint = palette != Fixture.paletteGeneration || rescaled
+        // A key state change of this cell's own window view repaints the row as a palette change did when the state
+        // was process-wide (the typing colours follow it; host custom rows read their window's key state again).
+        let repaint = palette != Fixture.paletteGeneration || rescaled || appliedInactive != inactive
         if key != spec.key { clearAnimations(); applied = []; motionChecked = -1; key = spec.key; fillReachBelow = 0; setSelectionHighlight(nil) }
         if let w = pendingWant, w != spec { dropWant() }
         if repaint {
             palette = Fixture.paletteGeneration
             appliedScale = renderScale
+            appliedInactive = inactive
             CATransaction.begin(); CATransaction.setDisableActions(true)
             // A scale change: every layer this cell owns follows its window view's scale.
             for l in [fillContainer, fillGradient, fillMask, fillMaskImage, bitmap, connector, connectorLine, typingContainer, typingClip, typingBody, receiptOld, selectionHighlight] {
@@ -1093,10 +1103,11 @@ final class RowCell: UICollectionViewCell {
     /// change the previous bitmap stays until the new one lands: the discs and dots change with it, not before).
     private func tintTypingDiscs() {
         guard case .typing? = spec?.kind else { return }
-        let c = Fixture.typingFill.cgColor
+        let t = Fixture.typingColors(inactive: inactive)
+        let c = t.fill.cgColor
         for d in typingDiscs { d.backgroundColor = c }
         typingBody.fillColor = c
-        let dim = Fixture.typingDotDim.cgColor, lit = Fixture.typingDotLit.cgColor
+        let dim = t.dotDim.cgColor, lit = t.dotLit.cgColor
         for d in dots {
             d.backgroundColor = dim
             d.sublayers?.first { $0.name == "hi" }?.backgroundColor = lit

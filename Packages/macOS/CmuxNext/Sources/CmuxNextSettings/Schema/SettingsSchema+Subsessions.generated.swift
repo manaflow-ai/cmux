@@ -5,6 +5,9 @@ extension SubsessionSettings {
     /// `agents.subsessions.enabled`: Off: no session gets the cmux-subsessions tools, and a start is refused (subsessions.disabled).
     public nonisolated static let subsessionsEnabledPath = ["agents", "subsessions", "enabled"]
     public nonisolated static let subsessionsEnabledDefault = true
+    /// `agents.subsessions.answerQuestions`: On: a session answers the questions (Claude Code AskUserQuestion, Grok and Cursor asks) of the sub-sessions under it (_acpmux/subsession/answer), never their permission prompts or plans. Off (the default, since it loosens the person-only answer rule): only the person answers them (subsessions.answers_off).
+    public nonisolated static let subsessionsAnswerQuestionsPath = ["agents", "subsessions", "answerQuestions"]
+    public nonisolated static let subsessionsAnswerQuestionsDefault = false
     /// `agents.subsessions.maxChildren`: Open (not closed) sub-sessions one session may have at a time. A session or an ancestor can set a lower value for a subtree.
     public nonisolated static let subsessionsMaxChildrenPath = ["agents", "subsessions", "maxChildren"]
     public nonisolated static let subsessionsMaxChildrenDefault: Double = 50
@@ -30,6 +33,16 @@ nonisolated enum SubsessionSettingsSchema {
                 kind: .toggle,
                 default: .bool(SubsessionSettings.subsessionsEnabledDefault),
                 keywords: ["subagent", "sub-session", "child", "spawn", "parallel", "agents"]
+            ),
+            SettingDescriptor(
+                SubsessionSettings.subsessionsAnswerQuestionsPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.agents.subsessions.answerQuestions", "Let Sessions Answer Their Sub-sessions' Questions"),
+                help: SettingsText.keyed("settings.agents.subsessions.answerQuestions.help", "When an agent in a sub-session asks a question, the session that started it can answer, and the answer shows who gave it. Permission requests always wait for you. Off: only you answer."),
+                kind: .toggle,
+                default: .bool(SubsessionSettings.subsessionsAnswerQuestionsDefault),
+                keywords: ["subagent", "sub-session", "question", "answer", "coordinator", "agents"]
             ),
             SettingDescriptor(
                 SubsessionSettings.subsessionsMaxChildrenPath,

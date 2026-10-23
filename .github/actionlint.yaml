@@ -16,6 +16,7 @@ self-hosted-runner:
     - blacksmith-4vcpu-ubuntu-2404
     - blacksmith-4vcpu-ubuntu-2404-arm
     - blacksmith-8vcpu-ubuntu-2404
+    - blacksmith-16vcpu-ubuntu-2404
     - blacksmith-4vcpu-windows-2025
     - blacksmith-32vcpu-ubuntu-2404
     - warp-ubuntu-latest-x64-4x
@@ -39,12 +40,3 @@ paths:
       # The workflow is dispatch-only and driven from outside this repository,
       # so that call belongs to whoever owns those dispatchers.
       - 'string should not be empty'
-  .github/workflows/nightly.yml:
-    ignore:
-      # await-release-surface-ack and promote-nightly-next-acked are disabled on
-      # purpose with `if: false` (the release-surface approval is retired). They
-      # stay in the file for the workflow contract: promote-nightly-next.mjs
-      # pendingPromotions() reads the waiter's job name, and the promotion and
-      # signing-secret tests read both jobs. Each keeps its old condition as a
-      # comment beside the `if: false`.
-      - 'constant expression "false" in condition'

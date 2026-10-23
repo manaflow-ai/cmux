@@ -220,7 +220,8 @@ pub trait AgentPort: Send + Sync {
     }
 
     /// The models acpmux offers for `harness` (`_acpmux/models`), each
-    /// `{"id", "name"}`, in its order: what an engine set may pick.
+    /// `{"id", "name"}` with the picker's catalog fields, in its order: what
+    /// an engine set may pick.
     fn offered_models(&self, _harness: &str) -> Result<Vec<Value>, String> {
         Ok(Vec::new())
     }
@@ -793,7 +794,7 @@ pub fn sessions(client: &RpcClient) -> Result<Vec<SessionSummary>, String> {
         .collect())
 }
 
-/// `_acpmux/events` after `after`, every page.
+/// `_acpmux/events` after `after`, every page (`hasMore`: a page ends at the daemon's byte limit).
 pub fn events(client: &RpcClient, session: &str, after: u64) -> Result<Vec<AcpmuxEvent>, String> {
     const LIMIT: u64 = 10_000;
     let mut all: Vec<AcpmuxEvent> = Vec::new();
@@ -812,10 +813,10 @@ pub fn events(client: &RpcClient, session: &str, after: u64) -> Result<Vec<Acpmu
             .flatten()
             .filter_map(|e| serde_json::from_value(e.clone()).ok())
             .collect();
-        let full = page.len() as u64 >= LIMIT;
+        let more = result.get("hasMore") == Some(&json!(true)) || page.len() as u64 >= LIMIT;
         let last = page.iter().map(|e| e.seq).max().unwrap_or(cursor);
         all.extend(page);
-        if !full || last <= cursor {
+        if !more || last <= cursor {
             return Ok(all);
         }
         cursor = last;
@@ -1085,7 +1086,16 @@ impl AgentPort for Acpmux {
             .filter_map(|m| {
                 let id = m["id"].as_str()?;
                 let name = m["name"].as_str().unwrap_or(id);
-                Some(json!({"id": id, "name": name}))
+                let mut offered = json!({"id": id, "name": name});
+                // The picker's metadata (family sections, alias dedupe, the
+                // efforts and fast tier a model takes); prices and curation
+                // flags stay acpmux's.
+                for key in PICKER_FIELDS {
+                    if let Some(value) = m.get(*key).filter(|v| !v.is_null()) {
+                        offered[*key] = value.clone();
+                    }
+                }
+                Some(offered)
             })
             .collect())
     }
@@ -1248,3 +1258,20 @@ impl AgentPort for Acpmux {
             .map_err(|e| format!("setting the system prompt of preset {preset}: {e}"))
     }
 }
+
+/// The catalog fields of an `_acpmux/models` entry the Chief's model picker
+/// reads (Home's Chief card: family sections, alias dedupe, per-model efforts,
+/// the fast tier, context variants).
+const PICKER_FIELDS: &[&str] = &[
+    "family",
+    "provider",
+    "shortName",
+    "efforts",
+    "defaultEffort",
+    "fast",
+    "aliases",
+    "resolvedModel",
+    "contextWindow",
+    "releaseDate",
+    "description",
+];

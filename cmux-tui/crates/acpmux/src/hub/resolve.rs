@@ -215,17 +215,32 @@ pub(super) fn session_profile(
     cwd: &Path,
     remote: bool,
 ) -> Result<HarnessProfile, String> {
+    session_profile_checked(cfg, harness, cwd, remote).map_err(|e| e.message)
+}
+
+/// `session_profile` with the refusal's reason (`data.reason`) kept, for a
+/// caller that records or answers it: a held prompt whose agent may not start
+/// ends with the reason (`queue.rs` `resume_queues`).
+pub(super) fn session_profile_checked(
+    cfg: &crate::config::Config,
+    harness: &str,
+    cwd: &Path,
+    remote: bool,
+) -> Result<HarnessProfile, RpcError> {
     let profile = if let Some(p) = cfg.profile(harness) {
         p.clone()
     } else {
         match folder_profiles::resolve_for_session(cfg, harness, cwd, remote) {
-            Some(found) => found.map(|(profile, _)| profile).map_err(|e| e.message),
-            None => Err(format!("unknown harness {harness:?}")),
+            Some(found) => found.map(|(profile, _)| profile).map_err(folder_refusal),
+            None => Err(RpcError::invalid_params(format!("unknown harness {harness:?}"))),
         }?
     };
     if remote {
         crate::web_modes::remote_start_for_config(cfg, harness, &profile).map_err(|_| {
-            "this harness has no reviewed asking mode for a remote WebSocket connection".to_owned()
+            RpcError::invalid_params(
+                "this harness has no reviewed asking mode for a remote WebSocket connection",
+            )
+            .with_data(json!({"reason": "remote.mode_not_asking", "harness": harness}))
         })?;
     }
     Ok(profile)
@@ -293,6 +308,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         agent_info: None,
         agent_capabilities: None,
         steering: false,
+        html_previews: false,
         modes: None,
         config_options: None,
         models: None,
@@ -307,6 +323,8 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         event_count: 0,
         turn_count: 0,
         usage: None,
+        available_commands: None,
+        goal: None,
         permission_rules: None,
         tags: Default::default(),
         unread: false,
@@ -319,6 +337,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         chat_store: None,
         adopted_cwd: None,
         harness_roots: vec![],
+        watching: None,
         composer_draft: None,
         preset_mode_approval: None,
         bookmarks: Default::default(),
@@ -326,6 +345,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         // Read off the async runtime by `session/new` (`adoption::start_folder`).
         totals: None,
         harness_cost_usd: None,
+        pull_requests: vec![],
         git_branch: None,
         git_head: None,
         subsession: None,

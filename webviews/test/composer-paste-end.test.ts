@@ -15,7 +15,7 @@ import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("composer-paste-end.test.ts", async () => {
-  const LAST_LINE = "pasted line 40";
+  const LAST_LINE = "pasted line 15";
   setDefaultTimeout(120_000);
   const engines: [string, BrowserType][] = [];
   for (const engine of [
@@ -65,7 +65,7 @@ await requireBrowserLane("composer-paste-end.test.ts", async () => {
   }
 
   for (const [engine] of engines)
-    test(`${engine}: a 40-line paste into a 3-line draft scrolls to its end, the caret after it`, async () => {
+    test(`${engine}: a 15-line paste into a 3-line draft scrolls to its end, the caret after it`, async () => {
       const page = await newChat(engine);
       const prompt = page.locator(".acpmux-composer-prompt [contenteditable='true']");
       await prompt.click();
@@ -77,8 +77,14 @@ await requireBrowserLane("composer-paste-end.test.ts", async () => {
       await page.evaluate((last) => {
         const field = document.querySelector<HTMLElement>(".acpmux-composer-prompt [contenteditable='true']")!;
         const data = new DataTransfer();
-        const lines = Array.from({ length: 40 }, (_, index) => `pasted line ${index + 1}`);
-        lines[39] = last;
+        // Under the chip's 20 lines and 2,000 characters (pastedText.ts): a larger paste is a chip,
+        // not prompt text. The field shows pasted lines joined as one paragraph, so they are long
+        // enough to wrap past its eight lines (40 short lines did that before the chip).
+        const lines = Array.from(
+          { length: 15 },
+          (_, index) => `pasted line ${index + 1}: keep the retry rules and the tests in sync with the docs.`,
+        );
+        lines[14] = last;
         data.setData("text/plain", lines.join("\n"));
         field.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
       }, LAST_LINE);

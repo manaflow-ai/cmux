@@ -10,15 +10,16 @@
 //! the latest completed turn; an earlier one is refused with a clear error.
 //! The request becomes a plain `session/fork` (with `_meta.acpmux.throughSeq`
 //! for an earlier turn) before any guard runs, so it gets exactly
-//! session/fork's checks.
+//! session/fork's checks. `live: true` (Fork Conversation) forks the whole chat
+//! as it is now, also while its turn runs, and needs no `throughSeq`; a working
+//! chat is never refused (`hub/fork.rs`).
 
 use super::*;
+use crate::no_panic::JsonExt;
 use crate::store::SessionStatus;
 
 /// Advertised in `initialize` as `_meta.acpmux.operations`.
 pub const FORK_OPERATIONS: [&str; 1] = [method::ACP_SESSION_FORK];
-
-const CONFLICT: i64 = -32000;
 
 /// `acp.session.fork` as the `session/fork` it becomes. Any other method
 /// stays as it is, less a `throughSeq`: only `acp.session.fork` names one.
@@ -46,10 +47,6 @@ pub(super) fn through(params: &Value) -> Option<u64> {
 /// fork cannot happen at that turn.
 async fn to_session_fork(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
     let key = session_key(params)?;
-    let through = params
-        .get("throughSeq")
-        .and_then(Value::as_u64)
-        .ok_or_else(|| RpcError::invalid_params("throughSeq is required"))?;
     let session = hub.resolve(key).map_err(|e| {
         if hub.resolve_remote(key).is_some() {
             RpcError::invalid_params(
@@ -59,9 +56,27 @@ async fn to_session_fork(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
             e
         }
     })?;
-    if matches!(session.meta().status, SessionStatus::Running | SessionStatus::Waiting) {
-        return Err(RpcError::new(CONFLICT, "the chat is working; fork it when the turn ends"));
+    let working = matches!(session.meta().status, SessionStatus::Running | SessionStatus::Waiting);
+    // `live`: the whole chat as it is now (Fork Conversation), its running turn cut off
+    // there (`hub/fork.rs`).
+    let live = params.get("live").and_then(Value::as_bool).unwrap_or(false);
+    let can_cut = {
+        let harness = session.meta().harness;
+        let cfg = hub.config.read().await;
+        cfg.profile(&harness).and_then(|p| crate::config::turn_cut(&harness, p)).is_some()
+    };
+    // A working chat of an agent that forks only at its end forks as it is now.
+    if live || (working && !can_cut) {
+        let mut out = json!({"sessionId": session.id});
+        if let Some(via) = params.pointer("/_meta/acpmux/via") {
+            out.set("_meta", json!({"acpmux": {"via": via}}));
+        }
+        return Ok(out);
     }
+    let through = params
+        .get("throughSeq")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| RpcError::invalid_params("throughSeq is required"))?;
     let mut at_through = false;
     let mut earlier = false;
     let mut after = through.saturating_sub(1);
@@ -86,15 +101,13 @@ async fn to_session_fork(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
     }
     // The resolved id, so the fork's own resolution cannot pick another
     // session; a forward mark (`_meta.acpmux.via`) keeps its guard.
-    if earlier {
-        let harness = session.meta().harness;
-        let cfg = hub.config.read().await;
-        if cfg.profile(&harness).and_then(|p| crate::config::turn_cut(&harness, p)).is_none() {
-            return Err(RpcError::invalid_params(
-                "only the latest turn of this agent's chat can be forked; an earlier turn needs a Claude or Codex chat",
-            ));
-        }
+    if earlier && !can_cut {
+        return Err(RpcError::invalid_params(
+            "only the latest turn of this agent's chat can be forked; an earlier turn needs a Claude or Codex chat",
+        ));
     }
+    // A working chat moved past its latest finished turn: a fork through it cuts there too.
+    let earlier = earlier || working;
     let mut mux = serde_json::Map::new();
     if let Some(via) = params.pointer("/_meta/acpmux/via") {
         mux.insert("via".into(), via.clone());
@@ -104,7 +117,7 @@ async fn to_session_fork(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
     }
     let mut out = json!({"sessionId": session.id});
     if !mux.is_empty() {
-        out["_meta"] = json!({"acpmux": mux});
+        out.set("_meta", json!({"acpmux": mux}));
     }
     Ok(out)
 }

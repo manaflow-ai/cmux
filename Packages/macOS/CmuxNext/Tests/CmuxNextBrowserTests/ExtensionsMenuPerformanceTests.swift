@@ -50,6 +50,20 @@ import Testing
         Double(duration.components.seconds) * 1000 + Double(duration.components.attoseconds) / 1e15
     }
 
+    /// The main thread's CPU time for `body`: work elsewhere on the host (another app, the next job on a shared
+    /// fleet runner) delays the main thread without adding to this. The wall clock counted those delays: under
+    /// threads at the highest QoS taking every core, a 1 ms sidebar toggle read 70-90 ms (aws-m4pro-1, 2026-10-21).
+    static func mainThreadCPU(_ body: () -> Void) -> Duration {
+        func now() -> Duration {
+            var spent = timespec()
+            clock_gettime(CLOCK_THREAD_CPUTIME_ID, &spent)
+            return .seconds(spent.tv_sec) + .nanoseconds(spent.tv_nsec)
+        }
+        let started = now()
+        body()
+        return now() - started
+    }
+
     /// A visible window with the Extensions button at its top right.
     static func window() -> (NSWindow, NSView) {
         // Inside the main screen, so the bubble below the anchor has room (CI workers run at
@@ -65,11 +79,10 @@ import Testing
         return (window, anchor)
     }
 
-    /// The shortest of `runs` timings: a shared CI worker adds load to some runs, never removes
-    /// work, so the minimum is the closest to the code's own cost.
+    /// The shortest of `runs` main-thread CPU timings: a shared CI worker adds load to some runs, never
+    /// removes work, so the minimum is the closest to the code's own cost.
     static func fastest(_ runs: Int = 5, _ body: () -> Void) -> Duration {
-        let clock = ContinuousClock()
-        return (0..<runs).map { _ in clock.measure(body) }.min() ?? .zero
+        (0..<runs).map { _ in mainThreadCPU(body) }.min() ?? .zero
     }
 
     @Test(.enabled("a bubble needs a screen to show") { await Self.hasDisplay() })
@@ -79,10 +92,9 @@ import Testing
         defer { window.close() }
         let handler = ExtensionsMenu.DirectHandler(host: tab) { _ in }
         let controller = ExtensionsMenuController()
-        let clock = ContinuousClock()
         // The toolbar prepares the rows and the panel when a tab binds, off the click's path.
-        let prepare = clock.measure { controller.prepare(host: tab) }
-        let first = clock.measure { controller.show(host: tab, handler: handler, anchor: anchor) }
+        let prepare = Self.mainThreadCPU { controller.prepare(host: tab) }
+        let first = Self.mainThreadCPU { controller.show(host: tab, handler: handler, anchor: anchor) }
         try #require(controller.isShown, "\(Self.environment(window))")
         #expect(controller.content.rows.count == Self.count)
         controller.close()

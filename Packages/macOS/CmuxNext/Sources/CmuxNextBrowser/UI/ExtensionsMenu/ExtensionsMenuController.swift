@@ -2,13 +2,15 @@ import AppKit
 import CmuxNextDesign
 
 /// Owns one browser pane's Extensions bubble (Chrome's `ExtensionsMenuView`): the native popup
-/// below the Extensions button, its rows, the per-extension context menu and the keyboard.
+/// below the Extensions button, its rows grouped by their access to the tab's site, the
+/// per-extension context menu and the keyboard.
 ///
 /// Opening is cheap by design (u2229, "this extensions context menu is also extremely laggy"):
 /// - the bubble opens at once with the store's current list; the Chromium round trip that
 ///   refreshes it runs on the next main-actor turn and only changed rows re-render;
 /// - rows are kept between opens and laid out by frames, without Auto Layout;
-/// - icons are decoded once per file (``ExtensionIconCache``);
+/// - icons are decoded once per file (``ExtensionIconCache``), and manifests are read once per
+///   extension folder, off the main thread (``ExtensionManifestCache``);
 /// - the "more options" menu opens over the bubble, which stays open, instead of closing one
 ///   `NSMenu` (with its fade) and opening another.
 @MainActor
@@ -24,6 +26,7 @@ final class ExtensionsMenuController {
 
     let content: ExtensionsMenuView
     let icons = ExtensionIconCache()
+    let manifests = ExtensionManifestCache()
     private let card: ExtensionsMenuCardView
     private let panel = ExtensionsMenuPanel()
     private let popup: NativePopupHost
@@ -46,7 +49,16 @@ final class ExtensionsMenuController {
     /// Renders done since the bubble opened (a test seam).
     private(set) var renders = 0
 
-    init(style: ExtensionsMenuStyle = .chrome) {
+    /// What an open bubble shows, so a tab state change that keeps it does not re-render.
+    private struct RenderInputs: Equatable {
+        var extensions: [BrowserExtensionInfo]
+        var actions: [CEFExtensionAction]
+        var url: URL?
+    }
+
+    private var observedInputs: RenderInputs?
+
+    init(style: ExtensionsMenuStyle = .standard) {
         self.style = style
         content = ExtensionsMenuView(style: style)
         card = ExtensionsMenuCardView(content: content, style: style)
@@ -58,11 +70,16 @@ final class ExtensionsMenuController {
             return button.bounds.contains(button.convert(event.locationInWindow, from: nil))
         }
         popup.onDismiss = { [weak self] in self?.closed() }
+        manifests.onLoad = { [weak self] in self?.render() }
         content.actions = ExtensionsMenuView.Actions(
             run: { [weak self] id in self?.run(id) },
+            // A side panel extension without a popup opens its panel from its action
+            // (`sidePanel.setPanelBehavior`); the fork has no call that opens the panel itself.
+            sidePanel: { [weak self] id in self?.closeThen { $0.perform(.run, extensionID: id) } },
             pin: { [weak self] id, pinned in self?.handler?.perform(pinned ? .pin : .unpin, extensionID: id) },
             more: { [weak self] id, view in self?.showContextMenu(for: id, at: view, source: .menuItem) },
             manage: { [weak self] in self?.closeThen { $0.perform(.manage, extensionID: nil) } },
+            webStore: { [weak self] in self?.closeThen { $0.perform(.webStore, extensionID: nil) } },
             close: { [weak self] in self?.close() }
         )
     }
@@ -90,17 +107,21 @@ final class ExtensionsMenuController {
         self.handler = handler
         anchorView = anchor
         renders = 0
-        // Renders now, then again when the extensions or their toolbar state change while open.
+        // Renders now, then again when the extensions, their toolbar state or the page change while
+        // open. The tab's state changes on every load event; only these inputs re-render.
         observation?.cancel()
+        observedInputs = nil
         observation = ObservationLoop { [weak self] in
             guard let self, let host = self.host else { return }
-            _ = host.extensionStore.extensions
-            _ = host.extensionActions
+            let inputs = RenderInputs(extensions: host.extensionStore.extensions, actions: host.extensionActions,
+                                      url: (host as? any BrowserTab)?.state.url)
+            guard inputs != self.observedInputs else { return }
+            self.observedInputs = inputs
             self.render()
         }
         anchorRect = window.convertToScreen(anchor.convert(anchor.bounds, to: nil))
         panel.adoptThemeScope(of: anchor)
-        guard popup.show(size: content.frame.size, anchor: anchorRect, in: window, preferred: .below, trailing: true,
+        guard popup.show(size: content.frame.size, anchor: anchorRect, in: window, preferred: anchor.toolbarPopupSide, trailing: true,
                          makeKey: true) != nil else { return closed() }
         panel.makeFirstResponder(card)
         reportedShown = true
@@ -136,7 +157,8 @@ final class ExtensionsMenuController {
         panelWarm = true
         let alpha = panel.alphaValue
         panel.alphaValue = 0
-        panel.setFrame(NSRect(origin: NSPoint(x: -10_000, y: -10_000), size: content.frame.size), display: false)
+        let card = NSRect(origin: NSPoint(x: -10_000, y: -10_000), size: content.frame.size)
+        panel.setFrame(PopupStyle.standard.windowFrame(forCard: card), display: false)
         panel.orderFront(nil)
         panel.displayIfNeeded()
         panel.orderOut(nil)
@@ -150,18 +172,38 @@ final class ExtensionsMenuController {
         let store = host.extensionStore
         let pngs = Dictionary(host.extensionActions.map { ($0.id, $0.iconPNG) }, uniquingKeysWith: { first, _ in first })
         let builtInAdBlocker = CEFRuntime.shared.builtInAdBlockerLoaded
+        let url = (host as? any BrowserTab)?.state.url
+        let listed = Self.listed(host)
+        manifests.load(listed)
         let before = content.frame.size
-        content.update(
-            Self.listed(host),
-            icon: { [icons] info in icons.image(for: info, png: pngs[info.id] ?? nil) },
-            canPin: { info in info.hasAction && store.supportsManagement },
-            // The Web Store lists only uBlock Origin Lite; the full one ships inside cmux.
-            tooltip: { info in builtInAdBlocker && info.id == CEFBuiltInExtensions.adBlockerID ? Strings.builtInAdBlocker : nil }
-        )
+        content.update(listed.map { info in
+            let facts = manifests.facts(for: info)
+            return ExtensionsMenuView.Entry(
+                info: info, icon: icons.image(for: info, png: pngs[info.id] ?? nil), access: ExtensionSiteAccess(facts, url: url),
+                canPin: info.hasAction && store.supportsManagement,
+                hasSidePanel: Self.opensSidePanel(info, facts: facts),
+                // The Web Store lists only uBlock Origin Lite; the full one ships inside cmux.
+                tooltip: builtInAdBlocker && info.id == CEFBuiltInExtensions.adBlockerID ? Strings.builtInAdBlocker : nil
+            )
+        }, site: Self.site(of: url))
         content.layoutSubtreeIfNeeded()
         if isShown, content.frame.size != before, let window = panel.parent {
-            popup.show(size: content.frame.size, anchor: anchorRect, in: window, preferred: .below, trailing: true)
+            popup.show(size: content.frame.size, anchor: anchorRect, in: window, preferred: anchorView?.toolbarPopupSide ?? .below, trailing: true)
         }
+    }
+
+    /// The site the bubble names under its title: the page's host on a web page.
+    static func site(of url: URL?) -> String? {
+        guard let url, let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme),
+              let host = url.host, !host.isEmpty else { return nil }
+        return host
+    }
+
+    /// Whether the row offers its side panel: the extension declares one and its action opens no
+    /// popup, so running the action is what opens the panel.
+    static func opensSidePanel(_ info: BrowserExtensionInfo, facts: ExtensionManifestFacts?) -> Bool {
+        guard info.hasAction, let facts else { return false }
+        return facts.sidePanel && !facts.actionPopup
     }
 
     func close() {
@@ -214,9 +256,10 @@ final class ExtensionsMenuController {
             MainActor.assumeIsolated { // main-proof: a CFRunLoopGetMain() block runs on the main thread
                 guard let self, let view, view.window != nil else { return }
                 self.presentedContextMenu = menu
-                menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(in: view, gap: 0), in: view)
+                menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(for: menu, in: view, gap: 0), in: view)
                 self.presentedContextMenu = nil
                 (view as? ExtensionsMenuHoverButton)?.refreshHover()
+                (view.superview as? ExtensionsMenuItemView)?.refreshHover()
             }
         }
         CFRunLoopWakeUp(CFRunLoopGetMain())
@@ -280,12 +323,14 @@ final class ExtensionsMenuController {
         items.append(ReportItem(title: "-", isEnabled: false, isSeparator: true))
         items.append(ReportItem(title: Strings.extensionMenuTitle(.manage), identifier: ExtensionsMenu.footerIdentifier(.manage),
                                 isEnabled: true))
+        items.append(ReportItem(title: Strings.extensionMenuGetExtensions, identifier: ExtensionsMenu.footerIdentifier(.webStore),
+                                isEnabled: true))
         return items
     }
 
-    /// Chooses an item as a click would: a row control (`run`, `pin`, `unpin`, `more`) of
-    /// extension `id`, `manage`, `close`, or an operation of the open context menu. False when no
-    /// item matches.
+    /// Chooses an item as a click would: a row control (`run`, `sidePanel`, `pin`, `unpin`,
+    /// `more`) of extension `id`, `manage`, `webStore`, `close`, or an operation of the open context
+    /// menu. False when no item matches.
     func choose(_ operation: String, extension id: String?) -> Bool {
         if let menu = presentedContextMenu, let id,
            let index = menu.items.firstIndex(where: { $0.identifier?.rawValue == "\(ExtensionsMenu.moreIdentifier(id)).\(operation)" }) {
@@ -298,6 +343,7 @@ final class ExtensionsMenuController {
             switch operation {
             case "run": row.primary.onPress?(); return true
             case "more": row.moreButton.onPress?(); return true
+            case "sidePanel" where row.hasSidePanel: row.sidePanelButton.onPress?(); return true
             case "pin", "unpin":
                 if (operation == "pin") != row.isPinned { row.togglePin() }
                 return true
@@ -306,6 +352,7 @@ final class ExtensionsMenuController {
         }
         switch operation {
         case "manage": content.manageButton.onPress?(); return true
+        case "webStore": content.webStoreButton.onPress?(); return true
         case "close": close(); return true
         default: return false
         }

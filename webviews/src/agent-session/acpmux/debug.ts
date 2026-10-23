@@ -7,9 +7,11 @@ import { syntheticRows } from "./synthetic";
 import { runStream, type StreamOptions } from "./streamDebug";
 import { loadRun, loadSeed, type LoadRunOptions } from "./loadDebug";
 import { workedTurnRows } from "./workedTurn";
+import { incomingRows } from "./incomingFixture";
 import { acpWire, type AcpWireLog } from "./wire";
 import { followTrace } from "./followTrace";
 import { composerChips, layoutWatch, type LayoutWatchOptions } from "./layoutWatch";
+import { queuedRowsState } from "./queuedRowsState";
 
 // `window.cmuxAcpmuxDebug`, called by the DEBUG `debug.agent_pane` socket
 // method. The first measurement call turns on measurement (acpmuxPerf.enabled);
@@ -20,8 +22,9 @@ import { composerChips, layoutWatch, type LayoutWatchOptions } from "./layoutWat
 export type FlingOptions = { nominal_ms?: number; wait?: boolean };
 
 export type AcpmuxDebug = {
-  /// Replaces the transcript with `count` synthetic rows, or with the worked turn of
-  /// workedTurn.ts when `fixture` is "worked-turn".
+  /// Replaces the transcript with `count` synthetic rows, with the worked turn of
+  /// workedTurn.ts when `fixture` is "worked-turn", or with received agent messages
+  /// (incomingFixture.ts) when it is "incoming".
   seedRows(count?: number, fixture?: string): Promise<Record<string, unknown>>;
   startFling(seconds?: number, options?: FlingOptions): Promise<Record<string, unknown>>;
   flingStats(): Record<string, unknown>;
@@ -127,7 +130,9 @@ export function createAcpmuxDebug(
       const rows =
         fixture === "worked-turn"
           ? workedTurnRows(Date.now() - 60_000)
-          : syntheticRows(Math.max(3, Math.floor(count)), fixture === "short" ? "short" : "mixed");
+          : fixture === "incoming"
+            ? incomingRows(Date.now() - 120_000)
+            : syntheticRows(Math.max(3, Math.floor(count)), fixture === "short" ? "short" : "mixed");
       const start = performance.now();
       const committed = acpmuxPerf.nextCommit();
       host.replaceRows(rows);
@@ -262,6 +267,8 @@ export function createAcpmuxDebug(
             summaryCard: summaryCardState(),
             // The prompts as drawn, top first: who sent each, its bubble, and the collapsed view line.
             userBubbles: userBubblesState(),
+            // The queued prompts as drawn: each row's text, its image ids and each thumbnail's state.
+            queued: queuedRowsState(),
             subagentOf: document.querySelector(".cv-subagent-of__parent")?.textContent ?? null,
             // The composer's chips as drawn (model, effort, access), keyed by their menu label.
             composer: composerChips(),

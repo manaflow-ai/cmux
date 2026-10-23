@@ -43,6 +43,12 @@ OLD_LABELS = ("risk:medium",)
 HUMAN_OK_LABEL = "risk:human-ok"
 # The earlier name for the same maintainer sign-off; still honored.
 WAIVED_LABEL = "risk:waived"
+# An independent review's verdict on the exact head, on a comment's first line: "Review (subagent, correctness
+# first): SHIP at <full head sha>", the form next_autoland.py and merge_audit.py read. A self-review doesn't
+# count, and the newest verdict naming the head decides, so a later BLOCK beats an earlier SHIP.
+RECEIPT = re.compile(r"^\W*(?:independent\s+)?review\s*\(([^)\n]*)\)\s*:\W*(ship|block|fix|not ship|hold)(?![\w-])",
+                     re.I)
+TRUSTED = ("OWNER", "MEMBER", "COLLABORATOR")
 NEXT = "Packages/macOS/CmuxNext/Sources/"
 
 # Ordered: the first matching rule wins, so the high paths sit above the broad low ones.
@@ -92,16 +98,48 @@ RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
         "services/iroh-relay-minter/*", "web/services/relay/*", "daemon/remote/cmd/cmuxd-remote/*peer*",
         r"re:(?i)relay[-_]?(command[-_]?)?polic", r"re:(?i)(socket|control)[-_]?(access|auth)",
     )),
+    # What an agent pane's web page may make the host do or read: the page ops (AgentPageOps), the
+    # _acpmux methods and params it may relay, the frame check, the gesture rule (the tickets, which
+    # methods a click's ticket redeems, and the decision that spends one), the app actions a page may
+    # run, the folder policy and the folders a person picks, the relayed-allow proof, the full-access
+    # refusal, the Rust mirror, acpmux's guard on non-local connections, and host ops
+    # that open their own daemon connection for a page. #22646's chat.asks.pending graded normal here
+    # and reached a peer daemon until review caught it. A new op edits AgentPageProvider.swift's list.
+    # Pane UI stays normal.
+    ("high", "agent pane host op or allowlist", (
+        NEXT + "CmuxNextAgentPane/AgentPageProvider.swift", NEXT + "CmuxNextAgentPane/AcpmuxPaneMethods*.swift",
+        NEXT + "CmuxNextAgentPane/AgentPaneEnvironmentRequest.swift",
+        NEXT + "CmuxNextAgentPane/AgentPaneReplyRequest.swift",
+        NEXT + "CmuxNextAgentPane/AgentPaneTransport+Check.swift", NEXT + "CmuxNextAgentPane/AcpmuxPathPolicy.swift",
+        NEXT + "CmuxNextAgentPane/AgentPanePendingAsks.swift", NEXT + "CmuxNextAgentPane/AgentPaneTransport+Frames.swift",
+        NEXT + "CmuxNextAgentPane/AgentPaneGestureIntent.swift",
+        NEXT + "CmuxNextAgentPane/AgentPaneUserGestures.swift", NEXT + "CmuxNextAgentPane/AgentPaneModel+Actions.swift",
+        NEXT + "CmuxNextAgentPane/AgentPaneTransport+RelayedAllow.swift",
+        NEXT + "CmuxNextAgentPane/AgentPaneTransport+PickedFolder.swift",
+        NEXT + "CmuxNextAgentPane/AgentPaneTransport+FullAccess.swift",
+        "cmux-tui/crates/cmux-agent-pane-policy/*", "cmux-tui/crates/acpmux/src/server/remote_guard*",
+    )),
     # Stored data other builds read back: a bad migration loses user data on every machine that
     # runs it, and a revert doesn't bring the data back.
     ("high", "stored-data migration", (
         "migrations/*", "*/migrations/*", "*/drizzle/*", "*/migrate/*", "*[Mm]igrat*.swift", "*[Mm]igrat*.rs",
         "*[Mm]igrat*.ts", "web/convex/schema*", "backend/db/schema*",
     )),
+    # The update channel and preference values: which ring of the existing signed feeds to follow
+    # (UpdateRing, the `updates.channel` setting), and when to install or notify. Picking a ring reuses
+    # feeds the release pipeline already signs, and Sparkle still verifies every download, so it is
+    # normal (Leo, 2026-10-21, after #22781). UpdateTrack is not here: it decides whether Sparkle runs
+    # at all. Parsing, probing, installing and verifying an update stay high below.
+    ("normal", "update channel or preference setting", (
+        "Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateRing.swift",
+        NEXT + "CmuxNextUpdater/UpdatePreferences.swift",
+    )),
     # Shipping. A broken updater also breaks the safety net every other tier relies on: nightly
-    # auto-update is how a fix forward reaches users.
+    # auto-update is how a fix forward reaches users. CmuxUpdater holds the Sparkle driver, the
+    # install code, the feed resolver and the channel switch's signature check.
     ("high", "release, signing, notarization or update path", (
-        ".github/workflows/nightly*.yml", RELEASE_WORDS, NEXT + "CmuxNextUpdater/*", "scripts/ci/lib/*",
+        ".github/workflows/nightly*.yml", RELEASE_WORDS, NEXT + "CmuxNextUpdater/*", "Packages/macOS/CmuxUpdater/*",
+        "scripts/ci/lib/*",
     )),
     # The gate grades every other pull request, so a change to it gets a person.
     ("high", "the risk gate itself", (
@@ -258,8 +296,9 @@ def missing_evidence(tier: str, human_ok: bool = False, body: str = "",
     missing = []
     if tier == "high" and not human_ok:
         missing.append(
-            f"a person's look: an approving review on the head commit from someone other than the "
-            f"author, or `{HUMAN_OK_LABEL}` added by a maintainer (agents never add it)")
+            f"a review of the head commit: a comment `Review (<reviewer>): SHIP at <full head sha>` from an "
+            f"independent review, an approving review from someone other than the author, or `{HUMAN_OK_LABEL}` "
+            f"added by a maintainer (agents never add it)")
     acknowledged = {int(n) for n in TAKES_BACK.findall(strip_comments(body or ""))}
     for number in sorted(set(taken_back or [])):
         if number not in acknowledged:
@@ -484,30 +523,62 @@ def last_labeler(events: list[dict], name: str) -> str | None:
     return actor
 
 
-def approver(reviews: list[dict], head_sha: str, author: str) -> str | None:
-    """A person, not the author or a bot, whose latest review approves the head commit."""
-    latest: dict[str, dict] = {}
+def head_verdicts(comments: list[dict], reviews: list[dict], head_sha: str,
+                  author: str) -> list[tuple[str, str, str]]:
+    """(at, "ship" or "block", who) for every trusted verdict on the head, one timeline as
+    next_autoland reads it: an approval (not the author's) or change request of the head commit, and
+    a receipt line naming the full head sha that leads a comment or a review body."""
+    found = []
+
+    def receipt(item: dict, at: str) -> None:
+        first = next((line for line in (item.get("body") or "").splitlines() if line.strip()), "")
+        line = RECEIPT.match(first)
+        if line and "self" not in line.group(1).lower() and head_sha in first:
+            found.append((at, "ship" if line.group(2).lower() == "ship" else "block",
+                          f"review ({line.group(1).strip()})"))
+
+    def trusted(item: dict) -> bool:
+        user = item.get("user") or {}
+        return user.get("type") == "User" and item.get("author_association") in TRUSTED
+
     for review in reviews:
-        user = review.get("user") or {}
-        login = user.get("login") or ""
-        if review.get("state") in ("APPROVED", "CHANGES_REQUESTED", "DISMISSED"):
-            latest[login] = review
-    for login, review in latest.items():
-        user = review.get("user") or {}
-        if (review.get("state") == "APPROVED" and review.get("commit_id") == head_sha and login != author
-                and user.get("type") == "User" and not login.endswith("[bot]")
-                and review.get("author_association") in ("OWNER", "MEMBER", "COLLABORATOR")):
-            return login
-    return None
+        if not trusted(review):
+            continue
+        at, login = review.get("submitted_at") or "", (review.get("user") or {}).get("login") or ""
+        if review.get("commit_id") == head_sha:
+            if review.get("state") == "APPROVED" and login != author:
+                found.append((at, "ship", f"@{login}"))
+            elif review.get("state") == "CHANGES_REQUESTED":
+                found.append((at, "block", f"@{login}"))
+        receipt(review, at)
+    for comment in comments:
+        if trusted(comment):
+            receipt(comment, comment.get("created_at") or "")
+    return found
+
+
+def signed_off(comments: list[dict], reviews: list[dict], head_sha: str, author: str = "") -> str | None:
+    """Who passed the head, or None: the newest verdict on it must be a SHIP, so a later BLOCK or
+    change request beats an earlier SHIP or approval, and a BLOCK wins a tie."""
+    found = head_verdicts(comments, reviews, head_sha, author)
+    if not found:
+        return None
+    _, verdict, who = max(found, key=lambda f: (f[0], f[1] == "block"))
+    return who if verdict == "ship" else None
 
 
 def human_ok_by(repo: str, number: str, pr: dict) -> str | None:
-    """Who signed off on a high pull request, else None: an approving review on the head, or the
-    sign-off label added by a maintainer (admin or maintain role)."""
+    """Who signed off on a high pull request, else None: the newest verdict on the head (an
+    independent review's receipt, an approval or a change request) is a SHIP, or, with no verdict
+    on the head, the sign-off label added by a maintainer (admin or maintain role). The green
+    compile is required on every tier by the merge path, not here."""
+    head_sha = pr["head"]["sha"]
+    comments = gh_items(f"repos/{repo}/issues/{number}/comments?per_page=100")
     reviews = gh_items(f"repos/{repo}/pulls/{number}/reviews?per_page=100")
-    login = approver(reviews, pr["head"]["sha"], (pr.get("user") or {}).get("login") or "")
-    if login:
-        return f"@{login} approved the head commit"
+    author = (pr.get("user") or {}).get("login") or ""
+    if head_verdicts(comments, reviews, head_sha, author):
+        who = signed_off(comments, reviews, head_sha, author)
+        return f"{who} shipped {head_sha[:12]}" if who else None
     labels = {label["name"] for label in pr.get("labels", [])}
     for name in (HUMAN_OK_LABEL, WAIVED_LABEL):
         if name not in labels:
@@ -536,7 +607,7 @@ def render(grade: Grade, missing: list[str], signed: str | None = None) -> str:
         out.append(f"- {reason}: {shown}")
     out.append("")
     if signed:
-        out.append(f"A person looked: {signed}.")
+        out.append(f"Signed off: {signed}.")
     if missing:
         out.append("Before merge:")
         out += [f"- {item}" for item in missing]

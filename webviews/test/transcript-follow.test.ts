@@ -6,6 +6,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -53,32 +54,42 @@ await requireBrowserLane("transcript-follow.test.ts", async () => {
   const show = (page: Page, rows: Row[]) =>
     page.evaluate((shown) => (window as unknown as { __showRows(rows: unknown): void }).__showRows(shown), rows);
   const frames = (page: Page, count = 2) =>
-    page.evaluate(
-      (n) =>
-        new Promise<void>((resolve) => {
-          const step = (left: number) => (left === 0 ? resolve() : requestAnimationFrame(() => step(left - 1)));
-          step(n);
-        }),
-      count,
-    );
+    page.evaluate(async (n) => {
+      for (let left = n; left > 0; left--) await window.cmuxPaintFrame();
+    }, count);
   /// How far the latest row's text ends below the bottom of the view (its own bottom padding is
-  /// blank), once any glide has landed.
-  const belowView = async (page: Page) => {
-    await page.waitForTimeout(400);
-    return page.evaluate(() => {
-      const view = document.querySelector<HTMLElement>(".acpmux-scroll")!.getBoundingClientRect();
-      const rows = [...document.querySelectorAll<HTMLElement>(".acpmux-row")];
-      const last = rows.reduce((low, row) =>
-        row.getBoundingClientRect().bottom > low.getBoundingClientRect().bottom ? row : low,
-      );
-      const text = last.getBoundingClientRect().bottom - parseFloat(getComputedStyle(last).paddingBottom);
-      return Math.round(text - view.bottom);
-    });
-  };
+  /// blank), in the first painted frame after any glide has landed.
+  const belowView = (page: Page) =>
+    page.evaluate(
+      () =>
+        new Promise<number>((resolve) => {
+          window.cmuxAfterPaint(() => {
+            const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+            // A glide is a finite animation still running in the view; a looping one (a streaming
+            // mark) never lands, and a finished one that holds its last frame stays listed.
+            const gliding = scroller
+              .getAnimations({ subtree: true })
+              .some(
+                (animation) =>
+                  animation.playState === "running" && animation.effect?.getComputedTiming().endTime !== Infinity,
+              );
+            if (gliding) return true;
+            const view = scroller.getBoundingClientRect();
+            const rows = [...document.querySelectorAll<HTMLElement>(".acpmux-row")];
+            const last = rows.reduce((low, row) =>
+              row.getBoundingClientRect().bottom > low.getBoundingClientRect().bottom ? row : low,
+            );
+            const text = last.getBoundingClientRect().bottom - parseFloat(getComputedStyle(last).paddingBottom);
+            resolve(Math.round(text - view.bottom));
+            return false;
+          });
+        }),
+    );
 
   test("a reply that streams past the viewport is followed, and so is the next turn", async () => {
     const { port } = vite!.httpServer!.address() as { port: number };
     const page = await browser!.newPage({ viewport: { width: 900, height: 560 } });
+    await installPaintedFrames(page);
     await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-follow.html`);
     await page.waitForFunction(() => "__showRows" in window);
     const first = [

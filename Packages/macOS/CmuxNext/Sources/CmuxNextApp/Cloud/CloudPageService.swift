@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextIcons
+import CmuxNextPages
 
 extension InternalPageID {
     /// The Cloud page tab (`cmux-page://cmux.cloud/`): machines, snapshots, ports, files and plan.
@@ -14,16 +15,16 @@ extension InternalPageID {
 final class CloudPageService: InternalPageProvider {
     private weak var services: AppServices?
 
-    init(services: AppServices) {
-        self.services = services
-    }
+    init(services: AppServices) { self.services = services }
 
-    /// Selects the active window's Cloud tab, or opens one after the focused pane's selected tab.
-    func open(focus: Bool) throws {
+    /// Selects the active window's Cloud tab, or opens one after the focused pane's selected tab,
+    /// showing `route` (a URL fragment such as `/get`, the storefront) when given.
+    func open(focus: Bool, route: String? = nil) throws {
         guard let services, let window = services.windows.active,
-              services.pages.show(.cloud, in: window, focus: focus) != nil else {
+              let view = services.pages.show(.cloud, in: window, focus: focus) else {
             throw ActionFailure(message: RefusalStrings.noWindowOpen)
         }
+        if let route, let page = view.content as? PageWebView { page.open(route: route) }
     }
 
     var page: InternalPageID { .cloud }

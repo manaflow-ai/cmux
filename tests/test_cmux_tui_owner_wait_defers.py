@@ -42,6 +42,7 @@ if "/actions/runs/" in url and "/jobs" in url:
     jobs = [{"name": "cmux-tui tree preflight", "status": "completed"}]
     if os.environ.get("FAKE_NOTIFY_STATUS"):
         jobs.append({"name": "report an unpublished cmux-tui tree to cmux-next", "status": os.environ["FAKE_NOTIFY_STATUS"]})
+    jobs += json.loads(os.environ.get("FAKE_DAEMON_JOBS", "[]"))
     print(json.dumps({"total_count": len(jobs), "jobs": jobs}))
     sys.exit(0)
 if "/actions/runs/" in url and os.environ.get("FAKE_OWNER_ENDS_AFTER"):
@@ -143,7 +144,9 @@ def run_wait(owner, script=None, **fake):
         os.makedirs(os.path.join(tmp, "scripts", "ci"))
         os.makedirs(bin_dir)
         for path, body in ((os.path.join(bin_dir, "curl"), FAKE_CURL), (os.path.join(bin_dir, "sleep"), FAKE_SLEEP),
-                           (os.path.join(tmp, "scripts", "ci", "cmux-tui-tree-claim.sh"), FAKE_CLAIM)):
+                           (os.path.join(tmp, "scripts", "ci", "cmux-tui-tree-claim.sh"), FAKE_CLAIM),
+                           (os.path.join(tmp, "scripts", "ci", "cmux_tui_publisher_testing.py"),
+                            open(os.path.join(ROOT, "scripts", "ci", "cmux_tui_publisher_testing.py")).read())):
             with open(path, "w") as handle:
                 handle.write(body)
             os.chmod(path, os.stat(path).st_mode | stat.S_IXUSR)
@@ -156,7 +159,10 @@ def run_wait(owner, script=None, **fake):
                    SERVER_URL="https://github.invalid", GITHUB_OUTPUT=output, GITHUB_RUN_ID="5", RUNNER_TEMP=tmp,
                    FAKE_LOG=log)
         env = {**env, "EVENT_NAME": "push", "REF": "refs/heads/feat-cmux-next", "SHA": "f" * 40,
-               "FAKE_OWNER_STATUS": "in_progress", "FAKE_CLAIM_RESULT": "owner=7 granted=false", **fake}
+               "FAKE_OWNER_STATUS": "in_progress", "FAKE_CLAIM_RESULT": "owner=7 granted=false",
+               "DAEMON_POOL": "glaeda-side-light-xcode-26.6", **fake}
+        env["TREE_READY"] = "true" if env.get("FAKE_TREE_PUBLISHED") == "1" else "false"
+        env["DAEMON_TESTED"] = "false" if env["TREE_READY"] == "true" and env.get("FAKE_MARKER", "1") != "1" else "true"
         result = subprocess.run(["bash", "-e", "-c", script or wait_script()], cwd=tmp, env=env, capture_output=True, text=True, timeout=60)
         return result, open(output).read(), open(log).read()
 
@@ -303,6 +309,13 @@ def main():
                                     FAKE_OWNER_BRANCH="feat-cmux-next")
         _check(result.returncode == 0 and "takeover=false" in out and "unmarked=false" in out,
                f"an unmarked tree whose feat-cmux-next push owner is {status} is not re-tested ({out.strip()!r})")
+    # 2026-10-21: the owner's daemon-test job sat queued on a label the pool
+    # variable no longer names, and every later push deferred to it.
+    result, out, log = run_wait("4", FAKE_TREE_PUBLISHED="1", FAKE_MARKER="0", FAKE_OWNER_STATUS="in_progress",
+                                FAKE_OWNER_BRANCH="feat-cmux-next", DAEMON_POOL="glaeda-side-light-xcode-26.6",
+                                FAKE_DAEMON_JOBS='[{"name": "cmux_next_ daemon tests (macOS)", "status": "queued", "conclusion": null, "created_at": "2026-10-21T05:43:00Z", "labels": ["glaeda-side-std-xcode-26.6"]}]')
+    _check(result.returncode == 0 and "unmarked=true" in out,
+           f"an unmarked tree whose feat-cmux-next owner's daemon tests are stuck is re-tested ({out.strip()!r})")
     for event, branch, why in (("push", "op-next-idle-caret", "lane-branch push"),
                                ("pull_request_target", "op-next-idle-caret", "pull request"),
                                ("workflow_dispatch", "feat-cmux-next", "feat-cmux-next dispatch")):
@@ -329,6 +342,9 @@ def main():
                                     FAKE_OWNER_CONCLUSION="failure", FAKE_OWNER_BRANCH=branch)
         _check(result.returncode == 0 and "takeover=false" in out and "unmarked=true" in out,
                f"an unmarked tree whose {branch} owner ended is re-tested ({out.strip()!r})")
+    result, out, log = run_wait("", FAKE_TREE_PUBLISHED="1", FAKE_MARKER="0")
+    _check(result.returncode == 0 and "takeover=false" in out and "deferred=true" in out and "unmarked=true" in out,
+           f"a published unmarked tree with no live owner leaves a takeover marker ({out.strip()!r})")
     result, out, log = run_wait("4", FAKE_TREE_PUBLISHED="1", FAKE_MARKER="0", FAKE_OWNER_STATUS="fail")
     _check(result.returncode == 0 and "unmarked=true" in out,
            f"an unmarked tree whose owner cannot be read is re-tested ({out.strip()!r})")

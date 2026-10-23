@@ -1,5 +1,6 @@
 public import AppKit
 import Carbon.HIToolbox
+import CmuxNextDesign
 import GhosttyNextKit
 import UniformTypeIdentifiers
 
@@ -54,7 +55,8 @@ extension TerminalSurfaceView: NSMenuItemValidation {
     }
 
     public override func menu(for event: NSEvent) -> NSMenu? {
-        if let session, let menu = session.delegate?.terminalSession(session, contextMenuFor: event) { return menu }
+        // The terminal's rows highlight as the sidebar's and the tab strip's do: a wash of its theme's accent.
+        if let session, let menu = session.delegate?.terminalSession(session, contextMenuFor: event) { return menu.themeRows(in: themeScope.fullStrength) }
         let menu = NSMenu()
         if hasSelection {
             menu.addItem(withTitle: String(localized: "terminal.menu.copy", defaultValue: "Copy", bundle: .module), action: #selector(copy(_:)), keyEquivalent: "")

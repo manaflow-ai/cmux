@@ -31,6 +31,12 @@ const codeUnsafeCSS = `${diffUnsafeCSS}
 }
 [data-line] > span { top: 0; }
 pre, code, [data-code], [data-content], [data-line] { background: transparent !important; --diffs-line-bg: transparent; }
+/* Pierre keeps a strip for its horizontal scrollbar under the lines at all times
+   (--diffs-scrollbar-gutter: 6px in WebKit, 0 where scrollbars overlay). It hangs into the card's
+   bottom padding instead, so the card is as tall as its lines in every engine, as the plain card
+   it replaces is (StreamingCode.tsx), and the text under a closing fence does not move. */
+pre[data-file] { display: flow-root; }
+[data-code] { margin-bottom: calc(-1 * var(--diffs-scrollbar-gutter, 0px)); }
 `;
 
 /// The pane's theme (applyAgentTheme) is light or dark; syntax colors follow it.

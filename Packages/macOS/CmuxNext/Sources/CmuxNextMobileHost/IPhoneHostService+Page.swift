@@ -52,6 +52,13 @@ extension IPhoneHostService {
 
     /// The account's phones (known to the service) with their live link if one is up, then any
     /// live link the list does not have yet. Only a known phone can be removed.
+    /// The phones Settings > Devices lists (plans/cmux-next/add-device-DESIGN.md 2.4): each one the
+    /// account knows, and whether it has a live link now. Remove is ``removePhone(id:)``.
+    public var devicePhones: [(id: String, name: String, connected: Bool)] {
+        guard allowed else { return [] }
+        return knownPhones.map { phone in (phone.id, phone.name, state.phones.contains { phone.owns($0.phoneDeviceID) }) }
+    }
+
     private var phoneRows: [JSONValue] {
         guard allowed else { return [] }
         let links = state.phones

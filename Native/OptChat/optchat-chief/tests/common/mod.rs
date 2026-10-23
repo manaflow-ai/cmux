@@ -538,6 +538,9 @@ pub struct Agents {
     /// The next this many `cancel` calls are recorded but change nothing
     /// (a cancel that reached acpmux before the prompt did).
     pub ignore_cancels: usize,
+    /// The next `cancel` calls are recorded and fail with these texts, one
+    /// each, in order (acpmux refused the cancel).
+    pub cancel_errors_once: std::collections::VecDeque<String>,
     /// The prompt's answer comes this long after its events (acpmux records
     /// `turn_end` before it answers the prompt).
     pub answer_delay: Option<Duration>,
@@ -886,6 +889,7 @@ impl AgentPort for FakeAgents {
         });
         Ok(Some(serde_json::from_value(json!({
             "sessionId": id, "name": spec.name, "harness": harness, "cwd": spec.cwd, "status": status,
+            "tags": spec.tags,
         })).unwrap()))
     }
 
@@ -1009,6 +1013,9 @@ impl AgentPort for FakeAgents {
     fn cancel(&self, session: &str) -> Result<(), String> {
         let mut inner = self.inner.lock().unwrap();
         inner.cancels.push(session.to_owned());
+        if let Some(e) = inner.cancel_errors_once.pop_front() {
+            return Err(e);
+        }
         if inner.ignore_cancels > 0 {
             inner.ignore_cancels -= 1;
             drop(inner);

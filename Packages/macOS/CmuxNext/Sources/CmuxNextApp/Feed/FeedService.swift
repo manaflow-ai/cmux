@@ -23,7 +23,7 @@ final class FeedService {
     private var started = false
     /// The account the mirror belongs to; a sign-out or another account resets it.
     private var account: String?
-    private var observers: [any NSObjectProtocol] = []
+    private var observers: [MainActorObservation] = []
     private var accountWatch: Task<Void, Never>?
     private(set) var connection: FeedConnection = .disconnected("not started")
     /// Owner-confirmed state of each item (never the overlay).
@@ -74,8 +74,8 @@ final class FeedService {
             source.setPresence(active: forced ?? NSApp.isActive)
             if forced == nil { source.checkAlive() }
         }
-        func on(_ center: NotificationCenter, _ name: Notification.Name, _ forced: Bool?) -> any NSObjectProtocol {
-            center.addObserver(forName: name, object: nil, queue: .main) { _ in MainActor.assumeIsolated { update(forced) } } // main-proof: observer on queue: .main
+        func on(_ center: NotificationCenter, _ name: Notification.Name, _ forced: Bool?) -> MainActorObservation {
+            MainActorObservation(name, center: center) { update(forced) }
         }
         observers = [
             on(app, NSApplication.didBecomeActiveNotification, true),
@@ -116,6 +116,12 @@ final class FeedService {
     }
 
     var isSignedIn: Bool { auth.isSignedIn }
+
+    /// Posts an installed update's card (cmux or an agent CLI) through the local owner, never a
+    /// cloud session; the owner's dedupe keeps one card per version.
+    func post(update card: UpdateFeedCard) {
+        localOwner.post(card.item)
+    }
 
     /// Live GitHub details are held by the source only while the app runs.
     func githubDetail(for id: String) -> GitHubFeedDetail? { github.githubDetail(for: id) }
@@ -219,7 +225,8 @@ final class FeedService {
         request.setValue("application/json", forHTTPHeaderField: "content-type")
         request.setValue("Bearer \(try await auth.tokens().access)", forHTTPHeaderField: "authorization")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let (data, _) = try await URLSession.shared.data(for: request)
+        // The bearer never goes through the shared, caching session.
+        let (data, _) = try await CloudAPIClient.noStoreTransport.data(for: request)
         guard let reply = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw FeedServiceError.badReply }
         if let error = reply["error"] as? [String: Any] {
             throw FeedServiceError.owner(code: error["code"] as? String ?? "error", message: error["message"] as? String ?? "")

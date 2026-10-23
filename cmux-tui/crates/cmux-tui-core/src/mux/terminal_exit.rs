@@ -202,16 +202,21 @@ impl Mux {
             .and_then(|generation| self.capture_terminal_exit_replay(terminal_id, generation));
         // The host's loss breadcrumbs are read before the commit, so the
         // exit and its cause become visible in the same locked section
-        // (a client never reads a host_lost end without its cause).
+        // (a client never reads a host_lost end without its cause), and
+        // logged before it, so the cause is durable once the exit is
+        // visible: an owner stopped right then still names it after its
+        // restart (the dead tab's cause comes back from the log).
         #[cfg(any(unix, windows))]
         let host_loss =
             self.surface_options.lock().unwrap().terminal_host_root.clone().map(|root| {
-                crate::terminal_loss_log::HostLoss::read(
+                let mut loss = crate::terminal_loss_log::HostLoss::read(
                     &root.join(format!("{terminal_id}.json")),
                     terminal_id,
                     incarnation,
                     end,
-                )
+                );
+                loss.log();
+                loss
             });
         // cx-6so.49: whether this loss may respawn, checked before the locks.
         #[cfg(any(unix, windows))]
@@ -266,7 +271,7 @@ impl Mux {
             None => false,
         };
         let keep_live_views = kept_by_store
-            || (terminal.on_exit == TerminalOnExit::Keep
+            || (terminal.on_exit.keeps_views()
                 && public_terminal_id
                     .as_ref()
                     .is_some_and(|public_id| state.terminal_catalog.contains_key(public_id)));
@@ -342,8 +347,27 @@ impl Mux {
                 )
             })
         };
+        // `on_exit` shell: the process end drops its tabs into a new shell
+        // under the same terminal id, as Restart does (`manual.rs`). Only a
+        // final process end of a runtime that keeps its views qualifies; a
+        // host loss respawns (or stays dead) on its own path.
+        let drop_to_shell = (!replayed
+            && terminal.on_exit == TerminalOnExit::Shell
+            && keep_live_views
+            && settle_until_ms.is_none()
+            && matches!(end, TerminalEnd::ProcessEnded(_)))
+        .then(|| {
+            public_terminal_id.as_ref().and_then(|public_id| {
+                let content = ContentPublicId::Terminal(public_id.clone());
+                state.placements_of_content(&content).first().copied()
+            })
+        })
+        .flatten();
         drop(state);
         drop(registry);
+        if let Some(slot) = drop_to_shell {
+            self.drop_exited_terminal_to_shell(slot);
+        }
         #[cfg(unix)]
         if let Some(terminal_id) = &public_terminal_id {
             // Replay is a recovery path: the durable exit may have committed
@@ -368,9 +392,10 @@ impl Mux {
                     );
                 }
             }
-            // A host loss is logged once, with the signals its host recorded
-            // (cx-6so.49); best effort, after the exit latch. Its cause is
-            // on the tab already (recorded with the commit above).
+            // A host loss was logged before the commit, with the signals its
+            // host recorded (cx-6so.49); its breadcrumbs go after the exit
+            // latch, best effort. Its cause is on the tab already (recorded
+            // with the commit above).
             #[cfg(any(unix, windows))]
             {
                 #[cfg(debug_assertions)]
@@ -403,6 +428,18 @@ impl Mux {
             self.schedule_exit_settle(terminal_id, until_ms);
         }
         Ok(!replayed)
+    }
+
+    /// Start the shell of an `on_exit` shell terminal whose process ended in
+    /// the tab at `slot`, through the manual restart (`restart_dead_tab`).
+    /// A refused restart (the owner shuts down) leaves the tab kept, dead.
+    fn drop_exited_terminal_to_shell(&self, slot: SurfaceId) {
+        let Some(mux) = self.exit_settles.owner() else { return };
+        if let Err(error) = mux.restart_dead_tab(slot) {
+            eprintln!(
+                "cmux-tui: could not drop the ended command of tab {slot} into a shell: {error:#}"
+            );
+        }
     }
 
     /// Reconcile a lifecycle row that was committed before topology detach was
@@ -491,8 +528,20 @@ impl Mux {
         // surface is alive; reconciliation must not force-detach it out from
         // under a live daemon. Without a runtime (a daemon restart dropped
         // the in-memory VT) the kept terminal degrades to the normal detach.
-        if terminal.on_exit == TerminalOnExit::Keep
+        if terminal.on_exit.keeps_views()
             && state.terminal_catalog.contains_key(&terminal_public_id)
+        {
+            return Ok(false);
+        }
+        // An `on_exit` shell terminal whose restart took the runtime out of
+        // its tabs: they wait for the shell, never detach.
+        if terminal.on_exit == TerminalOnExit::Shell
+            && self
+                .pending_terminals
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .values()
+                .any(|(id, marker)| id == terminal_id && *marker == PendingTerminal::Respawning)
         {
             return Ok(false);
         }

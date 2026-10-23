@@ -4,6 +4,221 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_op! {
+    /// The team SSH CA public keys and the current revocation list (KRL), for the team VM's sshd.
+    TeamVmSshCaOp {
+        name: "team_vm.ssh_ca",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:TeamDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: TeamVmSshCaParams,
+        result: TeamVmSshCaResult,
+        error: TeamVmSshCaError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmSshCaParams {}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmSshCaResult {
+    pub team: TeamId,
+    pub generation: i64,
+    pub trusted_ca_keys: Vec<String>,
+    pub krl: String,
+    pub krl_version: i64,
+}
+
+wire_errors! {
+    /// The error codes team_vm.ssh_ca declares.
+    TeamVmSshCaError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+    }
+}
+
+wire_op! {
+    /// Replace the team SSH CA key (owners and admins, in a person's session). Without `compromised`, certificates from the old key stay valid until they expire (at most 60 minutes).
+    TeamVmSshCaRotateOp {
+        name: "team_vm.ssh_ca.rotate",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "destructive",
+        principals: [Session],
+        params: TeamVmSshCaRotateParams,
+        result: TeamVmSshCaRotateResult,
+        error: TeamVmSshCaRotateError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmSshCaRotateParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compromised: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmSshCaRotateResult {
+    pub generation: i64,
+    pub ca_public_key: String,
+    pub previous_trusted_until: Option<i64>,
+}
+
+wire_errors! {
+    /// The error codes team_vm.ssh_ca.rotate declares.
+    TeamVmSshCaRotateError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        OwnerUnreachable = "owner.unreachable",
+        RevisionConflict = "revision.conflict",
+        TeamVmSshCaNotConfigured = "team_vm.ssh_ca_not_configured",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Sign a short-lived SSH user certificate (15 to 60 minutes) for the team VM. The certificate names the caller's Linux user; `agent` certificates run only `cmux team …` commands; a `human` (full shell) certificate needs a person's session and a fresh presence proof. While the team VM is tainted by a member removal (team_vm.status `taint`, not accepted) only owners and admins get one (`team_vm.tainted`). Replaying the same idempotency key returns the same certificate, also after a crash.
+    TeamVmSshCertOp {
+        name: "team_vm.ssh_cert",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "execute",
+        principals: [Session, Install],
+        params: TeamVmSshCertParams,
+        result: TeamVmSshCertResult,
+        error: TeamVmSshCertError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmSshCertParams {
+    pub public_key: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub validity_minutes: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub class: Option<SshCertClass>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub presence: Option<SshPresenceProof>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmSshCertResult {
+    pub certificate: String,
+    pub serial: i64,
+    pub key_id: String,
+    pub principals: Vec<String>,
+    pub class: SshCertClass,
+    pub valid_after: i64,
+    pub valid_before: i64,
+    pub ca_generation: i64,
+    pub ca_public_key: String,
+}
+
+wire_errors! {
+    /// The error codes team_vm.ssh_cert declares.
+    TeamVmSshCertError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        OwnerUnreachable = "owner.unreachable",
+        RevisionConflict = "revision.conflict",
+        TeamVmSshCaNotConfigured = "team_vm.ssh_ca_not_configured",
+        TeamVmSshClassRefused = "team_vm.ssh_class_refused",
+        TeamVmSshKeyInvalid = "team_vm.ssh_key_invalid",
+        TeamVmSshPresenceRefused = "team_vm.ssh_presence_refused",
+        TeamVmSshPresenceRequired = "team_vm.ssh_presence_required",
+        TeamVmSshRateLimited = "team_vm.ssh_rate_limited",
+        TeamVmTainted = "team_vm.tainted",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Start a full-shell SSH certificate request: returns a single-use presence challenge for one of your devices. Approve it there (Face ID, Touch ID or passcode), then call team_vm.ssh_cert with class human, the proof and the same request key.
+    TeamVmSshCertChallengeOp {
+        name: "team_vm.ssh_cert.challenge",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "execute",
+        principals: [Session],
+        params: TeamVmSshCertChallengeParams,
+        result: TeamVmSshCertChallengeResult,
+        error: TeamVmSshCertChallengeError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmSshCertChallengeParams {
+    pub public_key: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub validity_minutes: Option<i64>,
+    pub presence_install: InstallId,
+    pub request: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmSshCertChallengeResult {
+    pub sign: Value,
+    pub message: String,
+    pub expires_at: i64,
+}
+
+wire_errors! {
+    /// The error codes team_vm.ssh_cert.challenge declares.
+    TeamVmSshCertChallengeError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        OwnerUnreachable = "owner.unreachable",
+        RevisionConflict = "revision.conflict",
+        TeamVmSshCaNotConfigured = "team_vm.ssh_ca_not_configured",
+        TeamVmSshClassRefused = "team_vm.ssh_class_refused",
+        TeamVmSshKeyInvalid = "team_vm.ssh_key_invalid",
+        TeamVmSshPresenceRefused = "team_vm.ssh_presence_refused",
+        TeamVmSshRateLimited = "team_vm.ssh_rate_limited",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Revoke unexpired team VM SSH certificates by serial, user or install; the revocation list (KRL) lists them at once. Members revoke their own certificates; owners and admins revoke anyone's.
+    TeamVmSshCertRevokeOp {
+        name: "team_vm.ssh_cert.revoke",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: TeamVmSshCertRevokeParams,
+        result: TeamVmSshCertRevokeResult,
+        error: TeamVmSshCertRevokeError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmSshCertRevokeParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub serial: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user: Option<UserId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub install: Option<InstallId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmSshCertRevokeResult {
+    pub revoked: Vec<i64>,
+    pub krl_version: i64,
+}
+
 wire_errors! {
     /// The error codes team_vm.ssh_cert.revoke declares.
     TeamVmSshCertRevokeError {

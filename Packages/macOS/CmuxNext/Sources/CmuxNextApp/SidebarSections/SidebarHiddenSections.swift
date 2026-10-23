@@ -3,11 +3,11 @@ import CmuxNextSettings
 import CmuxNextSidebar
 
 /// Projects hides from its header's menu and comes back from the sidebar's
-/// menu or Settings (`sidebar.showProjects`; Leo 2026-10-06). Chats, the
-/// All chats, the section under the workspaces (on by default, cx-xub5), hides
-/// from its header by turning off `sidebar.showChats`; Show All Chats in
-/// Settings or Show Hidden Sections brings it back. Each is a setting, so the
-/// choice follows cmux.json.
+/// menu or Settings (`sidebar.showProjects`; Leo 2026-10-06). All chats left
+/// the sidebar for the New Tab page (cx-n0i9): Hide Section on its old header
+/// still turns off `sidebar.showChats` (Show All Chats on New Tab), but Show
+/// Hidden Sections brings back only sidebar sections. Each is a setting, so
+/// the choice follows cmux.json.
 enum SidebarHiddenSections {
     /// The rows a section header's menu leaves out. Every hideable header
     /// (Recents and each app section) shows the same one row, Hide <Section>
@@ -32,8 +32,8 @@ enum SidebarHiddenSections {
 
     /// The setting Hide Section turns off.
     static let hidePath = SidebarSectionsSetting.showChatsPath
-    /// The settings Show Hidden Sections turns back on: Projects and All chats.
-    static let showHiddenPaths = [SidebarSectionsSetting.showProjectsPath, SidebarSectionsSetting.showChatsPath]
+    /// The settings Show Hidden Sections turns back on: Projects (All chats is no sidebar section).
+    static let showHiddenPaths = [SidebarSectionsSetting.showProjectsPath]
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let settings = { context.services.settings?.snapshot.sidebarSections ?? .defaults }
@@ -56,7 +56,7 @@ enum SidebarHiddenSections {
             try write([(SidebarSectionsSetting.showProjectsPath, false)], invocation, context)
         }
         registry.bind("sidebar.sections.showHidden", unavailable: {
-            settings().showProjects && settings().showChats ? SidebarSectionStrings.noneHidden : nil
+            settings().showProjects ? SidebarSectionStrings.noneHidden : nil
         }) { invocation in
             try write(showHiddenPaths.map { ($0, true) }, invocation, context)
         }

@@ -70,12 +70,13 @@ pub trait CloudWire: Send {
 /// The HTTP and WebSocket seam. Calls block; the daemon runs them off the
 /// connection's request loop.
 pub trait CloudBackend: Send + Sync {
-    /// `POST url` with `authorization: Bearer <bearer>`, the JSON `body` and,
-    /// when given, `x-cmux-client-version`.
+    /// `POST url` with `authorization: Bearer <bearer>` (no Authorization
+    /// header when `bearer` is `None`: a self-hosted server on the tailnet),
+    /// the JSON `body` and, when given, `x-cmux-client-version`.
     fn post(
         &self,
         url: &str,
-        bearer: &str,
+        bearer: Option<&str>,
         client_version: Option<&str>,
         body: &Value,
     ) -> Result<HttpReply, TransportError>;
@@ -85,7 +86,7 @@ pub trait CloudBackend: Send + Sync {
     fn get(
         &self,
         url: &str,
-        bearer: &str,
+        bearer: Option<&str>,
         client_version: Option<&str>,
     ) -> Result<HttpReply, TransportError> {
         let _ = (url, bearer, client_version);
@@ -109,11 +110,12 @@ pub trait CloudBackend: Send + Sync {
         Err(TransportError("this cloud backend reads no byte ranges".into()))
     }
     /// Opens `url` with subprotocol `cmux.wire.v1` and the bearer in the
-    /// `authorization` header (cx-dgsp; legacy subprotocol only for an old Worker).
+    /// `authorization` header (cx-dgsp; legacy subprotocol only for an old
+    /// Worker); no Authorization header when `bearer` is `None`.
     fn connect(
         &self,
         url: &str,
-        bearer: &str,
+        bearer: Option<&str>,
         client_version: Option<&str>,
     ) -> Result<Box<dyn CloudWire>, ConnectError>;
 }
@@ -318,7 +320,10 @@ impl CloudConversations {
         let reply = {
             let mut lease = self.inner.lease.lock().unwrap_or_else(PoisonError::into_inner);
             check_lease_holder(&lease, by_app)?;
-            if !by_app {
+            // A self-hosted server is admitted by its tailnet origin
+            // (CloudSession::new); a bearer lease from another connection
+            // must name a known cmux Cloud origin.
+            if !by_app && params.lease_auth()? == super::session::LeaseAuth::Bearer {
                 super::session::check_known_origin(
                     &params.api_base_url,
                     &self.inner.options.api_origins,
@@ -334,11 +339,7 @@ impl CloudConversations {
             lease.generation = session.generation;
             lease.expiring_sent = false;
             lease.expired_sent = false;
-            let reply = json!({
-                "state": "active",
-                "api_base_url": session.origin(),
-                "expires_at": session.expires_at,
-            });
+            let reply = session.status("active");
             lease.session = Some(session);
             lease.app_held = by_app;
             (reply, fresh_account)
@@ -383,11 +384,9 @@ impl CloudConversations {
         let lease = self.inner.lease.lock().unwrap_or_else(PoisonError::into_inner);
         match &lease.session {
             None => json!({"state": "signed_out"}),
-            Some(session) => json!({
-                "state": if session.is_expired(now) { "expired" } else { "active" },
-                "api_base_url": session.origin(),
-                "expires_at": session.expires_at,
-            }),
+            Some(session) => {
+                session.status(if session.is_expired(now) { "expired" } else { "active" })
+            }
         }
     }
 
@@ -532,10 +531,83 @@ impl CloudConversations {
     pub fn lease_person(&self) -> Option<(String, String)> {
         let lease = self.inner.lease.lock().unwrap_or_else(PoisonError::into_inner);
         let session = lease.session.as_ref()?;
-        if session.agent.is_some() {
+        if session.agent.is_some() || session.is_tailscale() {
             return None;
         }
         Some((session.account.clone()?, session.audience.clone()?))
+    }
+
+    /// The origin and the person's user id (once `cloud-selfhost-info`
+    /// learned it) of a self-hosted lease (`auth: "tailscale"`); `None` for
+    /// a bearer lease or no lease.
+    pub fn lease_selfhost(&self) -> Option<(String, Option<String>)> {
+        let lease = self.inner.lease.lock().unwrap_or_else(PoisonError::into_inner);
+        let session = lease.session.as_ref().filter(|session| session.is_tailscale())?;
+        Some((session.origin().to_string(), session.account.clone()))
+    }
+
+    /// `cloud-selfhost-info`: `GET /v1/selfhost/info` of the self-hosted
+    /// server (no Authorization header: it identifies the caller by
+    /// Tailscale), `{kind: "selfhost", user_id, login, display_name,
+    /// server_name}`. The person's `user_id` becomes the lease's account, so
+    /// every later event is tagged with it; open sockets reconnect to carry
+    /// it. Refused (`not_selfhost`) for a bearer lease.
+    pub fn selfhost_info(&self) -> Result<Value, CloudError> {
+        let session = self.inner.usable_session()?;
+        if !session.is_tailscale() {
+            return Err(CloudError::daemon_reject(
+                "not_selfhost",
+                "cloud-selfhost-info needs a self-hosted lease (auth \"tailscale\")",
+            ));
+        }
+        let reply = self.get("/v1/selfhost/info")?;
+        let not_selfhost =
+            || CloudError::Unavailable("the server is not a cmux self-hosted server".into());
+        if reply.status != 200 {
+            return Err(match reply.status {
+                404 => not_selfhost(),
+                status => CloudError::Unavailable(format!("selfhost info answered HTTP {status}")),
+            });
+        }
+        let body = &reply.body;
+        let text = |name: &str| -> Option<String> {
+            body.get(name)
+                .and_then(Value::as_str)
+                .filter(|value| value.len() <= 256)
+                .map(str::to_string)
+        };
+        let user = text("user_id").filter(|user| valid_selfhost_user(user));
+        let (Some("selfhost"), Some(user)) = (body.get("kind").and_then(Value::as_str), user)
+        else {
+            return Err(not_selfhost());
+        };
+        let mut info = json!({"kind": "selfhost", "user_id": user});
+        for field in ["login", "display_name", "server_name"] {
+            if let Some(value) = text(field) {
+                info[field] = json!(value);
+            }
+        }
+        let changed = {
+            let mut lease = self.inner.lease.lock().unwrap_or_else(PoisonError::into_inner);
+            let generation = lease.generation;
+            match lease.session.as_mut() {
+                Some(current)
+                    if generation == session.generation
+                        && current.is_tailscale()
+                        && current.account.as_deref() != Some(user.as_str()) =>
+                {
+                    current.account = Some(user);
+                    current.generation = generation + 1;
+                    lease.generation = generation + 1;
+                    true
+                }
+                _ => false,
+            }
+        };
+        if changed {
+            self.inner.notify();
+        }
+        Ok(info)
     }
 
     /// The leased chief's wake queue (`cloud-mux-subscribe`): the agent is
@@ -656,6 +728,11 @@ impl CloudConversations {
             .backend
             .get(&session.http_url(path), session.bearer(), session.client_version.as_deref())
             .map_err(|TransportError(detail)| CloudError::Unavailable(detail))?;
+        // A self-hosted server refuses a login it does not admit: no Stack
+        // lease would help, so nothing is asked for.
+        if reply.status == 401 && session.is_tailscale() {
+            return Err(CloudError::Unauthenticated);
+        }
         if reply.status == 401 {
             self.inner.emit(CloudEvent::SessionNeeded {
                 reason: "unauthenticated",
@@ -687,6 +764,9 @@ impl CloudConversations {
                 body,
             )
             .map_err(|TransportError(detail)| CloudError::Unavailable(detail))?;
+        if reply.status == 401 && session.is_tailscale() {
+            return Err(CloudError::Unauthenticated);
+        }
         if reply.status == 401 {
             self.inner.emit(CloudEvent::SessionNeeded {
                 reason: "unauthenticated",
@@ -1179,6 +1259,23 @@ fn run_driver(inner: &Arc<Inner>, target: Target) {
                 break;
             }
             Ended::Reconnect => {}
+            // A self-hosted server that does not admit this login: no lease
+            // to ask for; try again after the backoff (the owner may admit it).
+            Ended::Unauthenticated if session.is_tailscale() => {
+                reporter.report("disconnected", Some("unauthenticated"), account);
+                let until = Instant::now() + backoff;
+                while Instant::now() < until
+                    && inner.generation() == session.generation
+                    && !inner.retire(&target)
+                {
+                    let seen = inner.signal_now();
+                    inner.wait(
+                        seen,
+                        inner.idle_wait(&target, until.saturating_duration_since(Instant::now())),
+                    );
+                }
+                backoff = (backoff * 2).min(inner.options.backoff_max);
+            }
             Ended::Unauthenticated => {
                 inner.emit(CloudEvent::SessionNeeded {
                     reason: "unauthenticated",
@@ -1286,4 +1383,12 @@ fn pump(
             }
         }
     }
+}
+
+/// A self-hosted server's user id (`user_ts_...`): `user_` and 6-80
+/// characters of `[A-Za-z0-9_.-]` in all.
+fn valid_selfhost_user(user: &str) -> bool {
+    (6..=80).contains(&user.len())
+        && user.starts_with("user_")
+        && user.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"_.-".contains(&byte))
 }

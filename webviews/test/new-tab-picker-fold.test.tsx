@@ -2,7 +2,9 @@
 // curated few. The chip starts on the catalog's default for Claude Code (Sonnet 5), which is not one
 // of them, and the picker opened its More models fold to show it; Fable 5.1, which Claude Code
 // offers by its alias (`fable`), never matched the curated list. At the New Tab boundary: the
-// real screen and its chips, with the catalog acpmux answered on a Mac with Claude Code.
+// real screen and its chips, with the catalog acpmux answered on a Mac with Claude Code. Since Leo
+// 2026-10-20 a click on the model button opens its compact menu (model-menu-compact.test.tsx); the
+// full picker checked here is the one More models and the "Model" opener (pickerOpeners.ts) show.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -91,6 +93,7 @@ test("a New Tab's picker lists the curated models and the chip's own, with the r
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
   const { NewTabComposerChips } = await import("../src/agent-session/acpmux/App");
   const { noChat } = await import("../src/gallery/fixtures/acpmux");
+  const { openPicker } = await import("../src/agent-session/acpmux/pickerOpeners");
   type Snapshot = import("../src/agent-session/acpmux/model").AcpmuxSnapshot;
   // What Claude Code itself reports (acpmux's probe on a capture Mac, 2026-10-12): Fable 5.1 by
   // its alias.
@@ -130,7 +133,7 @@ test("a New Tab's picker lists the curated models and the chip's own, with the r
   // The chip draws the name without the vendor its mark shows; the title keeps the full name.
   expect(host.querySelector(".acpmux-model-name")?.textContent).toBe("Opus 5.5");
   expect(host.querySelector('[data-menu="Model"]')?.getAttribute("title")).toBe("Claude Opus 5.5");
-  await act(async () => host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click());
+  await act(async () => void openPicker("Model"));
   const rows = () =>
     [...host.querySelectorAll('[data-key^="model:"] .acpmux-menu-label')].map((row) => row.textContent);
   // The chip names the catalog's default, Opus 5.5 (cx-qtmy2): a top model, so nothing joins the list.

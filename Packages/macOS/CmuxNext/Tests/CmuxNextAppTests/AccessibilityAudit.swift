@@ -8,6 +8,8 @@ struct AccessibilityNode {
     let identifier: String
     /// Roles from the root down to this element, for failure messages.
     let path: String
+    /// The element itself (a view, or a control's cell), for identity checks.
+    let element: NSObject
 }
 
 /// Walks the accessibility tree under a view the way a client sees it (elements only, hidden
@@ -68,7 +70,7 @@ struct AccessibilityAudit {
             let identifiers: [String?] = [element.accessibilityIdentifier(), control?.accessibilityIdentifier()]
             let node = AccessibilityNode(role: role, label: labels.compactMap { $0 }.first { !$0.isEmpty } ?? "",
                                          identifier: identifiers.compactMap { $0 }.first { !$0.isEmpty } ?? "",
-                                         path: path.isEmpty ? role.rawValue : "\(path) > \(role.rawValue)")
+                                         path: path.isEmpty ? role.rawValue : "\(path) > \(role.rawValue)", element: item)
             out.append(node)
             here = node.path
         }

@@ -83,8 +83,8 @@ struct MachineIconTests {
         #expect(try sent(nil)["icon"] is NSNull, "a clear sends null, never leaves the key out")
         #expect(SetSessionIconRequest.command == "set-session-icon")
         #expect(SetSessionIconRequest.requiredCapability == "session-icon-v1")
-        #expect(DaemonCapabilities.shared.optional.contains("session-icon-v1"))
-        #expect(DaemonCapabilities.shared.homeOnly.contains("session-icon-v1"))
+        #expect(DaemonCapabilities.optional.contains("session-icon-v1"))
+        #expect(DaemonCapabilities.homeOnly.contains("session-icon-v1"))
     }
 
     // MARK: The sidebar header
@@ -172,8 +172,11 @@ struct MachineIconTests {
         }
         let set = try #require(ActionCatalog.all.first { $0.id.rawValue == "machine.setIcon" })
         #expect(set.arguments.contains { $0.name == "icon" }, "the CLI and MCP name the icon")
+        // Icon rows (identity), then Reconnect (connection), then Remove Remote Group, which
+        // ungroups the host's rows (close: "Close, delete, forget, ungroup").
         #expect(ContextMenuCatalog.shared.entries(for: .machineSection)
-            == [.folder(.appearance, [.action("machine.setIcon"), .action("machine.clearIcon")])])
+            == [.folder(.appearance, [.action("machine.setIcon"), .action("machine.clearIcon")]),
+                .separator, .action("machine.reconnect"), .separator, .action("remote.removeGroup")])
     }
 
     /// Every machine header's right-click menu offers Set Icon, aimed at that machine, beside its
@@ -193,7 +196,7 @@ struct MachineIconTests {
             #expect(menu.items.filter { !$0.isSeparatorItem }.count >= background.items.filter { !$0.isSeparatorItem }.count,
                     "the sidebar's own rows stay")
             return allItems(menu.items).compactMap { ActionRegistry.menuRun(of: $0) }
-                .filter { $0.id.rawValue.hasPrefix("machine.") }.map { (id: $0.id, target: $0.target) }
+                .filter { $0.id.rawValue.hasPrefix("machine.") && $0.id.rawValue.hasSuffix("Icon") }.map { (id: $0.id, target: $0.target) }
         }
         Self.record(services, icon: nil)
         let plain = try iconRuns()
@@ -270,7 +273,7 @@ struct MachineIconTests {
             let menu = try #require(SidebarContextMenus.menu(for: .section(.machine(.local)), model: model, services: services,
                                                              scope: ThemeScope(level: .room)))
             func all(_ items: [NSMenuItem]) -> [NSMenuItem] { items.flatMap { [$0] + ($0.submenu.map { all($0.items) } ?? []) } }
-            return all(menu.items).compactMap { ActionRegistry.menuRun(of: $0)?.id }.filter { $0.rawValue.hasPrefix("machine.") }
+            return all(menu.items).compactMap { ActionRegistry.menuRun(of: $0)?.id }.filter { $0.rawValue.hasPrefix("machine.") && $0.rawValue.hasSuffix("Icon") }
         }
         let local = CmuxNextSidebar.SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)), nodes: [])
         let cloud = CmuxNextSidebar.SidebarSection(kind: .machine(SidebarMachine(id: CmuxNextSidebar.MachineID("vm-1"), name: "cloud-a1", kind: .cloud)),

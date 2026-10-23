@@ -28,6 +28,8 @@ final class ShellModel {
     let auth: CmuxMobileAuthModel
     let settings: SettingsStore
     @ObservationIgnored let terminalTabs = GhosttyTerminalTabContent()
+    /// The Mac filter Workspaces and Home share (remembered per team).
+    @ObservationIgnored let macFilter = MacFilter()
     let sidebar: SidebarModel
     /// New workspaces: the linked Mac's daemon once live data starts; before
     /// that nothing can be created (the mock only in DEBUG mock mode).
@@ -39,12 +41,22 @@ final class ShellModel {
     /// The backend with no live data.
     private let offlineCreation: any WorkspaceCreationBackend
 
-    var tab: RootTab = .home { didSet { updateInteractiveOpen() } }
+    var tab: RootTab = .home {
+        didSet {
+            updateInteractiveOpen()
+            updateShownMacs()
+        }
+    }
     var homePath = NavigationPath() { didSet { updateInteractiveOpen() } }
     /// Typed: a workspace page must not nest a SwiftUI NavigationStack (the
     /// terminal tab hosts its own page), or SwiftUI traps with
     /// `comparisonTypeMismatch` when the nested stack joins this path.
-    var workspacesPath: [Workspace] = [] { didSet { updateInteractiveOpen() } }
+    var workspacesPath: [Workspace] = [] {
+        didSet {
+            updateInteractiveOpen()
+            updateShownMacs()
+        }
+    }
     var feedPath: [AgentChatDestination] = [] { didSet { updateInteractiveOpen() } }
     var settingsPath: [SettingsRoute] = [] { didSet { updateInteractiveOpen() } }
 
@@ -150,35 +162,65 @@ final class ShellModel {
         if live == nil, mockMode { deviceDirectory = MockDeviceDirectory(store: store) }
         #endif
         live?.onMacRemoved = { [weak self] macID in self?.macRemoved(macID) }
+        updateShownMacs()
         if let live {
-            terminalTabs.sessionProvider = { [weak live] tab in live?.terminalSession(tabID: tab.id, programName: tab.title) }
-            terminalTabs.hasLiveSession = { [weak live] id in live?.workspaces.tree?.surfaces[id] != nil }
+            // Tab ids repeat across Macs: every call names the tab's Mac, and
+            // its session uses that Mac's link only.
+            terminalTabs.sessionProvider = { [weak live] tab, macID in
+                live?.terminalSession(tabID: tab.id, programName: tab.title, macID: macID)
+            }
+            terminalTabs.hasLiveSession = { [weak live] id, macID in live?.hasLiveSession(tabID: id, macID: macID) ?? false }
             terminalTabs.workspaceLookup = { [weak store] id in store?.workspace(id: id) }
-            terminalTabs.artifactSourceProvider = { [weak live] tab in live?.terminalArtifactSource(tabID: tab.id) }
-            terminalTabs.uploaderProvider = { [weak live] tab in live?.terminalUploader(tabID: tab.id) }
-            terminalTabs.screenTextProvider = { [weak live] tab in await live?.terminalScreenText(tabID: tab.id) }
-            let backend = LiveWorkspaceCreationBackend(sync: live.workspaces, link: live.link, acpmux: live.acpmux)
-            // New Browser Tab only for a Mac that streams browser tabs (`browser-stream-v1`).
-            backend.capabilities = { [weak store] mac in store?.macCapabilities[mac] }
+            terminalTabs.artifactSourceProvider = { [weak live] tab, macID in live?.terminalArtifactSource(tabID: tab.id, macID: macID) }
+            terminalTabs.uploaderProvider = { [weak live] tab, macID in live?.terminalUploader(tabID: tab.id, macID: macID) }
+            terminalTabs.screenTextProvider = { [weak live] tab, macID in await live?.terminalScreenText(tabID: tab.id, macID: macID) }
+            // Each change goes to its workspace's Mac over that Mac's own link.
+            let backend = MultiMacWorkspaceBackend(coordinator: live)
             creator.backend = backend
             FeedRouting.shared.clearAllNotifications = { [weak live, weak backend] in
-                guard let live, let backend, backend.canClearNotifications(on: live.workspaces.macID) else {
-                    throw WorkspaceCreationError("Not connected to a Mac")
-                }
-                try await backend.clearAllNotifications(on: live.workspaces.macID)
-                live.terminalFeed.cleared()
+                // The Feed holds every linked Mac's terminal events: each clears its own.
+                let macs = (live?.linkedMacIDs ?? []).filter { backend?.canClearNotifications(on: $0) == true }
+                guard let backend, !macs.isEmpty else { throw WorkspaceCreationError("Not connected to a Mac") }
+                for macID in macs { try await backend.clearAllNotifications(on: macID) }
+            }
+            // A Feed reply to a terminal agent goes to its own Mac's link, into that terminal.
+            FeedRouting.shared.replyToTerminal = { [weak live] item, text in
+                guard let feed = live?.terminalFeed(macID: item.macID) else { return "Not connected to that Mac." }
+                return await feed.reply(itemID: item.id, text: text)
             }
             StreamedBrowserDirectory.shared.opener = { [weak live] in await live?.browserLink() }
+            StreamedBrowserDirectory.shared.macOpener = { [weak live] macID in await live?.browserLink(macID: macID) }
             creator.onTabResolved = { from, to in StreamedBrowserDirectory.shared.rename(tab: from, to: to) }
         } else {
             StreamedBrowserDirectory.shared.opener = nil
+            StreamedBrowserDirectory.shared.macOpener = nil
             FeedRouting.shared.clearAllNotifications = nil
+            FeedRouting.shared.replyToTerminal = nil
             terminalTabs.sessionProvider = nil
             terminalTabs.hasLiveSession = nil
             terminalTabs.artifactSourceProvider = nil
             terminalTabs.uploaderProvider = nil
             terminalTabs.screenTextProvider = nil
             creator.backend = offlineCreation
+        }
+    }
+
+    /// Tells the coordinator which Macs' data is on screen: one workspace's
+    /// Mac inside it, every Mac on the Workspaces list and the Feed, none on
+    /// Home and Settings (their links close after `MacLinkPolicy.idleAfter`).
+    func updateShownMacs() {
+        guard let live else { return }
+        switch tab {
+        case .workspaces:
+            if let shown = workspacesPath.last {
+                live.showing(macIDs: [shown.macID])
+            } else {
+                live.showing(macIDs: nil)
+            }
+        case .feed:
+            live.showing(macIDs: nil)
+        case .home, .settings:
+            live.showing(macIDs: [])
         }
     }
 
@@ -199,6 +241,9 @@ final class ShellModel {
             tab = .home
             return true
         }
+        // The notification's Mac: its link opens now if it was idle, so the
+        // chat and the Feed's answers reach that Mac (not the chosen one).
+        if let mac = route.mac, !mac.isEmpty, live?.canLink(macID: mac) == true { live?.touch(mac) }
         guard let destination = live?.destination(sessionID: route.sessionID, workspaceID: route.workspaceID, tabID: route.tabID) else {
             // The Feed lists the event meanwhile.
             tab = .feed

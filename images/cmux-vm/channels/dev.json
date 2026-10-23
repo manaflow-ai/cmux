@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "env": "dev",
-  "snapshot": "cmuxnp-dev-vmimg-hostrun8",
-  "snapshot_id": "sh-b1d43483db2f4aff82f2faf99e4aa51f",
+  "snapshot": "cmuxnp-dev-vmimg-ci-39709946782-1",
+  "snapshot_id": "sh-792f0d7e013e4b339158e600c89198e1",
   "freestyle_account": "cmux-next dev (freestyle-cmux-next-dev-20261004)",
   "source_sha": "9a69d6576a7a",
   "bake": "images/cmux-vm/bake.ts --agent-tools (local run, cmux-next dev key; bead cx-3bi.29): one boot unit cmux-host.service = cmux host run (bind agent, session host supervisor, Cloud agent role); /etc/cmux/host.json freestyle-edge carrier, no secret; CMUX_TUI_HOST_SCOPES=systemd; no Bun vm-agent, no cmux-devbox-boot",
@@ -13,8 +13,8 @@
   "smoke": "PASSED 2026-10-08 (smoke.ts 2 clones with the bind probe)",
   "worker": "development Worker deployed from feat-cmux-next with CLOUD_FREESTYLE_SNAPSHOT=cmuxnp-dev-vmimg-hostrun3 (bead cx-3bi.29, coordinator decision 2026-10-08)",
   "previous": {
-    "snapshot": "cmuxnp-dev-vmimg-hostrun7",
-    "snapshot_id": "sh-537c51cb81e24449ad8273ab5e26a866"
+    "snapshot": "cmuxnp-dev-vmimg-ci-39705585124-1",
+    "snapshot_id": "sh-9754a4cef03d45c7a0c44b3aeaedae30"
   },
   "backend_var": "CLOUD_FREESTYLE_SNAPSHOT for ENVIRONMENT=development (backend lead sets it; prefix cmuxnp-dev-vmimg- is enforced)",
   "also_kept": "cmuxnp-dev-vmimg-auto4-71d9a47 (sh-e4aab9ea589146abb98e356574ffe2de), superseded by auto5; cmuxnp-dev-vmimg-auto5-de18da6 (sh-d16c97b11a404bf9a1a9849bd0f073bb), superseded by auto6; cmuxnp-dev-vmimg-auto6-c9693f8 (sh-94ef280de5674a52adf18831289c37f1), superseded by auto7; cmuxnp-dev-vmimg-auto7-5c5cf35 (sh-42ecf781e5a1460b991c7bff18ae4caf), superseded by auto8; cmuxnp-dev-vmimg-agenttools3 (sh-538ea0742b344e04ae19eb3438a2afe6), superseded by agenttools5 (no cua-video refusal); cmuxnp-dev-vmimg-agenttools5 (sh-e64294bf57394cd397ba37951eeb6a52), superseded by hostrun3",
@@ -734,42 +734,156 @@
           ]
         }
       ]
+    },
+    {
+      "var": "CLOUD_FREESTYLE_SNAPSHOT",
+      "snapshot": "cmuxnp-dev-vmimg-ci-39705585124-1",
+      "snapshot_id": "sh-9754a4cef03d45c7a0c44b3aeaedae30",
+      "lock_sha256": "d469c79ee488716bf5a4d4e75c144a4914e326f10fdb295bc7671283f3b9751a",
+      "source_sha": "d9b8cafa7166084a6c70abf683f5a4af4aa19750",
+      "run": 39705585124,
+      "baked_at": "2026-10-22T01:33:40Z",
+      "bake": "images/cmux-vm/bake.ts --agent-tools (CI run 39705585124)",
+      "smoke": {
+        "result": "PASSED",
+        "at": "2026-10-22T01:33:40Z",
+        "detail": "smoke.ts --clones 2 --agent-probe --resize-probe (CI run 39705585124): 22 checks passed"
+      },
+      "note": "CVE sweep 2026-10-21: Chrome for Testing 156.0.8078.47, apt snapshot 20261022T000000Z (curl 8.5.0-2ubuntu10.16, ca-certificates 20260816ubuntu0.24.04.1, liblzma5/xz-utils ubuntu0.4, libnss3 2:3.98-1ubuntu0.3). browser-probe.ts on this snapshot: Chrome 156 sandboxed, libraries all found, host page snapshot ok.",
+      "promotion_smokes": [
+        {
+          "channel": "dev",
+          "snapshot_id": "sh-9754a4cef03d45c7a0c44b3aeaedae30",
+          "result": "PASSED",
+          "at": "2026-10-22T01:39:43.679Z",
+          "clones": [
+            "vm-1746851af0bf4b2892b649ff90411147",
+            "vm-541cfdca50684feab163ac5da6dde54e"
+          ]
+        }
+      ]
+    },
+    {
+      "var": "TEAM_VM_SNAPSHOT",
+      "snapshot": "cmuxnp-dev-vmimg-ci-team-39706679955-1",
+      "snapshot_id": "sh-6e6280d072d74fdbb18dc1180d8dbdcb",
+      "lock_sha256": "d469c79ee488716bf5a4d4e75c144a4914e326f10fdb295bc7671283f3b9751a",
+      "source_sha": "70d01be15c489016b62b73ce3cb2f9cdc3bdd6e3",
+      "run": 39706679955,
+      "baked_at": "2026-10-22T01:45:50Z",
+      "bake": "images/cmux-vm/bake.ts --agent-tools --team-vm (CI run 39706679955)",
+      "smoke": {
+        "result": "PASSED",
+        "at": "2026-10-22T01:45:50Z",
+        "detail": "smoke.ts --clones 2 --agent-probe --resize-probe --team-vm (CI run 39706679955): 23 checks passed"
+      },
+      "team_files_root": "/srv/team root:cmux-ssh 2750",
+      "note": "CVE sweep 2026-10-21: same lock as cmuxnp-dev-vmimg-ci-39705585124-1 (Chrome for Testing 156.0.8078.47, apt snapshot 20261022T000000Z).",
+      "promotion_smokes": [
+        {
+          "channel": "dev",
+          "snapshot_id": "sh-6e6280d072d74fdbb18dc1180d8dbdcb",
+          "result": "PASSED",
+          "at": "2026-10-22T01:49:46.758Z",
+          "clones": [
+            "vm-d8b43fa9789f414da3e20b1b963cb069",
+            "vm-592544793b57491cad5307c7bc1463aa"
+          ]
+        }
+      ]
+    },
+    {
+      "var": "CLOUD_FREESTYLE_SNAPSHOT",
+      "snapshot": "cmuxnp-dev-vmimg-ci-39709946782-1",
+      "snapshot_id": "sh-792f0d7e013e4b339158e600c89198e1",
+      "lock_sha256": "dc5ede9a0e88030deda175c9ac6c864471cea4dbe8de3d98cd1be85895ab545f",
+      "source_sha": "c026e257ae40ddc62ab2a6e4fa4e48535ef23cd5",
+      "run": 39709946782,
+      "baked_at": "2026-10-22T02:20:57Z",
+      "bake": "images/cmux-vm/bake.ts --agent-tools (CI run 39709946782)",
+      "smoke": {
+        "result": "PASSED",
+        "at": "2026-10-22T02:20:57Z",
+        "detail": "smoke.ts --clones 2 --agent-probe --resize-probe (CI run 39709946782): 22 checks passed"
+      },
+      "note": "CVE sweep 2026-10-21 round 2: lock c026e257ae4 adds base upgrades (openssh 13.20, systemd 8.18, bind9 0.24.04.8, git 7.4, libx11 0ubuntu0.1, tzdata 2026e) on top of CfT 156 and apt snapshot 20261022T000000Z.",
+      "promotion_smokes": [
+        {
+          "channel": "dev",
+          "snapshot_id": "sh-792f0d7e013e4b339158e600c89198e1",
+          "result": "PASSED",
+          "at": "2026-10-22T02:35:11.782Z",
+          "clones": [
+            "vm-645862f4da394a2ab505a3102a6f51ad",
+            "vm-dd63de4b170a4d9692033f644a0fde77"
+          ]
+        }
+      ]
+    },
+    {
+      "var": "TEAM_VM_SNAPSHOT",
+      "snapshot": "cmuxnp-dev-vmimg-ci-team-39709951013-1",
+      "snapshot_id": "sh-d6caf9514c9f41918ed89b5aa967d39a",
+      "lock_sha256": "dc5ede9a0e88030deda175c9ac6c864471cea4dbe8de3d98cd1be85895ab545f",
+      "source_sha": "c026e257ae40ddc62ab2a6e4fa4e48535ef23cd5",
+      "run": 39709951013,
+      "baked_at": "2026-10-22T02:31:05Z",
+      "bake": "images/cmux-vm/bake.ts --agent-tools --team-vm (CI run 39709951013)",
+      "smoke": {
+        "result": "PASSED",
+        "at": "2026-10-22T02:31:05Z",
+        "detail": "smoke.ts --clones 2 --agent-probe --resize-probe --team-vm (CI run 39709951013): 23 checks passed"
+      },
+      "team_files_root": "/srv/team root:cmux-ssh 2750",
+      "note": "CVE sweep 2026-10-21 round 2: lock c026e257ae4 adds base upgrades (openssh 13.20, systemd 8.18, bind9 0.24.04.8, git 7.4, libx11 0ubuntu0.1, tzdata 2026e) on top of CfT 156 and apt snapshot 20261022T000000Z.",
+      "promotion_smokes": [
+        {
+          "channel": "dev",
+          "snapshot_id": "sh-d6caf9514c9f41918ed89b5aa967d39a",
+          "result": "PASSED",
+          "at": "2026-10-22T02:38:14.824Z",
+          "clones": [
+            "vm-2fe0ef2541f64c09b55551d4caf377b2",
+            "vm-b8985d6ab7ae46d38151da76b7ca2e68"
+          ]
+        }
+      ]
     }
   ],
   "previous_notes": "cmuxnp-dev-vmimg-hostrun4 (sh-c643b05f40d8486eb862b753306fa803; Worker 2463f0a9-bdd3-46a1-afd9-1742bd417a1e): reports held by the send-time window, superseded. Before it: cmuxnp-dev-vmimg-hostrun3 (sh-584ab926a57d4b178ae605bc445fdfbc; Worker 10e9e45b-9383-4a8a-9942-3bece4e605b3): Cloud worker crash on the first agent socket client, superseded. Before it: cmuxnp-dev-vmimg-agenttools5 (sh-e64294bf57394cd397ba37951eeb6a52; Worker version 7e29392f-4f88-4236-8f64-abca96b2132f): rollback, kept. Before it: cmuxnp-dev-vmimg-auto8-db3743e (sh-2edc51e3a9cb417d89ed7e7159effb0b; Worker version e0fd070e-7914-4377-b51f-18e5268fec02): rollback, kept",
   "var": "CLOUD_FREESTYLE_SNAPSHOT",
-  "promoted_at": "2026-10-12T03:01:07.995Z",
-  "promoted_by": "lawrence@mac.lan",
+  "promoted_at": "2026-10-22T02:35:11.783Z",
+  "promoted_by": "lawrence@lawrences-MacBook-Pro-2.local",
   "promotion": {
     "smoke": {
       "result": "PASSED",
-      "at": "2026-10-12T03:01:07.995Z",
+      "at": "2026-10-22T02:35:11.782Z",
       "clones": [
-        "vm-e922bf7bcea14073994135e389c60da9",
-        "vm-0e9db1433bd24ce5bb5fdd77c1157816"
+        "vm-645862f4da394a2ab505a3102a6f51ad",
+        "vm-dd63de4b170a4d9692033f644a0fde77"
       ],
-      "detail": "exit 0; report /var/folders/rr/vmfx6xh12dz2tlvgtmyvjmf80000gn/T/cmux-promote-promote202610120258-OG0M0Q/smoke-promote202610120258.json"
+      "detail": "exit 0; report /tmp/acpmux-501/t/15a90337/01a16116-c7ff-75a2-81c6-4af37df2000c/cmux-promote-promote202610220231-SongdB/smoke-promote202610220231.json"
     }
   },
   "team_vm": {
     "var": "TEAM_VM_SNAPSHOT",
-    "snapshot": "cmuxnp-dev-vmimg-teamvm5",
-    "snapshot_id": "sh-309b450e3a9c4301bdab1b192d4ecdc8",
+    "snapshot": "cmuxnp-dev-vmimg-ci-team-39709951013-1",
+    "snapshot_id": "sh-d6caf9514c9f41918ed89b5aa967d39a",
     "previous": {
-      "snapshot": "cmuxnp-dev-vmimg-teamvm3",
-      "snapshot_id": null
+      "snapshot": "cmuxnp-dev-vmimg-ci-team-39706679955-1",
+      "snapshot_id": "sh-6e6280d072d74fdbb18dc1180d8dbdcb"
     },
-    "promoted_at": "2026-10-09T14:31:58.126Z",
-    "promoted_by": "lawrence@mac.lan",
+    "promoted_at": "2026-10-22T02:38:14.836Z",
+    "promoted_by": "lawrence@lawrences-MacBook-Pro-2.local",
     "promotion": {
       "smoke": {
         "result": "PASSED",
-        "at": "2026-10-09T14:31:58.126Z",
+        "at": "2026-10-22T02:38:14.825Z",
         "clones": [
-          "vm-fee0075cff6e460d8e8c8de466ebe145",
-          "vm-c2dc2f936116457c9701ae813fe332d1"
+          "vm-2fe0ef2541f64c09b55551d4caf377b2",
+          "vm-b8985d6ab7ae46d38151da76b7ca2e68"
         ],
-        "detail": "exit 0; report /var/folders/rr/vmfx6xh12dz2tlvgtmyvjmf80000gn/T/cmux-promote-promote202610091429-aBH6TZ/smoke-promote202610091429.json"
+        "detail": "exit 0; report /tmp/acpmux-501/t/15a90337/01a16116-c7ff-75a2-81c6-4af37df2000c/cmux-promote-promote202610220235-FdAP5x/smoke-promote202610220235.json"
       }
     }
   },

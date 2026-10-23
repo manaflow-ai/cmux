@@ -122,7 +122,8 @@ struct AgentPaneRelaunchWakeTests {
         let held = AgentPaneWakeState(shell: true, shellText: "cargo test")
         tabs.wakeStates["tab_slow"] = held
         let page = try #require(tabs.view(for: "tab_slow"))
-        _ = await page.model.respond(to: AgentPaneRequest(body: ["method": "reconnect"]))
+        _ = await page.model.respond(to: AgentPaneRequest(body: ["method": "ready", "params": ["reconnect": true]]))
+        try #require(page.model.hasHandshake, "the reconnect handshake did not run")
         let asked = Asked()
         tabs.relaunchWake.read = { _, _ in
             asked.count += 1
@@ -131,11 +132,95 @@ struct AgentPaneRelaunchWakeTests {
         #expect(await tabs.relaunchWakeStates()["tab_slow"] == held, "a page that had not taken its state dropped it")
         #expect(asked.count == 0, "a page that had not taken its state was asked for one")
 
-        // After its ready, a page that does not answer in time keeps the tab's kept state.
+        // After its ready took the state, a page that does not answer in time keeps what it was given.
         _ = try await Self.ready(page)
-        tabs.wakeStates["tab_slow"] = held
+        #expect(tabs.wakeStates["tab_slow"] == nil && page.model.pendingWake == nil)
         #expect(await tabs.relaunchWakeStates()["tab_slow"] == held, "a page that did not answer in time saved nothing over it")
         #expect(asked.count == 1)
+    }
+
+    /// Leo 2026-10-20: four screenshots pasted into a chat's composer were gone after a relaunch,
+    /// while the draft's text came back. Their base64 went into the JSON, past a tab's 4 MB cap, so
+    /// the tab's whole composer was dropped. Each attachment's bytes are now a file of their own in
+    /// the state directory: the JSON stays small, the screenshots come back whole as the chips'
+    /// thumbnails, and their files go once the launch takes them.
+    @Test func pastedScreenshotsComeBackAfterARelaunch() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "relaunch-wake-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appending(path: AgentPaneRelaunchWake.fileName)
+        let folder = directory.appending(path: AgentPaneRelaunchWake.attachmentsDirectoryName)
+        let records = ["tab_chat": AgentSessionRef(host: Self.thisMac, hostName: "This Mac", session: "s-chat", harness: "claude")]
+        // Four Retina screenshots of 1.5 MB each: 8 MB of base64 together.
+        let shots = (1...4).map { index in
+            var bytes = Data(repeating: UInt8(index), count: 1_500_000)
+            bytes.replaceSubrange(0..<8, with: [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+            return bytes
+        }
+        let chips = shots.enumerated().map { index, bytes in
+            AgentPaneWakeState.Attachment(id: "shot-\(index)", kind: "image", name: "Screenshot \(index).png",
+                                          mimeType: "image/png", size: Double(bytes.count), data: bytes.base64EncodedString())
+        }
+        let link = AgentPaneWakeState.Attachment(id: "link", kind: "link", name: "notes", mimeType: "inode/directory", size: 0, path: "/tmp/notes")
+        let held = AgentPaneWakeState(attachments: chips + [link])
+
+        // This run: the chat's page holds the four screenshots when the app quits.
+        let before = Self.run(file: file, records: records)
+        let page = try #require(before.view(for: "tab_chat"))
+        _ = try await Self.ready(page)
+        before.relaunchWake.read = { _, _ in held }
+        await before.relaunchWake.save(before.relaunchWakeStates())
+        let size = try #require(try file.resourceValues(forKeys: [.fileSizeKey]).fileSize, "the quit saved no composer")
+        #expect(size < 16 * 1024, "the screenshots' bytes went into the JSON (\(size) bytes)")
+        let copies = try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
+        #expect(copies.count == 4 && copies.allSatisfy { $0.pathExtension == "png" }, "\(copies.map(\.lastPathComponent))")
+        let copied = try Set(copies.map { try Data(contentsOf: $0) })
+        #expect(copied == Set(shots), "a copied screenshot's bytes changed")
+
+        // The next run: the chat's first page gets the four screenshots back with its handshake.
+        let after = Self.run(file: file, records: records)
+        after.wakeStates = after.relaunchWake.take()
+        #expect(!FileManager.default.fileExists(atPath: file.path) && !FileManager.default.fileExists(atPath: folder.path),
+                "the launch left the saved composer behind, so a chip sent in this run could come back")
+        let restoredPage = try #require(after.view(for: "tab_chat"))
+        let restored = try #require(try await Self.ready(restoredPage)["wake"] as? [String: Any], "the chat came back without its screenshots")
+        let attachments = try #require(restored["attachments"] as? [[String: Any]])
+        #expect(attachments.map { $0["name"] as? String } == chips.map(\.name) + ["notes"])
+        #expect(attachments.prefix(4).map { ($0["data"] as? String).flatMap { Data(base64Encoded: $0) } } == shots,
+                "a screenshot came back without its bytes, so its chip has no thumbnail")
+        #expect(attachments.last?["path"] as? String == "/tmp/notes", "a linked folder came back without its path")
+
+        // Sent before the next quit: that quit saves nothing, and no copy is left behind.
+        await after.relaunchWake.save([:])
+        #expect(!FileManager.default.fileExists(atPath: file.path) && !FileManager.default.fileExists(atPath: folder.path))
+    }
+
+    /// A tab that does not fit the attachments' cap is not kept, and none of its files stay; the
+    /// saves before this change (contents inline in the JSON) still come back.
+    @Test func attachmentsPastTheCapLeaveNoFilesAndOldSavesStillRestore() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "relaunch-wake-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appending(path: AgentPaneRelaunchWake.fileName)
+        let folder = directory.appending(path: AgentPaneRelaunchWake.attachmentsDirectoryName)
+        let store = AgentPaneRelaunchWake(file: file)
+        store.maximumAttachmentBytes = 8
+        // The small tab's chip leaves room for one of this tab's two chips, not both: the first
+        // one's file is written before the second does not fit.
+        let huge = AgentPaneWakeState(attachments: (0..<2).map {
+            AgentPaneWakeState.Attachment(id: "big-\($0)", kind: "image", name: "big.png", mimeType: "image/png", size: 3, data: "AAAA")
+        })
+        let small = AgentPaneWakeState(attachments: [
+            AgentPaneWakeState.Attachment(id: "s", kind: "image", name: "s.png", mimeType: "image/png", size: 3, data: "AAAA"),
+        ])
+        await store.save(["tab_huge": huge, "tab_small": small])
+        let left = try FileManager.default.contentsOfDirectory(atPath: folder.path)
+        #expect(left.count == 1, "the dropped tab's files stayed: \(left)")
+        #expect(store.take() == ["tab_small": small])
+
+        let inline = ["tab_old": AgentPaneWakeState(attachments: small.attachments, shell: true, shellText: "ls")]
+        try JSONEncoder().encode(inline).write(to: file)
+        #expect(store.take() == inline, "a save the last build wrote did not come back")
     }
 
     /// A chat whose page holds nothing saves nothing, and with nothing held the file goes.

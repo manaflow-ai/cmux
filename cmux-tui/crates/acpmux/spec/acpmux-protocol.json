@@ -170,32 +170,52 @@
     {
       "kind": "request",
       "name": "_acpmux/attach",
-      "params": true,
-      "result": true
+      "params": {
+        "$ref": "#/types/AttachParams"
+      },
+      "result": {
+        "$ref": "#/types/AttachResult"
+      }
     },
     {
       "kind": "request",
       "name": "_acpmux/detach",
-      "params": true,
-      "result": true
+      "params": {
+        "$ref": "#/types/SessionRef"
+      },
+      "result": {
+        "$ref": "#/types/Done"
+      }
     },
     {
       "kind": "request",
       "name": "_acpmux/view",
-      "params": true,
-      "result": true
+      "params": {
+        "$ref": "#/types/ViewParams"
+      },
+      "result": {
+        "$ref": "#/types/Done"
+      }
     },
     {
       "kind": "request",
       "name": "_acpmux/markUnread",
-      "params": true,
-      "result": true
+      "params": {
+        "$ref": "#/types/SessionRef"
+      },
+      "result": {
+        "$ref": "#/types/Done"
+      }
     },
     {
       "kind": "request",
       "name": "_acpmux/watch",
-      "params": true,
-      "result": true
+      "params": {
+        "$ref": "#/types/WatchParams"
+      },
+      "result": {
+        "$ref": "#/types/SessionsResult"
+      }
     },
     {
       "kind": "request",
@@ -212,6 +232,12 @@
     {
       "kind": "request",
       "name": "_acpmux/offer_respond",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/subsession/answer",
       "params": true,
       "result": true
     },
@@ -253,6 +279,24 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/forum/ack",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/forum/announce",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/forum/rules",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/set_tools",
       "params": true,
       "result": true
@@ -260,6 +304,12 @@
     {
       "kind": "request",
       "name": "_acpmux/subagent_stop",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/app_reply",
       "params": true,
       "result": true
     },
@@ -289,6 +339,24 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/send_queue",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/send_status",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/step_now",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/agent_pair_resume",
       "params": true,
       "result": true
@@ -312,6 +380,34 @@
       "result": true
     },
     {
+      "kind": "request",
+      "name": "_acpmux/process/background",
+      "params": {
+        "$ref": "#/types/ProcessBackgroundParams"
+      },
+      "result": {
+        "$ref": "#/types/ProcessBackgroundResult"
+      }
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/worktree/report",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/worktree/clean",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/worktree/restore",
+      "params": true,
+      "result": true
+    },
+    {
       "kind": "notification",
       "name": "_acpmux/process_update",
       "params": true
@@ -319,6 +415,12 @@
     {
       "kind": "request",
       "name": "_acpmux/kill",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/watch_take_over",
       "params": true,
       "result": true
     },
@@ -355,8 +457,12 @@
     {
       "kind": "request",
       "name": "_acpmux/events",
-      "params": true,
-      "result": true
+      "params": {
+        "$ref": "#/types/EventsParams"
+      },
+      "result": {
+        "$ref": "#/types/EventsResult"
+      }
     },
     {
       "kind": "request",
@@ -472,6 +578,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/composer_set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/composers",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/export",
       "params": true,
       "result": true
@@ -479,6 +597,12 @@
     {
       "kind": "request",
       "name": "_acpmux/import",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/file_put",
       "params": true,
       "result": true
     },
@@ -561,6 +685,30 @@
     {
       "kind": "request",
       "name": "_acpmux/person_holds",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/approvers",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/approvers_set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/new_chat_picks_set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/workspace_roots_set",
       "params": true,
       "result": true
     },
@@ -920,6 +1068,14 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/protocol",
+      "params": {
+        "$ref": "#/types/ProtocolParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/shutdown",
       "params": true,
       "result": true
@@ -938,6 +1094,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/peer_lease",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/peer_reconnect",
       "params": true,
       "result": true
@@ -949,9 +1111,41 @@
       "result": true
     },
     {
+      "kind": "request",
+      "name": "_acpmux/pair_ticket_new",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/pair_list",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/pair_revoke",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/pair_issue",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/pair_redeem",
+      "params": true,
+      "result": true
+    },
+    {
       "kind": "notification",
       "name": "_acpmux/event",
-      "params": true
+      "params": {
+        "$ref": "#/types/SessionEvent"
+      }
     },
     {
       "kind": "notification",
@@ -1057,6 +1251,106 @@
       ],
       "type": "object"
     },
+    "AttachParams": {
+      "additionalProperties": false,
+      "properties": {
+        "afterSeq": {
+          "description": "Page forward from here (oldest first) when `beforeSeq` is absent.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "beforeSeq": {
+          "description": "The newest `limit` records before this one.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "eventStream": {
+          "description": "Send every matching record as `_acpmux/event`; else the agent's\nupdates arrive as ACP `session/update` and acpmux's own as\n`_acpmux/event`.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "kinds": {
+          "anyOf": [
+            {
+              "$ref": "#/types/EventKinds"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "limit": {
+          "description": "Default 2000.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "maxBytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "visible": {
+          "description": "False attaches without showing the chat (`hub/seen.rs`); default true.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    "AttachResult": {
+      "properties": {
+        "events": {
+          "items": {
+            "$ref": "#/types/SessionEvent"
+          },
+          "type": "array"
+        },
+        "hasMore": {
+          "description": "More records lie beyond this page.",
+          "type": "boolean"
+        },
+        "lastSeq": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "session": {
+          "$ref": "#/types/SessionDetail"
+        }
+      },
+      "required": [
+        "events",
+        "hasMore",
+        "lastSeq",
+        "session"
+      ],
+      "type": "object"
+    },
     "ChangedSession": {
       "anyOf": [
         {
@@ -1120,6 +1414,10 @@
       ],
       "type": "string"
     },
+    "Done": {
+      "description": "An acknowledgement with nothing in it.",
+      "type": "object"
+    },
     "Enforcement": {
       "description": "What limits the session's agent as far as acpmux can tell.",
       "properties": {
@@ -1143,6 +1441,101 @@
         "isolation",
         "label",
         "policy"
+      ],
+      "type": "object"
+    },
+    "EventKinds": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      ],
+      "description": "Which records a page or an event stream carries: one kind, or any of\nseveral. Absent or null: every record."
+    },
+    "EventsParams": {
+      "additionalProperties": false,
+      "properties": {
+        "afterSeq": {
+          "description": "Records after this one; it may not lie beyond the last record.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "beforeSeq": {
+          "description": "The newest `limit` records before this one.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "kinds": {
+          "anyOf": [
+            {
+              "$ref": "#/types/EventKinds"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "limit": {
+          "description": "Default 5000.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "maxBytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    "EventsResult": {
+      "properties": {
+        "events": {
+          "items": {
+            "$ref": "#/types/SessionEvent"
+          },
+          "type": "array"
+        },
+        "hasMore": {
+          "type": "boolean"
+        },
+        "lastSeq": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "events",
+        "hasMore",
+        "lastSeq"
       ],
       "type": "object"
     },
@@ -1985,6 +2378,44 @@
     "PermissionRespondResult": {
       "type": "object"
     },
+    "ProcessBackgroundParams": {
+      "additionalProperties": false,
+      "description": "`_acpmux/process/background` (Ctrl-B): the chat whose running work goes\nto the background, and the one tool call to move (none: every\nforeground task, as Claude Code's own Ctrl-B does).",
+      "properties": {
+        "sessionId": {
+          "description": "The chat's id, name or unique prefix.",
+          "type": "string"
+        },
+        "toolCallId": {
+          "description": "Only the task this tool call started.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    "ProcessBackgroundResult": {
+      "properties": {
+        "backgrounded": {
+          "description": "Claude Code moved something: the tasks arrive as `process_update`s\nwith origin `user_backgrounded`. False when nothing ran in the\nforeground (or no turn ran).",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "backgrounded"
+      ],
+      "type": "object"
+    },
+    "ProtocolParams": {
+      "additionalProperties": false,
+      "description": "`_acpmux/protocol` takes no params.",
+      "type": "object"
+    },
     "PurgedSession": {
       "description": "A purged session: only its id is left.",
       "properties": {
@@ -1997,6 +2428,31 @@
       ],
       "type": "object"
     },
+    "QueuedImage": {
+      "description": "An image a queued prompt sends.",
+      "properties": {
+        "id": {
+          "description": "The SHA-256 of its bytes (64 lowercase hex digits): `_acpmux/attachment {sessionId, id}`\nreads it, and `_acpmux/queue_edit` `update` `images` keeps it.",
+          "type": "string"
+        },
+        "mimeType": {
+          "type": "string"
+        },
+        "name": {
+          "description": "Its file name, when the client gave one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "mimeType",
+        "name"
+      ],
+      "type": "object"
+    },
     "QueuedPromptSummary": {
       "description": "A prompt waiting for the running turn to end.",
       "properties": {
@@ -2006,6 +2462,14 @@
         "held": {
           "description": "Waits behind a failed turn until the queue is resumed.",
           "type": "boolean"
+        },
+        "images": {
+          "default": [],
+          "description": "The images it sends, in its order; `_acpmux/attachment` reads each by its id.",
+          "items": {
+            "$ref": "#/types/QueuedImage"
+          },
+          "type": "array"
         },
         "prompt": {
           "type": "string"
@@ -2025,6 +2489,7 @@
       "required": [
         "client",
         "held",
+        "images",
         "prompt",
         "promptId",
         "queuedAt",
@@ -2093,6 +2558,446 @@
       ],
       "type": "object"
     },
+    "SessionDetail": {
+      "description": "A session as `_acpmux/attach` returns it: its summary plus what an\nattached client draws (`Hub::session_detail`).",
+      "properties": {
+        "agentCapabilities": true,
+        "agentInfo": true,
+        "agentSessionId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "attached": {
+          "description": "Attached clients.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "backgroundsWork": {
+          "description": "`_acpmux/process/background` (Ctrl-B) moves its foreground work: its\nharness is Claude Code (claude-stdio), whatever the harness's name.\nClients offer Ctrl-B from this, not from `harness`.",
+          "type": "boolean"
+        },
+        "children": {
+          "description": "Its sub-sessions that are not closed.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "configOptions": true,
+        "createdAt": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "currentModeId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "cwd": {
+          "description": "Lossy when the path is not UTF-8.",
+          "type": "string"
+        },
+        "depth": {
+          "description": "0 for a root session, 1 for its sub-sessions, and so on.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "enforcement": {
+          "$ref": "#/types/Enforcement"
+        },
+        "eventCount": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "family": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "forkSeq": {
+          "description": "Where a fork branched off its parent.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "harness": {
+          "type": "string"
+        },
+        "indicator": {
+          "anyOf": [
+            {
+              "$ref": "#/types/Indicator"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The status dot every client draws (`status_indicator`); null for none."
+        },
+        "inputSince": {
+          "description": "Since when it waits on the person (`lane`); null while it does not.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "lane": {
+          "anyOf": [
+            {
+              "$ref": "#/types/Lane"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What it is doing and since when (`views::lane`); null for a closed session."
+        },
+        "lastMessage": {
+          "anyOf": [
+            {
+              "$ref": "#/types/LastMessage"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "One sidebar line; null before the first prompt."
+        },
+        "lastPrompt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "lastSeq": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "lastTurn": {
+          "anyOf": [
+            {
+              "$ref": "#/types/LastTurn"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "lifecycleReceipt": {
+          "anyOf": [
+            {
+              "$ref": "#/types/LifecycleReceipt"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "An optional controller/daemon lifecycle receipt. It is absent until a\nproducer supplies a validated receipt; clients must not infer one from\nstatus or placement fields."
+        },
+        "mcpServers": {
+          "description": "The MCP servers the harness says it loaded, from its own report (Claude\nCode's system/init); null when it reports none (every ACP harness).",
+          "items": {
+            "$ref": "#/types/McpServerSummary"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "models": true,
+        "modes": {
+          "description": "The agent's ACP session modes."
+        },
+        "moving": {
+          "description": "Being moved to another daemon; it takes no prompt meanwhile.",
+          "type": "boolean"
+        },
+        "name": {
+          "type": "string"
+        },
+        "parentId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "peer": {
+          "description": "The peer daemon a remote session runs on; absent for this daemon's own.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "pending": {
+          "description": "Permission requests waiting for an answer.",
+          "items": true,
+          "type": "array"
+        },
+        "pendingPermissions": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "policy": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "preview": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "pullRequests": {
+          "default": [],
+          "description": "The pull request URLs its `gh pr create` calls printed, oldest first;\nabsent from a peer on an older acpmux.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "queue": {
+          "items": {
+            "$ref": "#/types/QueuedPromptSummary"
+          },
+          "type": "array"
+        },
+        "queuePaused": {
+          "description": "A turn failed: the prompts behind it wait for a client to resume them.",
+          "type": "boolean"
+        },
+        "queued": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "rules": {
+          "description": "The session has its own permission rules.",
+          "type": "boolean"
+        },
+        "rulesJson": {
+          "description": "The session's permission rules."
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "shortName": {
+          "description": "Its name among its parent's sub-sessions; null for a root.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "shown": {
+          "description": "Some attached client shows the chat.",
+          "type": "boolean"
+        },
+        "spawnedBy": {
+          "description": "The session whose agent started this one (its `spawnedBy` tag), kept\nonly while that parent is listed; one level.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "startedBy": {
+          "description": "The session whose agent started this one with its `start_session`\ntool (`hub/subsessions.rs`); null for a session a person or client\nstarted. Kept when the parent is closed or gone, so a client draws\nthe tree from these links at any depth.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "stateSeq": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "status": {
+          "description": "`idle`, `ready`, `running`, `waiting`, `disconnected` or `closed`;\na peer's session also `unreachable`.",
+          "type": "string"
+        },
+        "steering": {
+          "description": "The agent takes a prompt mid-turn.",
+          "type": "boolean"
+        },
+        "tags": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Tags that have not expired.",
+          "type": "object"
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tools": {
+          "description": "The chat's tools (`hub/tools.rs`).",
+          "items": {
+            "$ref": "#/types/ToolSummary"
+          },
+          "type": "array"
+        },
+        "toolsMutable": {
+          "description": "`_acpmux/set_tools` can change them.",
+          "type": "boolean"
+        },
+        "turn": {
+          "anyOf": [
+            {
+              "$ref": "#/types/TurnSummary"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "turnCount": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "unread": {
+          "type": "boolean"
+        },
+        "updatedAt": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "usage": true,
+        "waitingOn": {
+          "description": "What it waits on the person for: `question` (an agent question) or\n`permission`; null while nothing is pending. Only the person allows a permission.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "waitingPrompt": {
+          "description": "The first prompt of the question it waits on, cut to 120 characters.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "waitsForSlot": {
+          "description": "A sub-session whose queued prompt waits for a free run slot of its parent: the parent\nruns as many sub-sessions as its `maxRunning` allows (`hub/subsession_runs.rs`). Absent\notherwise, and from a peer on an older acpmux.",
+          "type": "boolean"
+        },
+        "watching": {
+          "description": "The family of a conversation another app runs that this chat only shows; null otherwise.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "sessionId",
+        "name",
+        "harness",
+        "cwd",
+        "status",
+        "createdAt",
+        "updatedAt",
+        "lastSeq",
+        "eventCount",
+        "turnCount",
+        "depth",
+        "children",
+        "queued",
+        "queuePaused",
+        "moving",
+        "steering",
+        "backgroundsWork",
+        "queue",
+        "pendingPermissions",
+        "enforcement",
+        "rules",
+        "tags",
+        "stateSeq",
+        "unread",
+        "attached",
+        "shown",
+        "tools",
+        "toolsMutable",
+        "pending"
+      ],
+      "type": "object"
+    },
+    "SessionEvent": {
+      "description": "One record of a session's log (`server::event_value`).",
+      "properties": {
+        "at": {
+          "description": "Unix ms.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "dir": {
+          "description": "`in` (agent to acpmux), `out` (acpmux to agent), `mux` (acpmux's own)\nor `peer`.",
+          "type": "string"
+        },
+        "kind": {
+          "description": "The JSON-RPC method, the `sessionUpdate` value, or an acpmux kind such\nas `status`.",
+          "type": "string"
+        },
+        "msg": {
+          "description": "The raw JSON-RPC message, or acpmux's payload."
+        },
+        "seq": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "at",
+        "dir",
+        "kind",
+        "msg",
+        "seq",
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    "SessionRef": {
+      "additionalProperties": false,
+      "properties": {
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sessionId"
+      ],
+      "type": "object"
+    },
     "SessionSummary": {
       "description": "One session as every list shows it (`Hub::session_summary`). A peer's\nsession arrives as the peer daemon's own summary plus `peer`, with\n`status` `unreachable` while the peer is gone; a peer on an older\nacpmux may lack newer fields, so nullable ones are optional here.",
       "properties": {
@@ -2107,6 +3012,10 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "backgroundsWork": {
+          "description": "`_acpmux/process/background` (Ctrl-B) moves its foreground work: its\nharness is Claude Code (claude-stdio), whatever the harness's name.\nClients offer Ctrl-B from this, not from `harness`.",
+          "type": "boolean"
         },
         "children": {
           "description": "Its sub-sessions that are not closed.",
@@ -2288,6 +3197,14 @@
             "null"
           ]
         },
+        "pullRequests": {
+          "default": [],
+          "description": "The pull request URLs its `gh pr create` calls printed, oldest first;\nabsent from a peer on an older acpmux.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "queue": {
           "items": {
             "$ref": "#/types/QueuedPromptSummary"
@@ -2394,6 +3311,31 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "waitingOn": {
+          "description": "What it waits on the person for: `question` (an agent question) or\n`permission`; null while nothing is pending. Only the person allows a permission.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "waitingPrompt": {
+          "description": "The first prompt of the question it waits on, cut to 120 characters.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "waitsForSlot": {
+          "description": "A sub-session whose queued prompt waits for a free run slot of its parent: the parent\nruns as many sub-sessions as its `maxRunning` allows (`hub/subsession_runs.rs`). Absent\notherwise, and from a peer on an older acpmux.",
+          "type": "boolean"
+        },
+        "watching": {
+          "description": "The family of a conversation another app runs that this chat only shows; null otherwise.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
@@ -2413,6 +3355,7 @@
         "queuePaused",
         "moving",
         "steering",
+        "backgroundsWork",
         "queue",
         "pendingPermissions",
         "enforcement",
@@ -2429,12 +3372,38 @@
     },
     "SessionsParams": {
       "additionalProperties": false,
+      "description": "Also the page fields of `_acpmux/watch` (`hub::session_pages`).",
+      "properties": {
+        "cursor": {
+          "description": "A previous reply's `nextCursor`: the page starts after that session.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "limit": {
+          "description": "Page size, at least 1. Without it the reply is the whole list.",
+          "format": "uint64",
+          "minimum": 1,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
       "type": "object"
     },
     "SessionsResult": {
       "properties": {
+        "nextCursor": {
+          "description": "With `limit`: the cursor for the next page, null when the list is\ndone. Absent without `limit`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "sessions": {
-          "description": "Local and peer sessions, newest first.",
+          "description": "Local and peer sessions, newest first, then by `sessionId`.",
           "items": {
             "$ref": "#/types/SessionSummary"
           },
@@ -2485,8 +3454,22 @@
     "TurnSummary": {
       "description": "The running turn.",
       "properties": {
+        "activity": {
+          "description": "What the turn does right now: its latest tool call's title; null\nuntil it calls one (`hub/activity.rs`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "client": {
           "type": "string"
+        },
+        "planStep": {
+          "description": "Its plan's entry in progress; null without one.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "prompt": {
           "type": "string"
@@ -2509,13 +3492,59 @@
         }
       },
       "required": [
+        "activity",
         "client",
+        "planStep",
         "prompt",
         "promptId",
         "startedAt",
         "turnId",
         "turnSeq"
       ],
+      "type": "object"
+    },
+    "ViewParams": {
+      "additionalProperties": false,
+      "properties": {
+        "sessionId": {
+          "type": "string"
+        },
+        "visible": {
+          "description": "The attached client shows the chat (`hub/seen.rs`).",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "sessionId",
+        "visible"
+      ],
+      "type": "object"
+    },
+    "WatchParams": {
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "enabled": {
+          "description": "Default true: every session's changes arrive as\n`_acpmux/session_changed`.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "limit": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
       "type": "object"
     }
   },

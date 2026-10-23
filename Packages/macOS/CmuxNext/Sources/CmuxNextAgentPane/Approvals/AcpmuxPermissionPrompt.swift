@@ -95,13 +95,30 @@ nonisolated enum AcpmuxPermissionPrompt {
         return nil
     }
 
-    /// A tool permission both buttons can answer: not a question (the daemon's normalized
-    /// `toolCall._meta.acpmux.question`), and it offers allow once and a deny.
-    static func isToolPermission(_ request: [String: Any]) -> Bool {
+    /// The daemon's normalized question of a request, `toolCall._meta.acpmux.question`
+    /// (`{harness, agent, items: [{id, header?, prompt, options, …}]}`, acpmux `hub/questions.rs`),
+    /// when it is an object.
+    static func question(_ request: [String: Any]) -> [String: Any]? {
         let tool = request["toolCall"] as? [String: Any]
         let acpmux = (tool?["_meta"] as? [String: Any])?["acpmux"] as? [String: Any]
+        return acpmux?["question"] as? [String: Any]
+    }
+
+    /// True when the request is a question an agent asks a person, never a tool permission: it
+    /// carries `toolCall._meta.acpmux.question`, or it is Claude Code's AskUserQuestion
+    /// (`_meta.claude.tool`), as acpmux's own `needs_person` reads it.
+    static func isQuestion(_ request: [String: Any]) -> Bool {
+        let tool = request["toolCall"] as? [String: Any]
+        let meta = tool?["_meta"] as? [String: Any]
+        return (meta?["acpmux"] as? [String: Any])?["question"] != nil
+            || (meta?["claude"] as? [String: Any])?["tool"] as? String == "AskUserQuestion"
+    }
+
+    /// A tool permission both buttons can answer: not a question (``isQuestion(_:)``), and it
+    /// offers allow once and a deny.
+    static func isToolPermission(_ request: [String: Any]) -> Bool {
         let offered = request["options"] as? [[String: Any]] ?? []
-        return acpmux?["question"] == nil && option(allow: true, offered: offered) != nil
+        return !isQuestion(request) && option(allow: true, offered: offered) != nil
             && option(allow: false, offered: offered) != nil
     }
 

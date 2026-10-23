@@ -1,17 +1,24 @@
 // A run of tool calls split into what the transcript draws: consecutive calls of one kind
 // under one line ("Ran 3 commands", "Read 4 files", "Edited App.tsx +12 -3"), messages to
-// other agents as cards, and everything else as its own row.
-import type { AcpmuxActivity } from "../model";
+// other agents and calls to the cmux-subsessions tools as cards, and everything else as its own row.
+import { pathKey, type AcpmuxActivity } from "../model";
 import type { Translate } from "../i18n";
+import { isBareShellName } from "../toolPaths";
 import { agentMessage, type AgentMessage } from "./agentMessages";
 import { mcpCall, mcpKey } from "./mcpCalls";
+import { subsessionCall, type SubsessionCall } from "./subsessionCalls";
+import { isThought, mergeThoughts } from "./thoughts";
 
 /// The kinds of call that group with their neighbors.
 export type ToolGroupKind = "commands" | "reads" | "edits" | "searches";
 
 export type ToolGroup =
+  /// Its calls, with any thought that came between two of them in its place (`groupCalls` lists
+  /// only the calls).
   | { type: "group"; kind: ToolGroupKind; items: AcpmuxActivity[] }
   | { type: "message"; item: AcpmuxActivity; message: AgentMessage }
+  /// A sub-session started, sent a message or waited on (subsessionCalls.ts), each its own card.
+  | { type: "subsession"; item: AcpmuxActivity; call: SubsessionCall }
   /// Consecutive calls to one MCP server's tool (mcpCalls.ts), one or more.
   | { type: "mcp"; items: AcpmuxActivity[] }
   | { type: "item"; item: AcpmuxActivity };
@@ -39,39 +46,56 @@ export function toolGroupKind(tool: Tool): ToolGroupKind | undefined {
   }
 }
 
-/// Consecutive calls of one kind form a group; a thought or a call of another kind ends it.
-/// Commands, reads and searches group from two calls; an edit with a diff groups alone, so it
-/// still reads "Edited App.tsx +12 -3". Calls to one MCP tool group from one call, so even a lone
-/// one reads as what it did. A lone call of any other kind keeps its own row and title.
+/// Consecutive calls of one kind form a group; a call of another kind ends it. A thought between
+/// two commands, reads or searches stays inside their group, in its place, so thinking between
+/// calls never splits one run of reads into many small groups (Leo 2026-10-21: "it can consolidate
+/// a ton of these tool calls"); a thought before any other entry ends the group. Commands, reads
+/// and searches group from two calls; an edit with a diff groups alone, so it still reads "Edited
+/// App.tsx +12 -3". Calls to one MCP tool group from one call, so even a lone one reads as what it
+/// did. A lone call of any other kind keeps its own row and title. Consecutive thoughts are one
+/// thought (thoughts.ts `mergeThoughts`).
 export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
   const groups: ToolGroup[] = [];
   let run: { kind: ToolGroupKind; items: AcpmuxActivity[] } | undefined;
   let mcp: { key: string; items: AcpmuxActivity[] } | undefined;
+  // Thoughts after the open run's latest call: they join it if a call of its kind comes next.
+  let held: AcpmuxActivity[] = [];
   const close = () => {
     if (mcp) groups.push({ type: "mcp", items: mcp.items });
     mcp = undefined;
-    if (!run) return;
-    const lone = run.items[0]!.tool!;
-    if (run.items.length >= 2 || (run.kind === "edits" && lone.diffs?.length)) groups.push({ type: "group", ...run });
-    else groups.push({ type: "item", item: run.items[0]! });
-    run = undefined;
+    if (run) {
+      const lone = run.items[0]!.tool!;
+      if (run.items.length >= 2 || (run.kind === "edits" && lone.diffs?.length)) groups.push({ type: "group", ...run });
+      else groups.push({ type: "item", item: run.items[0]! });
+      run = undefined;
+    }
+    for (const thought of held) groups.push({ type: "item", item: thought });
+    held = [];
   };
-  for (const item of items) {
+  for (const item of mergeThoughts(items)) {
+    if (run && run.kind !== "edits" && isThought(item)) {
+      held.push(item);
+      continue;
+    }
     const tool = item.tool;
     const message = tool && agentMessage(tool);
-    const call = tool && !message ? mcpCall(tool) : undefined;
+    const named = tool && !message ? mcpCall(tool) : undefined;
+    const subsession = named && subsessionCall(tool!, named);
+    const call = subsession ? undefined : named;
     const key = call && mcpKey(call);
     if (key && mcp?.key === key) {
       mcp.items.push(item);
       continue;
     }
-    const kind = tool && !message && !call ? toolGroupKind(tool) : undefined;
+    const kind = tool && !message && !subsession && !call ? toolGroupKind(tool) : undefined;
     if (kind && run?.kind === kind) {
-      run.items.push(item);
+      run.items.push(...held, item);
+      held = [];
       continue;
     }
     close();
     if (message) groups.push({ type: "message", item, message });
+    else if (subsession) groups.push({ type: "subsession", item, call: subsession });
     else if (key) mcp = { key, items: [item] };
     else if (kind) run = { kind, items: [item] };
     else groups.push({ type: "item", item });
@@ -80,8 +104,43 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
   return groups;
 }
 
+/// A group's calls, without the thoughts between them.
+export function groupCalls(items: readonly AcpmuxActivity[]): AcpmuxActivity[] {
+  return items.filter((item) => item.tool);
+}
+
+/// A file change (an edit, a delete, a move) still waiting for its permission: its row stays in
+/// sight, never folded under a run's summary line, so the change it asks about can be seen.
+export function awaitsPermission(tool: Tool | undefined): boolean {
+  return (
+    tool?.status === "pending" &&
+    (tool.kind === "edit" || tool.kind === "delete" || tool.kind === "move" || tool.kind === "fileChange")
+  );
+}
+
 export function isRunning(tool: Tool): boolean {
   return tool.status === "pending" || tool.status === "in_progress";
+}
+
+/// A shell call in flight with nothing to show yet: Claude sends a call before its input, which
+/// the model is still writing (a Bash with no command for up to 20s), and one a turn left that way
+/// never gets any. Its row would only say "Running a command", so the transcript draws none
+/// (conversation/turns.ts `withoutDrafts`): the live line names it ("Writing a command"), and its
+/// row comes with its input. Only a shell call: another tool may take no input at all (`{}`), and
+/// its row is the only record that it ran.
+export function isDraftCall(tool: Tool): boolean {
+  return (
+    isRunning(tool) &&
+    tool.kind === "execute" &&
+    isBareShellName(tool, tool.title) &&
+    !tool.description &&
+    !tool.output &&
+    !tool.background &&
+    !tool.diffs?.length &&
+    !tool.locations?.length &&
+    !tool.images?.length &&
+    !/[^\s{}[\]]/.test(tool.inputSummary ?? "")
+  );
 }
 
 /// A call that failed: its status says so or its command exited nonzero.
@@ -89,14 +148,15 @@ export function isFailed(tool: Tool): boolean {
   return tool.status === "failed" || (tool.exitCode !== undefined && tool.exitCode !== 0);
 }
 
-/// The distinct files a run of reads opened, by their locations, or one per call without any.
+/// The distinct files a run of reads opened, by their locations (model.ts `pathKey`), or one per
+/// call without any.
 function readCount(items: readonly AcpmuxActivity[]): number {
   const paths = new Set<string>();
   let unnamed = 0;
   for (const item of items) {
     const locations = item.tool?.locations ?? [];
     if (!locations.length) unnamed++;
-    for (const location of locations) paths.add(location.path);
+    for (const location of locations) paths.add(pathKey(location));
   }
   return paths.size + unnamed;
 }
@@ -109,19 +169,20 @@ export function toolGroupLabel(
   items: readonly AcpmuxActivity[],
   files: readonly string[] = [],
 ): string {
-  const running = items.some((item) => item.tool && isRunning(item.tool));
+  const calls = groupCalls(items);
+  const running = calls.some((item) => isRunning(item.tool!));
   switch (kind) {
     case "commands":
-      return t(running ? "tools.running" : "tools.ran", { n: items.length });
+      return t(running ? "tools.running" : "tools.ran", { n: calls.length });
     case "reads": {
-      const n = readCount(items);
+      const n = readCount(calls);
       return t(n === 1 ? "tools.read.one" : "tools.read.other", { n });
     }
     case "searches":
-      return t("tools.searched", { n: items.length });
+      return t("tools.searched", { n: calls.length });
     case "edits": {
       // Calls without a diff (a delete or move the agent did not diff) count as a file each.
-      const n = files.length + items.filter((item) => !item.tool?.diffs?.length).length;
+      const n = files.length + calls.filter((item) => !item.tool?.diffs?.length).length;
       return n === 1 && files.length === 1
         ? t("tools.edited.file", { file: fileName(files[0]!) })
         : t("tools.edited.files", { n });
@@ -130,9 +191,11 @@ export function toolGroupLabel(
 }
 
 /// A finished call's run time, from its first event to the one that ended it: "840ms", "4.2s", "2m 5s".
+/// A shell that went on in the background ran until it ended there, and has no time while it runs.
 export function toolDuration(t: Translate, tool: Tool): string | undefined {
-  if (tool.startedAt === undefined || tool.endedAt === undefined) return undefined;
-  const ms = Math.max(0, tool.endedAt - tool.startedAt);
+  const end = tool.background ? tool.background.endedAt : tool.endedAt;
+  if (tool.startedAt === undefined || end === undefined) return undefined;
+  const ms = Math.max(0, end - tool.startedAt);
   if (ms < 1000) return t("duration.ms", { n: ms });
   if (ms < 60_000) return t("duration.s", { n: (ms / 1000).toFixed(1) });
   const seconds = Math.round(ms / 1000);

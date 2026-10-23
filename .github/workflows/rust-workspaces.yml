@@ -1,0 +1,150 @@
+name: rust workspaces
+
+# Pull-request clippy --all-targets and cargo test for every Cargo workspace beside
+# cmux-tui's own (which cmux-tui-spec.yml lints). .github/rust-workspaces.toml lists
+# them all; .github/scripts/rust-workspaces.py checks that list against the tree,
+# plans the workspaces a change reaches (its files, or a package it uses by path) and
+# runs each one. The plan is the path filter, so this workflow has none.
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      # Saves each workspace's cargo cache, so pull requests into it start warm.
+      - feat-cmux-next
+  workflow_dispatch:
+
+concurrency:
+  # Every feat-cmux-next push gets its own run: the next one only diffs against its own parent.
+  group: rust-workspaces-${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    name: plan (changed Cargo workspaces)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    outputs:
+      jobs: ${{ steps.plan.outputs.jobs }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Test the workspace check
+        run: python3 .github/scripts/test_rust_workspaces.py
+
+      - name: Every Cargo workspace is listed
+        run: python3 .github/scripts/rust-workspaces.py check
+
+      # Pull requests compare with the base their merge commit was made on (its first
+      # parent), pushes with the commit before them; with none (a new branch or a
+      # dispatch) every workspace is planned.
+      - name: Fetch the comparison base
+        id: base
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event_name == 'push' && github.event.before || '' }}
+        run: |
+          if [[ "$EVENT_NAME" == pull_request ]]; then
+            BASE_SHA=$(git cat-file -p HEAD | awk '/^parent /{print $2; exit}')
+          fi
+          if [[ -n "$BASE_SHA" && ! "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            BASE_SHA=""
+          fi
+          if [[ -n "$BASE_SHA" && "$BASE_SHA" != 0000000000000000000000000000000000000000 ]]; then
+            git fetch --no-tags --depth=1 origin "$BASE_SHA" || echo "::warning::could not fetch $BASE_SHA; planning every workspace"
+          fi
+          echo "sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Plan the workspaces this change reaches
+        id: plan
+        env:
+          BASE_SHA: ${{ steps.base.outputs.sha }}
+        run: |
+          jobs=$(python3 .github/scripts/rust-workspaces.py plan --base "$BASE_SHA")
+          echo "jobs=$jobs" >> "$GITHUB_OUTPUT"
+          python3 -c 'import json, sys; jobs = json.loads(sys.argv[1]); print("\n".join(j["root"] for j in jobs) or "no Cargo workspace reached")' "$jobs"
+
+  workspace:
+    name: ${{ matrix.root }}
+    needs: plan
+    if: ${{ needs.plan.outputs.jobs != '[]' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || 'blacksmith-32vcpu-ubuntu-2404' }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.jobs) }}
+    # ghostty-vt-sys builds libghostty-vt from the ghostty-next gitlink with zig, as in
+    # cmux-tui.yml (an empty CMUX_GHOSTTY_SRC overrides a runner-level one).
+    env:
+      GHOSTTY_ZIG_SOURCE: ghostty-next
+      CMUX_GHOSTTY_SRC: ""
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Install Linux build dependencies
+        env:
+          EXTRA_APT: ${{ matrix.apt }}
+        run: |
+          sudo apt-get update
+          # shellcheck disable=SC2086 # a space-separated package list
+          sudo apt-get install -y clang libclang-dev pkg-config $EXTRA_APT
+
+      - name: Init the ghostty-next submodule (libghostty-vt for ghostty-vt-sys)
+        if: ${{ matrix.ghostty }}
+        run: bash scripts/ci/init-submodule.sh ghostty-next
+
+      - name: Install zig
+        if: ${{ matrix.ghostty }}
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      # A workspace with its own rust-toolchain.toml builds with that pin. The setup
+      # action puts cmux-tui's toolchain first on PATH, so this and the run step go
+      # through rustup's cargo, which reads the pin from the working directory.
+      - name: Install the workspace's own toolchain pin
+        working-directory: ${{ matrix.root }}
+        run: |
+          export PATH="$HOME/.cargo/bin:$PATH"
+          rustup toolchain install
+          rustup component add clippy
+          cargo --version
+
+      # Only a feat-cmux-next push saves the build cache; a pull request reads the base branch's.
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: ${{ matrix.root }} -> target
+          key: ${{ matrix.root }}
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+
+      - name: cargo clippy --all-targets and cargo test
+        env:
+          ROOT: ${{ matrix.root }}
+        run: PATH="$HOME/.cargo/bin:$PATH" python3 .github/scripts/rust-workspaces.py run "$ROOT"
+
+  # One stable check name for the whole matrix (a skipped matrix is green).
+  summary:
+    name: rust workspaces
+    needs: [plan, workspace]
+    if: ${{ always() }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    steps:
+      - name: Every planned workspace passed
+        env:
+          PLAN: ${{ needs.plan.result }}
+          WORKSPACES: ${{ needs.workspace.result }}
+        run: |
+          echo "plan: $PLAN, workspaces: $WORKSPACES"
+          [[ "$PLAN" == success && ( "$WORKSPACES" == success || "$WORKSPACES" == skipped ) ]]

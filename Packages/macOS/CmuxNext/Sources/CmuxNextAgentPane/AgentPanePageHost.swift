@@ -5,17 +5,18 @@ import CmuxNextPages
 /// events a new page subscriber gets. Kept off ``AgentPaneView``, whose type is at its size limit.
 enum AgentPanePageHost {
     /// The page view for the bundled page in `root`, nil when the page host refuses that root.
-    static func makePage(root: URL, provider: AgentPageProvider, renderRate: AgentPaneRenderRate) -> PageWebView? {
+    static func makePage(root: URL, provider: AgentPageProvider, renderRate: AgentPaneRenderRate,
+                         chromium: (any PageChromiumHosting)?) -> PageWebView? {
         // The agent page's files live in this module's bundle, not the page host's.
         PageID.registerBundledRoot(root, for: PageDescriptor.agent.id)
         let page = PageWebView(descriptor: .agent, root: root,
                                routes: [PageRoute(prefix: AgentPageOps.namespace, provider: provider)],
                                documentAttributes: AgentPaneTunables.documentAttributes,
-                               options: PageEngineOptions(fullFrameRate: renderRate != .capped))
+                               options: PageEngineOptions(fullFrameRate: renderRate != .capped,
+                                                                  chromiumAgentChat: AgentPaneTunables.chromium.value),
+                               chromium: chromium)
         // The composer menu's edits run as the page view's own responder actions.
-        provider.onEdit = { [weak page] command in
-            if let view = page?.webKitView { NSApp.sendAction(command.selector, to: view, from: nil) }
-        }
+        provider.onEdit = { [weak page] command in page?.performEdit(command.selector) }
         return page
     }
 

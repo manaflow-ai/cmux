@@ -180,7 +180,13 @@ test("Refresh models re-probes the agents and the open picker lists the new mode
   const byLabel = (label: string) =>
     dom.window.document.querySelector<HTMLElement>(`button[aria-label="${label}"]`) ??
     [...dom.window.document.querySelectorAll<HTMLElement>("button")].find((item) => item.textContent === label);
-  await act(async () => host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click());
+  // The composer's model button opens the compact menu (Leo 2026-10-20); Refresh models is the full
+  // picker's, which More models' shortcut opens.
+  await act(async () => {
+    dom.window.dispatchEvent(
+      new dom.window.KeyboardEvent("keydown", { key: "m", metaKey: true, ctrlKey: true, bubbles: true }),
+    );
+  });
   const refresh = byLabel("Refresh models")!;
   expect(refresh).toBeDefined();
   await act(async () => refresh.click());

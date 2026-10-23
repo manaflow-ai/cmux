@@ -238,6 +238,13 @@ pub fn apply<'c>(
 /// The hermetic environment as pairs (for an agent host's `SpawnSpec.env`).
 pub fn vars(scratch: &Path, agents: Agents, tools: &[&str]) -> Vec<(String, String)> {
     let mut env = platform_vars(&home(scratch), tools);
+    // The sessions' own temporary folders (`agent/session_tmp.rs`): in the
+    // scratch directory, never the user's `/tmp/acpmux-<uid>` (a debug build reads it).
+    #[cfg(unix)]
+    env.push((
+        "ACPMUX_TEST_SESSION_TMP_BASE".into(),
+        scratch.join("session-tmp").display().to_string(),
+    ));
     if agents == Agents::Deny {
         env.push(("ACPMUX_AGENT_LAUNCH".into(), "deny".into()));
     }

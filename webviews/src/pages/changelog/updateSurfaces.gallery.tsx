@@ -1,6 +1,6 @@
 // l10n-allow-file: gallery fixtures (public-safe release notes from release-notes/next/highlights), not shipped UI.
 // The Updated card and the update-ready highlights (cx-urd.61) on the app theme, at sidebar width.
-// The card draws the composer's translucent surface, so each card state shows on a plain page and
+// The card is liquid glass (.ui-glass), so each card state shows on a plain page and
 // on a wallpaper (Leo 2026-10-13): the page is transparent over the wallpaper in the app.
 import { useState } from "react";
 import { componentEntry } from "../../gallery/format";
@@ -181,7 +181,7 @@ export default componentEntry<Props>({
       props: { surface: "card", data: { ...spanData, items: [], source: "none" }, span: internalOnly },
     },
     "card-wallpaper": {
-      note: "The same card on a wallpaper: the composer's surface, the text at 13% over it with an 18% edge (Leo 2026-10-13).",
+      note: "The same card on a wallpaper: the liquid glass (.ui-glass); under plain glass the composer's surface, the text at 13% over it (Leo 2026-10-13).",
       props: { surface: "card", data: base, wallpaper: true },
     },
     "card-one-change": {

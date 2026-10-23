@@ -902,6 +902,14 @@ impl Warm {
         if pool.len() > MAX_WARM_SOCKETS {
             pool.remove(0);
         }
+        drop(pool);
+        // The service keeps one socket per device: this one replaced any other, so
+        // every live WireGuard session of this device (one per Mac) moves onto it
+        // now. A dial to a second Mac that found the shared socket dead left the
+        // first Mac's session on the dead one until the next network change.
+        if cmux_mobile_link::dial::wireguard::rehome(&socket.client) > 0 {
+            timeline.mark("rehomed");
+        }
         Ok(socket)
     }
 

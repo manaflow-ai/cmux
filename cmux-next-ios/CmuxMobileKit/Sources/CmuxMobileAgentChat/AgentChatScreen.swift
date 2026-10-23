@@ -302,6 +302,9 @@ public struct AgentChatTranscript: View {
     var placement: ChatDockPlacement
     var onUserScroll: ((CGFloat) -> Void)?
     @State private var warningTrigger = 0
+    /// A file the agent named (a link in an answer, a tool call's path, a diff's
+    /// file), previewed full screen from the Mac.
+    @State private var filePreview: FilePreviewRequest?
     #if DEBUG
     private let director = DemoDirector.shared
     #endif
@@ -333,7 +336,17 @@ public struct AgentChatTranscript: View {
             isEmpty: store.turns.isEmpty,
             identity: ObjectIdentifier(store),
             content: AnyView(AgentChatTurns(store: store, surface: surface)
-                .environment(\.openDiff, OpenDiffAction { changes, file in surface.diffRoute = AgentChatSurface.DiffRoute(changes: changes, fileID: file) })),
+                .environment(\.openDiff, OpenDiffAction { changes, file in surface.diffRoute = AgentChatSurface.DiffRoute(changes: changes, fileID: file) })
+                .environment(\.openSessionFile, openFile)
+                .environment(\.attachmentLoader, AttachmentLoader { [weak source = store.source] attachment in
+                    await source?.attachmentData(attachment)
+                })
+                // A file link in an answer opens its preview; web links open as before.
+                .environment(\.openURL, OpenURLAction { url in
+                    guard let link = FileLink(url: url) else { return .systemAction }
+                    openFile(link.reference, line: link.line)
+                    return .handled
+                })),
             empty: AnyView(AgentChatEmptyState(store: store)),
             dock: placement == .owned ? AnyView(AgentChatBottomStack(store: store, surface: surface, bottomPadding: 0)) : nil,
             // Both placements: the controller hosts the circle at a fixed
@@ -345,12 +358,16 @@ public struct AgentChatTranscript: View {
         .ignoresSafeArea()
         // The soft top edge under the status bar or bar is the controller's TopFadeView.
         .navigationDestination(item: $surface.diffRoute) { route in
-            if let file = route.fileID {
-                DiffFileScreen(changeSet: route.changes, fileID: file)
-            } else {
-                DiffChangesScreen(changeSet: route.changes)
+            Group {
+                if let file = route.fileID {
+                    DiffFileScreen(changeSet: route.changes, fileID: file)
+                } else {
+                    DiffChangesScreen(changeSet: route.changes)
+                }
             }
+            .environment(\.openSessionFile, openFile)
         }
+        .filePreview($filePreview)
         .navigationDestination(item: $surface.parityRoute) { route in
             AgentParityDestination(route: route, store: store, surface: surface)
         }
@@ -358,13 +375,31 @@ public struct AgentChatTranscript: View {
             SessionArtifactsSheet(store: store, surface: surface)
         }
         .sensoryFeedback(.warning, trigger: warningTrigger)
-        .onChange(of: store.pendingPermission?.request.id) { _, new in if new != nil { warningTrigger += 1 } }
-        .onChange(of: store.pendingQuestion?.id) { _, new in if new != nil { warningTrigger += 1 } }
+        // A live ask buzzes, and so does one a reattach caught up on (raised while the link
+        // was down); one that was already waiting when the chat opened does not.
+        .onChange(of: store.pendingPermission?.request.id) { _, new in
+            if new != nil, let record = store.pendingPermission, !store.wasOpenOnArrival(TurnRow.permission(record).id) { warningTrigger += 1 }
+        }
+        .onChange(of: store.pendingQuestion?.id) { _, new in
+            if let new, !store.wasOpenOnArrival(TurnRow.question(new).id) { warningTrigger += 1 }
+        }
         #if DEBUG
         .onChange(of: director.serial) {
             if let command = director.command { surface.run(command, store: store) }
         }
         #endif
+    }
+}
+
+extension AgentChatTranscript {
+    /// Reads the file from the Mac over the link (`artifactSource`: the `file`
+    /// service, confined to the folders the Mac shares; relative paths resolve
+    /// against the session's folder).
+    var openFile: OpenFileAction {
+        let source = store.source.artifactSource
+        return OpenFileAction { path, line in
+            filePreview = FilePreviewRequest(reference: path, source: source, line: line)
+        }
     }
 }
 
@@ -464,7 +499,8 @@ public struct AgentChatBottomStack: View {
     @Bindable var surface: AgentChatSurface
     var bottomPadding: CGFloat = 8
     @State private var reportedHeight: CGFloat = 0
-    @FocusState private var composerFocused: Bool
+    /// The composer field's focus (a UITextView that follows it both ways).
+    @State private var composerFocused = false
 
     public init(store: AgentChatStore, surface: AgentChatSurface) {
         self.store = store
@@ -535,7 +571,8 @@ public struct AgentChatBottomStack: View {
                 if reportedHeight != frame.height {
                     // Interpolated on the composer's spring (`.cmuxMobileSmooth`):
                     // the reporter below hands the transcript every frame.
-                    if reportedHeight == 0 {
+                    if reportedHeight == 0 || store.placeBottomStackInstantly {
+                        store.placeBottomStackInstantly = false
                         reportedHeight = frame.height
                     } else {
                         withAnimation(.cmuxMobileSmooth) { reportedHeight = frame.height }
@@ -555,8 +592,9 @@ public struct AgentChatBottomStack: View {
             })
         }
         .padding(.bottom, bottomPadding)
-        .animation(.cmuxMobileSmooth, value: store.pendingPermission?.request.id)
-        .animation(.cmuxMobileSmooth, value: store.queue)
+        // History (the chat opening, a reattach) brings its open ask and queue in place.
+        .animation(store.lastChangeWasReplay ? nil : .cmuxMobileSmooth, value: store.pendingPermission?.request.id)
+        .animation(store.lastChangeWasReplay ? nil : .cmuxMobileSmooth, value: store.queue)
         .onChange(of: store.pendingPermission?.request.id) { _, new in
             surface.replyInsteadOfPermission = false
             // Never pull the composer out from under someone typing.
@@ -630,15 +668,19 @@ struct TurnView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
+            // Replayed history (the transcript on open, a reattach's catch-up) is drawn in
+            // place; only what arrives live animates in.
             UserBubble(turn: turn, isLast: isLast) { store.send(prompt: $0) }
                 .frame(maxWidth: .infinity, alignment: .trailing)
-                .transition(.asymmetric(insertion: .offset(y: 24).combined(with: .scale(scale: 0.96)).combined(with: .opacity), removal: .opacity))
+                .transition(.asymmetric(insertion: store.isReplayed(turn.id) ? .identity
+                    : .offset(y: 24).combined(with: .scale(scale: 0.96)).combined(with: .opacity), removal: .opacity))
             VStack(alignment: .leading, spacing: 10) {
                 let rows = turn.rows
                 ForEach(rows) { row in
                     rowView(row, isLastRow: row.id == rows.last?.id)
                         .rowHeightProbe("\(row.id)")
-                        .transition(.opacity.animation(.easeOut(duration: 0.15)))
+                        .transition(.asymmetric(insertion: store.isReplayed(row.id) ? .identity : .opacity, removal: .opacity)
+                            .animation(.easeOut(duration: 0.15)))
                 }
                 if turn.status == .running, rows.needsWorkingIndicator, store.pendingPermission == nil, store.pendingQuestion == nil {
                     WorkingLabel(turn.retry?.label ?? "Working", since: turn.startedAt)
@@ -669,7 +711,10 @@ struct TurnView: View {
     private func rowView(_ row: TurnRow, isLastRow: Bool) -> some View {
         switch row {
         case .message(_, let markdown):
-            StreamingMarkdown(markdown: markdown, isStreaming: turn.status == .running && isLastRow)
+            // A replayed message's blocks are drawn in place too, not faded in one by one
+            // (one still streaming when the chat opened streams on without the block fade).
+            StreamingMarkdown(markdown: markdown, isStreaming: turn.status == .running && isLastRow,
+                              animatesBlocks: !store.isReplayed(row.id))
         case .thought(_, let text):
             ThoughtRow(text: text, isLive: turn.status == .running && isLastRow)
         case .tool(let call):
@@ -736,10 +781,12 @@ public struct AgentParityMenuItems: View {
 struct StreamingMarkdown: View {
     let markdown: String
     let isStreaming: Bool
+    var animatesBlocks = true
 
     var body: some View {
         // While streaming, an emphasis or code marker that has not closed yet is hidden.
-        MarkdownView(MarkdownDocument(parsing: isStreaming ? MarkdownStreamTail(markdown).displayed : markdown), isStreaming: isStreaming)
+        MarkdownView(MarkdownDocument(parsing: isStreaming ? MarkdownStreamTail(markdown).displayed : markdown), isStreaming: isStreaming,
+                     animatesBlocks: animatesBlocks)
             .contextMenu {
                 Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = markdown }
                 ShareLink(item: markdown) { Label("Share", systemImage: "square.and.arrow.up") }
@@ -799,7 +846,11 @@ struct UserBubble: View {
 /// edges line up with the bubble (no remove-badge room).
 struct SentAttachments: View {
     let attachments: [AgentAttachment]
-    @State private var viewing: ImageViewerItem?
+    /// A tapped attachment: every attachment of the message opens full screen, to swipe between.
+    @State private var preview: FilePreviewRequest?
+    /// Bytes read for recorded images (a prompt this launch did not send).
+    @State private var fetched: [String: Data] = [:]
+    @Environment(\.attachmentLoader) private var loader
 
     var body: some View {
         let images = attachments.filter { $0.kind == .image }
@@ -816,22 +867,38 @@ struct SentAttachments: View {
                                     Text("+\(images.count - 3)").font(.headline).foregroundStyle(.white)
                                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                                         .background(.black.opacity(0.45), in: .rect(cornerRadius: 16, style: .continuous))
+                                        .allowsHitTesting(false)
                                 }
                             }
                     }
                 }
             }
             ForEach(files) { file in
-                AttachmentThumb(attachment: file).padding(.top, -6).padding(.trailing, -6)
+                AttachmentThumb(attachment: file, open: { open(file) }).padding(.top, -6).padding(.trailing, -6)
             }
         }
-        .fullScreenCover(item: $viewing) { FullScreenImageViewer(item: $0) }
+        .filePreview($preview)
+    }
+
+    /// Images first, then files: the order they show in. A recorded image's bytes come from the
+    /// session (read once here, or by the preview when it opens first).
+    private func open(_ attachment: AgentAttachment) {
+        let ordered = attachments.filter { $0.kind == .image } + attachments.filter { $0.kind != .image }
+        let files = ordered.map { item in
+            var file = item.localFile
+            if file.data == nil { file.data = fetched[item.id] }
+            return file
+        }
+        let load = loader.load
+        preview = FilePreviewRequest(files: files, startingAt: attachment.id) { file in
+            await load(AgentAttachment(id: file.id, kind: file.isImage ? .image : .file, name: file.name))
+        }
     }
 
     @ViewBuilder
     private func thumbnail(_ attachment: AgentAttachment, size: CGSize) -> some View {
         Group {
-            if let data = attachment.data, let image = UIImage(data: data) {
+            if let data = attachment.data ?? fetched[attachment.id], let image = UIImage(data: data) {
                 Image(uiImage: image).resizable().scaledToFill()
             } else {
                 Color.cmuxMobileFill.overlay { Image(systemName: "photo").font(.title3).foregroundStyle(.secondary) }
@@ -840,15 +907,26 @@ struct SentAttachments: View {
         .frame(width: size.width, height: size.height)
         .clipShape(.rect(cornerRadius: 16, style: .continuous))
         .contentShape(.rect(cornerRadius: 16, style: .continuous))
-        // Tap opens the image full screen.
-        .onTapGesture {
-            if let data = attachment.data { viewing = ImageViewerItem(id: attachment.id, name: attachment.name, data: data) }
+        // Tap opens it full screen (swipe to the message's other attachments).
+        .onTapGesture { open(attachment) }
+        .task(id: attachment.id) {
+            guard attachment.data == nil, fetched[attachment.id] == nil, let data = await loader.load(attachment) else { return }
+            fetched[attachment.id] = data
         }
         .accessibilityElement()
         .accessibilityLabel(Text("Image, \(attachment.name)"))
         .accessibilityAddTraits(.isButton)
         .accessibilityHint("Opens full screen")
     }
+}
+
+/// Reads the bytes of an attachment a recorded prompt names (`AgentSessionSource.attachmentData`).
+struct AttachmentLoader: Sendable {
+    let load: @MainActor @Sendable (AgentAttachment) async -> Data?
+}
+
+extension EnvironmentValues {
+    @Entry var attachmentLoader = AttachmentLoader { _ in nil }
 }
 
 /// SPEC 4.4 action row: copy, share, retry, more; trailing duration.

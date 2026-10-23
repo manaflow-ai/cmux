@@ -63,6 +63,7 @@ jobs:
     outputs:
       actions: ${{ steps.areas.outputs.actions }}
       settings: ${{ steps.areas.outputs.settings }}
+      changed: ${{ steps.changed.outputs.changed }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -73,6 +74,30 @@ jobs:
           fetch-depth: 0
           filter: blob:none
           persist-credentials: false
+
+      # The pull request's changed paths from the commit graph this job already
+      # fetched, instead of the files API (a call per 100 files, on every push):
+      # the same comparison (the merge base to the head), every rename as both
+      # of its paths (--no-renames lists the old path removed and the new one
+      # added, as `.filename, .previous_filename` does), and no 3000-file cap.
+      # A git failure leaves `listed` unset, and the next step reads the API.
+      - name: Changed paths
+        id: changed
+        continue-on-error: true
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          git diff --no-renames --name-only -z "$BASE_SHA...$HEAD_SHA" | tr '\0' '\n' > "$RUNNER_TEMP/changed.txt"
+          echo "listed=true" >> "$GITHUB_OUTPUT"
+          # generated-drift reads the list from here (gzip, base64), so it needs
+          # no files API call and no commit graph of its own. Past 96 KB
+          # (an environment variable holds 128 KB) it reads the API.
+          encoded="$(gzip -9n < "$RUNNER_TEMP/changed.txt" | base64 -w0)"
+          if [ "${#encoded}" -le 98304 ]; then
+            echo "changed=$encoded" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Autofix scripts from the base
         env:
@@ -99,6 +124,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}
           CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
+          LISTED: ${{ steps.changed.outputs.listed }}
         run: |
           set -euo pipefail
           # The base's copy, or the pull request's while the base has no actions area yet.
@@ -109,8 +135,11 @@ jobs:
           elif [ "$CHANGED_FILES" -ge 3000 ]; then
             "$areas" --all | grep -E '^(actions|settings)=' | tee -a "$GITHUB_OUTPUT"
           else
-            gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files?per_page=100" \
-              --jq '.[] | .filename, (.previous_filename // empty)' | "$areas" | grep -E '^(actions|settings)=' | tee -a "$GITHUB_OUTPUT"
+            if [ "$LISTED" != true ]; then
+              gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files?per_page=100" \
+                --jq '.[] | .filename, (.previous_filename // empty)' > "$RUNNER_TEMP/changed.txt"
+            fi
+            "$areas" < "$RUNNER_TEMP/changed.txt" | grep -E '^(actions|settings)=' | tee -a "$GITHUB_OUTPUT"
           fi
 
   # Regenerates the action and settings exports on a Mac with a read-only token
@@ -142,10 +171,14 @@ jobs:
         shell: bash
         run: rm -f "${GITHUB_WORKSPACE:-$PWD}/.git/index.lock" 2>/dev/null || true
 
+      # The generator check needs the merge base, not historical blobs: with every
+      # blob this fetch put 5.3 GiB of all-branch history into the mini's reused
+      # workspace, which every later job on that runner kept (cmux14, 2026-10-21).
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
+          filter: blob:none # the commit graph without historical blobs, as action-areas
           persist-credentials: false
           submodules: false
 
@@ -188,7 +221,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: "24.11.1"
+          node-version: "24.22.1"
 
       - name: Source key of the web bundles
         id: web-bundle-key
@@ -258,6 +291,13 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+      # The next job on this runner starts from the git seed at its own depth, not from
+      # this job's all-branch partial clone (a later job's missing blob would be fetched
+      # mid-step, unretried).
+      - name: Discard the workspace repository (self-hosted reused workspace)
+        if: always()
+        run: rm -rf "$GITHUB_WORKSPACE/.git"
+
   repair:
     name: autofix repairs
     # The action exports come first: the docs shortcuts are rewritten from them.
@@ -279,6 +319,23 @@ jobs:
           fetch-depth: 0
           filter: blob:none # the commit graph without historical blobs, as action-areas
           persist-credentials: false
+
+      # The pull request's changed paths from the commit graph this job already
+      # fetched, instead of the files API (a call per 100 files, on every push):
+      # the same comparison (the merge base to the head), every rename as both
+      # of its paths (--no-renames lists the old path removed and the new one
+      # added, as `.filename, .previous_filename` does), and no 3000-file cap.
+      # A git failure leaves `listed` unset, and the next step reads the API.
+      - name: Changed paths
+        id: changed
+        continue-on-error: true
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          git diff --no-renames --name-only -z "$BASE_SHA...$HEAD_SHA" | tr '\0' '\n' > "$RUNNER_TEMP/changed.txt"
+          echo "listed=true" >> "$GITHUB_OUTPUT"
 
       # The autofix's own scripts come from the immutable base snapshot, and
       # all generators run on the immutable merge tree for this event.
@@ -306,6 +363,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}
           CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
+          LISTED: ${{ steps.changed.outputs.listed }}
         run: |
           set -euo pipefail
           if git log -1 --format=%B "${{ github.event.pull_request.head.sha }}" | grep -q '^Autofix-Run: '; then
@@ -314,16 +372,19 @@ jobs:
             exit 0
           fi
           echo "skip=false" >> "$GITHUB_OUTPUT"
-          # The files API, not `gh pr diff`: GitHub refuses the diff of a PR
-          # over 300 files (HTTP 406), and this lists up to 3000. A rename lists
-          # both paths. Past 3000 it stops without an error, so such a PR runs
-          # every area.
+          # A pull request of 3000 files or more runs every area (the files
+          # API, the fallback, stops at 3000 without an error). Otherwise the
+          # Changed paths step listed them from git; without it, the files API,
+          # not `gh pr diff`: GitHub refuses the diff of a PR over 300 files
+          # (HTTP 406). A rename lists both paths.
           if [ "$CHANGED_FILES" -ge 3000 ]; then
             "$AUTOFIX/autofix-areas.sh" --all | tee -a "$GITHUB_OUTPUT"
             exit 0
           fi
-          gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files?per_page=100" \
-            --jq '.[] | .filename, (.previous_filename // empty)' > "$RUNNER_TEMP/changed.txt"
+          if [ "$LISTED" != true ]; then
+            gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files?per_page=100" \
+              --jq '.[] | .filename, (.previous_filename // empty)' > "$RUNNER_TEMP/changed.txt"
+          fi
           "$AUTOFIX/autofix-areas.sh" < "$RUNNER_TEMP/changed.txt" | tee -a "$GITHUB_OUTPUT"
 
       # dump-package needs the Swift 6.2 tools (ci-target-graph.py); see
@@ -340,7 +401,7 @@ jobs:
         if: steps.areas.outputs.strings == 'true' || steps.areas.outputs.webviews == 'true'
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: "24.11.1"
+          node-version: "24.22.1"
 
       - name: Setup Bun
         if: steps.areas.outputs.shortcuts == 'true' || steps.areas.outputs.apphost == 'true' || needs.action-exports.outputs.exports == 'true' || steps.areas.outputs.cloud == 'true' || steps.areas.outputs.webviews == 'true'
@@ -391,6 +452,7 @@ jobs:
           GRAPH: ${{ steps.areas.outputs.graph }}
           STRINGS: ${{ steps.areas.outputs.strings }}
           SDK: ${{ steps.areas.outputs.sdk }}
+          CAPABILITIES: ${{ steps.areas.outputs.capabilities }}
           SHORTCUTS: ${{ steps.areas.outputs.shortcuts }}
           APPHOST: ${{ steps.areas.outputs.apphost }}
           ACTIONS: ${{ steps.areas.outputs.actions || needs.action-areas.outputs.actions }}
@@ -416,6 +478,8 @@ jobs:
           [[ "$GRAPH" == true ]] && args+=(--package-dump "$RUNNER_TEMP/package-dump.json")
           [[ "$STRINGS" == true ]] && args+=(--strings)
           [[ "$SDK" == true ]] && args+=(--sdk)
+          # The source parser regenerates the daemon capability export without a Swift build.
+          [[ "$CAPABILITIES" == true ]] && grep -q -- '--capabilities)' "$AUTOFIX/base-autofix.sh" && args+=(--capabilities)
           [[ "$SHORTCUTS" == true ]] && args+=(--docs-shortcuts)
           # The base's script takes --app-host once this repair has landed there.
           [[ "$APPHOST" == true ]] && grep -q -- '--app-host)' "$AUTOFIX/base-autofix.sh" && args+=(--app-host)
@@ -490,7 +554,7 @@ jobs:
             echo
             echo "Repairs: artifact \`pr-autofix-patch\`. A same-repo branch gets them as a commit from the push job; on a fork, download the artifact and run:"
             echo
-            echo "    git apply pr-autofix.patch && git commit -am 'chore(next): PR autofix' && git push   # on $HEAD_REF"
+            echo "    git apply --index pr-autofix.patch && git commit -m 'chore(next): PR autofix' && git push   # on $HEAD_REF (--index stages new files too)"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -508,15 +572,19 @@ jobs:
   # its inputs (regenerated against a newer base, or a stale copy a merge kept)
   # conflicts with every other pull request and can drop the base's newer rows;
   # the base autofix regenerates it after each merge. The check runs the base's
-  # copy of the table on the files API's list and reads nothing from the head.
+  # copy of the table on the pull request's changed list (the files API's set)
+  # and reads nothing from the head.
   # The `generated-drift-ok` label skips it, for a generator fix that ships its
   # own regenerated output in a later commit. It takes effect on the next push
-  # (a re-run reuses the event's labels).
+  # (a re-run reuses the event's labels). The changed list comes from
+  # action-areas (git, no API call); when that job failed or left no list, the
+  # check still runs and reads the files API.
   generated-drift:
     name: generated drift
+    needs: [action-areas]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 5
-    if: ${{ !contains(github.event.pull_request.labels.*.name, 'generated-drift-ok') }}
+    if: ${{ !cancelled() && !contains(github.event.pull_request.labels.*.name, 'generated-drift-ok') }}
     permissions:
       contents: read
       pull-requests: read
@@ -532,11 +600,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}
+          CHANGED: ${{ needs.action-areas.outputs.changed }}
         run: |
           set -euo pipefail
           [[ -f scripts/cmux-next/generated_outputs.py ]] || { echo "The base has no generated_outputs.py yet."; exit 0; }
-          gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files?per_page=100" \
-            --jq '.[] | .filename, (.previous_filename // empty)' > "$RUNNER_TEMP/changed.txt"
+          if [ -z "$CHANGED" ] || ! printf '%s' "$CHANGED" | base64 -d | gunzip > "$RUNNER_TEMP/changed.txt"; then
+            gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files?per_page=100" \
+              --jq '.[] | .filename, (.previous_filename // empty)' > "$RUNNER_TEMP/changed.txt"
+          fi
           if ! python3 -I scripts/cmux-next/generated_outputs.py drift --changed "$RUNNER_TEMP/changed.txt" > "$RUNNER_TEMP/drift.txt"; then
             sed 's/^/::error::/' "$RUNNER_TEMP/drift.txt"
             { echo "### Generated files this pull request did not cause"; sed 's/^/- /' "$RUNNER_TEMP/drift.txt"; } >> "$GITHUB_STEP_SUMMARY"

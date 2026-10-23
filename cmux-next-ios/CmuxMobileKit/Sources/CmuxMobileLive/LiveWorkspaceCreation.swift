@@ -33,6 +33,11 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         self.acpmux = acpmux
     }
 
+    /// The Mac's acpmux client, once it exists (a Mac session makes both).
+    func attach(acpmux: AcpmuxHub) {
+        self.acpmux = acpmux
+    }
+
     public func canCreate(on macID: String) -> Bool {
         link.target?.macID == macID && link.phase.isConnected && sync.daemon != nil && sync.macID == macID
     }

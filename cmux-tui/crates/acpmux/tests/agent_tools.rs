@@ -185,7 +185,7 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
         upstreams.as_array().unwrap().iter().filter_map(|s| s["name"].as_str()).collect();
     assert_eq!(
         names,
-        ["cmux-cua", "cmux-secrets", "cmux-sessions", "cmux-subsessions"],
+        ["cmux-cua", "cmux-secrets", "cmux-sessions", "cmux-subsessions", "cmux-forum"],
         "{upstreams}"
     );
     assert_eq!(upstreams[0]["command"], json!(cua), "{upstreams}");
@@ -201,6 +201,13 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
         assert!(sub_env.contains(key), "{key}: {upstreams}");
     }
     assert!(sub_env.contains(&id), "{upstreams}");
+    // The forum tools (`forum_mcp.rs`) act as this session the same way.
+    assert_eq!(upstreams[4]["args"], json!(["forum-mcp"]), "{upstreams}");
+    let forum_env = upstreams[4]["env"].to_string();
+    for key in ["ACPMUX_SESSION_ID", "ACPMUX_SESSION_TOKEN", "ACPMUX_SESSION_TOKEN_SOCKET"] {
+        assert!(forum_env.contains(key), "{key}: {upstreams}");
+    }
+    assert!(forum_env.contains(&id), "{upstreams}");
     // No allowlist: the cmux server speaks code mode.
     assert_eq!(value("CMUX_MCP_TOOLS"), None, "{servers}");
 
@@ -211,15 +218,15 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
     let (refused, _) = local.call_text("session/new", params).await;
     assert_eq!(refused["error"]["data"]["reason"], "env.key_refused", "{refused}");
 
-    // A harness with its own tool search (Codex; Claude Code below) gets
-    // every cmux tool and loads what a turn needs; the rest get code mode.
+    // Every agent gets code mode, Codex and Claude Code included (Lawrence
+    // 2026-10-23: an agent sees only cmux_exec, no other cmux tool name).
     let cmux_args = |list: &Value| {
         list.as_array().unwrap().iter().find(|s| s["name"] == "cmux").unwrap()["args"].clone()
     };
     assert_eq!(cmux_args(&servers), json!(["mcp", "serve"]), "code mode: {servers}");
     let codex = local.new_session("fakecodex").await;
     let listed: Value = serde_json::from_str(&local.ask(&codex, "mcp").await).unwrap();
-    assert_eq!(cmux_args(&listed), json!(["mcp", "serve", "--all-tools"]), "{listed}");
+    assert_eq!(cmux_args(&listed), json!(["mcp", "serve"]), "{listed}");
     // CMUX_MCP_CODE_MODE=1 opts a profile in to code mode (tests/agent-evals RESULTS: every
     // tool passed more Claude tasks for less, so it stays the default).
     let coded = local.new_session("fakecodex-codemode").await;
@@ -254,7 +261,7 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
         serde_json::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
     assert_eq!(config["mcpServers"].as_object().unwrap().len(), 1, "{config}");
     assert_eq!(config["mcpServers"]["cmux"]["command"], json!(cmux), "{config}");
-    assert_eq!(config["mcpServers"]["cmux"]["args"], json!(["mcp", "serve", "--all-tools"]));
+    assert_eq!(config["mcpServers"]["cmux"]["args"], json!(["mcp", "serve"]));
     // Fail safe: a Claude Code whose profile turns tool search off keeps it
     // off and gets code mode, never every schema in every turn.
     let off = local.new_session("fakeclaude-nosearch").await;
@@ -281,7 +288,7 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
     // The parent's process got the session/fork, so it reports its servers.
     local.fork(&codex).await;
     let listed: Value = serde_json::from_str(&local.ask(&codex, "mcp").await).unwrap();
-    assert_eq!(cmux_args(&listed), json!(["mcp", "serve", "--all-tools"]), "{listed}");
+    assert_eq!(cmux_args(&listed), json!(["mcp", "serve"]), "{listed}");
     local.fork(&codex_routed).await;
     let listed: Value = serde_json::from_str(&local.ask(&codex_routed, "mcp").await).unwrap();
     assert_eq!(cmux_args(&listed), json!(["mcp", "serve"]), "{listed}");

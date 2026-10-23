@@ -94,7 +94,7 @@
   color: var(--agent-accent);
 }
 .acpmux-session-status[data-status="waiting"] {
-  color: var(--acpmux-warning);
+  color: var(--acpmux-needs-you-mark);
 }
 .acpmux-session-status[data-status="failed"],
 .acpmux-session-status[data-status="failing"],

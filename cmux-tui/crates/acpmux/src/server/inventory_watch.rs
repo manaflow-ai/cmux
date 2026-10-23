@@ -34,7 +34,11 @@ pub(super) async fn send_latest(
             conn.watch_inventory.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if *enabled {
             let value = snapshots.borrow_and_update().wire();
-            permit.send(Message::notification(method::MUX_HARNESS_INVENTORY, value).to_line());
+            // Bounded like `Conn::send`: never more than one frame.
+            match Message::notification(method::MUX_HARNESS_INVENTORY, value).bounded_line() {
+                Ok(line) => permit.send(line),
+                Err(bytes) => tracing::warn!(bytes, "left out an inventory too large to send"),
+            }
             return;
         }
     }

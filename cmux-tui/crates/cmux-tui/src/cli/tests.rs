@@ -53,6 +53,57 @@ fn global_value_options_accept_inline_equals_values() {
     assert_eq!(command, strings(&["workspace", "list"]));
 }
 
+/// `cmux workspace new-on-machine --machine m`: an app action run by its CLI
+/// name keeps a `--machine` after its words as its own argument (the global
+/// option swallowed it, so the app answered "requires --machine"). Before
+/// the first command word it stays the global option, and the mux grammar's
+/// routing (`workspace list --machine m`) is unchanged.
+#[cfg(unix)]
+#[test]
+fn an_app_actions_own_machine_flag_follows_its_words() {
+    for (line, own) in [
+        (&["workspace", "new-on-machine", "--machine", "vm-1"][..], &["--machine", "vm-1"][..]),
+        (&["workspace", "new-on-machine", "--machine=vm-1"][..], &["--machine=vm-1"][..]),
+        (
+            &["--json", "workspace", "new-on-machine", "--machine", "vm-1", "--focus"][..],
+            &["--machine", "vm-1", "--focus"][..],
+        ),
+    ] {
+        let (global, command) = parse_action_globals(&strings(line)).unwrap();
+        assert_eq!(global.machine, None, "{line:?}");
+        let mut expected = strings(&["workspace", "new-on-machine"]);
+        expected.extend(strings(own));
+        assert_eq!(command, expected, "{line:?}");
+        let words = command.iter().take_while(|arg| !arg.starts_with('-')).count();
+        let app::AppCommand::Call { params, .. } =
+            app::run_action(&command[..words].join(" "), &command[words..], app::ActionName::Cli)
+                .unwrap()
+        else {
+            panic!("expected a call")
+        };
+        assert_eq!(params["action"], "workspace new-on-machine", "{line:?}");
+        assert_eq!(params["args"]["machine"], "vm-1", "{line:?}: {params}");
+    }
+    // Before the action's words `--machine` is the global option.
+    for line in [
+        &["--machine", "vm-1", "workspace", "new-on-machine"][..],
+        &["--machine=vm-1", "workspace", "new-on-machine"][..],
+    ] {
+        let (global, command) = parse_action_globals(&strings(line)).unwrap();
+        assert_eq!(global.machine.as_deref(), Some("vm-1"), "{line:?}");
+        assert_eq!(command, strings(&["workspace", "new-on-machine"]), "{line:?}");
+    }
+    // The mux grammar keeps routing a `--machine` anywhere before `--`.
+    let (global, command) =
+        parse_globals(&strings(&["workspace", "list", "--machine", "vm-1"])).unwrap();
+    assert_eq!(global.machine.as_deref(), Some("vm-1"));
+    assert_eq!(command, strings(&["workspace", "list"]));
+    // After `--` it is a payload word for both.
+    let line = strings(&["workspace", "current", "run", "--", "tool", "--machine", "x"]);
+    assert_eq!(parse_action_globals(&line).unwrap().1, line);
+    assert_eq!(parse_globals(&line).unwrap().1, line);
+}
+
 #[test]
 fn global_value_options_reject_empty_inline_values() {
     let error = parse_globals(&strings(&["--socket=", "workspace", "list"])).unwrap_err();
@@ -97,7 +148,7 @@ fn server_lifecycle_routing_flags_follow_action() {
     assert!(global.session.is_none());
     assert!(matches!(
         plan.action,
-        lifecycle::ServerAction::Stop { force: true, end_terminals: false }
+        lifecycle::ServerAction::Stop { force: true, end_terminals: false, .. }
     ));
 
     let ParsedCommand::Command { plan: CommandPlan::Server(plan), .. } =
@@ -107,7 +158,7 @@ fn server_lifecycle_routing_flags_follow_action() {
     };
     assert!(matches!(
         plan.action,
-        lifecycle::ServerAction::Stop { force: false, end_terminals: true }
+        lifecycle::ServerAction::Stop { force: false, end_terminals: true, .. }
     ));
 
     let ParsedCommand::Command { global, plan: CommandPlan::Server(plan) } = parse(

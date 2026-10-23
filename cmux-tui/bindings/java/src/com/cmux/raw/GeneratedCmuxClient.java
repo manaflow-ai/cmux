@@ -303,6 +303,11 @@ public abstract class GeneratedCmuxClient {
         return Wire.immutableJson(result);
     }
 
+    public final Object cloudSelfhostInfo() throws CmuxException {
+        Object result = execute(Commands.CLOUD_SELFHOST_INFO, Map.of());
+        return Wire.immutableJson(result);
+    }
+
     public final Object cloudSessionClear() throws CmuxException {
         Object result = execute(Commands.CLOUD_SESSION_CLEAR, Map.of());
         return Wire.immutableJson(result);
@@ -1282,6 +1287,11 @@ public abstract class GeneratedCmuxClient {
     public final TerminalHistoryPagesResult terminalHistory(TerminalHistoryRequest request) throws CmuxException {
         Object result = execute(Commands.TERMINAL_HISTORY, request.toWire());
         return TerminalHistoryPagesResult.fromWire(result);
+    }
+
+    public final TerminalPortsResult terminalPorts(TerminalPortsRequest request) throws CmuxException {
+        Object result = execute(Commands.TERMINAL_PORTS, request.toWire());
+        return TerminalPortsResult.fromWire(result);
     }
 
     public final TerminalReadRangeResult terminalReadRange(TerminalReadRangeRequest request) throws CmuxException {

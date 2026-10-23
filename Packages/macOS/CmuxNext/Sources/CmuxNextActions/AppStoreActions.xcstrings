@@ -136,129 +136,129 @@
       "extractionState" : "manual",
       "localizations" : {
         "ar" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "إخفاء التطبيق"
+          "stringUnit": {
+            "state": "translated",
+            "value": "إخفاء التطبيق…"
           }
         },
         "bs" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Sakrij aplikaciju"
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sakrij aplikaciju…"
           }
         },
         "da" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Skjul app"
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skjul app…"
           }
         },
         "de" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "App ausblenden"
+          "stringUnit": {
+            "state": "translated",
+            "value": "App ausblenden…"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Hide App"
+            "value" : "Hide App…"
           }
         },
         "es" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Ocultar app"
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ocultar app…"
           }
         },
         "fr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Masquer l’app"
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masquer l’app…"
           }
         },
         "it" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Nascondi app"
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nascondi app…"
           }
         },
         "ja" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Appを非表示"
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appを非表示…"
           }
         },
         "km" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "លាក់កម្មវិធី"
+          "stringUnit": {
+            "state": "translated",
+            "value": "លាក់កម្មវិធី…"
           }
         },
         "ko" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "앱 숨기기"
+          "stringUnit": {
+            "state": "translated",
+            "value": "앱 숨기기…"
           }
         },
         "nb" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Skjul app"
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skjul app…"
           }
         },
         "pl" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Ukryj aplikację"
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ukryj aplikację…"
           }
         },
         "pt-BR" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Ocultar app"
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ocultar app…"
           }
         },
         "ru" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Скрыть приложение"
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скрыть приложение…"
           }
         },
         "th" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "ซ่อนแอป"
+          "stringUnit": {
+            "state": "translated",
+            "value": "ซ่อนแอป…"
           }
         },
         "tr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Uygulamayı Gizle"
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uygulamayı Gizle…"
           }
         },
         "uk" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Сховати застосунок"
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сховати застосунок…"
           }
         },
         "vi" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Ẩn ứng dụng"
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ẩn ứng dụng…"
           }
         },
         "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "隐藏 App"
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐藏 App…"
           }
         },
         "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "隱藏 App"
+          "stringUnit": {
+            "state": "translated",
+            "value": "隱藏 App…"
           }
         }
       }
@@ -398,129 +398,129 @@
       "extractionState" : "manual",
       "localizations" : {
         "ar" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "إظهار التطبيق المخفي"
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار التطبيق المخفي…"
           }
         },
         "bs" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Prikaži skrivenu aplikaciju"
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži skrivenu aplikaciju…"
           }
         },
         "da" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Vis skjult app"
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis skjult app…"
           }
         },
         "de" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Ausgeblendete App einblenden"
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ausgeblendete App einblenden…"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Show Hidden App"
+            "value" : "Show Hidden App…"
           }
         },
         "es" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Mostrar app oculta"
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar app oculta…"
           }
         },
         "fr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Afficher l’app masquée"
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher l’app masquée…"
           }
         },
         "it" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Mostra app nascosta"
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra app nascosta…"
           }
         },
         "ja" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "非表示のAppを表示"
+          "stringUnit": {
+            "state": "translated",
+            "value": "非表示のAppを表示…"
           }
         },
         "km" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "បង្ហាញកម្មវិធីដែលបានលាក់"
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញកម្មវិធីដែលបានលាក់…"
           }
         },
         "ko" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "숨긴 앱 보기"
+          "stringUnit": {
+            "state": "translated",
+            "value": "숨긴 앱 보기…"
           }
         },
         "nb" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Vis skjult app"
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis skjult app…"
           }
         },
         "pl" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Pokaż ukrytą aplikację"
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokaż ukrytą aplikację…"
           }
         },
         "pt-BR" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Mostrar app oculto"
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar app oculto…"
           }
         },
         "ru" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Показать скрытое приложение"
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показать скрытое приложение…"
           }
         },
         "th" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "แสดงแอปที่ซ่อน"
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงแอปที่ซ่อน…"
           }
         },
         "tr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Gizli Uygulamayı Göster"
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gizli Uygulamayı Göster…"
           }
         },
         "uk" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Показати схований застосунок"
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показати схований застосунок…"
           }
         },
         "vi" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Hiện ứng dụng đã ẩn"
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiện ứng dụng đã ẩn…"
           }
         },
         "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "显示隐藏的 App"
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示隐藏的 App…"
           }
         },
         "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "顯示隱藏的 App"
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示隱藏的 App…"
           }
         }
       }
@@ -1045,6 +1045,137 @@
           "stringUnit" : {
             "state" : "needs_review",
             "value" : "App"
+          }
+        }
+      }
+    },
+    "argument.appStore.category" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "الفئة"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kategorija"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kategori"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kategorie"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Category"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Categoría"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Catégorie"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Categoria"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "カテゴリ"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ប្រភេទ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "카테고리"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kategori"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kategoria"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Categoria"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Категория"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "หมวดหมู่"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kategori"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Категорія"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Danh mục"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "类别"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "類別"
           }
         }
       }

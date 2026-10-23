@@ -169,8 +169,9 @@ jobs:
     name: car guards (linux)
     outputs:
       status: ${{ steps.guards.outputs.status }}
-    # 16 vCPU: the guards and focused python tests run side by side (car_guards.py CHEAP).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-16vcpu-ubuntu-2404' }}
+    # 32 vCPU: the guards and focused python tests run side by side (car_guards.py CHEAP)
+    # and cargo test compiles the crates the car touches.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || 'blacksmith-32vcpu-ubuntu-2404' }}
     timeout-minutes: 45
     env:
       GHOSTTY_ZIG_SOURCE: ghostty-next

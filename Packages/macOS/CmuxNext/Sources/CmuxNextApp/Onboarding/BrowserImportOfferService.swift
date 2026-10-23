@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextBrowser
 import CmuxNextBrowserImport
 import CmuxNextDesign
+import CmuxNextImportCards
 import Foundation
 
 /// The browser-data import offer (Lawrence 2026-10-09: no onboarding window
@@ -37,7 +38,7 @@ final class BrowserImportOfferService {
     var enabledOverride: Bool?
 
     init(services: AppServices?, defaults: UserDefaults = .standard,
-         locate: @escaping @Sendable () -> [(browser: ImportBrowser, app: URL)] = { InstalledImportBrowser.locate() }) {
+         locate: @escaping @Sendable () -> [(browser: ImportBrowser, app: URL)] = { InstalledImportBrowsers().locate() }) {
         self.services = services
         self.defaults = defaults
         self.locate = locate
@@ -143,27 +144,8 @@ final class BrowserImportOfferService {
 }
 
 /// A browser on this Mac that cmux can import from, with its app icon
-/// (Launch Services only: no file of the browser is read).
+/// (`InstalledImportBrowsers` finds them).
 struct InstalledImportBrowser {
     let browser: ImportBrowser
     let icon: NSImage
-
-    /// The browsers people most often come from lead; the rest keep registry order.
-    nonisolated static let leading: [ImportBrowser] = [.chrome, .edge, .firefox, .arc, .brave, .safari]
-
-    /// Launch Services' app for a bundle id; nonisolated so the off-main search never needs the main actor.
-    nonisolated static func appURL(_ bundleID: String) -> URL? {
-        NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID)
-    }
-
-    /// The installed browsers and their apps, in offer order (any thread).
-    nonisolated static func locate(_ locate: (String) -> URL? = appURL) -> [(browser: ImportBrowser, app: URL)] {
-        let candidates = ImportBrowser.allCases.filter { browser in
-            browser.kind == .browser && !browser.refusesSessionData && [.chromium, .firefox, .safari].contains(browser.family)
-        }
-        let rank = { (browser: ImportBrowser) in leading.firstIndex(of: browser) ?? leading.count }
-        return candidates.sorted { rank($0) < rank($1) }.compactMap { browser in
-            browser.bundleIDs.compactMap(locate).first.map { (browser: browser, app: $0) }
-        }
-    }
 }

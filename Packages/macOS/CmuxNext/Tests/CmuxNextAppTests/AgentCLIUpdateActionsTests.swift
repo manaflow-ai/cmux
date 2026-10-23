@@ -197,7 +197,7 @@ import Testing
     }
 
     @Test func familiesTheOwnerRefusesAreNeverOfferedOrSubmitted() async throws {
-        for channel in ["brewCask", "brew", "standalone", "bun"] {
+        for channel in ["brewCask", "brew", "standalone"] {
             let (owner, updates, registry) = make()
             owner.claudeChannel = channel
             _ = try await updates.runSettings(id: nil, context: page("batch-\(channel)"), registry: registry)
@@ -209,6 +209,14 @@ import Testing
             #expect(owner.starts.count == 1)
             #expect(updates.state.arrayValue?.map { $0["cli"] } == ["codex"])
         }
+    }
+
+    /// acpmux binds a Bun installation's roots in its fixed argv, so the owner runs it.
+    @Test func bunInstallationsReachTheOwner() async throws {
+        let (owner, updates, registry) = make()
+        owner.claudeChannel = "bun"
+        _ = try await updates.runSettings(id: "claude", context: page("one-bun"), registry: registry)
+        #expect(owner.starts.map { $0.0.rawValue } == ["claude"])
     }
 
     @Test func aRefusedStartLeavesNoBlockingJobAndTheBatchContinues() async throws {

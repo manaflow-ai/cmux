@@ -5,6 +5,64 @@
 use super::*;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct StepOp {
+    pub r#type: LitOp,
+    pub op: StepOpOp,
+    pub params: Value,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct StepMachine {
+    pub r#type: LitMachine,
+    pub machine: MachineId,
+    pub command: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_from: Option<i64>,
+    pub timeout_seconds: i64,
+}
+
+wire_enum! {
+    StepAgentHarness {
+        Claude = "claude",
+        Codex = "codex",
+        Opencode = "opencode",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct StepAgent {
+    pub r#type: LitAgent,
+    pub machine: MachineId,
+    pub harness: StepAgentHarness,
+    pub prompt: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_from: Option<i64>,
+    pub timeout_seconds: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+pub enum TargetPolicy {
+    CloudVm(TargetPolicyCloudVm),
+    Host(TargetPolicyHost),
+    /// A member this build does not know (a newer backend), kept verbatim.
+    Unknown(Value),
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TargetPolicyCloudVm {
+    pub kind: LitCloudVm,
+}
+
+wire_enum! {
+    TargetPolicyHostFallback {
+        CloudVm = "cloud_vm",
+        Wait = "wait",
+        Fail = "fail",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TargetPolicyHost {
     pub kind: LitHost,
     pub host: HostId,

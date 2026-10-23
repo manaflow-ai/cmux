@@ -4,6 +4,7 @@
 // commands. Real Chromium from Playwright.
 import path from "node:path";
 import type { Browser, Page } from "playwright";
+import { installPaintedFrames } from "./paintedFrames";
 import { warmViteServer } from "./warmDevServer";
 
 export const PAPERCUT_CHAT = "0190a000-0000-7000-8000-00000000fc01";
@@ -14,9 +15,22 @@ const update = (update: Record<string, unknown>) => ({
   params: { sessionId: "agent-1", update },
 });
 
-type Step = [dir: string, kind: string, msg: Record<string, unknown>, at?: number];
+export type PapercutStep = [dir: string, kind: string, msg: Record<string, unknown>, at?: number];
+type Step = PapercutStep;
 
-export function papercutEvents({ turns, running }: { turns: number; running: boolean }) {
+/// `extra` steps follow the chat's last turn (inside the running turn when `running`); `session`
+/// adds to or replaces the chat's summary fields (a queue, say).
+export function papercutEvents({
+  turns,
+  running,
+  extra = [],
+  session: fields = {},
+}: {
+  turns: number;
+  running: boolean;
+  extra?: Step[];
+  session?: Record<string, unknown>;
+}) {
   const steps: Step[] = [];
   let clock = START;
   for (let n = 1; n <= turns; n++) {
@@ -55,6 +69,7 @@ export function papercutEvents({ turns, running }: { turns: number; running: boo
       ]);
     }
   }
+  for (const [dir, kind, msg, at] of extra) steps.push([dir, kind, msg, at ?? clock]);
   const events = steps.map(([dir, kind, msg, at], index) => ({
     sessionId: PAPERCUT_CHAT,
     seq: index + 1,
@@ -74,15 +89,28 @@ export function papercutEvents({ turns, running }: { turns: number; running: boo
     turnCount: turns + (running ? 1 : 0),
     updatedAt: clock,
     lastSeq: events.length,
+    ...fields,
   };
   return { events, session };
 }
 
-/// Starts the stand-in daemon and the dev server; returns `open` and `close`.
-export async function papercutPane(browser: () => Browser, options: { turns: number; running: boolean }) {
+/// Starts the stand-in daemon and the dev server; returns `open`, `close` and `methods`. `open` waits
+/// for the last answer, or for `ready` (a selector) when the chat's end shows something else;
+/// `methods` lists every method the pages sent the daemon, in order (a stop is `session/cancel`).
+export async function papercutPane(
+  browser: () => Browser,
+  options: {
+    turns: number;
+    running: boolean;
+    extra?: PapercutStep[];
+    session?: Record<string, unknown>;
+    ready?: string;
+  },
+) {
   const { createServer } = await import("vite");
   const webviews = path.resolve(import.meta.dir, "../..");
   const { events, session } = papercutEvents(options);
+  const methods: string[] = [];
   const answer = (method: string): unknown => {
     switch (method) {
       case "initialize":
@@ -106,6 +134,7 @@ export async function papercutPane(browser: () => Browser, options: { turns: num
     websocket: {
       message(ws, raw) {
         const message = JSON.parse(String(raw)) as { id?: number; method: string };
+        methods.push(message.method);
         if (message.id !== undefined)
           ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method) }));
       },
@@ -120,19 +149,43 @@ export async function papercutPane(browser: () => Browser, options: { turns: num
   await warmViteServer(vite, "/");
   const open = async (viewport = { width: 900, height: 700 }): Promise<Page> => {
     const page = await browser().newPage({ viewport });
+    await installPaintedFrames(page);
     const { port } = vite.httpServer!.address() as { port: number };
     const endpoint = `ws://127.0.0.1:${daemon.port}/`;
     await page.goto(
       `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${PAPERCUT_CHAT}`,
     );
-    await page.getByText(`Answer ${options.turns}:`, { exact: false }).waitFor({ timeout: 120_000 });
-    // Rows place by their drawn heights a frame after they mount.
-    await page.waitForTimeout(500);
+    await (
+      options.ready ? page.locator(options.ready).first() : page.getByText(`Answer ${options.turns}:`, { exact: false })
+    ).waitFor({ timeout: 120_000 });
+    // Rows place by their drawn heights a frame after they mount: wait until no animation runs and
+    // the transcript has held its scroll position over three painted frames.
+    await page.evaluate(async () => {
+      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
+      const finite = () =>
+        document.getAnimations().filter((animation) => animation.effect?.getComputedTiming().endTime !== Infinity);
+      for (let tries = 0; tries < 20; tries++) {
+        await Promise.all(finite().map((animation) => animation.finished.catch(() => undefined)));
+        await new Promise<void>((resolve) => {
+          let last = -1;
+          let still = 0;
+          window.cmuxAfterPaint(() => {
+            const top = scroller?.scrollTop ?? 0;
+            still = top === last ? still + 1 : 0;
+            last = top;
+            if (still < 2) return true;
+            resolve();
+            return false;
+          });
+        });
+        if (finite().every((animation) => animation.playState !== "running")) return;
+      }
+    });
     return page;
   };
   const close = async () => {
     await vite.close();
     await daemon.stop(true);
   };
-  return { open, close };
+  return { open, close, methods };
 }

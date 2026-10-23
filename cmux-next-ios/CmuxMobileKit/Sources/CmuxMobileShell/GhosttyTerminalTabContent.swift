@@ -29,6 +29,9 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     /// placeholder, or the mock in DEBUG mock mode).
     private var liveTabs: Set<String> = []
     private var workspaceOwner: [String: String] = [:]
+    /// Each host's Mac. Tab ids (`s<surface>`) repeat across Macs: a tab of
+    /// another Mac with the same id gets its own host, never this one.
+    private var hostMacs: [String: String] = [:]
     /// Per tab: "Reattaching…" in the title pill after a slow reattach (P5),
     /// fed from the host model's `connectionState` while the tab has a host.
     private var indicators: [String: ReattachIndicator<ContinuousClock>] = [:]
@@ -42,13 +45,37 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     /// Last frames kept across launches.
     var frameStore: TerminalFrameStore? = .standard
     private var backgroundObserver: NSObjectProtocol?
+    private var foregroundObserver: NSObjectProtocol?
+    /// The app is in the foreground: only then does a shown terminal size
+    /// its Mac terminal (PROTOCOL.md, "Terminal size claims").
+    private var appActive = UIApplication.shared.applicationState != .background
 
     init() {
         backgroundObserver = NotificationCenter.default.addObserver(
             forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.saveFrames() }
+            MainActor.assumeIsolated {
+                // The background (or the lock screen) releases every
+                // terminal's size at once. A short background task keeps the
+                // app running for the releases to reach the Mac (bounded:
+                // the Mac's size lease covers a release that never lands).
+                let release = SizeReleaseBackgroundTask()
+                release.begin()
+                self?.setAppActive(false)
+                self?.saveFrames()
+                release.endAfter(.seconds(2))
+            }
         }
+        foregroundObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.setAppActive(true) }
+        }
+    }
+
+    private func setAppActive(_ active: Bool) {
+        appActive = active
+        for host in hosts.values { host.model.setAppActive(active) }
     }
 
     /// Going to the background: each live page's frame goes to disk, so a
@@ -93,23 +120,23 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     var workspaceLookup: (@MainActor (String) -> Workspace?)?
 
     /// Whether the tab would get a live session now (the tree lists its surface).
-    var hasLiveSession: (@MainActor (String) -> Bool)?
+    var hasLiveSession: (@MainActor (_ tabID: String, _ macID: String?) -> Bool)?
 
     private func canGoLive(_ id: String) -> Bool {
-        hasLiveSession?(id) ?? false
+        hasLiveSession?(id, placeholderTabs[id]?.workspace.macID) ?? false
     }
     private var feeds: [String: Task<Void, Never>] = [:]
     /// Live mode: a session on the Mac for a terminal tab (a daemon surface),
     /// or nil while there is none yet (the tab then shows "Connecting…").
-    var sessionProvider: (@MainActor (WorkspaceTab) -> (any TerminalSession)?)?
+    var sessionProvider: (@MainActor (WorkspaceTab, _ macID: String) -> (any TerminalSession)?)?
     /// Live mode: the Mac's screen as text for a tab's grid card (D5).
-    var screenTextProvider: (@MainActor (WorkspaceTab) async -> String?)?
+    var screenTextProvider: (@MainActor (WorkspaceTab, _ macID: String?) async -> String?)?
     /// When each card's screen text is asked for.
     private var screenTextRefresh = TerminalCardScreenRefresh()
     /// Live mode: Files and Links previews from the Mac.
-    var artifactSourceProvider: (@MainActor (WorkspaceTab) -> (any ArtifactSource)?)?
+    var artifactSourceProvider: (@MainActor (WorkspaceTab, _ macID: String) -> (any ArtifactSource)?)?
     /// Live mode: uploads a terminal attachment to the Mac, returning its path there.
-    var uploaderProvider: (@MainActor (WorkspaceTab) -> (@MainActor (Data, String) async throws -> String)?)?
+    var uploaderProvider: (@MainActor (WorkspaceTab, _ macID: String) -> (@MainActor (Data, String) async throws -> String)?)?
     /// DEBUG mock mode (Settings → Developer → Mock): tabs with no live
     /// session run the scripted mock. Ignored outside DEBUG builds.
     var mockDataEnabled = false
@@ -117,6 +144,12 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     var macName: (@MainActor (Workspace) -> String?)?
 
     private func host(for tab: WorkspaceTab, in workspace: Workspace) -> TerminalTabHost {
+        // Another Mac's tab with the same id: its host (and its attach) goes, and
+        // this tab builds its own on its own Mac.
+        if hosts[tab.id] != nil, let owner = hostMacs[tab.id], owner != workspace.macID {
+            warmLog.info("terminal tab \(tab.id, privacy: .public) now shows another Mac's tab: new host")
+            release(tab.id)
+        }
         // A placeholder (or mock) host built before live data arrived (no
         // coordinator or no tree yet) is replaced once the tab has a live session.
         if let host = hosts[tab.id], liveTabs.contains(tab.id) || sessionProvider == nil { return host }
@@ -125,19 +158,10 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         for (id, owner) in workspaceOwner where owner == workspace.id && !open.contains(id) {
             // Its Mac attach goes too: a closed tab's session kept waiting to
             // reattach after the next drop (V5-5).
-            hosts.removeValue(forKey: id)?.model.session.stop()
-            stopWatching(id)
-            indicators[id] = nil
-            workspaceOwner[id] = nil
-            liveTabs.remove(id)
-            warm.remove(id)
-            lastFrames[id] = nil
+            release(id)
             slots[id] = nil
-            upgrade.removed(tabID: id)
-            placeholderTabs[id] = nil
-            frameStore?.remove(id)
         }
-        let live = sessionProvider?(tab)
+        let live = sessionProvider?(tab, workspace.macID)
         if let host = hosts[tab.id], live == nil { return host }
         if live != nil { liveTabs.insert(tab.id) }
         // A placeholder replaced by the live session: its frame carries over,
@@ -148,13 +172,13 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         // honest connecting placeholder (TerminalSessionChoice).
         let mock = mockDataEnabled && live == nil && sessionProvider == nil
         let session = TerminalSessionChoice.session(live: live, mockDataEnabled: mock, macName: macName?(workspace), programName: tab.title)
-        let artifacts = live == nil ? nil : artifactSourceProvider?(tab)
+        let artifacts = live == nil ? nil : artifactSourceProvider?(tab, workspace.macID)
         let model = TerminalModel(
             session: session,
             artifactSource: artifacts ?? TerminalSessionChoice.fallbackArtifactSource(mockDataEnabled: mock),
             title: tab.title
         )
-        model.uploader = live == nil ? nil : uploaderProvider?(tab)
+        model.uploader = live == nil ? nil : uploaderProvider?(tab, workspace.macID)
         var frame = lastFrames.removeValue(forKey: tab.id) ?? previous.flatMap { $0.model.snapshot ?? $0.model.coldFrame }
         if frame == nil, let data = frameStore?.load(tab.id) { frame = UIImage(data: data) }
         model.restoreLastFrame(frame)
@@ -169,6 +193,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
                 }
             }
         }
+        model.setAppActive(appActive)
         let host = TerminalTabHost(model: model)
         hosts[tab.id] = host
         upgrade.built(tabID: tab.id, workspaceID: workspace.id, live: live != nil)
@@ -176,7 +201,23 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         if let slot = slots[tab.id] { slot.host = host }
         watchReattach(tab.id, model: model)
         workspaceOwner[tab.id] = workspace.id
+        hostMacs[tab.id] = workspace.macID
         return host
+    }
+
+    /// Drops a tab's host: its Mac attach stops, its frames go.
+    private func release(_ id: String) {
+        hosts.removeValue(forKey: id)?.model.session.stop()
+        stopWatching(id)
+        indicators[id] = nil
+        workspaceOwner[id] = nil
+        hostMacs[id] = nil
+        liveTabs.remove(id)
+        warm.remove(id)
+        lastFrames[id] = nil
+        upgrade.removed(tabID: id)
+        placeholderTabs[id] = nil
+        frameStore?.remove(id)
     }
 
     /// Tabs last shown with an ended shell (``page(for:in:context:)``).
@@ -187,11 +228,14 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         endedShells = []
         for id in Array(feeds.keys) { stopWatching(id) }
         indicators = [:]
+        // Each session releases its size on the Mac before its channel closes.
+        for host in hosts.values { host.model.session.stop() }
         hosts = [:]
         slots = [:]
         upgrade.reset()
         placeholderTabs = [:]
         workspaceOwner = [:]
+        hostMacs = [:]
         liveTabs = []
         warm = TerminalWarmSet(limit: Self.warmLimit)
         lastFrames = [:]
@@ -293,8 +337,9 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
               let request = screenTextRefresh.begin(tab.id, now: Date(), gridOpening: gridOpening,
                                                     interval: live ? TerminalCardLiveRefresh.screenTextInterval : TerminalCardScreenRefresh.interval)
         else { return }
+        let macID = hostMacs[tab.id]
         Task { @MainActor [weak self, weak model] in
-            let text = await provider(tab)
+            let text = await provider(tab, macID)
             guard let self else { return }
             guard let text else {
                 self.screenTextRefresh.failed(tab.id, request: request)
@@ -393,6 +438,36 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     /// DEBUG demos drive the open terminal tab through its model.
     func model(forTabID id: String) -> TerminalModel? { hosts[id]?.model }
     #endif
+}
+
+/// A short background task for the background release: begun before the
+/// sessions release their sizes, ended after `endAfter`'s bound or when iOS
+/// runs out of time, whichever is first (the size lease covers a lost release).
+@MainActor
+private final class SizeReleaseBackgroundTask {
+    private var id = UIBackgroundTaskIdentifier.invalid
+
+    func begin() {
+        id = UIApplication.shared.beginBackgroundTask(withName: "terminal-size-release") { [weak self] in
+            // iOS calls this on the main thread; hop explicitly all the same.
+            Task { @MainActor in self?.end() }
+        }
+    }
+
+    func endAfter(_ bound: Duration) {
+        guard id != .invalid else { return }
+        // An intentional bounded delay (the release's time to reach the Mac).
+        Task { @MainActor in
+            try? await Task.sleep(for: bound)
+            self.end()
+        }
+    }
+
+    private func end() {
+        guard id != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(id)
+        id = .invalid
+    }
 }
 
 /// The host a tab's page shows now. Observed: when a placeholder host is

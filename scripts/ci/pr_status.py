@@ -54,7 +54,7 @@ BOT = "github-actions[bot]"
 # The attribution workflows post with the cmux-bot App's token once vars.CMUX_BOT_APP_ID is set
 # (#20858); its comments are this comment too.
 BOTS = (BOT, "cmux-bot[bot]")
-SECTIONS = ("bead", "review", "preview", "attribution", "checks", "guards", "tour", "receipt")
+SECTIONS = ("bead", "review", "gallery", "preview", "attribution", "checks", "guards", "tour", "receipt")
 TITLE = "**cmux status** <sub>(one comment, edited in place; each line is updated by the job that owns it)</sub>"
 SECTION = re.compile(r"<!-- cmux-pr-status:(?P<key>[a-z-]+) -->\n(?P<text>.*?)\n<!-- /cmux-pr-status:(?P=key) -->",
                      re.S)
@@ -95,17 +95,38 @@ def render(sections: Mapping[str, str]) -> str:
     return body
 
 
-def http_api(method: str, path: str, payload: dict | None = None):
-    """GitHub REST at GITHUB_API_URL with GH_TOKEN (or GITHUB_TOKEN)."""
+# GitHub answers 403 or 429 when a secondary rate limit (content creation) is hit, and 5xx under load: retried with
+# backoff, honoring Retry-After. On 2026-10-21 the review-line write failed for 90% of pushes from 09:00Z. A 403 that
+# is not a rate limit (a fork's read-only token) is final, and a POST that answered 5xx may have landed, so it is not
+# sent again.
+RETRY_WAITS = (5, 10, 20, 40, 60)
+
+
+def http_api(method: str, path: str, payload: dict | None = None, *,
+             sleep: Callable[[float], None] = time.sleep, opener=urllib.request.urlopen):
+    """GitHub REST at GITHUB_API_URL with GH_TOKEN (or GITHUB_TOKEN). A refusal that may pass later is retried; the
+    last error is raised with what GitHub said."""
     api = os.environ.get("GITHUB_API_URL", "https://api.github.com").rstrip("/")
     token = os.environ.get("GH_TOKEN") or os.environ["GITHUB_TOKEN"]
-    request = urllib.request.Request(api + path, method=method,
-                                     data=None if payload is None else json.dumps(payload).encode(),
-                                     headers={"Authorization": f"Bearer {token}",
-                                              "Accept": "application/vnd.github+json",
-                                              "X-GitHub-Api-Version": "2022-11-28"})
-    with urllib.request.urlopen(request, timeout=30) as response:
-        return json.loads(response.read() or b"null")
+    for attempt in range(len(RETRY_WAITS) + 1):
+        request = urllib.request.Request(api + path, method=method,
+                                         data=None if payload is None else json.dumps(payload).encode(),
+                                         headers={"Authorization": f"Bearer {token}",
+                                                  "Accept": "application/vnd.github+json",
+                                                  "X-GitHub-Api-Version": "2022-11-28"})
+        try:
+            with opener(request, timeout=30) as response:
+                return json.loads(response.read() or b"null")
+        except urllib.error.HTTPError as error:
+            said = (error.read() or b"").decode(errors="replace")[:300]
+            after = (error.headers or {}).get("Retry-After") or ""
+            limited = error.code == 429 or (error.code == 403 and (after or "rate limit" in said.lower()))
+            if not (limited or (error.code >= 500 and method != "POST")) or attempt == len(RETRY_WAITS):
+                raise RuntimeError(f"{method} {path}: HTTP {error.code}: {said}") from error
+            wait = min(float(after), 120.0) if after.isdigit() else RETRY_WAITS[attempt]
+            print(f"{method} {path}: HTTP {error.code} (try {attempt + 1}); retrying in {wait:g}s: {said}",
+                  file=sys.stderr)
+            sleep(wait)
 
 
 def list_comments(api: Api, repo: str, pr: int) -> list[dict]:

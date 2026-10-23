@@ -61,6 +61,7 @@ struct FeedSwipeRow<Content: View>: View {
     @State private var offset: CGFloat = 0
     @State private var dragStart: CGFloat?
     @State private var width: CGFloat = 0
+    @State private var height: CGFloat = 0
     /// A full swipe is armed: the row haptic fires as it arms (UIKit's
     /// generator, not `.sensoryFeedback`, whose per-row setup ran for every
     /// row that scrolled in).
@@ -68,11 +69,12 @@ struct FeedSwipeRow<Content: View>: View {
         didSet { if armed, !oldValue { UIImpactFeedbackGenerator(style: .medium).impactOccurred() } }
     }
 
-    static var actionWidth: CGFloat { 76 }
-
     private var isOpen: Bool { offset != 0 }
-    private var revealWidth: CGFloat { CGFloat(actions.count) * Self.actionWidth }
-    private var fullThreshold: CGFloat { max(width * 0.6, 160) }
+    /// This row's entry in ``RowSwipeActions``, unique to this Feed screen.
+    private var registrationKey: String { "feed.\(ObjectIdentifier(coordinator)).\(id)" }
+    private var revealWidth: CGFloat { RowSwipeActionStyle.standard.revealWidth(count: actions.count) }
+    /// Past the open row's resting reveal, so an open row never arms on a small drag.
+    private var fullThreshold: CGFloat { max(width * 0.6, 160, revealWidth + 40) }
 
     var body: some View {
         content
@@ -88,12 +90,23 @@ struct FeedSwipeRow<Content: View>: View {
                 if offset < 0 { actionStrip }
             }
             .clipped()
-            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+            .onGeometryChange(for: CGSize.self) { $0.size } action: { width = $0.width; height = $0.height }
             .gesture(HorizontalPan(isOpen: isOpen, onChange: dragChanged, onEnd: dragEnded))
             .onChange(of: coordinator.openID) { _, open in
                 if open != id, isOpen { withAnimation(.cmuxMobileSnappy) { offset = 0 } }
             }
             .onChange(of: coordinator.demoSerial) { runDemo() }
+            // Open actions take a rightward swipe before the team drawer does.
+            .onChange(of: isOpen) { _, open in
+                RowSwipeActions.shared.setOpen(registrationKey, close: open ? { [coordinator] in coordinator.openID = nil } : nil)
+            }
+            // A row scrolled away or left behind on another tab closes, so no open row
+            // outlives its registration (the drawer would open over it).
+            .onDisappear {
+                offset = 0
+                if coordinator.openID == id { coordinator.openID = nil }
+                RowSwipeActions.shared.setOpen(registrationKey, close: nil)
+            }
             .accessibilityActions {
                 ForEach(actions) { action in
                     Button(action.title, action: action.action)
@@ -101,31 +114,30 @@ struct FeedSwipeRow<Content: View>: View {
             }
     }
 
+    /// The same buttons `List`'s swipe actions draw on Workspaces and Home
+    /// (``RowSwipeActionButton``): tinted capsules with their titles under
+    /// them, inset from the row's edge, centered on the row. They grow
+    /// together as the row slides; an armed full swipe gives the outermost
+    /// one all the room.
     private var actionStrip: some View {
         let revealed = abs(offset)
-        // The outermost action sits at the row's trailing edge and covers the row once a full swipe is armed.
-        return HStack(spacing: 0) {
+        let style = RowSwipeActionStyle.standard
+        let each = style.buttonWidth(revealed: revealed, count: actions.count)
+        return HStack(spacing: armed ? 0 : style.spacing) {
             ForEach(actions.reversed()) { action in
                 let isOutermost = action.id == actions.first?.id
-                let share = armed ? (isOutermost ? revealed : 0) : revealed / CGFloat(max(actions.count, 1))
-                Button {
+                let width = armed ? (isOutermost ? style.fullSwipeWidth(revealed: revealed) : 0) : each
+                RowSwipeActionButton(title: action.title, systemImage: action.systemImage, tint: action.tint, width: width, maxHeight: height) {
                     perform(action)
-                } label: {
-                    VStack(spacing: 5) {
-                        Image(systemName: action.systemImage).font(.system(size: 19, weight: .medium))
-                        Text(action.title).font(.caption.weight(.semibold)).lineLimit(1).fixedSize()
-                    }
-                    .foregroundStyle(.white)
-                    .frame(width: max(share, 0), alignment: .center)
-                    .frame(maxHeight: .infinity)
-                    .background(action.tint)
-                    .clipped()
                 }
-                .buttonStyle(.plain)
+                .opacity(armed && !isOutermost ? 0 : 1)
                 .accessibilityIdentifier("feed.swipe.\(action.id)")
             }
         }
+        .padding(.trailing, style.trailingInset)
         .frame(width: revealed, alignment: .trailing)
+        .frame(maxHeight: .infinity)
+        .clipped()
         .animation(.cmuxMobileSnappy, value: armed)
     }
 
@@ -200,6 +212,8 @@ struct HorizontalPan: UIGestureRecognizerRepresentable {
     func makeUIGestureRecognizer(context: Context) -> UIPanGestureRecognizer {
         let pan = UIPanGestureRecognizer()
         pan.delegate = context.coordinator
+        // The team drawer's pan waits for this one: an open row closes first.
+        pan.name = RowSwipeActions.panName
         return pan
     }
 

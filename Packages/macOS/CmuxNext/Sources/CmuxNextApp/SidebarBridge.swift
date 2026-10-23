@@ -1,9 +1,11 @@
 import AppKit
-import CmuxNextActions
+import CmuxNextAgentLanes
 import CmuxNextBridge
+import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextSettings
 import CmuxNextSidebar
 import Observation
 
@@ -89,8 +91,7 @@ final class SidebarBridge {
             focus.send(.focusTarget(.content, source: .keyboard))
         }
         seedFromSnapshot(state)
-        // Clear until real content (released by `markReadyForReveal`, or by
-        // the reveal deadline); a no-op once the sidebar region is ready.
+        // Clear until real content (`markReadyForReveal`, or the deadline); a no-op once it is ready.
         services.launchReveal.hold(container, until: .sidebar)
         observe()
         observeSections()
@@ -141,10 +142,11 @@ final class SidebarBridge {
                 machines, registry: registry, window: windowState, creations: creations, hidesHome: Self.hidesHome(layout.document),
                 newTabPages: pages, muted: muted,
                 top: .make(layout, machines: machines, room: windowState.profileID.rawValue), pageFace: services.sidebarPageFace,
-                tabTitle: Self.tabTitle(services), rows: feed.rowSource)
+                tabTitle: Self.tabTitle(services), rows: feed.laneRowSource,
+                groupConfig: services.settings?.snapshot.workspaceGroups ?? WorkspaceGroupConfig())
             // Not the creates' rows (PendingWorkspaceRows): they draw from the press (its redraws below), and a walk reads them as it shows.
             return ((PendingWorkspaceRows.shared.listing(listed, in: windowState.id, machines: machines), services.sidebarCustomization.rowDecorations), launching, failed, SidebarSpaceBar.profiles(machines.local), SidebarProfileKey(windowState.profileID.rawValue),
-                    SidebarRows.visibleLayout(layout.document))
+                    SidebarRows.visibleLayout(layout.document, window: windowState.id, machines: machines, registry: registry.value))
         }) { [weak self] value in
             let ((sections, decorations), launching, failed, profiles, active, shown) = value
             guard let self else { return }
@@ -152,7 +154,8 @@ final class SidebarBridge {
             self.show(SidebarSection.decorated(feed.fill(sections), decorations), layout: shown, launching: launching, failed: failed, creating: PendingWorkspaceRows.shared.rows(in: windowState.id))
             // A workspace the window lists shows its own row from here on (cx-9a7wx).
             let membership = WindowProfiles.membership(machines)
-            PendingWorkspaceRows.shared.forget(in: windowState.id, listed: Set(sections.flatMap(\.workspaces).map(\.id.rawValue))) { id in
+            PendingWorkspaceRows.shared.forget(in: windowState.id, listed: Set(sections.flatMap(\.workspaces).map(\.id.rawValue)),
+                                               held: { machines.workspace(id: $0) != nil }) { id in
                 if let owner = registry.value.owner(of: id), owner != windowState.id { return true }
                 guard let workspace = WindowProfiles.qualified(id, machines: machines),
                       let pin = membership?.pins[workspace] else { return false }
@@ -220,8 +223,10 @@ final class SidebarBridge {
                                                               newTabPages: Self.newTabPages(services.agentTabs, in: services.machines.local.store),
                                                               muted: services.notifications.preferences.mutedWorkspaces,
                                                               top: .make(services.sidebarLayout, machines: services.machines, room: state.profileID.rawValue),
-                                                              tabTitle: Self.tabTitle(services))
-        show(sections, layout: SidebarRows.visibleLayout(services.sidebarLayout.document), launching: launching, failed: failed)
+                                                              tabTitle: Self.tabTitle(services),
+                                                              groupConfig: services.settings?.snapshot.workspaceGroups ?? WorkspaceGroupConfig())
+        show(sections, layout: SidebarRows.visibleLayout(services.sidebarLayout.document, window: state.id, machines: services.machines,
+                                                         registry: windows.registry.value), launching: launching, failed: failed)
     }
 
     /// Shows `live` with loading sections filled from the seed, and the
@@ -238,7 +243,7 @@ final class SidebarBridge {
         selectionHold.flush()
         organizationQueue.drain(loaded: usesPersonalOrganization, local: services.machines.local, run: handle, refuse: refuseOrganization)
         groupFlow.openPendingEditor()
-        if !launching || sections.contains(where: { $0.workspaces.contains { $0.rowState != .placeholder } }) { markReadyForReveal() }
+        if seed.isReadyForReveal(sections, launching: launching) { markReadyForReveal() }
         recordSnapshot()
     }
 
@@ -274,10 +279,13 @@ final class SidebarBridge {
                              window: WindowState, creations: CloudCreations? = nil, hidesHome: Bool = true,
                              newTabPages: Set<String> = [], muted: Set<String> = [],
                              top: SidebarTopProjection = .legacy, pageFace: @escaping PageFace = { _, _, _ in nil },
-                             tabTitle: TabTitle? = nil, rows: SidebarMapping.RowSource? = nil) -> ([SidebarRowSection], Bool, Set<MachineID>) {
+                             tabTitle: TabTitle? = nil, rows: SidebarMapping.RowSource? = nil,
+                             groupConfig: WorkspaceGroupConfig = WorkspaceGroupConfig()) -> ([SidebarRowSection], Bool, Set<MachineID>) {
         var sections = Self.sections(machines, members: registry.members(of: window.id), profile: window.profileID, hidesHome: hidesHome,
                                      selection: window.selection, newTabPages: newTabPages, muted: muted, top: top, pageFace: pageFace,
                                      tabTitle: tabTitle, rows: rows)
+        // cmux.json `workspaceGroups.byCwd`: a configured group's color and icon.
+        sections = WorkspaceGroupConfigLook(config: groupConfig, machines: machines).applying(to: sections)
         if let creations { sections = CloudCreationRows.adding(creations.shown(in: window.id), to: sections) }
         if machines.local.store.isProvisional { sections = SidebarRowSection.stale(sections) }
         // Debug Settings: sample rows with 1 to 7 pending items, to compare the row badges.
@@ -348,7 +356,7 @@ final class SidebarBridge {
                                                tabTitle: tabTitle, notificationText: machines.local.store.notificationText(for:),
                                                iconAsset: groupIcon, rowSource: rows)
         for session in machines.cloud {
-            let header = CloudCreationRows.machine(session, compatibility: machines.compatibility(of: session.daemon))
+            let header = CloudCreationRows.machine(session, compatibility: machines.compatibility(of: session.daemon), limits: machines.cloudLimits)
             sections += SidebarMapping.shared.sections(PersonalSidebar.sections(of: session.daemon, room: profile, machines: machines),
                                                 machine: header, showsUnread: showsUnread, muted: muted, selectedTab: selectedTab,
                                                 newTabPages: newTabPages, newTabTitle: Strings.untitledBrowser, pageFace: pageFace,

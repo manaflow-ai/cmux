@@ -14,7 +14,7 @@ import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
-type Inset = { spread: number; alpha: number };
+type Inset = { offsetY: number; spread: number; alpha: number };
 
 await requireBrowserLane("composer-rim-hairline.test.ts", async () => {
   /** The composer edge's alpha over this page's transparent background, focused or not. */
@@ -82,7 +82,7 @@ await requireBrowserLane("composer-rim-hairline.test.ts", async () => {
           const alphaMatch = color.match(/\/\s*([\d.]+)\)|rgba\([^,]+,[^,]+,[^,]+,\s*([\d.]+)\)/);
           const alpha =
             color === "" || color.includes("transparent") ? 0 : alphaMatch ? Number(alphaMatch[1] ?? alphaMatch[2]) : 1;
-          return { spread: lengths[3] ?? 0, alpha };
+          return { offsetY: lengths[1] ?? 0, spread: lengths[3] ?? 0, alpha };
         });
     }, id);
   }
@@ -98,7 +98,10 @@ await requireBrowserLane("composer-rim-hairline.test.ts", async () => {
       for (const id of ["composer", "newtab"]) {
         const rest = await insets(page, id);
         expect(rest.length, `${id} draws a rim`).toBeGreaterThan(0);
-        for (const { spread } of rest) expect(devicePixels(spread, scale), `${id} rim at ${scale}x`).toBe(1);
+        // A ring's spread, or a glass rim line's offset (the composer's top-lit and bottom lines,
+        // which have no spread), is one device pixel.
+        for (const { offsetY, spread } of rest)
+          expect(devicePixels(Math.abs(spread || offsetY), scale), `${id} rim at ${scale}x`).toBe(1);
       }
       // The rims keep their colors: only the width changed.
       // The rim is the composer edge hairline (--acpmux-composer-edge: 18% text, hq#1957).
@@ -131,23 +134,35 @@ await requireBrowserLane("composer-rim-hairline.test.ts", async () => {
     await page.close();
   });
 
-  // Over art (data-cmux-see-through) the glass card adds a top-lit rim. Under a strip or a queue the
-  // card's ring is drawn once, by the ::before layer round strip and card together
-  // (composerLocation.css), so the card itself must not draw the ring a second time.
-  test("over art a card under a strip or a queue draws the rim but not a second ring", async () => {
-    const page = await open(2);
-    await page.evaluate(() => document.documentElement.setAttribute("data-cmux-see-through", ""));
-    const ring = (id: string) => insets(page, id).then((all) => all.filter(({ spread }) => spread > 0));
-    const shadow = (id: string, pseudo?: string) =>
-      page.evaluate(([id, pseudo]) => getComputedStyle(document.getElementById(id!)!, pseudo).boxShadow, [id, pseudo]);
-    expect((await ring("composer")).length, "a card on its own keeps its ring").toBe(1);
-    for (const id of ["strip-composer", "queue-composer"]) {
-      expect(await ring(id), `${id} draws no ring of its own`).toEqual([]);
-      expect(await shadow(id), `${id} keeps the glass rim`).toContain("0px 1px 0px 0px inset");
-      expect(await shadow(id, "::before"), `${id}'s ring layer`).toMatch(/inset/);
-    }
-    await page.close();
-  });
+  // The glass card adds a top-lit rim, one device pixel (--cmux-hairline): over art under Lens the
+  // liquid glass's specular line, under Plain glass the composer's light rim (composerStates.css).
+  // Under a strip or a queue the card's ring is drawn once, by the ::before layer round strip and
+  // card together (composerLocation.css), so the card itself must not draw the ring a second time.
+  for (const [mode, rim] of [
+    ["lens", "0px 0.5px 0px 0px inset"],
+    ["plain", "0px 0.5px 0px 0px inset"],
+  ] as const) {
+    test(`over art a card under a strip or a queue draws the ${mode} rim but not a second ring`, async () => {
+      const page = await open(2);
+      await page.evaluate((mode) => {
+        document.documentElement.setAttribute("data-cmux-see-through", "");
+        document.documentElement.setAttribute("data-glass", mode);
+      }, mode);
+      const ring = (id: string) => insets(page, id).then((all) => all.filter(({ spread }) => spread > 0));
+      const shadow = (id: string, pseudo?: string) =>
+        page.evaluate(
+          ([id, pseudo]) => getComputedStyle(document.getElementById(id!)!, pseudo).boxShadow,
+          [id, pseudo],
+        );
+      expect((await ring("composer")).length, "a card on its own keeps its ring").toBe(1);
+      for (const id of ["strip-composer", "queue-composer"]) {
+        expect(await ring(id), `${id} draws no ring of its own`).toEqual([]);
+        expect(await shadow(id), `${id} keeps the glass rim`).toContain(rim);
+        expect(await shadow(id, "::before"), `${id}'s ring layer`).toMatch(/inset/);
+      }
+      await page.close();
+    });
+  }
 
   // Over art the glass card keeps its top-lit rim (#21786) as it rests: focus no longer brightens it
   // (#22114's glass focus rim flashed, Leo 2026-10-19), and the ring keeps its resting tone.

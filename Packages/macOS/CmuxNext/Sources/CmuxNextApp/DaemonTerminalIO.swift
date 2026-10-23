@@ -32,7 +32,8 @@ import os
 ///   screen and a status label). A visible view re-attaches by itself after
 ///   a capped backoff (500 ms doubling to 30 s, cx-wwtam) until an attach works, offering Retry
 ///   after about 90 s; a hidden one waits for an event: shown again, a key press, a click, focus or
-///   Retry, or the App's ``reconnect()``. A restored view says "Restoring…" until its first replay.
+///   Retry, or the App's ``reconnect()``. A restored view says "Restoring…" until its first replay
+///   and, for its first 90 s or so, retries every 2 s at most until then (#23029).
 ///   ``processExited()`` ends it until the daemon reports the terminal
 ///   running again (``processRevived()``, R41).
 nonisolated final class DaemonTerminalIO: TerminalIO {
@@ -46,6 +47,8 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     let events: AsyncStream<TerminalIOEvent>
     private let driver: TerminalAttachDriver<TerminalAttachment>
     private let creatingInput: CreatingTerminalInput?
+    /// The id of the terminal still being created whose keys go to the daemon by id, nil otherwise.
+    var creatingTerminalID: String? { creatingInput?.terminalID }
 
     /// - Parameter policyBlocked: true while an administrator turned off the
     ///   feature that reaches this terminal's machine: every disconnect shows

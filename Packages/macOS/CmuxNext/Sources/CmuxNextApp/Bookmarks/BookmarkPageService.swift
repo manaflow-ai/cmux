@@ -128,9 +128,11 @@ final class BookmarkManagerSourceAdapter: BookmarkManagerSource {
         BookmarkOpener(services: services).openAll(in: folder, profile: profile, fromTab: tabKey)
     }
 
-    func importHTML() { BookmarkFiles(services: services).chooseImport(profile: profile) }
-    func importFromBrowser() { BookmarkBrowserImport(services: services).choose(profile: profile, window: NSApp.keyWindow) }
-    func exportHTML() { BookmarkFiles(services: services).chooseExport(profile: profile) }
+    /// The ⋮ menu's rows run the registered actions on this page's profile; Add Bookmark and New
+    /// Folder add to `folder` and ask for the rest in the palette, as from the bookmarks bar.
+    func moreMenu(folder: String) -> NSMenu? {
+        services.registry.makeContextMenu(for: .bookmarkManager, arguments: ["folder": .string(folder), "profile": .string(profile)])
+    }
 
     func copy(_ text: String) {
         NSPasteboard.general.clearContents()

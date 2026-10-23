@@ -40,13 +40,16 @@ public nonisolated struct BrowserPageBusy: Equatable, Sendable {
         self.editedForm = editedForm
     }
 
-    /// Unmuted media playing, a running Web Audio context, a live camera,
+    /// Unmuted media playing or a video in Picture in Picture (it plays on in
+    /// its floating window), a running Web Audio context, a live camera,
     /// microphone or screen capture, or form fields whose value differs from the
     /// page's default (form interaction): the fallback for a page without the recorder.
     /// A page that does not answer within the deadline is treated as busy and kept.
     package static let fieldProbeScript = """
     (() => {
-      const media = [...document.querySelectorAll('audio,video')].some(m => !m.paused && !m.ended && !m.muted && m.volume > 0);
+      const media = [...document.querySelectorAll('audio,video')].some(m => !m.paused && !m.ended && !m.muted && m.volume > 0)
+        || !!document.pictureInPictureElement
+        || [...document.querySelectorAll('video')].some(v => v.webkitPresentationMode === 'picture-in-picture');
       const form = [...document.querySelectorAll('input,textarea,select')].some(e => {
         if (e.disabled || e.type === 'hidden' || e.type === 'submit' || e.type === 'button') return false;
         if (e.tagName === 'SELECT') return [...e.options].some(o => o.selected !== o.defaultSelected);

@@ -103,6 +103,8 @@ public final class SystemNowPlaying: NowPlayingSource {
         case .previous: adapter.send(.previous)
         case .next: adapter.send(.next)
         case .seek(let seconds): adapter.send(.seek(seconds))
+        // Another app's video floats in that app.
+        case .pictureInPicture: break
         }
     }
 

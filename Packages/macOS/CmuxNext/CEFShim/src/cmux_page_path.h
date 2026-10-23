@@ -5,6 +5,7 @@
 #define CMUX_SHIM_CMUX_PAGE_PATH_H_
 
 #include <limits.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <sys/stat.h>
 
@@ -154,6 +155,43 @@ inline bool ResolvePagePath(const std::string& root, const std::string& url_path
   *file = real_file;
   *mime = type;
   return true;
+}
+
+// Whether the URL path of a cmux-page:// request is under one of the page's
+// dynamic prefixes (PageDescriptor.dynamicPrefixes): its first non-empty
+// component, percent-decoded, is one of them. The page host answers such a
+// path (cmux_shim_page_resource_respond); the folder never serves it, also
+// when a file of that name exists. A bad escape is not dynamic (a 404).
+inline bool IsDynamicPagePath(const std::string& url_path, const std::vector<std::string>& prefixes) {
+  if (prefixes.empty()) return false;
+  std::string decoded;
+  if (!page_detail::PercentDecode(url_path, &decoded)) return false;
+  size_t start = 0;
+  while (start < decoded.size() && decoded[start] == '/') ++start;
+  size_t end = decoded.find('/', start);
+  const std::string first = decoded.substr(start, end == std::string::npos ? std::string::npos : end - start);
+  if (first.empty()) return false;
+  for (const auto& prefix : prefixes) {
+    if (first == prefix) return true;
+  }
+  return false;
+}
+
+// Chromium's local network permissions (cef_permission_request_types_t:
+// LOCAL_NETWORK_ACCESS 1 << 25, LOCAL_NETWORK 1 << 26, LOOPBACK_NETWORK
+// 1 << 27). Numeric, so the rule needs no CEF header.
+inline constexpr uint32_t kLocalNetworkPermissions = (1u << 25) | (1u << 26) | (1u << 27);
+
+// Whether Chromium's local network prompt for `requesting_origin` is granted
+// at once: a cmux page (cmux-page://cmux.*) reaching its own loopback daemon
+// (Home channels' WebSocket). Chromium would ask in a toolbar cmux never
+// shows, so the socket waited forever. The page's CSP stays the gate (only a
+// first-party page's connect-src names ws://127.0.0.1). Any other origin, or
+// any other permission in the request, keeps Chromium's default.
+inline bool GrantsCmuxPageLocalNetwork(const std::string& requesting_origin, uint32_t permissions) {
+  static const std::string prefix = std::string(kCmuxPageScheme) + "://cmux.";
+  if (permissions == 0 || (permissions & ~kLocalNetworkPermissions) != 0) return false;
+  return requesting_origin.size() > prefix.size() && requesting_origin.compare(0, prefix.size(), prefix) == 0;
 }
 
 // Whether a request may load a page's files: a main-frame navigation, or a

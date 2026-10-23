@@ -23,10 +23,24 @@
 
 ## Exact-head merging
 
-`gh-merge-green` requires a completed, successful `ci-status` check on the
-exact pull-request head. App diffs also require the completed
-`macos / macOS compile admission` check. A missing, queued, stale, or
-unsuccessful check is a refusal, and the helper prints the repair pointer.
+The branch rules are the source of required status checks. `gh-merge-green`
+is the main-branch helper because main's rules also carry the live freeze and
+fix-forward policy; it requires the checks that main's base actually reports,
+including `ci-status` when that workflow is present. It is not the
+feat-cmux-next landing command.
+
+The feat-cmux-next path is owned by `next-autoland` while its path-dependent
+compile and review predicates are being migrated into branch rules. It reads
+the exact head, treats ordinary pending and base-red findings as non-blocking,
+and still holds a required compile, risk, fast-gates or freeze verdict. Do not
+use `gh-merge-green` as a second gate for a feat-cmux-next PR.
+
+`ci-status` is an aggregate verdict, not a useful build step. On the feature
+line it waits on 11 legacy jobs even though its own verdict job took 3 seconds
+and the sampled run took 52 seconds from creation to completion (run
+40031108486, head `c1fe5958290d7199a32fba42256504a5da0a259e`). Main samples
+showed the same 3–4 second verdict after 36–125 minutes of upstream work.
+Those upstream jobs, rather than the verdict script, determine the wait.
 
 When a known red check is safe to waive, pass a written reason with at least
 eight words:
@@ -64,8 +78,8 @@ gh variable list --repo manaflow-ai/cmux
 
 | Variable | Used by | Intended steady state | Fallback baked into the workflow |
 | --- | --- | --- | --- |
-| `LINUX_RUNNER` | every Linux job (`ci.yml` web/typecheck/db, presence, cloud-vm, nightly/ios decide jobs, homebrew, tmux fuzz) | `blacksmith-4vcpu-ubuntu-2404` | `blacksmith-4vcpu-ubuntu-2404` |
-| `LINUX_BUILD_RUNNER` | the cmux-tui tree's Linux musl and macOS-on-Linux build legs (`cmux-tui-build-package.yml`), which run every cargo group at once (`scripts/ci/cargo-groups.sh`) | unset | `blacksmith-16vcpu-ubuntu-2404` (forks: `ubuntu-24.04`) |
+| `LINUX_RUNNER` | every small Linux job (guards, status, API scripts, cloud-vm contracts, nightly/ios decide jobs, homebrew). Linux jobs that compile (Rust, cross builds, zig, Go, C++, Gradle, web builds and suites) take `blacksmith-32vcpu-ubuntu-2404`, or `blacksmith-16vcpu-ubuntu-2404` for small compiles, and read it only when it names a non-Blacksmith runner (the outage switch; see "Blacksmith outage" below, `tests/test_ci_linux_compile_runners.py`) | `blacksmith-4vcpu-ubuntu-2404` | `blacksmith-4vcpu-ubuntu-2404` |
+| `LINUX_BUILD_RUNNER` | the cmux-tui tree's Linux musl and macOS-on-Linux build legs (`cmux-tui-build-package.yml`), which run every cargo group at once (`scripts/ci/cargo-groups.sh`) | unset | `blacksmith-32vcpu-ubuntu-2404` (forks: `ubuntu-24.04`) |
 | `CI_TRUSTED_RUNNER` | jobs holding trusted tokens that must run on an ephemeral VM: the required `backend migrations applied` check and `web-complexity-trusted.yml` (`validate-cla-policy.rb` accepts this exact selector for the CLA checks too, with a runner guard step that admits only GitHub-hosted runners and Blacksmith VMs; `cla.yml` and `cla-policy-guard.yml` pin `ubuntu-24.04` until they move to it). Only `ubuntu-24.04`, `blacksmith-2vcpu-ubuntu-2404` or `blacksmith-4vcpu-ubuntu-2404` is accepted; any other value, owned label included, falls back. Set it to `ubuntu-24.04` when Blacksmith stalls, or leave it unset when GitHub-hosted runners stall | unset | `blacksmith-4vcpu-ubuntu-2404` (forks: `ubuntu-24.04`) |
 | `LINUX_ARM64_RUNNER` | native ARM64 package entrypoint verification | `ubuntu-24.04-arm` | `ubuntu-24.04-arm` |
 | `MACOS_RUNNER_15` | the macOS 15 default: `macos-compile-admission`, non-PR `app-host-unit-tests`, nightly helper and test-cache jobs, `iroh-release-gate.yml` streamed validation | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
@@ -876,7 +890,7 @@ incremental builds without trusting an old bundle stamp.
 | `app-host-test-rerun.yml` `rerun` | `CI_SIDE_LANE_RUNNER` for macOS 26 products, attempt 1 only; macOS 15 products on Blacksmith macOS 15 | gui; it takes the product's root itself (`glaeda-canonical-root take`) |
 | `cmux-tui.yml` macOS `lint`, `test`, `cdp-browser-smoke` | `CI_SIDE_LANE_RUNNER`, attempt 1 only | isolated (glaeda classes them by workflow and id) |
 | `cmux-tui.yml` release-path dogfood `build` (`cmux-tui-build-package.yml`) | Blacksmith macOS 15 | the release packaging build, shared with the release and nightly callers; on the side label it sat queued until the run was cancelled (#20612); never `MACOS_RUNNER_PR`, the 12 vCPU macOS 26 label the nightly app build needs |
-| `cmux-tui-artifacts.yml` `cmux-next-daemon-tests` | `CI_NEXT_DAEMON_POOL` when set, else `CI_NEXT_PROMOTE_POOL`, on attempt 1 of a feat-cmux-next push (set the daemon pool only to a label whose runners are online and admit cmux-tui-artifacts jobs: no owned-pool rescue watches that slot); else `CI_SIDE_LANE_RUNNER` on every attempt of a trusted event (a cmux-tui-pin-* push and a cmux-tui-artifacts-retry re-run included); Blacksmith macOS 15 when owned pools are off | isolated; never `MACOS_RUNNER_PR`, which a re-run used to reach |
+| `cmux-tui-artifacts.yml` `cmux-next-daemon-tests` | `CI_NEXT_DAEMON_POOL` when set, else `CI_NEXT_PROMOTE_POOL`, on attempt 1 of a feat-cmux-next push (set the daemon pool only to a label whose runners are online and admit cmux-tui-artifacts jobs: no owned-pool rescue watches that slot); else, on every attempt of a cmux-tui-pin-* push, `CI_PIN_DAEMON_POOL` when it names neither the side lane nor that daemon pool, else `blacksmith-16vcpu-ubuntu-2404` (a Linux run never writes the daemon-tests marker, so the feat-cmux-next push of that tree still tests it on macOS before promotion); else `CI_SIDE_LANE_RUNNER` on every attempt of another trusted event (a cmux-tui-artifacts-retry re-run included); Blacksmith macOS 15 when owned pools are off | isolated; never `MACOS_RUNNER_PR`, which a re-run used to reach |
 | `app-ffi-release.yml` `build` | `CI_NEXT_PROMOTE_POOL` on attempt 1 of a feat-cmux-next push; else `MACOS_RUNNER_26` | the FFI xcframework every app build links: built on the trusted promote mini (its hook admits only feat-cmux-next pushes), published by the separate ephemeral publish job; Blacksmith alone left it queued 12 hours (run 39402525970) |
 | `ci-macos.yml` `release-build` | owned side lane via the picker (`release-build`, the picked std pool's side label, never the light pool), pull requests (attempt 1 or a manual re-run) and main's full-suite dispatch (attempt 1); else `MACOS_RUNNER_26` | isolated: an unsigned universal Release into its own DerivedData, Xcode 26.6 |
 | `reload-build.yml` `build` | `CI_SIDE_LANE_RUNNER` for a macOS build when the runner input is `auto` or `blacksmith-6vcpu-macos-26`, attempt 1 only (iOS builds take Blacksmith); any other label as given | isolated: a Debug build into the workspace |
@@ -979,6 +993,16 @@ its `watch` job, on GitHub-hosted Linux, waits for the probe:
   back (a variable changed by hand since is left alone and named) and the
   record is deleted. While the record exists the probe asks for the label it
   names, not `LINUX_RUNNER`, which is GitHub-hosted then.
+
+The Linux compile jobs on the 16 and 32 vCPU sizes follow `LINUX_RUNNER` only
+while it is off Blacksmith. Their trusted fallback is
+`!startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || '<size>'`:
+while `LINUX_RUNNER` is unset or names a `blacksmith-*` label (the steady
+4 vCPU value) they take their own size, and once the switch points it at
+`ubuntu-24.04` they run there too, so the switch's rerun does not queue them
+on the stalled pool again. When the switch puts `LINUX_RUNNER` back, they
+return to their size. `tests/test_ci_linux_compile_runners.py` pins each
+selector.
 
 The lane switches (`CI_PR_POOL_OWNED`, `CI_E2E_OWNED_UI`, `CI_IOS_OWNED` and
 the other `CI_OWNED_*`) are never touched: minis first does not change, only

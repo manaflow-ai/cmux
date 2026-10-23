@@ -40,6 +40,16 @@ public final class TabStripView: NSView {
 
     /// Empty strip space in the window's top row acts as a titlebar (`actsAsTitlebar`).
     public var dragsWindowFromEmptySpace = true
+    /// The + button's tooltip ("New Tab (hold for more)"); nil: none.
+    public var newTabToolTip: String? {
+        get { newTabButton.themedToolTip }
+        set { newTabButton.themedToolTip = newValue }
+    }
+    /// The + action's shortcut as the person sees it ("⌘T"), read when the pointer comes onto the +.
+    public var newTabShortcut: (() -> String?)? {
+        get { newTabButton.shortcut }
+        set { newTabButton.shortcut = newValue }
+    }
     var windowControlsInset: CGFloat = 0
 
     /// Builds right-click menus from the App's action registry. With no
@@ -341,6 +351,7 @@ public final class TabStripView: NSView {
         hoverCards.unregister(hoverCard)
         windowMain.observe(shown ? window : nil) { [weak self] isMain in self?.cells.values.forEach { $0.isWindowMain = isMain } }
         windowVisibility.observe(shown ? window : nil) { [weak self] visible in self?.cells.values.forEach { $0.isWindowVisible = visible } }
+        for cell in cells.values { cell.isStripShown = shown }
         guard shown else {
             if window != nil { endPointerState() }
             return

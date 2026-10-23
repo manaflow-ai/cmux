@@ -96,6 +96,40 @@ final class ChiefMemoryPageService: InternalPageProvider {
         return routes.first { $0.value == route }?.key
     }
 
+    /// Whether the workspace `window` names shows a Memory Inspector tab (the Home header's
+    /// Memory toggle is on). An observable read: the window's workspace, the tree's page tabs and
+    /// the app-only page tabs.
+    func isShown(in window: WindowController) -> Bool {
+        _ = window.state.workspaceID
+        guard let content = window.workspaceContent, let services else { return false }
+        if !Self.tabs(in: content.workspace).isEmpty { return true }
+        return services.pages.tab(of: .chiefMemory, inPanes: content.panes.values.map(\.paneKey)) != nil
+    }
+
+    /// Closes every Memory Inspector tab of the workspace `window` names; false when it shows none.
+    func closeShown(in window: WindowController) -> Bool {
+        guard let services, let content = window.workspaceContent else { return false }
+        var closed = false
+        for pane in content.panes.values {
+            let store = Self.tabs(in: pane.pane).map { StripTabID($0.id) }
+            let local = services.pages.tabIDs(in: pane.paneKey).filter { LocalPageTab.page(of: $0) == .chiefMemory }.map { StripTabID($0) }
+            guard !(store + local).isEmpty else { continue }
+            pane.close(store + local)
+            closed = true
+        }
+        return closed
+    }
+
+    /// The tree's Memory Inspector page tabs in `workspace` (any Chief's).
+    static func tabs(in workspace: WorkspaceModel) -> [TabModel] {
+        workspace.screens.flatMap(\.panes).flatMap { tabs(in: $0) }
+    }
+
+    /// The tree's Memory Inspector page tabs in `pane`.
+    static func tabs(in pane: PaneModel) -> [TabModel] {
+        pane.tabs.filter { $0.page == InternalPageID.chiefMemory.rawValue }
+    }
+
     /// The daemon in front of `route`'s brain; nil while it is not connected.
     func connection(for route: ChiefMemoryRoute) -> DaemonConnection? {
         switch route.place {

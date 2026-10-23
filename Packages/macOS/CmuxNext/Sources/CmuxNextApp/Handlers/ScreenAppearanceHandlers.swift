@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextLayout
 
 /// Screen name, color, icon, and pin actions.
 enum ScreenAppearanceHandlers {
@@ -12,12 +13,9 @@ enum ScreenAppearanceHandlers {
             if let name = invocation["name"]?.stringValue {
                 return ScreenCommands.rename(ref.screen, to: name, daemon: ref.daemon)
             }
-            // Inline in the screen bar when it shows the screen, else a prompt.
+            // Inline in the screen bar when it shows the screen, else a Cmd-Shift-P step.
             if ref.content?.screenBar.beginRename(ref.screen) == true { return }
-            guard let window = ctx.services.windows.active?.window ?? ctx.refuse(RefusalStrings.noWindowForRename) else { return }
-            RenamePrompt.run(title: HandlerStrings.renameScreenTitle, initial: ref.screen.name ?? "", in: window) { name in
-                ScreenCommands.rename(ref.screen, to: name, daemon: ref.daemon)
-            }
+            ctx.services.registry.ask("screen.rename", invocation, ActionArgumentAsk(argument: "name", initialText: ref.screen.name ?? ""))
         })
         registry.bind("screen.clearName", invoke: { invocation in
             guard let ref = ctx.screen(invocation) else { return }
@@ -73,7 +71,7 @@ enum ScreenAppearanceHandlers {
 
     /// The targeted screen on a daemon with `screen-metadata-v1`.
     private static func metadataTarget(_ invocation: ActionInvocation, _ ctx: AppActionContext) -> ScreenRef? {
-        guard let ref = ctx.screen(invocation), ctx.require(DaemonCapabilities.shared.screenMetadata, on: ref.daemon) else { return nil }
+        guard let ref = ctx.screen(invocation), ctx.require(DaemonCapabilities.screenMetadata, on: ref.daemon) else { return nil }
         return ref
     }
 }

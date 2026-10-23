@@ -249,8 +249,13 @@ export const reduceChief = (stateIn: UserState, op: string, params: Params, ctx:
         updated_at: now
       }
       const next = { ...(params.is_default === true ? clearDefault({ ...chiefs }, cur.id) : chiefs), [cur.id]: updated }
+      // A new name reaches the chief's main conversation too (its title, the chief's name on its messages).
+      const renamed: Array<OutboxItem> =
+        updated.display_name !== cur.display_name && updated.main_conversation
+          ? [{ kind: "chief.rename", entity: `chief-rename:${cur.id}:${updated.rev}`, payload: { chief: cur.id, display_name: updated.display_name }, target: { class: "ConversationDO", name: updated.main_conversation } }]
+          : []
       // A restored chief gets the current level again (it missed syncs while archived).
-      return commit(next, updated, restore ? levelSync(state, cur.id) : [])
+      return commit(next, updated, [...renamed, ...(restore ? levelSync(state, cur.id) : [])])
     }
     case "chief.archive": {
       const cur = typeof params.chief === "string" ? chiefs[params.chief] : undefined

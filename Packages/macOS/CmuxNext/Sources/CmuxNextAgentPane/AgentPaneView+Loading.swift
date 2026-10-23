@@ -9,9 +9,10 @@ private let loadingLogger = Logger(subsystem: "com.cmuxterm.app.next", category:
 /// (`pane.painted`: the handshake's answer or the host's error), the pane shows its page
 /// background with the shared loading mark, drawn natively, and keeps the page clear. A new chat
 /// is never an empty pane while its page loads (about 0.4 s) and acpmux starts (as long as the
-/// daemon takes), and never shows the page's frames before the handshake. A chat's page then fades
-/// in over it (Leo 2026-10-14, as the Claude app switches to a chat it had not loaded: quick but
-/// seen); a New Tab page replaces it in one step.
+/// daemon takes), and never shows the page's frames before the handshake. A chat read cold then
+/// fades in over it (Leo 2026-10-14, as the Claude app switches to a chat it had not loaded: quick
+/// but seen); a chat the page drew from a kept tail and a New Tab page replace it in one step
+/// (``AgentPaneView/pageFades(hasNewTab:isVisible:fromKeptTail:)``).
 public final class AgentPaneLoadingView: NSView {
     /// The shared busy mark (`appearance.statusIndicator.style`; `none` draws only the background).
     let indicator = StatusIndicatorView()
@@ -37,6 +38,13 @@ public final class AgentPaneLoadingView: NSView {
     private var revealWaiters: [() -> Void] = []
     /// While it fades out over the page, clicks and scrolls go to the page.
     private var leaving = false
+    #if DEBUG
+    var isLeaving: Bool { leaving }
+    #endif
+    /// Whether the page was asked to fade in when this left, nil until it has. The decision, not
+    /// what was drawn of it: with motion off a fade and no fade both end in one frame, so this is
+    /// the only way a test on a headless host can tell them apart.
+    private(set) var leftFading: Bool?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -132,6 +140,7 @@ public final class AgentPaneLoadingView: NSView {
         onGiveUp = nil
         hideMark()
         leaving = true
+        leftFading = fades
         let overImage = isHidden
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -146,6 +155,10 @@ public final class AgentPaneLoadingView: NSView {
     private func left(_ page: NSView?) {
         page?.alphaValue = 1
         leaving = false
+        #if DEBUG
+        // Still in its pane: the pane's trace takes it.
+        ChatOpenTrace.shared.mark(.loadingLeft, view: self)
+        #endif
         removeFromSuperview()
         alphaValue = 1
         let waiters = revealWaiters
@@ -175,6 +188,10 @@ extension AgentPaneView {
         themeLoadingState(themeTokens)
         loadingView.showMarkLater()
         model.whenPainted { [weak self] in self?.endLoadingState() }
+        #if DEBUG
+        ChatOpenTrace.shared.bind(view: self, page: page, surface: { [weak self] in self?.traceSurface ?? .gone },
+                                  engine: { [weak self] in self?.engineName ?? "gone" })
+        #endif
         loadingView.giveUpWhenSeenUnpainted { [weak self] in
             guard let self, !model.hasPainted else { return }
             loadingLogger.error("agent pane page did not report its first paint in sight; showing it")
@@ -182,12 +199,51 @@ extension AgentPaneView {
         }
     }
 
-    /// The page shows and the loading state goes (``AgentPaneLoadingView/leave(over:fades:)``): a
-    /// chat fades in, a New Tab page or a page a pane holds hidden for its swap shows in one frame.
-    func endLoadingState() { loadingView.leave(over: pageContent, fades: model.newTab == nil && alphaValue > 0) }
+    /// The page shows and the loading state goes (``AgentPaneLoadingView/leave(over:fades:)``).
+    func endLoadingState() {
+        #if DEBUG
+        // The handshake's painted answer ends the loading state in the same turn.
+        ChatOpenTrace.shared.mark(.panePainted, view: self)
+        ChatOpenTrace.shared.mark(.loadingLeave, view: self)
+        #endif
+        loadingView.leave(over: pageContent,
+                          fades: Self.pageFades(hasNewTab: model.newTab != nil, isVisible: alphaValue > 0,
+                                                fromKeptTail: model.paintedFromKeptTail))
+    }
+
+    /// Whether the page fades in over the loading state or simply shows.
+    ///
+    /// A chat read cold fades (Leo 2026-10-14, as the Claude app switches to a chat it had not
+    /// loaded: quick but seen). A chat the page drew from a kept tail does not: those rows are on
+    /// screen in the frame the open landed on (tailCache.ts, ``AgentPaneTailCache``), and a 120 ms
+    /// fade over them is softness on the one open that is instant — "instant if cached" (Leo
+    /// 2026-10-20). A New Tab page, and a page a pane holds hidden for its swap, show in one frame
+    /// as they did before.
+    static func pageFades(hasNewTab: Bool, isVisible: Bool, fromKeptTail: Bool) -> Bool {
+        !hasNewTab && isVisible && !fromKeptTail
+    }
 
     func themeLoadingState(_ tokens: ThemeTokens) {
         guard loadingView.superview != nil else { return }
         loadingView.paint(AgentPaneTheme.underPageColor(tokens, surface: surfaceKind).nsColor)
     }
 }
+
+#if DEBUG
+extension AgentPaneView {
+    /// What this pane shows now, for ``ChatOpenTrace``: a hold keeping the content it replaces, its
+    /// loading cover, the launch image, or the page before or after its first contentful paint.
+    var traceSurface: ChatOpenTrace.Surface {
+        guard window != nil, !isHiddenOrHasHiddenAncestor else { return .gone }
+        if alphaValue == 0 { return .held }
+        if loadingView.superview != nil {
+            if loadingView.isHidden { return .image }
+            return loadingView.isLeaving ? .coverLeaving : .cover
+        }
+        if pageContent.alphaValue == 0 { return .cover }
+        // The page's own first frame (``PagePaintProbe``), the same signal in both engines.
+        guard page != nil else { return model.hasPainted ? .page : .pageEmpty }
+        return ChatOpenTrace.shared.has(.pagePainted) ? .page : .pageEmpty
+    }
+}
+#endif

@@ -4,6 +4,7 @@
 #import <AppKit/AppKit.h>
 
 #include "include/cef_devtools_message_observer.h"
+#include "include/cef_drag_handler.h"
 #include "include/cef_jsdialog_handler.h"
 #include "include/cef_parser.h"
 #include "include/cef_resource_request_handler.h"
@@ -113,6 +114,7 @@ class Client : public CefClient,
                public CefCommandHandler,
                public CefFocusHandler,
                public CefJSDialogHandler,
+               public CefDragHandler,
                public CefDevToolsMessageObserver {
  public:
   explicit Client(int request) : request_(request) {}
@@ -128,6 +130,7 @@ class Client : public CefClient,
   CefRefPtr<CefFocusHandler> GetFocusHandler() override { return this; }
   // beforeunload only; alert, confirm and prompt keep Chromium's dialogs.
   CefRefPtr<CefJSDialogHandler> GetJSDialogHandler() override { return this; }
+  CefRefPtr<CefDragHandler> GetDragHandler() override { return this; }
   // Every download waits for the host's path (shim_downloads.mm).
   CefRefPtr<CefDownloadHandler> GetDownloadHandler() override { return DownloadHandler(); }
   // Location requests ask in the host's prompt bar (shim_permissions.mm).
@@ -152,6 +155,24 @@ class Client : public CefClient,
   // focus to its omnibar.
   void OnTakeFocus(CefRefPtr<CefBrowser> browser, bool next) override {
     Emit(CMUX_SHIM_TAKE_FOCUS, browser->GetIdentifier(), 0, next ? 1 : 0);
+  }
+
+  // MARK: Drags
+
+  // A drag of files from outside entered the page: the host learns their
+  // paths (a page sees only File objects), so a cmux page can hand a drop
+  // to the host the way its WebKit view does (PAGE_DRAG_ENTER). The page
+  // still gets the drag.
+  bool OnDragEnter(CefRefPtr<CefBrowser> browser, CefRefPtr<CefDragData> drag, DragOperationsMask) override {
+    if (!drag || !drag->IsFile()) return false;
+    std::vector<CefString> names;
+    if (!drag->GetFilePaths(names) || names.empty()) return false;
+    CefRefPtr<CefListValue> list = CefListValue::Create();
+    for (size_t i = 0; i < names.size(); ++i) list->SetString(i, names[i]);
+    CefRefPtr<CefValue> value = CefValue::Create();
+    value->SetList(list);
+    Emit(CMUX_SHIM_PAGE_DRAG_ENTER, browser->GetIdentifier(), 0, 0, 0, CefWriteJSON(value, JSON_WRITER_DEFAULT).ToString());
+    return false;
   }
 
   // MARK: beforeunload
@@ -534,18 +555,25 @@ class Client : public CefClient,
     return h.key(h.ctx, browser->GetIdentifier(), (__bridge void*)os_event) != 0;
   }
 
-  // After the renderer: a key the page did not handle. A plain Escape is
-  // reported (a popup panel closes on it), and so is a letter, with or
-  // without Shift, while no editable field has focus (single-key page
-  // shortcuts such as link hints). Everything goes on to Chromium's own
-  // accelerators.
-  bool OnKeyEvent(CefRefPtr<CefBrowser> browser, const CefKeyEvent& event, CefEventHandle) override {
+  // After the renderer: a key the page did not handle. A Command or Control
+  // chord goes to the host first, which runs a shortcut it held back for the
+  // page (cmux Find when the page has no search of its own) and then stops
+  // it here. A plain Escape is reported (a popup panel closes on it), and so
+  // is a letter, with or without Shift, while no editable field has focus
+  // (single-key page shortcuts such as link hints). Everything else goes on
+  // to Chromium's own accelerators.
+  bool OnKeyEvent(CefRefPtr<CefBrowser> browser, const CefKeyEvent& event, CefEventHandle os_event) override {
     constexpr int kEscape = 0x1B;
     constexpr uint32_t kModifiers = EVENTFLAG_SHIFT_DOWN | EVENTFLAG_CONTROL_DOWN | EVENTFLAG_ALT_DOWN |
                                     EVENTFLAG_COMMAND_DOWN;
     constexpr uint32_t kChordModifiers = EVENTFLAG_CONTROL_DOWN | EVENTFLAG_ALT_DOWN | EVENTFLAG_COMMAND_DOWN;
     if (event.type != KEYEVENT_RAWKEYDOWN) {
       return false;
+    }
+    Host& h = host();
+    if (h.unhandled_key && os_event && (event.modifiers & (EVENTFLAG_COMMAND_DOWN | EVENTFLAG_CONTROL_DOWN)) &&
+        h.unhandled_key(h.ctx, browser->GetIdentifier(), (__bridge void*)os_event) != 0) {
+      return true;
     }
     if (event.windows_key_code == kEscape && !(event.modifiers & kModifiers)) {
       Emit(CMUX_SHIM_KEY_UNHANDLED, browser->GetIdentifier(), 0, kEscape);

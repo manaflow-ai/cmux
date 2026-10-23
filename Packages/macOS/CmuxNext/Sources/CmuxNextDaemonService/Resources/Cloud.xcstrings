@@ -1,6 +1,137 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "cloud.failed.noSuchTeam": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No team named “%@” in this account."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアカウントに「%@」というチームはありません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يوجد فريق باسم “%@” في هذا الحساب."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "U ovom računu nema tima “%@”."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der er intet team med navnet “%@” på denne konto."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In diesem Konto gibt es kein Team „%@“."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay ningún equipo llamado “%@” en esta cuenta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune équipe nommée « %@ » dans ce compte."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessun team chiamato “%@” in questo account."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គ្មានក្រុមឈ្មោះ “%@” ក្នុងគណនីនេះទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 계정에 “%@” 팀이 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Det finnes ikke noe team med navnet “%@” på denne kontoen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Na tym koncie nie ma zespołu „%@”."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não há nenhuma equipe chamada “%@” nesta conta."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В этой учётной записи нет команды «%@»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่มีทีมชื่อ “%@” ในบัญชีนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu hesapta “%@” adlı ekip yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У цьому обліковому записі немає команди «%@»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không có nhóm nào tên “%@” trong tài khoản này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此账户中没有名为“%@”的团队。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此帳號中沒有名為「%@」的團隊。"
+          }
+        }
+      }
+    },
     "cloud.button.cancel": {
       "extractionState": "manual",
       "localizations": {
@@ -2355,137 +2486,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "重新命名機器"
-          }
-        }
-      }
-    },
-    "cloud.prompt.teamPicker": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Choose a Team"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "チームを選択"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "اختيار فريق"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Odaberite tim"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vælg et team"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Team auswählen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Elige un equipo"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Choisir une équipe"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Scegli un team"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ជ្រើសក្រុម"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "팀 선택"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Velg et team"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Wybierz zespół"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Escolha uma Equipe"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Выберите команду"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เลือกทีม"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ekip Seçin"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Виберіть команду"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chọn nhóm"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "选择团队"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "選擇團隊"
           }
         }
       }
@@ -6944,137 +6944,6 @@
         }
       }
     },
-    "cloud.create.confirm.agent": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "An agent or a script asked for a new Cloud machine. The machine counts against your Cloud plan."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エージェントまたはスクリプトが新しい Cloud マシンを要求しました。このマシンは Cloud プランの使用量に含まれます。"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "طلب وكيل أو برنامج نصي جهاز Cloud جديدًا. يُحتسب الجهاز ضمن خطة Cloud الخاصة بك."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Agent ili skripta je zatražio novu Cloud mašinu. Mašina se računa u vaš Cloud plan."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "En agent eller et script bad om en ny Cloud-maskine. Maskinen tæller med i din Cloud-plan."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ein Agent oder ein Skript hat eine neue Cloud-Maschine angefordert. Die Maschine zählt zu deinem Cloud-Tarif."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Un agente o un script pidió una nueva máquina de Cloud. La máquina cuenta en tu plan de Cloud."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Un agent ou un script a demandé une nouvelle machine Cloud. La machine compte dans votre forfait Cloud."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Un agente o uno script ha chiesto una nuova macchina Cloud. La macchina conta nel tuo piano Cloud."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ភ្នាក់ងារ ឬស្គ្រីបបានស្នើម៉ាស៊ីន Cloud ថ្មី។ ម៉ាស៊ីននេះរាប់បញ្ចូលក្នុងគម្រោង Cloud របស់អ្នក។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "에이전트나 스크립트가 새 Cloud 머신을 요청했습니다. 이 머신은 Cloud 요금제 사용량에 포함됩니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "En agent eller et skript ba om en ny Cloud-maskin. Maskinen teller i Cloud-planen din."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Agent lub skrypt poprosił o nową maszynę Cloud. Maszyna wlicza się do Twojego planu Cloud."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Um agente ou script pediu uma nova máquina do Cloud. A máquina conta no seu plano do Cloud."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Агент или скрипт запросил новую машину Cloud. Машина учитывается в вашем тарифе Cloud."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เอเจนต์หรือสคริปต์ขอเครื่อง Cloud ใหม่ เครื่องนี้นับรวมในแผน Cloud ของคุณ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bir ajan veya betik yeni bir Cloud makinesi istedi. Makine Cloud planınıza sayılır."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Агент або скрипт запросив нову машину Cloud. Машина враховується у вашому тарифі Cloud."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Một tác nhân hoặc tập lệnh đã yêu cầu một máy Cloud mới. Máy này được tính vào gói Cloud của bạn."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "一个代理或脚本请求了新的 Cloud 机器。该机器计入你的 Cloud 套餐。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "一個代理或腳本要求了新的 Cloud 機器。此機器計入你的 Cloud 方案。"
-          }
-        }
-      }
-    },
     "cloud.create.confirm.approval": {
       "extractionState": "manual",
       "localizations": {
@@ -8250,6 +8119,530 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "此 Mac 上未執行 Cloud 連線輔助程式。按一下「連線」以啟動它。"
+          }
+        }
+      }
+    },
+    "cloud.workspace.closeNotConnected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is not connected. Resume or reconnect it to close its workspace."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ غير متصل. استأنفه أو أعد توصيله لإغلاق مساحة عمله."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ nije povezan. Nastavite ga ili ga ponovo povežite da zatvorite njegov radni prostor."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ er ikke forbundet. Genoptag eller forbind den igen for at lukke dens arbejdsområde."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ist nicht verbunden. Setze es fort oder verbinde es erneut, um seinen Workspace zu schließen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ no está conectado. Reanúdalo o vuelve a conectarlo para cerrar su espacio de trabajo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ n’est pas connecté. Reprenez-le ou reconnectez-le pour fermer son espace de travail."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ non è connesso. Riprendilo o ricollegalo per chiudere il suo spazio di lavoro."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ は接続されていません。ワークスペースを閉じるには、再開または再接続してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ មិនបានភ្ជាប់ទេ។ បន្ត ឬភ្ជាប់វាម្ដងទៀតដើម្បីបិទកន្លែងធ្វើការរបស់វា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@이(가) 연결되어 있지 않습니다. 작업 공간을 닫으려면 다시 시작하거나 다시 연결하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ er ikke tilkoblet. Gjenoppta eller koble til igjen for å lukke arbeidsområdet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ nie jest połączony. Wznów go lub połącz ponownie, aby zamknąć jego obszar roboczy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ não está conectado. Retome-o ou reconecte-o para fechar o espaço de trabalho dele."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ не подключён. Возобновите или подключите его снова, чтобы закрыть его рабочее пространство."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ไม่ได้เชื่อมต่อ ดำเนินการต่อหรือเชื่อมต่อใหม่เพื่อปิดพื้นที่ทำงานของเครื่องนั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ bağlı değil. Çalışma alanını kapatmak için sürdürün veya yeniden bağlayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ не під’єднано. Відновіть або під’єднайте його знову, щоб закрити його робочий простір."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ chưa được kết nối. Hãy tiếp tục hoặc kết nối lại để đóng không gian làm việc của máy đó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 未连接。请恢复或重新连接，以关闭其工作区。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 未連線。請恢復或重新連線，以關閉其工作區。"
+          }
+        }
+      }
+    },
+    "cloud.button.copyDetails": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy details"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نسخ التفاصيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopiraj detalje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopiér detaljer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Details kopieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiar detalles"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copier les détails"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copia dettagli"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "詳細をコピー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចម្លងព័ត៌មានលម្អិត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세부 정보 복사"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopier detaljer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopiuj szczegóły"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiar detalhes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Копировать подробности"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คัดลอกรายละเอียด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ayrıntıları kopyala"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Копіювати подробиці"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sao chép chi tiết"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复制详细信息"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "複製詳細資訊"
+          }
+        }
+      }
+    },
+    "cloud.result.diagnosticsAllWell": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Signed in as %@. No Cloud problems found."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم تسجيل الدخول باسم %@. لم يتم العثور على مشكلات في Cloud."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prijavljeni ste kao %@. Nema problema s Cloudom."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logget ind som %@. Ingen Cloud-problemer fundet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angemeldet als %@. Keine Cloud-Probleme gefunden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sesión iniciada como %@. No se encontraron problemas de Cloud."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecté en tant que %@. Aucun problème Cloud détecté."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accesso effettuato come %@. Nessun problema Cloud rilevato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ としてサインイン中。Cloud の問題は見つかりませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានចូលជា %@។ រកមិនឃើញបញ្ហា Cloud ទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@(으)로 로그인했습니다. Cloud 문제가 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logget inn som %@. Fant ingen Cloud-problemer."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zalogowano jako %@. Nie znaleziono problemów z Cloud."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectado como %@. Nenhum problema no Cloud encontrado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вы вошли как %@. Проблем с Cloud не найдено."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลงชื่อเข้าใช้เป็น %@ แล้ว ไม่พบปัญหาของ Cloud"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ olarak oturum açıldı. Cloud sorunu bulunamadı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ви ввійшли як %@. Проблем із Cloud не знайдено."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đã đăng nhập với %@. Không tìm thấy sự cố Cloud nào."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已以 %@ 登录。未发现 Cloud 问题。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已以 %@ 登入。未發現 Cloud 問題。"
+          }
+        }
+      }
+    },
+    "cloud.create.request.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Asked by an agent or a script. It counts against your Cloud plan."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントまたはスクリプトからの要求です。Cloud プランの使用量に含まれます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "طلبه وكيل أو برنامج نصي. يُحتسب ضمن خطة Cloud الخاصة بك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zatražio ga je agent ili skripta. Računa se u vaš Cloud plan."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bedt om af en agent eller et script. Den tæller med i din Cloud-plan."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Von einem Agenten oder Skript angefordert. Sie zählt zu deinem Cloud-Tarif."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La pidió un agente o un script. Cuenta en tu plan de Cloud."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Demandée par un agent ou un script. Elle compte dans votre forfait Cloud."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Richiesta da un agente o uno script. Conta nel tuo piano Cloud."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ស្នើដោយភ្នាក់ងារ ឬស្គ្រីប។ វារាប់បញ្ចូលក្នុងគម្រោង Cloud របស់អ្នក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트나 스크립트가 요청했습니다. Cloud 요금제 사용량에 포함됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bedt om av en agent eller et skript. Den teller i Cloud-planen din."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prośba agenta lub skryptu. Wlicza się do Twojego planu Cloud."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pedida por um agente ou script. Conta no seu plano do Cloud."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запрошена агентом или скриптом. Учитывается в вашем тарифе Cloud."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เอเจนต์หรือสคริปต์เป็นผู้ขอ นับรวมในแผน Cloud ของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bir ajan veya betik istedi. Cloud planınızdan sayılır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запит від агента або скрипта. Враховується у вашому тарифі Cloud."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Do một tác tử hoặc tập lệnh yêu cầu. Máy được tính vào gói Cloud của bạn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "由智能体或脚本请求。会计入你的 Cloud 套餐。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "由代理程式或指令碼要求。會計入你的 Cloud 方案。"
           }
         }
       }

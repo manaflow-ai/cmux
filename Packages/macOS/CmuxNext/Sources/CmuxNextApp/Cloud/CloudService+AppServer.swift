@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextCloud
 import CmuxNextDaemon
-import CmuxNextHomeEngine
+import CmuxNextSidebar
 import Foundation
 
 /// The Cloud app server path of the machine list and create (cx-t2rz):
@@ -25,18 +25,18 @@ extension CloudService {
     }
 
     /// One `cloud.machine.create` through ``CloudMachineCreateFlow``.
-    func appServerCreate(name: String?, startedByPerson: Bool, onSent: @escaping @MainActor @Sendable () async -> Void) async throws -> CloudMachine {
+    func appServerCreate(name: String?, startedByPerson: Bool, askedBy: String?, onSent: @escaping @MainActor @Sendable () async -> Void) async throws -> CloudMachine {
         let approvals = CloudApprovalAnswer(call: sessionCall())
         let ops = appOps
         // The team the relay's create bills: the install token's team claim,
         // captured now, when the person starts or confirms this create.
-        let team = Self.team(ofToken: try await installIdentity.installToken()) ?? ""
+        let team = MacInstallIdentity.team(ofToken: try await installIdentity.installToken()) ?? ""
         let flow = CloudMachineCreateFlow(
             run: { op, args, key, origin in
                 await onSent()
                 return try await ops(op, args, key, origin)
             },
-            confirm: { [weak self] prompt in await CloudPresenter.confirmCreate(prompt, in: self?.confirmWindow?()) },
+            confirm: { [weak self] prompt in await self?.confirmCreate?(prompt) ?? false },
             approve: { request, params in
                 try await approvals.approve(request: request, op: "cloud.machine.create", params: try JSONEncoder().encode(params), team: team)
             },
@@ -45,17 +45,10 @@ extension CloudService {
                 try await ContinuousClock().sleep(for: CloudMachineCreateFlow.backoff(attempt))
             }
         )
-        let record = try await flow.create(name: name, startedByPerson: startedByPerson)
-        guard let machine = CloudMachine(next: record) else {
-            throw CloudAppOpFailure(code: "cmux.cloud.bad_response", message: "cloud.machine.create answered no machine")
-        }
+        let record = try await flow.create(name: name, startedByPerson: startedByPerson, askedBy: askedBy)
+        guard let machine = CloudMachine(next: record) else { throw CloudAppOpFailure(code: "cmux.cloud.bad_response", message: "cloud.machine.create answered no machine") }
         return machine
     }
-
-    /// The `team` claim of an install token (the owner's own token over
-    /// TLS; read for consistency, never trusted as a credential). Nil when
-    /// the token is not a JWT with a team.
-    nonisolated static func team(ofToken token: String) -> String? { HomeCloudLease.team(ofJWT: token) }
 
     /// POSTs to the API Worker as the signed-in person (Stack session), the
     /// way the feed does; used only to answer a G8 approval after the
@@ -87,18 +80,18 @@ extension CloudService {
 }
 
 extension CloudPresenter {
-    /// The native confirmation of a Cloud machine create: true only for the
-    /// person's click on Create; no window answers false.
-    @MainActor static func confirmCreate(_ prompt: CloudMachineCreateFlow.Prompt, in window: NSWindow?) async -> Bool {
+    /// Confirms a Cloud machine create: true only for the person's click on Create; no window answers
+    /// false. An agent's or a script's request waits in the sidebar's card (`asks`), the backend's hold in a sheet.
+    /// `chatOpen` says whether an agent chat is still open: a card its asking chat had goes, a no, when the chat closes.
+    @MainActor static func confirmCreate(_ prompt: CloudMachineCreateFlow.Prompt, in window: NSWindow?, asks: SidebarAsks?, chatOpen: @escaping @MainActor @Sendable (String) -> Bool = { _ in true }) async -> Bool {
         let (intro, machine) = switch prompt {
-        case .agentRequest(let machine): (CloudStrings.createConfirmAgent, machine)
+        case .agentRequest(let machine): (CloudStrings.createRequestDetail, machine)
         case .approval(_, let machine): (CloudStrings.createConfirmApproval, machine)
         }
-        var lines = [CloudStrings.createConfirmSize(cpu: machine.cpu, memoryGB: machine.memoryMB / 1024, diskGB: machine.diskMB / 1024)]
-        if let name = machine.name { lines.insert(CloudStrings.createConfirmName(name), at: 0) }
-        let body = ([intro] + lines).joined(separator: "\n")
+        let lines = (machine.name.map { [CloudStrings.createConfirmName($0)] } ?? []) + (machine.sizeShown ? [CloudStrings.createConfirmSize(cpu: machine.cpu, memoryGB: machine.memoryMB / 1024, diskGB: machine.diskMB / 1024)] : [])
+        if case .agentRequest = prompt, let asks { return window != nil ? await asks.ask(CloudStrings.createConfirmTitle, detail: intro, lines: lines, symbol: "cloud", yes: CloudStrings.createConfirmButton, no: CloudStrings.cancel, asker: machine.askedBy, present: chatOpen) : false }
         return await withCheckedContinuation { continuation in
-            confirm(CloudStrings.createConfirmTitle, body, button: CloudStrings.createConfirmButton,
+            confirm(CloudStrings.createConfirmTitle, ([intro] + lines).joined(separator: "\n"), button: CloudStrings.createConfirmButton,
                     identifier: createConfirmIdentifier, in: window) { continuation.resume(returning: $0) }
         }
     }

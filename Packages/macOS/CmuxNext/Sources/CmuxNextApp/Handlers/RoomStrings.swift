@@ -10,7 +10,6 @@ nonisolated enum RoomStrings {
     static func defaultName(_ number: Int) -> String {
         String(format: text("rooms.defaultName", "Space %lld"), locale: Locale.current, number)
     }
-    static var renameTitle: String { text("rooms.renameTitle", "Rename Space") }
     static func deleteTitle(_ name: String) -> String { String(format: text("rooms.deleteTitle", "Delete space “%@”?"), name) }
     /// The count line of the Delete Space question (none for no workspace).
     static func deleteClosesBody(_ count: Int) -> String {
@@ -27,6 +26,9 @@ nonisolated enum RoomStrings {
     static var roomArgumentRequired: String { text("rooms.refusal.roomRequired", "a space argument is required") }
     static var alreadyInRoom: String { text("rooms.refusal.alreadyInRoom", "the workspace is already in that space") }
     static var envMustBeObject: String { text("rooms.refusal.envMustBeObject", "env must be a JSON object of strings") }
+    static var defaultsArgumentRequired: String {
+        text("rooms.refusal.defaultsRequired", "a cwd or env argument is required; pass both empty to clear the defaults")
+    }
 
     private static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
         String(localized: key, defaultValue: value, table: "Rooms", bundle: .module)

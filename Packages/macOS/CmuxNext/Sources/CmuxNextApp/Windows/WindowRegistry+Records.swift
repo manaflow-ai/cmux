@@ -43,7 +43,7 @@ extension WindowRegistry {
         // Incognito windows are never restored: nothing of them is saved.
         guard let window = window(id), !isIncognito(id) else { return nil }
         let selected = state?.workspaceID.flatMap { window.workspaceIDs.contains($0) ? $0 : nil } ?? window.workspaceIDs.first
-        return WindowRecord(
+        var record = WindowRecord(
             id: id,
             workspaceKey: selected.map(WorkspaceKey.init(rawValue:)),
             workspaceKeys: window.workspaceIDs.map(WorkspaceKey.init(rawValue:)),
@@ -64,6 +64,10 @@ extension WindowRegistry {
             page: state?.page?.rawValue,
             isClosed: !window.isOpen
         )
+        // The workspaces shown side by side (`sidebar.multiView`), those the window still lists.
+        let shown = state?.viewSet?.pruned(keeping: window.workspaceIDs.contains)
+        record.multiView = shown.flatMap { $0.ids.count > 1 && $0.contains(selected ?? "") ? $0.record : nil }
+        return record
     }
 }
 

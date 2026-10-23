@@ -1,0 +1,430 @@
+{
+  "catalogs": {
+    "Packages/macOS/CmuxNext/Sources/CmuxNextActions/AccountsActions.xcstrings": {
+      "needs_review": 56
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextActions/ActionCatalog.xcstrings": {
+      "identical": 140,
+      "needs_review": 3006
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextActions/AppStoreActions.xcstrings": {
+      "identical": 14,
+      "needs_review": 48
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextActions/BookmarkActions.xcstrings": {
+      "identical": 12,
+      "needs_review": 231
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextActions/BrowserProfileActions.xcstrings": {
+      "needs_review": 172
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextActions/DevToolsActions.xcstrings": {
+      "needs_review": 328
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextActions/Extensions.xcstrings": {
+      "identical": 4,
+      "needs_review": 144
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextActions/HibernationActions.xcstrings": {
+      "needs_review": 72
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextActions/HistoryActions.xcstrings": {
+      "identical": 1,
+      "needs_review": 252
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextActions/HomeActions.xcstrings": {
+      "identical": 13,
+      "needs_review": 245
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextActions/LayoutActions.xcstrings": {
+      "identical": 3,
+      "needs_review": 309
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextActions/Localizable.xcstrings": {
+      "identical": 99,
+      "needs_review": 612
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextActions/MusicActions.xcstrings": {
+      "needs_review": 80
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextActions/NewTabActions.xcstrings": {
+      "identical": 3,
+      "needs_review": 28
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextActions/PageInfoActions.xcstrings": {
+      "identical": 11,
+      "needs_review": 333
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextActions/PhoneActions.xcstrings": {
+      "identical": 32,
+      "needs_review": 400
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextActions/ProfileActions.xcstrings": {
+      "identical": 12,
+      "needs_review": 359
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextActions/RemoteActions.xcstrings": {
+      "identical": 1,
+      "needs_review": 139
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextActions/ScreenActions.xcstrings": {
+      "needs_review": 528
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextActions/ServerActions.xcstrings": {
+      "needs_review": 71
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextActions/SettingsActions.xcstrings": {
+      "identical": 10,
+      "needs_review": 264
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextActions/ShortcutRecorder.xcstrings": {
+      "needs_review": 192
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextActions/SidebarSectionActions.xcstrings": {
+      "identical": 21,
+      "needs_review": 539
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextActions/TasksActions.xcstrings": {
+      "needs_review": 21
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextActions/ThemeActions.xcstrings": {
+      "needs_review": 80
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextActions/WorkspaceActions.xcstrings": {
+      "identical": 1,
+      "needs_review": 218
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/Localizable.xcstrings": {
+      "identical": 4,
+      "needs_review": 296
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentLanes/Resources/Localizable.xcstrings": {
+      "identical": 1,
+      "needs_review": 28
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/Localizable.xcstrings": {
+      "identical": 91,
+      "needs_review": 371
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPermissions/Resources/Localizable.xcstrings": {
+      "identical": 1,
+      "needs_review": 216
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentQuestion/Resources/Localizable.xcstrings": {
+      "needs_review": 120
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Accounts.xcstrings": {
+      "identical": 8,
+      "needs_review": 69
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/AgentDialogs.xcstrings": {
+      "needs_review": 84
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Bookmarks.xcstrings": {
+      "identical": 8,
+      "needs_review": 311
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/BrowserHits.xcstrings": {
+      "needs_review": 84
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/BrowserImportOffer.xcstrings": {
+      "needs_review": 28
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/BrowserProfiles.xcstrings": {
+      "needs_review": 128
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/CLIInstall.xcstrings": {
+      "identical": 5,
+      "needs_review": 72
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/ClipboardReads.xcstrings": {
+      "identical": 3,
+      "needs_review": 49
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Cloud.xcstrings": {
+      "identical": 7,
+      "needs_review": 8
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/DaemonPairing.xcstrings": {
+      "needs_review": 48
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/ErrorJournal.xcstrings": {
+      "needs_review": 24
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Extensions.xcstrings": {
+      "needs_review": 80
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/FilePages.xcstrings": {
+      "identical": 10,
+      "needs_review": 190
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/FindInDirectory.xcstrings": {
+      "needs_review": 7
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/FloatingChat.xcstrings": {
+      "needs_review": 16
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Handlers.xcstrings": {
+      "identical": 7,
+      "needs_review": 401
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/History.xcstrings": {
+      "identical": 2,
+      "needs_review": 350
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Keybindings.xcstrings": {
+      "needs_review": 63
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/KeybindingsPage.xcstrings": {
+      "identical": 15,
+      "needs_review": 231
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/LinkHints.xcstrings": {
+      "needs_review": 16
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Localizable.xcstrings": {
+      "identical": 30,
+      "needs_review": 323
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/MiscHandlers.xcstrings": {
+      "identical": 2,
+      "needs_review": 760,
+      "other": 2
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Music.xcstrings": {
+      "needs_review": 93
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/NotificationsPanel.xcstrings": {
+      "identical": 1,
+      "needs_review": 80
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Passwords.xcstrings": {
+      "identical": 401,
+      "needs_review": 761
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Phone.xcstrings": {
+      "needs_review": 16
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Quit.xcstrings": {
+      "needs_review": 207,
+      "other": 2
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Remote.xcstrings": {
+      "identical": 9,
+      "needs_review": 553
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Rooms.xcstrings": {
+      "identical": 1,
+      "needs_review": 124,
+      "other": 3
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Server.xcstrings": {
+      "needs_review": 22
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/SidebarSections.xcstrings": {
+      "needs_review": 175
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/SleepyMode.xcstrings": {
+      "needs_review": 32
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/TabSearch.xcstrings": {
+      "needs_review": 21
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/TextBox.xcstrings": {
+      "identical": 1
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/VSCodeInline.xcstrings": {
+      "needs_review": 70
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Windows.xcstrings": {
+      "needs_review": 38
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/WorkspaceVerbs.xcstrings": {
+      "needs_review": 108
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAppPermissions/Resources/Localizable.xcstrings": {
+      "identical": 12,
+      "needs_review": 376
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/Localizable.xcstrings": {
+      "identical": 38,
+      "needs_review": 639
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/Resources/Localizable.xcstrings": {
+      "identical": 9,
+      "needs_review": 264
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Resources/BrowserDevices.xcstrings": {
+      "identical": 12,
+      "needs_review": 217
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Resources/BrowserProfiles.xcstrings": {
+      "needs_review": 16
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Resources/DevTools.xcstrings": {
+      "needs_review": 88
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Resources/Localizable.xcstrings": {
+      "identical": 25,
+      "needs_review": 1169
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Resources/PageInfo.xcstrings": {
+      "identical": 24,
+      "needs_review": 1282
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextChiefMemory/Resources/Localizable.xcstrings": {
+      "identical": 2,
+      "needs_review": 210
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextControl/Localizable.xcstrings": {
+      "needs_review": 603
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextCookieImport/Resources/CookieImport.xcstrings": {
+      "identical": 1,
+      "needs_review": 245
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextDaemonRecovery/Resources/Localizable.xcstrings": {
+      "needs_review": 14
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextDaemonService/Resources/Cloud.xcstrings": {
+      "identical": 104,
+      "needs_review": 416
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextDaemonService/Resources/Refusals.xcstrings": {
+      "needs_review": 1409
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/Localizable.xcstrings": {
+      "identical": 16,
+      "needs_review": 360
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextDiff/Resources/DiffPage.xcstrings": {
+      "identical": 2,
+      "needs_review": 49
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Resources/Localizable.xcstrings": {
+      "identical": 10,
+      "needs_review": 328
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextFileGrid/Resources/Localizable.xcstrings": {
+      "needs_review": 64
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextFilesUI/Resources/FileExplorer.xcstrings": {
+      "needs_review": 245
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextFilesUI/Resources/Files.xcstrings": {
+      "identical": 8
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextFloating/Resources/ChiefPet.xcstrings": {
+      "identical": 8,
+      "needs_review": 80
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextHistory/Resources/Localizable.xcstrings": {
+      "identical": 7,
+      "needs_review": 423
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextHome/Resources/Localizable.xcstrings": {
+      "identical": 51,
+      "needs_review": 964
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/Resources/Home.xcstrings": {
+      "identical": 16,
+      "needs_review": 284
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextHostedChief/Resources/HostedChief.xcstrings": {
+      "identical": 8,
+      "needs_review": 32
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Resources/Localizable.xcstrings": {
+      "needs_review": 85
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Resources/Screens.xcstrings": {
+      "needs_review": 88
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextMobileHost/Resources/IPhone.xcstrings": {
+      "identical": 19,
+      "needs_review": 368
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding/Resources/Localizable.xcstrings": {
+      "identical": 1,
+      "needs_review": 212
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Localizable.xcstrings": {
+      "identical": 2,
+      "needs_review": 310
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextPalette/Localizable.xcstrings": {
+      "identical": 46,
+      "needs_review": 743
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Localizable.xcstrings": {
+      "needs_review": 160
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextPopups/Resources/Popups.xcstrings": {
+      "needs_review": 7
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextRemoteBrowser/Resources/Localizable.xcstrings": {
+      "identical": 4,
+      "needs_review": 152
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextRemoteLocalhost/Resources/Localizable.xcstrings": {
+      "needs_review": 56
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextRemoteLocalhostService/Resources/RemoteLocalhost.xcstrings": {
+      "needs_review": 35
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextRemoteView/Resources/Localizable.xcstrings": {
+      "identical": 9,
+      "needs_review": 399
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextResources/Resources/Localizable.xcstrings": {
+      "identical": 48,
+      "needs_review": 288
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextScreenshots/Resources/Localizable.xcstrings": {
+      "needs_review": 120
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextServer/Resources/AddMachine.xcstrings": {
+      "identical": 3,
+      "needs_review": 308
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextServer/Resources/Localizable.xcstrings": {
+      "identical": 14,
+      "needs_review": 540
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings": {
+      "identical": 418,
+      "needs_review": 6183
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings": {
+      "identical": 122,
+      "needs_review": 2339
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Resources/Localizable.xcstrings": {
+      "identical": 63,
+      "needs_review": 724
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextTabs/Resources/Localizable.xcstrings": {
+      "identical": 6,
+      "needs_review": 354
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextTasks/Resources/Localizable.xcstrings": {
+      "identical": 4,
+      "needs_review": 271
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextTasks/Resources/WorkspaceChecklist.xcstrings": {
+      "needs_review": 120
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/Resources/Localizable.xcstrings": {
+      "identical": 11,
+      "needs_review": 248
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Resources/Localizable.xcstrings": {
+      "identical": 160,
+      "needs_review": 721
+    },
+    "Resources/InfoPlist.xcstrings": {
+      "identical": 5,
+      "needs_review": 148
+    }
+  }
+}

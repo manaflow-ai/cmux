@@ -14,6 +14,15 @@ public protocol CloudLeaseTokens: AnyObject {
 public nonisolated protocol CloudLeaseSessions: Sendable {
     func setSession(_ request: CloudSessionSetRequest) async throws -> CloudSessionState
     func clearSession() async throws -> CloudSessionState
+    /// `cloud-selfhost-info`: the person on the self-hosted server the lease names.
+    func selfHostInfo() async throws -> CloudSelfHostInfo
+}
+
+extension CloudLeaseSessions {
+    /// A daemon without self-hosted servers.
+    public func selfHostInfo() async throws -> CloudSelfHostInfo {
+        throw DaemonError.missingCapabilities([DaemonCapabilities.cloudSelfHost])
+    }
 }
 
 extension CloudConversationClient: CloudLeaseSessions {}
@@ -39,6 +48,9 @@ public final class HomeCloudLease {
         /// until `expiresAt` (Unix milliseconds, what `cloud-session-needed`
         /// names for it).
         case leased(subject: String, expiresAt: UInt64)
+        /// The daemon holds a self-hosted server's lease (no token, no
+        /// expiry), and the server named the person (`cloud-selfhost-info`).
+        case selfHosted(CloudSelfHostInfo)
         /// No account was asked for: the daemon holds no lease.
         case signedOut
         /// No lease for the account asked for.
@@ -70,13 +82,16 @@ public final class HomeCloudLease {
     /// follow carry the lease. A failure clears the daemon's lease, so it
     /// never keeps a previous account's token. Work queued before is
     /// cancelled: this link supersedes it.
-    func sync(_ sessions: any CloudLeaseSessions, expectedUserID: String?) async -> Outcome {
+    /// A self-hosted `server` is leased without a token and needs no
+    /// account: the server names the person (`expectedUserID` is not asked).
+    func sync(_ sessions: any CloudLeaseSessions, expectedUserID: String?, server: HomeCloudServer = .hosted) async -> Outcome {
         let prior = leasing
         prior?.cancel()
         // task-owner: one token read and one cloud-session-set or -clear, after the previous lease work; ends with the reply
         let task = Task { [weak self] () -> Outcome in
             _ = await prior?.value
             guard let self else { return .superseded }
+            if case .selfHosted(let url) = server { return await leaseSelfHosted(sessions, server: url, clearOnFailure: true) }
             return await lease(sessions, expectedUserID: expectedUserID, forceRefresh: false, clearOnFailure: true)
         }
         leasing = task
@@ -91,13 +106,20 @@ public final class HomeCloudLease {
     /// be asked for again). `finished` runs with the outcome once the work
     /// ends, so ops it refused can go again or the caller can retry. A
     /// failure leaves the daemon's lease as it was: that account's or none.
-    func renew(_ sessions: any CloudLeaseSessions, reason: String, expectedUserID: @escaping @MainActor () -> String?,
-               finished: @escaping @MainActor (Outcome) -> Void) {
+    /// A self-hosted `server` leases again without a token and asks the
+    /// server who the person is (no account is expected).
+    func renew(_ sessions: any CloudLeaseSessions, reason: String, server: HomeCloudServer = .hosted,
+               expectedUserID: @escaping @MainActor () -> String?, finished: @escaping @MainActor (Outcome) -> Void) {
         let prior = leasing
         // task-owner: one token read and one cloud-session-set, after the previous lease work; ends with the reply
         leasing = Task { [weak self] () -> Outcome in
             _ = await prior?.value
             guard let self else { return .superseded }
+            if case .selfHosted(let url) = server {
+                let outcome = await leaseSelfHosted(sessions, server: url, clearOnFailure: false)
+                finished(outcome)
+                return outcome
+            }
             guard let expected = expectedUserID() else {
                 finished(.signedOut)
                 return .signedOut
@@ -138,11 +160,34 @@ public final class HomeCloudLease {
         }
     }
 
+    /// A self-hosted server's lease: `cloud-session-set {auth: "tailscale"}`
+    /// with no token (the server knows the person by their Tailscale login),
+    /// then `cloud-selfhost-info` for who that is. Never reads a Stack token.
+    private func leaseSelfHosted(_ sessions: any CloudLeaseSessions, server: URL, clearOnFailure: Bool) async -> Outcome {
+        do {
+            guard let origin = Self.origin(server) else { throw Refusal.noOrigin }
+            _ = try await sessions.setSession(.tailscale(apiBaseURL: origin, clientVersion: clientVersion))
+            try Task.checkCancellation()
+            let info = try await sessions.selfHostInfo()
+            try Task.checkCancellation()
+            return .selfHosted(info)
+        } catch is CancellationError {
+            if clearOnFailure { _ = try? await sessions.clearSession() }
+            return .superseded
+        } catch {
+            logger.error("self-hosted lease: \(String(describing: error), privacy: .public)")
+            if clearOnFailure { _ = try? await sessions.clearSession() }
+            return .failed
+        }
+    }
+
     /// The API origin: scheme, host and port only (the daemon refuses a path).
+    /// An IPv6 host (a tailnet `fd7a:115c:a1e0::/48` address) keeps its brackets.
     public nonisolated static func origin(_ url: URL) -> String? {
-        guard let scheme = url.scheme, let host = url.host else { return nil }
+        guard let scheme = url.scheme, let host = url.host, !host.isEmpty else { return nil }
+        let bracketed = host.contains(":") && !host.hasPrefix("[") ? "[\(host)]" : host
         let port = url.port.map { ":\($0)" } ?? ""
-        return "\(scheme)://\(host)\(port)"
+        return "\(scheme)://\(bracketed)\(port)"
     }
 
     /// No access token lives longer than this; a later `exp` is not trusted.

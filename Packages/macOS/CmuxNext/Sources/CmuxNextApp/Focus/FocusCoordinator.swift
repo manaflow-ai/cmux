@@ -30,6 +30,8 @@ final class FocusCoordinator {
     /// The close-focus setting (tests inject one).
     var closeFocus: () -> CloseFocusPolicy = { DesignSettings.shared.closeFocus }
     weak var applier: (any FocusEffectApplying)?
+    /// The window this coordinator focuses in (`debug.pane_focus` times its commit).
+    weak var window: NSWindow?
     private var queue: [FocusEvent] = []
     private var isRunning = false
     /// Tabs left while their address bar had the keyboard (Chrome restores it on return).
@@ -73,6 +75,12 @@ final class FocusCoordinator {
         guard !isRunning else { return }
         isRunning = true
         defer { isRunning = false }
+        // debug.pane_focus: a drain that lands on another pane is one timed move (a key, a click, pane.focus).
+        let paneBefore = reduced.pane
+        DebugPaneFocus.began(self)
+        defer {
+            if reduced.pane != paneBefore, reduced.pane != nil { DebugPaneFocus.shown(self, in: window) } else { DebugPaneFocus.dropped(self) }
+        }
         // The settled observer can send or reduce a pending topology: what it queued runs too. The
         // queue holds this event, so the drain runs at least once, and it ends when the queue is empty.
         while !queue.isEmpty {
@@ -97,6 +105,7 @@ final class FocusCoordinator {
                     continue
                 }
                 let effects = result.effects
+                DebugPaneFocus.mark(self, "reduced")
                 record(event)
                 if omnibarMemory.note(event, before: previous.resolved, after: reduced.resolved) {
                     // Runs after this event's effects moved the responder to the page.
@@ -107,13 +116,16 @@ final class FocusCoordinator {
                 isApplying = true
                 applier.apply(effects, state: reduced)
                 isApplying = false
+                DebugPaneFocus.mark(self, "applied")
             }
             settledObserver?(reduced)
+            DebugPaneFocus.mark(self, "settled")
         }
     }
 
     /// The state after every pending topology: for a reader that decides on it now, outside
-    /// AppKit's own responder change (a key-down's routing).
+    /// AppKit's own responder change (a key-down's routing; the window judging a page's own focus
+    /// ask before that change begins, `AgentPaneView.refusesSelfFocus`).
     func currentState() -> FocusState {
         reducePendingTopologies()
         return reduced

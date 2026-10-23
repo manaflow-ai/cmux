@@ -119,6 +119,7 @@ impl Hub {
                     keep_harness_mode: true,
                     route: None,
                     subsession: None,
+                    disallowed_tools: Vec::new(),
                 };
                 let side = match self.new_session(req.clone()).await {
                     // A default model the harness refuses: its own default instead.
@@ -222,15 +223,7 @@ impl Hub {
         if cuts.is_none() || meta.agent_session_id.is_none() {
             return Ok(None);
         }
-        let latest = self
-            .store
-            .events(&session.id, 0, 500_000)
-            .map_err(|e| RpcError::internal(e.to_string()))?
-            .into_iter()
-            .filter(|e| e.kind == "turn_result")
-            .map(|e| e.seq)
-            .max();
-        Ok(latest)
+        self.latest_turn_result(&session.id)
     }
 
     /// The chat's effective policy.
@@ -325,27 +318,36 @@ impl Hub {
     /// prompts and answers, newest last, cut to its newest
     /// `TRANSCRIPT_BYTES`, marked as context. Empty for a chat with nothing yet.
     fn btw_transcript(&self, session: &Session) -> String {
-        let events = self.store.events(&session.id, 0, 500_000).unwrap_or_default();
+        // The two kinds it reads, parsed one record at a time (never the whole log).
         let mut lines: Vec<(&str, String)> = Vec::new();
-        for e in &events {
-            let (who, text) = match e.kind.as_str() {
-                "user_message" => ("User", e.msg.get("text").and_then(Value::as_str)),
-                "agent_message_chunk" => (
-                    "Assistant",
-                    e.msg.pointer("/params/update/content/text").and_then(Value::as_str),
-                ),
-                _ => continue,
-            };
-            let Some(text) = text else { continue };
-            // An answer streams in chunks: one line per answer.
-            if let Some((_, said)) =
-                lines.last_mut().filter(|(last, _)| who == "Assistant" && *last == who)
-            {
-                said.push_str(text);
-                continue;
-            }
-            lines.push((who, text.to_owned()));
-        }
+        let _ = self.store.scan_kinds(
+            &session.id,
+            &["user_message", "agent_message_chunk"],
+            &mut |e: EventRecord| {
+                let (who, text) = match e.kind.as_str() {
+                    "user_message" => ("User", e.msg.get("text").and_then(Value::as_str)),
+                    "agent_message_chunk" => (
+                        "Assistant",
+                        e.msg
+                            .get("params")
+                            .filter(|p| !crate::subagents::is_subagents(p))
+                            .and_then(|p| p.pointer("/update/content/text"))
+                            .and_then(Value::as_str),
+                    ),
+                    _ => return true,
+                };
+                let Some(text) = text else { return true };
+                // An answer streams in chunks: one line per answer.
+                if let Some((_, said)) =
+                    lines.last_mut().filter(|(last, _)| who == "Assistant" && *last == who)
+                {
+                    said.push_str(text);
+                    return true;
+                }
+                lines.push((who, text.to_owned()));
+                true
+            },
+        );
         let body: String = lines
             .iter()
             .map(|(who, text)| format!("{who}: {}\n\n", text.trim()))

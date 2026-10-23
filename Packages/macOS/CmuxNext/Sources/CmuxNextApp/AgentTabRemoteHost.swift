@@ -12,6 +12,8 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
     let session: String?
     let machine: String
     let endpoint: AgentSessionAttachClient.EndpointProvider
+    /// `.observe` opens the remote session as a read-only viewer with no mutation fallback.
+    var mode: AgentSessionAttachClient.Mode = .attach
     /// The machine's daemon answers the folder trust question (`agent-session-trust-v1`).
     var servesTrust = false
     /// The machine's daemon says whether a keyed acpmux restart loses nothing
@@ -48,16 +50,16 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
         let ask: RemoteAcpmuxWire.Trust = { [existing, surface, endpoint] (cwd: String, level: String?, home: Bool) async throws -> Data in
             let client = AgentSessionAttachClient(surface: try await existing?()?.surface ?? surface, endpoint: endpoint)
             let answer: Result<Data, any Error>
-            do { answer = .success(try await AgentTabRemoteClient(client: client).mapped { try await client.trust(cwd: cwd, level: level, homeConfirmed: home) }) } catch { answer = .failure(error) }
+            do { answer = .success(try await AgentTabRemoteClient(client: client, mode: .attach).mapped { try await client.trust(cwd: cwd, level: level, homeConfirmed: home) }) } catch { answer = .failure(error) }
             await client.close()
             return try answer.get()
         }
         if let session {
             route = AgentPaneRemoteRoute(machine: machine, approvals: approvals) { [surface, session, endpoint] in
-                let client = AgentSessionAttachClient(surface: surface, endpoint: endpoint)
-                return RemoteAcpmuxWire(client: AgentTabRemoteClient(client: client), session: session, trust: servesTrust ? ask : nil)
+                let client = AgentSessionAttachClient(surface: surface, mode: mode, endpoint: endpoint)
+                return RemoteAcpmuxWire(client: AgentTabRemoteClient(client: client, mode: mode), session: session, trust: mode == .attach && servesTrust ? ask : nil)
             }
-        } else if let start {
+        } else if let start, mode == .attach {
             // A new chat: nothing runs on that machine until the page's first send (cx-k21v). The
             // page shows the New Tab page or an empty chat; its `session/new` starts the chat.
             route = AgentPaneRemoteRoute(machine: machine, approvals: approvals) { [endpoint] in
@@ -70,7 +72,7 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
                         throw AgentSessionRemoteError(code: refusal.code, message: servesTrust ? refusal.userMessage : refusal.withoutTrust.userMessage, folder: refusal.folder)
                     }
                     let client = AgentSessionAttachClient(surface: started.surface, endpoint: endpoint)
-                    return (AgentTabRemoteClient(client: client), started.session)
+                    return (AgentTabRemoteClient(client: client, mode: .attach), started.session)
                 }, trust: servesTrust ? ask : nil)
             }
         } else {
@@ -116,6 +118,9 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
 /// ``AgentSessionAttachClient`` as the pane's ``AgentSessionRemoteClient``.
 nonisolated struct AgentTabRemoteClient: AgentSessionRemoteClient {
     let client: AgentSessionAttachClient
+    let mode: AgentSessionAttachClient.Mode
+
+    var isReadOnly: Bool { mode == .observe }
 
     func attach(_ page: AgentSessionPage, events handler: @escaping @Sendable (AgentSessionRemoteEvent) -> Void) async throws -> Data {
         try await mapped {
@@ -143,6 +148,8 @@ nonisolated struct AgentTabRemoteClient: AgentSessionRemoteClient {
     }
 
     func detach() async { await client.detach() }
+
+    func children() async throws -> Data { try await mapped { try await client.children() } }
 
     func close() async { await client.close() }
 

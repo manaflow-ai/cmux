@@ -24,6 +24,7 @@ extension SettingsSchema {
     /// `appearance.surfaces.<surface>.color|opacity` row (looks only, R55).
     public static let agentSettableKeys: Set<String> = agentSettableTable.union(SurfaceBackgroundSetting.keys).union(BrowserLinkClickSchema.agentSettableKeys)
         .union(OmnibarSettingsSchema.agentSettableKeys)
+        .union(ChiefReactionSettings.keys) // a Chief configures its own reaction classifier (Lawrence 2026-10-21)
         // What sidebar rows show (looks only, SIDEBAR-ROWS-MINIMAL-AND-CUSTOMIZABLE).
         .union(WorkspaceRowSetting.keys)
         // The diff page's display keys (looks only, diff-host S4).
@@ -49,17 +50,19 @@ extension SettingsSchema {
         "shortcuts.showModifierHoldHints",
         "window.titlebarButtons",
         "tabs.plusButton",
-        "tabs.barPosition", "tabs.barOrder", "tabs.toolbarButtons",
+        "tabs.barPosition", "tabs.barOrder", "tabs.toolbarButtons", "browser.toolbarPosition",
         "navigation.historyScope", "navigation.history.scope",
-        "sidebar.minimalMode", "sidebar.minimal", "sidebar.density", "sidebar.detailedStatusIcons", "sidebar.showTimestamps",
+        "sidebar.minimalMode", "sidebar.minimal", "sidebar.density", "sidebar.detailedStatusIcons", "sidebar.showTimestamps", "sidebar.showColors",
+        "sidebar.showLocalMachine",
         "sidebar.groupHeader.memberCount", "sidebar.groupHeader.unreadCount",
         "sidebar.numbering", "sidebar.cmd9", "sidebar.stepping", "sidebar.steppingWraps",
-        "sidebar.side",
+        "sidebar.side", "sidebar.style",
         "sidebar.spacesPosition", "sidebar.spacesVisibility",
         "tabs.newTabTemplate",
         "tabs.newTabPosition",
         "newTerminal.opensWorkspace",
         "tabs.cmdWClosesPinnedTabs",
+        "tabs.terminalFirst",
         "app.hideDockIconWithoutWindows", // Dock icon and Cmd-Tab entry with no window open; ends no work
         "tabs.overflow",
         "tabs.swapCmdTAndCmdN",
@@ -88,6 +91,7 @@ extension SettingsSchema {
         "appearance.appTheme",
         "appearance.accent",
         "appearance.themeEdits",
+        "appearance.machineColors", // the color of each machine's marks (looks only)
         "appearance.backdropArt",
         "appearance.backgroundOpacity",
         "appearance.backgroundBlur",
@@ -95,6 +99,7 @@ extension SettingsSchema {
         "appearance.background",
         "appearance.backgroundRotation",
         "appearance.paneBackgrounds",
+        "ui.reducedBackgrounds",
         "appearance.experimentalControls",
         "app.uiScale",
         "appearance.glassTransparency",
@@ -167,14 +172,14 @@ extension SettingsSchema {
         "sidebar.sectionLook",
         "sidebar.topBandMaxShare",
         "sidebar.bottomBandMaxShare",
-        "sidebar.pinnedBandsScroll", "sidebar.showWorkspaceTabs", "sidebar.showChats",
+        "sidebar.pinnedBandsScroll", "sidebar.showWorkspaceTabs", "sidebar.showChats", "sidebar.sessionTree",
         "sidebar.cards.tips", "sidebar.hoverCards.enabled", "sidebar.hoverCards.delay", "sidebar.hoverCards.layout", "sidebar.hoverCards.maxRows",
         "sidebar.hoverCards.sections.timings", "sidebar.hoverCards.sections.prompts", "sidebar.hoverCards.sections.waiting",
         "sidebar.hoverCards.sections.git", "sidebar.hoverCards.sections.ports", "sidebar.hoverCards.groups.workspaceGroups", "sidebar.hoverCards.groups.tabGroups",
         "sidebar.hoverCards.groups.delay", "sidebar.hoverCards.groups.order", "sidebar.hoverCards.groups.maxMembers",
         "sidebar.hoverCards.groups.sections.status", "sidebar.hoverCards.groups.sections.members",
         "sidebar.hoverCards.groups.sections.activity", "sidebar.hoverCards.groups.sections.git",
-        "sidebar.hoverCards.groups.sections.ports", "sidebar.nowPlaying.enabled", "tabs.newTabNowPlaying", "sidebar.showProjects", "sidebar.showSpaces", "sidebar.showProfileControl", "sidebar.showSearchButton", "sidebar.groupBy",
+        "sidebar.hoverCards.groups.sections.ports", "sidebar.nowPlaying.enabled", "tabs.newTabNowPlaying", "media.pictureInPicture.enabled", "tabs.newTabWidgets.greeting", "tabs.newTabWidgets.projects", "tabs.newTabWidgets.actions", "tabs.newTabWidgets.chats", "tabs.newTabWidgets.styleDots", "tabs.newTabWidgets.order", "tabs.newTabWidgets.machines", "sidebar.showProjects", "sidebar.showSpaces", "sidebar.showProfileControl", "sidebar.showSearchButton", "sidebar.groupBy",
         "sidebar.priorityView.enabled", "sidebar.priorityView.shown",
         "browser.defaultEngine",
         "browser.siteEngines",
@@ -200,10 +205,15 @@ extension SettingsSchema {
         "notifications.dockBadge",
         "notifications.attention.style",
         "notifications.attention.color",
+        "notifications.attention.terminals",
+        "notifications.attention.agentChats",
+        "notifications.attention.agentChatBlinkCount",
         "notifications.attention.width",
         "notifications.attention.blinkCount",
         "notifications.attention.duration",
         "notifications.attention.persist",
+        "notifications.attention.flash",
+        "notifications.attention.flashOnTyping",
         "notifications.attention.showOnTab",
         "notifications.attention.showOnSidebar",
         "notifications.attention.moveToTop",
@@ -217,6 +227,8 @@ extension SettingsSchema {
         // box types only what the person writes.
         "home.chiefPetEnabled",
         "home.chiefPetMascot",
+        // Needs you in the agent chat header (an App Store item): a display the person can hide again.
+        "agentPane.needsYou.enabled",
         "updates.notify",
         "updates.showWhatsNew",
         "announcements.enabled",
@@ -251,6 +263,9 @@ extension SettingsSchema {
         "feed.github.enabled": .network,
         "feed.github.pollIntervalSeconds": .network,
         "browser.remoteLocalhost": .network,
+        // The weather widget asks Open-Meteo (and names a city) only once the person turns it on.
+        "tabs.newTabWidgets.weather": .network,
+        "tabs.newTabWidgets.weatherCity": .network,
         // Off, Chromium tabs load ads and trackers again.
         "browser.builtInAdBlocker": .privacy,
         // On, merely opening attacker-authored Markdown contacts its web image hosts.
@@ -267,12 +282,20 @@ extension SettingsSchema {
         "browser.openTerminalLinksInCmuxBrowser": .privacy,
         // The app that opens your files from a menu: an agent must not pick what runs them.
         "files.textEditor": .userOnly,
+        // Where a terminal program's URLs open, and a command that may run for each: an agent must
+        // not pick what runs or move a sign-in page into a browser it drives.
+        "terminal.linkOpener.default": .userOnly,
+        "terminal.linkOpener.rules": .userOnly,
         // Which of the person's editor settings files cmux reads (VS Code, Zed...).
         "editor.importFrom": .userOnly,
         "browser.hostsToOpenInEmbeddedBrowser": .privacy,
         "browser.urlsToAlwaysOpenExternally": .privacy,
+        // On, the sidebar and New Tab show what other apps play: an agent must not turn on reading them.
+        "sidebar.nowPlaying.otherApps": .privacy,
         // Whether attached photos and videos send their location.
         "home.attachments.keepLocation": .privacy,
+        // Where the person's direct messages and group chats go: an agent must not move them to another server.
+        "home.server": .privacy,
         // A reply's file link outside the project, and a reply's web image (D4, D5).
         "agentPane.links.outsideRoots": .privacy,
         "agentPane.images.remote": .network,
@@ -291,7 +314,14 @@ extension SettingsSchema {
         "updates.meteredNetwork": .network,
         // Which builds this Mac installs (a faster ring runs less-tested code): the person's call.
         "updates.channel": .userOnly,
+        // Web UI updates download and run new page code from files.cmux.com.
+        "updates.web": .network,
+        // How long a nightly waits before it restarts into an update: the person's call.
+        "updates.idleInstallMaxWaitSeconds": .userOnly,
+        "updates.idleInstallQuietSeconds": .userOnly,
         "announcements.fetch": .network,
+        // Whether this Mac sends hang reports (stacks and timings) to cmux: the person's choice only.
+        "diagnostics.hangReports": .privacy,
         // On, cmux starts a helper that sees and controls other apps; only the person turns it on.
         // What a new chat may do without asking: an agent must not widen its own approvals.
         "agents.defaultPermissionMode": .userOnly,
@@ -299,17 +329,28 @@ extension SettingsSchema {
         "computerUse.driver": .userOnly,
         // How hard cmux pulls the person back from another app: theirs to pick, not an agent's.
         "notifications.dockBounce": .userOnly,
+        // Privacy: whether banners show what agents said is the person's call.
+        "notifications.showPreviews": .userOnly,
         // Battery and sleep are the person's call: an agent must not keep the Mac up for itself.
         "sessions.keepAwake": .userOnly,
         // Whether agents start again by themselves after a restart is the person's call.
         "sessions.resumeAgents": .userOnly,
         // An agent must not let itself, or another agent, skip the person's approvals.
         "sessions.allowFullAccess": .destructive,
+        // On, every agent gets tools that start child chats: the person turns that on.
+        "sessions.promptSuggestions": .userOnly,
         // How many agent sessions an agent may start, and how deep, is the person's call: an agent
         // must not raise its own limits.
         "agents.subsessions.enabled": .userOnly,
+        // Who answers a sub-session's questions is the person's call too.
+        "agents.subsessions.answerQuestions": .userOnly,
         "agents.subsessions.maxChildren": .userOnly,
         "agents.subsessions.maxDepth": .userOnly,
+        // Which folders an agent may open without asking is the person's call: an agent must not
+        // widen what it may open without asking.
+        "agents.trust.autoTrust": .userOnly,
+        "agents.trust.projectRoots": .userOnly,
+        "agents.trust.ownOrgs": .userOnly,
         // What reaches this Mac from outside and what leaves it: only the person opens phone access.
         "phone.allowConnections": .network,
         "phone.startSessions": .network,
@@ -318,6 +359,12 @@ extension SettingsSchema {
         "phone.cloudReplica": .privacy,
         // On, a phone signed in to the same account can open this Mac's terminals and agents.
         "mobile.allowIPhoneConnections": .userOnly,
+        // On, a session event tap takes system chords from macOS for the other Mac; only the person turns it on.
+        "macScreen.systemShortcuts": .userOnly,
+        // Changes how this Mac's Mac Screen streams leave the network; only the person sets it.
+        "macScreen.debug.relayOnly": .userOnly,
+        // Chooses the server this Mac registers its device keys with; only the person sets it.
+        "deviceHub.url": .userOnly,
         "updates.installOnQuit": .destructive,
         "updates.keepPreviousVersions": .destructive,
     ]

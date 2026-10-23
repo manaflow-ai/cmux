@@ -20,12 +20,20 @@
       "schedule": "* * * * *"
     },
     {
+      "path": "/api/cron/run-attempt-retention",
+      "schedule": "* * * * *"
+    },
+    {
       "path": "/api/cron/vm-reconcile",
       "schedule": "7,17,27,37,47,57 * * * *"
     },
     {
       "path": "/api/cron/vm-alerts",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/vm-idle-pause",
+      "schedule": "1,6,11,16,21,26,31,36,41,46,51,56 * * * *"
     },
     {
       "path": "/api/cron/vm-health",

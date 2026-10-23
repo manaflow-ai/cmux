@@ -93,11 +93,31 @@ export function cmuxDevServer(): Plugin[] {
     pagesHost(),
     viewerEmptyHost(),
     diffHost(),
+    diffWorkerEntry(),
     markdownHost(),
     editorHost(),
     galleryHost(),
     { ...galleryModules(), apply: "serve" },
   ];
+}
+
+/// worker-pool.ts spawns `./diff-worker.mjs` next to itself, which the build emits; in dev that
+/// sibling is the TypeScript entry. Every dev server that draws a diff needs this, the live gallery
+/// (vite.config.gallery-dev.ts) too. Plugin middleware runs before Vite strips the base, so the path
+/// carries it.
+export function diffWorkerEntry(): Plugin {
+  return {
+    name: "cmux-dev-diff-worker",
+    apply: "serve",
+    configureServer(server) {
+      const worker = `${server.config.base}src/diff-worker.mjs`;
+      server.middlewares.use((request, _response, next) => {
+        const url = new URL(request.url ?? "/", "http://localhost");
+        if (url.pathname === worker) request.url = `${server.config.base}src/diff-worker.ts${url.search}`;
+        next();
+      });
+    },
+  };
 }
 
 /// A running cmux-next can load its pages and agent pane from this server (`web-dev.json`,
@@ -249,7 +269,7 @@ function devServerShell(): Plugin {
 /// directory), a second HTML entry beside the diff viewer's. The page itself runs the fragment
 /// handshake (devHost.ts) in Swift's place. Mirrors vite.config.acpmux-pane.mjs, which still
 /// serves the pane alone at its root.
-function agentPaneHost(): Plugin {
+export function agentPaneHost(): Plugin {
   const paneDir = path.join(webviewsRoot, "src/agent-session/acpmux");
   const paneURL = "/src/agent-session/acpmux";
   const sharedStyles = path.join(webviewsRoot, "src/agent-session/shared/styles.css");
@@ -355,6 +375,7 @@ const DEV_PAGES = [
   "files",
   "stats",
   "chief-usage",
+  "chief-views",
   "mobile-pairing",
 ];
 
@@ -601,12 +622,6 @@ function diffHost(): Plugin {
           } catch (error) {
             return next(error);
           }
-        }
-        // worker-pool.ts spawns `./diff-worker.mjs` next to itself, which the build emits; in dev
-        // that sibling is the TypeScript entry.
-        if (url.pathname === "/src/diff-worker.mjs") {
-          request.url = `/src/diff-worker.ts${url.search}`;
-          return next();
         }
         if (!url.pathname.startsWith("/__cmux-diff/")) return next();
         if (!isLoopbackHost(request.headers.host, port())) return send(response, 403, "text/plain", "");

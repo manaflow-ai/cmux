@@ -10,6 +10,8 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { TRANSCRIPT_RUNWAY } from "../src/agent-session/acpmux/model";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -61,6 +63,29 @@ await requireBrowserLane("agent-pane-recap-card.test.ts", async () => {
   };
   /// The text of each prompt the pane sent.
   const prompts: string[] = [];
+  /// `_acpmux/events` reads: a lag resync's refetch.
+  let eventReads = 0;
+  /// The socket of the page that last spoke to the daemon.
+  let socket: { send(data: string): void } | undefined;
+
+  /// The waits on what the daemon heard: each message it takes wakes them.
+  const waiting = new Set<() => void>();
+  /// Resolves once `condition` holds, checked as the daemon hears each message; fails naming `what`.
+  const until = (condition: () => boolean, what: string, timeout = 10_000) =>
+    new Promise<void>((resolve, reject) => {
+      const check = () => {
+        if (!condition()) return;
+        waiting.delete(check);
+        clearTimeout(timer);
+        resolve();
+      };
+      const timer = setTimeout(() => {
+        waiting.delete(check);
+        reject(new Error(`the daemon never saw ${what} within ${timeout} ms`));
+      }, timeout);
+      waiting.add(check);
+      check();
+    });
 
   function answer(method: string): unknown {
     switch (method) {
@@ -71,6 +96,7 @@ await requireBrowserLane("agent-pane-recap-card.test.ts", async () => {
       case "_acpmux/attach":
         return { session, lastSeq: events.length, events };
       case "_acpmux/events":
+        eventReads += 1;
         return { events: [], hasMore: false, lastSeq: events.length };
       default:
         return null;
@@ -95,13 +121,13 @@ await requireBrowserLane("agent-pane-recap-card.test.ts", async () => {
       websocket: {
         message(ws, raw) {
           const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, any> };
+          socket = ws;
           // A prompt is recorded and left running: the card's part ends once it is sent.
-          if (message.method === "session/prompt") {
+          if (message.method === "session/prompt")
             prompts.push((message.params?.prompt ?? []).map((block: { text?: string }) => block.text ?? "").join(""));
-            return;
-          }
-          if (message.id !== undefined)
+          else if (message.id !== undefined)
             ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method) }));
+          for (const wake of waiting) wake();
         },
       },
     });
@@ -124,6 +150,7 @@ await requireBrowserLane("agent-pane-recap-card.test.ts", async () => {
   async function openChat(on = true): Promise<Page> {
     prompts.length = 0;
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    await installPaintedFrames(page);
     await page.goto(url());
     await page.locator(".acpmux-composer-prompt").waitFor();
     await page.getByText(QUESTION).first().waitFor();
@@ -134,9 +161,33 @@ await requireBrowserLane("agent-pane-recap-card.test.ts", async () => {
   const setSessionStatus = (page: Page, on = true) =>
     page.evaluate((value) => window.cmuxAcpmuxBridge?.applySessionStatus?.(value), on);
   const card = (page: Page) => page.locator(".acpmux-recap");
-  /// Waits for the daemon to get a prompt.
+  /// Waits for the page to come to rest: its finite animations and transitions have finished, then
+  /// two frames have painted, so what is read next is laid out as drawn.
+  const atRest = (page: Page) =>
+    page.evaluate(async () => {
+      const finite = () =>
+        document
+          .getAnimations()
+          .filter(
+            (animation) =>
+              animation.playState === "running" && Number.isFinite(animation.effect?.getComputedTiming().endTime),
+          );
+      for (let moving = finite(); moving.length > 0; moving = finite())
+        await Promise.allSettled(moving.map((animation) => animation.finished));
+      await window.cmuxPaintFrame();
+      await window.cmuxPaintFrame();
+    });
+  /// Returns once the page has answered a lag notice sent now (its refetch reached the daemon), so it
+  /// has handled what came before, and a prompt it sent before has reached the daemon.
+  async function settled(): Promise<void> {
+    const before = eventReads;
+    socket?.send(JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/lagged", params: { sessionIds: [CHAT] } }));
+    await until(() => eventReads > before, "the lag resync's refetch");
+  }
+  /// Waits for the daemon to get a prompt, and for any second one to have come.
   async function sent(): Promise<void> {
-    for (const deadline = Date.now() + 10_000; prompts.length === 0 && Date.now() < deadline;) await Bun.sleep(50);
+    await until(() => prompts.length > 0, "a prompt");
+    await settled();
   }
 
   test("a turn that ended on a question shows the card; its yes sends Yes, open PR", async () => {
@@ -177,7 +228,7 @@ await requireBrowserLane("agent-pane-recap-card.test.ts", async () => {
     expect(await yes.getAttribute("aria-keyshortcuts")).toBeNull();
     expect(await yes.locator(".acpmux-keycap").count()).toBe(0);
     await page.keyboard.press("Meta+Enter");
-    await page.waitForTimeout(300);
+    await settled();
     expect(prompts).toEqual([]);
     expect(await card(page).count()).toBe(1);
     await page.close();
@@ -208,7 +259,8 @@ await requireBrowserLane("agent-pane-recap-card.test.ts", async () => {
     await page.reload();
     await page.getByText(QUESTION).first().waitFor();
     await setSessionStatus(page);
-    await page.waitForTimeout(300);
+    // The page has drawn past the toggle's push when it answers a lag notice sent after it.
+    await settled();
     expect(await card(page).count()).toBe(0);
     expect(prompts).toEqual([]);
     await page.close();
@@ -232,22 +284,23 @@ await requireBrowserLane("agent-pane-recap-card.test.ts", async () => {
           spare: Math.floor(foot - last),
         };
       });
-    await page.waitForTimeout(300);
-    // Font metrics differ between hosts: the pane is sized from the chat as drawn, 4px to spare.
+    await atRest(page);
+    // Font metrics differ between hosts: the pane is sized from the chat as drawn, with the runway
+    // under its last row and 4px to spare.
     const { spare } = await view();
-    await page.setViewportSize({ width: 900, height: 760 - spare + 4 });
-    await page.waitForTimeout(300);
+    await page.setViewportSize({ width: 900, height: 760 - spare + TRANSCRIPT_RUNWAY + 4 });
+    await atRest(page);
     expect(await view()).toMatchObject({ overflows: false, below: 0 });
     await setSessionStatus(page);
     await card(page).waitFor();
-    await page.waitForTimeout(300);
+    await atRest(page);
     expect(await view()).toMatchObject({ overflows: true, below: 0 });
     await page.close();
   });
 
   test("with the toggle off nothing shows", async () => {
     const page = await openChat(false);
-    await page.waitForTimeout(300);
+    await settled();
     expect(await card(page).count()).toBe(0);
     await page.close();
   });

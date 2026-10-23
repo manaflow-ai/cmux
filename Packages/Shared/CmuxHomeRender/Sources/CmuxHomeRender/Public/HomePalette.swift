@@ -190,7 +190,7 @@ public struct HomePalette: Hashable, Sendable {
         return p
     }
 
-    /// How the Chief chat's bubbles look (Settings > Agents > Chief Chat >
+    /// How the Chief chat's bubbles look (Settings > Chief > Chief Chat >
     /// Bubble Style, `home.chiefBubbleStyle`; Leo 2026-10-19: iMessage's blue
     /// stays the default, the theme's colours are the option).
     public enum BubbleStyle: Sendable, Hashable {

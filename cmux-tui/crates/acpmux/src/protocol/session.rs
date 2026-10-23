@@ -36,6 +36,11 @@ pub struct SessionSummary {
     /// The session whose agent started this one (its `spawnedBy` tag), kept
     /// only while that parent is listed; one level.
     pub spawned_by: Option<String>,
+    /// The pull request URLs its `gh pr create` calls printed, oldest first;
+    /// absent from a peer on an older acpmux.
+    #[serde(default)]
+    #[schemars(default)]
+    pub pull_requests: Vec<String>,
     /// The session whose agent started this one with its `start_session`
     /// tool (`hub/subsessions.rs`); null for a session a person or client
     /// started. Kept when the parent is closed or gone, so a client draws
@@ -55,13 +60,30 @@ pub struct SessionSummary {
     pub queued: u64,
     /// A turn failed: the prompts behind it wait for a client to resume them.
     pub queue_paused: bool,
+    /// A sub-session whose queued prompt waits for a free run slot of its parent: the parent
+    /// runs as many sub-sessions as its `maxRunning` allows (`hub/subsession_runs.rs`). Absent
+    /// otherwise, and from a peer on an older acpmux.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[schemars(default)]
+    pub waits_for_slot: bool,
     /// Being moved to another daemon; it takes no prompt meanwhile.
     pub moving: bool,
+    /// The family of a conversation another app runs that this chat only shows; null otherwise.
+    pub watching: Option<String>,
     /// The agent takes a prompt mid-turn.
     pub steering: bool,
+    /// `_acpmux/process/background` (Ctrl-B) moves its foreground work: its
+    /// harness is Claude Code (claude-stdio), whatever the harness's name.
+    /// Clients offer Ctrl-B from this, not from `harness`.
+    pub backgrounds_work: bool,
     pub turn: Option<TurnSummary>,
     pub queue: Vec<QueuedPromptSummary>,
     pub pending_permissions: u64,
+    /// What it waits on the person for: `question` (an agent question) or
+    /// `permission`; null while nothing is pending. Only the person allows a permission.
+    pub waiting_on: Option<String>,
+    /// The first prompt of the question it waits on, cut to 120 characters.
+    pub waiting_prompt: Option<String>,
     /// Since when it waits on the person (`lane`); null while it does not.
     pub input_since: Option<u64>,
     #[schemars(with = "Option<String>")]
@@ -248,6 +270,11 @@ pub struct TurnSummary {
     pub turn_id: String,
     pub prompt_id: String,
     pub turn_seq: u64,
+    /// What the turn does right now: its latest tool call's title; null
+    /// until it calls one (`hub/activity.rs`).
+    pub activity: Option<String>,
+    /// Its plan's entry in progress; null without one.
+    pub plan_step: Option<String>,
 }
 
 /// A prompt waiting for the running turn to end.
@@ -262,6 +289,22 @@ pub struct QueuedPromptSummary {
     pub queued_at: u64,
     /// Waits behind a failed turn until the queue is resumed.
     pub held: bool,
+    /// The images it sends, in its order; `_acpmux/attachment` reads each by its id.
+    #[serde(default)]
+    pub images: Vec<QueuedImage>,
+}
+
+/// An image a queued prompt sends.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+#[schemars(transform = require_all)]
+pub struct QueuedImage {
+    /// The SHA-256 of its bytes (64 lowercase hex digits): `_acpmux/attachment {sessionId, id}`
+    /// reads it, and `_acpmux/queue_edit` `update` `images` keeps it.
+    pub id: String,
+    pub mime_type: String,
+    /// Its file name, when the client gave one.
+    pub name: Option<String>,
 }
 
 /// What limits the session's agent as far as acpmux can tell.
@@ -294,14 +337,29 @@ pub struct LastTurn {
     pub ended_at: u64,
 }
 
+/// Also the page fields of `_acpmux/watch` (`hub::session_pages`).
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
 #[schemars(deny_unknown_fields)]
-pub struct SessionsParams {}
+pub struct SessionsParams {
+    /// Page size, at least 1. Without it the reply is the whole list.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 1))]
+    pub limit: Option<u64>,
+    /// A previous reply's `nextCursor`: the page starts after that session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
+}
 
 #[derive(Debug, Clone, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct SessionsResult {
-    /// Local and peer sessions, newest first.
+    /// Local and peer sessions, newest first, then by `sessionId`.
     pub sessions: Vec<SessionSummary>,
+    /// With `limit`: the cursor for the next page, null when the list is
+    /// done. Absent without `limit`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_cursor: Option<Option<String>>,
 }
 
 /// A purged session: only its id is left.

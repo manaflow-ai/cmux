@@ -47,19 +47,38 @@ fn wants_title(source: Option<&str>, asking: bool, failures: u8) -> bool {
     }
 }
 
-/// A chat's first prompt titles it until a better title comes.
+/// A chat's first prompt titles it until a better title comes. A probe ("Reply with only:
+/// OK", `probe_prompt.rs`) titles nothing: the first real message does, also in a chat a
+/// probe titled before (its title still that prompt's line).
 pub(super) fn set_fallback_title(m: &mut SessionMeta, text: &str) {
+    fallback_title_fields(&mut m.title, &mut m.title_source, &mut m.title_prompt, text);
+}
+
+fn fallback_title_fields(
+    title: &mut Option<String>,
+    source: &mut Option<String>,
+    title_prompt: &mut Option<String>,
+    text: &str,
+) {
+    if crate::probe_prompt::is_probe(text) {
+        return;
+    }
+    if source.as_deref() == Some(PROMPT)
+        && title.as_deref().is_some_and(crate::probe_prompt::is_probe)
+    {
+        *title = None;
+    }
     let gist = prompt_gist(text);
-    if m.title.is_some() || gist.line.is_empty() {
+    if title.is_some() || gist.line.is_empty() {
         return;
     }
-    m.title = Some(short_text(gist.line, 80));
+    *title = Some(short_text(gist.line, 80));
     // A chat the person named keeps the prompt line as its title, and asks no model for one.
-    if m.title_source.as_deref() == Some(NAMED) {
+    if source.as_deref() == Some(NAMED) {
         return;
     }
-    m.title_source = Some(PROMPT.to_owned());
-    m.title_prompt = Some(short_text(gist.body.trim(), 2000));
+    *source = Some(PROMPT.to_owned());
+    *title_prompt = Some(short_text(gist.body.trim(), 2000));
 }
 
 /// A rename of a chat no title has settled yet (by its prompt, or by a request that came back
@@ -445,6 +464,40 @@ mod tests {
         let (mut title, mut source) = (None, Some(NAMED.to_owned()));
         subsession_title_fields(&mut title, &mut source, Some(" "));
         assert_eq!((title, source), (None, None));
+    }
+
+    #[test]
+    fn a_probe_titles_no_chat_and_the_first_real_message_does() {
+        let (mut title, mut source, mut prompt) = (None, None, None);
+        fallback_title_fields(&mut title, &mut source, &mut prompt, "Reply with only: OK");
+        assert_eq!((title.as_deref(), source.as_deref()), (None, None), "a probe titles nothing");
+        fallback_title_fields(&mut title, &mut source, &mut prompt, "Fix the sidebar spinner");
+        assert_eq!(title.as_deref(), Some("Fix the sidebar spinner"));
+        assert_eq!(source.as_deref(), Some(PROMPT));
+        assert_eq!(
+            prompt.as_deref(),
+            Some("Fix the sidebar spinner"),
+            "the title request reads it"
+        );
+        fallback_title_fields(&mut title, &mut source, &mut prompt, "Now add a test");
+        assert_eq!(title.as_deref(), Some("Fix the sidebar spinner"), "a later message keeps it");
+    }
+
+    #[test]
+    fn a_chat_a_probe_titled_before_takes_the_first_real_message() {
+        let mut title = Some("Reply with only: OK".to_owned());
+        let mut source = Some(PROMPT.to_owned());
+        let mut prompt = None;
+        fallback_title_fields(&mut title, &mut source, &mut prompt, "Fix the sidebar spinner");
+        assert_eq!(title.as_deref(), Some("Fix the sidebar spinner"));
+        assert_eq!(prompt.as_deref(), Some("Fix the sidebar spinner"));
+        // A title the person or a model gave stays, even one that reads like a probe.
+        for kept in [NAMED, GENERATED, HARNESS] {
+            let mut title = Some("Reply with only: OK".to_owned());
+            let mut source = Some(kept.to_owned());
+            fallback_title_fields(&mut title, &mut source, &mut None, "Fix the sidebar spinner");
+            assert_eq!(title.as_deref(), Some("Reply with only: OK"), "{kept}");
+        }
     }
 
     #[test]

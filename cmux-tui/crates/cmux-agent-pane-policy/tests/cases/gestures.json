@@ -289,5 +289,37 @@
   },
   "denies": [],
   "needs": true
+ },
+ {
+  "name": "btw always",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/btw",
+   "params": {
+    "sessionId": "s",
+    "question": "why did it flake?"
+   }
+  },
+  "denies": [],
+  "needs": true
+ },
+ {
+  "name": "app_reply always",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/app_reply",
+   "params": {
+    "sessionId": "a",
+    "to": "b",
+    "replyTo": "msg_1",
+    "threadId": "msg_1",
+    "text": "Done.",
+    "replyId": "m-1"
+   }
+  },
+  "denies": [],
+  "needs": true
  }
 ]

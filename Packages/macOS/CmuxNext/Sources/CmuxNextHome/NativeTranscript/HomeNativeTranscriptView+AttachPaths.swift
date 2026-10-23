@@ -80,7 +80,11 @@ extension HomeNativeTranscriptView {
     /// The context menu's titles at the newest text bubble (the right-click's path).
     public func debugMenuTitles(mine: Bool) -> [String]? { transcript.debugMenuTitles(mine: mine) }
     /// The field's height and the gap under the newest receipt, in points.
-    public func debugGeometry() -> [String: Double] { transcript.debugGeometry() }
+    /// With the drop target's state: the draft's attachment count, drops on their way, the highlight (1 shown).
+    public func debugGeometry() -> [String: Double] {
+        transcript.debugGeometry().merging(["draftAttachments": Double(transcript.draftAttachments.count), "dropPending": Double(drop.pending),
+                                            "dropHighlighted": drop.highlight.isShowing ? 1 : 0]) { $1 }
+    }
     /// Clicks the first shown link whose URL starts with `prefix` (the click's path); its URL.
     public func debugClickLink(prefix: String) -> String? { transcript.debugClickLink(prefix: prefix) }
     /// Moves the transcript by `dx`, `dy` points in this view (a pane on a fraction of a point).

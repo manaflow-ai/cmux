@@ -6,6 +6,10 @@ import CmuxNextDesign
 @MainActor
 final class HomeChiefAvatarButton: NSButton {
     private let size: CGFloat
+    /// An emoji face's size against the disc: picture-sized, as the first-run hero draws it
+    /// (`HomeFirstRunHero`, 56 on 72). Leo's screenshot (2026-10-20) had a small 🫡 on a large
+    /// grey disc beside the header's full-size one.
+    static let emojiScale: CGFloat = 0.78
 
     init(size: CGFloat) {
         self.size = size
@@ -31,12 +35,20 @@ final class HomeChiefAvatarButton: NSButton {
         addCursorRect(bounds, cursor: .pointingHand)
     }
 
-    /// The picture fills the disc; text (an emoji, initials) sits centered on the theme's fill.
+    /// The picture fills the disc; letters sit centered on the theme's fill, and an emoji (or any
+    /// other face that is not letters or digits) fills the disc itself, with no fill behind it.
     func show(picture: NSImage?, text: String?) {
         image = picture
         imagePosition = picture == nil ? .noImage : .imageOnly
         title = picture == nil ? (text ?? "") : ""
+        font = showsEmoji ? Typography.system(size: size * Self.emojiScale, weight: .regular)
+            : Typography.system(size: TypeScale.heading, weight: TypeScale.emphasis)
         applyTheme()
+    }
+
+    /// Text that is not a monogram (an emoji, a flag, a symbol) and so draws picture-sized.
+    var showsEmoji: Bool {
+        image == nil && !title.isEmpty && !title.allSatisfy { $0.isLetter || $0.isNumber }
     }
 
     override func viewDidMoveToWindow() {
@@ -51,7 +63,7 @@ final class HomeChiefAvatarButton: NSButton {
 
     private func applyTheme() {
         performWithTheme {
-            layer?.backgroundColor = image == nil ? Palette.hoverFill.cgColor : nil
+            layer?.backgroundColor = image == nil && !showsEmoji ? Palette.hoverFill.cgColor : nil
             contentTintColor = Palette.textPrimary
         }
     }
@@ -59,9 +71,12 @@ final class HomeChiefAvatarButton: NSButton {
 
 /// A borderless text button drawn as a plain link: the theme's accent (or
 /// `ink`), underlined while hovered. Show Traces, Show Memory, Diagnostics.
+/// The accent is ``Palette/litGlyph``, never the raw `accent`: a theme that
+/// names no accent draws `accent` (its focus ring) at 40% of the text, and
+/// Show Traces and Show Memory read as dim grey (Leo's screenshot, 2026-10-20).
 @MainActor
 final class HomeChiefLinkButton: NSButton {
-    /// Nil draws the theme's accent.
+    /// Nil draws the theme's accent, lifted to read at least as well as secondary text.
     var ink: ThemeInk? { didSet { applyTitle() } }
     var textFont: NSFont = Typography.caption { didSet { applyTitle() } }
     private var text = ""
@@ -115,7 +130,7 @@ final class HomeChiefLinkButton: NSButton {
             case .secondary?: Palette.textSecondary
             case .tertiary?: Palette.textTertiary
             case .danger?: Palette.danger
-            case nil: Palette.accent
+            case nil: Palette.litGlyph
             }
         }
         var attributes: [NSAttributedString.Key: Any] = [.font: textFont, .foregroundColor: color]

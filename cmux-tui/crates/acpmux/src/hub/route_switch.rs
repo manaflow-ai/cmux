@@ -9,6 +9,23 @@ use super::*;
 use crate::{route_account, routes};
 
 impl Hub {
+    /// A new chat's named route exists and serves its harness family.
+    pub(super) async fn check_new_route(
+        &self,
+        route_id: &str,
+        family: &str,
+    ) -> Result<(), RpcError> {
+        let (dir, _) = crate::routes::places(&*self.config.read().await);
+        let found = crate::routes::find(dir.as_deref(), route_id)
+            .map_err(|e| RpcError::invalid_params(format!("route {route_id}: {}", e.message())))?;
+        if !found.serves(family) {
+            return Err(RpcError::invalid_params(format!(
+                "route {route_id} does not serve the {family} harness"
+            )));
+        }
+        Ok(())
+    }
+
     /// The route env of a spawn, applied over `env`: the session's chat
     /// binding, else its workspace's, family's or the global one. No
     /// binding: `env` is unchanged. A binding to a route that is gone or
@@ -244,6 +261,35 @@ impl Hub {
             }
         }
         out
+    }
+}
+
+impl Hub {
+    /// An adopted agent whose host (an older build) recorded no caller token
+    /// cannot prove its session, so its sub-session tools are refused. It
+    /// restarts as `acpmux session restart` asks, in the same conversation
+    /// and keeping its sub-sessions, once it is between turns: a recovered
+    /// turn ends its process when it ends (`hosts.rs`), a later turn moves it
+    /// before the next one (`turns.rs`), and an idle agent ends now and starts
+    /// again at its next prompt. Never during a turn or an open permission
+    /// prompt.
+    pub(super) fn restart_unproven(self: &Arc<Self>, session: &Arc<Session>, proven: bool) {
+        if proven {
+            return;
+        }
+        tracing::info!(session = %session.id, "adopted agent has no caller token this daemon knows (an older host build): restarting it between turns for its sub-session tools");
+        session.route_switch.store(true, Ordering::SeqCst);
+        let hub = self.clone();
+        let session = session.clone();
+        tokio::spawn(async move {
+            let _turn = session.turn_lock.lock().await;
+            if session.turn().is_none()
+                && session.pending_permissions().is_empty()
+                && session.route_switch.swap(false, Ordering::SeqCst)
+            {
+                hub.detach_child(&session).await;
+            }
+        });
     }
 }
 

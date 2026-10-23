@@ -50,6 +50,33 @@ test(=cmux_next_daemon_idle_has_no_periodic_wakeups)
 '''
 priority = 50
 
+# Wall-clock budget tests: the subject of each one is a latency (a ready time,
+# a hold time, an adoption time). In a full workspace run every CPU is busy
+# beside it and it fails, but it passes alone (2026-10-21 full runs: startup
+# 160 ms of a 100 ms budget, a hung login shell 6.0 s of 6 s, an adoption 5.4
+# s of 4 s; terminal #8 created in 1.05 s of 1 s, 100 closes in 10.4 s of 10
+# s, a restart with 60 terminals answering in 5.3 s). The terminal tests wait
+# on F_FULLFSYNC, which macOS runs one at a time for the whole device, so
+# every other test daemon's commits queue in front of theirs. They run in the
+# timing-alone group and take every test thread, so no other test runs beside
+# them; their budgets do not change. Add a test
+# only when its subject is latency; a test that fails under load for another
+# reason (a shared resource, a race) gets that cause fixed instead.
+[test-groups]
+timing-alone = { max-threads = 1 }
+
+[[profile.default.overrides]]
+filter = '''
+(binary_id(acpmux::startup_load) & test(=a_restart_over_long_chats_loads_within_budget_and_keeps_queues_and_tails))
+| (binary_id(acpmux::claude_auth_env) & test(=a_hung_login_shell_holds_agents_at_most_three_seconds))
+| (binary_id(acpmux::durable_agents) & test(=a_claude_host_with_a_long_backlog_is_adopted_at_once_and_still_moves_its_work))
+| (binary_id(cmux-tui::terminal_host_recovery) & test(=close_path::kitty_create::terminals_created_across_kitty_budget_buckets_start_fast_with_kitty_enabled))
+| (binary_id(cmux-tui::terminal_host_recovery) & test(=close_path::closing_one_hundred_terminals_updates_the_tree_at_once_and_ends_every_host))
+| (binary_id(cmux-tui::terminal_host_recovery) & test(=restart_with_many_live_terminals_answers_within_budget))
+'''
+test-group = 'timing-alone'
+threads-required = 'num-test-threads'
+
 # The lifecycle latency test (perf-10x lifecycle) prints its LIFECYCLE lines
 # on stderr; a fleet step shows them only when a passing test's output is kept.
 [[profile.ci.overrides]]

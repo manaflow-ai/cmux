@@ -6971,6 +6971,18 @@ fn encodeLayoutNode(
                     try flag.put("mode", .{ .string = @tagName(dock.mode) });
                     try encoded.put("dock", .{ .object = flag });
                 }
+                if (column.rows) |rows| {
+                    var encoded_rows = std.json.Array.init(allocator);
+                    for (rows) |row| {
+                        var item = raw.wire.Object.init(allocator);
+                        if (row.row_id) |row_id| {
+                            try item.put("row_id", .{ .string = try allocator.dupe(u8, row_id.slice()) });
+                        }
+                        try item.put("height", .{ .integer = row.height });
+                        try encoded_rows.append(.{ .object = item });
+                    }
+                    try encoded.put("rows", .{ .array = encoded_rows });
+                }
                 try columns.append(.{ .object = encoded });
             }
             try object.put("columns", .{ .array = columns });
@@ -7444,12 +7456,25 @@ pub const LayoutColumnDock = struct {
     mode: LayoutColumnMode,
 };
 
+/// One row of a column (`rows-v1`): its stable id and its height in
+/// permille of the column's viewport height (100 to 1000). Only row 1 may
+/// omit `row_id`, in a document sent to `applyLayout`.
+pub const LayoutRow = struct {
+    row_id: ?SplitId = null,
+    height: u16,
+};
+
 pub const LayoutColumn = struct {
     column_id: SplitId,
     width: f64,
     root: *const LayoutNode,
     /// The column's dock flag (`dock-columns-v1`); null while it scrolls.
     dock: ?LayoutColumnDock = null,
+    /// The column's rows top to bottom (`rows-v1`); null for a column with
+    /// one row. Row 2..n's `row_id` is its compat chain split in `root`. In
+    /// `applyLayout` null keeps the stored rows and an empty slice leaves
+    /// one row.
+    rows: ?[]const LayoutRow = null,
 };
 
 pub const LayoutViewport = struct {
@@ -8588,7 +8613,7 @@ fn decodeLayoutNode(
             const column = try detailObject(raw_column);
             try ensureOnlyFields(
                 column,
-                &.{ "column_id", "width", "root", "dock", "sticky" },
+                &.{ "column_id", "width", "root", "dock", "sticky", "rows" },
             );
             const width = try floatValue(
                 column.get("width") orelse return error.MissingField,
@@ -8611,6 +8636,7 @@ fn decodeLayoutNode(
                 // `sticky` is the pre-R87 name of `dock`: a replayed or
                 // older result still decodes; `dock` wins.
                 .dock = try decodeLayoutColumnDock(column.get("dock") orelse column.get("sticky")),
+                .rows = try decodeLayoutRows(allocator, column.get("rows")),
             };
         }
         node.* = .{ .viewport = .{
@@ -8624,6 +8650,33 @@ fn decodeLayoutNode(
         .raw_object = value,
     } };
     return node;
+}
+
+/// A column's rows (`rows-v1`); an omitted field is null.
+fn decodeLayoutRows(
+    allocator: std.mem.Allocator,
+    value: ?raw.wire.Value,
+) !?[]const LayoutRow {
+    const present = value orelse return null;
+    const items = switch (present) {
+        .array => |array| array.items,
+        else => return error.ExpectedArray,
+    };
+    const rows = try allocator.alloc(LayoutRow, items.len);
+    for (items, 0..) |item, index| {
+        const row = try detailObject(item);
+        try ensureOnlyFields(row, &.{ "row_id", "height" });
+        const height = try objectUnsigned(u16, row, "height", 100);
+        if (height > 1000) return error.IntegerOutOfRange;
+        rows[index] = .{
+            .row_id = if (row.get("row_id") != null)
+                try parseRequiredId(SplitId, row, "row_id")
+            else
+                null,
+            .height = height,
+        };
+    }
+    return rows;
 }
 
 /// An omitted or null flag is null (the column scrolls).

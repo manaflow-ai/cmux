@@ -603,14 +603,15 @@ async fn a_chat_with_no_asking_mode_moves_under_peer_control_but_not_under_web()
         assert_eq!(q["control"], "peer", "{q}");
         assert_ne!(q["trustGate"], true, "{q}");
     }
-    let send_now = json!({"sessionId": id, "promptId": "p-a", "op": "send_now"});
-    dst.request("_acpmux/queue_edit", send_now).await.unwrap();
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
-    while !texts(&mut dst, &id, "user_message").await.contains(&"a".to_owned()) {
-        assert!(tokio::time::Instant::now() < deadline, "the held prompt never ran");
-        tokio::time::sleep(Duration::from_millis(100)).await;
+    // Its agent may not start under peer control (its family has no asking mode, 307889914b9):
+    // each held prompt ends refused and names why, never left waiting with no word.
+    for prompt_id in ["p-a", "p-b"] {
+        let refused =
+            wait_record(&mut dst, &id, "prompt_refused", |m| m["promptId"] == prompt_id).await;
+        assert_eq!(refused["data"]["reason"], "remote.mode_not_asking", "{refused}");
+        assert!(refused["error"].as_str().is_some_and(|e| e.contains("asking mode")), "{refused}");
     }
-    assert!(records(&mut dst, &id, "prompt_refused").await.is_empty());
+    assert!(!texts(&mut dst, &id, "user_message").await.contains(&"a".to_owned()));
 
     // The same kind of chat in a family the Web drives is refused for its mode and policy.
     let modes = json!({"currentModeId": "strict", "availableModes": []});

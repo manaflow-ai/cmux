@@ -1,6 +1,7 @@
 //! A user-admitted native update job on this owner. App execution scopes
 //! remain unsupported: an actor JSON field is never execution authority.
 
+use crate::panic_free::JsonFields;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -165,18 +166,19 @@ fn prepare(socket: &Path, cli: &str) -> anyhow::Result<Vec<String>> {
         .call("_acpmux/harness/update/prepare", json!({"cli":cli}), TIMEOUT)
         .map_err(|_| Failure::Refused)?;
     let fields = plan.as_object().ok_or(Failure::InvalidResponse)?;
-    if fields.len() != 2 || plan["cli"] != cli {
+    if fields.len() != 2 || plan.field("cli") != cli {
         return Err(Failure::InvalidResponse.into());
     }
-    let argv = plan["argv"]
+    let argv = plan
+        .field("argv")
         .as_array()
         .ok_or(Failure::InvalidResponse)?
         .iter()
         .map(|v| v.as_str().map(str::to_owned))
         .collect::<Option<Vec<_>>>()
         .ok_or(Failure::InvalidResponse)?;
-    if !(2..=6).contains(&argv.len())
-        || !Path::new(&argv[0]).is_absolute()
+    if !(2..=9).contains(&argv.len())
+        || !argv.first().is_some_and(|program| Path::new(program).is_absolute())
         || argv.iter().any(|v| v.contains('\0'))
         || argv.iter().map(String::len).sum::<usize>() > 16 * 1024
     {

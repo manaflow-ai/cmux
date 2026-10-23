@@ -58,8 +58,14 @@ final class HomeProjection: @preconcurrency ChatIntents {
     var onPickAttachments: () -> Void = {}
     /// A paste or a drop; true when taken.
     var onAttachmentPasteboard: (NSPasteboard) -> Bool = { _ in false }
-    /// While dragging, types only.
+    /// Whether a paste would be taken, types only.
     var acceptsAttachmentDrag: (NSPasteboard) -> Bool = { _ in false }
+    /// A drop on the field; true when taken. Nil takes it as a paste.
+    var onAttachmentDrop: ((NSPasteboard) -> Bool)?
+    /// While dragging over the field, types only. Nil answers as for a paste.
+    var acceptsAttachmentDrop: ((NSPasteboard) -> Bool)?
+    /// The field became or stopped being the target of a drag the host takes.
+    var onAttachmentDropTarget: (Bool) -> Void = { _ in }
     /// The store refused a send's attachment before logging it; the draft is back.
     var onAttachmentRefusal: (HomeAttachmentError) -> Void = { _ in }
     /// The field's text changed.
@@ -75,6 +81,13 @@ final class HomeProjection: @preconcurrency ChatIntents {
     /// Prepared attachments in the field by content hash (the chips are
     /// MessagesLab's draft; a removed chip's entry is ignored).
     private var drafts: [String: LocalAttachment] = [:]
+    /// The last launch's attachments are going back in the field: each one
+    /// is not written back on its own, the whole field is once they are in.
+    private var restoringDraftAttachments = false
+    /// Return was pressed while they were still going back: the send goes once the last one is
+    /// in, in the thread it was held for (nil: the open view), so none is left out of it.
+    private var sendWhenRestored = false
+    private var restoredSendThread: (root: MessageID?, parent: MessageID?)?
 
     /// What the projection shows, as HomeStore said it (shared with the harness).
     private(set) var core: ProjectionCore
@@ -130,7 +143,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
         liveLine.onTick = { [weak self] in self?.turnPopover?.refresh() }
         liveLine.onClose = { [weak self] in self?.turnPopover?.close() }
         video.controller = controller
-        media.onReady = { [weak self] _ in self?.refreshAttachments() }
+        // A finished picture redraws only the rows that show it (not every attachment row shown).
+        media.onReady = { [weak self] hash in self?.refreshAttachments(only: hash) }
     }
 
     func start() {
@@ -178,6 +192,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         guard let store = controller.store else {
             install(items: items, summary: summary, typing: typing, hasOlder: newHasOlder)
             restoreDraft()
+            restoreDraftAttachments()
             // Replies already running when the view opens show as their streams at once.
             if let store = controller.store { for a in core.streams(streams, state: store.state) { controller.dispatch(a) } }
             return
@@ -311,6 +326,16 @@ final class HomeProjection: @preconcurrency ChatIntents {
     /// A chosen avatar picture (the Home Chief's), over the initials.
     var pictureOverride: NSImage? { didSet { controller.host.paneHeader.picture = pictureOverride } }
 
+    /// Chosen sender avatars by participant id (each Chief's, as Home's row draws it), beside a
+    /// group's bubbles over the initials; a new value redraws those bubbles.
+    var senderAvatars: [String: Participant.Avatar] {
+        get { core.avatars }
+        set {
+            guard !stopped, let action = core.setAvatars(newValue) else { return }
+            controller.dispatch(action)
+        }
+    }
+
     private func applyHeader() {
         controller.host.paneHeader.title = HomeMapping.title(shownSummary, me: me)
         controller.host.paneHeader.initials = initialsOverride ?? HomeMapping.initials(shownSummary, me: me)
@@ -335,6 +360,11 @@ final class HomeProjection: @preconcurrency ChatIntents {
     /// `deferred`: the thread (root, parent) a held send was made in (`refresh`); nil reads the open view.
     private func send(thread deferred: (root: MessageID?, parent: MessageID?)?) -> String? {
         guard let store = controller.store else { return noteSend("refused: transcript_not_ready") }
+        if restoringDraftAttachments {
+            sendWhenRestored = true
+            restoredSendThread = deferred
+            return noteSend("waiting_for_attachments: sends once the last launch's attachments are back in the field")
+        }
         // A stream update held for the next frame (HomeStreamPacer) shows first: the send lands after the reply's newest text.
         if !stopped { streamPacer.flush { refresh() } }
         let draft = store.state.ui.draft
@@ -369,9 +399,19 @@ final class HomeProjection: @preconcurrency ChatIntents {
         }
         sendNotice = nil
         let key = IdempotencyKey.make()
-        // Reply to Selection: the quote goes out as a Markdown blockquote above the reply
-        // (ReplyQuote.quoted); the local bubble shows it as HomeMapping shows the stored reply.
-        let text = controller.quotedForSend(typed)
+        // The text and the attachments in the field's order (Draft.pieces). Reply to Selection: the
+        // quote goes out as a Markdown blockquote above the reply (ReplyQuote.quoted), in the first
+        // text; the local bubble shows it as HomeMapping shows the stored reply.
+        var pieces: [HomeSendPiece] = draft.pieces.compactMap { piece in
+            switch piece {
+            case let .text(t): .text(t)
+            case let .attachment(a): drafts[a.id].map { .file($0) }
+            }
+        }
+        if controller.replyQuote != nil {
+            if case let .text(t)? = pieces.first { pieces[0] = .text(controller.quotedForSend(t)) } else { pieces.insert(.text(controller.quotedForSend("")), at: 0) }
+        }
+        let text = HomeSendPiece.text(of: pieces)
         let shownDraft = controller.shownDraftForSend(draft.text)
         controller.replyQuote = nil
         linkPreviews?.allowSend(text)
@@ -394,14 +434,21 @@ final class HomeProjection: @preconcurrency ChatIntents {
             controller.dispatch(.setDraft(""))
         }
         homeStore.setDraft("", for: conversation)
+        homeStore.setDraftAttachments([], for: conversation)
         for a in attachments {
             media.useLocal(a.files, for: a.ref.hash)
             drafts[a.ref.hash] = nil
         }
         let homeStore = self.homeStore, conversation = self.conversation
-        // Messages' link rule: URL-only lines are cards whose previews this Mac attaches.
-        let shown = TextParts.parts(for: text)
-        let links = HomeLinkSend.hasLinks(shown)
+        let plain = pieces.map(\.part)
+        // Messages' link rule: URL-only lines are cards whose previews this Mac attaches. Each text's
+        // MessagesLab parts when it has a card (nil: it goes as it is).
+        let shown: [[Part]?] = pieces.map { piece in
+            guard case let .text(t) = piece else { return nil }
+            let parts = TextParts.parts(for: t)
+            return HomeLinkSend.hasLinks(parts) ? parts : nil
+        }
+        let links = shown.contains { $0 != nil }
             ? HomeLinkSend(previews: linkPreviews, store: homeStore, conversation: conversation) : nil
         // task-owner: one send; ends with the owner's answer
         Task { [weak self] in
@@ -409,17 +456,21 @@ final class HomeProjection: @preconcurrency ChatIntents {
                 if let links {
                     // Logged at once as the plain text (a quit or a later send cannot lose or pass it);
                     // the previews fill it before it goes, as the local message flies with the grey card.
-                    let files: [MessagePart] = attachments.map { .attachment($0.ref) }
-                    let plain = files + [.text(text)]
                     try await homeStore.send(conversation: conversation, parts: plain, uploads: attachments, key: key,
                                              threadRoot: threadRoot, parent: parent) {
-                        guard let filled = await links.parts(shown) else { return (plain, []) }
-                        return (files + filled.parts, filled.uploads)
+                        var parts: [MessagePart] = [], uploads: [LocalAttachment] = []
+                        for (piece, cards) in zip(pieces, shown) {
+                            guard let cards else { parts.append(piece.part); continue }
+                            guard let filled = await links.parts(cards) else { return (plain, []) }
+                            parts += filled.parts
+                            uploads += filled.uploads.filter { u in !uploads.contains { $0.ref.hash == u.ref.hash } }
+                        }
+                        return (parts, uploads)
                     }
                 } else if attachments.isEmpty {
-                    _ = try await homeStore.perform(.sendMessage(conversation: conversation, parts: [.text(text)], threadRoot: threadRoot, parent: parent), key: key)
+                    _ = try await homeStore.perform(.sendMessage(conversation: conversation, parts: plain, threadRoot: threadRoot, parent: parent), key: key)
                 } else {
-                    try await homeStore.send(conversation: conversation, text: text, attachments: attachments, key: key, threadRoot: threadRoot, parent: parent)
+                    try await homeStore.send(conversation: conversation, parts: plain, uploads: attachments, key: key, threadRoot: threadRoot, parent: parent)
                 }
             } catch let refusal as HomeAttachmentError {
                 self?.sendRefused(key, text: text, attachments: attachments, notice: refusal)
@@ -473,6 +524,38 @@ final class HomeProjection: @preconcurrency ChatIntents {
         // In the field's text at the caret (Draft+InlineMarks.swift); at the end when the field
         // does not show this draft's text yet.
         controller.dispatch(.attachAt(HomeMapping.attachment(attachment.ref, picture: media.asset(hash), progress: nil), controller.composeCaret()))
+        saveDraftAttachments()
+    }
+
+    /// The field's attachments into HomeStore's cache, beside its text: they come back after a relaunch.
+    private func saveDraftAttachments() {
+        guard !stopped, !restoringDraftAttachments else { return }
+        homeStore.setDraftAttachments(draftAttachments, for: conversation)
+    }
+
+    /// The field's attachments from the last launch (HomeStore's cache), once, into a field
+    /// without any, after its text.
+    private func restoreDraftAttachments() {
+        guard let store = controller.store, store.state.ui.draft.attachments.isEmpty else { return }
+        let kept = homeStore.draftAttachments(for: conversation)
+        guard !kept.isEmpty else { return }
+        restoringDraftAttachments = true
+        // task-owner: one restore; ends when the last chip is in the field, or when the view stops
+        // (the cache still holds the draft, and a held send stays unsent with it)
+        Task { [weak self] in
+            for attachment in kept {
+                guard let self, !self.stopped else { return }
+                await self.media.prepare(attachment)
+                self.restoreDraft(attachment)
+            }
+            guard let self, !self.stopped else { return }
+            self.restoringDraftAttachments = false
+            self.saveDraftAttachments()
+            guard self.sendWhenRestored else { return }
+            self.sendWhenRestored = false
+            _ = self.send(thread: self.restoredSendThread)
+            self.restoredSendThread = nil
+        }
     }
 
     /// The field's attachments, in order.
@@ -483,15 +566,17 @@ final class HomeProjection: @preconcurrency ChatIntents {
     func removeDraft(_ hash: String) {
         drafts[hash] = nil
         controller.dispatch(.removeDraftAttachment(hash))
+        saveDraftAttachments()
     }
 
     /// Each shown attachment part gets its picture and upload state:
     /// HomeStore's progress and HomeMedia's pictures change no transcript
     /// content, so they reach MessagesLab's message without a transition
     /// (`.cmuxSetAttachment`, the row redraws in place).
-    func refreshAttachments() {
+    /// `only`: just the items that show this hash (its picture became ready).
+    func refreshAttachments(only hash: String? = nil) {
         guard !stopped, let store = controller.store else { return }
-        for item in shown where !item.isRetracted && !item.attachmentHashes.isEmpty {
+        for item in shown where !item.isRetracted && !item.attachmentHashes.isEmpty && (hash.map(item.attachmentHashes.contains) ?? true) {
             for (hash, files) in item.localAttachments { media.useLocal(files, for: hash) }
             let id = HomeMapping.id(item, aliases: aliases)
             guard let message = store.state.message(id) else { continue }
@@ -572,6 +657,9 @@ final class HomeProjection: @preconcurrency ChatIntents {
     func pickAttachments() { onPickAttachments() }
     func takeAttachments(from pasteboard: NSPasteboard) -> Bool { onAttachmentPasteboard(pasteboard) }
     func acceptsAttachments(from pasteboard: NSPasteboard) -> Bool { acceptsAttachmentDrag(pasteboard) }
+    func takeDroppedAttachments(from pasteboard: NSPasteboard) -> Bool { (onAttachmentDrop ?? onAttachmentPasteboard)(pasteboard) }
+    func acceptsDroppedAttachments(from pasteboard: NSPasteboard) -> Bool { (acceptsAttachmentDrop ?? acceptsAttachmentDrag)(pasteboard) }
+    func attachmentDropTargeted(_ targeted: Bool) { onAttachmentDropTarget(targeted) }
     func statusLineClicked(_ rect: CGRect, in view: NSView) {
         let popover = turnPopover ?? {
             let made = HomeTurnStatusPopover { [weak self] in self?.liveLine.details() }
@@ -592,6 +680,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         if sendNotice == CmuxStrings.threadRootNotReady { sendNotice = nil }  // the user moved on
         let text = controller.store?.state.ui.draft.plainText ?? ""  // without the attachment marks
         homeStore.setDraft(text, for: conversation)
+        saveDraftAttachments()  // Delete or a cut can take a chip with the text
         // My typing dots for the other members (HomeStore+Typing); off once the field is empty.
         homeStore.composing(text, in: conversation)
         onDraftTextChange()
@@ -760,6 +849,9 @@ struct ProjectionCore {
     var media: HomeMapping.Media = { _ in nil }
     /// Link previews already fetched (`LinkPreviews.cached`); none in the harness.
     var links: HomeMapping.Links = { _ in nil }
+    /// Chosen sender avatars by participant id (`setAvatars`).
+    private(set) var avatars: [String: Participant.Avatar] = [:]
+    private var installed = false
     /// The running replies on screen, in begin order (`streams(_:state:)`, MessagesLab ask 11).
     var shownStreams: [ShownStream] = []
     /// Whole messages (default) or the growing stream bubbles (`HomeReplyDisplay`).
@@ -775,12 +867,22 @@ struct ProjectionCore {
         shown = items
         shownStreams = [] // a new projection store has no stream: the next update begins them again
         self.summary = summary
+        installed = true
         let roots = HomeMapping.roots(in: items, aliases: aliases, summary: summary, media: media, links: links)
         let conv = Conversation(id: id.rawValue, title: HomeMapping.title(summary, me: me),
-                                participants: HomeMapping.participants(summary, me: me),
+                                participants: HomeMapping.participants(summary, me: me, avatars: avatars),
                                 messages: items.map { HomeMapping.message($0, aliases: aliases, me: me, summary: summary, media: media, links: links, roots: roots) },
                                 cmuxGroup: summary?.kind(me: me) == .group)
         return (conv, HomeMapping.window(items))
+    }
+
+    /// New chosen avatars by participant id (the host's Chief avatars, again after a swap): the
+    /// action that redraws the senders with them; nil when they are the ones shown, or before the
+    /// install (which maps them).
+    mutating func setAvatars(_ new: [String: Participant.Avatar]) -> Action? {
+        guard new != avatars else { return nil }
+        avatars = new
+        return installed ? .cmuxSetParticipants(HomeMapping.participants(summary, me: me, avatars: new)) : nil
     }
 
     /// The actions from the shown snapshot to this one.

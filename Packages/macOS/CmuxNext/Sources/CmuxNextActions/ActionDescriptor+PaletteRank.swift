@@ -270,6 +270,7 @@ extension ActionDescriptor {
                           "palette.forkAgentConversationRight", "palette.forkAgentConversationLeft",
                           "palette.forkAgentConversationTop", "palette.forkAgentConversationBottom",
                           "palette.forkAgentConversationNewTab", "palette.forkAgentConversationNewWorkspace",
+                          "palette.forkAgentConversationNewWindow",
                       ]),
         PaletteFamily("sidebarSection", title: familyTitle("palette.family.sidebarSection", "Sidebar Section: Layout…"),
                       symbol: "sidebar.left", members: [
@@ -277,7 +278,7 @@ extension ActionDescriptor {
                           "sidebar.section.setAlignment", "sidebar.section.setColumns", "sidebar.section.setGap",
                           "sidebar.section.setMaxRows", "sidebar.section.useBuiltInLook", "sidebar.section.useListLook",
                           "sidebar.section.toggleTitle", "sidebar.section.toggleSpaceScope", "sidebar.section.moveToTop",
-                          "sidebar.section.moveToBottom", "sidebar.section.moveToScrolling",
+                          "sidebar.section.moveToScrolling",
                       ]),
         // Families whose parent action already opens the choices.
         PaletteFamily("space.color", parent: "space.setColor", members: colors("space.color")),

@@ -59,7 +59,7 @@ jobs:
   web-typecheck:
     needs: web-subarea-scope
     if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.typecheck == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || 'blacksmith-16vcpu-ubuntu-2404' }}
     # Matches the 10-minute siblings in this workflow.
     timeout-minutes: 10
     defaults:
@@ -110,7 +110,7 @@ jobs:
   web-production-build:
     needs: web-subarea-scope
     if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.production_build == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || 'blacksmith-32vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     defaults:
       run:
@@ -155,7 +155,7 @@ jobs:
       fail-fast: false
       matrix:
         shard: ["1/4", "2/4", "3/4", "4/4"]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || 'blacksmith-16vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     defaults:
       run:
@@ -207,7 +207,7 @@ jobs:
   web-instant-navigation:
     needs: web-subarea-scope
     if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.instant == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || 'blacksmith-16vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     defaults:
       run:
@@ -237,6 +237,11 @@ jobs:
         with:
           path: ~/.cache/ms-playwright
           key: playwright-chromium-${{ runner.os }}-${{ hashFiles('web/bun.lock') }}
+
+      - name: Cache Playwright's apt packages
+        uses: ./.github/actions/playwright-apt-cache
+        with:
+          engines: chromium
 
       - name: Install browser for instant navigation tests
         run: bunx playwright install --with-deps chromium
@@ -319,21 +324,25 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: "24.11.1"
+          node-version: "24.22.1"
 
       # The web bundles are build output (cx-vn5): this builds them into the
       # gitignored resource paths that the budget, React Compiler and webviews
       # tests below read. Typecheck runs once in the dedicated step below.
+      # Every step from here to the tests records its outcome and keeps going;
+      # the last step fails the job on any of them. One red never hides another:
+      # #23763 (2026-10-21) merged its own TS2339 because a base red in the bundle
+      # build skipped the type check and the tests after it.
       - name: Verify webviews source checks
+        id: source-build
+        continue-on-error: true
         run: ./scripts/build-webviews-app.sh --check --skip-typecheck
 
       - name: Build the web bundles
+        id: bundles
+        continue-on-error: true
         run: ./scripts/cmux-next/build-web-bundles.sh --force
 
-      # The checks below are gates, not builds: each records its outcome and the
-      # last step fails the job on any of them, so a lint, format, budget or
-      # compiler miss does not hide the webview test results. A failed bundle
-      # build or engine install still stops everything after it.
       # ci-guards runs this on main; feat-cmux-next PRs skip ci-guards.
       # The checks from here to the engines do not depend on the shard, so
       # they run once, on shard 1: one red check, not one per shard.
@@ -342,6 +351,13 @@ jobs:
         if: matrix.shard == 1
         continue-on-error: true
         run: python3 tests/test_install_git_hooks.py
+
+      # Runs after the webviews install, so the real-vp case runs too.
+      - name: Post-edit formatting hook
+        id: post-edit-format
+        if: matrix.shard == 1
+        continue-on-error: true
+        run: python3 tests/test_format_post_edit.py
 
       - name: Check diff viewer eager JS budget
         id: eager-js-budget
@@ -357,9 +373,11 @@ jobs:
 
       # For feat-cmux-next (CMUX_NEXT_STYLE_GUARDS=warn, Leo 2026-10-19) the lint, format,
       # layer, type-scale, glyph, system-blue, text-focus, dialog-key and switch-fetch checks each
-      # run and only warn; the type check, the browser test-lane check and the
-      # protocol codegen check still fail.
-      # Elsewhere `bun run check` gates as before.
+      # run and only warn. The type check, the browser test-lane check, the protocol codegen
+      # check and the string catalog key check fail, through fast_gate_webviews_checks.py: each
+      # runs on its own, and on a pull request only errors the base (the merge parent) lacks
+      # fail, per error (file, code, message); the base's errors are warnings. A push charges
+      # every red. Elsewhere every piece of `bun run check` runs and gates, none stopping the next.
       - name: Check webviews (Oxlint, Oxfmt, type check)
         id: webviews-check
         if: matrix.shard == 1
@@ -367,25 +385,37 @@ jobs:
         working-directory: webviews
         env:
           CMUX_NEXT_STYLE_GUARDS: ${{ (github.base_ref == 'feat-cmux-next' || github.ref == 'refs/heads/feat-cmux-next') && 'warn' || 'fail' }}
+          BASE_REF: ${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }}
         run: |
-          if [ "$CMUX_NEXT_STYLE_GUARDS" != warn ]; then
-            exec bun run check
-          fi
           status=0
-          bun run check:browser-lanes || status=1
-          bun run typecheck || status=1
-          # The generated protocol must match the daemon's IR: a wire-format check, not style.
-          bun run acpmux-protocol:check || status=1
-          for check in check:layers check:type-scale check:status-glyphs check:system-blue check:text-focus check:dialog-keys check:switch-fetches; do
+          if [ "$CMUX_NEXT_STYLE_GUARDS" != warn ]; then
+            pieces="$(bun -e 'for (const p of require("./package.json").scripts.check.split("&&")) console.log(p.trim())')"
+            while IFS= read -r piece; do
+              PATH="$PWD/node_modules/.bin:$PATH" sh -c "$piece" || { echo "::error title=webviews check::$piece"; status=1; }
+            done <<< "$pieces"
+            exit "$status"
+          fi
+          python3 ../scripts/ci/fast_gate_webviews_checks.py --no-install --repo .. --base "$BASE_REF" || status=1
+          for check in check:design-tokens check:layers check:type-scale check:motion-scale check:status-glyphs check:system-blue check:text-focus check:dialog-keys check:switch-fetches; do
             bun run "$check" || echo "::warning title=webviews $check (warn-only)::see the step log"
           done
-          # Lint, format and types together; a type error already failed `typecheck` above.
-          ./node_modules/.bin/vp check || echo "::warning title=webviews lint and format (warn-only)::vp check found lint or format issues; see the step log"
+          # Format and lint apart: `vp check` stops at its first red, so a format red hid every lint finding.
+          ./node_modules/.bin/vp fmt --check || echo "::warning title=webviews format (warn-only)::vp fmt --check found unformatted files; see the step log"
+          ./node_modules/.bin/vp lint || echo "::warning title=webviews lint (warn-only)::vp lint found issues; see the step log"
           exit "$status"
 
       # The browser-lane suites (test/support/requireBrowserLane.ts) fail in CI
       # without these engines; before, they skipped themselves and passed.
+      - name: Cache Playwright's apt packages
+        id: playwright-apt
+        continue-on-error: true
+        uses: ./.github/actions/playwright-apt-cache
+        with:
+          engines: chromium-webkit
+
       - name: Install headless engines
+        id: engines
+        continue-on-error: true
         working-directory: webviews
         run: ./node_modules/.bin/playwright install --with-deps --only-shell chromium webkit
 
@@ -400,18 +430,28 @@ jobs:
       # ui-rules, gallery coverage, hairline rims, tooltip rules, theme colors and
       # system blue report through test/support/prScope.ts, which only warns
       # under CMUX_NEXT_STYLE_GUARDS=warn (feat-cmux-next).
+      # A pull request fails only on tests red on it and not on its base (the merge
+      # parent): the red files run again there, and the base's reds are warnings
+      # (scripts/ci/webviews-tests-new-reds.sh). A push keeps every red.
       - name: Test webviews
+        if: ${{ !cancelled() }}
         working-directory: webviews
         env:
           CMUX_NEXT_STYLE_GUARDS: ${{ (github.base_ref == 'feat-cmux-next' || github.ref == 'refs/heads/feat-cmux-next') && 'warn' || 'fail' }}
           CMUX_WEB_TEST_SHARD: ${{ matrix.shard }}
           CMUX_WEB_TEST_SHARD_COUNT: ${{ matrix.shard_count }}
-        run: ../scripts/ci/run-webviews-tests.sh
+          BASE_REF: ${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }}
+        run: ../scripts/ci/webviews-tests-new-reds.sh "$BASE_REF"
 
       - name: Fail on the gate checks
         if: ${{ !cancelled() }}
         env:
+          SOURCE_BUILD: ${{ steps.source-build.outcome }}
+          BUNDLES: ${{ steps.bundles.outcome }}
+          PLAYWRIGHT_APT: ${{ steps.playwright-apt.outcome }}
+          ENGINES: ${{ steps.engines.outcome }}
           MERGE_DRIVER: ${{ steps.merge-driver.outcome }}
+          POST_EDIT_FORMAT: ${{ steps.post-edit-format.outcome }}
           EAGER_JS_BUDGET: ${{ steps.eager-js-budget.outcome }}
           REACT_COMPILER: ${{ steps.react-compiler.outcome }}
           WEBVIEWS_CHECK: ${{ steps.webviews-check.outcome }}
@@ -423,7 +463,12 @@ jobs:
         run: |
           failed=0
           for gate in \
+            "SOURCE_BUILD|Verify webviews source checks" \
+            "BUNDLES|Build the web bundles" \
+            "PLAYWRIGHT_APT|Cache Playwright's apt packages" \
+            "ENGINES|Install headless engines" \
             "MERGE_DRIVER|Generated bundle merge driver" \
+            "POST_EDIT_FORMAT|Post-edit formatting hook" \
             "EAGER_JS_BUDGET|Check diff viewer eager JS budget" \
             "REACT_COMPILER|Verify React Compiler for webviews" \
             "WEBVIEWS_CHECK|Check webviews (Oxlint, Oxfmt, type check)" \
@@ -440,14 +485,23 @@ jobs:
           done
           exit "$failed"
 
+  # The runner capability map (.github/runners.json), for jobs that pick a
+  # size from it. Resolves in parallel with web-subarea-scope.
+  runners:
+    if: ${{ inputs.web == 'true' }}
+    uses: ./.github/workflows/resolve-runners.yml
+
   # React Doctor is independent of the per-file browser tests. Keep it on its
   # own required lane so the long-running shard 1 does not serialize this
   # diagnostic after the test suite.
   react-doctor:
-    needs: web-subarea-scope
+    needs: [web-subarea-scope, runners]
     if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 10
+    # React Doctor took 7.4-9.9 min on 4 vCPU and hit the 10 min timeout on
+    # 2026-10-20 (runs 39505208959, 39506071754), which failed
+    # react-apps-check. It takes the 16 vCPU size from the capability map.
+    runs-on: ${{ fromJSON(needs.runners.outputs.map).linux_16 }}
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: webviews
@@ -511,10 +565,10 @@ jobs:
           PY
 
   diff-sidecar-check:
-    # Generated protocol and streaming benchmarks only run for their owned inputs.
+    # Generated protocol checks and the sidecar tests only run for their owned inputs.
     needs: web-subarea-scope
     if: ${{ (inputs.macos == 'true' || inputs.web == 'true') && needs.web-subarea-scope.outputs.diff_sidecar == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || 'blacksmith-32vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     steps:
       - name: Checkout
@@ -558,10 +612,9 @@ jobs:
       - name: Verify generated protocol types
         run: ./scripts/generate-diff-sidecar-types.sh --check
 
-      - name: Enforce diff-viewer performance budgets
-        env:
-          CMUX_DIFF_WEB_BENCH_ITERATIONS: "10"
-        run: ./scripts/benchmark-diff-viewer.sh
+      # The diff-viewer performance budgets (scripts/benchmark-diff-viewer.sh) run in the perf cron
+      # (cmux-next-perf-budgets.yml), not here: no perf check on the push or pull request path (Lawrence
+      # 2026-10-23).
 
       # fmt and clippy are style for feat-cmux-next (Leo 2026-10-19): a warning there. The
       # sidecar tests above still compile and fail on their own.

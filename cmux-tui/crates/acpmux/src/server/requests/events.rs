@@ -13,7 +13,7 @@ pub(super) fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, R
     let after = params.get("afterSeq").and_then(Value::as_u64).unwrap_or(0);
     let before = params.get("beforeSeq").and_then(Value::as_u64);
     let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(5000) as usize;
-    let max_bytes = params.get("maxBytes").and_then(Value::as_u64).map(|b| b as usize);
+    let max_bytes = Some(crate::hub::page_bytes(params));
     let filter = crate::hub::EventFilter::parse(params.get("kinds"))?;
     let last = s.meta().last_seq;
     if after > last {
@@ -26,8 +26,14 @@ pub(super) fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, R
         .events_page(&s.id, after, before, limit, max_bytes, before.is_some(), &filter)
         .map_err(|e| RpcError::internal(e.to_string()))?;
     Ok(json!({
-        "events": page.events.iter().map(|r| event_value(&s.id, r)).collect::<Vec<_>>(),
+        "events": values(&s.id, page.events),
         "hasMore": page.has_more,
         "lastSeq": last,
     }))
+}
+
+/// A page's records as `_acpmux/event` values, each moved into its value: the page is never
+/// held twice.
+pub(super) fn values(session_id: &str, records: Vec<crate::store::EventRecord>) -> Vec<Value> {
+    records.into_iter().map(|r| into_event_value(session_id, r)).collect()
 }

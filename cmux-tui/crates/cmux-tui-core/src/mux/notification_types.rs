@@ -4,7 +4,7 @@
 
 use super::NotificationLevel;
 use crate::SurfaceId;
-use crate::resource::{NotificationPublicId, TerminalPublicId};
+use crate::resource::{NotificationPublicId, TerminalPublicId, WorkspacePublicId};
 
 /// Who posted a notification (`notification-source-v1`). Frontends apply
 /// per-source preferences from it instead of guessing.
@@ -66,6 +66,18 @@ pub const NOTIFICATION_REPLY_CAPABILITY: &str = "notification-reply-v1";
 
 #[derive(Debug, Clone)]
 pub struct NotificationEvent {
+    /// The ledger row's id (`list-notifications` `id`), so a client joins this event's
+    /// memory-only texts to the durable row. None for a notification with no row.
+    pub id: Option<String>,
+    /// An agent's whole last message (markdown, up to `LIVE_MESSAGE_CHARS`), or the error text
+    /// of a failed turn, memory only, for the phone's Feed (`preview` is the banner's cut).
+    pub message: Option<String>,
+    /// The prompt of the agent turn this notification ends (markdown, up to
+    /// `LIVE_MESSAGE_CHARS`), memory only, for the phone Feed's quote.
+    pub prompt: Option<String>,
+    /// The posting agent's harness session id (`list-agents` `agent_session_id`), so a reply
+    /// from the Feed goes only to that session (`send` `expect_agent`).
+    pub session: Option<String>,
     pub notification: u64,
     pub title: String,
     /// Second line under the title, as `cmux notify --subtitle`.
@@ -76,6 +88,9 @@ pub struct NotificationEvent {
     pub preview: Option<String>,
     pub level: NotificationLevel,
     pub surface: Option<SurfaceId>,
+    /// The workspace a terminal-less notification belongs to (`cmux notify
+    /// --workspace ws_…`); None for a terminal's or a session-level one.
+    pub workspace_id: Option<WorkspacePublicId>,
     pub source: NotificationSource,
     /// false: the app shows no desktop banner (`notify --desktop false`).
     pub desktop: bool,
@@ -92,6 +107,9 @@ pub struct ResourceNotification {
     pub body: String,
     pub level: NotificationLevel,
     pub terminal_id: Option<TerminalPublicId>,
+    /// `notify --workspace ws_…`: the workspace it belongs to, with no
+    /// terminal. Stored as the row's `extra.workspace_id`.
+    pub workspace_id: Option<WorkspacePublicId>,
     pub created_at_ms: u64,
     pub source: NotificationSource,
     pub(crate) surface: Option<SurfaceId>,

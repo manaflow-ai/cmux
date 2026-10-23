@@ -27,9 +27,32 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
     public var confirmOutside: (@MainActor (_ path: String, _ answer: @escaping @MainActor (Bool) -> Void) -> Void)?
     /// Shows a folder (in Finder: nothing in it runs).
     public var revealFolder: @MainActor (URL) -> Void = { NSWorkspace.shared.revealInBackground([$0]) }
+    /// Selects a file in Finder (the image viewer's Show in Finder).
+    public var revealFile: @MainActor (URL) -> Void = { NSWorkspace.shared.revealInBackground([$0]) }
+    /// The context menu's Copy Image: replaces the general pasteboard's contents with the item
+    /// (``AgentPaneImageCopies/pasteboardItem(_:data:)``); tests record it instead.
+    public var copyItem: @MainActor (NSPasteboardItem) -> Bool = { AgentPaneImageCopies.writeGeneral($0) }
+    /// Save Image As…: asks where to save the file under the name (the system save panel).
+    public var saveFile: @MainActor (_ file: URL, _ name: String) -> Void = { AgentPaneImageCopies.askToSave($0, name: $1) }
+    /// Quick Look on a file (the system's preview panel).
+    public lazy var quickLookFile: @MainActor (URL) -> Void = { [quickLook = self.quickLook] in quickLook.show($0) }
+    /// Whether the person still holds the pointer's button: a page drag (`image.drag`, `file.drag`)
+    /// becomes the host's drag only then, so page script alone never starts one.
+    public var mouseHeld: @MainActor () -> Bool = { NSEvent.pressedMouseButtons & 1 != 0 }
+    /// Starts the host's drag of a real file out of the pane (the view's dragging session); false
+    /// when there is no pane to drag from.
+    public var startDrag: @MainActor (URL) -> Bool = { _ in false }
+    /// The Quick Look panel's source for ``quickLookFile``.
+    private let quickLook = AgentPaneQuickLook()
+    /// Where the image viewer keeps the copies it shows or opens (``AgentPaneImageCopies``).
+    public var imageFolder = AgentPaneImageCopies.defaultFolder()
     public var browsers: any AgentPaneBrowserApps = AgentPaneWorkspaceBrowsers()
-    /// What the user's GitHub CLI says about a pull request (`pr.inspect`); nil when it can't say.
-    public var pullRequest: @MainActor (URL) async -> AgentPanePullRequest? = { _ in nil }
+    /// What the host already has about a pull request (`pr.inspect`), with the age of it; it never
+    /// waits on GitHub, and a stale link's refresh runs in the background at most once a minute
+    /// however often it is hovered (``AgentReplyPullRequests``).
+    public var pullRequest: @MainActor (URL) -> AgentPanePullRequestAnswer = { _ in .init() }
+    /// The pull requests a reply links, so the host has them before a card opens.
+    public var registerPullRequests: @MainActor ([URL]) -> Void = { _ in }
     var fetcher: any AgentPaneImageFetching = AgentPaneSafeFetch()
     /// The fetch for web video and audio (``AgentPaneSafeFetch/media``).
     var mediaFetcher: any AgentPaneImageFetching = AgentPaneSafeFetch.media
@@ -39,9 +62,44 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
 
     public init() {}
 
-    /// `pr.inspect`'s reply: the pull request, or `null` when the host can't read it.
-    func respondToPullRequest(_ url: URL) async -> [String: Any] {
-        AgentPaneReply.success(["pullRequest": await pullRequest(url)?.json.foundationObject ?? NSNull()])
+    /// `pr.inspect`'s reply: the pull request the host already has, when it was read, and whether
+    /// a read is running. `null` with no answer yet; the card then shows what the chat knows.
+    func respondToPullRequest(_ url: URL) -> [String: Any] {
+        let answer = pullRequest(url)
+        var reply: [String: Any] = ["pullRequest": answer.pullRequest?.json.foundationObject ?? NSNull(),
+                                    "reading": answer.reading]
+        if let fetchedAt = answer.fetchedAt { reply["fetchedAt"] = fetchedAt }
+        return AgentPaneReply.success(reply)
+    }
+
+    /// The link requests a page answers for its link hover card with no chat behind it: the agent
+    /// page, and the changelog page's PR chip (`cmux.changelog.<method>`).
+    public static let cardMethods: Set<String> = ["browser.list", "browser.openIn", "pr.inspect"]
+
+    /// The reply to one of ``cardMethods`` (any other request is `link.open_failed`), the same on
+    /// every page that shows the card. `consumeGesture` spends the person's gesture in that page;
+    /// `openInCmux` opens a URL in a cmux browser tab (`browserId` `cmux`), false when nothing opened.
+    public func respond(toCard request: AgentPaneReplyRequest, consumeGesture: @MainActor () -> Bool,
+                        openInCmux: (@MainActor (URL) -> Bool)?) -> [String: Any] {
+        switch request {
+        case .listBrowsers:
+            return AgentPaneReply.success(["browsers": choices.list(from: browsers)])
+        case .inspectPullRequest(let url):
+            return respondToPullRequest(url)
+        case .openIn(let url, let browserId):
+            if browserId == "cmux" {
+                guard consumeGesture() else { return AgentPaneModel.replyFailure(.gestureRequired) }
+                guard let openInCmux, openInCmux(url) else { return AgentPaneModel.replyFailure(.openFailed) }
+                return AgentPaneReply.success()
+            }
+            guard let app = choices.app(browserId) else { return AgentPaneModel.replyFailure(.browserUnknown) }
+            guard consumeGesture() else { return AgentPaneModel.replyFailure(.gestureRequired) }
+            browsers.open(url, withApplicationAt: app)
+            return AgentPaneReply.success()
+        case .inspect, .openPath, .loadImage, .loadMedia, .revealImage, .openImageInPane, .copyImage, .saveImage, .quickLookImage,
+             .dragImage, .dragFile:
+            return AgentPaneModel.replyFailure(.openFailed)
+        }
     }
 }
 
@@ -72,31 +130,27 @@ extension AgentPaneModel {
                 if let title = site.title, !title.isEmpty { entry["title"] = String(title.prefix(300)) }
                 if !entry.isEmpty { sites[text] = entry }
             }
+            // The reply's pull request links are read now, in the background, so a card has them
+            // before the pointer arrives and no hover ever waits on GitHub.
+            replyLinks.registerPullRequests(urls.compactMap(AgentPaneReplyRequest.pullRequestURL))
             let setting = replyLinks.settings()
             return AgentPaneReply.success([
                 "paths": places, "sites": sites,
-                "policy": ["outsideRoots": setting.outsideRoots.rawValue, "remoteImages": setting.remoteImages.rawValue],
+                "policy": [
+                    "outsideRoots": setting.outsideRoots.rawValue, "remoteImages": setting.remoteImages.rawValue,
+                    "clickFreeImageHosts": AgentPaneSafeFetch.clickFreeImageHosts.sorted(),
+                ],
             ])
         case .openPath(let path):
             return Self.replyResult(await openReplyPath(path))
-        case .loadImage(let src):
-            return await loadReplyImage(src)
+        case .loadImage(let src, let auto):
+            return await loadReplyImage(src, auto: auto)
         case .loadMedia(let src):
             return await loadReplyMedia(src)
-        case .listBrowsers:
-            return AgentPaneReply.success(["browsers": replyLinks.choices.list(from: replyLinks.browsers)])
-        case .inspectPullRequest(let url):
-            return await replyLinks.respondToPullRequest(url)
-        case .openIn(let url, let browserId):
-            if browserId == "cmux" {
-                guard transport.gestures.consume() else { return Self.replyFailure(.gestureRequired) }
-                guard let onOpenPreview, onOpenPreview(url) else { return Self.replyFailure(.openFailed) }
-                return AgentPaneReply.success()
-            }
-            guard let app = replyLinks.choices.app(browserId) else { return Self.replyFailure(.browserUnknown) }
-            guard transport.gestures.consume() else { return Self.replyFailure(.gestureRequired) }
-            replyLinks.browsers.open(url, withApplicationAt: app)
-            return AgentPaneReply.success()
+        case .listBrowsers, .inspectPullRequest, .openIn:
+            return replyLinks.respond(toCard: request, consumeGesture: { transport.gestures.consume() }, openInCmux: onOpenPreview)
+        case .revealImage, .openImageInPane, .copyImage, .saveImage, .quickLookImage, .dragImage, .dragFile:
+            return await AgentPaneImageCopies.respond(to: request, in: self)
         }
     }
 
@@ -144,16 +198,26 @@ extension AgentPaneModel {
     }
 
     /// A reply image (D5): a file inside the roots, read by the host; or an https image fetched
-    /// under the network rules, after a click unless `agentPane.images.remote` is `always`.
-    func loadReplyImage(_ src: String) async -> [String: Any] {
+    /// under the network rules, after a click unless `agentPane.images.remote` is `always` or the
+    /// image is from a click-free site (``AgentPaneSafeFetch/isClickFree(_:)``), whose load spends
+    /// no gesture and is redirected only within ``AgentPaneSafeFetch/clickFreeImageHosts``. `auto`
+    /// is the page's load without a click: one this host does not judge click-free is refused
+    /// without spending a gesture the person made for something else.
+    func loadReplyImage(_ src: String, auto: Bool = false) async -> [String: Any] {
         if let url = URL(string: src), let scheme = url.scheme?.lowercased(), scheme != "file" {
             guard scheme == "https", AgentPaneSafeFetch.isFetchable(url) else { return Self.replyFailure(.imageRefused) }
+            var clickFree = false
             switch replyLinks.settings().remoteImages {
             case .never: return Self.replyFailure(.imageRefused)
             case .always: break
-            case .click: guard transport.gestures.consume() else { return Self.replyFailure(.gestureRequired) }
+            case .click:
+                clickFree = AgentPaneSafeFetch.isClickFree(src)
+                guard clickFree || (!auto && transport.gestures.consume()) else { return Self.replyFailure(.gestureRequired) }
             }
-            switch await replyLinks.fetcher.fetch(url) {
+            let fetched = clickFree
+                ? await replyLinks.fetcher.fetch(url, within: AgentPaneSafeFetch.clickFreeImageHosts)
+                : await replyLinks.fetcher.fetch(url)
+            switch fetched {
             case .success(let data): return Self.replyImage(await AgentPaneReplyImages.remote(data))
             case .failure(let error): return Self.replyFailure(error)
             }

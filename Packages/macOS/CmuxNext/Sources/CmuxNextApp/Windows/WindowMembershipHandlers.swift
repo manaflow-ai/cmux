@@ -30,11 +30,12 @@ enum WindowMembershipHandlers {
         return selection.count > 1 && selection.contains(id) ? selection : [id]
     }
 
-    /// A person's row verb (Pin, Duplicate) on the targeted workspace: ``workspaces(_:_:)`` for a
-    /// menu, key or palette run; the target alone for the CLI and MCP, which name their workspace.
+    /// A person's row verb (Pin, Duplicate, Mute, New Workspace Below, Close Other) on the targeted
+    /// workspace: ``workspaces(_:_:)`` for a menu, key or palette run; the target alone for the CLI
+    /// and MCP, which name their workspace, and for a row's own control (`closesRowOnly`).
     static func rowTargets(_ invocation: ActionInvocation, _ context: AppActionContext) throws -> [WorkspaceModel] {
         let workspace = try context.workspace(invocation).model
-        guard invocation.origin == .user else { return [workspace] }
+        guard invocation.origin == .user, !invocation.closesRowOnly else { return [workspace] }
         let models = try workspaces(invocation, context).compactMap(context.services.workspace(id:))
         return models.isEmpty ? [workspace] : models
     }

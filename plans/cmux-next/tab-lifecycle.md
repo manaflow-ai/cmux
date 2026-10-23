@@ -126,6 +126,29 @@ cmux.json:
   state (scroll, form data) and a snapshot for the hover preview; its icon
   and title are dimmed in the strip. Selecting it restores the page; a
   navigation from the placeholder restores first.
+- Snapshots (PR 23083): each hibernated page's last frame is kept
+  JPEG-compressed at full size in its own 64 MB LRU (`HibernationSnapshots`),
+  and the placeholder decodes it off the main thread while a pane shows it, so
+  every hibernated tab wakes to its picture. They used to share the decoded
+  32 MB preview cache at up to a quarter of it each, so only the last four kept
+  one. Debug Settings > Tab Hibernation turns the old behavior back on.
+- Wakes are timed from the restore effect to the page being back and to its
+  load ending, with whether a snapshot covered the pane and whether the tab
+  was shown (`debug.surfaces` `wakes`, the latest 32).
+- Bench: `scripts/cmux-next/bench_hibernation.py` (Chromium and WebKit tabs
+  on local pages with a form and a stand-in heap): footprint and CPU awake,
+  frozen and hibernated, counted from the processes that exit; wake times;
+  scroll and form restore. Baseline on a capture mini (6e097d649d4, DEV build,
+  6 tabs each, 40 MB heap): a hibernated Chromium tab freed 79 MB (its
+  renderer exited) and a WebKit tab 61 MB; 6 hidden pages cost 0.03 to 0.08 %
+  CPU (Chromium throttles hidden timers; freezing saved little more); a wake
+  was back in 255 ms (Chromium) and 148 ms (WebKit) and usable in 302 and
+  197 ms through the CLI, with scroll and form restored in 12 of 12. With
+  PR 23083 the app's own times are: back in 41 ms and loaded in 157 ms
+  (Chromium, p50), 57 and 161 ms (WebKit); all 12 kept a picture, 3.5 MB in
+  total. The old cache held 12 there too: the capture mini's 1x display
+  makes each decoded picture about 2 MB, while a large pane at 2x is capped
+  at 8 MB, so four fit.
 - WebKit: `WKWebView.interactionState`. Chromium: fork API 10
   (`cmux_tab_navigation_state`, `cmux_tab_restore_navigation`, session
   restore format); the page is recreated with an empty URL and its entries
@@ -134,6 +157,36 @@ cmux.json:
 - Actions: `browser.hibernation.off|moderate|aggressive` (palette, CLI
   `settings turn-off-tab-hibernation` etc.), `hibernateTab`, `wakeTab`
   (palette, tab context menu, CLI `tab hibernate`, `tab wake`).
+
+### 3a. Which page goes first (smarter hibernation, 2026-10-21, msg 9103)
+
+Before: every hidden page past one age threshold (`moderate` 60 min,
+`aggressive` 10 min; 10 min under warning pressure) hibernated in the same
+pass, and under critical pressure every eligible hidden page went at once.
+
+Now (`HibernationPlanner.plan`):
+
+- Ranking: idleness = seconds hidden, less a sixth of the timeout per
+  doubling of shows in the last hour (at 30 min, 15 shows: 20 min later), plus under memory pressure 1 min per
+  100 MB of the page's memory (at most 10 min; sampled from the resource
+  source only under pressure, at most every 30 s). Least valuable first.
+- Timeout: `moderate` is 30 min (default), `aggressive` 10 min, or minutes;
+  under pressure at most 10 min.
+- Relief: under warning or critical pressure with no page past the timeout,
+  the least valuable page still goes.
+- Pace (never all at once): normal 2 pages per pass, next pass after 5 s;
+  warning 1 per 15 s; critical 3 per 3 s. A page hidden less than 60 s
+  (10 s critical) never goes under pressure; without pressure the timeout
+  decides. Under pressure a page the probe kept in the last 60 s comes last,
+  so it does not hold up the rest.
+- Never: shown pages; playing, muted-playing or Picture in Picture media;
+  camera, microphone or screen capture; open DevTools; the person's form
+  input or a POST result; a running download the tab started (`downloading`);
+  an agent's browser lease (`agent_lease`, also never frozen) or an agent
+  call in the last 30 s; neighbors of a shown tab and hovered tabs; pinned
+  tabs and Never Hibernate hosts unless the settings say otherwise.
+- Never Hibernate This Site (tab context menu, palette, `tab
+  never-hibernate-site`) adds the host to `browser.hibernationExclusions`.
 
 ## 4. Not done / open
 
@@ -145,6 +198,12 @@ cmux.json:
 - A terminal surface shown after a pause can draw its last frame before the
   current one (no Ghostty "presented" signal yet); cold workspaces still
   attach at most one new surface per frame.
+- A WebKit page's form fields come back from hibernation only if WebKit saved them, which it
+  does when the page goes from shown to hidden. A page whose window was never on screen
+  wakes scrolled with empty fields (measured on CI minis, PR 23083), so
+  `aWokenPageHasItsScrollAndFormBack` checks the fields only when its window is on screen and
+  `bench_hibernation.py` checks them on a capture mini. Reading the fields at hibernation
+  and filling them in on wake would remove that dependence.
 - Camera, microphone and screen capture exemptions are not checked live
   (they need a permission prompt and a device on the test host).
 - The recorder misses: Chromium cross-origin iframes (out-of-process frames

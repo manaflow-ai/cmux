@@ -41,11 +41,15 @@ extension AgentTabStore {
             if let spare, recycle?(spare) != true { retirer.retire(spare) }
             throw AgentTabRefusal(message: refusal)
         }
+        // A chat a chat of that machine started there (its daemon listed it, `agent-session-children`):
+        // that machine's own chat, filed under its store, which checks it against its own list.
+        let remoteChild = !daemon.isLocal && host == nil && adopt == nil
+            && session.map { RemoteAgentSessionLinks.shared.parents[$0] != nil } == true
         // A session never leaves its machine (cx-k21v): a pane of another machine never gets a
         // chat of this Mac (its session, an outside chat it resumes, a past chat of this Mac's list;
         // the New Tab page's open-here included). The store binds a `registry:` tab's session only
         // through that machine's agent-session-start (cmux-tui conversation_tabs_wire.rs).
-        if !daemon.isLocal, session != nil || adopt != nil || seed?.namesLocalChat == true {
+        if !daemon.isLocal, !remoteChild, session != nil || adopt != nil || seed?.namesLocalChat == true {
             if let spare, recycle?(spare) != true { retirer.retire(spare) }
             throw AgentTabRefusal(message: RefusalStrings.agentTabMachineMismatch)
         }
@@ -64,16 +68,16 @@ extension AgentTabStore {
             // chat starts on that machine at the first send (``RemoteAcpmuxWire``). A prewarmed
             // spare is connected to this Mac's acpmux, so it is never adopted here.
             if let spare, recycle?(spare) != true { retirer.retire(spare) }
-            seed = seed ?? AgentPaneSeedSource(AgentPaneSeed(cwd: newTab?.page.cwd))
+            seed = remoteChild ? nil : (seed ?? AgentPaneSeedSource(AgentPaneSeed(cwd: newTab?.page.cwd)))
             spare = nil
-            record = AgentSessionRef(host: registry, hostName: remoteMachineName(daemon), session: nil, harness: nil)
+            record = AgentSessionRef(host: registry, hostName: remoteMachineName(daemon), session: remoteChild ? session : nil, harness: nil)
         } else {
             record = AgentSessionRef(host: host ?? localHost, hostName: localHostName, session: session, harness: adopt?.harness)
         }
         let provisional = ProvisionalTab()
         let key = provisional.id, snapshot = provisional.conversation(ConversationTabRef(agentSession: record))
         let splitPane = split.map { ($0, ProvisionalPane(holding: snapshot)) }
-        let sendsSplitID = daemon.supports(DaemonCapabilities.shared.splitClientSplitID)
+        let sendsSplitID = daemon.supports(DaemonCapabilities.splitClientSplitID)
         let store = daemon.store
         store.onTabCreated = { [weak self] provisional, tab in
             self?.tabCreated(provisional, as: AgentTabCreated(key: tab.id, surface: tab.surface))
@@ -192,6 +196,7 @@ extension AgentTabStore {
     func rekey(_ key: String, to real: String) {
         guard key != real else { return }
         aliases[key] = real
+        OutboundTab.rekeyed(key, to: real) // a tab on its way out of its pane stays out under its new id
         if remoteCreations[key] != nil || remoteSeeds[key] != nil { remoteAliases[key] = real }
         if let view = views.removeValue(forKey: key) {
             // A page made under the store's id meanwhile (another window) gives way to the one shown.
@@ -211,8 +216,7 @@ extension AgentTabStore {
         adoptions = adoptions.mapValues { $0 == key ? real : $0 }
         if let store = tabStores.removeValue(forKey: key) { tabStores[real] = store }
         if checkpointFocusTab == key { checkpointFocusTab = real }
-        // The provisional alias is removed once the tree settles. Live callbacks
-        // must then name the store tab directly, including conversion and project reads.
+        // The provisional alias goes once the tree settles: live callbacks then name the store tab (conversion, project reads).
         if let view = views[real] { wire(view.model, key: real) }
         seenLive.remove(key)
     }

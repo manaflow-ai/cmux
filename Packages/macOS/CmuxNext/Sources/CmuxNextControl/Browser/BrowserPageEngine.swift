@@ -18,6 +18,10 @@ public enum BrowserPageOperation: Sendable, Hashable {
     /// The cookies of the tab's profile. Result: `{"cookies": [cookie JSON]}`
     /// for `.list`, `{}` otherwise.
     case cookies(BrowserPageCookieRequest)
+    /// Native input to the page (trusted events with the browser's default actions). Result:
+    /// `{"native": true}` when the engine delivered it; any other result (`{"native": false,
+    /// "reason": …}`, an engine without native input) makes the caller fall back to page events.
+    case input(BrowserPageInput)
 }
 
 /// Runs page operations for the app. The App hops to the main actor itself;

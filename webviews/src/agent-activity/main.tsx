@@ -12,11 +12,9 @@ function App() {
   const [error, setError] = useState<string>();
   useEffect(() => {
     native.onState((raw) => setState((current) => reduceActivity(current, { type: "snapshot", state: raw })));
-    native.onEvent((event) => setState((current) => reduceActivity(current, { type: "agentEvent", event })));
     native.request("ready").catch((e) => setError(String(e)));
     return () => {
       delete (window as any).cmuxActivityReceive;
-      delete (window as any).cmuxActivityReceiveEvent;
     };
   }, []);
   const followIDs =
@@ -38,10 +36,6 @@ function App() {
     if (action.type === "scrub") void native.request("scrub", { seq: action.seq ?? null }).catch(() => undefined);
     if (action.type === "filter") void native.request("filter", { value: action.value }).catch(() => undefined);
     if (action.type === "layout") void native.request("layout", { value: action.value }).catch(() => undefined);
-    if (action.type === "jump")
-      void native
-        .request("jump", { id: action.id, workspaceId: action.workspaceId ?? undefined })
-        .catch(() => undefined);
   };
   return <ActivityView state={state} dispatch={dispatch} error={error} />;
 }

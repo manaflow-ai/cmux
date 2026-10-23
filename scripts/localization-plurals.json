@@ -621,5 +621,89 @@
     "arguments": [
       1
     ]
+  },
+  "home.turn.ranCommands": {
+    "source": "Ran %lld commands",
+    "arguments": [
+      1
+    ]
+  },
+  "home.turn.readFiles": {
+    "source": "Read %lld files",
+    "arguments": [
+      1
+    ]
+  },
+  "home.turn.editedFiles": {
+    "source": "Edited %lld files",
+    "arguments": [
+      1
+    ]
+  },
+  "home.turn.ranSearches": {
+    "source": "Ran %lld searches",
+    "arguments": [
+      1
+    ]
+  },
+  "home.turn.steps": {
+    "source": "%lld steps",
+    "arguments": [
+      1
+    ]
+  },
+  "home.turn.moreSteps": {
+    "source": "%lld more steps",
+    "arguments": [
+      1
+    ]
+  },
+  "importSuggestions.facts.profiles": {
+    "source": "%lld profiles",
+    "arguments": [
+      1
+    ]
+  },
+  "importSuggestions.facts.sessions": {
+    "source": "%lld sessions",
+    "arguments": [
+      1
+    ]
+  },
+  "importSuggestions.facts.threads": {
+    "source": "%lld threads",
+    "arguments": [
+      1
+    ]
+  },
+  "importSuggestions.facts.workspaces": {
+    "source": "%lld saved workspaces",
+    "arguments": [
+      1
+    ]
+  },
+  "importSuggestions.count.pages": {
+    "source": "%lld pages",
+    "arguments": [
+      1
+    ]
+  },
+  "importSuggestions.count.bookmarks": {
+    "source": "%lld bookmarks",
+    "arguments": [
+      1
+    ]
+  },
+  "importSuggestions.count.cookies": {
+    "source": "%lld cookies",
+    "arguments": [
+      1
+    ]
+  },
+  "importSuggestions.status.importedSessions": {
+    "source": "Imported %lld sessions",
+    "arguments": [
+      1
+    ]
   }
 }

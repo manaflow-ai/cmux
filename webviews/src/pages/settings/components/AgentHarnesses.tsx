@@ -6,10 +6,12 @@
 // (cmux.settings.agents.changed) only while this card is mounted. The route's focus opens a panel:
 // `agents.add` (Add ACP Agent…, the model picker's +) or `agents.registry`.
 import { useCallback, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Tabs } from "@base-ui/react/tabs";
 import { AgentMark, knownMark } from "../../../agent-session/shared/AgentMark";
 import { useStore } from "../context";
 import { Icon } from "../icons";
+import { AGENTS_KEY, agentsQuery } from "../sectionQueries";
 import type { AgentDoctorResult, AgentHarnessRow, AgentRegistryAgent, AgentsRun, AgentsState } from "../ops";
 import { t } from "../strings";
 
@@ -23,7 +25,10 @@ const field =
 
 export function AgentHarnesses({ focus }: { focus: string | null }) {
   const store = useStore();
-  const [state, setState] = useState<AgentsState | null>(null);
+  const queryClient = useQueryClient();
+  // The route's loader (or a hover on Agents) read the state; live pushes and gestures write it.
+  const state = useQuery(agentsQuery(store)).data ?? null;
+  const setState = useCallback((next: AgentsState) => void queryClient.setQueryData(AGENTS_KEY, next), [queryClient]);
   const [panel, setPanel] = useState<Panel>(() => panelFor(focus));
   const [seenFocus, setSeenFocus] = useState(focus);
   const [error, setError] = useState<string | null>(null);
@@ -43,14 +48,13 @@ export function AgentHarnesses({ focus }: { focus: string | null }) {
         return;
       }
       session.alive = true;
-      void store.agentsState().then((next) => session.alive && next && setState(next));
       void store.watchAgents(setState).then((stop) => {
         if (session.alive) session.stop = stop;
         else stop();
       });
       void store.runAgents({ action: "refresh" });
     },
-    [store],
+    [store, setState],
   );
   const run = useCallback(
     async (gesture: AgentsRun): Promise<boolean> => {
@@ -61,7 +65,7 @@ export function AgentHarnesses({ focus }: { focus: string | null }) {
       if (next) setState(next);
       return reply.ok;
     },
-    [store],
+    [store, setState],
   );
   return (
     <div className="group" data-card="agentHarnesses" ref={mounted}>

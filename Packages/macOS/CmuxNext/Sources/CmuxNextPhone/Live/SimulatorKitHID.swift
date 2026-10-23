@@ -49,6 +49,11 @@ public final class SimulatorKitHID: SimulatorHIDSending {
     public nonisolated func press(page: UInt32, usage: UInt32, on udid: String) async throws {
         try await mainPress(page: page, usage: usage, udid)
     }
+    public nonisolated func toggleSoftwareKeyboard(on udid: String) async throws { try await mainToggleSoftwareKeyboard(udid) }
+
+    private func mainToggleSoftwareKeyboard(_ udid: String) throws {
+        try transport(udid).toggleSoftwareKeyboard()
+    }
 
     private func mainScreenSize(_ udid: String) throws -> CGSize {
         let device = try runtime.device(udid)

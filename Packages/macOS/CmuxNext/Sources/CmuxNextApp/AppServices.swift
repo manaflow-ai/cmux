@@ -14,6 +14,7 @@ import CmuxNextDesign
 import CmuxNextMobileHost
 import CmuxNextDaemon
 import CmuxNextFeed
+import CmuxNextHomeEngine
 import CmuxNextIcons
 import CmuxNextPalette
 import CmuxNextPages
@@ -21,6 +22,7 @@ import CmuxNextPopups
 import CmuxNextBrowserImport
 import CmuxNextPhone
 import CmuxNextPhoneAccess
+import CmuxNextServer
 import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextTerminal
@@ -29,9 +31,19 @@ import CmuxNextVSCodeServer
 import CmuxNextWorkspaceNaming
 import CmuxNextWorkspaceRepair
 import os
+import CmuxNextFocusUI
+import CmuxNextTabs
 /// Process-wide services the window controllers share. Model state is not
 /// here: the daemon owns it, windows own their local state.
 final class AppServices {
+    /// The app's theme store (the one ``ThemeScope/app`` roots on), handed to the App's theme owners.
+    let themeStore = ThemeScope.app.store
+    /// The recovery-draft backstop of unsaved documents (R96).
+    let recoveryDrafts = RecoveryDraftStore(directory: RecoveryDraftFiles.defaultDirectory)
+    /// The quit hook's unsaved-document participants; drafts go to ``recoveryDrafts``.
+    private(set) lazy var quitUnsaved = QuitUnsavedRegistry(drafts: recoveryDrafts)
+    /// The open files' quit documents, shared by the markdown and editor pages.
+    private(set) lazy var fileQuitDocuments = FileQuitDocuments(drafts: recoveryDrafts, registry: quitUnsaved)
     let environment: AppEnvironment; let agentPaneEnvironment: [String: String]?
     /// Each window's last sidebar, drawn before the daemon answers.
     let sidebarSnapshots: SidebarSnapshotStore
@@ -43,7 +55,8 @@ final class AppServices {
     let crashReporting: AppCrashReporting
     /// The local daemon. Cloud machines are in `machines`; code acting on a
     /// workspace, pane, or tab resolves its daemon through `machines`.
-    let daemon = DaemonService()
+    /// The local daemon; a build with the sidebar document orders rows from it only (placement-shift-v1).
+    let daemon = DaemonService(echoesPlacementShift: SidebarMirror.isLinked)
     /// Agent panes' git reads, one link per machine (AgentPaneGitReads.swift).
     private(set) lazy var agentGit = AgentPaneGitLinks(machines: machines)
     let machines: MachineRegistry
@@ -59,6 +72,8 @@ final class AppServices {
     /// Restart CLI Listener: binds the control socket again. Set once the
     /// app's control socket starts; nil while it has none (tests, socket off).
     var restartControlListener: (@MainActor () throws -> Void)?
+    /// Agents' and scripts' Cloud machine creates waiting on the person in every window's sidebar card.
+    let machineAsks = SidebarAsks()
     private(set) lazy var cloud: CloudService = CloudService(machines: machines, isDebugBuild: ControlService.isDebugBuild)  // first read in init (no IUO)
     /// The feed mirror (`FeedDO`), started once the cmux account is signed in.
     private(set) lazy var feed: FeedService = FeedService(auth: cloud.auth, showcase: environment.showcase)  // first read in init (no IUO)
@@ -68,10 +83,17 @@ final class AppServices {
     /// SSH machines (Connect to Machine…); `serverReach`: paired servers' Chief sessions in the sidebar.
     private(set) lazy var ssh: SSHService = SSHService(machines: machines, bundleID: environment.launch.bundleID)  // first read in init (no IUO)
     private(set) lazy var serverReach = ServerReachService.app(services: self)
-    let mobile = MobileHostService(displayName: { await MacName().computerName() })  // phone access; the account layer starts it
+    /// Add Machine and Check Machine (plans/cmux-next/add-machine-DESIGN.md); each machine's last check.
+    private(set) lazy var addMachine = AddMachineCard(services: .app(self))
+    /// Add Device and Settings > Devices (plans/cmux-next/add-device-DESIGN.md): one entry, one list, one remove.
+    private(set) lazy var addDevice = AddDeviceCard(services: .app(self))
+    private(set) lazy var devices = DeviceDirectory.app(self)
+    let machineHealth = MachineHealthStore()
+    let mobile = MobileHostService(displayName: { await MacName().displayName() })  // phone access; the account layer starts it
     /// iPhone connections for the cmux-next iPhone app (cmux-next-ios, Settings > Mobile).
     let iphone = IPhoneHostService()
-    let registry = ActionRegistry.standard()
+    /// Every action; timed by the always-on `action.*` signposts, in Debug and Release.
+    let registry = ActionRegistry.standard(runTiming: SignpostActionRunTiming())
     /// Sparkle updates (release builds) or read-only feed probes (DEV).
     let updater = UpdaterService()
     /// "Restart cmux-tui to use new features" (plans/cmux-next/server-updates-DESIGN.md).
@@ -104,6 +126,8 @@ final class AppServices {
     lazy var findWorkGitHub: any GitHubFeedAPI = GitHubCLIClient(executable: AgentChatPullRequestReader.findGitHubCLI() ?? "/usr/bin/env")
     /// The app-wide "where was I" trail (plans/cmux-next/history.md 4.2).
     private(set) lazy var locationTrail = LocationTrailService(services: self)
+    /// The terminals and agent chats focused last: what new ones copy (``WorkContextTrail``).
+    var workContext = WorkContextTrail()
     /// The merged history read side and the per-profile visit logs.
     private(set) lazy var history = HistoryService(services: self)
     /// `cmux://history`: opens the page and serves its data.
@@ -128,6 +152,8 @@ final class AppServices {
     private(set) lazy var vaultPages: VaultPageService = VaultPageService(vault: vault, registry: registry)
     /// Where each window's right sidebar remembers its state (tests set a suite of their own).
     var rightSidebarDefaults: UserDefaults = .standard
+    /// Each window's file explorer (the right sidebar's Files section) and its actions' effects.
+    private(set) lazy var fileExplorers = FileExplorerService(services: self)
     /// The right sidebar's sections by mode (the file explorer adds Files and Find).
     private(set) lazy var rightSidebarSections: RightSidebarSections = {
         let sections = RightSidebarSections()
@@ -139,6 +165,12 @@ final class AppServices {
     /// `cmux://screenshots`: the Screenshots pane (its detection, thumbnail cache and pages).
     private(set) lazy var screenshotsPage = ScreenshotsPageService(services: self)
     private(set) lazy var remoteViewPages = RemoteViewPageService()
+    /// Mac Screen: paired Macs' screens and Share This Mac.
+    private(set) lazy var macScreenPages = AppServices.makeMacScreenPages(self)
+    /// Mac Screen page tabs (`InternalPageID.macScreen`).
+    private(set) lazy var macScreenTabs = MacScreenPageService(services: self)
+    /// The device hub (built in; `deviceHub.url` overrides it in DEV builds): the user's devices for Mac Screen and Settings > Devices.
+    private(set) lazy var deviceHub = AppServices.makeDeviceHub(self)
     /// Bookmarks of every browser profile (plans/cmux-next/bookmarks.md).
     private(set) lazy var bookmarks = BookmarkService(services: self)
     /// The user's keybindings.json, owned by the home daemon, as the binding table's user layer.
@@ -167,8 +199,13 @@ final class AppServices {
     private(set) lazy var workspaceTodo = WorkspaceTodoPageService(services: self)
     /// The viewers' recents, the cmux picker, the diff, markdown and editor tabs (R89, S4, S6, S7).
     private(set) lazy var viewers = ViewerService(services: self)
-    /// Where a link or path the person opens lands: a tab in its page's pane, a Cmd-click by `layout.linkPlacement`.
+    /// Where a link or path the person opens lands (`layout.linkPlacement`): beside its pane.
     private(set) lazy var linkOpener = LinkOpener(services: self)
+    /// A person's quick Cmd-W presses after one that emptied its pane (``TabCloseGuard/swallowsCmdW(_:at:)``).
+    var emptiedPaneCloseRun = EmptiedPaneCloseRun()
+    /// How close such a press must follow the one before it: the double-click interval, or a held key's
+    /// first repeat when that comes later. A test lengthens it so its waits on a loaded host still fit.
+    var quickPressWindow: () -> TimeInterval = { max(NSEvent.doubleClickInterval, NSEvent.keyRepeatDelay + NSEvent.keyRepeatInterval) }
     /// A link dragged out of a chat into a pane drop zone (``LinkDragSession``).
     private(set) lazy var linkDrags = LinkDragSession(services: self)
     /// The cmux server menu bar item (DEV and NIGHTLY prototype; plans/cmux-next/server.md 14).
@@ -191,6 +228,8 @@ final class AppServices {
         overlay: SleepyOverlayWindows(workingAgents: { [weak self] in self?.workingAgentTabCount() ?? 0 },
                                       lockMac: { SleepyMacLock().lock() })
     )
+    /// Native input for `browser.page.mouse|wheel|insert_text|key` (`BrowserNativeInputs`).
+    let browserNativeInputs = BrowserNativeInputs()
     /// Each pane's own Hide Tab Bar choice (`PaneTabBarChoices`).
     let paneTabBars = PaneTabBarChoices()
     /// The panes in Full Width Tab mode (`PaneFullWidthTabs`).
@@ -199,6 +238,10 @@ final class AppServices {
     let paneMounts = PaneMounts()
     /// The new tab screen's Search | Ask mode and last agent, and what `!` typed ahead.
     let newTabChoices = NewTabChoiceMemory()
+    /// The New Tab weather widget's last reading and its refresh (`tabs.newTabWidgets.weather`).
+    let newTabWeather = NewTabWeather()
+    /// The models picked per harness in the Chief card's Model menu (its Recent section).
+    let chiefModelRecents = HomeChiefModelRecents(defaults: .standard)
     let newTabTypeAhead = NewTabTypeAhead()
     /// Home's first-run Switching card: Hide memory and the Mission Control check.
     let homeSwitchKeys = HomeSwitchKeysSource()
@@ -234,6 +277,8 @@ final class AppServices {
     /// The Settings window (Settings…, Cmd-,).
     private(set) lazy var settingsWindow = SettingsWindowService(services: self)
     let chiefPetHomes = ChiefPetHomes()  // the Chief Settings popovers the Chief pet's Chief Pet Settings… opens
+    /// Each Chief's own pet character (the default Chief's is `home.chiefPetMascot`).
+    let chiefMascotPicks = ChiefMascotPicks(defaults: .standard, defaultChief: HomeChiefAvatars.defaultChief)
     /// Debug Settings: tunable overrides and their window (DEV and NIGHTLY).
     private(set) lazy var debugSettings = DebugSettingsService(services: self)
     /// Quit: origin, the keep-or-end sheet and the end of the local sessions.
@@ -270,6 +315,10 @@ final class AppServices {
     var chromiumLikelyObservations: [Task<Void, Never>] = []
     /// Repaints on `appearance.borders` changes (`observeBorders`).
     var borderObservation: Task<Void, Never>?
+    /// Repaints when the glass mode pages draw changes (`observeGlass`).
+    var glassWatch: GlassModeWatch?
+    /// Posts this launch's installed-update Feed card once (`UpdateFeedPosting.follow`).
+    var updateFeedObservation: Task<Void, Never>?
     /// Page menus and the open-menu diagnostic shared by browser hosts.
     let contextMenus: BrowserContextMenuBuilder
     /// Sized browser popups (OAuth, payment), each in its own Chrome-style popup window.
@@ -322,8 +371,6 @@ final class AppServices {
     ///   hold for; the app-wide one by default.
     init(environment: AppEnvironment, launchReveal: LaunchReveal = .shared, agentPaneEnvironment: [String: String]? = nil) {
         DaemonService.launchMark = { DebugTimings.markLaunch($0) }  // before any daemon service starts
-        // Before any connection: a build with the sidebar document orders rows from it only (placement-shift-v1).
-        DaemonCapabilities.echoesPlacementShift = SidebarMirror.isLinked
         self.launchReveal = launchReveal
         sidebarSnapshots = SidebarSnapshotStore(file: environment.sidebarSnapshotFile)
         let contextMenus = BrowserContextMenuBuilder.shared
@@ -386,7 +433,10 @@ final class AppServices {
         cache.profileBadgeMenu = { [weak self] key in
             guard let self, let tab = cache.tabModel(key) else { return nil }
             let target = ActionTargetRef(kind: .browserProfile, id: browserProfiles.profileID(ofTab: tab))
-            return self.registry.makeContextMenu(for: .browserProfile, target: target)
+            // The badge's tab names the place: New Tab with Browser Profile and Manage Extensions
+            // open in that tab's pane, not in whichever pane has the focus (on Home, the chat dock).
+            return self.registry.makeContextMenu(for: .browserProfile, target: target,
+                                                 arguments: ["tab": .target(ActionTargetRef(kind: .tab, id: tab.id))])
         }
         cache.browserTabs.browserEnabled = { [weak self] in self?.settings?.snapshot.linkRouting.browserEnabled ?? true }
         cache.browserTabs.resolveProfile = { [weak self] pane, explicit in
@@ -420,11 +470,23 @@ final class AppServices {
         cache.makeExtensionMenuHandler = { [weak self] key in self.map { ExtensionMenuRouter(services: $0, tabKey: key) } }
         cache.onDevToolsChange = { [weak self] key, state, focused in self?.devToolsDidChange(key, state: state, focused: focused) }
         registry.menuKeyEquivalentGate = { [weak self] id in self?.keyRouter.allowsMenuKeyEquivalent(id) ?? true }
+        registry.dispatchingInputEvent = { (NSApp as? CmuxApplication)?.dispatchingEvent }
+        registry.isDispatchingKeyDown = { (NSApp as? CmuxApplication)?.dispatchingEvent?.type == .keyDown }
+        (NSApp as? CmuxApplication)?.assistiveClientsChanged = { [weak self] active in self?.cache.cef.setAssistiveClientActive(active) }
         (NSApp as? CmuxApplication)?.keyDownInterceptor = { [weak self] event, window in
             guard let self else { return false }
             // A key on Sleepy Mode's scene only wakes it; no shortcut runs behind the cover.
             if self.sleepyMode.consumesKeyDown() { return true }
             return self.keyRouter.interceptKeyDown(event, in: window)
+        }
+        (NSApp as? CmuxApplication)?.crossWindowKeyGuard = { [weak self] event, keyWindow in
+            // Keys typed after New Window follow its new window on purpose (NewTabInputCoordinator).
+            guard let self, !keyRouter.newTabInputCoordinator.followsNewWindow else { return false }
+            return CrossWindowInputGuard(windows: windows).dropsKey(event, keyWindow: keyWindow)
+        }
+        (NSApp as? CmuxApplication)?.dispatchScope = { [weak self] event, body in
+            guard let self else { return body() }
+            windows.dispatching(eventFrom: event.window, body)
         }
         (NSApp as? CmuxApplication)?.actionTargetOverride = { [weak self] action, found in
             self?.keyRouter.pasteTarget(for: action, found: found, in: NSApp.keyWindow)
@@ -455,7 +517,7 @@ final class AppServices {
         terminalDelegate.services = self
         _ = configActions  // built here, as before
         let updateSheet = self.updateSheet  // built here, as before
-        updater.attach(sheet: updateSheet, services: self)
+        updater.attach(sheet: updateSheet, services: self, simulating: { SidebarTunables.simulatePendingUpdate.value })
         serverUpdates.start(registry: registry)
         cache.onBrowserReady = { [weak self] key in
             for controller in self?.windows.controllers ?? [] {
@@ -471,7 +533,7 @@ final class AppServices {
         notifications.start(services: self)
         keyRouter.onTyping = { [weak self] window in self?.notifications.noteTyping(in: window) }
         (NSApp as? CmuxApplication)?.mouseDownObserver = { [weak self] event in
-            self?.notifications.noteMouseDown(in: event.window)
+            self?.notifications.noteMouseDown(in: event.window, at: event.locationInWindow)
             self?.browserHost?.noteInput(event)
             // A click anywhere ends link hints and a waiting chord (it may move the keyboard).
             self?.linkHints.cancel()

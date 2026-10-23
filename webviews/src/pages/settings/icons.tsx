@@ -69,8 +69,18 @@ const paths: Record<string, ReactNode> = {
   sparkles: (
     <path d="M6.4 2.2 7.5 5.5 10.8 6.6 7.5 7.7 6.4 11 5.3 7.7 2 6.6 5.3 5.5 6.4 2.2ZM11.8 9.4l.6 1.7 1.7.6-1.7.6-.6 1.7-.6-1.7-1.7-.6 1.7-.6.6-1.7Z" />
   ),
+  crown: <path d="M2.6 11.4 2 4.6l3.4 2.6L8 2.8l2.6 4.4L14 4.6l-.6 6.8H2.6ZM2.8 13.6h10.4" />,
   "hand.raised": (
     <path d="M5.4 8.6V3.4a1 1 0 0 1 2 0v4.2M7.4 7.2V2.6a1 1 0 0 1 2 0v4.6M9.4 7.4V3.6a1 1 0 0 1 2 0v5.2M11.4 8.4V6a1 1 0 0 1 2 0v3.6a5 5 0 0 1-5 4.8c-1.6 0-2.7-.6-3.6-1.7L2.6 10a1 1 0 0 1 1.5-1.3l1.3 1.2" />
+  ),
+  laptopcomputer: (
+    <>
+      <rect x="3" y="3.2" width="10" height="7.2" rx="1.2" />
+      <path d="M1.4 12.8h13.2" />
+    </>
+  ),
+  hammer: (
+    <path d="M9.6 2.2 13.8 6.4l-1.6 1.6-1-1-6.6 6.6a1.2 1.2 0 0 1-1.7 0l-.5-.5a1.2 1.2 0 0 1 0-1.7L9 4.8l-1-1 1.6-1.6Z" />
   ),
   flask: <path d="M6.2 1.8h3.6M6.8 1.8v4.4L2.9 12.6a1 1 0 0 0 .9 1.6h8.4a1 1 0 0 0 .9-1.6L9.2 6.2V1.8M4.6 9.8h6.8" />,
   filter: <path d="M2.4 3.4h11.2L9.4 8.4v4.4l-2.8-1.4v-3L2.4 3.4Z" />,
@@ -96,6 +106,20 @@ const paths: Record<string, ReactNode> = {
   ),
   "icloud.and.arrow.down": (
     <path d="M4.6 12.6h6.9a2.7 2.7 0 0 0 .4-5.4 4 4 0 0 0-7.7-.9 3.2 3.2 0 0 0 .4 6.3ZM8 6.8v4M6.5 9.4 8 10.9l1.5-1.5" />
+  ),
+  // Settings > Import: a tray with an arrow into it.
+  "square.and.arrow.down": (
+    <>
+      <path d="M5.4 5.8H4.3a1 1 0 0 0-1 1v5.9a1 1 0 0 0 1 1h7.4a1 1 0 0 0 1-1V6.8a1 1 0 0 0-1-1h-1.1" />
+      <path d="M8 1.8v7.4M5.8 7.2 8 9.4l2.2-2.2" />
+    </>
+  ),
+  // Settings > Mobile: a phone with its top island.
+  iphone: (
+    <>
+      <rect x="4.2" y="1.6" width="7.6" height="12.8" rx="1.8" />
+      <path d="M7.1 3.6h1.8" />
+    </>
   ),
   chevron: <path d="m4.5 6.2 3.5 3.6 3.5-3.6" />,
   pawprint: (

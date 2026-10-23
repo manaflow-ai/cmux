@@ -46,8 +46,7 @@ public final class MenuIdentityHeaderView: NSView, ThemedMenuItemView {
         super.viewDidMoveToWindow()
         guard let field else { return }
         if window == nil {
-            // The menu closed: a changed name is kept, as Chrome keeps it.
-            field.commit()
+            field.menuClosed(by: NSApp.currentEvent)
         } else {
             field.reset()
             // Typing renames at once, as in Chrome; the name starts selected.
@@ -96,6 +95,18 @@ public final class MenuNameField: NSTextField, NSTextFieldDelegate {
         onRename(name)
     }
 
+    /// The menu closed on `event`: a changed name is kept, as Chrome keeps it, unless Escape closed
+    /// it. The menu takes Escape before the field editor sees it, so `cancelOperation` never runs.
+    public func menuClosed(by event: NSEvent?) {
+        if let event, event.type == .keyDown, event.keyCode == Self.escapeKeyCode {
+            done = true
+            return
+        }
+        commit()
+    }
+
+    private static let escapeKeyCode: UInt16 = 53
+
     public func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
         switch selector {
         case #selector(NSResponder.insertNewline(_:)):
@@ -103,8 +114,10 @@ public final class MenuNameField: NSTextField, NSTextFieldDelegate {
             closeMenu()
             return true
         case #selector(NSResponder.moveUp(_:)), #selector(NSResponder.moveDown(_:)):
-            // The arrows leave the field for the menu's rows (the name typed so far is kept).
-            window?.makeFirstResponder(nil)
+            // The arrows leave the field for the menu's rows (the name typed so far is kept); the
+            // same press then moves the menu's highlight.
+            // Only once the field let go, so the press can't come back here.
+            if let window, window.makeFirstResponder(nil), let event = NSApp.currentEvent, event.type == .keyDown { window.sendEvent(event) }
             return true
         case #selector(NSResponder.cancelOperation(_:)):
             // Escape puts the name back and closes the menu, as Escape on any menu does.
@@ -125,31 +138,49 @@ public final class MenuNameField: NSTextField, NSTextFieldDelegate {
 }
 
 /// One row of color swatches; the current one is ringed in the label's ink, the hovered one in the
-/// menu scope's accent. VoiceOver offers each color as an action of the row.
+/// menu scope's accent. VoiceOver offers each color as an action of the row. With a `clear` choice
+/// the row starts with a No Color swatch (an empty ring crossed by a slash, Lawrence 2026-10-22:
+/// "need to be able to remove all workspace colors").
 public final class MenuSwatchStrip: NSView {
     private let choices: [NSMenuItem]
     /// Each choice's color; nil draws the scope's tertiary ink.
     private let colors: [GroupColor?]
     private let current: GroupColor?
+    /// The row that removes the color, drawn first as the No Color swatch; nil draws none.
+    public let clearChoice: NSMenuItem?
+    /// Whether the target has no color now: the No Color swatch is ringed.
+    private let clearIsCurrent: Bool
     private var hovered: Int?
     /// The scope of the view whose menu this is (`themeRows(in:)`); nil until a themed menu hands it.
     private var menuScope: ThemeScope?
     static let diameter: CGFloat = 16, gap: CGFloat = 10, height: CGFloat = 30
 
-    var naturalWidth: CGFloat { CGFloat(choices.count) * (Self.diameter + Self.gap) - Self.gap + 6 }
+    /// The No Color swatch's name (its VoiceOver action and tooltip).
+    public static var noColorTitle: String { String(localized: "menu.swatch.noColor", defaultValue: "No Color", bundle: .module) }
 
-    /// One swatch per choice, drawn in `colors` (same order); `current` is ringed.
-    public init(title: String, choices: [NSMenuItem], colors: [GroupColor?], current: GroupColor?) {
+    /// Every swatch in drawing order: the No Color one first when there is one.
+    private var swatchCount: Int { choices.count + (clearChoice == nil ? 0 : 1) }
+
+    var naturalWidth: CGFloat { CGFloat(swatchCount) * (Self.diameter + Self.gap) - Self.gap + 6 }
+
+    /// One swatch per choice, drawn in `colors` (same order); `current` is ringed. `clear`, when
+    /// given, is the row that removes the color: it draws first as the No Color swatch, ringed when
+    /// `clearIsCurrent`.
+    public init(title: String, choices: [NSMenuItem], colors: [GroupColor?], current: GroupColor?,
+                clear: NSMenuItem? = nil, clearIsCurrent: Bool = false) {
         self.choices = choices
         self.colors = colors
-        self.current = current
+        self.current = clearIsCurrent ? nil : current
+        clearChoice = clear
+        self.clearIsCurrent = clear != nil && clearIsCurrent
         super.init(frame: NSRect(x: 0, y: 0, width: 0, height: Self.height))
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
         setAccessibilityLabel(title)
-        setAccessibilityCustomActions(choices.indices.map { index in
-            NSAccessibilityCustomAction(name: choices[index].title) { [weak self] in
+        let names = (clear == nil ? [] : [Self.noColorTitle]) + choices.map(\.title)
+        setAccessibilityCustomActions(names.indices.map { index in
+            NSAccessibilityCustomAction(name: names[index]) { [weak self] in
                 self?.run(index)
                 return self != nil
             }
@@ -179,7 +210,7 @@ public final class MenuSwatchStrip: NSView {
     /// The swatches' rects, from the leading edge past the ring's reach. Read from the bounds each
     /// time: the header sets this view's frame by hand, so no layout pass is promised.
     private var swatches: [NSRect] {
-        choices.indices.map { index in
+        (0..<swatchCount).map { index in
             NSRect(x: 3 + CGFloat(index) * (Self.diameter + Self.gap), y: (bounds.height - Self.diameter) / 2,
                    width: Self.diameter, height: Self.diameter)
         }
@@ -187,18 +218,38 @@ public final class MenuSwatchStrip: NSView {
 
     public override func draw(_ dirtyRect: NSRect) {
         let hoverRing = hoverRingColor, unknown = unknownSwatchColor
+        let offset = clearChoice == nil ? 0 : 1
         for (index, rect) in swatches.enumerated() {
-            let color = colors.indices.contains(index) ? colors[index] : nil
+            if index < offset {
+                // No Color: an empty ring crossed by a slash, in the tertiary ink.
+                unknown.setStroke()
+                let ring = NSBezierPath(ovalIn: rect.insetBy(dx: 0.75, dy: 0.75))
+                ring.lineWidth = 1.5
+                ring.stroke()
+                let slash = NSBezierPath()
+                let inset = rect.insetBy(dx: rect.width * 0.2, dy: rect.height * 0.2)
+                slash.move(to: NSPoint(x: inset.minX, y: inset.minY))
+                slash.line(to: NSPoint(x: inset.maxX, y: inset.maxY))
+                slash.lineWidth = 1.5
+                slash.stroke()
+                let ringed = index == hovered ? hoverRing : clearIsCurrent ? NSColor.labelColor : nil
+                if let ringed { Self.ring(rect, ringed) }
+                continue
+            }
+            let choice = index - offset
+            let color = colors.indices.contains(choice) ? colors[choice] : nil
             (color?.markColor ?? unknown).setFill()
             NSBezierPath(ovalIn: rect).fill()
             let ringed = index == hovered ? hoverRing : color != nil && color == current ? NSColor.labelColor : nil
-            if let ringed {
-                ringed.setStroke()
-                let ring = NSBezierPath(ovalIn: rect.insetBy(dx: -2.5, dy: -2.5))
-                ring.lineWidth = 1.5
-                ring.stroke()
-            }
+            if let ringed { Self.ring(rect, ringed) }
         }
+    }
+
+    private static func ring(_ rect: NSRect, _ color: NSColor) {
+        color.setStroke()
+        let ring = NSBezierPath(ovalIn: rect.insetBy(dx: -2.5, dy: -2.5))
+        ring.lineWidth = 1.5
+        ring.stroke()
     }
 
     private func swatch(at event: NSEvent) -> Int? {
@@ -213,6 +264,7 @@ public final class MenuSwatchStrip: NSView {
     private func setHovered(_ index: Int?) {
         guard index != hovered else { return }
         hovered = index
+        toolTip = index == 0 && clearChoice != nil ? Self.noColorTitle : nil
         needsDisplay = true
     }
 
@@ -221,8 +273,10 @@ public final class MenuSwatchStrip: NSView {
         run(index)
     }
 
+    /// Runs swatch `index` (in drawing order: No Color first when there is one).
     private func run(_ index: Int) {
-        let choice = choices[index]
+        let offset = clearChoice == nil ? 0 : 1
+        guard let choice = index < offset ? clearChoice : choices.indices.contains(index - offset) ? choices[index - offset] : nil else { return }
         var menu = enclosingMenuItem?.menu
         while let parent = menu?.supermenu { menu = parent }
         menu?.cancelTracking()

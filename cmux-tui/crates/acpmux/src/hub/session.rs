@@ -54,12 +54,30 @@ pub struct Session {
     pub(super) asks_in_flight: std::sync::atomic::AtomicUsize,
     pub(super) asks_landed: Notify,
     pub(super) rehydrate: AtomicBool,
+    /// The agent's context was emptied (`/clear`, `/compact`): its next
+    /// prompt is told every forum rule again (`hub/forum.rs`).
+    pub(super) forum_retell: AtomicBool,
+    /// The posts already told again since the context was emptied, while a
+    /// retell takes more than one prompt (agents' posts past one block's
+    /// share, `hub/forum.rs`).
+    pub(super) forum_retold: std::sync::Mutex<std::collections::HashSet<String>>,
+    /// The forum posts the running turn's prompt tells, until it ends: an
+    /// urgent retirement of their key reaches this session too.
+    pub(super) forum_telling: std::sync::Mutex<Vec<String>>,
+    /// Whether its running agent was launched with cmux's tools (0: not
+    /// launched yet, 1: with, 2: without), so forum rules follow the launch,
+    /// not a profile reloaded since (`hub/tools.rs`).
+    pub(super) launched_with_tools: std::sync::atomic::AtomicU8,
     /// The chat's route changed during a turn: restart the harness on it when
     /// the turn ends (`route_switch.rs`).
     pub(super) route_switch: AtomicBool,
     pub(super) inbound_tx: mpsc::Sender<Inbound>,
     pub(super) inbound_rx: Mutex<Option<mpsc::Receiver<Inbound>>>,
     pub(super) steering: AtomicBool,
+    /// Ctrl-B moves its work: decided by the harness kind it last started as
+    /// (`processes.rs` `backgrounds_work`), or by what an adopted host runs
+    /// (`hosts.rs`), never by the config read later.
+    pub(super) backgrounds_work: AtomicBool,
     /// Steers into the running turn by prompt id (`steer_end.rs`): Send now stops the agent's
     /// step for one that waits (`queue_edit.rs`).
     pub(super) steer_now: StdMutex<SteerNow>,
@@ -76,6 +94,13 @@ pub struct Session {
     /// Set once the session is purged, so late events do not recreate its
     /// files while the directory is being removed.
     pub(super) purged: AtomicBool,
+    /// Set before a purge when the same chat, brought back under this id, replaces this copy
+    /// (`transfer_in.rs`): its uploads stay, since the returning chat's prompts name them, and the
+    /// purge record says `replaced` so the app keeps what it holds for the chat too.
+    pub(super) replaced: AtomicBool,
+    /// Set when the chat is closed (`kill`) until its agent starts again: its host may still
+    /// hold its record while it ends, and it is not running (`policy_mode.rs` `follow_policy`).
+    pub(super) closing: AtomicBool,
     /// Bumps on every status, permission and turn change; waits gate on it.
     pub(super) state_seq: AtomicU64,
     /// Clients attached right now (TUI, web, CLI streams).
@@ -85,8 +110,8 @@ pub struct Session {
     /// Last stderr lines of the current turn, quoted when the agent
     /// process dies without an answer ("Not logged in", a launcher error).
     pub(super) stderr_tail: StdMutex<std::collections::VecDeque<String>>,
-    /// Recent client prompt ids and their outcomes, newest last: a prompt
-    /// sent again with the same id never runs a second turn.
+    /// All pending client prompt ids and a bounded cache of completed outcomes,
+    /// newest last: retries wait for the original prompt while it is pending.
     pub(super) prompts: StdMutex<std::collections::VecDeque<(String, PromptOutcome)>>,
     /// Bumped when a record failed to reach the store; an agent host entry
     /// is acknowledged only when its record was stored.
@@ -94,6 +119,12 @@ pub struct Session {
     /// The seq of the last record that shows the agent doing work: a tool call that is not
     /// messaging, or a file write (`agent_pairs.rs` `progress_record`). 0: none since load.
     pub(super) last_progress: AtomicU64,
+    /// How many signs of its model at work the agent sent (what it says or does, its
+    /// requests, its harness's model lines; not its own bookkeeping, `tap.rs`
+    /// `from_the_model`); a turn that hears none is silent (`silent_turn.rs`).
+    pub(super) heard: AtomicU64,
+    /// The turn that logged `turn_silent` and has not heard its model since (`silent_turn.rs`).
+    pub(super) silent_turn: StdMutex<Option<String>>,
     /// The hub clock's time (`Hub::clock_now`) of the last record or
     /// attach change; the idle harness exit counts from it (`idle.rs`).
     pub(super) last_active: AtomicU64,
@@ -105,6 +136,11 @@ pub struct Session {
     pub(super) subagents: StdMutex<crate::subagents::SubagentTree>,
     /// The commands its harness runs in the background (`processes.rs`).
     pub(super) processes: StdMutex<processes::ProcessTable>,
+    /// Tool calls that run `gh pr create`, and the URL each printed so far, until they end
+    /// (`pull_requests.rs`).
+    pub(super) pr_creates: StdMutex<std::collections::HashMap<String, Option<String>>>,
+    /// The places typing into it, and who sent its prompts (`composers.rs`).
+    pub(super) composers: StdMutex<super::composers::Composers>,
 }
 
 impl Session {
@@ -158,6 +194,13 @@ pub fn live_tags(m: &SessionMeta) -> Value {
     Value::Object(out)
 }
 
+/// [`short_text`] of `s` with its secrets masked first (`secret_scan`), so a
+/// secret across the cut leaves no head: the sub-session tools' prompt
+/// preview (`TurnInfo::masked_preview`); the owner's views keep it raw.
+pub(crate) fn masked_preview(s: &str, max: usize) -> String {
+    short_text(&crate::secret_scan::mask(s), max)
+}
+
 pub(crate) fn short_text(s: &str, max: usize) -> String {
     let s = s.split_whitespace().collect::<Vec<_>>().join(" ");
     if s.chars().count() <= max {
@@ -172,12 +215,42 @@ pub(crate) fn short_text(s: &str, max: usize) -> String {
 /// The person's text of a prompt: its text blocks, without the hidden context acpmux added
 /// (`prompt_context.rs`).
 pub(crate) fn prompt_text(blocks: &[Value]) -> String {
-    blocks
+    prompt_text_parts(blocks).0
+}
+
+/// The text `prompt_text` records of `blocks`, and the `{start, end}` range of each text
+/// block the composer marked pasted (`_meta.cmux.pasted`) in it, in UTF-16 code units so a
+/// client's `text.slice(start, end)` reads the paste. Both come from this one walk, so the
+/// ranges always match the text.
+pub(crate) fn prompt_text_parts(blocks: &[Value]) -> (String, Vec<Value>) {
+    let (mut text, mut units, mut pasted) = (String::new(), 0usize, Vec::new());
+    let parts = blocks
         .iter()
         .filter(|b| !crate::prompt_context::is_context(b))
-        .filter_map(|b| b.get("text").and_then(Value::as_str))
-        .collect::<Vec<_>>()
-        .join("\n")
+        .filter_map(|b| b.get("text").and_then(Value::as_str).map(|t| (b, t)));
+    for (i, (block, part)) in parts.enumerate() {
+        if i > 0 {
+            text.push('\n');
+            units += 1;
+        }
+        let start = units;
+        text.push_str(part);
+        units += part.encode_utf16().count();
+        if block.pointer("/_meta/cmux/pasted").and_then(Value::as_bool) == Some(true) {
+            pasted.push(json!({"start": start, "end": units}));
+        }
+    }
+    (text, pasted)
+}
+
+/// Adds `pasted` (the ranges of `blocks`' pasted text, `prompt_text_parts`) to the prompt
+/// record `msg`, whose `text` is `prompt_text(blocks)`; none when nothing was pasted, or
+/// when `msg` records some other text the ranges would not fit.
+pub(crate) fn mark_pasted(msg: &mut Value, blocks: &[Value]) {
+    let (text, pasted) = prompt_text_parts(blocks);
+    if !pasted.is_empty() && msg.get("text").and_then(Value::as_str) == Some(text.as_str()) {
+        msg["pasted"] = Value::Array(pasted);
+    }
 }
 
 /// What acpmux last set on a session (`Session::applied`).
@@ -190,4 +263,25 @@ pub(super) struct Applied {
     /// (`start_gate/preset_bind.rs`).
     pub preset_resolved: Option<String>,
     pub preset_spawned: Option<String>,
+    /// Its agent was started with OpenCode asked to ask before every tool
+    /// (`opencode_ask.rs`); false for an agent host reached again after a
+    /// daemon restart, which a narrower policy restarts (`policy_mode.rs`).
+    pub opencode_asks: bool,
+}
+
+/// `sessions` newest first. Each session's `updated_at` is read once: other
+/// tasks move it at any time (every logged event), and a key that is read
+/// again on each comparison is not a total order, which makes Rust's sort
+/// panic (the Chief daemon, 2026-10-14). Ties keep the session id order, so
+/// the list is the same for the same values.
+pub(crate) fn newest_first(sessions: Vec<Arc<Session>>) -> Vec<Arc<Session>> {
+    let mut keyed: Vec<_> = sessions
+        .into_iter()
+        .map(|s| {
+            let at = s.meta.lock().unwrap_or_else(|e| e.into_inner()).updated_at;
+            (at, s)
+        })
+        .collect();
+    keyed.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.id.cmp(&b.1.id)));
+    keyed.into_iter().map(|(_, s)| s).collect()
 }

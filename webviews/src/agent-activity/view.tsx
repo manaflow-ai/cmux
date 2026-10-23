@@ -12,7 +12,6 @@ import {
   type ActivitySession,
   type ActivityState,
 } from "./model";
-import { attentionCount, laneMachines, laneStatus } from "./lanes";
 import { native } from "./native";
 
 function Frame({ event, noFrame, onClick }: { event?: ActivityEvent; noFrame: string; onClick?: () => void }) {
@@ -206,97 +205,21 @@ function Empty({ strings }: { strings: ActivityState["strings"] }) {
   );
 }
 
-/** The lanes view (cx-v9k2f): every acpmux session by machine and coordinator; a click opens its chat. */
-function Lanes({ state, dispatch }: { state: ActivityState; dispatch: (a: any) => void }) {
-  const all = state.lanes ?? [];
-  const machines = laneMachines(all, state.filter, state.strings);
-  // The count is of every lane, as the sidebar's, whatever the filter hides.
-  const attention = attentionCount(all);
-  // "Idle · 3h" keeps counting on a quiet page: redraw each minute.
-  const [now, setNow] = useState(Date.now);
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 60_000);
-    return () => clearInterval(timer);
-  }, []);
-  if (machines.length === 0) {
-    return (
-      <div className="lanes">
-        <div className="empty">
-          <b>{all.length ? state.strings.lanesNoMatch : state.strings.lanesEmpty}</b>
-        </div>
-      </div>
-    );
-  }
-  return (
-    <div className="lanes">
-      {attention > 0 && (
-        <p className="lanes-attention">{state.strings.lanesAttention.replace("{count}", String(attention))}</p>
-      )}
-      {machines.map((machine) => (
-        <section key={machine.id} data-machine={machine.id}>
-          <h2>{machine.name}</h2>
-          {machine.groups.map((group) => (
-            <div key={group.id} className="lane-group">
-              <h3>{group.title}</h3>
-              <ul>
-                {group.lanes.map((lane) => (
-                  <li key={lane.id}>
-                    <button
-                      className="lane"
-                      data-lane={lane.id}
-                      data-state={lane.state}
-                      data-workspace={lane.workspaceId ?? undefined}
-                      data-priority-revision={
-                        state.priorityChangedSessionId === lane.id ? state.priorityRevision : undefined
-                      }
-                      /* tooltip-allow: the lane shows its title; the tooltip is when it started */
-                      title={lane.since ? new Date(lane.since).toLocaleString() : undefined}
-                      onClick={() =>
-                        dispatch({ type: "jump", id: lane.id, workspaceId: lane.workspaceId ?? undefined })
-                      }
-                    >
-                      <span className="lane-dot" />
-                      <span className="lane-title">{lane.title}</span>
-                      <span className="lane-status">{laneStatus(lane, now, state.strings)}</span>
-                      {lane.error ? (
-                        <span className="lane-error">{lane.error}</span>
-                      ) : (
-                        (lane.harness || lane.step) && (
-                          <span className="lane-detail">
-                            {lane.harness && <span className="lane-harness">{lane.harness}</span>}
-                            {lane.step && <span className="lane-step">{lane.step}</span>}
-                          </span>
-                        )
-                      )}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
-        </section>
-      ))}
-    </div>
-  );
-}
-
 /** A segmented control of native radios, as Settings draws them. */
 function Segmented<T extends string>({
   label,
-  className,
   value,
   options,
   onChange,
 }: {
   label: string;
-  className?: string;
   value: T;
   options: readonly (readonly [T, string])[];
   onChange: (value: T) => void;
 }) {
   const name = useId();
   return (
-    <fieldset className={className ? `segmented ${className}` : "segmented"} aria-label={label}>
+    <fieldset className="segmented" aria-label={label}>
       {options.map(([option, title]) => (
         <label key={option} className="segment" data-checked={value === option ? "" : undefined}>
           <input
@@ -323,8 +246,6 @@ export function ActivityView({
   dispatch: (a: any) => void;
   error?: string;
 }) {
-  const [page, setPage] = useState<"lanes" | "computer">("lanes");
-  const showLanes = !!state.lanes && page === "lanes";
   const body =
     state.layout === "timeline" ? (
       <Timeline state={state} dispatch={dispatch} />
@@ -337,18 +258,6 @@ export function ActivityView({
     <div className="activity">
       <nav>
         <strong>{state.strings.title}</strong>
-        {state.lanes && (
-          <Segmented
-            label={state.strings.pageView}
-            className="page-view"
-            value={page}
-            options={[
-              ["lanes", state.strings.lanes],
-              ["computer", state.strings.computerUse],
-            ]}
-            onChange={setPage}
-          />
-        )}
         <input
           type="search"
           aria-label={state.strings.filter}
@@ -356,20 +265,18 @@ export function ActivityView({
           value={state.filter}
           onChange={(e) => dispatch({ type: "filter", value: e.target.value })}
         />
-        {!showLanes && (
-          <Segmented
-            label={state.strings.layout}
-            value={state.layout}
-            options={[
-              ["split", state.strings.layoutSplit],
-              ["timeline", state.strings.layoutTimeline],
-              ["grid", state.strings.layoutGrid],
-            ]}
-            onChange={(layout) => dispatch({ type: "layout", value: layout })}
-          />
-        )}
+        <Segmented
+          label={state.strings.layout}
+          value={state.layout}
+          options={[
+            ["split", state.strings.layoutSplit],
+            ["timeline", state.strings.layoutTimeline],
+            ["grid", state.strings.layoutGrid],
+          ]}
+          onChange={(layout) => dispatch({ type: "layout", value: layout })}
+        />
       </nav>
-      {error ? <div className="error">{error}</div> : showLanes ? <Lanes state={state} dispatch={dispatch} /> : body}
+      {error ? <div className="error">{error}</div> : body}
     </div>
   );
 }

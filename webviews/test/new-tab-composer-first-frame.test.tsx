@@ -3,7 +3,8 @@
 // pills where effort and access go, then the chips, while the session started). The effort this
 // harness's chats last showed and the start mode acpmux last answered (`_acpmux/start_mode`,
 // startMode.ts) paint at once, and the session's report keeps the same chips in the same order
-// with the same labels.
+// with the same labels. The effort is the model button's detail ("Opus 5.5  High"; Leo 2026-10-20:
+// one model button, no separate effort chip), the access chip follows it.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -162,12 +163,15 @@ async function render(summary: Summary, emptyCatalog = false) {
   });
 }
 
-/// The effort and access chips, in order, as kind and label.
+/// The model button's effort and the access chip, in order, as kind and label.
 const chips = () =>
-  [...host.querySelectorAll<HTMLElement>(".acpmux-effort, .acpmux-mode")].map((chip) => ({
-    kind: chip.classList.contains("acpmux-effort") ? "effort" : "mode",
-    label: (chip.querySelector(".acpmux-picker-button")?.textContent ?? "").trim(),
-  }));
+  [
+    ...host.querySelectorAll<HTMLElement>(".acpmux-model .acpmux-model-detail:not(.acpmux-fit-label), .acpmux-mode"),
+  ].map((chip) =>
+    chip.classList.contains("acpmux-mode")
+      ? { kind: "mode", label: (chip.querySelector(".acpmux-picker-button")?.textContent ?? "").trim() }
+      : { kind: "effort", label: (chip.textContent ?? "").trim() },
+  );
 
 test("a new chat paints its last effort and its kept start mode on the first frame, and its session keeps them in place", async () => {
   // An earlier chat on this harness reported its chips.
@@ -175,6 +179,9 @@ test("a new chat paints its last effort and its kept start mode on the first fra
   const earlier = chips();
   expect(earlier.map((chip) => chip.kind)).toEqual(["effort", "mode"]);
   expect(earlier.every((chip) => chip.label.length > 0)).toBe(true);
+  expect(earlier[0]!.label).toBe("High");
+  // One model control: no effort chip beside it.
+  expect(host.querySelector(".acpmux-effort")).toBeNull();
   act(() => root?.unmount());
   root = undefined;
   host.replaceChildren();
@@ -196,10 +203,13 @@ test("a new chat paints its last effort and its kept start mode on the first fra
   expect(chips()).toEqual(earlier);
 });
 
-test("with no remembered chips a new chat draws no placeholder pills", async () => {
+test("with no remembered chips a new chat draws no placeholder pills and no Reasoning word, and names the highest mode", async () => {
   await render(undefined);
   expect(host.querySelector(".acpmux-chip-skeleton, .acpmux-chip-skeleton-bar")).toBeNull();
-  expect(chips()).toEqual([]);
+  // acpmux never answered for this harness here: the harness's highest level (Leo 2026-10-23: "if you
+  // don't know what to switch to, typically just switch to the highest permission level").
+  expect(chips()).toEqual([{ kind: "mode", label: "Bypass permissions" }]);
+  expect(host.textContent).not.toContain("Reasoning");
 });
 
 test("a new chat shows the bundled model picker before the host catalog arrives", async () => {

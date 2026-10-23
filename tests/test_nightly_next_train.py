@@ -236,6 +236,27 @@ class History(unittest.TestCase):
         self.assertEqual(self.tree_file(again["commit"], "d.txt"), "d")
         self.assertTrue(train.verify_train_commit(again["commit"])["ok"])
 
+    def test_the_drive_refuses_a_base_that_names_cars_off_the_tip(self) -> None:
+        # A crafted base (a dispatch's good_build) can name any commit in its
+        # trailers; the car guards would check it out with the release App
+        # token held, so the drive refuses anything off the tip's history.
+        made = train.make_train_commit(self.base, self.c4, self.cars, ["pr-1"])
+        src, carried = train.source_base(made["commit"])
+        cars = train.plan_cars(src, self.c4, REPO, api=self.api, carried=carried)
+        train.require_on_tip(src, cars, self.c4)
+        r = self.repo
+        r.git("checkout", "-q", "-b", "side", self.base)
+        evil = r.commit("unreviewed (#9)", {"evil.sh": "boom\n"})
+        r.git("checkout", "-q", "feat-cmux-next")
+        forged = train.Car(id="pr-9", kind="pr", commits=[evil], pr=9, carried=True)
+        with self.assertRaisesRegex(train.TrainError, "car pr-9 names"):
+            train.require_on_tip(src, cars + [forged], self.c4)
+        with self.assertRaisesRegex(train.TrainError, "source"):
+            train.require_on_tip(evil, cars, self.c4)
+        short = train.Car(id="pr-8", kind="pr", commits=[self.c1[:12]], pr=8, carried=True)
+        with self.assertRaisesRegex(train.TrainError, "car pr-8 names"):
+            train.require_on_tip(src, cars + [short], self.c4)
+
     def test_a_prefix_candidate_is_a_real_commit_minus_later_carried_cars(self) -> None:
         head, reverts = train.prefix_candidate(self.cars, 2, ["pr-1"], self.base)
         self.assertEqual(head, self.p2)
@@ -379,7 +400,8 @@ class Verdicts(unittest.TestCase):
     def api(self, run=None, jobs=None, head_branch="nightly-next"):
         def call(path, paginate=False):
             if path == f"repos/{REPO}/actions/runs/39473493290":
-                return {"head_branch": head_branch, "head_sha": self.COMMIT}
+                return {"head_branch": head_branch, "head_sha": self.COMMIT, "event": "push",
+                        "head_repository": {"full_name": REPO}}
             if path == f"repos/{REPO}/actions/runs/555":
                 return run if run is not None else {"path": train.CANARY_WORKFLOW, "event": "schedule", "repository": {"full_name": REPO}}
             if path.startswith(f"repos/{REPO}/actions/runs/555/jobs"):

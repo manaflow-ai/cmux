@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextDesign
+import CmuxNextSettings
 import CmuxNextSidebar
 
 /// A sidebar right-click's menu, by target. The layout sections' menus stay
@@ -27,20 +28,35 @@ enum SidebarContextMenus {
             guard let first = ids.first, !ids.contains(where: { model.isPlaceholder($0) || CloudCreationRows.isRow($0, services) }) else { return nil }
             // Dismiss Highlight shows only while the row's workspace draws an attention ring (cx-epgo).
             let highlighted = services.daemon.store.workspaces.first { $0.id == first.rawValue }.map(services.notifications.hasHighlight) ?? false
-            let entries = highlighted ? nil : ContextMenuCatalog.shared.entries(for: .workspaceRow, removing: ["notifications.dismissHighlight"])
+            // Several selected rows get Chrome's menu for several tabs (ContextMenuEssentials.selectionMenus).
+            let catalog = ContextMenuCatalog.shared, selection = ids.count > 1
+            let all = selection ? catalog.selectionEntries(for: .workspaceRow) : catalog.entries(for: .workspaceRow)
+            let entries = highlighted ? all : ContextMenuCatalog.removing(["notifications.dismissHighlight"], from: all)
             let target = ActionTargetRef(kind: .workspace, id: first.rawValue)
             let menu = registry.makeContextMenu(for: .workspaceRow, target: target, entries: entries)
             // The name field renames the clicked row only, so a multi-row selection gets just the swatches.
-            MenuIdentityHeader.install(in: menu, registry: registry, target: target, name: ids.count == 1 ? model.workspace(first)?.title ?? "" : nil,
+            MenuIdentityHeader.install(in: menu, registry: registry, target: target, name: selection ? nil : model.workspace(first)?.title ?? "",
                                        rename: "renameWorkspace")
+            if selection { nameSelection(menu, ids, services) }
             menu.themeRows(in: scope)
             return menu
         case .group(let id):
             let target = ActionTargetRef(kind: .workspaceGroup, id: id.rawValue)
             let menu = registry.makeContextMenu(for: .workspaceGroup, target: target)
             let group = model.group(id)
+            // cmux.json `workspaceGroups.byCwd`: the group's own rows, after the menu's first group.
+            let configured = WorkspaceGroupConfigLook(config: services.settings?.snapshot.workspaceGroups ?? WorkspaceGroupConfig(), machines: services.machines)
+                .menuItems(for: group, target: target, registry: registry)
+            if !configured.isEmpty {
+                var at = menu.items.firstIndex(where: \.isSeparatorItem) ?? menu.items.count
+                menu.insertItem(.separator(), at: at)
+                for item in configured {
+                    at += 1
+                    menu.insertItem(item, at: at)
+                }
+            }
             MenuIdentityHeader.install(in: menu, registry: registry, target: target, name: group?.name ?? "", rename: "workspaceGroup.rename",
-                                       current: group?.custom == nil ? group?.color : nil)
+                                       current: group?.custom == nil ? group?.color : nil, noColor: group?.tint == GroupTint.none)
             menu.themeRows(in: scope)
             return menu
         case .section(.machine(let machine)) where machine.rawValue == MachineRegistry.localID && SidebarSection.machineCount(model.sections) == 1:
@@ -58,13 +74,27 @@ enum SidebarContextMenus {
         case .profile(let id):
             return registry.makeContextMenu(for: .profile, target: ActionTargetRef(kind: .profile, id: id.rawValue)).themeRows(in: scope)
         case .nowPlaying:
-            // The media card's rows (u2437): Play/Pause, Hide, Hide Until Relaunch, Never Show Media Card.
-            let menu = registry.makeContextMenu(for: .nowPlayingCard)
+            // The media card's rows (u2437): Play/Pause, Picture in Picture (on the tab the card
+            // shows), Hide, Hide Until Relaunch, Never Show Media Card.
+            let menu = registry.makeContextMenu(for: .nowPlayingCard,
+                                                arguments: [PictureInPictureHandlers.cardArgument: .bool(true)])
             menu.themeRows(in: scope)
             return menu
+        case .priorityChat(let id):
+            // A Priority row: the actions its hover buttons run, on its chat.
+            return registry.makeContextMenu(for: .priorityRow, target: SidebarPriorityRowActions.target(id)).themeRows(in: scope)
         case .layoutItem, .layoutSection:
             return nil
         }
+    }
+
+    /// A multi-selection's menu says what its rows do to every selected row: Pin pins them when
+    /// the menu's target (the first selected row) is unpinned, as the pin action decides, and Mute
+    /// mutes them while one plays.
+    private static func nameSelection(_ menu: NSMenu, _ ids: [CmuxNextSidebar.WorkspaceID], _ services: AppServices) {
+        let workspaces = ids.compactMap { services.workspace(id: $0.rawValue) }
+        let pins = workspaces.first.map { !PinCommands(context: AppActionContext(services: services)).isWorkspacePinned($0) } ?? true
+        menu.namingWorkspaceSelection(pins: pins, mutes: BrowserTabAudio.audio(of: workspaces, cache: services.cache) != .muted)
     }
 
     /// The most top-level rows a right-click menu shows (ActionSurfaceParityTests).

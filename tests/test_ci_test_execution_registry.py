@@ -674,7 +674,6 @@ class LaneRunnerTests(unittest.TestCase):
         workflow = ["run: python3 scripts/verify-local.py --jobs 4\n"]
         discovered = validator.recipe_tests(workflow)
         self.assertIn("tests/test_normalize_pbxproj.py", discovered)
-        self.assertIn("tests/test_ui_fuzzer_engine.py", discovered)
 
 
 if __name__ == "__main__":

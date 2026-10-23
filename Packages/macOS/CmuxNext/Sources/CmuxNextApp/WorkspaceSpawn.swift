@@ -12,6 +12,10 @@ import Foundation
 /// name, command, and extra environment through `newTab`'s arguments.
 struct WorkspaceSpawn: Sendable {
     var cwd: String?
+    /// A person's Cmd-N: the folder of the tab they work in (Ghostty's
+    /// `window-inherit-working-directory`, NewTerminalStart.folder). After
+    /// `cwd` and the room's own default folder, before the daemon's default.
+    var inheritedCwd: String?
     var name: String?
     var command: String?
     var env: [String: String] = [:]
@@ -86,6 +90,12 @@ struct WorkspaceSpawn: Sendable {
         opensNewTabPage = invocation.origin == .user && command == nil
     }
 
+    /// `tabs.terminalFirst` (cmux Classic Mode, #23021): a person's new workspace or window opens
+    /// a terminal, as in cmux classic, not the New Tab page. A first chat or session still opens.
+    @MainActor mutating func followClassicMode(_ services: AppServices) {
+        if NewTabKind.terminalFirst(services) { opensNewTabPage = false }
+    }
+
     /// The name of a workspace opened in `directory`: the folder's name
     /// without surrounding whitespace, or nil for the filesystem root or a
     /// blank name (the daemon names it).
@@ -108,7 +118,9 @@ extension WindowManager {
     /// the workspace id (`WorkspaceSpawner.start`).
     func startWorkspace(_ spawn: WorkspaceSpawn, on daemon: DaemonService? = nil, into windowID: String? = nil,
                         frame: CGRect? = nil) -> () async throws -> String {
-        WorkspaceSpawner(windows: self, spawn: spawn, daemon: daemon ?? services.daemon, windowID: windowID, frame: frame).start()
+        var spawn = spawn
+        spawn.followClassicMode(services)
+        return WorkspaceSpawner(windows: self, spawn: spawn, daemon: daemon ?? services.daemon, windowID: windowID, frame: frame).start()
     }
 }
 
@@ -185,7 +197,8 @@ struct WorkspaceSpawner {
               spawn.browserProfile == nil, spawn.cwd == nil || daemon.isLocal else { return nil }
         let repair: EmptyWorkspaceRepair = services.machines.emptyWorkspaceRepair(daemon.machineID, local: services.emptyWorkspaces)
         let room = services.machines.local.store.profile(spawn.profile ?? profile)
-        let cwd = spawn.cwd ?? (daemon.isLocal ? room?.defaults : nil)?.cwd.flatMap { $0.isEmpty ? nil : ($0 as NSString).expandingTildeInPath } ?? daemon.defaultCwd
+        let cwd = spawn.cwd ?? (daemon.isLocal ? room?.defaults : nil)?.cwd.flatMap { $0.isEmpty ? nil : ($0 as NSString).expandingTildeInPath }
+            ?? (daemon.isLocal ? spawn.inheritedCwd : nil) ?? daemon.defaultCwd
         guard services.agentTabs.showsWorkspaceAtOnce(on: daemon) else { return nil }
         // Claimed first, so the reconcile the intent runs places and selects it in this window in this turn;
         // its slot is placed in the turn the daemon's workspace takes the stand-in over.
@@ -204,7 +217,7 @@ struct WorkspaceSpawner {
                     }
                 }, settle: { await Self.settled(on: daemon) }) {
                     if let room, let session = daemon.store.registryID, let home = services.machines.local.connection {
-                        try await home.pinWorkspace(session: session, key: key, to: room.id); BenchSpans.mark("cmdN.pinWorkspace.returned")
+                        try await DaemonConnection.retryingLateReplies(PinWorkspaceRequest.command) { try await home.pinWorkspace(session: session, key: key, to: room.id) }; BenchSpans.mark("cmdN.pinWorkspace.returned")
                     }
                     return try await shown.confirm()
                 }
@@ -251,7 +264,7 @@ struct WorkspaceSpawner {
         let home = services.machines.local
         let room = home.store.profile(spawn.profile ?? profile)
         if let room, let session = daemon.store.registryID, let homeConnection = home.connection {
-            try await homeConnection.pinWorkspace(session: session, key: key, to: room.id); BenchSpans.mark("cmdN.pinWorkspace.returned")
+            try await DaemonConnection.retryingLateReplies(PinWorkspaceRequest.command) { try await homeConnection.pinWorkspace(session: session, key: key, to: room.id) }; BenchSpans.mark("cmdN.pinWorkspace.returned")
         }
         if let browserProfile = spawn.browserProfile {
             let qualified = BrowserProfileService.QualifiedWorkspace(session: daemon.store.registryID ?? daemon.machineID, key: key.rawValue)
@@ -264,10 +277,11 @@ struct WorkspaceSpawner {
         vars.merge(defaults?.env ?? [:]) { _, profile in profile }
         vars.merge(spawn.env) { _, caller in caller }
         vars.merge(DaemonConnection.placementEnvironment(workspace: key, terminal: terminal)) { _, placement in placement }
-        let env: [String: String]? = daemon.supports(DaemonCapabilities.shared.terminalEnv) ? vars : nil
-        let keep: Bool? = spawn.keep && daemon.supports(DaemonCapabilities.shared.terminalReap) ? true : nil
+        let env: [String: String]? = daemon.supports(DaemonCapabilities.terminalEnv) ? vars : nil
+        let keep: Bool? = spawn.keep && daemon.supports(DaemonCapabilities.terminalReap) ? true : nil
         let repair: EmptyWorkspaceRepair = services.machines.emptyWorkspaceRepair(daemon.machineID, local: services.emptyWorkspaces)
-        let cwd = spawn.cwd ?? defaults?.cwd.flatMap { $0.isEmpty ? nil : ($0 as NSString).expandingTildeInPath } ?? daemon.defaultCwd
+        let cwd = spawn.cwd ?? defaults?.cwd.flatMap { $0.isEmpty ? nil : ($0 as NSString).expandingTildeInPath }
+            ?? (daemon.isLocal ? spawn.inheritedCwd : nil) ?? daemon.defaultCwd
         BenchSpans.mark("cmdN.create.sending")
         if let page = try await FirstTabHold.creating(key.rawValue, windows: windows, { try await WorkspaceCreation.newTabPage(spawn, key, cwd: cwd, on: daemon, repair: repair, tabs: services.agentTabs) }) { return page }
         let command = spawn.command

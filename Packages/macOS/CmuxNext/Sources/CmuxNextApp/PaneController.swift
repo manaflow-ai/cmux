@@ -46,6 +46,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// The strip's selected tab as last set, unobserved: a tab switch does not re-run `snapshot()` (I2).
     private(set) var stripSelection: String?
     private var sentFocusPane: FocusTopology.Pane? // this pane's topology part as last sent (I4)
+    private var closeTabs: [(SurfaceID, String)] = [] // the tabs of the last apply: a closed tab's opener picks its successor (BrowserTabOpeners.closeRelations)
     private var remapsViewedTab = false // a newly selected tab lost its attention dot: map the strip once, after the apply
     #if DEBUG
     private var debugSnapshotRuns = 0
@@ -84,6 +85,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         view.stripView.contextMenuProvider = { [weak self] target in self?.contextMenu(for: target) }
         view.stripView.hoverCards = services.hoverCards
         view.stripView.onHoverTab = { [weak self] id in self?.noteHover(id) }
+        view.stripView.newTabShortcut = { [weak services] in services?.registry.shortcutDisplay(for: StripNewTab.action) }
         view.onResize = { [weak services, weak paneView = view] in
             services?.surfaceInvariant.noteChange()
             services?.newTabSpares.paneLayoutDidChange(in: paneView?.window) // the parked New Tab spare follows
@@ -153,8 +155,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
         // This pane's own workspace record: reading its fields observes them
         // only, never the workspace list (a lookup by pane would).
         let ownWorkspace = workspace?.workspace ?? store.workspace(containing: pane.handle)
-        // A dock-bound chat stays hidden under the id the store gave it (`dockBound`).
-        let hidden = dockBound
+        // A dock-bound chat (`dockBound`) or a tab on its way to the side (`OutboundTab`) stays hidden.
+        let hidden = dockBound.union(OutboundTab.hidden(in: self))
         var local: [StripTabItem] = []
         for tab in state?.localBrowserTabs[paneKey] ?? [] where !hidden.contains(tab.id) {
             let page = services.cache.existingBrowser(tab.id)?.tab.state
@@ -174,8 +176,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
         let dock = ownWorkspace?.screens.lazy.flatMap(\.columns).first { $0.layout.paneIDs.contains(pane.handle) }?.dock
         let pinned = dock?.isPinned == true
         let tabs = pane.tabs.filter { !hidden.contains($0.id) }
-        // The Home Chief pane (a pinned dock that takes no other tab) shows no tab bar at all
-        // (plans/cmux-next/home-chief-pane.md).
+        // The Home Chief pane (a pinned dock) shows no tab bar while it holds only Home (Lawrence
+        // 2026-10-23: "home chief should have no tabbar"); a tab dragged in brings it back while it
+        // is there (plans/cmux-next/home-chief-pane.md H1).
         let homeChief = dock.map { LayoutMapping.dock($0).hidesTabBar(shownTabs: tabs.count + local.count) } ?? false
         return Snapshot(tabs: tabs, items: local, groups: groups,
                          defaultIndex: pane.defaultTabIndex, generation: store.generation?.rawValue,
@@ -183,7 +186,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
                          hidesStrip: hidesTabBar || ownWorkspace?.app != nil || homeChief,
                          fullWidthTab: services.paneFullWidthTabs.contains(paneKey),
                          keepsFirstTab: pinned && tabs.first?.id == pane.tabs.first?.id,
-                         takesNewTabs: !pinned || dock?.allowsTabs == true)
+                         // What Home's pinned dock opens goes beside it (ChatColumnPlacement, and
+                         // LinkOpener for links), so its strip has no +.
+                         takesNewTabs: !pinned)
     }
 
     /// Daemon tab `tab`'s strip item; observed one tab at a time (`tabItems`).
@@ -194,7 +199,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         let ownWorkspace = workspace?.workspace ?? daemon.store.workspace(containing: pane.handle)
         // The one title rule (`TabTitleResolver`), shared with the sidebar and the closed-tab toasts.
         var titles = TabTitleResolver(services: services, workspace: ownWorkspace?.handle)
-        if tab.agentSession != nil { titles.workspaceName = ownWorkspace?.displayName }
+        if tab.agentSession != nil { titles.workspaceName = AgentChatTabTitle.workspaceName(ownWorkspace) }
         // A new tab page is "New Tab", with the new-tab icon, until it
         // becomes a chat (then the chat's title and icon).
         let isNewTabPage = titles.isNewTabPage(tab)
@@ -206,21 +211,23 @@ final class PaneController: SurfacePresenter, PresentablePane {
             item.title = page.title
             item.icon = page.icon
         }
+        // A Home tab dots while any Home conversation is unread, as the sidebar's Home item counts them.
+        if HomeService.isHomeTab(page: tab.page, app: tab.appTab?.app), !services.home.unreadConversations.isEmpty { item.isUnread = true }
         item.groupID = tab.tabGroup.map { TabGroupID($0.rawValue) }
         if !DesignSettings.shared.attention.showsOnTab { item.isUnread = false }
         item.isDormant = services.cache.dormantTabs.contains(tab.id)
         if tab.kind == .remoteTerminal {
             // Its terminal runs on another machine: that machine's name.
-            item.machineBadge = services.remoteTerminals.badge(for: tab)
+            (item.machineBadge, item.machineName) = services.remoteTerminals.badge(for: tab)
             item.icon = .icon(.terminal)
         } else if tab.kind != .browser {
-            item.machineBadge = machine
+            (item.machineBadge, item.machineName) = (machine, machine.flatMap { _ in services.machines.machineName(daemon.machineID) })
             item.themeBadge = services.themes.badge(forTerminal: TerminalThemeKey(machine: daemon.machineID, tab: tab))
         } else {
             // A browser tab names the machine whose localhost it sees.
             let engine: BrowserEngineKind = tab.browserEngine == BrowserEngineTag.cef.rawValue ? .cef : .webkit
             let badge = services.remoteLocalhost.badge(for: tab, url: tab.url.flatMap(URL.init(string:)), engine: engine)
-            (item.machineBadge, item.machineBadgeHelp) = (badge?.text, badge?.help)
+            (item.machineBadge, item.machineBadgeHelp, item.machineName) = (badge?.text, badge?.help, services.machines.tabColorName(daemon.machineID, badge: badge?.text))
             // Incognito tabs have only a placeholder record in the daemon.
             let incognito = services.cache.browserTabs.isIncognitoTab(tab.id)
             if incognito {
@@ -262,7 +269,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         if stripModel.showsNewTabButton != snapshot.takesNewTabs { stripModel.showsNewTabButton = snapshot.takesNewTabs }
         if !snapshot.items.isEmpty { LaunchReveal.shared.markReady(.tabs) }
         var selectNew = false
-        if let pending = pendingSelectSurface, let tab = pane.tabs.first(where: { $0.surface == pending }) {
+        if let pending = pendingSelectSurface, let tab = snapshot.tabs.first(where: { $0.surface == pending }) { // once listed (OutboundTab)
             state?.selection.select(tab.id, in: paneKey)
             pendingSelectSurface = nil
             selectNew = true
@@ -271,12 +278,11 @@ final class PaneController: SurfacePresenter, PresentablePane {
             pendingSelectTab = nil
             selectNew = true
         }
-        // Members of a collapsed group are hidden: a closed selected tab's
-        // successor skips them while a shown tab survives (close-focus.md).
+        // Members of a collapsed group are hidden: a closed selected tab's successor skips them while a shown tab survives (close-focus.md).
         let collapsed = Set(snapshot.groups.filter(\.isCollapsed).map(\.id))
         let hidden = Set(snapshot.items.filter { $0.groupID.map(collapsed.contains) ?? false }.map(\.id.rawValue))
-        let selected = state?.selection.resolve(pane: paneKey, tabs: snapshot.items.map(\.id.rawValue),
-                                                defaultIndex: snapshot.defaultIndex, hidden: hidden) { services.cache.pageRequests.openers.relations(among: pane.tabs) }
+        let selected = state?.selection.resolve(pane: paneKey, tabs: snapshot.items.map(\.id.rawValue), defaultIndex: snapshot.defaultIndex, hidden: hidden,
+                                                openers: services.cache.pageRequests.openers.closeRelations(among: pane.tabs, last: &closeTabs))
         setStripSelection(selected.map { StripTabID($0) })
         let selectedID = stripModel.selectedID
         if selectNew {

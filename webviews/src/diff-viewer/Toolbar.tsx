@@ -198,6 +198,12 @@ function ViewOptionsMenuRows({
         onClick={onToggleHideViewed}
       />
       <ViewMenuButton
+        checked={state.options.groupByKind}
+        icon="files"
+        label={label("groupFilesByKind")}
+        onClick={() => onSetOption("groupByKind", !state.options.groupByKind)}
+      />
+      <ViewMenuButton
         checked={state.options.showBackgrounds}
         icon="background"
         label={label("showBackgrounds")}

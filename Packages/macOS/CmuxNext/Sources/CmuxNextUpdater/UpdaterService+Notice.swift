@@ -10,7 +10,8 @@ extension UpdaterService {
     /// The card's icon, text and actions for the running build, or nil.
     public var cardPresentation: UpdateCardPresentation? {
         guard let card else { return nil }
-        var shown = card.presentation(version: identity.shortVersion, build: identity.build)
+        var shown = card.presentation(version: identity.shortVersion, build: identity.build,
+                                      install: card == .installing ? installStatus : nil)
         switch card {
         case .available, .note(.found):
             // The found build's short version, date and first changelog lines.
@@ -18,7 +19,7 @@ extension UpdaterService {
                 shown.detail = changelog.detail ?? shown.detail
                 shown.lines = changelog.lines
             }
-        case .checking, .downloading, .installing, .note:
+        case .checking, .downloading, .installing, .note, .pulled:
             break
         }
         return shown
@@ -31,7 +32,7 @@ extension UpdaterService {
         switch card {
         case .available(let found): version = found
         case .note(.found(let found)): version = found
-        case .checking, .downloading, .installing, .note, nil: return nil
+        case .checking, .downloading, .installing, .note, .pulled, nil: return nil
         }
         return version.flatMap { UpdateState.ReleaseNotes(displayVersionString: $0)?.url }
             ?? URL(string: "https://github.com/manaflow-ai/cmux/releases")
@@ -45,6 +46,8 @@ extension UpdaterService {
         case .retry: checkForUpdates()
         case .details: presentUpdateUI?()
         case .releaseNotes: break
+        case .rollBack, .waitForFix: pulledWatch.perform(action)
+        case .relaunchNow: relaunchNow()
         }
     }
 
@@ -56,7 +59,12 @@ extension UpdaterService {
             closeUpdateCard(.hideVersion)
         case .note:
             dismissIndicatorNote()
-        case .checking, .downloading, .installing, nil:
+        case .pulled:
+            pulledWatch.perform(.waitForFix)
+        case .installing:
+            // Only the card of an install that never relaunched has an x.
+            if installStatus?.stage == .stalled { installCardDismissed = true }
+        case .checking, .downloading, nil:
             break
         }
         followCardExpiry()

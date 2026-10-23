@@ -40,8 +40,9 @@ public nonisolated struct DiffPageCommand {
 }
 
 /// The markdown page's host commands (diff-host.md S6, webviews/src/pages/markdown/README.md): the
-/// app's key dispatcher sends `save` (Cmd-S), `back` (Cmd-[), `forward` (Cmd-]), `link` (Cmd-K) and
-/// the zoom commands while a markdown page has the keyboard; the page reads no chord itself.
+/// app's key dispatcher sends `save` (Cmd-S), `back` (Cmd-[), `forward` (Cmd-]), `reload` (Cmd-R),
+/// `link` (Cmd-K) and the zoom commands while a markdown page has the keyboard; the page reads no
+/// chord itself. The omnibar's buttons and field send `back`, `forward`, `reload` and `open`.
 public nonisolated struct MarkdownPageCommand {
     public nonisolated init() {}
     public static let zoomIn = "zoomIn"
@@ -49,6 +50,10 @@ public nonisolated struct MarkdownPageCommand {
     public static let zoomReset = "zoomReset"
     /// Saves the document (Cmd-S, the `markdownSave` action).
     public static let save = "save"
+    /// Reads the file from disk again and shows it at the same scroll (Cmd-R, `markdownReload`).
+    public static let reload = "reload"
+    /// Opens the absolute markdown path in `text` as the page's next history entry (typed in the omnibar).
+    public static let open = "open"
     /// Inserts or edits a link at the selection (Cmd-K, `markdownLink`).
     public static let link = "link"
     /// Forgets every table's column widths in the open file (`markdownResetTableWidths`).
@@ -61,13 +66,13 @@ public nonisolated struct MarkdownPageCommand {
     /// Scrolls the document to its top (`markdownGoToTop`; a user's `g g` in a read-only page, K1).
     public static let goToTop = "goToTop"
     public static let all: Set<String> = [
-        zoomIn, zoomOut, zoomReset, save, link, resetTableWidths, resetContextTableWidths, comments, goToTop,
+        zoomIn, zoomOut, zoomReset, save, reload, open, link, resetTableWidths, resetContextTableWidths, comments, goToTop,
     ]
 
     /// The page command each markdown action sends; back and forward are the shared page commands.
     public static let forAction: [String: String] = [
         "markdownZoomIn": zoomIn, "markdownZoomOut": zoomOut, "markdownZoomReset": zoomReset, "markdownSave": save,
-        "markdownLink": link, "markdownBack": "back", "markdownForward": "forward",
+        "markdownLink": link, "markdownBack": "back", "markdownForward": "forward", "markdownReload": reload,
         "markdownResetTableWidths": resetTableWidths, "markdownGoToTop": goToTop,
     ]
 }

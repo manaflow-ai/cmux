@@ -1,6 +1,7 @@
 // Runs a variant's play steps in the stage frame and measures each one (play.ts has the rules).
 import {
   describeTarget,
+  isSubpixelLayoutShift,
   judgePopups,
   judgeStep,
   overall,
@@ -309,8 +310,14 @@ function measurePopups(): PopupMeasure[] {
       .filter(([, x, y]) => x >= 0 && y >= 0 && x < innerWidth && y < innerHeight)
       .map(([point, x, y]) => {
         const top = document.elementFromPoint(x, y);
-        // A nested popup over this one (a submenu) is fine; anything else on top is a layer bug.
-        const covered = !!top && !popup.contains(top) && !found.some((other) => other.contains(top));
+        // A nested popup over this one (a submenu) is fine; anything else on top is a layer bug. The
+        // popup's own positioner draws nothing over it: the point is in a rounded corner the popup
+        // does not paint (a 12 px radius leaves the 3 px inset outside it).
+        const covered =
+          !!top &&
+          !popup.contains(top) &&
+          top !== popup.closest(".ui-positioner") &&
+          !found.some((other) => other.contains(top));
         return covered ? { point, covered, by: describeElement(top!) } : { point, covered };
       });
     const clippedBy: string[] = [];
@@ -355,16 +362,27 @@ async function measured(
       for (const entry of list.getEntries() as (PerformanceEntry & {
         value: number;
         hadRecentInput: boolean;
-        sources?: { node?: Node }[];
-      })[])
+        sources?: {
+          node?: Node;
+          previousRect?: DOMRectReadOnly;
+          currentRect?: DOMRectReadOnly;
+        }[];
+      })[]) {
+        const sources = entry.sources ?? [];
+        // Chromium reports a layout-shift entry when a fractional layout position rounds to a
+        // different device pixel. It has no perceptible movement and is not a layout regression:
+        // ignore it only when every reported source moved by less than half a CSS pixel. Real
+        // shifts (including the composer's one-slot Send change) retain their normal CLS value.
+        if (isSubpixelLayoutShift(sources)) continue;
         shifts.push({
           value: entry.value,
-          sources: (entry.sources ?? []).map((source) =>
+          sources: sources.map((source) =>
             source.node instanceof Element
               ? `${source.node.tagName.toLowerCase()}${source.node.className ? `.${String(source.node.className).split(" ")[0]}` : ""}`
               : "#text",
           ),
         });
+      }
     });
     observer.observe({ type: "layout-shift", buffered: false });
     observers.push(observer);
@@ -454,6 +472,9 @@ export async function runPlay(
     const element = find(target);
     const action: PlayAction =
       kind === "click" ? "click" : kind === "contextmenu" ? "context-menu" : kind === "hover" ? "hover" : "press-drag";
+    // Trusted input lands at the target's on-screen point, so bring it into view first, as a person
+    // would, and before measuring, so the scroll is not counted as an anchor move or layout shift.
+    if (window.top?.cmuxGalleryInput) element.scrollIntoView({ block: "nearest", inline: "nearest" });
     await measured(`${kind} ${describeTarget(target)}`, action, element, anchors, checks, async () => {
       if (window.top?.cmuxGalleryInput) await window.top.cmuxGalleryInput({ kind, ...pageCenter(element) });
       else synthetic(element, kind);
@@ -531,6 +552,12 @@ export async function runPlay(
     },
     waitFor: (condition, { capMs = 5000 } = {}) =>
       new Promise<void>((resolve, reject) => {
+        let frame = 0;
+        const stop = () => {
+          observer.disconnect();
+          cancelAnimationFrame(frame);
+          clearTimeout(cap);
+        };
         const check = () => {
           let held: unknown;
           try {
@@ -539,21 +566,23 @@ export async function runPlay(
             held = false;
           }
           if (!held) return false;
-          observer.disconnect();
-          clearTimeout(cap);
+          stop();
           resolve();
           return true;
+        };
+        // A condition can turn true with no DOM mutation (a posted message, focus, layout), so it is
+        // checked every frame too; the observer answers a DOM change right after it, in a microtask.
+        const poll = () => {
+          if (!check()) frame = requestAnimationFrame(poll);
         };
         const observer = new MutationObserver(() => void check());
         // The cap fails a wait that never comes true; it is not how the wait resolves.
         const cap = window.setTimeout(() => {
-          observer.disconnect();
+          stop();
           reject(new Error(`play: waitFor did not hold within ${capMs} ms`));
         }, capMs);
         observer.observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
-        document.addEventListener("animationend", check, { once: true });
-        document.addEventListener("transitionend", check, { once: true });
-        if (!check()) void nextFrame().then(check);
+        poll();
       }),
   };
   try {

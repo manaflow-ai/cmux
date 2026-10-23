@@ -45,6 +45,11 @@ enum ScreenshotStrings {
         String(localized: "handlers.screenshot.tabNotShown", defaultValue: "The tab is not on screen. Show its workspace and select the tab, then retry",
                table: "MiscHandlers", bundle: .module)
     }
+    static var browserNeedsREPL: String {
+        String(localized: "handlers.screenshot.browserNeedsREPL",
+               defaultValue: "A browser page's screenshot for automation comes from the browser REPL, which hides the secrets on the page: browser_repl_eval with page.screenshot()",
+               table: "MiscHandlers", bundle: .module)
+    }
     static func pageFailed(_ reason: String) -> String {
         String(format: String(localized: "handlers.screenshot.pageFailed", defaultValue: "The page could not be captured off screen (%@)",
                               table: "MiscHandlers", bundle: .module), reason)

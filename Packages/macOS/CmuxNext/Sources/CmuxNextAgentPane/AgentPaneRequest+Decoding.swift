@@ -32,6 +32,12 @@ extension AgentPaneRequest {
         switch method {
         case "ready":
             self = params?["reconnect"] as? Bool == true ? .reconnect : .ready
+        case "chat.missing":
+            if let session = params?["session"] as? String, !session.isEmpty {
+                self = .missingChat(session: session, reason: params?["reason"] as? String ?? "unknown")
+            } else {
+                self = .unsupported(method)
+            }
         case "chat.persistSession":
             if let id = params?["sessionId"] as? String, !id.isEmpty {
                 self = .persistSession(id)
@@ -91,7 +97,7 @@ extension AgentPaneRequest {
                 self = .unsupported(method)
             }
         case "pane.painted":
-            self = .painted
+            self = .painted(fromKeptTail: params?["drewKeptTail"] as? Bool ?? false)
         case "pane.renderRate":
             if let full = params?["full"] as? Bool {
                 self = .renderRate(full)
@@ -109,6 +115,8 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "run.attach":
+            self = AgentPaneRunAttach(params: params ?? [:]).map(AgentPaneRequest.runAttach) ?? .invalidRunAttach
         case "tab.typeAhead":
             if let text = params?["text"] as? String {
                 self = .typeAhead(String(text.prefix(Self.maximumOpenTabText)))
@@ -166,10 +174,12 @@ extension AgentPaneRequest {
             }
         case "newTab.setTemplate":
             if let template = params?["template"] as? String, !template.isEmpty, template.count <= 32 {
-                self = .setNewTabTemplate(template)
+                self = .editNewTab(.template(template))
             } else {
                 self = .unsupported(method)
             }
+        case "newTab.editWidgets":
+            self = AgentPaneNewTabEdit(widgetParams: params).map(AgentPaneRequest.editNewTab) ?? .unsupported(method)
         case "nowPlaying.command":
             if let command = AgentPaneNowPlaying.Command(params) { self = .nowPlaying(command) } else { self = .unsupported(method) }
         case "newTab.remember":
@@ -178,6 +188,11 @@ extension AgentPaneRequest {
                 let model = (params?["model"] as? String).flatMap { !$0.isEmpty && $0.count <= 256 ? $0 : nil }
                 let folder = (params?["folder"] as? String).flatMap { !$0.isEmpty && $0.count <= 4096 ? $0 : nil }
                 self = .rememberNewTab(AgentPaneRememberedPick(agent: agent, model: model, folder: folder))
+            } else if let started = params?["started"] as? String, started.hasPrefix("/"), started.count <= 4096 {
+                // The project of a chat the person picked and started (a page choice like the agent pick).
+                var pick = AgentPaneRememberedPick(agent: "")
+                pick.started = started
+                self = .rememberNewTab(pick)
             } else if params?["harnessHint"] as? String == "dismissed" {
                 // Integrate a harness dismissed for good (a page choice like the agent pick).
                 var pick = AgentPaneRememberedPick(agent: "")
@@ -197,6 +212,14 @@ extension AgentPaneRequest {
         case "workspace.chooseFolder": self = .chooseFolder
         case "chat.folder.choose": self = .chooseChatFolder
         case "chat.attach.choose": self = .chooseAttachments
+        case "chat.attach.dropped":
+            if let kind = (params?["kind"] as? String).flatMap(AgentPaneDroppedPaths.Kind.init(rawValue:)),
+               let names = params?["names"] as? [String], (1...AgentPaneDroppedPaths.maximumNames).contains(names.count),
+               names.allSatisfy(AgentPaneDroppedPaths.isAskedName) {
+                self = .attachDropped(kind, names: names)
+            } else {
+                self = .unsupported(method)
+            }
         case "workspace.useFolder":
             // Any text: a path that is not an existing absolute folder is refused by the host
             // (`transport.path_invalid`), so the page never takes it for an older host.
@@ -216,6 +239,9 @@ extension AgentPaneRequest {
             else { self = .unsupported(method) }
         case "chats.openInTerminal":
             if let key = params?["key"] as? String, key.contains(":"), key.count <= 512 { self = .openChatInTerminal(key) }
+            else { self = .unsupported(method) }
+        case "chats.watch":
+            if let key = params?["key"] as? String, key.contains(":"), key.count <= 512 { self = .watchChat(key) }
             else { self = .unsupported(method) }
         case "chats.page": self = .chatsPage(AgentPaneChatsQuery(params: params))
         case "app.action":
@@ -251,7 +277,11 @@ extension AgentPaneRequest {
         case "chat.newHere":
             if let cwd = (params?["cwd"] as? String).flatMap(Self.headerFolder) { self = .newChatHere(cwd) } else { self = .unsupported(method) }
         case "chat.openTab":
-            if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .chatTab(id) } else { self = .unsupported(method) }
+            if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .chatTab(id, AgentForkDestination(placement: params?["placement"] as? String)) } else { self = .unsupported(method) }
+        case "chat.asks.open":
+            if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .asksOpen(id) } else { self = .unsupported(method) }
+        case "chat.offer.open":
+            if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .offerOpen(id, sender: params?["sender"] as? Bool == true) } else { self = .unsupported(method) }
         case "chat.upload":
             if let files = AgentPaneUpload.files(params) { self = .upload(files) } else { self = .unsupported(method) }
         case "chat.toolCard.respond":
@@ -345,6 +375,8 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case _ where AgentPaneEnvironmentRequest.methods.contains(method):
+            self = AgentPaneEnvironmentRequest(method: method, params: params).map(AgentPaneRequest.environment) ?? .unsupported(method)
         case _ where AgentPaneReplyRequest.methods.contains(method):
             self = AgentPaneReplyRequest(method: method, params: params).map(AgentPaneRequest.reply) ?? .unsupported(method)
         default:

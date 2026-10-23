@@ -6661,7 +6661,7 @@
         ],
         "rankBias": 0,
         "sectionIndex": 6,
-        "title": "Open Site Settings of Blocked Download",
+        "title": "Open Site Settings for Blocked Downloads",
         "typingSectionIndex": 16
       },
       "id": "action:browser.download.openBlockedSiteSettings"
@@ -7926,7 +7926,7 @@
         "keywords": ["notifications", "read"],
         "rankBias": 0,
         "sectionIndex": 8,
-        "title": "Toggle Unread",
+        "title": "Mark Tab Read/Unread",
         "typingSectionIndex": 16
       },
       "id": "action:toggleUnread"
@@ -8016,7 +8016,7 @@
         "keywords": ["notifications", "clipboard"],
         "rankBias": 0,
         "sectionIndex": 8,
-        "title": "Copy Notification",
+        "title": "Copy Notification Text",
         "typingSectionIndex": 16
       },
       "id": "action:notificationCopy"

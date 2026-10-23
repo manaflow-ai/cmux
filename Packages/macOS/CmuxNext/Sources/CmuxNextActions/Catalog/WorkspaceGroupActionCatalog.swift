@@ -129,7 +129,7 @@ nonisolated enum WorkspaceGroupActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "workspaceGroup.collapseOthers",
                 title: String(localized: "action.workspaceGroup.collapseOthers", defaultValue: "Collapse Other Groups", table: "WorkspaceActions", bundle: .module),
-                keywords: ["group", "collapse", "other", "others", "fold", "focus"], category: .workspace, symbol: "rectangle.compress.vertical",
+                keywords: ["group", "collapse", "other", "others", "fold", "focus"], category: .workspace, symbol: "arrow.down.forward.and.arrow.up.backward",
                 surfaces: [.palette, .keyboard, .contextMenu], targets: [.workspaceGroup], cliName: "workspace-group collapse-others"
             ),
             // Sorts the group's members only; the sidebar's Sort Workspaces verbs sort every container.
@@ -160,16 +160,16 @@ nonisolated enum WorkspaceGroupActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "workspaceGroup.closeWorkspaces",
-                title: String(localized: "action.workspaceGroup.closeWorkspaces", defaultValue: "Close All Workspaces in Group", bundle: .module),
+                title: String(localized: "action.workspaceGroup.closeWorkspaces", defaultValue: "Close Workspaces in Group", bundle: .module),
                 keywords: ["group", "remove"], category: .workspace, symbol: "xmark.square", surfaces: [.palette],
                 targets: [.workspaceGroup], cliName: "workspace-group close-workspaces",
                 destructive: true
             ),
-            // Close All Workspaces in Group for every other group of the window.
+            // Close Workspaces in Group for every other group of the window.
             ActionDescriptor(
                 id: "workspaceGroup.closeOthers",
                 title: String(localized: "action.workspaceGroup.closeOthers", defaultValue: "Close Other Groups", bundle: .module),
-                keywords: ["group", "close", "other", "others", "remove"], category: .workspace, symbol: "xmark.square.fill",
+                keywords: ["group", "close", "other", "others", "remove"], category: .workspace, symbol: "xmark.circle",
                 surfaces: [.palette, .contextMenu], targets: [.workspaceGroup], cliName: "workspace-group close-others",
                 destructive: true
             ),
@@ -185,6 +185,12 @@ nonisolated enum WorkspaceGroupActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.workspaceGroup.moveToNewWindow", defaultValue: "Move Workspace Group to New Window", bundle: .module),
                 keywords: ["group", "move", "window"], category: .workspace, symbol: "macwindow.badge.plus",
                 surfaces: [.palette], targets: [.workspaceGroup], cliName: "workspace-group move-to-new-window"
+            ),
+            ActionDescriptor(
+                id: "workspaceGroup.clearColor",
+                title: String(localized: "action.workspaceGroup.clearColor", defaultValue: "Remove Workspace Group Color", bundle: .module),
+                keywords: ["group", "color", "clear", "reset", "none"], category: .workspace, symbol: "circle.slash",
+                surfaces: [.palette, .contextMenu], targets: [.workspaceGroup], cliName: "workspace-group clear-color"
             ),
             ActionDescriptor(
                 id: "workspaceGroup.color.grey",

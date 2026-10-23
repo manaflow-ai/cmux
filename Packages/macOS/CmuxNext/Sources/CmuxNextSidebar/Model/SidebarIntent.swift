@@ -70,7 +70,7 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     /// The update card's button: install the staged update and relaunch
     /// (`SidebarModel.updateCard`).
     case installUpdate
-    /// The update card's Automatic Updates checkbox.
+    /// The update card's Automatic Updates switch.
     case setAutomaticUpdates(Bool)
     /// A link in the update card's popover (a pull request, the release notes).
     case openUpdateLink(URL)
@@ -99,4 +99,6 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     case dropOnLayoutSection([WorkspaceID], section: LayoutSectionID, index: Int)
     /// Collapse or expand a titled section (client view state).
     case toggleLayoutSection(LayoutSectionID)
+    /// Edit mode's Add Items: the App opens App Store Features (its Sidebar cards; the Sidebar filter comes with #22903).
+    case addItems
 }

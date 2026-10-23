@@ -12,7 +12,8 @@ import Foundation
 /// so those two are best effort. Media elements outside the document (a
 /// detached `new Audio()`) are not seen. A `cmux-media-mute` event mutes
 /// (or unmutes) the frame's media elements, keeps muting the ones that play
-/// next, and passes on to the frame's child frames.
+/// next, and passes on to the frame's child frames. A video floating in
+/// Picture in Picture is the one reported, playing or not, until it comes back.
 nonisolated extension BrowserMediaState {
     /// WebKit's message handler and Chromium's binding.
     static let channel = "cmuxMedia"
@@ -36,7 +37,12 @@ nonisolated extension BrowserMediaState {
             pending = false;
             try { \#(post); return true; } catch (_) { return false; }
           };
+          // The video in Picture in Picture: Chromium's (and WebKit's) API, or WebKit's presentation mode.
+          const floating = () => document.pictureInPictureElement
+            || Array.from(document.querySelectorAll('video')).find((e) => e.webkitPresentationMode === 'picture-in-picture') || null;
           const active = () => {
+            const shown = floating();
+            if (shown) return shown;
             const all = Array.from(document.querySelectorAll('video, audio'));
             return all.find((e) => !e.paused && !e.ended) || all.find((e) => e.currentTime > 0 && !e.ended) || null;
           };
@@ -57,7 +63,8 @@ nonisolated extension BrowserMediaState {
               title: (meta && meta.title) || document.title || '',
               artist: (meta && meta.artist) || '', album: (meta && meta.album) || '',
               artwork: artwork(meta), playing: !element.paused && !element.ended,
-              muted: element.muted || element.volume === 0, video: element.tagName === 'VIDEO', tabMuted, actions,
+              muted: element.muted || element.volume === 0, video: element.tagName === 'VIDEO', pip: floating() === element,
+              tabMuted, actions,
             };
             // The position leaves the key: the heartbeat carries it on, and a seek reports at once.
             const key = JSON.stringify(state) + '#' + (isFinite(element.duration) ? Math.round(element.duration) : '')
@@ -74,7 +81,8 @@ nonisolated extension BrowserMediaState {
             reported = true;
           };
           const schedule = () => { if (!timer) timer = setTimeout(report, 250); };
-          for (const type of ['play', 'playing', 'pause', 'ended', 'emptied', 'volumechange', 'loadedmetadata', 'durationchange']) {
+          for (const type of ['play', 'playing', 'pause', 'ended', 'emptied', 'volumechange', 'loadedmetadata', 'durationchange',
+            'enterpictureinpicture', 'leavepictureinpicture', 'webkitpresentationmodechanged']) {
             addEventListener(type, schedule, true);
           }
           for (const type of ['seeked', 'ratechange']) {
@@ -171,8 +179,44 @@ nonisolated extension BrowserMediaCommand {
             return ("(() => { const f = window[Symbol.for('cmux.mediaAction')]; return !!f && f('previoustrack'); })()", .page)
         case .nextTrack:
             return ("(() => { const f = window[Symbol.for('cmux.mediaAction')]; return !!f && f('nexttrack'); })()", .page)
+        case .pictureInPicture:
+            return (Self.pictureInPictureScript, .page)
         }
     }
+
+    /// Picture in Picture's toggle, in the page's world: both engines run a
+    /// page-world script as a user gesture, which `requestPictureInPicture`
+    /// needs. A video that floats comes back; else the playing video (or
+    /// one played, or the largest loaded one) of the page and its
+    /// same-origin frames floats, through the standard API (Chromium, and
+    /// WebKit where it has it) or WebKit's presentation mode. The page's own
+    /// `disablePictureInPicture` holds. Answers a ``BrowserPictureInPicture``.
+    static let pictureInPictureScript = #"""
+    (() => {
+      const docs = [document];
+      for (let i = 0; i < frames.length; i++) { try { if (frames[i].document) docs.push(frames[i].document); } catch (_) {} }
+      for (const d of docs) {
+        if (d.pictureInPictureElement) { d.exitPictureInPicture().catch(() => {}); return 'exited'; }
+      }
+      const videos = docs.flatMap((d) => Array.from(d.querySelectorAll('video')));
+      const shown = videos.find((v) => v.webkitPresentationMode === 'picture-in-picture');
+      if (shown) { shown.webkitSetPresentationMode('inline'); return 'exited'; }
+      const area = (v) => v.clientWidth * v.clientHeight;
+      const v = videos.find((m) => !m.paused && !m.ended) || videos.find((m) => m.currentTime > 0 && !m.ended)
+        || videos.filter((m) => m.readyState > 0).sort((a, b) => area(b) - area(a))[0];
+      if (!v) return 'noVideo';
+      if (v.disablePictureInPicture) return 'unsupported';
+      if (v.ownerDocument.pictureInPictureEnabled && typeof v.requestPictureInPicture === 'function') {
+        v.requestPictureInPicture().catch(() => {});
+        return 'entered';
+      }
+      if (typeof v.webkitSupportsPresentationMode === 'function' && v.webkitSupportsPresentationMode('picture-in-picture')) {
+        v.webkitSetPresentationMode('picture-in-picture');
+        return 'entered';
+      }
+      return 'unsupported';
+    })()
+    """#
 }
 
 extension BrowserTab {
@@ -180,6 +224,15 @@ extension BrowserTab {
     public func media(_ command: BrowserMediaCommand) async {
         let script = command.script
         _ = try? await evaluate(script.source, world: script.world)
+    }
+
+    /// Floats the page's video in Picture in Picture, or brings a floating
+    /// one back (``BrowserMediaCommand/pictureInPicture``); nil when the
+    /// page did not answer (closed, still loading).
+    public func togglePictureInPicture() async -> BrowserPictureInPicture? {
+        let script = BrowserMediaCommand.pictureInPicture.script
+        guard case .string(let answer)? = try? await evaluate(script.source, world: script.world) else { return nil }
+        return BrowserPictureInPicture(rawValue: answer)
     }
 
     /// After the page's media report: a document or frame that has not

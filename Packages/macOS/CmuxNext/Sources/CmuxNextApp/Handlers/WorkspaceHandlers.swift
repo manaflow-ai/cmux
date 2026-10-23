@@ -10,7 +10,7 @@ import CmuxNextPages
 enum WorkspaceHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind("openFolder", run: { _ in openFolder(context) })
-        registry.bind("newBrowserWorkspace", requires: DaemonCapabilities.shared.frontendBrowserTabs, daemon: context.services.activeDaemon, run: { _ in try newBrowserWorkspace(context) })
+        registry.bind("newBrowserWorkspace", requires: DaemonCapabilities.frontendBrowserTabs, daemon: context.services.activeDaemon, run: { _ in try newBrowserWorkspace(context) })
         registry.bind("nextSidebarTabInGroup", run: { invocation in try selectInGroup(context, invocation, offset: 1) })
         registry.bind("prevSidebarTabInGroup", run: { invocation in try selectInGroup(context, invocation, offset: -1) })
         WorkspaceBulkClose.bind(into: registry, context: context)
@@ -121,7 +121,7 @@ enum WorkspaceHandlers {
 
     /// A workspace whose only tab is a blank browser tab.
     private static func newBrowserWorkspace(_ context: AppActionContext) throws {
-        try context.require(DaemonCapabilities.shared.frontendBrowserTabs)
+        try context.require(DaemonCapabilities.frontendBrowserTabs)
         newBrowserWorkspace(services: context.services, url: nil)
     }
 
@@ -129,7 +129,7 @@ enum WorkspaceHandlers {
     /// and the daemon serves browser tabs, else where the link rule sends it (Find Work's rows).
     static func openInNewWorkspace(_ url: URL, services: AppServices) {
         guard LinkRouter.shared.target(for: url) == .cmuxBrowser,
-              services.activeDaemon.supports(DaemonCapabilities.shared.frontendBrowserTabs) else {
+              services.activeDaemon.supports(DaemonCapabilities.frontendBrowserTabs) else {
             LinkRouter.shared.open(url)
             return
         }
@@ -156,11 +156,19 @@ enum WorkspaceHandlers {
 
     // MARK: Navigation
 
+    /// Next or previous workspace among the members of the target's group, as the sidebar shows
+    /// the group (the group Close Other Workspaces in Group reads). A navigation with nowhere to
+    /// go (R136: no group, or alone in it) is refused quietly: callers get the reason.
     private static func selectInGroup(_ context: AppActionContext, _ invocation: ActionInvocation, offset: Int) throws {
         let current = try context.workspace(invocation).model
         guard let state = context.activeWindow?.state else { throw ActionFailure.invalidTarget(RefusalStrings.noWindowOpen) }
-        let peers = context.sidebarOrder.filter { $0.group == current.group }
-        guard let index = peers.firstIndex(where: { $0 === current }), peers.count > 1 else { return }
-        context.services.windows.show(workspaceID: peers[(index + offset + peers.count) % peers.count].id, in: state)
+        guard let group = try WorkspaceVerbHandlers.group(of: current, context) else {
+            throw ActionFailure.noTarget(RefusalStrings.workspaceNotInGroup)
+        }
+        let peers = group.workspaces.map(\.id.rawValue)
+        guard let index = peers.firstIndex(of: current.id), peers.count > 1 else {
+            throw ActionFailure.noTarget(RefusalStrings.noOtherWorkspaceInGroup)
+        }
+        context.services.windows.show(workspaceID: peers[(index + offset + peers.count) % peers.count], in: state)
     }
 }

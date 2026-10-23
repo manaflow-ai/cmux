@@ -93,11 +93,67 @@ pub fn read(family: &str, file: &Path) -> Vec<PastTurn> {
     turns
 }
 
-enum Step {
+/// What one transcript record adds: a person's prompt, or answer text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Step {
     Prompt(String),
     Answer(String),
     Tool(PastTool),
     ToolResult(ToolResult),
+}
+
+/// The prompts and answer text one record of a transcript being followed adds (`hub/watch.rs`),
+/// by the rules [`read`] uses; tool calls and results are left out. `codex_items` says the
+/// rollout is a current Codex one, whose message items are its turns; a record annotated with
+/// item kinds sets it.
+pub fn record_steps(family: &str, record: &Value, codex_items: &mut bool) -> Vec<Step> {
+    match family {
+        "codex" => {
+            *codex_items = *codex_items || has_item_kinds(record);
+            codex_step(record)
+                .or_else(|| codex_item_step(record).filter(|_| *codex_items))
+                .into_iter()
+                .collect()
+        }
+        _ => claude_steps(record, record_time(record))
+            .into_iter()
+            .filter(|step| matches!(step, Step::Prompt(_) | Step::Answer(_)))
+            .collect(),
+    }
+}
+
+/// Whether `record` ends the turn it belongs to: Claude Code's assistant message stopped at the
+/// end of its turn, Codex's task or turn completed.
+pub fn ends_turn(family: &str, record: &Value) -> bool {
+    match family {
+        "codex" => {
+            record.get("type").and_then(Value::as_str) == Some("event_msg")
+                && matches!(
+                    record.pointer("/payload/type").and_then(Value::as_str),
+                    Some("task_complete" | "turn_complete")
+                )
+        }
+        // Claude Code writes each content block of a message as its own line, all with the
+        // message's stop reason (thinking first): the turn ends with its text.
+        _ => {
+            record.get("type").and_then(Value::as_str) == Some("assistant")
+                && record.get("isSidechain").and_then(Value::as_bool) != Some(true)
+                && matches!(
+                    record.pointer("/message/stop_reason").and_then(Value::as_str),
+                    Some("end_turn" | "stop_sequence")
+                )
+                && record.pointer("/message/content").and_then(Value::as_array).is_some_and(
+                    |blocks| {
+                        blocks.iter().any(|b| b.get("type").and_then(Value::as_str) == Some("text"))
+                    },
+                )
+        }
+    }
+}
+
+/// When `record` was written (its `timestamp`), in ms since the epoch.
+pub fn record_time(record: &Value) -> Option<u64> {
+    record.get("timestamp").and_then(Value::as_str).and_then(parse_ms)
 }
 
 /// A prompt starts a turn; an answer adds to the last one, capped at MAX_ANSWER; a tool call
@@ -159,7 +215,7 @@ fn claude_steps(record: &Value, at: Option<u64>) -> Vec<Step> {
                 blocks.iter().any(|b| b.get("type").and_then(Value::as_str) == Some("tool_result"))
             }) =>
         {
-            crate::adopt_tools::claude_tool_results(content)
+            crate::adopt_tools::claude_tool_results(content, record.get("toolUseResult"))
                 .into_iter()
                 .map(Step::ToolResult)
                 .collect()

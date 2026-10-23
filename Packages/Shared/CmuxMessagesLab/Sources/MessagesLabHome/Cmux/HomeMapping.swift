@@ -50,14 +50,19 @@ enum HomeMapping {
     }
 
     /// A thread reply's root as MessagesLab's `replyTo` (HomeStore `threadRoot`; the part from
-    /// `replyTo` when it names the root, else the root's first part): MessagesLab lays it out and
-    /// animates its arrival as a thread reply (connector, the root's 32 pt thread gap). nil for a
-    /// message that is no thread reply, or whose root is not among the mapped items or retracted.
+    /// `replyTo` when it names a later part of the root, else the root's last part): MessagesLab
+    /// lays it out and animates its arrival as a thread reply (connector, the root's 32 pt thread
+    /// gap). nil for a message that is no thread reply, or whose root is not among the mapped items
+    /// or retracted.
     static func replyTo(_ item: TranscriptItem, roots: Roots) -> PartRef? {
         guard let root = item.threadRoot, root != item.messageID, let r = roots(root), !r.owners.isEmpty else { return nil }
         let homePart = item.replyTo?.message == root ? (item.replyTo?.partIndex ?? 0) : 0
-        // Only a part the root shows: an index from the wire that no shown part owns is the first part.
-        return PartRef(messageId: r.id, partIndex: r.owners.firstIndex(of: homePart) ?? 0)
+        // HomeStore names a whole message as part 0 (`PartRef(message:)`): that reply answers the root's
+        // last bubble, so the connector runs only from the bubble right above it, as in Messages. From
+        // part 0 it ran past a pasted block and pictures above the root's text (refs/imessage-layout/1.png).
+        // A part index that no shown part owns is the last part too.
+        let last = r.owners.count - 1
+        return PartRef(messageId: r.id, partIndex: homePart == 0 ? last : r.owners.firstIndex(of: homePart) ?? last)
     }
 
     static func message(_ item: TranscriptItem, aliases: [IdempotencyKey: ID], me: ParticipantID,
@@ -71,12 +76,30 @@ enum HomeMapping {
         let mentions = item.parts.contains { if case let .text(_, m) = $0 { return !m.isEmpty } else { return false } }
         let format: MessageFormat = isAgent(item.author, summary) && !mentions ? .markdown : .plain
         var message = Message(id: messageID, senderId: item.author.rawValue, sentAt: Instant.format(item.createdAt),
-                parts: parts, replyTo: replyTo(item, roots: roots), status: status(item, me: me, summary: summary), edits: nil,
+                parts: parts, replyTo: replyTo(item, roots: roots), status: status(item, me: me, summary: summary), edits: edits(item),
                 retractedAt: item.isRetracted ? Instant.format(item.editedAt ?? item.createdAt) : nil,
                 reactions: item.reactions.map { reaction($0, partIndex: projectedIndex($0.partIndex, owners)) }, format: format)
         // ThreadMode.tree: the message a nested reply answers (HomeMapping+Tree.swift).
         message.parent = parent(item, roots: roots)
+        if !item.isRetracted, !item.parts.isEmpty, parts.isEmpty {
+            // Nothing to read (a Chief turn's done marker, a work part with no preview): kept so
+            // its seq still moves the read cursor, drawn as no row and counted as no reply.
+            message.deletedAt = Instant.format(item.createdAt)
+            message.replyTo = nil
+            message.parent = nil
+        }
         return message
+    }
+
+    /// An edited message's edit as MessagesLab's `Message.edits`, so it shows "Edited" under it when it loads
+    /// already edited (a snapshot, a rebuild, an older page), as MessagesLab does: before, only a live edit
+    /// (HomeDiff `.edit`) added the label, and the next rebuild lost it. MessagesLab's `Edit.text` is the text
+    /// before the edit; HomeStore keeps no earlier text, so the edit holds the current text (the transcript reads
+    /// only that an edit exists; ComposerHistory reads the parts).
+    static func edits(_ item: TranscriptItem) -> [Message.Edit]? {
+        guard let at = item.editedAt, !item.isRetracted else { return nil }
+        let text = item.parts.compactMap { if case .text(let t, _) = $0 { t } else { nil } }.joined(separator: "\n")
+        return [Message.Edit(text: text, at: Instant.format(at))]
     }
 
     /// The item's parts as MessagesLab shows them, and for each one the
@@ -120,6 +143,8 @@ enum HomeMapping {
     /// after it; without a renderer, or for a source it refuses, the fence stays in the text.
     static func parts(_ p: MessagePart, media: Media = { _ in nil }, progress: [String: Double] = [:], markdown: Bool = false,
                       links: Links = { _ in nil }) -> [Part] {
+        // A work part shows its preview; its session id is no text (`WorkRef.shownText`).
+        if case .work(let work) = p, work.shownText == nil { return [] }
         // An agent's pipe tables are cards of their own (HomeTableRowProvider), between its text.
         func text(_ piece: String) -> [Part] {
             if markdown, let split = tableParts(piece, { textParts(.text($0), media: media, progress: progress, markdown: markdown, links: links) }) {
@@ -339,10 +364,13 @@ enum HomeMapping {
         }
     }
 
-    static func participants(_ summary: ConversationSummary?, me: ParticipantID) -> [Participant] {
+    /// `avatars`: a chosen avatar by participant id (the host's Chief avatars); anyone else draws their initials.
+    static func participants(_ summary: ConversationSummary?, me: ParticipantID,
+                             avatars: [String: Participant.Avatar] = [:]) -> [Participant] {
         var out = (summary?.participants ?? []).map {
             // The name a person reads (never an internal id): a group transcript shows it over their bubbles.
-            Participant(id: $0.id.rawValue, displayName: $0.visibleName, isMe: $0.id == me, avatar: .monogram($0.initials))
+            Participant(id: $0.id.rawValue, displayName: $0.visibleName, isMe: $0.id == me,
+                        avatar: avatars[$0.id.rawValue] ?? .monogram($0.initials))
         }
         if !out.contains(where: \.isMe) { out.append(Participant(id: me.rawValue, displayName: "", isMe: true, avatar: nil)) }
         return out

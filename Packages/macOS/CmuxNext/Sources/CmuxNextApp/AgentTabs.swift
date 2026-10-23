@@ -33,6 +33,12 @@ final class AgentTabStore {
     var lookup: @MainActor (String) -> (record: AgentSessionRef, store: DaemonStore)? = { _ in nil }
     /// The pane holding tab `key` and its daemon (New side chat opens its fork there first).
     var locate: @MainActor (String) -> (pane: PaneID, daemon: DaemonService)? = { _ in nil }
+    /// Main pane layout (``MainPaneLayout``): opens what chat tab `chat` opens beside it (through
+    /// `open`, focused with `focus`) in the column on the chat's right, then `created` and
+    /// `finished` as ``openBeside`` calls them. Nil when the chat is not its screen's main pane:
+    /// the caller places the tab itself.
+    var openInMainPane: @MainActor (_ chat: String, _ focus: Bool, _ open: (PaneID, DaemonService) throws -> AgentTabPending,
+                                    _ created: (@MainActor (String) -> Void)?, _ finished: (@MainActor (Bool) -> Void)?) -> Bool? = { _, _, _, _, _ in nil }
     /// Every agent tab the trees list, with its record.
     var listTabs: @MainActor () -> [(key: String, record: AgentSessionRef)] = { [] }
     /// Creates the store tab with idempotency key `key` (AppServices: `new-conversation-tab` on
@@ -47,9 +53,12 @@ final class AgentTabStore {
     /// The pane host for agent tab `key` when its session runs on another machine whose session
     /// daemon serves `agent-session-attach-v1` (AppServices); nil keeps the "runs on" notice.
     var remoteHost: @MainActor (String) -> (any AgentPaneHostProviding)? = { _ in nil }
+    /// The acpmux turn states and sub-session links (`startedBy`) the app's watches mirror: a chat's
+    /// page opens only sessions of its own family (``AgentPaneHeaderHooks/isFamily``).
+    var turns: AgentTurnStateStore = .shared
     var chiefHost: String?, chiefPaneHost: (any AgentPaneHostProviding)?, localSessionHost: (any AgentPaneHostProviding)? // ChiefHomeAcpmux
     /// Whether `daemon` holds agent session tabs (`agent-session-tabs-v1`).
-    var holdsTabs: @MainActor (DaemonService) -> Bool = { $0.supports(DaemonCapabilities.shared.agentSessionTabs) }
+    var holdsTabs: @MainActor (DaemonService) -> Bool = { $0.supports(DaemonCapabilities.agentSessionTabs) }
     /// Sets tab `surface`'s session (and harness) by compare-and-swap from `expected` (AppServices: `bind-conversation-tab-session`
     /// on the tab's daemon): the store's answer and, when it took it, the daemon event sequence read after the reply (nil: connection ended).
     var bind: @MainActor (_ key: String, _ surface: SurfaceID, _ expected: String?, _ session: String, _ harness: String?) async
@@ -127,6 +136,8 @@ final class AgentTabStore {
     var remoteMachineName: @MainActor (DaemonService) -> String? = { _ in nil }
     /// Shared conversion and project actions for a direct blank chat, without a chooser page.
     var blankChatHandler: ((String) -> NewTabPageHandler?)?
+    /// Opens a redeemed Run attempt's terminal, owned by an enrolled worker daemon, in the tab's pane.
+    var runAttach: (@MainActor (_ key: String, _ request: AgentPaneRunAttach) async throws -> Void)?
     /// The New Tab page a new workspace's first tab shows, starting in the given folder.
     /// `(cwd, beside)`: `beside` is the tab whose machine the page opens on (nil: this Mac).
     var firstPageNewTab: ((String?, String?) -> (page: AgentPaneNewTab, handler: NewTabPageHandler)?)?
@@ -177,6 +188,9 @@ final class AgentTabStore {
     /// so a Cloud or SSH chat reads its folder there; nil answers the page `native.not_connected`. Move to Floating Chat puts a session in Start Agent's panel.
     /// The upload for a chat tab's dropped or pasted files, nil when it takes none (``CloudUploads``).
     var uploader: (@MainActor (_ tab: String) -> AgentPaneUploader?)?
+    /// Whether a chat tab's (or its New Tab page's) dropped or pasted files go as their paths on this
+    /// Mac (``AgentPaneModel/onLocalPaths``); nil: never.
+    var localPaths: (@MainActor (_ tab: String) -> Bool)?
     /// A background task's terminal beside chat tab `chat` (``AgentProcessTerminal``); false when none opened.
     var openProcess: (@MainActor (_ chat: String, _ viewer: AgentPaneProcessViewer) -> Bool)?
     var gitLink: (@MainActor (String) -> AgentPaneGitLink?)?, openFiles: (@MainActor (_ chat: String, _ folder: String, _ target: String?) -> Void)?, moveToFloatingChat: (@MainActor (String) -> Bool)?
@@ -236,9 +250,7 @@ final class AgentTabStore {
 
     /// True when a pane of `daemon` can get a new agent chat tab: this build has the page, this
     /// Mac has an install id, and the daemon holds agent session tabs.
-    func canHost(on daemon: DaemonService) -> Bool {
-        canHostChat && localHost != nil && holdsTabs(daemon)
-    }
+    func canHost(on daemon: DaemonService) -> Bool { canHostChat && localHost != nil && holdsTabs(daemon) }
 
     /// The tab showing acpmux session `session` of `host` (default this Mac), if any.
     func tab(showing session: String, host: String? = nil) -> String? {
@@ -259,6 +271,12 @@ final class AgentTabStore {
     /// it was made with, and the start runs at the first send, after the tree settled and dropped
     /// the provisional alias (cx-k21v: a remote New Tab page's send failed with unknown_tab).
     func resolveRemote(_ key: String) -> String { aliases[key] ?? remoteAliases[key] ?? key }
+
+    /// The ``revealTurn(_:in:)`` value that scrolls to and marks message `id`, the harness message
+    /// id an `agent/<harness>/<session>?message=<id>` link carries (the page's `MESSAGE_REVEAL`,
+    /// webviews/src/agent-session/acpmux/links.ts). A message this machine's transcript does not
+    /// have leaves the view where it is.
+    static func messageReveal(_ id: String) -> String { "message:" + id }
 
     /// Scrolls tab `key`'s transcript to `turn` (a `#turn-<turnId>` link):
     /// through its page, or with the handshake of a page not made yet.
@@ -381,20 +399,21 @@ final class AgentTabStore {
             let key = resolve(provisional)
             (newTabPages[key]?.handler ?? blankChatHandler?(key))?.open(key, request)
         }
+        model.onRunAttach = { [weak self] request in guard let self, let runAttach else { throw AgentPaneHostError.daemonStopped }; try await runAttach(resolve(provisional), request) }
         model.onTypeAhead = { [weak self] text in self.map { $0.pageHandler(provisional)?.typeAhead($0.resolve(provisional), text) } }
         model.onNewTabInputReady = { [weak self] token in self.map { $0.newTabPages[$0.resolve(provisional)]?.handler.inputReady($0.resolve(provisional), token) } }
         model.onRememberNewTab = { [weak self, weak model] pick in
             if let model { AgentPaneNewTabFrame.shared.modelChanged(pick, by: model) }
             self?.pageHandler(provisional)?.remember(pick)
         }
-        model.onSetNewTabTemplate = { [weak self] template in self?.pageHandler(provisional)?.setTemplate(template) }
+        model.onEditNewTab = { [weak self] edit in self?.pageHandler(provisional)?.edit(edit) }
         model.onJump = { [weak self] target, id in self?.newTabPage(provisional)?.handler.jump(target, id) }
         model.onEditShortcut = { [weak self] kind in self?.newTabPage(provisional)?.handler.editShortcut(kind) }
-        model.onRunAction = { [weak self] id in
+        model.onRunAction = { [weak self] id, arguments in
             guard let self else { return false }
             // On this tab's pane: the New Tab page opens beside the tab that asked.
             let target = ActionTargetRef(kind: .tab, id: resolve(provisional))
-            return actionRegistry?.perform(ActionID(rawValue: id), invocation: ActionInvocation(target: target, origin: .user)) ?? false
+            return actionRegistry?.perform(ActionID(rawValue: id), invocation: ActionInvocation(target: target, arguments: arguments.mapValues(ActionValue.string), origin: .user)) ?? false
         }
         wireHeader(model, key: provisional)
         model.onBrowseProject = { [weak self] in
@@ -412,6 +431,7 @@ final class AgentTabStore {
             if isNewTabPage(page), let openHere = pageChats.openHere { openHere(key, page) } else { pageChats.open?(key) }
         }
         model.onOpenChatInTerminal = { [weak self] key in self?.pageChats.openInTerminal?(key) }
+        model.onWatchChat = { [weak self] key in self?.pageChats.watch?(key) }
         model.onChatsPage = { [weak self] query in
             let answer = await self?.pageChats.page?(query)
             // A New Tab page on screen gives the frame of the list it draws now.
@@ -433,9 +453,14 @@ final class AgentTabStore {
             return try await link.write(request, in: cwd)
         }
         wireAgentFolder(model, key: provisional)
+        wireAgentReply(model, key: provisional)
         model.onUpload = { [weak self] in
             guard let self else { return nil }
             return uploader?(resolve(provisional))
+        }
+        model.onLocalPaths = { [weak self] in
+            guard let self else { return false }
+            return localPaths?(resolve(provisional)) ?? false
         }
     }
 
@@ -443,7 +468,7 @@ final class AgentTabStore {
     private func makeView(_ model: AgentPaneModel) -> AgentPaneView? {
         AgentPaneNewTabFrame.shared.pageMade(model)
         model.linkScheme = linkScheme
-        guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate, pageHost: AgentPaneTunables.pageHost.value) else { return nil }
+        guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate, pageHost: AgentPaneTunables.pageHost.value || AgentPaneTunables.chromium.value) else { return nil }
         DebugTimings.markLaunch("agent_pane.view_created")
         view.customization = customization.current
         view.shortcuts = shortcuts
@@ -492,7 +517,5 @@ final class AgentTabStore {
         if next != registry.context { registry.context = next }
     }
 
-    func stopCustomizationWhenUnused() {
-        if views.isEmpty, standaloneViews.allObjects.isEmpty { customization.stop() }
-    }
+    func stopCustomizationWhenUnused() { if views.isEmpty, standaloneViews.allObjects.isEmpty { customization.stop() } }
 }

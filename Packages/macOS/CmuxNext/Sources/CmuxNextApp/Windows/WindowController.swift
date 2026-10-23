@@ -29,9 +29,10 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     /// Every workspace this window showed, by id, kept mounted and paused (plans/cmux-next/tab-lifecycle.md):
     /// a switch back swaps its view in within the frame. Only its GPU surfaces leave, under the one memory
     /// budget (`SurfaceLedger`'s LRU of hidden surfaces); the tree, panes and strips stay (perf I6).
-    private(set) var parked: [String: WorkspaceContentController] = [:]
+    /// With `sidebar.multiView` the ones `state.viewSet` shows beside `content` stay on screen (`arrangeOnScreen`).
+    var parked: [String: WorkspaceContentController] = [:]
     /// Orders `parked` by when each was parked (`mountedContents`).
-    private var parkSerial: UInt64 = 0
+    var parkSerial: UInt64 = 0
     unowned let services: AppServices
     private var workspaceObservation: Task<Void, Never>?
     private var titleObservation: Task<Void, Never>?
@@ -103,6 +104,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         window.delegate = self
         window.focus = focus
         focus.applier = focusApplier
+        focus.window = window
         focus.send(.appActive(NSApp.isActive))
         startShortcutHints()
         observeWorkspace()
@@ -154,22 +156,6 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         }
     }
 
-    /// The shown workspace, then the parked ones from the most recently shown, each with its theme scope.
-    var mountedContents: [WorkspaceContentController] {
-        (content.map { [$0] } ?? []) + parked.values.sorted { $0.parkedSerial > $1.parkedSerial }
-    }
-
-    /// Critical memory pressure: the parked workspaces leave (views, panes, observations; their
-    /// terminal surfaces already left the warm set) and mount again when shown, with their
-    /// view-only state (strip and screen bar scroll) reset. The one under a top page stays: it is
-    /// this window's workspace.
-    func releaseParked() {
-        for (id, controller) in parked where content != nil || id != state.workspaceID {
-            parked[id] = nil
-            controller.teardown()
-        }
-    }
-
     private func observeWorkspace() {
         let machines = services.machines
         let cloud = services.cloud
@@ -186,7 +172,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 
     /// Reads what `showWorkspace` depends on (the request, each machine's workspace list): O(machines), no id list.
     private static func readShowInputs(_ state: WindowState, cloud: CloudService, machines: MachineRegistry, windows: WindowManager) {
-        _ = (state.workspaceID, state.page, state.machineID, cloud.hasLoadedMachines)
+        _ = (state.workspaceID, state.page, state.machineID, cloud.hasLoadedMachines, multiViewEnabled)
         _ = creationKey(state, cloud, machines)
         _ = windows.registry.members(of: state.id)
         for daemon in machines.daemons { _ = (daemon.store.isLoaded, daemon.store.workspaces.count) }
@@ -207,7 +193,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
             parked[id] = nil
             controller.teardown()
         }
-        if state.page.map(showTopPage) == true || showCreation() { return }
+        if state.page.map(showTopPage) == true || showCreation() { return arrangeOnScreen() }
         if let requested, let (workspace, daemon) = machines.workspace(id: requested) {
             if !showsHomePage(instead: workspace) { show(workspace, on: daemon) }
             return
@@ -250,8 +236,9 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     private func show(_ workspace: WorkspaceModel, on daemon: DaemonService) {
         if state.workspaceID != workspace.id { state.workspaceID = workspace.id }
         if state.machineID != daemon.machineID { state.machineID = daemon.machineID }
-        guard content?.workspace !== workspace else { return }
+        guard content?.workspace !== workspace else { return arrangeOnScreen() }
         if let current = content { park(current) }
+        DebugWorkspaceSwitch.mark(self, "park")
         let controller: WorkspaceContentController, kept = parked.removeValue(forKey: workspace.id)
         if let kept, kept.workspace === workspace, kept.daemon === daemon {
             controller = kept
@@ -262,30 +249,40 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         }
         content = controller
         // One synchronous swap: the old view leaves (its panes stay mounted, paused) and the new
-        // one draws in the same frame, its sidebar row already listed (a parked one's is) and selected.
-        sidebar.sameTurn.syncNow(rows: controller !== kept)
+        // one draws in the same frame, its sidebar row already listed (a listed one pays no walk of every row) and selected.
+        DebugWorkspaceSwitch.kind(self, controller === kept ? "warm" : "cold")
+        DebugWorkspaceSwitch.mark(self, "content")
+        sidebar.sameTurn.syncNow(rows: controller !== kept && !sidebar.model.lists(SidebarWorkspaceID(workspace.id)))
+        DebugWorkspaceSwitch.mark(self, "sidebar")
         root.show(controller.contentView)
+        DebugWorkspaceSwitch.mark(self, "root")
+        arrangeOnScreen() // with `sidebar.multiView`, the workspaces shown beside it
         // The workspace's theme first, so the chrome repaints once: only the room's own views (sidebar,
         // titlebar, backdrop) run their theme hook, and their layer colors blend from the ones on
         // screen (appearance.colorTransition); the content swap itself never blends.
         services.themes.contentDidShow(controller)
         themeScope.show(controller.themeScope, animated: true)
+        DebugWorkspaceSwitch.mark(self, "theme")
         startupObservation?.cancel()
         startupObservation = nil
         if connectingView != nil { DebugTimings.markLaunch("connecting_view_left") }
         connectingView = nil
         DebugTimings.markLaunch("workspace_content_shown")
         titleObservation?.cancel()
-        titleObservation = Task { [weak self] in
-            for await title in ObservationStream({ workspace.displayName }) { self?.root.titlebar.title = title }
+        // Named as its sidebar row is (`WorkspaceAutoNameReader.titlebarName`): a workspace on the
+        // daemon's default name reads as its front tab (a torn-off chat's window read "workspace-41").
+        titleObservation = Task { [weak self, names = WorkspaceAutoNameWiring(services: services), selection = state.selection] in
+            for await title in ObservationStream({ names.reader.titlebarName(workspace) { selection.selection(in: $0.id) } }) { self?.root.titlebar.title = title }
         }
         // The new workspace's panes: the coordinator restores its pane and, now that the content is installed, re-applies it.
         controller.didShow()
+        DebugWorkspaceSwitch.mark(self, "did_show")
         if let pane = focus.state.pane { focus.send(.contentPresented(pane: pane)) }
         services.windows.recordSaver.stateDidChange(state)
         services.cloudContextDidChange()
         services.canvasContextDidChange()
         services.windows.contentDidAppear(self)
+        DebugWorkspaceSwitch.shown(self, in: window)
     }
 
     var focusedPane: PaneController? { content?.focusedPane }
@@ -295,14 +292,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         titleObservation?.cancel()
         if let current = content { park(current) }
         content = nil
-    }
-
-    // MARK: Parked workspaces
-
-    private func park(_ controller: WorkspaceContentController) {
-        parkSerial &+= 1
-        controller.park(serial: parkSerial)
-        parked[controller.workspace.id] = controller
+        arrangeOnScreen()
     }
 
     // MARK: NSWindowDelegate
@@ -385,7 +375,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 /// (`FocusResponderClassifier`), and keeps app overlays above Chromium page
 /// windows (`WindowOverlayLayer`).
 final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionProviding, TitlebarAccessoryHosting, WindowChromeHosting,
-    CursorRectHoldHosting, TrafficLightsResting {
+    CursorRectHoldHosting, TrafficLightsResting, ContentAreaMotionHosting {
     /// The traffic lights' last windowed place: their left edge, their top's
     /// distance from the window's top, and their size (the window may come
     /// back from full screen at another height).
@@ -511,7 +501,7 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
     var editTeardown = (depth: 0, pending: false)
 
     override func makeFirstResponder(_ responder: NSResponder?) -> Bool {
-        if let controller = windowController as? WindowController, AgentPaneView.refusesSelfFocus(responder, inInputEvent: (NSApp as? CmuxApplication)?.isHandlingSendEvent() == true, focusModelApplies: controller.focus.isApplying, focusedPane: controller.focus.state.pane, pane: { if case .content(let pane) = FocusResponderClassifier.classify($0, in: controller) { pane } else { nil } }) { return false }
+        if let controller = windowController as? WindowController, AgentPaneView.refusesSelfFocus(responder, inInputEvent: (NSApp as? CmuxApplication)?.isHandlingSendEvent() == true, focusModelApplies: controller.focus.isApplying, focusedPane: { controller.focus.currentState().pane }, pane: { if case .content(let pane) = FocusResponderClassifier.classify($0, in: controller) { pane } else { nil } }) { return false }
         let accepted = BenchSpans.measure("window.makeFirstResponder") { super.makeFirstResponder(responder) }
         if accepted { cursorRectHold?.firstResponderDidChange(in: self); BenchSpans.measure("focus.reportResponder") { reportResponder() } }
         return accepted

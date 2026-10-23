@@ -1,0 +1,183 @@
+/* Import suggestion cards (ImportCards.tsx), in Settings › Import. Colors come from the page's
+   theme (--cmux-* tokens), so the cards follow light, dark and custom themes. No animation: a card
+   changes in one frame. */
+.import-cards {
+  --import-text: var(--agent-text, var(--cmux-text, CanvasText));
+  --import-dim: color-mix(in srgb, var(--import-text) 64%, transparent);
+  --import-faint: color-mix(in srgb, var(--import-text) 46%, transparent);
+  /* Unthemed (no page tokens) the accent is the text ink, never the system blue AccentColor. */
+  --import-accent: var(--agent-accent, var(--cmux-accent, var(--import-text)));
+  --import-edge: var(--cmux-hairline, var(--cmux-separator, color-mix(in srgb, var(--import-text) 12%, transparent)));
+  --import-surface: var(
+    --acpmux-composer-surface,
+    var(--cmux-elevated-background, color-mix(in srgb, var(--import-text) 4%, Canvas))
+  );
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  color: var(--import-text);
+}
+
+.import-cards-title {
+  margin: 0;
+  color: var(--import-dim);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  font-weight: 600;
+}
+
+.import-cards-empty {
+  margin: 0;
+  color: var(--import-dim);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+}
+
+.import-cards-grid {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.import-card {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--import-edge);
+  border-radius: 10px;
+  background: var(--import-surface);
+}
+
+.import-card[data-dismissed="true"] {
+  opacity: 0.6;
+}
+
+.import-card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.import-card-icon {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+}
+
+.import-card-icon-blank {
+  background: color-mix(in srgb, var(--import-text) 8%, transparent);
+}
+
+.import-card-names {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.import-card-title {
+  margin: 0;
+  overflow: hidden;
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.import-card-facts,
+.import-card-status {
+  margin: 0;
+  color: var(--import-faint);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+}
+
+.import-card[data-state="failed"] .import-card-status {
+  color: var(--agent-danger, var(--cmux-app-danger, var(--import-dim)));
+}
+
+.import-card-reason {
+  margin: 0;
+  color: var(--import-dim);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  font-style: italic;
+}
+
+.import-card-benefit {
+  margin: 0;
+  color: var(--import-dim);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+}
+
+.import-card-progress {
+  display: block;
+  width: 100%;
+  height: 4px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 1px;
+  appearance: none;
+  background: color-mix(in srgb, var(--import-text) 10%, transparent);
+}
+
+.import-card-progress::-webkit-progress-bar {
+  background: transparent;
+}
+
+.import-card-progress::-webkit-progress-value {
+  border-radius: 1px;
+  background: var(--import-accent);
+}
+
+.import-card-progress::-moz-progress-bar {
+  border-radius: 1px;
+  background: var(--import-accent);
+}
+
+.import-card-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.import-card-button {
+  height: 24px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  font: inherit;
+  font-size: var(--text-detail);
+  cursor: default;
+}
+
+.import-card-primary {
+  background: color-mix(in srgb, var(--import-text) 10%, transparent);
+  color: var(--import-text);
+  font-weight: 600;
+}
+
+.import-card-primary:hover {
+  background: color-mix(in srgb, var(--import-text) 15%, transparent);
+}
+
+.import-card-secondary {
+  padding: 0 6px;
+  background: transparent;
+  color: var(--import-dim);
+}
+
+.import-card-secondary:hover {
+  color: var(--import-text);
+}
+
+.import-card-button:focus-visible {
+  outline: var(--cmux-focus-ring-width, 2px) solid var(--cmux-focus-ring-color, var(--import-accent));
+  outline-offset: 1px;
+}

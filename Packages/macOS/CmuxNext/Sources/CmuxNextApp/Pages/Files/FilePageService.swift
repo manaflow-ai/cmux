@@ -31,6 +31,8 @@ final class FilePageService: InternalPageProvider {
         var host: FilePageTabHost?
         /// A recovered crash draft for the page to load as an unsaved edit.
         var recoveredText: String?
+        /// Where the editor's first config puts the cursor (a Find result), until the page asks.
+        var reveal: FilePosition?
         /// Ends this tab's flush registration on its quit document.
         var stopFlush: (() -> Void)?
         /// The Markdown omnibar above the page (markdown tabs only).
@@ -46,7 +48,7 @@ final class FilePageService: InternalPageProvider {
     /// Markdown table column widths between opens (the file's extended attribute, then an app-side copy).
     private let tableWidths: (any MarkdownTableWidthStoring)?
     /// Where the markdown tabs keep viewer comments (viewer-comments-DESIGN.md "Comments in the viewer").
-    private let comments: (any MarkdownTableWidthStoring)?
+    private let comments: (any MarkdownCommentStoring)?
     private(set) lazy var look = FilePageLook(kind: kind, settings: { [weak services] in services?.settings })
     /// The documents of the R96 quit hook (one per file, shared with the other file page).
     let documents: FileQuitDocuments
@@ -58,24 +60,24 @@ final class FilePageService: InternalPageProvider {
     private(set) lazy var liveShare = MarkdownLiveShareServer(clock: clock)
 
     /// The file pages draw at the display's full rate, as the diff and agent pages do.
-    /// File pages open dropped files themselves (`fileDrop`), a WebKit-only hook so far.
-    static let engineOptions = PageEngineOptions(fullFrameRate: true, requiresWebKit: .nativeHooks)
+    static let engineOptions = PageEngineOptions(fullFrameRate: true)
     /// How long a closed editor tab's page may take to save its pending edits.
     static let flushTimeout: Duration = .seconds(3)
 
     init(services: AppServices, kind: FilePageKind, clock: any Clock<Duration> = ContinuousClock(),
-         images: any RemoteImageFetching = GuardedRemoteImages(), documents: FileQuitDocuments = .shared,
+         images: any RemoteImageFetching = GuardedRemoteImages(), documents: FileQuitDocuments? = nil,
          tableWidths: (any MarkdownTableWidthStoring)? = nil) {
         self.services = services
         self.tableWidths = kind == .markdown
             ? tableWidths ?? MarkdownTableWidthRepository(fallback: MarkdownTableWidthRepository.defaultFallbackDirectory())
             : nil
         self.comments = kind == .markdown
-            ? MarkdownTableWidthRepository(fallback: MarkdownTableWidthRepository.defaultFallbackDirectory(folder: "MarkdownComments"),
-                                           name: MarkdownTableWidthRepository.commentsAttributeName,
-                                           maxBytes: MarkdownTableWidthRepository.commentsValueLimit)
+            ? MarkdownCommentRepository(storage: MarkdownTableWidthRepository(
+                fallback: MarkdownTableWidthRepository.defaultFallbackDirectory(folder: "MarkdownComments"),
+                name: MarkdownTableWidthRepository.commentsAttributeName,
+                maxBytes: MarkdownTableWidthRepository.commentsValueLimit))
             : nil
-        self.documents = documents
+        self.documents = documents ?? services.fileQuitDocuments
         self.kind = kind
         self.clock = clock
         self.images = images
@@ -130,15 +132,21 @@ final class FilePageService: InternalPageProvider {
 
     /// Opens `file` in a tab after `pane`'s selected tab, or selects the tab of `pane`'s window that
     /// already shows it. A user run (`focus`) selects and focuses it. `readOnly`: the tab never saves
-    /// the file (a chat transcript); every other markdown file opens writable.
+    /// the file (a chat transcript); every other markdown file opens writable. `position` (the code
+    /// editor only, a Find result): the cursor goes there, in a new tab after its load
+    /// (``revealAt(_:in:)``).
     @discardableResult
     func open(_ file: URL, in pane: PaneController, focus: Bool, userChose: Bool = true, readOnly: Bool = false,
-              recoveredText: String? = nil, placed: (@MainActor (SurfaceID) -> Void)? = nil) -> String {
+              recoveredText: String? = nil, at position: FilePosition? = nil,
+              placed: (@MainActor (SurfaceID) -> Void)? = nil) -> String {
         let real = file.standardizedFileURL.resolvingSymlinksInPath()
         if userChose { services.viewers.recents.record(real, as: kind.recents) }
-        let key = show(in: pane, focus: focus, placed: placed, Tab(file: real, userChose: userChose, readOnly: readOnly, recoveredText: recoveredText)) { key in
+        let reveal = kind == .editor ? position : nil
+        let tab = Tab(file: real, userChose: userChose, readOnly: readOnly, recoveredText: recoveredText, reveal: reveal)
+        let key = show(in: pane, focus: focus, placed: placed, tab) { key in
             self.file(key) == real
         }
+        if let reveal { revealAt(reveal, in: key) }
         // The user opened a file a tab already shows (perhaps one an agent opened): it is theirs now.
         if userChose {
             tabs[key]?.userChose = true
@@ -150,6 +158,22 @@ final class FilePageService: InternalPageProvider {
             tabs[key]?.page?.reload()
         }
         return key
+    }
+
+    /// Puts tab `key`'s cursor at `position`: a tab whose page is up gets the `reveal` page command;
+    /// a tab whose page is not made yet (or takes no commands yet) carries it into its first config.
+    private func revealAt(_ position: FilePosition, in key: String) {
+        guard tabs[key] != nil else { return }
+        if let page = tabs[key]?.page, let provider = tabs[key]?.provider {
+            if page.send(command: EditorPageCommand.reveal, arguments: ["text": .string(position.pageText)]) {
+                tabs[key]?.reveal = nil
+                provider.reveal = nil
+            } else {
+                provider.reveal = position
+            }
+        } else {
+            tabs[key]?.reveal = position
+        }
     }
 
     /// Tab `key` as a holder of its quit document (the markdown and editor pages share documents).
@@ -243,6 +267,11 @@ final class FilePageService: InternalPageProvider {
         pane.focusContent()
     }
 
+    /// Tab `key`'s page history moved: its omnibar's Back and Forward follow.
+    fileprivate func historyChanged(canBack: Bool, canForward: Bool, in key: String) {
+        tabs[key]?.bar?.setHistory(canBack: canBack, canForward: canForward)
+    }
+
     /// Tab `key` now shows `url` (an open in the page): retitle it.
     fileprivate func opened(_ url: URL, in key: String) {
         if let previous = tabs[key]?.file, previous != url { left(previous, tab: key) }
@@ -327,6 +356,8 @@ final class FilePageService: InternalPageProvider {
                                         libraries: libraries, images: images, tableWidths: tableWidths,
                                         comments: comments)
         provider.recoveredText = tab.recoveredText
+        provider.reveal = tab.reveal
+        tab.reveal = nil
         let native = AppPageNativeProvider(services: services, page: kind.descriptor)
         let routes = [PageRoute(prefix: kind.namespace + ".", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
         guard let page = PageWebView(descriptor: kind.descriptor, routes: routes, options: Self.engineOptions, surface: kind.surface,
@@ -339,7 +370,7 @@ final class FilePageService: InternalPageProvider {
         }
         page.onOpenExternal = { [weak self] url in self?.openExternal(url, from: key) }
         page.fileDrop = fileDrop(provider: provider, page: page, key: key)
-        // One menu: Copy; Comment…, Quote in Chat, Send to Chief and Send to… on a selection; Reset
+        // One menu: Copy; Comment…, Quote in Chat, Send to Chief and Send To… on a selection; Reset
         // Column Widths on a table (viewer-comments-DESIGN.md).
         installSelectionMenu(on: page, key: key, then: kind == .markdown ? Self.tableMenu(provider: provider, page: page) : nil)
         tab.page = page
@@ -356,11 +387,13 @@ final class FilePageService: InternalPageProvider {
         let actions = MarkdownOmnibarActions(
             open: { [weak self] url, disposition in self?.omnibarOpen(url, disposition: disposition, from: key) },
             returnFocus: { [weak page] in
-                guard let page, let window = page.window else { return }
-                window.makeFirstResponder(page.webKitView)
+                page?.focusPage()
             },
             liveLink: { [weak self] url in try? await self?.liveShare.link(for: url) },
-            openInBrowser: { [weak self] url in self?.openExternal(url, from: key) })
+            openInBrowser: { [weak self] url in self?.openExternal(url, from: key) },
+            back: { [weak page] in page?.send(command: "back") },
+            forward: { [weak page] in page?.send(command: "forward") },
+            reload: { [weak page] in page?.send(command: MarkdownPageCommand.reload) })
         let bar = MarkdownOmnibarBar(suggestionEngine: services.cache.suggestionEngine, actions: actions)
         bar.toolbar.cardClip = page
         bar.show(tab.provider?.file ?? tab.file)
@@ -368,15 +401,19 @@ final class FilePageService: InternalPageProvider {
         return bar
     }
 
-    /// A URL committed in the Markdown omnibar: a Markdown file opens in this tab (the user typed
-    /// it, so it is theirs), another file through the file routing, a web URL in a browser tab
-    /// beside the page. A modified commit (`disposition`) always opens a new tab.
+    /// A URL committed in the Markdown omnibar: a Markdown file opens in this tab as a new history
+    /// entry (the user typed it, so it is theirs), another file through the file routing, a web URL
+    /// or a search in a browser tab beside the page (the link placement rule, as a clicked link).
+    /// A modified commit (`disposition`) always opens a new tab.
     private func omnibarOpen(_ url: URL, disposition: OmnibarDisposition?, from key: String) {
         guard url.isFileURL else { return openExternal(url, from: key) }
         guard disposition == nil, FilePageKind.isMarkdown(url), let provider = tabs[key]?.provider, let page = tabs[key]?.page else {
             return openFile(url, from: key)
         }
-        provider.userChose(url.standardizedFileURL.resolvingSymlinksInPath())
+        let file = url.standardizedFileURL.resolvingSymlinksInPath()
+        provider.userChose(file)
+        // A tab showing a file keeps its history: the page opens the typed one as the next entry.
+        if provider.file != nil, page.send(command: MarkdownPageCommand.open, arguments: ["text": .string(file.path)]) { return }
         // task-owner: one open of the typed file; ends when the tab shows it or refuses it
         Task {
             guard (try? await provider.open(url)) != nil else { return NSSound.beep() }
@@ -475,6 +512,7 @@ final class FilePageTabHost: FilePageHosting {
     }
     func saved(_ url: URL, hash: String) { service?.saved(url, hash: hash) }
     var showsOmnibar: Bool { service?.kind == .markdown }
+    func historyChanged(canBack: Bool, canForward: Bool) { service?.historyChanged(canBack: canBack, canForward: canForward, in: key) }
     func isRecent(_ path: String) -> Bool { service?.isRecent(path) ?? false }
     func confirmOpen(_ url: URL, userGesture: Bool) async -> Bool { await service?.confirmOpen(url, userGesture: userGesture, from: key) ?? false }
 }

@@ -4,8 +4,8 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("changes-stage-hunk-keys.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -29,25 +29,12 @@ await requireBrowserLane("changes-stage-hunk-keys.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
-    // Warm the gallery stage once before the measured page, as composer-mention.test.ts does: the
-    // first load can trigger Vite's dependency optimizer and reload its context mid-compile.
-    const warm = await browser.newPage({ viewport: { width: 860, height: 620 } });
-    await warm.goto(url());
-    for (;;) {
-      try {
-        await warm.waitForFunction(() => document.documentElement.dataset.galleryReady, undefined, { timeout: 0 });
-        break;
-      } catch (error) {
-        if (!/context was destroyed|navigat/i.test(String(error))) throw error;
-      }
-    }
-    await warm.close();
+    await warmGalleryFrame(vite, "agent-pane.diff-panel", { browser, params: { variant: "stage-hunk" } });
   });
 
   const url = () =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=agent-pane.diff-panel&variant=stage-hunk`;
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame("agent-pane.diff-panel", { variant: "stage-hunk" })}`;
 
   afterAll(async () => {
     await browser?.close();

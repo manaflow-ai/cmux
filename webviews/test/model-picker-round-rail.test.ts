@@ -1,14 +1,16 @@
 // cmux-web-test-timeout: 300
 // The model picker's harness rail is plain icons on a round wash, matching the composer's round
 // pills, never a column of square tiles (Leo 2026-10-18: "grid squares"). The selected harness and a
-// hovered one both take that round wash.
+// hovered one both take that round wash. The model button opens its compact menu in every composer
+// (Leo 2026-10-20: one model button), so the rail checked is that menu's.
 // Real Chromium and WebKit (the app's engine) on the gallery stage. CI fails the file when it cannot
 // launch them (requireBrowserLane). Locally: CMUX_BROWSER_TESTS=1 bun test test/model-picker-round-rail.test.ts
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("model-picker-round-rail.test.ts", async () => {
   setDefaultTimeout(240_000);
@@ -34,7 +36,7 @@ await requireBrowserLane("model-picker-round-rail.test.ts", async () => {
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   const browsers = new Map<string, Browser>();
   const stageURL = (entry: string, variant: string) =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=${entry}&variant=${variant}&frame=component&width=760&theme=Catppuccin+Mocha`;
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame(entry, { variant, frame: "component", width: 760, theme: "Catppuccin Mocha" })}`;
 
   beforeAll(async () => {
     vite = await createServer({
@@ -43,23 +45,11 @@ await requireBrowserLane("model-picker-round-rail.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
-    for (const [name, engine] of engines) {
-      const browser = await engine.launch({ headless: true });
-      browsers.set(name, browser);
-      // The first load can run Vite's dependency optimizer and reload mid-compile.
-      const warm = await browser.newPage({ viewport: { width: 760, height: 600 } });
-      await warm.goto(stageURL("agent-pane.new-tab", "reasoning-chip"));
-      for (;;) {
-        try {
-          await warm.waitForFunction(() => document.documentElement.dataset.galleryReady, undefined, { timeout: 0 });
-          break;
-        } catch (error) {
-          if (!/context was destroyed|navigat/i.test(String(error))) throw error;
-        }
-      }
-      await warm.close();
-    }
+    for (const [name, engine] of engines) browsers.set(name, await engine.launch({ headless: true }));
+    await warmGalleryFrame(vite, "agent-pane.new-tab", {
+      browser: [...browsers.values()][0],
+      params: { variant: "reasoning-chip" },
+    });
   });
   afterAll(async () => {
     for (const browser of browsers.values()) await browser.close();
@@ -74,29 +64,46 @@ await requireBrowserLane("model-picker-round-rail.test.ts", async () => {
       timeout: 120_000,
     });
     await page.evaluate(() => document.fonts.ready);
+    await installPaintedFrames(page);
     return page;
   };
+  /// Waits for the page to come to rest: its finite animations and transitions have finished, then
+  /// two frames have painted, so what is read next is laid out as drawn.
+  const atRest = (page: Page) =>
+    page.evaluate(async () => {
+      const finite = () =>
+        document
+          .getAnimations()
+          .filter(
+            (animation) =>
+              animation.playState === "running" && Number.isFinite(animation.effect?.getComputedTiming().endTime),
+          );
+      for (let moving = finite(); moving.length > 0; moving = finite())
+        await Promise.allSettled(moving.map((animation) => animation.finished));
+      await window.cmuxPaintFrame();
+      await window.cmuxPaintFrame();
+    });
   /** A real press and release at the centre of `selector`. */
   const press = async (page: Page, selector: string) => {
     const box = (await page.locator(selector).first().boundingBox())!;
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.mouse.down();
     await page.mouse.up();
-    await page.waitForTimeout(300);
+    await atRest(page);
   };
 
   for (const [engine] of engines)
     test(`${engine}: every rail tab is round, the selected one included`, async () => {
       const page = await open(engine);
       await press(page, chip("Model"));
-      await page.locator(".acpmux-mp-rail-tab").first().waitFor();
+      await page.locator(".acpmux-quick-rail-tab").first().waitFor();
       const tabs = await page.evaluate(() =>
-        [...document.querySelectorAll<HTMLElement>(".acpmux-mp-rail-tab")].map((tab) => {
+        [...document.querySelectorAll<HTMLElement>(".acpmux-quick-rail-tab")].map((tab) => {
           const box = tab.getBoundingClientRect();
           const style = getComputedStyle(tab);
           return {
             name: tab.getAttribute("aria-label") ?? tab.textContent?.trim() ?? "",
-            selected: tab.getAttribute("aria-selected") === "true",
+            selected: tab.getAttribute("aria-pressed") === "true",
             round: parseFloat(style.borderTopLeftRadius) >= Math.min(box.width, box.height) / 2 - 0.5,
             filled: style.backgroundColor !== "rgba(0, 0, 0, 0)",
           };

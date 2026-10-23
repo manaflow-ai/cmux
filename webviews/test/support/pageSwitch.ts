@@ -135,7 +135,7 @@ export function pageSwitch(window: DOMWindow): PageSwitch {
     new Promise<void>((resolve) => {
       const raf = window.requestAnimationFrame?.bind(window) ?? globalThis.requestAnimationFrame;
       if (typeof raf === "function") raf(() => resolve());
-      else setTimeout(resolve, 16);
+      else setTimeout(resolve, 16); // fixed-wait: no requestAnimationFrame here, so one 60 Hz frame's time stands in
     });
 
   const setVisibility = async (next: DocumentVisibilityState) => {

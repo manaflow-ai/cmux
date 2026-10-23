@@ -151,7 +151,14 @@ extension ControlRouter {
         guard !allowedKinds.isEmpty else {
             throw ControlError.invalidParams(ControlStrings.format("control.error.noTarget", "%@ does not take a target", action))
         }
-        guard let kindText else { return ControlTargetRef(kind: allowedKinds[0], id: id) }
+        guard let kindText else {
+            // A bare public id names its kind by its prefix (`tab_…`, `pane_…`, `ws_…`): an action that
+            // takes more than one kind (a pane or a tab) resolves it as that kind, not as its first.
+            let named = allowedKinds.first { kind in
+                id.hasPrefix(normalizedKind(kind) == "workspace" ? "ws_" : "\(normalizedKind(kind))_")
+            }
+            return ControlTargetRef(kind: named ?? allowedKinds[0], id: id)
+        }
         guard let kind = allowedKinds.first(where: { normalizedKind($0) == normalizedKind(kindText) }) else {
             throw ControlError.invalidParams(
                 ControlStrings.format("control.error.wrongTargetKind", "%1$@ takes a target of kind %2$@, not %3$@", action, allowedKinds.joined(separator: "|"), kindText),

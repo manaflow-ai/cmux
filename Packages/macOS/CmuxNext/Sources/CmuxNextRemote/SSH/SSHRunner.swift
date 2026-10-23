@@ -25,8 +25,11 @@ public struct SSHProcessRunner {
         case writer(@Sendable (Int32) -> Void)
     }
 
+    /// `stop` ends the process on the deadline or a cancel (by default SIGTERM to it alone; a caller
+    /// whose process leads a group passes one that signals the group).
     public static func run(_ argv: [String], input: Input = .none, environment: [String: String],
-                           deadline: Duration, label: String) async throws -> SSHProcessResult {
+                           deadline: Duration, label: String,
+                           stop: @escaping @Sendable (Process) -> Void = { $0.terminate() }) async throws -> SSHProcessResult {
         guard let executable = argv.first else { throw CocoaError(.executableNotLoadable) }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
@@ -85,13 +88,13 @@ public struct SSHProcessRunner {
                 // withDeadline waits for its operation after the deadline cancels it, and the
                 // exit only comes once the process is stopped: terminate it on that cancel.
                 try await withDeadline(deadline, label: label) {
-                    await withTaskCancellationHandler { await exit.awaitValue() } onCancel: { process.terminate() }
+                    await withTaskCancellationHandler { await exit.awaitValue() } onCancel: { stop(process) }
                 }
             } onCancel: {
-                process.terminate()
+                stop(process)
             }
         } catch {
-            if process.isRunning { process.terminate() }
+            if process.isRunning { stop(process) }
             throw error
         }
         // Output can trail the exit; wait briefly for stdout's end. A

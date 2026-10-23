@@ -90,6 +90,11 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     case bookmarks(json: String, profilePath: String)
     /// A download's start, progress or end (`CEFDownloads`).
     case download(CEFDownloadEvent)
+    /// A cmux page asks for one of its dynamic paths (PAGE_RESOURCE), answered with
+    /// `cmux_shim_page_resource_respond(token, …)` (``CEFTab/pageResources``).
+    case pageResource(browser: Int32, token: Int32, url: String)
+    /// A drag of files from outside entered a page (PAGE_DRAG_ENTER): their paths, as JSON.
+    case pageDragEnter(browser: Int32, pathsJSON: String)
     case unknown(kind: Int32)
 
     init(kind: Int32, browser: Int32, request: Int32, a: Int64, b: Int64, s1: String, s2: String) {
@@ -147,6 +152,8 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
         case 43: self = .passwordPrompt(browser: browser, promptID: request, json: s1)
         case 44: self = .beforeUnloadDialog(browser: browser, token: request, isReload: a != 0)
         case 45: self = .beforeUnloadDismissed(browser: browser)
+        case 46: self = .pageResource(browser: browser, token: request, url: s1)
+        case 47: self = .pageDragEnter(browser: browser, pathsJSON: s1)
         default: self = .unknown(kind: kind)
         }
     }

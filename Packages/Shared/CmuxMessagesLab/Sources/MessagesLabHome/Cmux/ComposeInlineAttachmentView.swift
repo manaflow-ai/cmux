@@ -15,7 +15,7 @@ final class ComposeInlineAttachmentView: NSView {
         self.attachment = attachment
         super.init(frame: CGRect(origin: .zero, size: attachment.pictureSize))
         wantsLayer = true
-        layer?.cornerRadius = ComposeAttachmentStrip.corner
+        layer?.cornerRadius = ComposeInlineAttachment.corner
         layer?.cornerCurve = .continuous
         layer?.masksToBounds = true
         layer?.contentsGravity = .resizeAspectFill
@@ -78,8 +78,18 @@ final class ComposeInlineAttachmentView: NSView {
         attachment.onRemove(attachment.attachmentID)
     }
 
+    /// One type icon per mime type for the life of the process: each file pill asked the workspace
+    /// again on the main thread (a Launch Services lookup) while the field laid out its text.
+    private static var icons: [String: NSImage] = [:]
+    static func icon(forMimeType mime: String) -> NSImage {
+        if let cached = icons[mime] { return cached }
+        let image = NSWorkspace.shared.icon(for: UTType(mimeType: mime) ?? .data)
+        if icons.count < 64 { icons[mime] = image }
+        return image
+    }
+
     private func addFileLabels(_ a: Attachment) {
-        let icon = NSImageView(image: NSWorkspace.shared.icon(for: UTType(mimeType: a.mimeType) ?? .data))
+        let icon = NSImageView(image: Self.icon(forMimeType: a.mimeType))
         icon.frame = CGRect(x: 10, y: (bounds.height - 32) / 2, width: 32, height: 32)
         addSubview(icon)
         let name = NSTextField(labelWithString: ComposeAttachmentStrip.fit(a.fileName, ComposeAttachmentStrip.nameFont, bounds.width - 60))

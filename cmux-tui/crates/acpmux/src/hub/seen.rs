@@ -27,6 +27,8 @@ impl Hub {
                 let _ = session.hidden.fetch_update(Ordering::SeqCst, Ordering::SeqCst, less);
             }
         }
+        // The git watch follows the chats clients hold (`git_watch.rs`).
+        self.git_watch_wake();
     }
 
     /// An attached client starts or stops showing the chat.

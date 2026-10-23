@@ -46,6 +46,15 @@ The current carrier needs explicitly configured peers and direct reachability;
 automatic server peer-map/relay integration remains separate. Paired daemon
 installs retain their narrow backend grants and cannot mint Cloud dial tokens.
 
+When this link receives a peer-map update, removing a peer or changing the
+install, user or team assigned to its key closes its incoming and outgoing
+paired daemon and owner-session connections before the WireGuard peer is
+removed. Pending handshakes also check the current peer map; an older snapshot cannot reopen a
+revoked identity. Endpoint-only changes keep the same identity connected. A
+failed overlay update keeps revoked identities blocked while the next reload
+retries the network change. Revoking a pending outgoing dial cancels its connect
+and returns `not_authorized` before any service hello is sent.
+
 ## Progress output
 
 For `pair --json`, public progress objects go to stderr and the final result

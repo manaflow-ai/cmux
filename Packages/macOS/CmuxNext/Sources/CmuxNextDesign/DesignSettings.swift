@@ -1,6 +1,7 @@
 public import CoreGraphics
 public import Observation
 import Foundation
+public import CmuxNextDesignTokens
 
 /// Metrics a user may override individually on top of a density preset.
 /// Raw values are the cmux.json keys under `appearance.metrics`.
@@ -148,7 +149,7 @@ public final class DesignSettings {
             center.post(name: Motion.speedDidChange, object: nil)
             center.post(name: Motion.reduceMotionDidChange, object: nil)
             center.post(name: Self.hoverCardsDidChange, object: nil)
-            ThemeStore.shared.repaintAll()
+            ThemeScope.app.store.repaintAll()
         }
     }
     /// Hover cards open on hover: `sidebar.hoverCards.enabled` and not calm mode.
@@ -215,7 +216,7 @@ public final class DesignSettings {
     /// Pages that show code draw in the terminal's face (`WebTheme.Terminal`): a change of it
     /// repaints, so every page resends its theme.
     private func repaintIfTerminalFaceChanged(from before: String?) {
-        if effectiveTerminalFontFamily != before { ThemeStore.shared.repaintAll() }
+        if effectiveTerminalFontFamily != before { ThemeScope.app.store.repaintAll() }
     }
     /// `status.*`: inferred command busy and run notifications.
     public var statusBehavior = StatusBehaviorSettings()
@@ -257,6 +258,8 @@ public final class DesignSettings {
     public var tabBarPosition: TabBarPosition = .top
     /// `tabs.barOrder` (R109).
     public var tabBarOrder: TabBarOrder = .aboveToolbar
+    /// `browser.toolbarPosition`: the omnibar row above or below the page.
+    public var browserToolbarPosition: ToolbarPosition = .top
     /// `appearance.paneBackgrounds`: one background for the window or a copy per pane.
     public var paneBackgrounds: PaneBackgroundMode = .shared
 

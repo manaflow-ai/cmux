@@ -3,12 +3,12 @@ import AppKit
 @testable import CmuxNextSidebar
 import Testing
 
-/// Leo 2026-10-20: moving the pointer off a sidebar workspace to dismiss its hover card took too
-/// much travel ("trapped by the preview"). The card sat top-aligned against the row, so right of
-/// the row was always the card. Now the row's upper half keeps an empty escape slot beside it that
-/// the card never covers, and moving into it dismisses the card at once. The row's lower half
-/// still runs straight into the card, so a pointer that wants the card keeps it, and leaving both
-/// the row and the card still dismisses it.
+/// A sidebar workspace's hover card in the real list. Leo 2026-10-21 ("WHY HAS IT NOT BEEN
+/// ALIGNED"): the card's top lines up with its row's top, as Chrome's and Arc's tab cards, and
+/// follows the row from row to row; it stands one device pixel off the sidebar's edge. The escape slot beside the
+/// row's upper half (#22473, Leo 2026-10-20 "trapped by the preview") is a Debug Settings layout
+/// now, covered by `HoverCardEscapeGeometryTests`. A pointer heading into the card keeps it, one
+/// going down past the row lets it go, and leaving both the row and the card dismisses it.
 @MainActor @Suite(.serialized) struct SidebarHoverCardEscapeTests {
     private static func sidebar(clock: ManualClock) -> (SidebarListView, NSWindow, HoverCardCoordinator, [SidebarRow]) {
         _ = NSApplication.shared
@@ -20,7 +20,7 @@ import Testing
                                  activeWorkspaceID: nil)
         let list = SidebarListView(model: model)
         // Low on the screen with room above and below, so a small runner's screen never clamps
-        // the card off its row's middle.
+        // the card off its row's top.
         let window = NSWindow(contentRect: NSRect(x: 200, y: 100, width: 240, height: 400), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -50,46 +50,51 @@ import Testing
         return (anchor, card)
     }
 
-    /// Right of the row's upper half: an empty slot the card never covers; moving there
-    /// dismisses the card on that move.
-    @Test func movingIntoTheEscapeSlotBesideTheRowDismissesTheCard() async throws {
-        let clock = ManualClock()
-        let (list, window, coordinator, rows) = Self.sidebar(clock: clock)
-        let (row, card) = try await Self.showSecondRowCard(list, coordinator, clock, rows)
-        let slot = CGPoint(x: row.maxX + 24, y: row.maxY - 3)
-        #expect(!card.contains(slot), "the card \(card) covers the slot beside its row \(row)")
-        coordinator.pointerMoved(to: slot)
-        #expect(coordinator.machine.shownTarget == nil, "the card stayed (\(coordinator.machine.phase)) with the pointer in the escape slot")
-        try await WorkspaceHoverCardScrollTests.tearDown(window, coordinator)
-    }
-
-    /// The slot starts at the row's trailing edge, inside the sidebar's own margin: the pointer
-    /// there dismisses the card, and moving on within the slot does not bring it back.
-    @Test func theEscapeSlotInsideTheSidebarMarginDismissesAndStaysDismissed() async throws {
-        let clock = ManualClock()
-        let (list, window, coordinator, rows) = Self.sidebar(clock: clock)
-        let (row, _) = try await Self.showSecondRowCard(list, coordinator, clock, rows)
-        try #require(row.maxX + 2 < window.frame.maxX, "the row reaches the window's edge; no margin to test")
-        for dx in [1, 2] as [CGFloat] {
-            let screen = CGPoint(x: row.maxX + dx, y: row.maxY - 3)
-            list.updateHover(window.convertPoint(fromScreen: screen))
-            #expect(coordinator.machine.shownTarget == nil,
-                    "the card showed (\(coordinator.machine.phase)) with the pointer in the slot \(dx) pt right of its row")
-        }
-        clock.advance(by: HoverCardTiming.reshowWindow + DesignSettings.shared.hoverCardDelay + .milliseconds(100))
+    private static func settle(until done: @escaping () -> Bool) async throws {
         for _ in 0..<20 { await Task.yield() }
-        #expect(coordinator.machine.shownTarget == nil, "the card came back with the pointer resting in the slot")
-        try await WorkspaceHoverCardScrollTests.tearDown(window, coordinator)
+        for _ in 0..<500 where !done() { try await Task.sleep(for: .milliseconds(10)) }
     }
 
-    /// Leo 2026-10-20: the card opened against the row's top-right corner, where the row's x
-    /// sits, so the next row down ran into it. It stands off the row by a clear gap.
-    @Test func theCardStandsOffItsRow() async throws {
+    /// The card's top is its row's top (Chrome, Arc), not the row's middle.
+    @Test func theCardsTopLinesUpWithItsRow() async throws {
         let clock = ManualClock()
         let (list, window, coordinator, rows) = Self.sidebar(clock: clock)
         let (row, card) = try await Self.showSecondRowCard(list, coordinator, clock, rows)
-        let gap = card.minX - row.maxX
-        #expect(gap >= 8 && gap <= 12, "the card sits \(gap) pt from its row")
+        #expect(abs(card.maxY - row.maxY) <= 0.5, "the card's top \(card.maxY) is \(row.maxY - card.maxY) pt below its row's top \(row.maxY)")
+        try await WorkspaceHoverCardScrollTests.tearDown(window, coordinator)
+    }
+
+    /// The hover moves to the next row: the card goes with it, its top on that row's top.
+    @Test func theCardFollowsTheHoverToTheNextRow() async throws {
+        let clock = ManualClock()
+        let (list, window, coordinator, rows) = Self.sidebar(clock: clock)
+        try #require(rows.count >= 3)
+        _ = try await Self.showSecondRowCard(list, coordinator, clock, rows)
+        guard case .workspace(let id) = rows[2].key, let next = list.hoverCardAnchor(for: id) else {
+            Issue.record("the third row has no frame on screen")
+            return
+        }
+        let target = WorkspaceHoverCardController.targetID(id)
+        list.updateHover(list.convert(NSPoint(x: list.bounds.midX, y: (rows[2].y + rows[2].maxY) / 2), to: nil))
+        try await Self.settle(until: { coordinator.machine.shownTarget?.id == target })
+        try #require(coordinator.machine.shownTarget?.id == target, "the card did not move to the next row (\(coordinator.machine.phase))")
+        let card = try #require(coordinator.panel).cardFrame
+        #expect(abs(card.maxY - next.maxY) <= 0.5, "the card's top \(card.maxY) is not the next row's top \(next.maxY)")
+        try await WorkspaceHoverCardScrollTests.tearDown(window, coordinator)
+    }
+
+    /// Lawrence 2026-10-21: "horizontally only 1 pixel gap". The card's near edge is one device
+    /// pixel past the sidebar's edge (here the list fills its window), not a gap off the row's
+    /// pill, which the row's inset and trim moved.
+    @Test func theCardIsOnePixelOffTheSidebarsEdge() async throws {
+        let clock = ManualClock()
+        let (list, window, coordinator, rows) = Self.sidebar(clock: clock)
+        let (row, card) = try await Self.showSecondRowCard(list, coordinator, clock, rows)
+        let edge = window.convertToScreen(list.convert(list.bounds, to: nil)).maxX
+        let pixel = 1 / max(window.backingScaleFactor, 1)
+        #expect(abs(card.minX - (edge + pixel)) < 0.01,
+                "the card's left edge is \(card.minX - edge) pt from the sidebar's edge, not one pixel (\(pixel) pt); row ends at \(row.maxX)")
+        #expect(card.maxX > edge)
         try await WorkspaceHoverCardScrollTests.tearDown(window, coordinator)
     }
 
@@ -125,26 +130,6 @@ import Testing
         }
         coordinator.pointerMoved(to: CGPoint(x: card.midX, y: card.midY))
         #expect(coordinator.isShowing(shown.id), "resting on the card hid it")
-        try await WorkspaceHoverCardScrollTests.tearDown(window, coordinator)
-    }
-
-    /// Resting in the slot inside the sidebar's margin (come from the right): the row's card does
-    /// not show there after the delay.
-    @Test func restingInTheSlotShowsNoCard() async throws {
-        let clock = ManualClock()
-        let (list, window, coordinator, rows) = Self.sidebar(clock: clock)
-        try #require(rows.count >= 2)
-        guard case .workspace(let id) = rows[1].key, let row = list.hoverCardAnchor(for: id) else {
-            Issue.record("the second row has no frame on screen")
-            return
-        }
-        try #require(row.maxX + 2 < window.frame.maxX, "the row reaches the window's edge; no margin to test")
-        list.updateHover(window.convertPoint(fromScreen: CGPoint(x: row.maxX + 2, y: row.maxY - 3)))
-        try await clock.waitForSleeper()
-        clock.advance(by: DesignSettings.shared.hoverCardDelay + .milliseconds(100))
-        for _ in 0..<20 { await Task.yield() }
-        for _ in 0..<30 { try await Task.sleep(for: .milliseconds(10)) }
-        #expect(!(coordinator.panel?.isShowingCard ?? false), "the card showed (\(coordinator.machine.phase)) with the pointer in its slot")
         try await WorkspaceHoverCardScrollTests.tearDown(window, coordinator)
     }
 

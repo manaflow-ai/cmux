@@ -20,6 +20,7 @@ use crate::Mux;
 use crate::journal_kernel::JournalDocument;
 use crate::journal_kernel::SharedJournalPage;
 use crate::journal_kernel::SharedJournalRead;
+use crate::panic_free::JsonFields;
 use crate::resource::ResourceError;
 use crate::resource::ResourceOperation;
 use crate::resource::SessionPublicId;
@@ -81,7 +82,7 @@ pub(super) fn handle_journal_extension_request(
             .map_err(|error| journal_extension_error("session.journal.producer.list", error)),
         ResourceOperation::SessionJournalProducerPut => {
             let manifest = serde_json::from_value::<crate::JournalProducerManifest>(
-                request.fields["manifest"].clone(),
+                request.fields.get("manifest").cloned().unwrap_or_default(),
             )
             .map_err(|error| {
                 eprintln!("cmux-tui: invalid journal producer manifest: {error}");
@@ -90,11 +91,7 @@ pub(super) fn handle_journal_extension_request(
                     "journal producer manifest is invalid",
                 )
             })?;
-            let idempotency_key = request
-                .envelope
-                .idempotency_key
-                .as_deref()
-                .expect("catalog requires mutation idempotency");
+            let idempotency_key = super::wire_values::required_idempotency_key(request)?;
             mux.put_journal_producer(&manifest, origin, idempotency_key)
                 .map(|commit| {
                     json!({
@@ -113,14 +110,15 @@ pub(super) fn handle_journal_extension_request(
                 .map_err(|error| journal_extension_error("session.journal.producer.put", error))
         }
         ResourceOperation::SessionJournalAppend => {
-            let ingress =
-                serde_json::from_value::<crate::JournalIngress>(request.fields["event"].clone())
-                    .map_err(|error| {
-                        ResourceError::validation_invalid(
-                            Some("event"),
-                            format!("journal event is invalid: {error}"),
-                        )
-                    })?;
+            let ingress = serde_json::from_value::<crate::JournalIngress>(
+                request.fields.get("event").cloned().unwrap_or_default(),
+            )
+            .map_err(|error| {
+                ResourceError::validation_invalid(
+                    Some("event"),
+                    format!("journal event is invalid: {error}"),
+                )
+            })?;
             super::command_history::refuse_reserved_producer(&ingress)?;
             // A turn-start hook's prompt rides beside the event, memory only: kept before the
             // commit so the agent change the commit folds already carries it, put back when the
@@ -158,11 +156,7 @@ pub(super) fn handle_journal_extension_request(
                         })?;
                     mux.note_agent_reply(&terminal, reply).then_some(terminal)
                 });
-            let idempotency_key = request
-                .envelope
-                .idempotency_key
-                .as_deref()
-                .expect("catalog requires mutation idempotency");
+            let idempotency_key = super::wire_values::required_idempotency_key(request)?;
             let appended = mux.append_journal_ingress(&ingress, origin, idempotency_key);
             if let Some((terminal, previous)) = noted
                 && !appended.as_ref().is_ok_and(|commit| !commit.replayed)
@@ -201,7 +195,7 @@ pub(super) fn handle_journal_extension_request(
             .map_err(|error| journal_extension_error("session.journal.hook.list", error)),
         ResourceOperation::SessionJournalHookPut => {
             let manifest = serde_json::from_value::<crate::JournalHookManifest>(
-                request.fields["manifest"].clone(),
+                request.fields.get("manifest").cloned().unwrap_or_default(),
             )
             .map_err(|error| {
                 eprintln!("cmux-tui: invalid journal hook manifest: {error}");
@@ -210,11 +204,7 @@ pub(super) fn handle_journal_extension_request(
                     "journal hook manifest is invalid",
                 )
             })?;
-            let idempotency_key = request
-                .envelope
-                .idempotency_key
-                .as_deref()
-                .expect("catalog requires mutation idempotency");
+            let idempotency_key = super::wire_values::required_idempotency_key(request)?;
             mux.put_journal_hook(&manifest, origin, idempotency_key)
                 .map(|commit| {
                     json!({
@@ -232,11 +222,7 @@ pub(super) fn handle_journal_extension_request(
                 .map_err(|error| journal_extension_error("session.journal.hook.put", error))
         }
         ResourceOperation::SessionJournalCheckpointCreate => {
-            let idempotency_key = request
-                .envelope
-                .idempotency_key
-                .as_deref()
-                .expect("catalog requires mutation idempotency");
+            let idempotency_key = super::wire_values::required_idempotency_key(request)?;
             mux.create_journal_checkpoint(origin, idempotency_key)
                 .map(|commit| {
                     let checkpoint = commit.checkpoint;
@@ -284,20 +270,17 @@ pub(super) fn handle_journal_extension_request(
             .map(|segments| json!({"segments":segments}))
             .map_err(|error| journal_extension_error("session.journal.segment.list", error)),
         ResourceOperation::SessionJournalSegmentSeal => {
-            let through_sequence =
-                serde_json::from_value::<WireDecimal>(request.fields["through_sequence"].clone())
-                    .map(WireDecimal::get)
-                    .map_err(|error| {
-                        ResourceError::validation_invalid(
-                            Some("through_sequence"),
-                            format!("segment through sequence is invalid: {error}"),
-                        )
-                    })?;
-            let idempotency_key = request
-                .envelope
-                .idempotency_key
-                .as_deref()
-                .expect("catalog requires mutation idempotency");
+            let through_sequence = serde_json::from_value::<WireDecimal>(
+                request.fields.get("through_sequence").cloned().unwrap_or_default(),
+            )
+            .map(WireDecimal::get)
+            .map_err(|error| {
+                ResourceError::validation_invalid(
+                    Some("through_sequence"),
+                    format!("segment through sequence is invalid: {error}"),
+                )
+            })?;
+            let idempotency_key = super::wire_values::required_idempotency_key(request)?;
             mux.seal_journal_segments(through_sequence, origin, idempotency_key)
                 .map(|commit| {
                     json!({
@@ -314,7 +297,7 @@ pub(super) fn handle_journal_extension_request(
                 })
                 .map_err(|error| journal_extension_error("session.journal.segment.seal", error))
         }
-        _ => unreachable!("journal extension handler received another operation"),
+        operation => Err(super::wire_values::unrouted_operation("journal extension", operation)),
     }
 }
 
@@ -405,13 +388,13 @@ pub(super) fn prepare_session_journal_stream(
         .fields
         .get("cursor")
         .map(|cursor| {
-            let generation = cursor["generation"].as_str().ok_or_else(|| {
+            let generation = cursor.field("generation").as_str().ok_or_else(|| {
                 ResourceError::validation_invalid(
                     Some("cursor.generation"),
                     "journal cursor generation is invalid",
                 )
             })?;
-            let sequence = serde_json::from_value::<WireDecimal>(cursor["revision"].clone())
+            let sequence = serde_json::from_value::<WireDecimal>(cursor.field("revision").clone())
                 .map(WireDecimal::get)
                 .map_err(|_| {
                     ResourceError::validation_invalid(
@@ -668,7 +651,7 @@ pub(super) fn run_session_journal_stream(
                     .through_sequence
                     .is_some_and(|through_sequence| record_sequence > through_sequence)
                 {
-                    stream.last_sequence = stream.through_sequence.expect("presence checked");
+                    stream.last_sequence = stream.through_sequence.unwrap_or(record_sequence);
                     if complete_bounded_journal_replay(writer, &stream) {
                         break 'stream;
                     }

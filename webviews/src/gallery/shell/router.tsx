@@ -21,6 +21,8 @@ import { DEFAULT_BROWSE, readBrowse, writeBrowse, type BrowseState } from "./bro
 
 export const VIEWS = ["variant", "variants", "locales", "themes", "compare", "browse"] as const;
 export type View = (typeof VIEWS)[number];
+/** The source gallery's stable landing state. A bare `/gallery/` must never be a blank shell. */
+const DEFAULT_ENTRY = "agent-pane.composer";
 /**
  * The controls, the view, the compare view's state (compare.ts; written only in that view), and
  * the edited tunables (experiments/tunable.ts; web only, so not in env.ts's shared contract).
@@ -95,11 +97,23 @@ export function createGalleryRouter(Layout: () => React.ReactNode, history?: Rou
     getParentRoute: () => rootRoute,
     path: "/",
     validateSearch: validateShellSearch,
+    // The bare URL is the link people paste into browsers and chat. Redirect it to a real,
+    // source-backed composer state after only that entry is ready; leaving the index as an empty
+    // Outlet made a cold tab look like a broken white page until a deep link or reload arrived.
+    // If the Composer entry failed to load or was renamed, fall back to the first ready entry.
     beforeLoad: async ({ search }) => {
-      const entry = readyEntries(await getEntryStore().settled())[0];
-      if (entry)
+      let entryId = DEFAULT_ENTRY;
+      let variant = await firstVariant(DEFAULT_ENTRY);
+      if (!variant) {
+        const entry = readyEntries(await getEntryStore().settled())[0];
+        if (entry) {
+          entryId = entry.id;
+          variant = Object.keys(entry.variants)[0];
+        }
+      }
+      if (variant)
         throw redirect({
-          href: `/${encodeURIComponent(entry.id)}/${encodeURIComponent(Object.keys(entry.variants)[0]!)}${stringifySearch(search)}`,
+          href: `/${encodeURIComponent(entryId)}/${encodeURIComponent(variant)}${stringifySearch(search)}`,
         });
     },
     component: Outlet,
@@ -124,7 +138,14 @@ export function createGalleryRouter(Layout: () => React.ReactNode, history?: Rou
     component: Outlet,
   });
   const routeTree = rootRoute.addChildren([indexRoute, entryRoute, variantRoute]);
-  const router = createRouter({ history: history ?? createHashHistory(), routeTree, parseSearch, stringifySearch });
+  const router = createRouter({
+    history: history ?? createHashHistory(),
+    routeTree,
+    parseSearch,
+    stringifySearch,
+    // Every cmux router preloads a link's route on intent (hover or keyboard focus).
+    defaultPreload: "intent",
+  });
   return { router, variantRoute };
 }
 

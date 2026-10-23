@@ -229,6 +229,18 @@ final class TerminalSelectionController: NSObject, @MainActor UIEditMenuInteract
         selection = current
     }
 
+    /// A long press is selecting or extending under the finger.
+    var isPressing: Bool {
+        guard let longPress else { return false }
+        return longPress.state == .began || longPress.state == .changed
+    }
+
+    /// The touch is on a visible selection handle (the handle moves, not the page or the app).
+    func ownsTouch(_ touch: UITouch) -> Bool {
+        guard let view = touch.view else { return false }
+        return [startHandle, endHandle].contains { !$0.isHidden && view.isDescendant(of: $0) }
+    }
+
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
                            shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { false }
 

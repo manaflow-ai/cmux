@@ -86,9 +86,9 @@ public struct SidebarMapping {
                     id: GroupID(group.id.rawValue),
                     name: group.name,
                     // No stored color (a group an agent or the CLI made): a stable palette color, not grey.
-                    color: color(group.color) ?? .unset(id: group.id.rawValue),
-                    // A custom `#RRGGBB` (cx-25az) draws instead of the token.
-                    custom: group.color.flatMap { $0.hasPrefix("#") ? GroupTint(wire: $0)?.wire : nil },
+                    color: group.color == GroupTint.noneWire ? .grey : color(group.color) ?? .unset(id: group.id.rawValue),
+                    // A custom `#RRGGBB` (cx-25az) or no color (`none`) draws instead of the token.
+                    custom: group.color.flatMap { $0.hasPrefix("#") || $0 == GroupTint.noneWire ? GroupTint(wire: $0)?.wire : nil },
                     isCollapsed: group.collapsed || collapsedGroups.contains(group.id.rawValue),
                     isPinned: group.pinned,
                     icon: group.icon.flatMap { groupImage($0).map(WorkspaceIcon.favicon) ?? WorkspaceIcon.parse($0) },
@@ -121,7 +121,8 @@ public struct SidebarMapping {
         let indicator = StatusMapping.shared.summary(tabs: tabs, status: workspace.status)
         let front = frontTab(workspace, selectedTab: selectedTab)
         let folder = folderTab(tabs)
-        let page = front.flatMap { pageFace(workspace, $0, $0.kind == .browser ? workTab(workspace, selectedTab: selectedTab) : nil) }
+        let work = front?.kind == .browser ? workTab(workspace, selectedTab: selectedTab) : nil
+        let page = front.flatMap { pageFace(workspace, $0, work) }
         // Each browser tab's face once: its favicon in the tab list, its sound on the row.
         var browserFaces: [String: PageFace] = [:]
         for tab in tabs where tab.kind == .browser {
@@ -130,10 +131,12 @@ public struct SidebarMapping {
         let entries = workspace.status?.entries ?? []
         // Another computer's folders shorten against that computer's home, never this Mac's (cx-gaq9).
         let shorten: (String) -> String = machine == .local ? { abbreviate($0) } : Self.abbreviateRemote
+        let title = Self.sidebarTitle(workspace, page: page)
         var row = SidebarWorkspace(
             id: SidebarWorkspaceID(workspace.id),
             machineID: machine,
-            title: Self.sidebarTitle(workspace, page: page),
+            // An older Chief's subagent workspaces show their task title, never the subagent id.
+            title: machine.isLocalChief ? title.chiefTaskTitle ?? title : title,
             directory: folder?.cwd.map(shorten),
             branch: folder?.gitBranch.flatMap { $0.isEmpty ? nil : $0 },
             process: process(front),
@@ -145,8 +148,10 @@ public struct SidebarMapping {
             lastActivity: lastActivity(tabs),
             rowKind: rowKind(tabs),
             agentWorking: StatusMapping.shared.isWorking(tabs: tabs),
+            // A page in a split beside a chat or terminal leaves the row's icon to that work, as it
+            // leaves its name (#22250; Leo 2026-10-21: "why did this turn into the githb favicon?").
             icon: Self.icon(color: workspace.color, icon: workspace.icon, asset: iconAsset)
-                ?? page?.favicon.map(WorkspaceIcon.favicon),
+                ?? (work == nil ? page?.favicon.map(WorkspaceIcon.favicon) : nil),
             kind: kind(front),
             kindBrand: front?.agentBrand,
             // A tab marked unread by hand (Mark Tab Unread) shows as the workspace's manual dot.
@@ -171,6 +176,7 @@ public struct SidebarMapping {
             folder: (front?.cwd ?? tabs.lazy.compactMap(\.cwd).first).map(shorten)
         )
         row.presence = presence(tabs)
+        row.isUnnamed = Self.isUnnamed(workspace, label: page?.title)
         row.audio = SidebarWorkspaceAudio.merge(tabs.lazy.map { browserFaces[$0.id]?.audio })
         row.lastMessage = lastMessage(front, tabs)
         if showsUnread { row.notificationText = newestUnread(tabs).flatMap(notificationText) }
@@ -181,6 +187,15 @@ public struct SidebarMapping {
         row.detail = detail(tabs: tabs, indicator: indicator.state, agentTab: agentTab(tabs), front: front,
                             notification: row.notificationText)
         return row
+    }
+
+    /// Nobody named `workspace` and nothing names it: no title, the daemon's default name, and
+    /// no name from its front tab (`label`, the auto name) beyond the home folder (Leo 2026-10-20:
+    /// "~", "workspace-11" and "workspace-29" rows clutter the sidebar).
+    public static func isUnnamed(_ workspace: WorkspaceModel, label: String?) -> Bool {
+        guard workspace.isUnnamed else { return false }
+        guard let label, !label.isEmpty else { return true }
+        return label == "~"
     }
 
     /// A daemon checklist item as the sidebar draws it.

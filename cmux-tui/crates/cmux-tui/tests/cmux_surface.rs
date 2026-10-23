@@ -59,10 +59,14 @@ fn cmux_help_lists_only_the_curated_scopes() {
     let output = names.run("cmux", &["--help"]);
     assert!(output.status.success(), "{}", text(&output.stderr));
     let help = text(&output.stdout);
-    for scope in ["workspace", "terminal", "notification", "acp", "window", "settings", "events"] {
+    // `machine` is curated since the machine catalog reads (59d0076c54c):
+    // `cmux machine list` and `cmux machine <selector> show` only.
+    for scope in
+        ["workspace", "terminal", "notification", "acp", "window", "settings", "events", "machine"]
+    {
         assert!(help.contains(&format!("  {scope} ")), "{scope} missing:\n{help}");
     }
-    for hidden in ["raw", "provider", "pairing", "projection", "sidebar", "client", "machine"] {
+    for hidden in ["raw", "provider", "pairing", "projection", "sidebar", "client"] {
         assert!(!help.contains(&format!("  {hidden} ")), "{hidden} listed:\n{help}");
     }
     assert!(help.contains("--idempotency-key"), "{help}");
@@ -269,7 +273,7 @@ fn every_routed_scope_prints_its_own_help() {
         (&["keybinding", "--help"], "cmux keybinding list"),
         (&["ghostty", "--help"], "cmux ghostty diagnostics"),
         (&["errors", "--help"], "cmux errors clear"),
-        (&["browser", "page", "--help"], "cmux browser <tab_…|page> navigate"),
+        (&["browser", "page", "--help"], "cmux browser <tab_…|page|right> navigate"),
         (&["browser", "--help"], "cmux browser page|<tab_…>"),
         (&["browser", "--help"], "cmux browser open <url> [--workspace <selector>]"),
         (&["browser", "--help"], "cmux tab create browser --url <url>"),

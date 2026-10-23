@@ -1,7 +1,9 @@
 // Chief Pet: the floating pet's own page, after ChatGPT's Mini & Pets. A preview of the pet over
 // its rail with Show Pet / Hide Pet, then every character (the Chief Dock's pixel mascots) as a
-// card with its name and a line about it, and None, which hides the pet. Hovering or focusing a
-// character previews it on the rail; a click swaps it everywhere. It draws the category's
+// card with its name and a line about it. The character is the Chief's avatar on every Chief
+// surface (Home, the sidebar, message cards) whether or not the pet floats, so the chosen one is
+// always checked, and a click swaps it everywhere without showing or hiding the pet (that is Show
+// Pet / Hide Pet's job). Hovering or focusing a character previews it on the rail. It draws the category's
 // two rows (`home.chiefPetEnabled`, `home.chiefPetMascot`), so SectionView leaves them out of the
 // group list; search, the palette and `cmux settings` still reach them.
 import { useRef, useState } from "react";
@@ -59,8 +61,6 @@ export function ChiefPetCard({ focus = null }: { focus?: string | null }) {
   const revealedFor = useRef<string | null>(null);
   // The character under the pointer or keyboard focus: the preview shows it until it leaves.
   const [previewed, setPreviewed] = useState<string | null>(null);
-  // Each click bumps it: a pick turns the pet on only if no later click came while its write was out.
-  const clicks = useRef(0);
   const target = shown.connected && shown.readable && character.readable ? focus : null;
   const reveal = (control: HTMLElement | null) => {
     if (!control || revealedFor.current === target) return;
@@ -71,29 +71,13 @@ export function ChiefPetCard({ focus = null }: { focus?: string | null }) {
   // As SettingRow: no writes before the owner's values arrive, while disconnected, or to a managed key.
   const locked = (state: RowState) => !state.connected || !state.readable || state.managed !== null;
   const toggleLocked = locked(shown);
-  // A character pick also shows the pet when it is hidden, so only then does it need the toggle.
-  const gridLocked = locked(character) || (shown.value !== true && toggleLocked);
+  const gridLocked = locked(character);
   const enabled = shown.value === true;
   const value = character.value;
   const mascot = CHIEF_PET_MASCOTS.find((entry) => entry.id === value) ?? CHIEF_PET_MASCOTS[0];
-  const selected = enabled ? mascot.id : "none";
   // A locked grid previews nothing: a disabled card may never get its mouseleave or blur.
   const live = gridLocked ? null : previewed;
   const preview = CHIEF_PET_MASCOTS.find((entry) => entry.id === live) ?? mascot;
-  const setShown = (on: boolean) => {
-    clicks.current += 1;
-    void store.set(CHIEF_PET_ENABLED, on);
-  };
-  const choose = (id: string) => {
-    if (id === "none") return setShown(false);
-    const click = (clicks.current += 1);
-    // A refused character write leaves the pet as it was; a later click (None, Hide Pet) wins.
-    void store
-      .set(CHIEF_PET_MASCOT, id)
-      .then((result) =>
-        result.ok && !enabled && clicks.current === click ? store.set(CHIEF_PET_ENABLED, true) : undefined,
-      );
-  };
   return (
     <section className="group chief-pet" data-card="chief-pet" data-enabled={enabled ? "true" : "false"}>
       <div className="chief-pet-header" data-row-key={CHIEF_PET_ENABLED}>
@@ -104,7 +88,7 @@ export function ChiefPetCard({ focus = null }: { focus?: string | null }) {
           data-action="chief-pet-toggle"
           disabled={toggleLocked}
           ref={target === CHIEF_PET_ENABLED ? reveal : undefined}
-          onClick={() => setShown(!enabled)}
+          onClick={() => void store.set(CHIEF_PET_ENABLED, !enabled)}
         >
           {enabled ? t("settingsPage.chiefPet.hide") : t("settingsPage.chiefPet.show")}
         </button>
@@ -121,31 +105,16 @@ export function ChiefPetCard({ focus = null }: { focus?: string | null }) {
       <h3 className="group-title">{t("settingsPage.chiefPet.pets")}</h3>
       <RowStatus settingKey={CHIEF_PET_MASCOT} state={character} />
       <div className="chief-pet-grid" data-row-key={CHIEF_PET_MASCOT}>
-        <button
-          type="button"
-          aria-pressed={selected === "none"}
-          className="chief-pet-choice"
-          data-pet="none"
-          disabled={toggleLocked}
-          ref={target === CHIEF_PET_MASCOT && selected === "none" ? reveal : undefined}
-          onClick={() => choose("none")}
-        >
-          <span className="chief-pet-choice-art chief-pet-none">
-            <Rail />
-          </span>
-          <strong>{t("settingsPage.chiefPet.none")}</strong>
-          <span className="chief-pet-choice-help">{t("settingsPage.chiefPet.none.help")}</span>
-        </button>
         {CHIEF_PET_MASCOTS.map((entry) => (
           <button
             key={entry.id}
             type="button"
-            aria-pressed={selected === entry.id}
+            aria-pressed={mascot.id === entry.id}
             className="chief-pet-choice"
             data-pet={entry.id}
             disabled={gridLocked}
-            ref={target === CHIEF_PET_MASCOT && selected === entry.id ? reveal : undefined}
-            onClick={() => choose(entry.id)}
+            ref={target === CHIEF_PET_MASCOT && mascot.id === entry.id ? reveal : undefined}
+            onClick={() => void store.set(CHIEF_PET_MASCOT, entry.id)}
             onMouseEnter={() => setPreviewed(entry.id)}
             onMouseLeave={() => setPreviewed((id) => (id === entry.id ? null : id))}
             onFocus={() => setPreviewed(entry.id)}

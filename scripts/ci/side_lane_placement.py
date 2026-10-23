@@ -51,6 +51,10 @@ contains(' <key> ') matches whole keys only:
   workflow reads it as `free_retry_runner`);
 - `hosted_jobs` and `hosted_runner`: the overflow hosted macos-26 takes, and
   that label when it takes any (next_macos_cascade.py).
+
+PROMOTE_LABEL, set on attempt 1 of a feat-cmux-next push, is the promotion
+mini's label: the Release compile overflows to Blacksmith only while no
+runner carrying it is idle (promote_busy()).
 """
 from __future__ import annotations
 
@@ -216,6 +220,17 @@ def decide(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
                              + "; remaining jobs stay queued on the owned label")
 
 
+def promote_busy(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None) -> bool:
+    """Whether PROMOTE_LABEL (a feat-cmux-next push's promotion mini) has no idle runner now.
+
+    Unset, or runners that could not be read: False, so the promoted jobs keep that label.
+    """
+    label = (env.get("PROMOTE_LABEL") or "").strip()
+    if not label or runners is None:
+        return False
+    return pool.live_owned_free(runners, [label])[label] == 0
+
+
 def delimited(jobs: Sequence[str]) -> str:
     return f" {' '.join(jobs)} " if jobs else ""
 
@@ -251,7 +266,7 @@ def main(env: Mapping[str, str] = os.environ) -> int:
     # The jobs no idle mini took: Blacksmith 12 vCPU, then 6 vCPU, while each has a free slot now and its
     # queue moves, then hosted macos-26 for the jobs it can run.
     live, waiting, seen = cascade.read(env, pool, now=dt.datetime.now(dt.timezone.utc))
-    placed = cascade.place(env, owned, live, waiting, seen)
+    placed = cascade.place(env, owned, live, waiting, seen, promote_busy=promote_busy(env, runners))
     print(f"macOS cascade: {placed.why}")
     cascade.write(placed, env)
     return 0

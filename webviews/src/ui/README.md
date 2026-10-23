@@ -81,6 +81,7 @@ first everywhere). Use the token, never a number: `z-index: var(--layer-dropdown
 
 | token              | value      | for                                                                                                          |
 | ------------------ | ---------- | ------------------------------------------------------------------------------------------------------------ |
+| `--layer-backdrop` | -1         | the liquid glass lens's one canvas (`ui/glass/lens.ts`), behind all content and over the page color          |
 | `--layer-base`     | 0          | normal flow                                                                                                  |
 | `--layer-raised`   | 1          | a part lifted above its siblings inside one component (a hover card edge, a selected row's outline)          |
 | `--layer-sticky`   | 10         | sticky headers, docked bars inside a scroller                                                                |
@@ -96,11 +97,15 @@ Rules:
 - Popups, menus, pickers and tooltips render in the portal container (`usePortalContainer`), never
   inside a component, so no parent's stacking context (`transform`, `filter`, `opacity`, `isolation`)
   or `overflow` traps or clips them. Inside a component use only base, raised and sticky.
-- Menus, popovers, pickers and tooltips are the popup surface, `background: var(--surface-popup)`
-  (desktop.css: the host's `--cmux-popup-surface`, the native overlays' `Palette.popupSurface`), with
-  no `backdrop-filter` (a page cannot blur the native glass behind it; native overlays are themed glass,
-  solid under Reduce Transparency). A translucent surface that carries text keeps at least
-  `--surface-text-min` of its fill: `color-mix(in srgb, <fill> var(--surface-text-min), transparent)`.
+- Menus, popovers, pickers and context menus are glass, never opaque: the popup adds `.ui-glass`
+  (`Menu`, `Popover`, `ContextMenu` and `Combobox` do) and paints no fill or shadow of its own;
+  `ui/popupSurface.css` gives it the popup's one hairline as the glass edge and the popup drop
+  (`--ui-popup-drop`). Plain glass is glass too (the surface at 60% under the frost); only Reduce
+  Transparency makes it the popup surface `var(--surface-popup)` (desktop.css: the host's
+  `--cmux-popup-surface`, the native overlays' `Palette.popupSurface`), opaque (`--glass-opaque`).
+  A popup never inherits the tint of the surface it opens from (`.ui-popup.ui-glass`, glass.css). Tooltips keep the tooltip surface (`--tooltip-*`). Any other translucent
+  surface that carries text keeps at least `--surface-text-min` of its fill:
+  `color-mix(in srgb, <fill> var(--surface-text-min), transparent)`.
 - A blur uses `backdrop-filter: var(--surface-blur)`, or the file has its own
   `@media (prefers-reduced-transparency: reduce)` rule that makes the surface opaque. Both tokens turn
   opaque under Reduce Transparency (`prefers-reduced-transparency`, or `data-reduce-transparency` on
@@ -111,6 +116,32 @@ Rules:
 - The gallery stage checks every play step: an open popup must be the top element at its corners and
   center, and nothing may clip it (`judgePopups` in `gallery/play.ts`). It warns by default; an entry
   gates it with `checks.popupLayer = { value: true, reason }`.
+
+## Liquid glass
+
+A glass surface adds `.ui-glass` (React: `<Glass>` from `ui/glass/Glass.tsx`) and nothing else; its
+tint, blur and rim come from `ui/glass/glass.css`, which `pages/shared/desktop.ts` loads on every page
+and the agent pane. Override a token on the surface itself, never the fill. Reduce Transparency holds
+every `.ui-glass` opaque whatever tokens it sets (`!important` in glass.css), with `--glass-opaque` as
+its fill:
+
+| token                | default                  | for                                                                                                   |
+| -------------------- | ------------------------ | ----------------------------------------------------------------------------------------------------- |
+| `--glass-tint`       | the theme surface at 40% | the fill: never opaque, never the accent                                                              |
+| `--glass-blur`       | 2px                      | the frost inside the glass                                                                            |
+| `--glass-refraction` | 22px                     | how far the rim bends the wallpaper                                                                   |
+| `--glass-rim`        | 1                        | the specular rim's strength (0 to 1)                                                                  |
+| `--glass-dispersion` | 0 (0.35 under Spectrum)  | the per-channel split of the bend                                                                     |
+| `--glass-elevation`  | none                     | the surface's own drop shadow, from the elevation scale                                               |
+| `--glass-opaque`     | the theme surface        | the opaque fill under Reduce Transparency                                                             |
+| `--glass-join`       | none                     | `top`, `bottom` or `both`: edges that continue into a neighbouring glass, where the lens bends no rim |
+
+The host sets `data-glass` (`lens`, `plain`, `spectrum`) on `<html>` and sends a still of the
+wallpaper through `window.cmuxTheme.backdrop(...)`. `ui/glass/lens.ts` then draws it on one WebGL
+canvas behind all content (`--layer-backdrop`), bent at each glass's rounded rim
+(plans/cmux-next/glass-lens-DESIGN.md). Plain glass, Reduce Transparency, no still or no glass on the
+page leave it with no canvas and no listeners but the mode watchers; Reduce Transparency makes the
+surface opaque.
 
 ## Type scale
 

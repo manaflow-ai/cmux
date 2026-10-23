@@ -1,5 +1,5 @@
 public import Foundation
-import Observation
+public import Observation
 
 /// Persists the durable milestone reached in first-run onboarding.
 ///

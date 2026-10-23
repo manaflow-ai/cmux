@@ -9,7 +9,7 @@ import Testing
 /// Agent-finished banners that land in one burst collapse per workspace (cx-kz6m0.1, parity with the
 /// old app's coalescing queue; RFC #20891 proposal 3). Within the window, a second agent finishing in
 /// the same workspace replaces the delivered banner with one that counts them ("3 agents finished",
-/// subtitled with the workspace). Approvals, questions and errors keep their own banners, another workspace keeps its
+/// titled with the workspace). Approvals, questions and errors keep their own banners, another workspace keeps its
 /// own, and the notification history keeps every row.
 @MainActor
 struct FinishedBannerBurstTests {
@@ -56,7 +56,7 @@ struct FinishedBannerBurstTests {
         /// The banners still in Notification Center: posted and not replaced by a digest, oldest first.
         var showing: [String] {
             let replaced = Set(service.finishedBursts.replaced)
-            return service.desktop.posted.filter { !replaced.contains($0.id) }.map(\.title)
+            return service.desktop.posted.filter { !replaced.contains($0.id) }.compactMap(\.subtitle)
         }
     }
 
@@ -70,8 +70,8 @@ struct FinishedBannerBurstTests {
         #expect(harness.showing == ["Claude needs approval", "3 agents finished", "Codex finished"],
                 "the approval and the other workspace keep their own banners")
         #expect(harness.store.notifications.map(\.notification.rawValue) == [5, 6, 7, 8, 9], "the history keeps every row")
-        let digest = try #require(harness.service.desktop.posted.first { $0.title == "3 agents finished" })
-        #expect(digest.subtitle == "api-server")
+        let digest = try #require(harness.service.desktop.posted.first { $0.subtitle == "3 agents finished" })
+        #expect(digest.title == "api-server")
         #expect(digest.surface == 3, "clicking it opens the agent that finished last")
         #expect(digest.sound == nil, "the banners it replaces already sounded")
     }
@@ -101,7 +101,7 @@ struct FinishedBannerBurstTests {
         try harness.deliver(5, surface: 1, title: "Claude finished")
         try harness.read(surface: 1)
         try harness.deliver(6, surface: 2, title: "Codex finished")
-        #expect(harness.service.desktop.posted.map(\.title) == ["Claude finished", "Codex finished"], "the read agent is not counted again")
+        #expect(harness.service.desktop.posted.compactMap(\.subtitle) == ["Claude finished", "Codex finished"], "the read agent is not counted again")
         #expect(harness.service.desktop.posted.last?.sound == "default", "a banner that replaces nothing still sounds")
     }
 

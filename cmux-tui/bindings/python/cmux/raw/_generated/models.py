@@ -1129,6 +1129,8 @@ class NewRowResult:
     surface: Id
     pane: Id
     terminal_id: Union[str, None, MissingType] = field(default=MISSING)
+    pane_id: Union[str, MissingType] = field(default=MISSING)
+    tab_id: Union[str, MissingType] = field(default=MISSING)
     terminal_incarnation: Union[str, None, MissingType] = field(default=MISSING)
     transaction: Union[str, MissingType] = field(default=MISSING)
 
@@ -1423,6 +1425,12 @@ class Screen:
     panes: List[Pane]
     zoomed_pane: Union[Id, None]
     short_id: Union[str, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class SendExpectAgent:
+    __cmux_schema_path__: ClassVar[str] = 'types/SendExpectAgent'
+    session: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1949,6 +1957,23 @@ class TerminalPlacement:
     terminal_incarnation: Union[str, None]
     terminal_revision: int
     terminal_resource_id: Union[str, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class TerminalPortsListener:
+    __cmux_schema_path__: ClassVar[str] = 'types/TerminalPortsListener'
+    bound: str
+    host: str
+    port: int
+    url: str
+
+
+@dataclass(frozen=True)
+class TerminalPortsResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/TerminalPortsResult'
+    surface: Id
+    closed: List[int]
+    listeners: List[TerminalPortsListener]
 
 
 @dataclass(frozen=True)
@@ -2660,6 +2685,12 @@ class CloudRequestsListRequest:
 
 
 @dataclass(frozen=True)
+class CloudSelfhostInfoRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cloud-selfhost-info/request'
+    pass
+
+
+@dataclass(frozen=True)
 class CloudSessionClearRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/cloud-session-clear/request'
     pass
@@ -2668,10 +2699,11 @@ class CloudSessionClearRequest:
 @dataclass(frozen=True)
 class CloudSessionSetRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/cloud-session-set/request'
-    access_token: str
     api_base_url: str
-    expires_at: int
+    access_token: Union[str, MissingType] = field(default=MISSING)
+    auth: Union[str, None, MissingType] = field(default=MISSING)
     client_version: Union[str, None, MissingType] = field(default=MISSING)
+    expires_at: Union[int, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -3891,8 +3923,10 @@ class NewRowRequest:
     cwd: Union[str, None, MissingType] = field(default=MISSING)
     env: Union[Dict[str, str], None, MissingType] = field(default=MISSING)
     keep: Union[bool, MissingType] = field(default=MISSING)
+    pane_id: Union[str, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
     shell_args: Union[List[str], None, MissingType] = field(default=MISSING)
+    tab_id: Union[str, None, MissingType] = field(default=MISSING)
     transaction: Union[str, None, MissingType] = field(default=MISSING)
 
 
@@ -4315,7 +4349,9 @@ class SendRequest:
     text: Union[str, None, MissingType] = field(default=MISSING)
     bytes_data: Union[Base64, None, MissingType] = field(default=MISSING, metadata={'wire_name': 'bytes'})
     paste: Union[bool, MissingType] = field(default=MISSING)
+    expect_agent: Union[SendExpectAgent, None, MissingType] = field(default=MISSING)
     expect_foreground: Union[str, None, MissingType] = field(default=MISSING)
+    submit: Union[bool, MissingType] = field(default=MISSING)
     terminal_id: Union[str, None, MissingType] = field(default=MISSING)
 
 
@@ -4653,6 +4689,12 @@ class TerminalHistoryRequest:
 
 
 @dataclass(frozen=True)
+class TerminalPortsRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/terminal-ports/request'
+    surface: Id
+
+
+@dataclass(frozen=True)
 class TerminalReadRangeRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/terminal-read-range/request'
     surface: Id
@@ -4758,6 +4800,7 @@ class UpdateBrowserProfileRequest:
     color: Union[str, None, MissingType] = field(default=MISSING)
     icon: Union[str, None, MissingType] = field(default=MISSING)
     name: Union[str, None, MissingType] = field(default=MISSING)
+    proxy: Union[JsonValue, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -6007,6 +6050,7 @@ __all__ = [
     'SavedTabGroupMember',
     'SavedTabGroupRecord',
     'Screen',
+    'SendExpectAgent',
     'ServerStatsConnections',
     'ServerStatsHistogram',
     'ServerStatsJournalWriter',
@@ -6059,6 +6103,8 @@ __all__ = [
     'TerminalKeyInput',
     'TerminalModifiers',
     'TerminalPlacement',
+    'TerminalPortsListener',
+    'TerminalPortsResult',
     'TerminalReadRangeResult',
     'TerminalRecord',
     'TerminalRegistryEvent',
@@ -6142,6 +6188,7 @@ __all__ = [
     'CloudMuxUnsubscribeRequest',
     'CloudParticipantAvatarGetRequest',
     'CloudRequestsListRequest',
+    'CloudSelfhostInfoRequest',
     'CloudSessionClearRequest',
     'CloudSessionSetRequest',
     'CloudSessionStatusRequest',
@@ -6376,6 +6423,7 @@ __all__ = [
     'TerminalClipboardSubscribeRequest',
     'TerminalEventsRequest',
     'TerminalHistoryRequest',
+    'TerminalPortsRequest',
     'TerminalReadRangeRequest',
     'TerminalResourcesRequest',
     'TerminalResumeCommandRequest',

@@ -2,6 +2,7 @@ public import AppKit
 public import QuartzCore
 import SwiftUI
 import CmuxNextWakeups
+public import CmuxNextDesignTokens
 
 /// AppKit entry points. `NSAnimationContext.animate(_:)` with a SwiftUI
 /// animation is retargetable: a new change starts from the view's current
@@ -388,6 +389,21 @@ extension MotionGate {
         sweep.timingFunction = CAMediaTimingFunction(controlPoints: 0.45, 0, 0.55, 1)
         sweep.isRemovedOnCompletion = false
         return sweep
+    }
+
+    /// Agent work's breath (1 -> `low` -> 1 over one `breath` period, eased), or nil when loops
+    /// are off. Slower and softer than the waiting pulse, so a list of working rows reads calm.
+    public func breathAnimation(low: Float) -> CAAnimation? {
+        guard let period = period(.breath) else { return nil }
+        let breath = CABasicAnimation(keyPath: "opacity")
+        breath.fromValue = 1
+        breath.toValue = low
+        breath.duration = period / 2
+        breath.autoreverses = true
+        breath.repeatCount = .infinity
+        breath.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        breath.isRemovedOnCompletion = false
+        return breath
     }
 
     /// An opacity pulse (1 -> `low` -> 1), or nil when loops are off.

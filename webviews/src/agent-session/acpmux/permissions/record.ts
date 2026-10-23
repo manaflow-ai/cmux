@@ -3,7 +3,7 @@
 // once the card goes (direct.ts, the `permissionRecord` row), so a reload shows it again. The
 // grouped panel keeps its own receipt (permissions/Panel.tsx).
 import type { AcpmuxPermission } from "../model";
-import { permissionOptionKind } from "../PermissionCard";
+import { permissionOptionKind } from "./prompt";
 
 /// The transcript row of a single permission card's answer.
 export const PERMISSION_RECORD = "permissionRecord";

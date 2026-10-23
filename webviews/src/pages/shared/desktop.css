@@ -17,6 +17,27 @@
   -webkit-tap-highlight-color: transparent;
   -webkit-font-smoothing: antialiased;
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  /* Adopted design audit scale. Existing aliases below keep today's pixels while new work uses
+     the shared spacing, control and glass names. */
+  --ds-space-1: 4px;
+  --ds-space-2: 8px;
+  --ds-space-3: 12px;
+  --ds-space-4: 16px;
+  --ds-space-5: 24px;
+  --ds-space-6: 32px;
+  --ds-control-icon: 20px;
+  --ds-control-compact: 24px;
+  --ds-control-row: 28px;
+  --ds-control-primary: 32px;
+  --ds-radius-control: 6px;
+  --ds-radius-popup: 8px;
+  --ds-radius-card: 14px;
+  --ds-radius-composer: 18px;
+  --ds-glass-plain-tint: 60%;
+  --ds-glass-plain-blur: blur(20px) saturate(1.4);
+  --ds-glass-lens-tint: 40%;
+  --ds-glass-lens-blur: blur(6px) saturate(1.3);
+  --ds-glass-edge: var(--cmux-hairline);
   /* The theme accent: the text color by default (no system blue), the theme's hue with
      appearance.accent. */
   accent-color: var(--cmux-accent, currentColor);
@@ -115,7 +136,9 @@ select {
   -webkit-backdrop-filter: var(--tooltip-blur);
   backdrop-filter: var(--tooltip-blur);
   box-shadow: var(--tooltip-shadow);
-  color: var(--cmux-text, CanvasText);
+  /* The host's tooltip ink (TooltipSurface.ink): the text, pushed only where a translucent tint
+     needs it. */
+  color: var(--cmux-tooltip-ink, var(--cmux-text, CanvasText));
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
@@ -143,14 +166,24 @@ select {
   transition: none;
 }
 
-/* A hover card (ui/Tooltip.tsx AnchoredCard, .ui-tooltip.ui-card: a link card) keeps the solid popup
-   surface and its own look; a toolbar hint (.ui-hint) is a tooltip. */
+/* A hover card (ui/Tooltip.tsx AnchoredCard, .ui-tooltip.ui-card) with no glass (a link card) keeps
+   the solid popup surface and its own look; a toolbar hint (.ui-hint) is a tooltip. */
 .ui-card {
   border-width: 1px;
   background: var(--surface-popup);
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
   box-shadow: var(--elevation-2);
+}
+
+/* A glass hover card (.ui-card.ui-glass: a session's hover card, a sidebar row's preview, a New Tab
+   chat's card; plans/cmux-next/glass-lens-DESIGN.md "Surfaces"): its fill, frost and rim are the
+   liquid glass's (ui/glass/glass.css, loaded after this sheet), with the hover card elevation. The
+   border keeps its width, so the card's size never changes, but is clear: the glass rim draws the
+   edge. Plain glass frosts it like every other glass: never the solid popup surface. */
+.ui-card.ui-glass {
+  --glass-elevation: var(--elevation-2);
+  border-color: transparent;
 }
 
 .ui-hint {
@@ -168,6 +201,11 @@ select {
 }
 
 /* A shortcut hint after the text, in the secondary ink, at the tooltip's top right. */
+.ui-tooltip-detail {
+  display: block;
+  color: var(--cmux-text-secondary, color-mix(in srgb, var(--cmux-text, CanvasText) 64%, transparent));
+}
+
 .ui-tooltip-hint {
   float: inline-end;
   margin-inline-start: 8px;
@@ -265,11 +303,11 @@ input[type="submit"] {
   outline: none;
 }
 
-/* Reduce Motion stops every page animation, except the popup surfaces' fades and a live transcript
-   row's, new text's and a code card's: a menu, tooltip, sheet, dialog or reply that appeared in one frame flashed (POLISH;
+/* Reduce Motion stops every page animation, except the popup surfaces' fades, a closing or
+   opening panel's fade (ui/presence.ts, its travel dropped) and a live transcript row's, new text's and a code card's: a menu, tooltip, sheet, dialog or reply that appeared in one frame flashed (POLISH;
    ui/popupSurface.css and conversation.css keep them fade-only). */
 @media (prefers-reduced-motion: reduce) {
-  *:not(.ui-popup, .ui-tooltip, .ui-title-tooltip, .ui-sheet, .ui-dialog, .ui-backdrop, .cv-enter, .acpmux-row--enter, .cv-fresh, .cv-code-handoff__real),
+  *:not(.ui-popup, .ui-tooltip, .ui-title-tooltip, .ui-sheet, .ui-dialog, .ui-backdrop, .cv-enter, .acpmux-row--enter, .cv-fresh, .cv-code-handoff__real, [data-presence]),
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
@@ -331,6 +369,8 @@ input[type="submit"] {
    parent's stacking context or overflow traps them; inside a component, use only base, raised and
    sticky. Dropdown is above modal on purpose: a picker opened inside a dialog shows over it. */
 :root {
+  /* The liquid glass lens's canvas (ui/glass/lens.ts): behind all content, over the page color. */
+  --layer-backdrop: -1;
   --layer-base: 0;
   --layer-raised: 1;
   --layer-sticky: 10;
@@ -341,14 +381,13 @@ input[type="submit"] {
   --layer-tooltip: 1000;
   --layer-debug: 2147483000;
   /* TRANSPARENCY. A translucent surface that carries text keeps at least this much of its fill
-     (color-mix(in srgb, <fill> var(--surface-text-min), transparent)); menus, popovers and
-     tooltips stay opaque. Reduce Transparency makes every translucent surface opaque. */
+     (color-mix(in srgb, <fill> var(--surface-text-min), transparent)); menus and popovers are the
+     liquid glass (ui/popupSurface.css). Reduce Transparency makes every translucent surface opaque. */
   --surface-text-min: 92%;
-  --surface-blur: blur(20px) saturate(1.4);
-  /* The one solid surface of every menu, popover, picker and tooltip, never translucent and never
-     blurred, so text under a popup never shows through (Leo, 2026-10-12): the host's popup fill
-     (WebTheme.swift, the same color as native overlays' Palette.popupSurface), else the page
-     color lifted toward the text. */
+  --surface-blur: var(--ds-glass-plain-blur);
+  /* The solid popup surface: a menu's, popover's and picker's fill under Reduce Transparency
+     (they are the liquid glass otherwise, ui/popupSurface.css), and what the tooltip tint mixes from: the host's popup fill (WebTheme.swift, the same color as native overlays'
+     Palette.popupSurface), else the page color lifted toward the text. */
   --surface-popup: var(
     --cmux-popup-surface,
     color-mix(in srgb, var(--cmux-text, CanvasText) 14%, var(--cmux-surface-solid, Canvas))
@@ -416,8 +455,19 @@ input[type="submit"] {
   --text-content--line-height: var(--cv-line-height, 22.75px);
   --weight-regular: 400; /* everything by default */
   --weight-emphasis: 600; /* titles, headings, selected or unread rows, group labels */
+  --weight-strong: 700; /* monogram initials drawn in an avatar circle */
 }
 /* type-scale:end */
+/* motion-scale:begin. GENERATED by scripts/cmux-next/gen-motion-scale.py from schemas/motion-scale/motion-scale.json; do not edit. */
+:root {
+  --cmux-motion-quick: 80ms; /* hover and pressed fills, focus rings, anything leaving (a popup, a notice, a row) */
+  --cmux-motion-micro: 120ms; /* small things arriving: a fade in, a popup opening, a chip, a tooltip */
+  --cmux-motion-standard: 180ms; /* structural changes: a row or card moving, a fold opening, a scrim */
+  --cmux-motion-large: 240ms; /* the largest moves, and the ceiling: a split, a zoom, a window closing, the launch mark */
+  /* Anything entering eases out. */
+  --cmux-ease-out: cubic-bezier(0, 0, 0.58, 1);
+}
+/* motion-scale:end */
 
 /* Interface size (opt-in, Debug Settings): the host updates one multiplier for the shared chrome tokens. */
 :root {
@@ -458,9 +508,48 @@ input[type="submit"] {
    infinite` inside `prefers-reduced-motion: no-preference`, never their own keyframes. */
 :root {
   --cmux-spinner-period: 900ms;
+  --cmux-breath-period: 2.4s;
 }
 @keyframes cmux-spin {
   to {
     transform: rotate(360deg);
+  }
+}
+/* WORKING-LOOK: agent work's calm mark, a dot that breathes (opacity only), one breath per
+   `--cmux-breath-period`, on the same shared clock, so many working rows breathe as one. */
+@keyframes cmux-breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+/* SPINNERS-OFF-MAIN: the Thinking line's shimmer (ShimmerText.tsx) as two transform loops the
+   compositor runs: the masked band crosses the line, its lit words move back by as much. */
+@keyframes cmux-shimmer-band {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+@keyframes cmux-shimmer-lit {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(-100%);
+  }
+}
+/* WORKING-LOOK "shimmer": a light band crosses the words of a working row, once per breath. */
+@keyframes cmux-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -50% 0;
   }
 }

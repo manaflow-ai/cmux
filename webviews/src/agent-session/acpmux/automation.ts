@@ -1,7 +1,7 @@
 import { focusedArea } from "./composerFocus";
 import { sessionModels } from "./modelCatalog";
-import { turnFiles } from "./diff";
-import type { AcpmuxSnapshot } from "./model";
+import { turnFiles, turnPathsOnly } from "./diff";
+import { pathKey, type AcpmuxRow, type AcpmuxSnapshot } from "./model";
 import { permissionKeys, permissionOption } from "./permissionKeys";
 import type { PermissionDecision } from "./permissions/protocol";
 
@@ -38,8 +38,13 @@ export function automationState(host: AutomationHost) {
     harness: snapshot.summary?.harness ?? null,
     isWorking: snapshot.isWorking,
     rows: snapshot.rows.length,
-    /// The session the tab recorded that the daemon lacks (the pane says "This chat isn't available").
+    /// Whether older history remains to page in, and the oldest event seq the pane holds.
+    canLoadOlder: snapshot.canLoadOlder,
+    historyFrom: snapshot.historyFrom ?? null,
+    /// The session the tab recorded that the daemon lacks (the pane says why: ChatUnavailableState.tsx).
     missingSession: snapshot.missingSession ?? null,
+    /// Why it is not here: `deleted`, `offline` or `connecting`, and the machine when known.
+    unavailable: snapshot.unavailable ?? null,
     /// The chat as the pane shows it: the last TRANSCRIPT_ROWS user and assistant rows, each cut
     /// at TRANSCRIPT_CHARS, so a live proof checks the real text, not only a row count.
     transcript: snapshot.rows
@@ -52,6 +57,7 @@ export function automationState(host: AutomationHost) {
       title: session.displayTitle ?? session.title ?? session.name ?? null,
       harness: session.harness ?? null,
       status: session.status ?? null,
+      unread: session.unread === true,
     })),
     permission: snapshot.permission?.pending
       ? {
@@ -69,11 +75,22 @@ export function automationState(host: AutomationHost) {
         decisions: group.decisions,
         items: group.items.length,
       })),
-    changedFiles: turnFiles(snapshot.rows).map((file) => file.path),
+    /// Every file the chat's edits changed: those with counts, then those listed without (an edit
+    /// with no diff, a Write whose old contents are unknown), as the edited-files card lists them:
+    /// once per file (model.ts `pathKey`), as its first path names it.
+    changedFiles: changedFiles(snapshot.rows),
     diff: host.diff(),
     /// What has the page's focus: composer, none, or the focused element.
     focus: focusedArea(typeof document === "undefined" ? null : document.activeElement),
   };
+}
+
+/// The chat's changed files for `changedFiles`: those with counts, then those without, each once.
+function changedFiles(rows: readonly AcpmuxRow[]): string[] {
+  const byKey = new Map<string, string>();
+  for (const file of [...turnFiles([...rows]), ...turnPathsOnly(rows)])
+    if (!byKey.has(pathKey(file))) byKey.set(pathKey(file), file.path);
+  return [...byKey.values()];
 }
 
 /// How long sendPrompt waits for chat.send to fail before it reports the prompt as sent.

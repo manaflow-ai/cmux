@@ -48,10 +48,21 @@ public nonisolated struct PageEngineOptions: Sendable, Equatable {
     /// island floats over the window: ``PageWebKitReason/transparentOverlay``). Nil lets
     /// ``PageEnginePolicy`` decide.
     public var requiresWebKit: PageWebKitReason?
+    /// The agent chat's Chromium spike (the `agent.chromium` Debug toggle): lifts
+    /// ``PageWebKitReason/agentChat``, so the agent page follows ``PageEnginePolicy`` as any other
+    /// page does. Off by default.
+    public var chromiumAgentChat: Bool
+    /// A first click in a window that is not key reaches the page even when its descriptor does
+    /// not opt in (``PageDescriptor/acceptsFirstMouse``): a page in the window's chrome, such as
+    /// the sidebar's Updated card, while a Chromium page's own window holds the key. Off by default.
+    public var acceptsFirstMouse: Bool
 
-    public init(fullFrameRate: Bool = false, requiresWebKit: PageWebKitReason? = nil) {
+    public init(fullFrameRate: Bool = false, requiresWebKit: PageWebKitReason? = nil, chromiumAgentChat: Bool = false,
+                acceptsFirstMouse: Bool = false) {
         self.fullFrameRate = fullFrameRate
         self.requiresWebKit = requiresWebKit
+        self.chromiumAgentChat = chromiumAgentChat
+        self.acceptsFirstMouse = acceptsFirstMouse
     }
 
     public static let standard = PageEngineOptions()

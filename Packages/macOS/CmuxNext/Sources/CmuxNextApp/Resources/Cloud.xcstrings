@@ -1,6 +1,1458 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "cloud.github.confirmTitle": {
+      "comment": "Confirmation title before Set Up GitHub runs; %@ is the Cloud machine's name.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set Up GitHub on %@?"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هل تريد إعداد GitHub على %@؟"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Postaviti GitHub na %@?"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konfigurer GitHub på %@?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub auf %@ einrichten?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Configurar GitHub en %@?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configurer GitHub sur %@ ?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configurare GitHub su %@?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ で GitHub を設定しますか？"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រៀបចំ GitHub នៅលើ %@ ឬ?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에 GitHub를 설정할까요?"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sette opp GitHub på %@?"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skonfigurować GitHub na %@?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configurar o GitHub em %@?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Настроить GitHub на %@?"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตั้งค่า GitHub บน %@ ไหม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ üzerinde GitHub kurulsun mu?"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Налаштувати GitHub на %@?"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thiết lập GitHub trên %@?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要在 %@ 上设置 GitHub 吗？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要在 %@ 上設定 GitHub 嗎？"
+          }
+        }
+      }
+    },
+    "cloud.github.confirmBody": {
+      "comment": "Confirmation body; %1$@ is the git user.name and %2$@ the git user.email read from this Mac. Keep user.name and user.email untranslated.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sets git user.name to “%1$@” and user.email to “%2$@” on the machine, then starts GitHub sign-in in your browser. Your GitHub token on this Mac is not copied."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يضبط git user.name على “%1$@” وuser.email على “%2$@” على الجهاز، ثم يبدأ تسجيل الدخول إلى GitHub في متصفحك. لا يُنسخ رمز GitHub المميز الموجود على هذا الـMac."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Postavlja git user.name na “%1$@” i user.email na “%2$@” na mašini, a zatim pokreće prijavu na GitHub u vašem pregledniku. Vaš GitHub token na ovom Macu se ne kopira."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sætter git user.name til “%1$@” og user.email til “%2$@” på maskinen og starter derefter GitHub-login i din browser. Dit GitHub-token på denne Mac bliver ikke kopieret."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Setzt git user.name auf „%1$@“ und user.email auf „%2$@“ auf der Maschine und startet dann die GitHub-Anmeldung in deinem Browser. Dein GitHub-Token auf diesem Mac wird nicht kopiert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Establece git user.name en “%1$@” y user.email en “%2$@” en la máquina y luego inicia el inicio de sesión de GitHub en tu navegador. Tu token de GitHub de este Mac no se copia."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Définit git user.name sur « %1$@ » et user.email sur « %2$@ » sur la machine, puis lance la connexion à GitHub dans votre navigateur. Votre jeton GitHub de ce Mac n’est pas copié."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Imposta git user.name su “%1$@” e user.email su “%2$@” sulla macchina, poi avvia l’accesso a GitHub nel tuo browser. Il tuo token GitHub su questo Mac non viene copiato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンの git user.name を「%1$@」、user.email を「%2$@」に設定し、ブラウザで GitHub へのサインインを開始します。この Mac の GitHub トークンはコピーされません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំណត់ git user.name ទៅ “%1$@” និង user.email ទៅ “%2$@” នៅលើម៉ាស៊ីន បន្ទាប់មកចាប់ផ្តើមការចូល GitHub នៅក្នុងកម្មវិធីរុករករបស់អ្នក។ ថូខឹន GitHub របស់អ្នកនៅលើ Mac នេះមិនត្រូវបានចម្លងទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "머신의 git user.name을 “%1$@”(으)로, user.email을 “%2$@”(으)로 설정한 다음 브라우저에서 GitHub 로그인을 시작합니다. 이 Mac의 GitHub 토큰은 복사되지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Setter git user.name til «%1$@» og user.email til «%2$@» på maskinen, og starter deretter GitHub-pålogging i nettleseren din. GitHub-tokenet ditt på denne Macen blir ikke kopiert."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ustawia git user.name na „%1$@” i user.email na „%2$@” na maszynie, a następnie rozpoczyna logowanie do GitHub w przeglądarce. Twój token GitHub z tego Maca nie jest kopiowany."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Define git user.name como “%1$@” e user.email como “%2$@” na máquina e depois inicia o login no GitHub no seu navegador. Seu token do GitHub neste Mac não é copiado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Задаёт на машине git user.name «%1$@» и user.email «%2$@», затем начинает вход в GitHub в вашем браузере. Ваш токен GitHub с этого Mac не копируется."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตั้งค่า git user.name เป็น “%1$@” และ user.email เป็น “%2$@” บนเครื่อง แล้วเริ่มลงชื่อเข้าใช้ GitHub ในเบราว์เซอร์ของคุณ โทเค็น GitHub บน Mac เครื่องนี้จะไม่ถูกคัดลอก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Makinede git user.name değerini “%1$@”, user.email değerini “%2$@” yapar, ardından tarayıcınızda GitHub oturum açmayı başlatır. Bu Mac'teki GitHub belirteciniz kopyalanmaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Встановлює на машині git user.name «%1$@» і user.email «%2$@», а потім починає вхід у GitHub у вашому браузері. Ваш токен GitHub з цього Mac не копіюється."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đặt git user.name thành “%1$@” và user.email thành “%2$@” trên máy, rồi bắt đầu đăng nhập GitHub trong trình duyệt của bạn. Token GitHub trên máy Mac này không được sao chép."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在机器上将 git user.name 设为“%1$@”，user.email 设为“%2$@”，然后在你的浏览器中开始登录 GitHub。此 Mac 上的 GitHub 令牌不会被复制。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在機器上將 git user.name 設為「%1$@」，user.email 設為「%2$@」，然後在你的瀏覽器中開始登入 GitHub。此 Mac 上的 GitHub 權杖不會被複製。"
+          }
+        }
+      }
+    },
+    "cloud.github.confirmNoIdentity": {
+      "comment": "Confirmation body when this Mac has no global git identity. Keep user.name and user.email untranslated.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac has no global git user.name or user.email, so only GitHub sign-in starts, in your browser. Your GitHub token on this Mac is not copied."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يحتوي هذا الـMac على git user.name أو user.email عام، لذا يبدأ تسجيل الدخول إلى GitHub فقط، في متصفحك. لا يُنسخ رمز GitHub المميز الموجود على هذا الـMac."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovaj Mac nema globalni git user.name ni user.email, pa se pokreće samo prijava na GitHub, u vašem pregledniku. Vaš GitHub token na ovom Macu se ne kopira."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne Mac har ingen global git user.name eller user.email, så kun GitHub-login starter i din browser. Dit GitHub-token på denne Mac bliver ikke kopieret."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Mac hat kein globales git user.name oder user.email, daher startet nur die GitHub-Anmeldung in deinem Browser. Dein GitHub-Token auf diesem Mac wird nicht kopiert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Mac no tiene git user.name ni user.email globales, así que solo se inicia el inicio de sesión de GitHub, en tu navegador. Tu token de GitHub de este Mac no se copia."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce Mac n’a ni git user.name ni user.email globaux : seule la connexion à GitHub démarre, dans votre navigateur. Votre jeton GitHub de ce Mac n’est pas copié."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo Mac non ha git user.name né user.email globali, quindi si avvia solo l’accesso a GitHub, nel tuo browser. Il tuo token GitHub su questo Mac non viene copiato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac にはグローバルな git user.name と user.email がないため、ブラウザでの GitHub へのサインインのみを開始します。この Mac の GitHub トークンはコピーされません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac នេះមិនមាន git user.name ឬ user.email សកលទេ ដូច្នេះមានតែការចូល GitHub ប៉ុណ្ណោះដែលចាប់ផ្តើម នៅក្នុងកម្មវិធីរុករករបស់អ្នក។ ថូខឹន GitHub របស់អ្នកនៅលើ Mac នេះមិនត្រូវបានចម្លងទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac에는 전역 git user.name이나 user.email이 없으므로 브라우저에서 GitHub 로그인만 시작합니다. 이 Mac의 GitHub 토큰은 복사되지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne Macen har ingen global git user.name eller user.email, så bare GitHub-pålogging starter, i nettleseren din. GitHub-tokenet ditt på denne Macen blir ikke kopiert."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten Mac nie ma globalnych git user.name ani user.email, więc rozpocznie się tylko logowanie do GitHub w przeglądarce. Twój token GitHub z tego Maca nie jest kopiowany."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Mac não tem git user.name nem user.email globais, então só o login no GitHub é iniciado, no seu navegador. Seu token do GitHub neste Mac não é copiado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На этом Mac нет глобальных git user.name и user.email, поэтому начнётся только вход в GitHub в вашем браузере. Ваш токен GitHub с этого Mac не копируется."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac เครื่องนี้ไม่มี git user.name หรือ user.email ส่วนกลาง จึงเริ่มเฉพาะการลงชื่อเข้าใช้ GitHub ในเบราว์เซอร์ของคุณ โทเค็น GitHub บน Mac เครื่องนี้จะไม่ถูกคัดลอก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Mac'te genel git user.name veya user.email yok, bu yüzden yalnızca tarayıcınızda GitHub oturum açma başlar. Bu Mac'teki GitHub belirteciniz kopyalanmaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На цьому Mac немає глобальних git user.name і user.email, тому почнеться лише вхід у GitHub у вашому браузері. Ваш токен GitHub з цього Mac не копіюється."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máy Mac này không có git user.name hoặc user.email toàn cục, nên chỉ bắt đầu đăng nhập GitHub, trong trình duyệt của bạn. Token GitHub trên máy Mac này không được sao chép."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 没有全局 git user.name 或 user.email，因此只会在你的浏览器中开始登录 GitHub。此 Mac 上的 GitHub 令牌不会被复制。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 沒有全域 git user.name 或 user.email，因此只會在你的瀏覽器中開始登入 GitHub。此 Mac 上的 GitHub 權杖不會被複製。"
+          }
+        }
+      }
+    },
+    "cloud.github.setUp": {
+      "comment": "Confirm button of Set Up GitHub.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set Up"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعداد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Postavi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konfigurer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einrichten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configurar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configurer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configura"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រៀបចំ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설정"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sett opp"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skonfiguruj"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configurar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Настроить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตั้งค่า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kur"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Налаштувати"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thiết lập"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定"
+          }
+        }
+      }
+    },
+    "cloud.github.title": {
+      "comment": "Toast title for the result of Set Up GitHub.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub Setup"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعداد GitHub"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Postavljanje GitHuba"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub-konfiguration"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub-Einrichtung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configuración de GitHub"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configuration de GitHub"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configurazione di GitHub"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub の設定"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការរៀបចំ GitHub"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub 설정"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub-oppsett"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konfiguracja GitHub"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configuração do GitHub"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Настройка GitHub"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การตั้งค่า GitHub"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub Kurulumu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Налаштування GitHub"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thiết lập GitHub"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub 设置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub 設定"
+          }
+        }
+      }
+    },
+    "cloud.github.enterCode": {
+      "comment": "Toast after the machine started GitHub's device sign-in; %@ is the one-time code (like ABCD-1234). Keep github.com/login/device as is.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter code %@ at github.com/login/device to finish. The code is copied."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أدخل الرمز %@ في github.com/login/device لإكمال العملية. تم نسخ الرمز."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unesite kod %@ na github.com/login/device da završite. Kod je kopiran."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indtast koden %@ på github.com/login/device for at afslutte. Koden er kopieret."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gib den Code %@ auf github.com/login/device ein, um abzuschließen. Der Code ist kopiert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Introduce el código %@ en github.com/login/device para terminar. El código está copiado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saisissez le code %@ sur github.com/login/device pour terminer. Le code est copié."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inserisci il codice %@ su github.com/login/device per completare. Il codice è stato copiato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "github.com/login/device でコード %@ を入力して完了してください。コードはコピーされています。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បញ្ចូលកូដ %@ នៅ github.com/login/device ដើម្បីបញ្ចប់។ កូដត្រូវបានចម្លងហើយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "완료하려면 github.com/login/device에서 코드 %@를 입력하세요. 코드가 복사되었습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skriv inn koden %@ på github.com/login/device for å fullføre. Koden er kopiert."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wpisz kod %@ na github.com/login/device, aby dokończyć. Kod został skopiowany."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Digite o código %@ em github.com/login/device para concluir. O código foi copiado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Введите код %@ на github.com/login/device, чтобы завершить. Код скопирован."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ป้อนรหัส %@ ที่ github.com/login/device เพื่อเสร็จสิ้น คัดลอกรหัสแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bitirmek için github.com/login/device adresinde %@ kodunu girin. Kod kopyalandı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Введіть код %@ на github.com/login/device, щоб завершити. Код скопійовано."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nhập mã %@ tại github.com/login/device để hoàn tất. Mã đã được sao chép."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 github.com/login/device 输入代码 %@ 以完成。代码已复制。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 github.com/login/device 輸入代碼 %@ 以完成。代碼已複製。"
+          }
+        }
+      }
+    },
+    "cloud.github.alreadySignedIn": {
+      "comment": "Toast when gh on the Cloud machine is already signed in.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub is already signed in on this machine."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم تسجيل الدخول إلى GitHub بالفعل على هذا الجهاز."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub je već prijavljen na ovoj mašini."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub er allerede logget ind på denne maskine."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub ist auf dieser Maschine bereits angemeldet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub ya tiene la sesión iniciada en esta máquina."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub est déjà connecté sur cette machine."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub ha già effettuato l’accesso su questa macchina."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このマシンではすでに GitHub にサインインしています。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub បានចូលរួចហើយនៅលើម៉ាស៊ីននេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 머신에는 이미 GitHub에 로그인되어 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub er allerede pålogget på denne maskinen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub jest już zalogowany na tej maszynie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O GitHub já está conectado nesta máquina."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На этой машине уже выполнен вход в GitHub."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลงชื่อเข้าใช้ GitHub บนเครื่องนี้แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu makinede GitHub oturumu zaten açık."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На цій машині вже виконано вхід у GitHub."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub đã được đăng nhập trên máy này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此机器上已登录 GitHub。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此機器上已登入 GitHub。"
+          }
+        }
+      }
+    },
+    "cloud.github.missing": {
+      "comment": "Toast when the Cloud machine has no gh (GitHub CLI).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The GitHub CLI isn't installed on this machine."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "واجهة GitHub CLI غير مثبتة على هذا الجهاز."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub CLI nije instaliran na ovoj mašini."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub CLI er ikke installeret på denne maskine."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die GitHub CLI ist auf dieser Maschine nicht installiert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub CLI no está instalado en esta máquina."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub CLI n’est pas installé sur cette machine."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub CLI non è installato su questa macchina."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このマシンには GitHub CLI がインストールされていません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub CLI មិនត្រូវបានដំឡើងនៅលើម៉ាស៊ីននេះទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 머신에는 GitHub CLI가 설치되어 있지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub CLI er ikke installert på denne maskinen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub CLI nie jest zainstalowany na tej maszynie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O GitHub CLI não está instalado nesta máquina."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub CLI не установлен на этой машине."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่ได้ติดตั้ง GitHub CLI บนเครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub CLI bu makinede yüklü değil."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub CLI не встановлено на цій машині."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub CLI chưa được cài trên máy này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此机器上未安装 GitHub CLI。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此機器上未安裝 GitHub CLI。"
+          }
+        }
+      }
+    },
+    "cloud.github.failed": {
+      "comment": "Toast when the GitHub sign-in did not start on the Cloud machine.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub sign-in didn't start on this machine."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يبدأ تسجيل الدخول إلى GitHub على هذا الجهاز."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prijava na GitHub nije pokrenuta na ovoj mašini."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub-login startede ikke på denne maskine."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die GitHub-Anmeldung ist auf dieser Maschine nicht gestartet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El inicio de sesión de GitHub no se inició en esta máquina."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La connexion à GitHub n’a pas démarré sur cette machine."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’accesso a GitHub non si è avviato su questa macchina."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このマシンで GitHub へのサインインを開始できませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការចូល GitHub មិនបានចាប់ផ្តើមនៅលើម៉ាស៊ីននេះទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 머신에서 GitHub 로그인이 시작되지 않았습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub-pålogging startet ikke på denne maskinen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logowanie do GitHub nie rozpoczęło się na tej maszynie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O login no GitHub não foi iniciado nesta máquina."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вход в GitHub на этой машине не начался."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การลงชื่อเข้าใช้ GitHub ไม่ได้เริ่มบนเครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu makinede GitHub oturum açma başlamadı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вхід у GitHub на цій машині не розпочався."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đăng nhập GitHub chưa bắt đầu trên máy này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此机器上的 GitHub 登录未能开始。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此機器上的 GitHub 登入未能開始。"
+          }
+        }
+      }
+    },
+    "cloud.github.identityFailed": {
+      "comment": "Toast prefix when git config failed on the Cloud machine.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git identity couldn't be set on this machine."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر ضبط هوية git على هذا الجهاز."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git identitet nije moguće postaviti na ovoj mašini."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git-identiteten kunne ikke angives på denne maskine."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Git-Identität konnte auf dieser Maschine nicht gesetzt werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo establecer la identidad de git en esta máquina."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de définir l’identité git sur cette machine."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile impostare l’identità git su questa macchina."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このマシンで git の ID を設定できませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចកំណត់អត្តសញ្ញាណ git នៅលើម៉ាស៊ីននេះបានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 머신에서 git ID를 설정할 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git-identiteten kunne ikke settes på denne maskinen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie udało się ustawić tożsamości git na tej maszynie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível definir a identidade do git nesta máquina."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось задать идентификацию git на этой машине."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถตั้งค่าข้อมูลประจำตัว git บนเครื่องนี้ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu makinede git kimliği ayarlanamadı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося встановити ідентичність git на цій машині."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không thể đặt danh tính git trên máy này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法在此机器上设置 git 身份。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法在此機器上設定 git 身分。"
+          }
+        }
+      }
+    },
+    "cloud.github.identityUnsafe": {
+      "comment": "Refusal when the Mac's git identity holds control characters or is too long. Keep user.name and user.email untranslated.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your git user.name or user.email has control characters or is too long, so cmux won't pass it on."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحتوي git user.name أو user.email لديك على أحرف تحكم أو أنه طويل جدًا، لذا لن يمرره cmux."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vaš git user.name ili user.email sadrži kontrolne znakove ili je predug, pa ga cmux neće proslijediti."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Din git user.name eller user.email indeholder kontroltegn eller er for lang, så cmux sender den ikke videre."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dein git user.name oder user.email enthält Steuerzeichen oder ist zu lang, daher gibt cmux ihn nicht weiter."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu git user.name o user.email tiene caracteres de control o es demasiado largo, así que cmux no lo transmitirá."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre git user.name ou user.email contient des caractères de contrôle ou est trop long, cmux ne le transmettra donc pas."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il tuo git user.name o user.email contiene caratteri di controllo o è troppo lungo, quindi cmux non lo trasmetterà."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "git user.name または user.email に制御文字が含まれているか長すぎるため、cmux は渡しません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "git user.name ឬ user.email របស់អ្នកមានតួអក្សរបញ្ជា ឬវែងពេក ដូច្នេះ cmux នឹងមិនបញ្ជូនវាទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "git user.name 또는 user.email에 제어 문자가 있거나 너무 길어서 cmux가 전달하지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "git user.name eller user.email inneholder kontrolltegn eller er for lang, så cmux sender den ikke videre."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Twój git user.name lub user.email zawiera znaki sterujące albo jest za długi, więc cmux go nie przekaże."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seu git user.name ou user.email tem caracteres de controle ou é longo demais, então o cmux não vai repassá-lo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваш git user.name или user.email содержит управляющие символы или слишком длинный, поэтому cmux не будет его передавать."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "git user.name หรือ user.email ของคุณมีอักขระควบคุมหรือยาวเกินไป cmux จึงจะไม่ส่งต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "git user.name veya user.email değeriniz denetim karakterleri içeriyor ya da çok uzun, bu yüzden cmux onu aktarmayacak."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваш git user.name або user.email містить керувальні символи чи надто довгий, тому cmux не передаватиме його."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "git user.name hoặc user.email của bạn có ký tự điều khiển hoặc quá dài, nên cmux sẽ không chuyển tiếp."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的 git user.name 或 user.email 含有控制字符或过长，因此 cmux 不会传递它。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的 git user.name 或 user.email 含有控制字元或過長，因此 cmux 不會傳遞它。"
+          }
+        }
+      }
+    },
     "cloud.page.title": {
       "comment": "Tab title of the Cloud page tab (cmux Cloud is the product name).",
       "extractionState": "manual",
@@ -11793,6 +13245,270 @@
         }
       }
     },
+    "chat.upload.peerFailed": {
+      "comment": "Agent chat composer notice when a dropped or pasted file could not be sent to the ssh peer machine (%@, its name) that runs the chat.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't send the file to %@."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر إرسال الملف إلى %@."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nije moguće poslati datoteku na %@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filen kunne ikke sendes til %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Datei konnte nicht an %@ gesendet werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo enviar el archivo a %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible d’envoyer le fichier à %@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile inviare il file a %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルを %@ に送信できませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចផ្ញើឯកសារទៅ %@ បានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파일을 %@(으)로 보낼 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke sende filen til %@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie udało się wysłać pliku do %@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível enviar o arquivo para %@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось отправить файл на %@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถส่งไฟล์ไปยัง %@ ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dosya %@ makinesine gönderilemedi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося надіслати файл на %@."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không thể gửi tệp đến %@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法将文件发送到 %@。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法將檔案傳送到 %@。"
+          }
+        }
+      }
+    },
+    "chat.upload.peerTooLarge": {
+      "comment": "Agent chat composer notice when a dropped or pasted file is over the size a chat on an ssh peer machine (%@, its name) takes.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This file is too large to send to %@."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هذا الملف أكبر من أن يُرسل إلى %@."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ova datoteka je prevelika za slanje na %@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filen er for stor til at sende til %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Datei ist zu groß, um sie an %@ zu senden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este archivo es demasiado grande para enviarlo a %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce fichier est trop volumineux pour être envoyé à %@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo file è troppo grande per essere inviato a %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルは大きすぎるため %@ に送信できません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឯកសារនេះធំពេកមិនអាចផ្ញើទៅ %@ បានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 파일은 너무 커서 %@(으)로 보낼 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filen er for stor til å sendes til %@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten plik jest za duży, aby wysłać go do %@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este arquivo é grande demais para ser enviado para %@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот файл слишком большой для отправки на %@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไฟล์นี้ใหญ่เกินกว่าจะส่งไปยัง %@ ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu dosya %@ makinesine gönderilemeyecek kadar büyük."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цей файл завеликий, щоб надіслати його на %@."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tệp này quá lớn để gửi đến %@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此文件太大，无法发送到 %@。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此檔案太大，無法傳送到 %@。"
+          }
+        }
+      }
+    },
     "cloud.move.unfinishedMove": {
       "extractionState": "manual",
       "localizations": {
@@ -12837,6 +14553,1054 @@
           "stringUnit": {
             "state": "translated",
             "value": "此 Cloud 機器無法執行此操作。"
+          }
+        }
+      }
+    },
+    "cloud.cli.createDeclined": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Cloud machine was created: the person declined or dismissed it in cmux."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتم إنشاء أي جهاز سحابي: رفض الشخص ذلك أو تجاهله في cmux."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Es wurde keine Cloud-Maschine erstellt: Die Person hat in cmux abgelehnt oder abgebrochen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se creó ninguna máquina en la nube: la persona la rechazó o la descartó en cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune machine Cloud n’a été créée : la personne a refusé ou annulé dans cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud マシンは作成されませんでした。cmux で相手が拒否したか閉じました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 머신이 생성되지 않았습니다. 사용자가 cmux에서 거절하거나 닫았습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未创建任何云端机器：对方已在 cmux 中拒绝或关闭。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未建立任何雲端機器：對方已在 cmux 中拒絕或關閉。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nijedna Cloud mašina nije kreirana: osoba je odbila ili zatvorila zahtjev u cmuxu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen Cloud-maskine blev oprettet: personen afviste eller lukkede den i cmux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessuna macchina Cloud è stata creata: la persona l’ha rifiutata o chiusa in cmux."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនបានបង្កើតម៉ាស៊ីន Cloud ទេ៖ បុគ្គលនោះបានបដិសេធ ឬបិទវានៅក្នុង cmux។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen Cloud-maskin ble opprettet: personen avslo eller lukket den i cmux."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie utworzono maszyny Cloud: osoba odrzuciła lub zamknęła prośbę w cmux."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhuma máquina na nuvem foi criada: a pessoa recusou ou descartou no cmux."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Облачная машина не создана: пользователь отклонил или закрыл запрос в cmux."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่ได้สร้างเครื่อง Cloud: ผู้ใช้ปฏิเสธหรือปิดคำขอใน cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud makinesi oluşturulmadı: kişi cmux’ta reddetti veya kapattı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хмарну машину не створено: користувач відхилив або закрив запит у cmux."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không có máy Cloud nào được tạo: người dùng đã từ chối hoặc đóng yêu cầu trong cmux."
+          }
+        }
+      }
+    },
+    "cloud.cli.execUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Cloud machine can't run a command for the CLI and return its output. Open a terminal on it with cmux cloud open-machine instead."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن لهذا الجهاز السحابي تشغيل أمر لواجهة سطر الأوامر وإرجاع مخرجاته. افتح طرفية عليه باستخدام ‎cmux cloud open-machine‎ بدلاً من ذلك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ova Cloud mašina ne može pokrenuti naredbu za CLI i vratiti njen izlaz. Umjesto toga otvorite terminal na njoj pomoću cmux cloud open-machine."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne Cloud-maskine kan ikke køre en kommando for CLI'en og returnere outputtet. Åbn i stedet en terminal på den med cmux cloud open-machine."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Cloud-Maschine kann keinen Befehl für die CLI ausführen und seine Ausgabe zurückgeben. Öffne stattdessen mit cmux cloud open-machine ein Terminal darauf."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta máquina en la nube no puede ejecutar un comando para la CLI y devolver su salida. Abre una terminal en ella con cmux cloud open-machine."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette machine Cloud ne peut pas exécuter de commande pour la CLI et en renvoyer la sortie. Ouvrez plutôt un terminal dessus avec cmux cloud open-machine."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa macchina Cloud non può eseguire un comando per la CLI e restituirne l’output. Apri invece un terminale con cmux cloud open-machine."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Cloud マシンでは CLI のためにコマンドを実行して出力を返すことができません。代わりに cmux cloud open-machine でターミナルを開いてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម៉ាស៊ីន Cloud នេះមិនអាចដំណើរការពាក្យបញ្ជាសម្រាប់ CLI ហើយបញ្ជូនលទ្ធផលត្រឡប់មកវិញបានទេ។ សូមបើកស្ថានីយនៅលើវាដោយប្រើ cmux cloud open-machine ជំនួសវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Cloud 머신은 CLI를 위해 명령을 실행하고 출력을 반환할 수 없습니다. 대신 cmux cloud open-machine으로 터미널을 여세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne Cloud-maskinen kan ikke kjøre en kommando for CLI-en og returnere utdataene. Åpne heller en terminal på den med cmux cloud open-machine."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta maszyna Cloud nie może uruchomić polecenia dla CLI i zwrócić jego wyniku. Zamiast tego otwórz na niej terminal poleceniem cmux cloud open-machine."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta máquina na nuvem não pode executar um comando para a CLI e retornar a saída. Abra um terminal nela com cmux cloud open-machine."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Эта облачная машина не может выполнить команду для CLI и вернуть её вывод. Вместо этого откройте на ней терминал командой cmux cloud open-machine."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เครื่อง Cloud นี้ไม่สามารถรันคำสั่งให้ CLI และส่งผลลัพธ์กลับได้ ให้เปิดเทอร์มินัลบนเครื่องด้วย cmux cloud open-machine แทน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Cloud makinesi CLI için komut çalıştırıp çıktısını döndüremez. Bunun yerine cmux cloud open-machine ile üzerinde bir terminal açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ця хмарна машина не може виконати команду для CLI і повернути її вивід. Натомість відкрийте на ній термінал командою cmux cloud open-machine."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máy Cloud này không thể chạy lệnh cho CLI và trả về kết quả. Hãy mở terminal trên máy bằng cmux cloud open-machine."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台云端机器无法为 CLI 运行命令并返回输出。请改用 cmux cloud open-machine 在其上打开终端。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這台雲端機器無法為 CLI 執行指令並傳回輸出。請改用 cmux cloud open-machine 在其上開啟終端機。"
+          }
+        }
+      }
+    },
+    "cloud.progress.stage.paused": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paused"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一時停止中"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "متوقف مؤقتًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pauzirano"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sat på pause"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pausiert"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En pausa"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En pause"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In pausa"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានផ្អាក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "일시 정지됨"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Satt på pause"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wstrzymano"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pausado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Приостановлено"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หยุดชั่วคราว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duraklatıldı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Призупинено"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tạm dừng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已暂停"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已暫停"
+          }
+        }
+      }
+    },
+    "cloud.progress.stage.pausedIdle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paused (idle)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一時停止中（アイドル）"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "متوقف مؤقتًا (خامل)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pauzirano (neaktivno)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sat på pause (inaktiv)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pausiert (inaktiv)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En pausa (inactiva)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En pause (inactive)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In pausa (inattiva)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានផ្អាក (ទំនេរ)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "일시 정지됨(유휴)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Satt på pause (inaktiv)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wstrzymano (bezczynna)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pausado (ociosa)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Приостановлено (простой)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หยุดชั่วคราว (ไม่มีการใช้งาน)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duraklatıldı (boşta)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Призупинено (простій)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tạm dừng (không hoạt động)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已暂停（空闲）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已暫停（閒置）"
+          }
+        }
+      }
+    },
+    "cloud.progress.next.pausedIdle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud paused this machine after it sat idle. Its disk and session are kept. Resume starts it again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このマシンはアイドル状態が続いたため、cmux Cloud が一時停止しました。ディスクとセッションは保持されています。「再開」で再び起動します。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أوقف cmux Cloud هذا الجهاز مؤقتًا بعد أن ظل خاملًا. يتم الاحتفاظ بقرصه وجلسته. يؤدي الاستئناف إلى تشغيله مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud je pauzirao ovu mašinu nakon što je bila neaktivna. Njen disk i sesija su sačuvani. Nastavi je ponovo pokreće."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud satte denne maskine på pause, efter at den havde været inaktiv. Dens disk og session bevares. Genoptag starter den igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud hat diese Maschine pausiert, nachdem sie inaktiv war. Ihre Festplatte und Sitzung bleiben erhalten. „Fortsetzen“ startet sie wieder."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud pausó esta máquina tras un tiempo inactiva. Se conservan su disco y su sesión. Reanudar la vuelve a iniciar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud a mis cette machine en pause après une période d’inactivité. Son disque et sa session sont conservés. Reprendre la redémarre."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud ha messo in pausa questa macchina dopo un periodo di inattività. Il disco e la sessione sono conservati. Riprendi la avvia di nuovo."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud បានផ្អាកម៉ាស៊ីននេះ បន្ទាប់ពីវាទំនេរ។ ថាស និងវគ្គរបស់វាត្រូវបានរក្សាទុក។ បន្ត នឹងចាប់ផ្ដើមវាម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 머신이 유휴 상태여서 cmux Cloud가 일시 정지했습니다. 디스크와 세션은 유지됩니다. 재개하면 다시 시작됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud satte denne maskinen på pause etter at den var inaktiv. Disken og økten beholdes. Gjenoppta starter den igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud wstrzymał tę maszynę po okresie bezczynności. Jej dysk i sesja są zachowane. Wznów uruchamia ją ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux Cloud pausou esta máquina depois que ela ficou ociosa. O disco e a sessão dela são mantidos. Retomar a inicia novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud приостановил эту машину после простоя. Её диск и сеанс сохранены. «Возобновить» снова запускает её."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud หยุดเครื่องนี้ชั่วคราวหลังจากไม่มีการใช้งาน ดิสก์และเซสชันของเครื่องยังคงอยู่ ดำเนินการต่อจะเริ่มเครื่องอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud bu makineyi boşta kaldıktan sonra duraklattı. Diski ve oturumu korunur. Sürdür onu yeniden başlatır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud призупинив цю машину після простою. Її диск і сеанс збережено. «Відновити» знову запускає її."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud đã tạm dừng máy này sau khi nó không hoạt động. Ổ đĩa và phiên của máy được giữ lại. Tiếp tục sẽ khởi động lại máy."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该机器空闲一段时间后，cmux Cloud 已将其暂停。它的磁盘和会话均已保留。点按“恢复”可再次启动。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此機器閒置一段時間後，cmux Cloud 已將其暫停。它的磁碟和工作階段均已保留。按一下「繼續」即可再次啟動。"
+          }
+        }
+      }
+    },
+    "cloud.progress.next.paused": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This machine is paused. Its disk and session are kept. Resume starts it again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このマシンは一時停止中です。ディスクとセッションは保持されています。「再開」で再び起動します。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هذا الجهاز متوقف مؤقتًا. يتم الاحتفاظ بقرصه وجلسته. يؤدي الاستئناف إلى تشغيله مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ova mašina je pauzirana. Njen disk i sesija su sačuvani. Nastavi je ponovo pokreće."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne maskine er sat på pause. Dens disk og session bevares. Genoptag starter den igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Maschine ist pausiert. Ihre Festplatte und Sitzung bleiben erhalten. „Fortsetzen“ startet sie wieder."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta máquina está en pausa. Se conservan su disco y su sesión. Reanudar la vuelve a iniciar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette machine est en pause. Son disque et sa session sont conservés. Reprendre la redémarre."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa macchina è in pausa. Il disco e la sessione sono conservati. Riprendi la avvia di nuovo."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម៉ាស៊ីននេះកំពុងផ្អាក។ ថាស និងវគ្គរបស់វាត្រូវបានរក្សាទុក។ បន្ត នឹងចាប់ផ្ដើមវាម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 머신은 일시 정지되었습니다. 디스크와 세션은 유지됩니다. 재개하면 다시 시작됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne maskinen er satt på pause. Disken og økten beholdes. Gjenoppta starter den igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta maszyna jest wstrzymana. Jej dysk i sesja są zachowane. Wznów uruchamia ją ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta máquina está pausada. O disco e a sessão dela são mantidos. Retomar a inicia novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Эта машина приостановлена. Её диск и сеанс сохранены. «Возобновить» снова запускает её."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เครื่องนี้หยุดชั่วคราวอยู่ ดิสก์และเซสชันของเครื่องยังคงอยู่ ดำเนินการต่อจะเริ่มเครื่องอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu makine duraklatıldı. Diski ve oturumu korunur. Sürdür onu yeniden başlatır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цю машину призупинено. Її диск і сеанс збережено. «Відновити» знову запускає її."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máy này đang tạm dừng. Ổ đĩa và phiên của máy được giữ lại. Tiếp tục sẽ khởi động lại máy."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该机器已暂停。它的磁盘和会话均已保留。点按“恢复”可再次启动。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此機器已暫停。它的磁碟和工作階段均已保留。按一下「繼續」即可再次啟動。"
+          }
+        }
+      }
+    },
+    "cloud.button.resume": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resume"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再開"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استئناف"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nastavi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Genoptag"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fortsetzen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reanudar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reprendre"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riprendi"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បន្ត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재개"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gjenoppta"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wznów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retomar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Возобновить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ดำเนินการต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sürdür"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відновити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tiếp tục"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "恢复"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "繼續"
+          }
+        }
+      }
+    },
+    "cloud.cli.idlePauseMustBeOneOf": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minutes must be one of: %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分には次のいずれかを指定してください: %@。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن تكون الدقائق واحدة من: %@."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minute moraju biti jedno od: %@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minutter skal være en af: %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minuten müssen einer dieser Werte sein: %@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los minutos deben ser uno de: %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les minutes doivent être l’une des valeurs suivantes : %@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I minuti devono essere uno tra: %@."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នាទីត្រូវតែជាមួយក្នុងចំណោម៖ %@។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "분은 다음 중 하나여야 합니다: %@."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minutter må være én av: %@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minuty muszą mieć jedną z wartości: %@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os minutos devem ser um destes: %@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Минуты должны быть одним из значений: %@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "นาทีต้องเป็นค่าใดค่าหนึ่งต่อไปนี้: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dakika şunlardan biri olmalıdır: %@."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хвилини мають бути одним зі значень: %@."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Số phút phải là một trong: %@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分钟数必须是以下之一：%@。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分鐘數必須是下列其中之一：%@。"
           }
         }
       }

@@ -17,7 +17,7 @@ extension TabCell: StatusIndicatorConfigClient {
         // spinners on screen turning opposite ways).
         return StatusIndicatorPlan.make(item.indicator, style: config.style(hint: item.busyStyle),
                                         animates: config.animatesLoops && isWindowVisible, set: config.iconSet, isStatic: config.isStatic,
-                                        staticShapes: config.staticShapes)
+                                        staticShapes: config.staticShapes, working: config.workingLook)
     }
 
     /// Creates, updates or removes the indicator for the current item and
@@ -138,6 +138,18 @@ extension TabCell: StatusIndicatorConfigClient {
         spinner.layer.removeFromSuperlayer()
         spinnerLayer = nil
         isSpinnerExiting = false
+    }
+
+    /// Checks the indicator again (the app came back, a window became main, the Mac woke): now
+    /// when the strip shows, else when it shows again.
+    func statusIndicatorResync() {
+        guard isStripShown else {
+            owesIndicatorResync = true
+            return
+        }
+        owesIndicatorResync = false
+        StatusIndicatorAppearance.resyncs &+= 1
+        statusIndicatorConfigDidChange(StatusIndicatorAppearance.shared.config)
     }
 
     func statusIndicatorConfigDidChange(_ config: StatusIndicatorConfig) {

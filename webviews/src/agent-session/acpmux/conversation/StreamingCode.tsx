@@ -10,10 +10,13 @@ import { CopyButton } from "./CopyButton";
 import { CodeBrackets } from "./icons";
 import { useT } from "../i18n";
 import { menuPartRef } from "./menuParts";
+import { OpenPreview } from "./OpenPreview";
 import { isAgentMotionOff } from "../../shared/motion";
 import { entranceAllowed } from "../../shared/pageReveal";
 
-/// An open fence: the card's chrome over plain lines.
+/// The card's chrome over plain lines: an open fence, or a closed one drawn plain (the highlighted
+/// card's chunk still loading, a fence over the highlight limits, a highlight past its budget). A
+/// closed fence keeps the highlighted card's Open preview, so the panel opens from either card.
 export function PlainCode({ code, lang, open = false }: { code: string; lang: string; open?: boolean }) {
   const t = useT();
   const lines = code.split("\n");
@@ -26,6 +29,7 @@ export function PlainCode({ code, lang, open = false }: { code: string; lang: st
         <CodeBrackets size={17} strokeWidth={1.2} />
         <span>{languageLabel(lang, t)}</span>
         <span className="cv-codeblock__actions">
+          {!open && <OpenPreview code={code} lang={lang} />}
           <CopyButton text={code} label={t("code.copy")} />
         </span>
       </div>

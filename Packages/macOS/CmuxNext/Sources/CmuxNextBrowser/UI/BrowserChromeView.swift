@@ -1,5 +1,5 @@
 public import AppKit
-import CmuxNextDesign
+public import CmuxNextDesign
 import CmuxNextIcons
 
 /// A browser pane: toolbar (back, forward, reload, omnibox, extension slot),
@@ -98,6 +98,12 @@ public final class BrowserChromeView: NSView {
     var httpsFallback = HTTPSUpgradeFallback()
     private var showsStop = false
     var isToolbarHidden = false
+    /// The edge the toolbar rows sit on (`browser.toolbarPosition`); the pane sets it.
+    public var toolbarPosition: ToolbarPosition = .top {
+        didSet { if toolbarPosition != oldValue { applyToolbarPosition() } }
+    }
+    /// The constraints that put the toolbar rows, page and page bars at the top or bottom.
+    let toolbarEdge = ToolbarEdgeConstraints()
     /// The person hid this tab's address bar row (Toggle Omnibar).
     public internal(set) var isOmnibarHidden = false
     private let density = DensityBinding()
@@ -226,29 +232,53 @@ public final class BrowserChromeView: NSView {
         addSubview(toolbar)
         addSubview(separator)
         installAccessoryBar(below: separator)
-        installHeaderBand(below: accessoryBar)
+        installHeaderBand(beside: accessoryBar)
         addSubview(progressLine)
         pageStatus.install(in: self, over: contentContainer) { [weak self] in self?.tab }
         addSubview(promptBar)
         addSubview(findBar)
 
         _ = toolbarHeight  // binds it here, in the same order as before
+        let scale = { [weak self] in self?.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2 }
+        // From the top: toolbar, separator, accessory bar, band, page. From the bottom: the same
+        // rows mirrored, the page on top (`ToolbarEdgeConstraints`).
+        toolbarEdge.top += [
+            toolbar.topAnchor.constraint(equalTo: topAnchor),
+            density.bind(addressBar.topAnchor.constraint(equalTo: toolbar.topAnchor)) { OmnibarStyle.barTop(scale: scale()) }, // R101 gaps
+            separator.topAnchor.constraint(equalTo: toolbar.bottomAnchor),
+            progressLine.bottomAnchor.constraint(equalTo: separator.bottomAnchor),
+            // The page starts under the header band (empty unless the pane's
+            // tab bar sits below the toolbar, R109).
+            contentContainer.topAnchor.constraint(equalTo: headerBand.guide.bottomAnchor),
+            contentContainer.bottomAnchor.constraint(equalTo: bottomAnchor),
+            // The shared find pill sits where every pane's does.
+            findBar.topAnchor.constraint(equalTo: contentContainer.topAnchor, constant: FindPillMetrics.inset),
+            density.bind(promptBar.topAnchor.constraint(equalTo: contentContainer.topAnchor)) { BrowserMetrics.overlayInset },
+        ]
+        toolbarEdge.bottom += [
+            toolbar.bottomAnchor.constraint(equalTo: bottomAnchor),
+            density.bind(addressBar.bottomAnchor.constraint(equalTo: toolbar.bottomAnchor)) { -OmnibarStyle.barTop(scale: scale()) },
+            separator.bottomAnchor.constraint(equalTo: toolbar.topAnchor),
+            progressLine.topAnchor.constraint(equalTo: separator.topAnchor),
+            contentContainer.topAnchor.constraint(equalTo: topAnchor),
+            contentContainer.bottomAnchor.constraint(equalTo: headerBand.guide.topAnchor),
+            // The page's bars sit by the toolbar, at the page's bottom.
+            findBar.bottomAnchor.constraint(equalTo: contentContainer.bottomAnchor, constant: -FindPillMetrics.inset),
+            density.bind(promptBar.bottomAnchor.constraint(equalTo: contentContainer.bottomAnchor)) { -BrowserMetrics.overlayInset },
+        ]
+        toolbarEdge.activate(toolbarPosition)
         density.update { [extensionSlot, toolbarButtons] in
             extensionSlot.spacing = OmnibarStyle.buttonSpacing
             toolbarButtons.spacing = OmnibarStyle.buttonSpacing
             navigation.spacing = OmnibarStyle.buttonSpacing
         }
         NSLayoutConstraint.activate([
-            toolbar.topAnchor.constraint(equalTo: topAnchor),
             toolbar.leadingAnchor.constraint(equalTo: leadingAnchor),
             toolbar.trailingAnchor.constraint(equalTo: trailingAnchor),
             toolbarHeight,
             density.bind(navigation.leadingAnchor.constraint(equalTo: toolbar.leadingAnchor)) { OmnibarStyle.toolbarInset },
             navigation.centerYAnchor.constraint(equalTo: addressBar.centerYAnchor),
             density.bind(addressBar.leadingAnchor.constraint(equalTo: navigation.trailingAnchor)) { OmnibarStyle.barMargin },
-            density.bind(addressBar.topAnchor.constraint(equalTo: toolbar.topAnchor)) { [weak self] in // R101 gaps
-                OmnibarStyle.barTop(scale: self?.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2)
-            },
             density.bind(extensionSlot.leadingAnchor.constraint(equalTo: addressBar.trailingAnchor)) { OmnibarStyle.barMargin },
             density.bind(toolbarButtons.leadingAnchor.constraint(equalTo: extensionSlot.trailingAnchor)) { OmnibarStyle.buttonSpacing },
             density.bind(toolbarButtons.trailingAnchor.constraint(equalTo: toolbar.trailingAnchor)) { -OmnibarStyle.toolbarInset },
@@ -266,30 +296,21 @@ public final class BrowserChromeView: NSView {
                 OmnibarStyle.buttonSize
             },
 
-            separator.topAnchor.constraint(equalTo: toolbar.bottomAnchor),
             separator.leadingAnchor.constraint(equalTo: leadingAnchor),
             separator.trailingAnchor.constraint(equalTo: trailingAnchor),
             // No line between the omnibar and the page (Lawrence 2026-10-16): the separator is only an anchor.
             separator.heightAnchor.constraint(equalToConstant: 0),
 
-            progressLine.bottomAnchor.constraint(equalTo: separator.bottomAnchor),
             progressLine.leadingAnchor.constraint(equalTo: leadingAnchor),
             progressLine.trailingAnchor.constraint(equalTo: trailingAnchor),
             density.bind(progressLine.heightAnchor.constraint(equalToConstant: 0)) { BrowserMetrics.progressThickness },
 
-            // The page starts under the header band (empty unless the pane's
-            // tab bar sits below the toolbar, R109).
-            contentContainer.topAnchor.constraint(equalTo: headerBand.guide.bottomAnchor),
             contentContainer.leadingAnchor.constraint(equalTo: leadingAnchor),
             contentContainer.trailingAnchor.constraint(equalTo: trailingAnchor),
-            contentContainer.bottomAnchor.constraint(equalTo: bottomAnchor),
 
-            // The shared find pill sits where every pane's does.
-            findBar.topAnchor.constraint(equalTo: contentContainer.topAnchor, constant: FindPillMetrics.inset),
             findBar.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor, constant: -FindPillMetrics.inset),
             findBar.leadingAnchor.constraint(greaterThanOrEqualTo: contentContainer.leadingAnchor, constant: FindPillMetrics.inset),
 
-            density.bind(promptBar.topAnchor.constraint(equalTo: contentContainer.topAnchor)) { BrowserMetrics.overlayInset },
             promptBar.centerXAnchor.constraint(equalTo: contentContainer.centerXAnchor),
             density.bind(promptBar.leadingAnchor.constraint(greaterThanOrEqualTo: contentContainer.leadingAnchor)) { BrowserMetrics.overlayInset },
         ])

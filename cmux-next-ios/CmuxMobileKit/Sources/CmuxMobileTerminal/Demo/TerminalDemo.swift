@@ -249,7 +249,7 @@ struct TerminalDemoDriver {
         model.keyBar(.control)
         await wait(0.5)
         mark(":q")
-        model.controller?.surface.sendText(":q", pressReturn: true)
+        model.controller?.surface.sendText(":q", pressReturn: true, fullScreenApp: model.isTUI)
         await wait(1.2)
         model.controller?.hideKeyboard()
         await wait(1.5)

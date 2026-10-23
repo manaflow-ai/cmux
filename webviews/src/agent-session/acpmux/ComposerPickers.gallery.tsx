@@ -73,6 +73,18 @@ const initialSnapshot: AcpmuxSnapshot = {
           { value: "on", name: "On" },
         ],
       },
+      // Codex still reports this option for its /plan command and mode paths; the footer leaves it
+      // out of the generic Options chip.
+      {
+        id: "collaboration_mode",
+        name: "Collaboration mode",
+        category: "collaboration_mode",
+        currentValue: "default",
+        options: [
+          { value: "default", name: "Default" },
+          { value: "plan", name: "Plan", description: "Write a plan before editing." },
+        ],
+      },
     ],
   },
 };
@@ -105,7 +117,7 @@ function GalleryComposerPickers() {
     <div className="acpmux-composer-gallery-shell">
       <div className="acpmux-composer-gallery-copy">
         <strong>Composer controls</strong>
-        <span>Model, context, effort, permission, and Plan controls share one quiet footer rail.</span>
+        <span>One model button (model and effort), permission, and Plan controls share one quiet footer rail.</span>
       </div>
       <ComposerPickers
         snapshot={snapshot}
@@ -119,74 +131,112 @@ function GalleryComposerPickers() {
   );
 }
 
+// The model button opens its one menu (Leo 2026-10-20): numbered models, then Effort, More models
+// and Fast mode. The full picker (the search) is its More models row.
+const MODEL = { role: "button", name: "Model" } as const;
+const quickRows = '.acpmux-quick-menu [role="menuitemradio"]';
+
 const openModel: Play = async (ctx) => {
-  await ctx.click({ role: "button", name: "Model" });
-  await ctx.waitFor(() => ctx.document.querySelector('[role="dialog"] [type="search"]') !== null);
+  await ctx.click(MODEL);
+  await ctx.waitFor(() => ctx.document.querySelector(quickRows) !== null);
+  if (!ctx.document.querySelector(".acpmux-quick-menu .acpmux-quick-fast"))
+    throw new Error("the model menu has no Fast mode row");
 };
 
 const modelFocus: Play = async (ctx) => {
-  const trigger = ctx.find({ role: "button", name: "Model" });
-  const search = { selector: '.acpmux-mp input[role="combobox"]' };
-  await ctx.click({ role: "button", name: "Model" });
-  await ctx.waitFor(() => ctx.document.querySelector('[role="dialog"] [type="search"]') !== null);
-  await ctx.waitFor(() => ctx.document.activeElement === ctx.find(search));
+  const trigger = ctx.find(MODEL);
+  await ctx.click(MODEL);
+  await ctx.waitFor(() => {
+    const menu = ctx.document.querySelector(".acpmux-quick-menu");
+    return menu !== null && menu.contains(ctx.document.activeElement);
+  });
   await ctx.press("ArrowDown");
-  await ctx.waitFor(() => Boolean(ctx.find(search).getAttribute("aria-activedescendant")));
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-menu [data-highlighted]") !== null);
   await ctx.press("Escape");
-  await ctx.waitFor(() => !ctx.document.querySelector('[role="dialog"]') && ctx.document.activeElement === trigger);
+  await ctx.waitFor(() => !ctx.document.querySelector('[role="menu"]') && ctx.document.activeElement === trigger);
 };
 
 const modelPressDragRelease: Play = async (ctx) => {
-  await ctx.pointer.down({ role: "button", name: "Model" });
-  await ctx.waitFor(() => ctx.document.querySelector('[role="dialog"]') !== null);
+  await ctx.pointer.down(MODEL);
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-menu") !== null);
   await ctx.waitFor(() => {
-    const popup = ctx.document.querySelector<HTMLElement>('[role="dialog"]');
+    const popup = ctx.document.querySelector<HTMLElement>(".acpmux-quick-menu");
     if (!popup) return false;
     const rect = popup.getBoundingClientRect();
     return (
       rect.width > 0 && rect.height > 0 && ctx.document.defaultView?.getComputedStyle(popup).visibility !== "hidden"
     );
   });
-  // Astra is folded under Older models in this fixture. Drag to the visible current model row;
-  // the gesture still exercises the picker trigger's press-drag-release path without inventing a
-  // click on a row that is not mounted.
-  const visibleModel = '[role="option"][data-key="model:gpt-6.1-sol"]';
-  await ctx.pointer.move({ selector: visibleModel });
-  await ctx.pointer.up({ selector: visibleModel });
+  // Astra may sit under More models in this fixture: drag to the current model's row, which still
+  // exercises the button's press-drag-release path and closes the menu.
+  const row = { role: "menuitemradio", name: /GPT-6\.1 Sol/ } as const;
+  await ctx.pointer.move(row);
+  await ctx.pointer.up(row);
   await ctx.waitFor(
-    () =>
-      !ctx.document.querySelector('[role="dialog"]') &&
-      ctx.document.activeElement === ctx.find({ role: "button", name: "Model" }),
+    () => !ctx.document.querySelector('[role="menu"]') && ctx.document.activeElement === ctx.find(MODEL),
   );
 };
 
+/// Opens the model menu's Effort submenu; resolves with its popup.
+async function openEffortMenu(ctx: Parameters<Play>[0]): Promise<HTMLElement> {
+  await ctx.click(MODEL);
+  await ctx.waitFor(() => ctx.document.querySelector(quickRows) !== null);
+  // A submenu row opens on hover or from the keyboard: Base UI's submenu trigger ignores a mouse
+  // press while it opens on hover. Enter on the focused row opens it, as a keyboard user does.
+  await ctx.focus({ role: "menuitem", name: /^Effort/ });
+  await ctx.press("Enter");
+  let levels: HTMLElement | undefined;
+  await ctx.waitFor(() => {
+    // The submenu is the quick menu with no submenu rows of its own.
+    levels = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-quick-menu")].find(
+      (menu) => !menu.querySelector(".acpmux-quick-sub") && menu.querySelector('[role="menuitemradio"]') !== null,
+    );
+    return levels;
+  });
+  return levels!;
+}
+
 const openEffort: Play = async (ctx) => {
-  await ctx.click({ role: "button", name: "Effort" });
-  await ctx.waitFor(() => ctx.document.querySelector('[role="menuitemradio"][aria-checked="true"]') !== null);
+  const levels = await openEffortMenu(ctx);
+  await ctx.waitFor(() => levels.querySelector('[role="menuitemradio"][aria-checked="true"]') !== null);
 };
 
 const effortFocus: Play = async (ctx) => {
-  const trigger = ctx.find({ role: "button", name: "Effort" });
-  await ctx.click({ role: "button", name: "Effort" });
-  await ctx.waitFor(() => {
-    const selected = ctx.document.querySelector<HTMLElement>('[role="menuitemradio"][aria-checked="true"]');
-    return selected !== null && ctx.document.activeElement === selected;
-  });
+  const trigger = ctx.find(MODEL);
+  const levels = await openEffortMenu(ctx);
+  await ctx.waitFor(() => levels.contains(ctx.document.activeElement));
   await ctx.press("ArrowDown");
-  await ctx.waitFor(() => ctx.document.querySelector('[role="menuitemradio"][data-highlighted]') !== null);
+  await ctx.waitFor(() => levels.querySelector('[role="menuitemradio"][data-highlighted]') !== null);
+  await ctx.press("Escape");
   await ctx.press("Escape");
   await ctx.waitFor(() => !ctx.document.querySelector('[role="menu"]') && ctx.document.activeElement === trigger);
 };
 
-const effortPressDragRelease: Play = async (ctx) => {
-  await ctx.pointer.down({ role: "button", name: "Effort" });
-  await ctx.waitFor(() => ctx.document.querySelector('[role="menu"]') !== null);
-  await ctx.pointer.move({ text: "High" });
-  await ctx.pointer.up({ text: "High" });
+const effortPick: Play = async (ctx) => {
+  await openEffortMenu(ctx);
+  await ctx.click({ role: "menuitemradio", name: /^High/ });
   await ctx.waitFor(() => !ctx.document.querySelector('[role="menu"]'));
   await ctx.waitFor(
-    () => ctx.document.querySelector(".acpmux-effort .acpmux-picker-button > span")?.textContent === "High",
+    () =>
+      ctx.document.querySelector(".acpmux-model .acpmux-model-detail:not(.acpmux-fit-label)")?.textContent === "High",
   );
+};
+
+const fastMode: Play = async (ctx) => {
+  await ctx.click(MODEL);
+  const fast = { selector: ".acpmux-quick-menu .acpmux-quick-fast" } as const;
+  await ctx.waitFor(() => ctx.document.querySelector(fast.selector) !== null);
+  if (ctx.find(fast).getAttribute("aria-checked") !== "false") throw new Error("Fast mode must start off");
+  // A checkbox row keeps the menu open, so the row shows the confirmed state in place.
+  await ctx.click(fast);
+  await ctx.waitFor(() => ctx.document.querySelector(fast.selector)?.getAttribute("aria-checked") === "true");
+};
+
+const morePicker: Play = async (ctx) => {
+  await ctx.click(MODEL);
+  await ctx.waitFor(() => ctx.document.querySelector(quickRows) !== null);
+  await ctx.click({ role: "menuitem", name: /^More models/ });
+  await ctx.waitFor(() => ctx.document.querySelector('[role="dialog"] [type="search"]') !== null);
 };
 
 const openMode: Play = async (ctx) => {
@@ -267,30 +317,49 @@ export default componentEntry<Props>({
   variants: {
     closed: { props: {} },
     "pill-rail": {
-      note: "The 400 px composer rail keeps the model, effort, and access controls as rounded tonal pills before any menu opens.",
+      note: "The 400 px Codex rail keeps model, effort and access quiet; its reported collaboration mode has no footer control.",
       props: {},
     },
-    "model-menu": { props: {}, play: openModel },
+    "model-menu": {
+      note: "The model button opens its one menu: this harness's models, numbered, then Effort, More models and Fast mode.",
+      props: {},
+      play: openModel,
+    },
+    "model-more": {
+      note: "More models opens the full picker with its search, the only way to it from the button.",
+      props: {},
+      play: morePicker,
+    },
     "model-focus": {
-      note: "The model search owns focus while open; Escape closes it and restores focus to Model.",
+      note: "The model menu owns focus while open; Escape closes it and restores focus to Model.",
       props: {},
       play: modelFocus,
     },
     "model-press-drag-release": {
-      note: "Pressing Model, dragging onto a model row, and releasing picks the row and closes the picker.",
+      note: "Pressing Model, dragging onto a model row, and releasing picks the row and closes the menu.",
       props: {},
       play: modelPressDragRelease,
     },
-    "effort-menu": { props: {}, play: openEffort },
+    "effort-menu": {
+      note: "The model menu's Effort row opens the levels beside it, the current one checked; there is no separate effort chip.",
+      props: {},
+      play: openEffort,
+    },
     "effort-focus": {
-      note: "Arrow navigation moves the highlighted effort; Escape closes the menu and restores Effort focus.",
+      note: "Arrow navigation moves the highlighted effort; Escape twice closes both menus and restores focus to Model.",
       props: {},
       play: effortFocus,
     },
+    // The id predates the one button; its point stays: a pick of High lands and the button names it.
     "effort-press-drag-release": {
-      note: "Pressing Effort, dragging onto High, and releasing picks the row and closes the menu.",
+      note: "Picking High in the Effort submenu closes the menu, and the model button then reads High after the model.",
       props: {},
-      play: effortPressDragRelease,
+      play: effortPick,
+    },
+    "fast-mode": {
+      note: "Fast mode is the model menu's last row, a checkbox (Leo 2026-10-20): a click turns it on, and the menu shows it checked.",
+      props: {},
+      play: fastMode,
     },
     "permission-menu": { props: {}, play: openMode },
     "access-grants": {

@@ -10,15 +10,17 @@ public struct SidebarTeamRow: View {
     let name: String
     let colorHex: String?
     let emoji: String?
+    let transparent: Bool
     let dots: [Bool]
     let overflow: Int
     let onlineCount: Int
     let isSelected: Bool
 
-    public init(name: String, colorHex: String?, emoji: String?, dots: [Bool], overflow: Int, onlineCount: Int, isSelected: Bool) {
+    public init(name: String, colorHex: String?, emoji: String?, transparent: Bool = false, dots: [Bool], overflow: Int, onlineCount: Int, isSelected: Bool) {
         self.name = name
         self.colorHex = colorHex
         self.emoji = emoji
+        self.transparent = transparent
         self.dots = dots
         self.overflow = overflow
         self.onlineCount = onlineCount
@@ -27,7 +29,7 @@ public struct SidebarTeamRow: View {
 
     public var body: some View {
         HStack(spacing: 12) {
-            TeamAvatar(name: name, colorHex: colorHex, emoji: emoji, size: theme.metrics.teamAvatar)
+            TeamAvatar(name: name, colorHex: colorHex, emoji: emoji, size: theme.metrics.teamAvatar, transparent: transparent)
             VStack(alignment: .leading, spacing: 5) {
                 Text(name)
                     .font(theme.type.rowTitle.weight(isSelected ? .semibold : .regular))

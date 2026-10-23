@@ -20,15 +20,20 @@ mod inbound;
 #[cfg(target_os = "macos")]
 mod launchd;
 mod lines;
-mod machine_gate;
+pub(crate) mod machine_gate;
 pub(crate) mod machine_update;
 mod mesh;
 mod mesh_cloud;
+mod paired_streams;
 mod process_exit;
 mod state;
 
 #[cfg(test)]
 mod e2e_tests;
+#[cfg(test)]
+mod outgoing_revocation_tests;
+#[cfg(test)]
+mod revocation_tests;
 #[cfg(test)]
 mod tests;
 

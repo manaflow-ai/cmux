@@ -1283,3 +1283,72 @@ fn only_reads_and_keyed_runs_are_resent_after_a_dropped_connection() {
     assert!(!safe_to_resend("action.run", &json!({})));
     assert!(!safe_to_resend("errors.clear", &json!({})));
 }
+
+#[test]
+fn open_link_sends_browser_open_link_with_the_callers_and_terminal() {
+    let environment =
+        std::collections::HashMap::from([("CMUX_TUI_TERMINAL_ID".to_owned(), "term_1".to_owned())]);
+    let mut stdin = "https://signin.aws.amazon.com/oauth?state=x\n".as_bytes();
+    let AppCommand::Open { requests, stop_on_failure } = parse_open_with(
+        &args(&["--link", "--caller", "python3,aws", "--caller=zsh", "-"]),
+        false,
+        &environment,
+        &mut stdin,
+    )
+    .unwrap() else {
+        panic!("expected open command")
+    };
+    assert!(stop_on_failure);
+    assert_eq!(requests.len(), 1);
+    let request = &requests[0];
+    assert_eq!(request.method, "browser.open_link");
+    assert_eq!(request.params["url"], "https://signin.aws.amazon.com/oauth?state=x");
+    assert_eq!(request.params["callers"], json!(["python3", "aws", "zsh"]));
+    assert_eq!(request.params["terminal_id"], "term_1");
+    assert_eq!(request.params["focus"], false, "a program's browser keeps the terminal's keyboard");
+    assert!(request.params.get("target").is_none());
+
+    let AppCommand::Open { requests, .. } = parse_open_with(
+        &args(&["--link", "--target", "chrome@Work", "https://a.example/"]),
+        false,
+        &environment,
+        &mut std::io::empty(),
+    )
+    .unwrap() else {
+        panic!("expected open command")
+    };
+    assert_eq!(requests[0].params["target"], "chrome@Work");
+}
+
+#[test]
+fn open_link_refuses_files_workspaces_and_stray_flags_without_echoing_urls() {
+    let environment = std::collections::HashMap::new();
+    let error = parse_open_with(
+        &args(&["--link", "https://a.example/", "/tmp/notes?token=SECRET"]),
+        false,
+        &environment,
+        &mut std::io::empty(),
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(error.contains("argument 2"), "{error}");
+    assert!(!error.contains("SECRET"), "{error}");
+    assert!(
+        parse_open_with(
+            &args(&["--link", "--workspace", "ws_1", "https://a.example/"]),
+            false,
+            &environment,
+            &mut std::io::empty()
+        )
+        .is_err()
+    );
+    for stray in [
+        vec!["--caller", "aws", "https://a.example/"],
+        vec!["--target", "system", "https://a.example/"],
+    ] {
+        assert!(
+            parse_open_with(&args(&stray), false, &environment, &mut std::io::empty()).is_err(),
+            "{stray:?} needs --link"
+        );
+    }
+}

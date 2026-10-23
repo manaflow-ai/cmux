@@ -40,15 +40,22 @@ enum AgentPaneTheme {
             "chatWidth": AgentPaneTunables.chatWidth.value.rawValue,
             // Debug Settings agentPane.debug.codexToolRuns, pushed again on a change as chatWidth is.
             "codexToolRuns": AgentPaneTunables.codexToolRuns.value,
+            // Debug Settings agentPane.debug.liveLineBelow, pushed again on a change as codexToolRuns is.
+            "liveLineBelow": AgentPaneTunables.liveLineBelow.value,
             // Debug Settings agentPane.debug.turnActionsPlacement, pushed with the theme so open
             // transcript footers follow the setting without reloading the page.
             "turnActionsPlacement": AgentPaneTunables.turnActionsPlacement.value.rawValue,
+            // Debug Settings agentPane.debug.subagentTray (AgentPaneTunables+SubagentTray.swift).
+            "subagentTray": AgentPaneTunables.subagentTray.value,
+            // Debug Settings agentPane.debug.scrollerFade (AgentPaneTunables+ScrollerFade.swift).
+            "scrollerFade": AgentPaneTunables.scrollerFade.value,
             "text": css(tokens.textPrimary),
             "mutedText": css(tokens.textSecondary),
             "softText": css(tokens.textTertiary),
             "accent": css(tokens.accent),
             "onAccent": css(tokens.onAccent),
             "accentSoft": css(tokens.selectionFill),
+            "litGlyph": css(tokens.litGlyph),
             "accentText": css(opaquePage),
             "danger": css(tokens.danger),
             "warning": css(tokens.attention),
@@ -72,6 +79,8 @@ enum AgentPaneTheme {
             // Static status indicators, or Reduce Motion (cx-sya4n): the page stops its status
             // loops and draws a shape per state (`data-status-indicators`).
             "statusIndicators": motion.reduceMotion || DesignSettings.shared.statusIndicator.animation == .static ? "static" : "animated",
+            // How agent work shows on the transcript's running rows (`data-working-look`).
+            "workingLook": StatusWorkingLook.tunable.value.rawValue,
         ]
     }
 

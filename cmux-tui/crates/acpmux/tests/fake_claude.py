@@ -15,7 +15,9 @@ file exists. With CLAUDE_CONFIG_DIR set (and no FAKE_CLAUDE_STORE), the store
 is Claude Code's own layout: <CLAUDE_CONFIG_DIR>/projects/p/<id>.jsonl, with
 a user and an assistant line per prompt; "history-probe" replies with the
 prompts the conversation holds (a resumed or forked transcript's included).
-"hold: PATH" answers once PATH exists, so a test can act while a turn runs.
+"hold: PATH" answers once PATH exists, so a test can act while a turn runs;
+"tool-hold: PATH" does so inside a running Bash call, after "partial words"
+(history-probe's "unresolved" lists tool calls stored with no result).
 A prompt ending in "settings-probe" replies with the prompt text as Claude
 read it, every `apply_flag_settings` it got, and its argv.
 "slow-stop" runs until the interrupt, then echoes the next prompt line it
@@ -26,6 +28,22 @@ interrupt the step's result comes first, then each waiting line is echoed and
 answered ("read: TEXT") as one more turn (cosmic-gray, 2026-10-20).
 A stop_task control request ends its task killed (task_updated);
 FAKE_CLAUDE_STOP_NOTIFY=1 sends the task's task_notification too.
+"fg-shell" runs a foreground Bash call until a background_tasks control
+request (Ctrl-B) moves it to the background, then ends the turn with the
+shell still running; FAKE_CLAUDE_BACKGROUND_ERROR=<text> refuses that
+request with the text instead. FAKE_CLAUDE_BACKGROUND_SILENT_MS=<ms> never
+answers it: <ms> later Claude Code moves the shell by itself, then ends the
+turn (with FAKE_CLAUDE_BACKGROUND_SILENT_END=1 the turn ends at once and the
+shell moves <ms> after). FAKE_CLAUDE_BACKGROUND_TWICE waits for two requests,
+answers the first `backgrounded: true` and the second false, and moves the
+shell before the second answer ("moved") or after it ("answered"); the
+shell's tool result then names its output file. FAKE_CLAUDE_FG_WAIT_S (20
+by default) is how long the shell waits for a control request before the
+turn ends by itself. With FAKE_CLAUDE_FLOOD_GATE=<fifo>, the shell first
+says "before-flood", reads the fifo, then streams FAKE_CLAUDE_FLOOD (8000)
+text deltas and writes <fifo>.done: output the agent's host buffers while no
+daemon reads it; once <fifo>.done exists it floods no more. "flood" is that
+backlog alone, then the turn ends.
 FAKE_CLAUDE_AUTH=1 looks for a sign-in the way Claude Code does (the
 environment, then `env` and `apiKeyHelper` in <Claude home>/settings.json,
 then <Claude home>/.credentials.json; the home is CLAUDE_CONFIG_DIR or
@@ -197,6 +215,112 @@ def long_step(prompt):
               "duration_api_ms": 5, "usage": {"input_tokens": 1, "output_tokens": 1}})
 
 
+def flood():
+    """FAKE_CLAUDE_FLOOD_GATE's backlog (module doc), once."""
+    gate = os.environ.get("FAKE_CLAUDE_FLOOD_GATE")
+    if not gate or os.path.exists(gate + ".done"):
+        return
+    send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
+                                             "delta": {"type": "text_delta", "text": "before-flood"}}})
+    with open(gate) as f:
+        f.read()
+    for i in range(int(os.environ.get("FAKE_CLAUDE_FLOOD", "8000"))):
+        send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
+                                                 "delta": {"type": "text_delta", "text": f"line {i}\n"}}})
+    with open(gate + ".done", "w") as f:
+        f.write("done")
+
+
+def fg_shell():
+    """The "fg-shell" turn (module doc). Like Claude Code 2.1.305, background_tasks
+    answers `backgrounded`: false when its tool_use_id names no foreground task."""
+    send({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_fg", "name": "Bash",
+          "input": {"command": "npm run build", "description": "Build"}}]}})
+    send({"type": "system", "subtype": "task_started", "task_id": "f1", "tool_use_id": "toolu_fg",
+          "description": "Build", "task_type": "local_bash", "is_backgrounded": False})
+    flood()
+
+    def answer(rid, moved):
+        send({"type": "control_response", "response": {"subtype": "success", "request_id": rid,
+              "response": {"backgrounded": moved}}})
+
+    def move():
+        send({"type": "system", "subtype": "task_updated", "task_id": "f1", "patch": {"is_backgrounded": True}})
+
+    def done():
+        send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
+                                                 "delta": {"type": "text_delta", "text": "building in the background"}}})
+        send({"type": "result", "subtype": "success", "result": "building in the background", "num_turns": 1,
+              "duration_api_ms": 5, "usage": {"input_tokens": 1, "output_tokens": 1}})
+
+    silent = os.environ.get("FAKE_CLAUDE_BACKGROUND_SILENT_MS")
+    twice = os.environ.get("FAKE_CLAUDE_BACKGROUND_TWICE")
+    asks = []
+    stopped = False
+    while True:
+        try:
+            got = LINES.get(timeout=float(os.environ.get("FAKE_CLAUDE_FG_WAIT_S", "20")))
+        except queue.Empty:
+            break
+        if got is None:
+            sys.exit(0)
+        msg = json.loads(got)
+        if msg.get("type") != "control_request":
+            continue
+        request = msg.get("request") or {}
+        rid = msg.get("request_id")
+        if request.get("subtype") == "background_tasks":
+            refused = os.environ.get("FAKE_CLAUDE_BACKGROUND_ERROR")
+            if refused:
+                send({"type": "control_response", "response": {"subtype": "error", "request_id": rid,
+                      "error": refused}})
+                continue
+            if silent:
+                import time
+                if os.environ.get("FAKE_CLAUDE_BACKGROUND_SILENT_END"):
+                    done()
+                    time.sleep(int(silent) / 1000)
+                    move()
+                    return
+                time.sleep(int(silent) / 1000)
+                move()
+                send({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_fg",
+                      "content": "Command was moved to the background with ID: f1"}]}})
+                break
+            if twice:
+                asks.append(rid)
+                if len(asks) < 2:
+                    continue
+                answer(asks[0], True)
+                if twice == "moved":
+                    move()
+                answer(asks[1], False)
+                if twice != "moved":
+                    move()
+                output = os.path.join(os.environ.get("CLAUDE_CONFIG_DIR", "/tmp"), "f1.output")
+                send({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_fg",
+                      "content": "Command running in background with ID: f1. Output is being written to: "
+                                 + output}]}})
+                break
+            moved = request.get("tool_use_id") in (None, "toolu_fg")
+            answer(rid, moved)
+            if moved:
+                move()
+                send({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_fg",
+                      "content": "Command was manually backgrounded by user with ID: f1"}]}})
+                break
+            continue
+        send({"type": "control_response", "response": {"subtype": "success", "request_id": rid, "response": {}}})
+        if request.get("subtype") == "interrupt":
+            stopped = True
+            break
+    if stopped:
+        send({"type": "result", "subtype": "error_during_execution", "is_error": True, "result": None,
+              "num_turns": 1, "duration_api_ms": 5})
+        return
+    done()
+
+
 while True:
     line = AGAIN.pop(0) if AGAIN else LINES.get()
     if line is None:
@@ -263,6 +387,9 @@ while True:
         if os.environ.get("FAKE_CLAUDE_CONTROL_LOG"):
             with open(os.environ["FAKE_CLAUDE_CONTROL_LOG"], "a") as f:
                 f.write(str(request.get("subtype")) + "\n")
+        # Like Claude Code, the next init reports the mode the session was switched to.
+        if request.get("subtype") == "set_permission_mode" and isinstance(request.get("mode"), str):
+            MODE = request["mode"]
         answer = {}
         if request.get("subtype") == "initialize" and SKILLS:
             answer = {"commands": COMMANDS}
@@ -371,6 +498,14 @@ while True:
         if said.strip() == "long-step":
             long_step(msg)
             continue
+        if said.strip() == "fg-shell":
+            fg_shell()
+            continue
+        if said.strip() == "flood":
+            flood()
+            send({"type": "result", "subtype": "success", "result": "flooded", "num_turns": 1,
+                  "duration_api_ms": 5, "usage": {"input_tokens": 1, "output_tokens": 1}})
+            continue
         # "/compact" runs Claude Code 2.1.303's compaction: the compacting status, the
         # boundary, the summary as a synthetic user line, the command's stdout, a result.
         if said.strip() == "/compact":
@@ -388,6 +523,26 @@ while True:
             send({"type": "result", "subtype": "success", "result": "", "num_turns": 0, "duration_api_ms": 0,
                   "local_command": True, "usage": {"input_tokens": 0, "output_tokens": 0}})
             continue
+        # "tool-hold: PATH": the turn says "partial words", then runs a Bash call (stored as a
+        # tool_use with no result yet, as Claude Code does) until PATH exists.
+        if said.startswith("tool-hold: "):
+            import time
+            gate = said[len("tool-hold: "):]
+            send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
+                                                     "delta": {"type": "text_delta", "text": "partial words"}}})
+            use = {"type": "tool_use", "id": "toolu_hold", "name": "Bash", "input": {"command": "sleep 600", "description": "Wait"}}
+            send({"type": "assistant", "message": {"content": [use]}})
+            if STORE and LAYOUT:
+                with open(stored(SESSION), "a") as f:
+                    f.write(json.dumps({"type": "assistant", "sessionId": SESSION, "timestamp": at,
+                                        "message": {"role": "assistant", "content": [use]}}) + "\n")
+            while not os.path.exists(gate):
+                time.sleep(0.02)
+            if STORE and LAYOUT:
+                with open(stored(SESSION), "a") as f:
+                    f.write(json.dumps({"type": "user", "sessionId": SESSION, "timestamp": at, "message": {"role": "user",
+                                        "content": [{"type": "tool_result", "tool_use_id": "toolu_hold", "content": "waited"}]}}) + "\n")
+            send({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_hold", "content": "waited"}]}})
         # "hold: PATH" keeps the turn running until PATH exists.
         if said.startswith("hold: "):
             import time
@@ -406,9 +561,16 @@ while True:
         if said.strip() == "history-probe" and STORE and LAYOUT:
             with open(stored(SESSION)) as f:
                 records = [json.loads(line) for line in f if line.strip()]
+            blocks = [b for r in records for b in (r["message"]["content"] if isinstance(r["message"]["content"], list) else [])
+                      if isinstance(b, dict)]
+            used = [b["id"] for b in blocks if b.get("type") == "tool_use"]
+            answered = {b["tool_use_id"] for b in blocks if b.get("type") == "tool_result"}
             text = json.dumps({"prompts": [r["message"]["content"] for r in records
-                                           if r.get("type") == "user" and r["message"]["content"] != "history-probe"],
-                               "sessions": sorted({r["sessionId"] for r in records})})
+                                           if r.get("type") == "user" and isinstance(r["message"]["content"], str)
+                                           and r["message"]["content"] != "history-probe"],
+                               "sessions": sorted({r["sessionId"] for r in records}),
+                               # Tool calls the conversation holds with no result: Claude's API refuses those.
+                               "unresolved": [i for i in used if i not in answered]})
         documents = [b for b in content if isinstance(b, dict) and b.get("type") == "document"]
         if said.strip() == "document-probe":
             text = json.dumps({
@@ -422,6 +584,10 @@ while True:
                     for b in documents
                 ]
             }, sort_keys=True)
+        # "resource-probe": the text blocks this prompt arrived as, as JSON.
+        if said.startswith("resource-probe"):
+            text = json.dumps({"texts": [b.get("text") for b in content
+                                         if isinstance(b, dict) and b.get("type") == "text"]})
         # "sandbox-probe OUTSIDE PORT": what this process may do, as JSON:
         # write a file at OUTSIDE, connect to 127.0.0.1:PORT, write in its cwd.
         # "keychain-probe": whether this process can retrieve a synthetic
@@ -592,6 +758,22 @@ while True:
                 f.write("done\n")
             send({"type": "system", "subtype": "task_notification", "task_id": "o1", "tool_use_id": "toolu_out",
                   "status": "completed", "output_file": path, "summary": "Server stopped"})
+        # "timing-probe": two model requests, each a message_start and three text deltas (the
+        # reply's own delta below makes the second request's fourth), with a subagent's
+        # message_start and delta between each start and its first delta.
+        if said.strip() == "timing-probe":
+            for req in ("msg_t1", "msg_t2"):
+                send({"type": "stream_event", "event": {"type": "message_start",
+                      "message": {"id": req, "model": "fake"}}})
+                # A background subagent streams between the request's start and its first token.
+                send({"type": "stream_event", "parent_tool_use_id": "toolu_timing_bg", "event": {
+                      "type": "message_start", "message": {"id": req + "_sub", "model": "fake"}}})
+                send({"type": "stream_event", "parent_tool_use_id": "toolu_timing_bg", "event": {
+                      "type": "content_block_delta", "index": 0,
+                      "delta": {"type": "text_delta", "text": req + " subagent "}}})
+                for word in ("one ", "two ", "three "):
+                    send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
+                          "delta": {"type": "text_delta", "text": req + " " + word}}})
         # "todo-probe": the turn writes its todo list with Claude Code's TodoWrite tool.
         if said.strip() == "todo-probe":
             send({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_todo", "name": "TodoWrite",

@@ -4854,7 +4854,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Continue in…"
+            "value": "Continue In…"
           }
         },
         "ja": {
@@ -15727,127 +15727,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud Diagnostics…"
+            "value": "Cloud Diagnostics"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud 診断…"
+            "value": "Cloud 診断"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تشخيصات Cloud…"
+            "value": "تشخيصات Cloud"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Cloud dijagnostika…"
+            "state": "translated",
+            "value": "Cloud dijagnostika"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Cloud-diagnostik…"
+            "state": "translated",
+            "value": "Cloud-diagnostik"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud-Diagnose…"
+            "value": "Cloud-Diagnose"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diagnósticos de Cloud…"
+            "value": "Diagnósticos de Cloud"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diagnostics Cloud…"
+            "value": "Diagnostics Cloud"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Diagnostica Cloud…"
+            "state": "translated",
+            "value": "Diagnostica Cloud"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ការវិនិច្ឆ័យ Cloud…"
+            "state": "translated",
+            "value": "ការវិនិច្ឆ័យ Cloud"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud 진단…"
+            "value": "Cloud 진단"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Cloud-diagnostikk …"
+            "state": "translated",
+            "value": "Cloud-diagnostikk"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Diagnostyka Cloud…"
+            "state": "translated",
+            "value": "Diagnostyka Cloud"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Diagnóstico do Cloud…"
+            "state": "translated",
+            "value": "Diagnóstico do Cloud"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Диагностика Cloud…"
+            "state": "translated",
+            "value": "Диагностика Cloud"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "การวินิจฉัย Cloud…"
+            "state": "translated",
+            "value": "การวินิจฉัย Cloud"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Cloud Tanılama…"
+            "state": "translated",
+            "value": "Cloud Tanılama"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Діагностика Cloud…"
+            "state": "translated",
+            "value": "Діагностика Cloud"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Chẩn đoán Cloud…"
+            "state": "translated",
+            "value": "Chẩn đoán Cloud"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud 诊断…"
+            "value": "Cloud 诊断"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud 診斷…"
+            "value": "Cloud 診斷"
           }
         }
       }
@@ -17734,7 +17734,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Palette de commandes..."
+            "value": "Palette de commandes…"
           }
         },
         "it": {
@@ -17776,13 +17776,13 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Палитра команд..."
+            "value": "Палитра команд…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "แถบคำสั่ง..."
+            "value": "แถบคำสั่ง…"
           }
         },
         "tr": {
@@ -17806,13 +17806,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "命令面板..."
+            "value": "命令面板…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "指令面板..."
+            "value": "指令面板…"
           }
         }
       }
@@ -22712,7 +22712,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rechercher..."
+            "value": "Rechercher…"
           }
         },
         "it": {
@@ -22754,13 +22754,13 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Найти..."
+            "value": "Найти…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ค้นหา..."
+            "value": "ค้นหา…"
           }
         },
         "tr": {
@@ -22784,13 +22784,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "查找..."
+            "value": "查找…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "尋找..."
+            "value": "尋找…"
           }
         }
       }
@@ -25594,7 +25594,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aller à l'espace de travail..."
+            "value": "Aller à l'espace de travail…"
           }
         },
         "it": {
@@ -25636,13 +25636,13 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Перейти к рабочему пространству..."
+            "value": "Перейти к рабочему пространству…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ไปที่เวิร์กสเปซ..."
+            "value": "ไปที่เวิร์กสเปซ…"
           }
         },
         "tr": {
@@ -25666,13 +25666,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "前往工作区..."
+            "value": "前往工作区…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "前往工作區..."
+            "value": "前往工作區…"
           }
         }
       }
@@ -27638,6 +27638,399 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Mở liên kết…"
+          }
+        }
+      }
+    },
+    "action.macScreen.revokeViewer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revoke This Device"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إلغاء وصول هذا الجهاز"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opozovi ovaj uređaj"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilbagekald denne enhed"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieses Gerät sperren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revocar este dispositivo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Révoquer cet appareil"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revoca questo dispositivo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このデバイスを取り消す"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ដកហូតឧបករណ៍នេះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 기기 권한 철회"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilbakekall denne enheten"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odwołaj to urządzenie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revogar Este Dispositivo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отозвать доступ устройства"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เพิกถอนอุปกรณ์นี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Aygıtın Erişimini İptal Et"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відкликати доступ цього пристрою"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thu hồi thiết bị này"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "撤销此设备"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "撤銷此裝置"
+          }
+        }
+      }
+    },
+    "action.macScreen.stopSharing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop Sharing This Mac"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إيقاف مشاركة جهاز Mac هذا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zaustavi dijeljenje ovog Mac računara"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stop deling af denne Mac"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Teilen dieses Mac beenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dejar de compartir este Mac"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arrêter de partager ce Mac"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Interrompi condivisione di questo Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このMacの共有を停止"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បញ្ឈប់ការចែករំលែក Mac នេះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 Mac 공유 중단"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slutt å dele denne Macen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przestań udostępniać tego Maca"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Parar de Compartilhar Este Mac"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Прекратить общий доступ к этому Mac"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หยุดแชร์ Mac เครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu Mac’i Paylaşmayı Durdur"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Припинити спільний доступ до цього Mac"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dừng chia sẻ máy Mac này"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "停止共享这台 Mac"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "停止共享這台 Mac"
+          }
+        }
+      }
+    },
+    "action.macScreen.open": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Mac Screen Tab"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "علامة تبويب جديدة لشاشة Mac"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nova kartica Mac ekrana"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ny Mac-skærm-fane"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Neuer Mac-Bildschirm-Tab"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nueva pestaña de pantalla de Mac"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nouvel onglet Écran Mac"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nuovo pannello Schermo Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新規Macの画面タブ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទាំងអេក្រង់ Mac ថ្មី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "새로운 Mac 화면 탭"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ny Mac-skjerm-fane"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nowa karta ekranu Maca"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nova Aba de Tela do Mac"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Новая вкладка «Экран Mac»"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แถบหน้าจอ Mac ใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yeni Mac Ekranı Sekmesi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нова вкладка «Екран Mac»"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab màn hình Mac mới"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新建 Mac 屏幕标签页"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新增 Mac 螢幕標籤頁"
           }
         }
       }
@@ -32757,7 +33150,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Copy Notification"
+            "value": "Copy Notification Text"
           }
         },
         "ja": {
@@ -35026,7 +35419,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ouvrir un dossier..."
+            "value": "Ouvrir un dossier…"
           }
         },
         "it": {
@@ -35068,13 +35461,13 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Открыть папку..."
+            "value": "Открыть папку…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เปิดโฟลเดอร์..."
+            "value": "เปิดโฟลเดอร์…"
           }
         },
         "tr": {
@@ -35098,13 +35491,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "打开文件夹..."
+            "value": "打开文件夹…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "開啟資料夾..."
+            "value": "開啟資料夾…"
           }
         }
       }
@@ -35288,7 +35681,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Réglages..."
+            "value": "Réglages…"
           }
         },
         "it": {
@@ -35330,13 +35723,13 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Настройки..."
+            "value": "Настройки…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "การตั้งค่า..."
+            "value": "การตั้งค่า…"
           }
         },
         "tr": {
@@ -35360,13 +35753,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "设置..."
+            "value": "设置…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "設定..."
+            "value": "設定…"
           }
         }
       }
@@ -35377,127 +35770,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Team Picker"
+            "value": "Switch Active Team…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "チームを選択"
+            "value": "アクティブなチームを切り替え…"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "منتقي الفريق"
+            "state": "translated",
+            "value": "تبديل الفريق النشط…"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Odabir tima"
+            "state": "translated",
+            "value": "Promijeni aktivni tim…"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Teamvælger"
+            "state": "translated",
+            "value": "Skift aktivt team…"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Team auswählen"
+            "state": "translated",
+            "value": "Aktives Team wechseln…"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Selector de equipo"
+            "state": "translated",
+            "value": "Cambiar equipo activo…"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Sélecteur d’équipe"
+            "state": "translated",
+            "value": "Changer d’équipe active…"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Selettore team"
+            "state": "translated",
+            "value": "Cambia team attivo…"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ជ្រើសក្រុម"
+            "state": "translated",
+            "value": "ប្ដូរក្រុមសកម្ម…"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "팀 선택"
+            "state": "translated",
+            "value": "활성 팀 전환…"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Teamvelger"
+            "state": "translated",
+            "value": "Bytt aktivt team…"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Wybór zespołu"
+            "state": "translated",
+            "value": "Zmień aktywny zespół…"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Seletor de Equipe"
+            "state": "translated",
+            "value": "Trocar equipe ativa…"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Выбор команды"
+            "state": "translated",
+            "value": "Сменить активную команду…"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ตัวเลือกทีม"
+            "state": "translated",
+            "value": "สลับทีมที่ใช้งานอยู่…"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Ekip Seçici"
+            "state": "translated",
+            "value": "Etkin ekibi değiştir…"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Вибір команди"
+            "state": "translated",
+            "value": "Змінити активну команду…"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Chọn nhóm"
+            "state": "translated",
+            "value": "Chuyển nhóm đang dùng…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "团队选择器"
+            "state": "translated",
+            "value": "切换当前团队…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "選擇團隊"
+            "state": "translated",
+            "value": "切換目前團隊…"
           }
         }
       }
@@ -36163,127 +36556,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Clear Browser History"
+            "value": "Clear Browser History…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ブラウザの履歴を消去"
+            "value": "ブラウザの履歴を消去…"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "مسح سجل المتصفح"
+            "value": "مسح سجل المتصفح…"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Obriši historiju preglednika"
+            "value": "Obriši historiju preglednika…"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ryd browserhistorik"
+            "value": "Ryd browserhistorik…"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Browserverlauf löschen"
+            "value": "Browserverlauf löschen…"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Borrar historial del navegador"
+            "value": "Borrar historial del navegador…"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Effacer l'historique du navigateur"
+            "value": "Effacer l'historique du navigateur…"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cancella cronologia browser"
+            "value": "Cancella cronologia browser…"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "សម្អាតប្រវត្តិកម្មវិធីរុករក"
+            "state": "translated",
+            "value": "សម្អាតប្រវត្តិកម្មវិធីរុករក…"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "브라우저 기록 지우기"
+            "value": "브라우저 기록 지우기…"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tøm nettleserhistorikk"
+            "value": "Tøm nettleserhistorikk…"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wyczyść historię przeglądarki"
+            "value": "Wyczyść historię przeglądarki…"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Limpar Histórico do Navegador"
+            "value": "Limpar Histórico do Navegador…"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Очистить историю браузера"
+            "value": "Очистить историю браузера…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ล้างประวัติเบราว์เซอร์"
+            "value": "ล้างประวัติเบราว์เซอร์…"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tarayıcı Geçmişini Temizle"
+            "value": "Tarayıcı Geçmişini Temizle…"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Очистити історію браузера"
+            "value": "Очистити історію браузера…"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Xóa lịch sử trình duyệt"
+            "state": "translated",
+            "value": "Xóa lịch sử trình duyệt…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "清除浏览器历史记录"
+            "value": "清除浏览器历史记录…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "清除瀏覽記錄"
+            "value": "清除瀏覽記錄…"
           }
         }
       }
@@ -36598,7 +36991,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rechercher des mises à jour..."
+            "value": "Rechercher des mises à jour…"
           }
         },
         "it": {
@@ -36640,13 +37033,13 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Проверить обновления..."
+            "value": "Проверить обновления…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ตรวจหาอัปเดต..."
+            "value": "ตรวจหาอัปเดต…"
           }
         },
         "tr": {
@@ -36670,13 +37063,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "检查更新..."
+            "value": "检查更新…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "檢查更新..."
+            "value": "檢查更新…"
           }
         }
       }
@@ -45726,7 +46119,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Swap With Session…"
+            "value": "Swap with Session…"
           }
         },
         "ja": {
@@ -45988,7 +46381,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open Current Directory in…"
+            "value": "Open Current Directory In…"
           }
         },
         "ja": {
@@ -50222,7 +50615,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Renommer l'onglet..."
+            "value": "Renommer l'onglet…"
           }
         },
         "it": {
@@ -50264,13 +50657,13 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Переименовать вкладку..."
+            "value": "Переименовать вкладку…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เปลี่ยนชื่อแท็บ..."
+            "value": "เปลี่ยนชื่อแท็บ…"
           }
         },
         "tr": {
@@ -50294,13 +50687,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "重命名标签页..."
+            "value": "重命名标签页…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "重新命名標籤頁..."
+            "value": "重新命名標籤頁…"
           }
         }
       }
@@ -50353,7 +50746,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Renommer l'espace de travail..."
+            "value": "Renommer l'espace de travail…"
           }
         },
         "it": {
@@ -50395,13 +50788,13 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Переименовать рабочее пространство..."
+            "value": "Переименовать рабочее пространство…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เปลี่ยนชื่อเวิร์กสเปซ..."
+            "value": "เปลี่ยนชื่อเวิร์กสเปซ…"
           }
         },
         "tr": {
@@ -50425,13 +50818,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "重命名工作区..."
+            "value": "重命名工作区…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "重新命名工作區..."
+            "value": "重新命名工作區…"
           }
         }
       }
@@ -62232,7 +62625,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toggle Tab Unread"
+            "value": "Mark Tab Read/Unread"
           }
         },
         "ja": {
@@ -63542,127 +63935,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Close All Workspaces in Group"
+            "value": "Close Workspaces in Group"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "グループ内のすべてのワークスペースを閉じる"
+            "value": "グループ内のワークスペースを閉じる"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "إغلاق كل مساحات العمل في المجموعة"
+            "state": "translated",
+            "value": "إغلاق مساحات العمل في المجموعة"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Zatvori sve radne prostore u grupi"
+            "state": "translated",
+            "value": "Zatvori radne prostore u grupi"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Luk alle arbejdsområder i gruppe"
+            "state": "translated",
+            "value": "Luk arbejdsområder i gruppe"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Alle Arbeitsbereiche der Gruppe schließen"
+            "state": "translated",
+            "value": "Arbeitsbereiche der Gruppe schließen"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Cerrar todos los espacios de trabajo del grupo"
+            "state": "translated",
+            "value": "Cerrar espacios de trabajo del grupo"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Fermer tous les espaces du groupe"
+            "state": "translated",
+            "value": "Fermer les espaces du groupe"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Chiudi tutte le aree di lavoro del gruppo"
+            "state": "translated",
+            "value": "Chiudi le aree di lavoro del gruppo"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "បិទកន្លែងធ្វើការទាំងអស់ក្នុងក្រុម"
+            "state": "translated",
+            "value": "បិទកន្លែងធ្វើការក្នុងក្រុម"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "그룹의 모든 작업 공간 닫기"
+            "state": "translated",
+            "value": "그룹의 작업 공간 닫기"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Lukk alle arbeidsområder i gruppen"
+            "state": "translated",
+            "value": "Lukk arbeidsområder i gruppen"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Zamknij wszystkie przestrzenie w grupie"
+            "state": "translated",
+            "value": "Zamknij przestrzenie w grupie"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Fechar Todas as Áreas de Trabalho do Grupo"
+            "state": "translated",
+            "value": "Fechar Áreas de Trabalho do Grupo"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Закрыть все пространства в группе"
+            "state": "translated",
+            "value": "Закрыть пространства в группе"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ปิดทุกเวิร์กสเปซในกลุ่ม"
+            "state": "translated",
+            "value": "ปิดเวิร์กสเปซในกลุ่ม"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Gruptaki Tüm Çalışma Alanlarını Kapat"
+            "state": "translated",
+            "value": "Gruptaki Çalışma Alanlarını Kapat"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Закрити всі робочі області групи"
+            "state": "translated",
+            "value": "Закрити робочі області групи"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Đóng tất cả không gian làm việc trong nhóm"
+            "state": "translated",
+            "value": "Đóng không gian làm việc trong nhóm"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "关闭组中所有工作区"
+            "state": "translated",
+            "value": "关闭组中的工作区"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "關閉群組中所有工作區"
+            "state": "translated",
+            "value": "關閉群組中的工作區"
           }
         }
       }
@@ -65114,127 +65507,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Edit Group Config…"
+            "value": "Edit Group Config"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "グループ設定を編集…"
+            "value": "グループ設定を編集"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تحرير إعداد المجموعة…"
+            "value": "تحرير إعداد المجموعة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uredi konfiguraciju grupe…"
+            "value": "Uredi konfiguraciju grupe"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rediger gruppekonfiguration…"
+            "value": "Rediger gruppekonfiguration"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gruppen-Konfiguration bearbeiten …"
+            "value": "Gruppen-Konfiguration bearbeiten"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Editar configuración del grupo…"
+            "value": "Editar configuración del grupo"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Modifier la configuration du groupe…"
+            "value": "Modifier la configuration du groupe"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Modifica configurazione gruppo…"
+            "value": "Modifica configurazione gruppo"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Edit Group Config…"
+            "value": "កែសម្រួលការកំណត់ក្រុម"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "그룹 설정 편집…"
+            "value": "그룹 설정 편집"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rediger gruppekonfigurasjon …"
+            "value": "Rediger gruppekonfigurasjon"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Edytuj konfigurację grupy…"
+            "value": "Edytuj konfigurację grupy"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Editar configuração do grupo…"
+            "value": "Editar configuração do grupo"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Изменить конфигурацию группы…"
+            "value": "Изменить конфигурацию группы"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "แก้ไขการตั้งค่ากลุ่ม…"
+            "value": "แก้ไขการตั้งค่ากลุ่ม"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Grup yapılandırmasını düzenle…"
+            "value": "Grup yapılandırmasını düzenle"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Редагувати конфігурацію групи…"
+            "value": "Редагувати конфігурацію групи"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Sửa cấu hình nhóm…"
+            "state": "translated",
+            "value": "Sửa cấu hình nhóm"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "编辑分组配置…"
+            "value": "编辑分组配置"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "編輯群組設定…"
+            "value": "編輯群組設定"
           }
         }
       }
@@ -72581,7 +72974,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Palette: Show or Hide Actions"
+            "value": "Palette: Show/Hide Actions"
           }
         },
         "ja": {
@@ -72593,115 +72986,115 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لوحة الأوامر: إظهار الإجراءات أو إخفاؤها"
+            "value": "لوحة الأوامر: إظهار/إخفاء الإجراءات"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Paleta: prikaži ili sakrij radnje"
+            "value": "Paleta: prikaži/sakrij radnje"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Palet: Vis eller skjul handlinger"
+            "value": "Palet: Vis/skjul handlinger"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Palette: Aktionen ein- oder ausblenden"
+            "value": "Palette: Aktionen ein-/ausblenden"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Paleta: mostrar u ocultar acciones"
+            "value": "Paleta: mostrar/ocultar acciones"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Palette : afficher ou masquer les actions"
+            "value": "Palette : afficher/masquer les actions"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tavolozza: mostra o nascondi azioni"
+            "value": "Tavolozza: mostra/nascondi azioni"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បន្ទះ៖ បង្ហាញ ឬលាក់សកម្មភាព"
+            "value": "បន្ទះ៖ បង្ហាញ/លាក់សកម្មភាព"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "팔레트: 작업 표시 또는 숨기기"
+            "value": "팔레트: 작업 표시/숨기기"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Palett: Vis eller skjul handlinger"
+            "value": "Palett: Vis/skjul handlinger"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Paleta: Pokaż lub ukryj akcje"
+            "value": "Paleta: Pokaż/ukryj akcje"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Paleta: Mostrar ou Ocultar Ações"
+            "value": "Paleta: Mostrar/Ocultar Ações"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Палитра: показать или скрыть действия"
+            "value": "Палитра: показать/скрыть действия"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "แผงคำสั่ง: แสดงหรือซ่อนการทำงาน"
+            "value": "แผงคำสั่ง: แสดง/ซ่อนการทำงาน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Palet: Eylemleri Göster veya Gizle"
+            "value": "Palet: Eylemleri Göster/Gizle"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Палітра: показати або сховати дії"
+            "value": "Палітра: показати/сховати дії"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bảng lệnh: Hiện hoặc ẩn thao tác"
+            "value": "Bảng lệnh: Hiện/ẩn thao tác"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "面板：显示或隐藏操作"
+            "value": "面板：显示/隐藏操作"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "命令面板：顯示或隱藏動作"
+            "value": "命令面板：顯示/隱藏動作"
           }
         }
       }
@@ -73498,7 +73891,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open Site Settings of Blocked Download"
+            "value": "Open Site Settings for Blocked Downloads"
           }
         },
         "ja": {
@@ -87011,7 +87404,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Move Chief to…"
+            "value": "Move Chief To…"
           }
         },
         "ar": {
@@ -87274,127 +87667,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Search Chats & Agents…"
+            "value": "Search Everything…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "チャットとエージェントを検索…"
+            "value": "すべてを検索…"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "البحث في الدردشات والوكلاء…"
+            "value": "البحث في كل شيء…"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pretraži razgovore i agente…"
+            "value": "Pretraži sve…"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Søg i chats og agenter…"
+            "value": "Søg overalt…"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chats und Agenten durchsuchen…"
+            "value": "Alles durchsuchen…"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Buscar en chats y agentes…"
+            "value": "Buscar en todo…"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rechercher dans les discussions et les agents…"
+            "value": "Tout rechercher…"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cerca in chat e agenti…"
+            "value": "Cerca ovunque…"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ស្វែងរកការជជែក និងភ្នាក់ងារ…"
+            "value": "ស្វែងរកគ្រប់យ៉ាង…"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "채팅 및 에이전트 검색…"
+            "value": "모두 검색…"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Søk i chatter og agenter…"
+            "value": "Søk overalt…"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Szukaj w czatach i agentach…"
+            "value": "Szukaj wszędzie…"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pesquisar chats e agentes…"
+            "value": "Pesquisar tudo…"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Искать в чатах и агентах…"
+            "value": "Искать везде…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ค้นหาแชทและเอเจนต์…"
+            "value": "ค้นหาทุกอย่าง…"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sohbetlerde ve ajanlarda ara…"
+            "value": "Her şeyde ara…"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Шукати в чатах і агентах…"
+            "value": "Шукати всюди…"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tìm trong trò chuyện và tác tử…"
+            "value": "Tìm kiếm mọi thứ…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "搜索聊天和智能体…"
+            "value": "搜索全部…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "搜尋聊天與代理程式…"
+            "value": "搜尋全部…"
           }
         }
       }
@@ -88978,6 +89371,2499 @@
           "stringUnit": {
             "state": "translated",
             "value": "新增子群組"
+          }
+        }
+      }
+    },
+    "action.markdownReload": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Markdown: Reload"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Markdown: 再読み込み"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Markdown: إعادة التحميل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Markdown: Ponovo učitaj"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Markdown: Genindlæs"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Markdown: Neu laden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Markdown: Recargar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Markdown : Recharger"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Markdown: Ricarica"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Markdown: ផ្ទុកឡើងវិញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Markdown: 새로고침"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Markdown: Last inn på nytt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Markdown: Odśwież"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Markdown: Recarregar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Markdown: Перезагрузить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Markdown: โหลดใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Markdown: Yeniden Yükle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Markdown: Перезавантажити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Markdown: Tải lại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Markdown：重新加载"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Markdown：重新載入"
+          }
+        }
+      }
+    },
+    "action.agent.openSessionTab": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "فتح جلسة الوكيل في علامة تبويب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otvori sesiju agenta u kartici"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åbn agentsession i fane"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agent-Sitzung in Tab öffnen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Agent Session in Tab"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abrir sesión del agente en una pestaña"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ouvrir la session de l’agent dans un onglet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apri la sessione dell’agente in una scheda"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "エージェントセッションをタブで開く"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បើកវគ្គភ្នាក់ងារក្នុងផ្ទាំង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트 세션을 탭에서 열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åpne agentøkt i fane"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otwórz sesję agenta w karcie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abrir sessão do agente em uma aba"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Открыть сеанс агента во вкладке"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปิดเซสชันเอเจนต์ในแท็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajan oturumunu sekmede aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відкрити сеанс агента у вкладці"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mở phiên tác tử trong thẻ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在标签页中打开智能体会话"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在分頁中開啟智慧體工作階段"
+          }
+        }
+      }
+    },
+    "action.chief.openViews": {
+      "comment": "Command palette: opens the Chief view gallery (experimental views of agents, CI and pull requests beside the Chief)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief View Gallery"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "معرض عروض Chief"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Galerija prikaza Chiefa"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief-visningsgalleri"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief-Ansichtsgalerie"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Galería de vistas del Chief"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Galerie de vues du Chief"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Galleria di viste del Chief"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief ビューギャラリー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "វិចិត្រសាលទិដ្ឋភាព Chief"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 보기 갤러리"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief-visningsgalleri"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Galeria widoków Chiefa"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Galeria de visualizações do Chief"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Галерея представлений Chief"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แกลเลอรีมุมมองของ Chief"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief Görünüm Galerisi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Галерея подань Chief"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thư viện chế độ xem của Chief"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 视图库"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 檢視庫"
+          }
+        }
+      }
+    },
+    "action.home.stopAllAgents": {
+      "comment": "Stop all agents: the Chief's turn and every subagent. Menu item and palette.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إيقاف كل الوكلاء"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zaustavi sve agente"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop alle agenter"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle Agenten stoppen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop All Agents"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detener todos los agentes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arrêter tous les agents"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interrompi tutti gli agenti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのエージェントを停止"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បញ្ឈប់ភ្នាក់ងារទាំងអស់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모든 에이전트 중지"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stopp alle agenter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zatrzymaj wszystkich agentów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parar todos os agentes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Остановить всех агентов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หยุดเอเจนต์ทั้งหมด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tüm ajanları durdur"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Зупинити всіх агентів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dừng tất cả agent"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止所有智能体"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止所有代理"
+          }
+        }
+      }
+    },
+    "action.palette.forkAgentConversationNewWindow": {
+      "comment": "Command palette and right-click: fork the agent conversation into a new window",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تفريع المحادثة إلى نافذة جديدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Račvaj razgovor u novi prozor"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork samtale til nyt vindue"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konversation in neuem Fenster forken"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork Conversation to New Window"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bifurcar conversación en ventana nueva"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dériver la conversation dans une nouvelle fenêtre"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duplica conversazione in nuova finestra"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会話を新規ウインドウにフォーク"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork ការសន្ទនាទៅបង្អួចថ្មី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "대화를 새 창으로 포크"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forgren samtale til nytt vindu"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rozwidl rozmowę do nowego okna"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bifurcar Conversa em Nova Janela"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Форк беседы в новое окно"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork บทสนทนาไปหน้าต่างใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konuşmayı Yeni Pencereye Çatalla"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відгалузити розмову в нове вікно"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork cuộc hội thoại sang cửa sổ mới"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将对话分叉到新窗口"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將對話分叉到新視窗"
+          }
+        }
+      }
+    },
+    "action.agentChat.view": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "View Chat Only"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat nur ansehen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher la conversation uniquement"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عرض المحادثة فقط"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo ver el chat"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "僅檢視聊天"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅查看聊天"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅 보기 전용"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットを表示のみ"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Samo prikaži chat"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis kun chat"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo visualizza chat"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មើលការជជែកតែប៉ុណ្ណោះ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bare vis chat"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tylko wyświetl czat"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apenas ver o chat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Только просмотр чата"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ดูแชทอย่างเดียว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbeti Yalnızca Görüntüle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Лише перегляд чату"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chỉ xem cuộc trò chuyện"
+          }
+        }
+      }
+    },
+    "argument.agentChat.key": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conversation"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المحادثة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャット"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែក"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czat"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чат"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbet"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чат"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuộc trò chuyện"
+          }
+        }
+      }
+    },
+    "action.appearance.glass.lens.toggle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toggle Liquid Glass Lens"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "リキッドグラスのレンズを切り替え"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تبديل عدسة الزجاج السائل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uključi/isključi sočivo tečnog stakla"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slå flydende glas-linse til/fra"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Liquid-Glass-Linse umschalten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Activar o desactivar la lente de cristal líquido"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Activer/désactiver la lentille de verre liquide"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Attiva/disattiva lente in vetro liquido"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បិទ/បើកកញ្ចក់កែវរាវ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "리퀴드 글래스 렌즈 켜기/끄기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slå flytende glass-linse av/på"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przełącz soczewkę płynnego szkła"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alternar Lente de Vidro Líquido"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Переключить линзу жидкого стекла"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สลับเลนส์กระจกเหลว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sıvı Cam Merceğini Aç/Kapat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перемкнути лінзу рідкого скла"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bật/tắt thấu kính kính lỏng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "切换液态玻璃透镜"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "切換液態玻璃透鏡"
+          }
+        }
+      }
+    },
+    "action.chief.toggleMemoryInspector": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief: Toggle Memory Inspector"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief: メモリインスペクタの表示を切り替え"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief: إظهار مفتش الذاكرة أو إخفاؤه"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief: Prikaži ili sakrij inspektor memorije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief: Vis eller skjul hukommelsesinspektør"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief: Speicher-Inspektor ein-/ausblenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief: Mostrar u ocultar el inspector de memoria"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief : Afficher ou masquer l’inspecteur de mémoire"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief: Mostra o nascondi l’ispettore della memoria"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief: បង្ហាញ ឬលាក់កម្មវិធីត្រួតពិនិត្យអង្គចងចាំ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief: 메모리 인스펙터 표시/숨기기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief: Vis eller skjul minneinspektør"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief: Pokaż lub ukryj inspektor pamięci"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief: Mostrar ou ocultar o inspetor de memória"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief: показать или скрыть инспектор памяти"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief: แสดงหรือซ่อนตัวตรวจสอบหน่วยความจำ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief: Bellek Denetçisini Göster/Gizle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief: показати або сховати інспектор пам’яті"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief: Hiện hoặc ẩn trình kiểm tra bộ nhớ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief：显示或隐藏记忆检查器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief：顯示或隱藏記憶檢查器"
+          }
+        }
+      }
+    },
+    "action.fileExplorerNewFile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New File"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規ファイル"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ملف جديد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nova datoteka"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ny fil"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Neue Datei"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nuevo archivo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nouveau fichier"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nuovo file"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ឯកសារថ្មី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "새 파일"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ny fil"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nowy plik"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Novo arquivo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Новый файл"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไฟล์ใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yeni Dosya"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Новий файл"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tệp mới"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新建文件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新增檔案"
+          }
+        }
+      }
+    },
+    "action.fileExplorerNewFolder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Folder"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規フォルダ"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مجلد جديد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nova mapa"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ny mappe"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Neuer Ordner"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nueva carpeta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nouveau dossier"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nuova cartella"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ថតថ្មី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "새로운 폴더"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ny mappe"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nowy folder"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nova pasta"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Новая папка"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โฟลเดอร์ใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yeni Klasör"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нова тека"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thư mục mới"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新建文件夹"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新增檔案夾"
+          }
+        }
+      }
+    },
+    "action.fileExplorerRename": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rename"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名前を変更"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إعادة تسمية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Preimenuj"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Omdøb"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Umbenennen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Renombrar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Renommer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rinomina"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្តូរឈ្មោះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이름 변경"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Endre navn"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zmień nazwę"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Renomear"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Переименовать"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปลี่ยนชื่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yeniden Adlandır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перейменувати"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đổi tên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "重新命名"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "重新命名"
+          }
+        }
+      }
+    },
+    "action.fileExplorerMoveToTrash": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move to Trash"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゴミ箱に入れる"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "نقل إلى سلة المهملات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Premjesti u smeće"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Flyt til papirkurven"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "In den Papierkorb legen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trasladar a la papelera"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Placer dans la corbeille"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sposta nel cestino"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្លាស់ទីទៅធុងសំរាម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "휴지통으로 이동"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Flytt til papirkurven"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przenieś do kosza"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mover para o Lixo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Переместить в Корзину"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ย้ายไปที่ถังขยะ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Çöp Sepetine Taşı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перемістити в Смітник"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chuyển vào Thùng rác"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "移到废纸篓"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "丟到垃圾桶"
+          }
+        }
+      }
+    },
+    "action.cloudSetIdlePause": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pause When Idle…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アイドル時に一時停止…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الإيقاف المؤقت عند الخمول…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pauziraj kad je neaktivna…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sæt på pause ved inaktivitet…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bei Inaktivität pausieren …"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pausar cuando esté inactiva…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mettre en pause en cas d’inactivité…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Metti in pausa se inattiva…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្អាកនៅពេលទំនេរ…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "유휴 시 일시 정지…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sett på pause ved inaktivitet …"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wstrzymuj przy bezczynności…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pausar Quando Ociosa…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Приостанавливать при простое…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หยุดชั่วคราวเมื่อไม่มีการใช้งาน…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Boştayken Duraklat…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Призупиняти під час простою…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tạm dừng khi không hoạt động…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "空闲时暂停…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "閒置時暫停…"
+          }
+        }
+      }
+    },
+    "action.fileExplorerOpenAsText": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open as Text"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テキストとして開く"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فتح كنص"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otvori kao tekst"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åbn som tekst"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Als Text öffnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir como texto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir comme texte"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apri come testo"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បើកជាអត្ថបទ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "텍스트로 열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åpne som tekst"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otwórz jako tekst"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir como Texto"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открыть как текст"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปิดเป็นข้อความ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Metin Olarak Aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відкрити як текст"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mở dưới dạng văn bản"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以文本方式打开"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以文字方式打開"
+          }
+        }
+      }
+    },
+    "action.workspaceGroup.clearColor": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إزالة لون مجموعة مساحات العمل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ukloni boju grupe radnih prostora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fjern farve på arbejdsområdegruppe"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Farbe der Workspace-Gruppe entfernen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove Workspace Group Color"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quitar color del grupo de espacios de trabajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Supprimer la couleur du groupe d’espaces de travail"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rimuovi colore del gruppo di spazi di lavoro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースグループの色を削除"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "លុបពណ៌ក្រុមកន្លែងធ្វើការ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "워크스페이스 그룹 색상 제거"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fjern farge på arbeidsområdegruppe"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usuń kolor grupy obszarów roboczych"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remover cor do grupo de espaços de trabalho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Убрать цвет группы рабочих пространств"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลบสีกลุ่มพื้นที่ทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Çalışma Alanı Grubu Rengini Kaldır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Прибрати колір групи робочих просторів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Xóa màu nhóm không gian làm việc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "移除工作区组颜色"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "移除工作區群組顏色"
+          }
+        }
+      }
+    },
+    "action.workspace.removeAllColors": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إزالة كل ألوان مساحات العمل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ukloni sve boje radnih prostora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fjern alle arbejdsområdefarver"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alle Workspace-Farben entfernen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove All Workspace Colors"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quitar todos los colores de espacios de trabajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Supprimer toutes les couleurs des espaces de travail"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rimuovi tutti i colori degli spazi di lavoro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのワークスペースの色を削除"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "លុបពណ៌កន្លែងធ្វើការទាំងអស់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "모든 워크스페이스 색상 제거"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fjern alle arbeidsområdefarger"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usuń wszystkie kolory obszarów roboczych"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remover todas as cores dos espaços de trabalho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Убрать все цвета рабочих пространств"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลบสีพื้นที่ทำงานทั้งหมด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tüm Çalışma Alanı Renklerini Kaldır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Прибрати всі кольори робочих просторів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Xóa mọi màu không gian làm việc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "移除所有工作区颜色"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "移除所有工作區顏色"
+          }
+        }
+      }
+    },
+    "action.cloudSetupGitHub": {
+      "comment": "Action title: sets the person's git identity and starts a GitHub CLI device-flow sign-in on a cmux Cloud machine.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set Up GitHub on This Machine"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعداد GitHub على هذا الجهاز"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Postavi GitHub na ovoj mašini"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konfigurer GitHub på denne maskine"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub auf dieser Maschine einrichten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configurar GitHub en esta máquina"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configurer GitHub sur cette machine"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configura GitHub su questa macchina"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このマシンで GitHub を設定"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រៀបចំ GitHub នៅលើម៉ាស៊ីននេះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 머신에 GitHub 설정"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sett opp GitHub på denne maskinen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skonfiguruj GitHub na tej maszynie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configurar o GitHub nesta máquina"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Настроить GitHub на этой машине"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตั้งค่า GitHub บนเครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Makinede GitHub'ı Kur"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Налаштувати GitHub на цій машині"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thiết lập GitHub trên máy này"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此机器上设置 GitHub"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此機器上設定 GitHub"
+          }
+        }
+      }
+    },
+    "action.cloudListMachines": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "List Cloud Machines"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عرض الأجهزة السحابية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži Cloud mašine"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis Cloud-maskiner"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-Maschinen auflisten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Listar máquinas en la nube"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lister les machines Cloud"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elenca macchine Cloud"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud マシンを一覧表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បញ្ជីម៉ាស៊ីន Cloud"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 머신 목록"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis Cloud-maskiner"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wyświetl maszyny Cloud"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Listar máquinas na nuvem"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Список облачных машин"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงรายการเครื่อง Cloud"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud makinelerini listele"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Список хмарних машин"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Liệt kê máy Cloud"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "列出云端机器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "列出雲端機器"
           }
         }
       }

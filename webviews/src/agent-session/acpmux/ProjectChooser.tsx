@@ -6,10 +6,12 @@ import { AddProjectDialog } from "./AddProjectPanel";
 import type { ProjectDirectoryHost } from "./projectDirectory";
 import { ProjectBadge } from "./ProjectBadge";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
+import type { ProjectRepo } from "./projectRepos";
 
 /// A folder to start a chat in. `peer` (with its display name `host`) is another machine's folder:
-/// its row carries a globe and the machine's name, and a pick starts the chat there.
-export type Project = { cwd: string; label: string; peer?: string; host?: string };
+/// its row carries a globe and the machine's name, and a pick starts the chat there. `repo` is the
+/// folder's repository as this Mac's host read it (projectRepos.ts).
+export type Project = { cwd: string; label: string; peer?: string; host?: string; repo?: ProjectRepo };
 
 /// One row of the chooser: a project, or Do not work in a project (`project` undefined).
 type Row = { key: string; project?: Project };

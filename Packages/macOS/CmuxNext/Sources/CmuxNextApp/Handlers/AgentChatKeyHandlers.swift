@@ -10,16 +10,36 @@ enum AgentChatKeyHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind("agentPane.copyLastCodeBlock", run: { invocation in
             guard let view = chatView(context, invocation, refusal: MiscHandlerStrings.copyCodeNeedsAgentChat) else { return }
-            Task {
+            let registry = context.registry
+            let interactive = !registry.isCapturingRefusal
+            let services = context.services
+            let work: ActionWork = Task {
                 let script = "return window.cmuxAcpmuxBridge?.lastCodeBlock?.() ?? null;"
-                guard let code = try? await view.webView.callAsyncJavaScript(script, arguments: [:], contentWorld: .page) as? String else { return }
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(code, forType: .string)
+                let reason: String
+                do {
+                    let answer = try await view.callPageScript(script)
+                    if let code = answer as? String, !code.isEmpty {
+                        NSPasteboard.general.clearContents()
+                        if NSPasteboard.general.setString(code, forType: .string) { return nil }
+                        reason = MiscHandlerStrings.copyCodeFailed
+                    } else {
+                        reason = MiscHandlerStrings.noCodeBlock
+                    }
+                } catch {
+                    reason = MiscHandlerStrings.copyCodeFailed
+                }
+                // A key press or menu run sees why; a caller (palette, CLI) gets the reason.
+                if interactive { services.refusalHUD.show(reason, in: view.window ?? services.windows.active?.window) }
+                return ActionWorkFailure(refusal: .unavailable, reason: reason)
             }
+            registry.track(work)
         })
-        registry.bind("agentPane.archiveChat", run: { invocation in
-            chatView(context, invocation, refusal: MiscHandlerStrings.archiveChatNeedsAgentChat)?.archiveChat()
-        })
+        // A Priority row's chat (`agent-chat:`) archives from the row, while the Priority view is on;
+        // else the focused chat's Archive, whatever the view's setting.
+        SidebarPriorityRowActions(chats: .app, unavailable: SidebarPriorityRowActions.viewOff(context))
+            .bindArchive(into: registry) { invocation in
+                chatView(context, invocation, refusal: MiscHandlerStrings.archiveChatNeedsAgentChat)?.archiveChat()
+            }
     }
 
     private static func chatView(_ context: AppActionContext, _ invocation: ActionInvocation, refusal: String) -> AgentPaneView? {

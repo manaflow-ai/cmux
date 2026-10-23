@@ -98,11 +98,14 @@ nonisolated public struct ReleaseNotesIndexEntry: Codable, Equatable, Sendable {
     public var shortVersion: String
     public var date: String
     public var highlights: Int
+    /// The commit the build was cut from (`head`; older indexes lack it).
+    public var head: String?
 
-    public init(build: String, shortVersion: String, date: String, highlights: Int) {
+    public init(build: String, shortVersion: String, date: String, highlights: Int, head: String? = nil) {
         self.build = build
         self.shortVersion = shortVersion
         self.date = date
         self.highlights = highlights
+        self.head = head
     }
 }

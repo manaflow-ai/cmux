@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileArtifacts
 import CmuxMobileDesign
 import GhosttyNextKit
 import SwiftUI
@@ -99,6 +100,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// Selection in a full-screen app (vim, htop): a long press always selects,
     /// like Shift-drag on the Mac when the app captures the mouse (G-14).
     let tuiSelection = TerminalSelectionController()
+    /// A vertical drag in a full-screen app scrolls the app (T-SCROLL-12).
+    private let tuiScroll = TerminalTUIScrollController()
+    /// A tap in a full-screen app: a click when the app asked for the mouse,
+    /// and it focuses the terminal (not a tap that stops a fling).
+    private lazy var tuiTap = UITapGestureRecognizer(target: self, action: #selector(tuiTapped(_:)))
     private var documentRows: Int { document?.rowCount ?? 0 }
     /// First absolute row of the document (content y 0).
     private var originRow: Int { document?.originRow ?? 0 }
@@ -497,9 +503,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
         let tap = UITapGestureRecognizer(target: self, action: #selector(terminalTapped))
         scrollView.addGestureRecognizer(tap)
-        let tuiTap = UITapGestureRecognizer(target: self, action: #selector(terminalTapped))
         tuiClip.addGestureRecognizer(tuiTap)
         installSelection()
+        installTUIScroll()
 
         surface.configurePasteControlTarget()
         surface.onInput = { [weak self] data in
@@ -798,6 +804,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
         artifactsHost = host
         present(host, animated: true)
+    }
+
+    /// A composer attachment's full-screen preview (UIKit, as Files and Artifacts is).
+    func presentFilePreview(_ request: FilePreviewRequest) {
+        guard presentedViewController == nil else { return }
+        request.present(from: self)
     }
 
     func dismissArtifacts() {
@@ -1884,8 +1896,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             scrollButtonVisibility = JumpToBottomVisibility()
             setScrollButton(visible: false)
         } else {
-            // The app's screen is gone: its selection goes with it.
+            // The app's screen is gone: its selection and fling go with it.
             tuiSelection.clear()
+            tuiScroll.stopMomentum()
             tuiSizing.tuiEnded()
             scrollView.isScrollEnabled = true
             scrollView.topEdgeEffect.style = .soft
@@ -1956,7 +1969,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         if !settingOffset { scroll.scrolled(offsetY: scrollView.contentOffset.y, bottomOffsetY: maxOffsetY) }
         // A fling that reaches the bottom follows from there: while output
         // streams the deceleration would otherwise run on against a growing
-        // end and leave the page short of it.
+        // end and leave the page short of it. The fling keeps its rubber
+        // band past the end (it used to be stopped dead here, so a fling into
+        // the bottom had no bounce while a drag past it did): UIKit owns the
+        // page until the deceleration ends (applyScroll leaves it alone),
+        // then the end of the deceleration places the page at the end.
         // Only a fling moving toward newer rows reaches the bottom; a prune
         // shrinking the document under it does not (V5-2: logged in the same
         // millisecond as a prune, a fling up from the live bottom snapped
@@ -1965,17 +1982,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         lastDidScrollY = scrollView.contentOffset.y
         if !settingOffset, !contentShrinking, movingDown, scroll.isInteracting, !scrollView.isTracking, scrollView.isDecelerating,
            scrollView.contentOffset.y >= maxOffsetY - 0.5 {
-            settingOffset = true
-            scrollView.setContentOffset(scrollView.contentOffset, animated: false)
-            settingOffset = false
             #if DEBUG
-            sizingLog.notice("scroll: a fling reached the bottom -> following")
+            sizingLog.notice("scroll: a fling reached the bottom -> following (bounce kept)")
             #endif
-            scroll.jumpToBottom()
-            #if DEBUG
-            scrollMeter = ScrollMeter()
-            #endif
-            DispatchQueue.main.async { [weak self] in self?.applyScroll() }
+            scroll.flingReachedBottom()
         }
         // The rubber band past the top of a short scrollback is not a scroll
         // away from the prompt (verify/jump-button.md).
@@ -2115,6 +2125,14 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     // MARK: Keyboard
 
+    @objc private func tuiTapped(_ tap: UITapGestureRecognizer) {
+        // A tap that ends a selection only ends it, as in the shell.
+        if selection.selection == nil, tuiSelection.selection == nil, model.isTUI, surface.superview === tuiHost {
+            surface.click(at: tap.location(in: surface))
+        }
+        terminalTapped()
+    }
+
     @objc private func terminalTapped() {
         // A tap outside the menu ends a selection, like iOS text.
         if selection.selection != nil || tuiSelection.selection != nil {
@@ -2229,6 +2247,22 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
         tuiSelection.text = { [weak self] start, end in self?.surface.viewportText(from: start, to: end) }
         tuiSelection.install(in: tuiHost)
+    }
+
+    /// The alternate screen's drag: the app scrolls, the page stays pinned.
+    private func installTUIScroll() {
+        tuiScroll.isEnabled = { [weak self] in
+            guard let self else { return false }
+            return model.isTUI && surface.superview === tuiHost
+        }
+        tuiScroll.selectionOwns = { [weak self] touch in
+            guard let self else { return false }
+            if tuiSelection.isPressing { return true }
+            return touch.map { tuiSelection.ownsTouch($0) } ?? false
+        }
+        // The rows move under a selection: it would point at other text.
+        tuiScroll.dragBegan = { [weak self] in self?.tuiSelection.clear() }
+        tuiScroll.install(in: tuiClip, surface: surface, tap: tuiTap)
     }
 
     /// While a long press selects, the page does not scroll under the finger.

@@ -253,7 +253,7 @@ pub const TURN_DENIED_TOOLS: [&str; 25] = [
 /// EXCLUDED). Every other cmux MCP tool is denied in the turn's settings
 /// and stays reachable through the `cmux` CLI on its own host. Names:
 /// `agents_*` and `render` (cmux mcp agent tools).
-pub const CHIEF_CMUX_TOOLS: [&str; 11] = [
+pub const CHIEF_CMUX_TOOLS: [&str; 13] = [
     "agents_snapshot",
     "agents_workspace_create",
     "agents_workspace_select",
@@ -265,6 +265,8 @@ pub const CHIEF_CMUX_TOOLS: [&str; 11] = [
     "agents_events",
     "agents_wait",
     "render",
+    "agents_terminal_list",
+    "agents_terminal_send",
 ];
 
 /// The turn presets' env that keeps only acpmux's `cmux` MCP server

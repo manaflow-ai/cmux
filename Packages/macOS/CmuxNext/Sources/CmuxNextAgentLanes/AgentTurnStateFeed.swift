@@ -16,6 +16,17 @@ public final class AgentTurnStateFeed {
     public static var shared: AgentTurnStateFeed?
     /// Each drain's line count and main-actor time (the App's `debug.timings`, cx-9c8m.6).
     public static var drained: ((Int, Duration) -> Void)?
+    /// A session the app's own acpmux deleted (``deletesSession(_:)``): the app deletes what it
+    /// kept for it (its chat uploads).
+    public static var purged: ((String) -> Void)?
+
+    /// Whether a `_acpmux/session_changed`'s params say this acpmux deleted one of its own chats:
+    /// `purged`, but not a peer's or the Cloud VM's row (`peer`: that daemon's copy left, as every
+    /// chat's does when a Cloud lease ends, under the chat's own id) and not the closed copy Bring
+    /// Back replaces under the same id (`replaced`). Those chats still exist.
+    public nonisolated static func deletesSession(_ params: [String: Any]) -> Bool {
+        params["kind"] as? String == "purged" && params["peer"] == nil && params["replaced"] as? Bool != true
+    }
 
     private let socket: String
     private let turns: AgentTurnStateStore
@@ -110,11 +121,14 @@ public final class AgentTurnStateFeed {
     nonisolated enum Message: Sendable {
         /// The watch result: every session's state, last message and the muted sessions.
         case page(AgentTurnStates, lastMessages: [String: String], muted: Set<String>, titles: [String: String],
-                  generatedTitles: [String: String], details: [String: AgentChatDetail], lanes: [String: AgentActivityLane])
+                  generatedTitles: [String: String], details: [String: AgentChatDetail], lanes: [String: AgentActivityLane],
+                  startedBy: [String: String])
         /// One `_acpmux/session_changed`: the session's new state (nil: none, or purged), last
-        /// message and mute.
+        /// message and mute, the session that started it (nil for a root, or purged), and whether this
+        /// acpmux deleted it (``deletesSession(_:)``).
         case change(session: String, state: AgentTurnState?, lastMessage: String?, muted: Bool, title: String?,
-                    generatedTitle: String?, detail: AgentChatDetail?, lane: AgentActivityLane?)
+                    generatedTitle: String?, detail: AgentChatDetail?, lane: AgentActivityLane?, startedBy: String?,
+                    deleted: Bool = false)
 
         init?(line: Data) {
             guard let message = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { return nil }
@@ -123,14 +137,18 @@ public final class AgentTurnStateFeed {
                 states.reset(result)
                 self = .page(states, lastMessages: AgentTurnStates.lastMessages(result), muted: AgentTurnStates.muted(result: result),
                              titles: AgentTurnStates.titles(result), generatedTitles: AgentTurnStates.titles(result, includingPrompt: false),
-                             details: AgentChatDetail.details(result), lanes: Self.lanes(result))
+                             details: AgentChatDetail.details(result), lanes: Self.lanes(result),
+                             startedBy: AgentTurnStateStore.startedBy(result))
             } else if message["method"] as? String == "_acpmux/session_changed", let params = message["params"] as? [String: Any],
                       let change = AgentTurnStates.change(params) {
-                let summary = params["kind"] as? String == "purged" ? nil : params["session"] as? [String: Any]
+                let purged = params["kind"] as? String == "purged"
+                let summary = purged ? nil : params["session"] as? [String: Any]
                 self = .change(session: change.session, state: change.state, lastMessage: change.lastMessage, muted: change.muted,
                                title: change.title, generatedTitle: change.generatedTitle,
                                detail: (params["session"] as? [String: Any]).flatMap(AgentChatDetail.of(summary:)),
-                               lane: summary.flatMap { AgentActivityLane.of(summary: $0, id: change.session) })
+                               lane: summary.flatMap { AgentActivityLane.of(summary: $0, id: change.session) },
+                               startedBy: summary.flatMap(AgentTurnStateStore.startedBy(summary:)),
+                               deleted: AgentTurnStateFeed.deletesSession(params))
             } else {
                 return nil
             }
@@ -148,19 +166,23 @@ public final class AgentTurnStateFeed {
 
     private func handle(_ message: Message) {
         switch message {
-        case .page(let states, let lastMessages, let muted, let titles, let generatedTitles, let details, let lanes):
+        case .page(let states, let lastMessages, let muted, let titles, let generatedTitles, let details, let lanes, let startedBy):
             backoff.reset()
             if !isMirror, !turns.watching { turns.watching = true }
             turns.replace(states: states, lastMessages: lastMessages, muted: muted, titles: titles,
                           generatedTitles: generatedTitles, details: details, source: source)
+            turns.replaceStartedBy(startedBy, source: source)
             if self.lanes.lanes != lanes { self.lanes.lanes = lanes }
             if !self.lanes.live { self.lanes.live = true }
-        case .change(let session, let state, let lastMessage, let muted, let title, let generatedTitle, let detail, let lane):
+        case .change(let session, let state, let lastMessage, let muted, let title, let generatedTitle, let detail, let lane,
+                     let startedBy, let deleted):
             // Most session records leave the indicator as it was: the store writes (and so
             // redraws the tabs and rows that read this session) only what differs.
             turns.apply(session: session, state: state, lastMessage: lastMessage, muted: muted, title: title,
                         generatedTitle: generatedTitle, detail: detail, source: source)
+            turns.setStartedBy(startedBy, session: session, source: source)
             if lanes.lanes[session] != lane { lanes.lanes[session] = lane }
+            if deleted, !isMirror { Self.purged?(session) }
         }
     }
 

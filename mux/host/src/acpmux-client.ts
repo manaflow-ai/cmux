@@ -147,10 +147,24 @@ export class AcpmuxClient {
     return this.request("_acpmux/attach", { sessionId, afterSeq, limit });
   }
 
-  events(sessionId: string, afterSeq = 0, limit = 1_000_000): Promise<AcpmuxEvent[]> {
-    return this.request<{ events: AcpmuxEvent[] }>("_acpmux/events", { sessionId, afterSeq, limit }).then(
-      (r) => r.events,
-    );
+  /** Up to `limit` events after `afterSeq`, oldest first. A page ends at the daemon's byte
+   * limit (1 MiB by default) with `hasMore`, so this reads page after page. */
+  async events(sessionId: string, afterSeq = 0, limit = 1_000_000): Promise<AcpmuxEvent[]> {
+    const all: AcpmuxEvent[] = [];
+    let cursor = afterSeq;
+    while (all.length < limit) {
+      const page = await this.request<{ events: AcpmuxEvent[]; hasMore?: boolean }>("_acpmux/events", {
+        sessionId,
+        afterSeq: cursor,
+        limit: limit - all.length,
+      });
+      all.push(...page.events);
+      const last = page.events.at(-1)?.seq;
+      // A page that does not move the cursor would repeat forever.
+      if (!page.hasMore || typeof last !== "number" || last <= cursor) break;
+      cursor = last;
+    }
+    return all;
   }
 
   info(sessionId: string): Promise<SessionSummary & { pending?: { permissionId: string; request: Record<string, unknown> }[] }> {

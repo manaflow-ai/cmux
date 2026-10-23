@@ -76,12 +76,17 @@ extension ActionContext {
 
     /// Context facts an invocation's explicit target stands in for: a
     /// `machine:` target is the Cloud workspace a focus-scoped machine
-    /// action would otherwise need focused.
+    /// action would otherwise need focused, and an `agent-chat:` target the
+    /// focused agent chat (Archive Chat on a Priority row).
     public static func implied(by invocation: ActionInvocation) -> ActionContext {
         implied(byTargetKind: invocation.target?.kind)
     }
 
     public nonisolated static func implied(byTargetKind kind: ActionTargetKind?) -> ActionContext {
-        kind == .machine ? .cloudWorkspace : []
+        switch kind {
+        case .machine: .cloudWorkspace
+        case .agentChat: .agentPaneFocused
+        default: []
+        }
     }
 }

@@ -2,30 +2,34 @@ import AppKit
 import CmuxNextActions
 import CmuxNextPalette
 import CmuxNextCompat
+import CmuxNextFilesUI
 
 /// The matches of one Find in Directory search as a palette page: one row
 /// per matching line, filtered by the palette's matcher on the line, the
-/// file path and the line number.
+/// file path and the line number. A row opens its file in cmux at the matching line and column
+/// (the Find section's open, ``FindSectionModel/open(_:effects:)``), else in its default app.
 @MainActor
 enum FindInDirectoryPage {
     /// What Insert Path sends text to: the terminal the search ran from.
     typealias Insert = @MainActor (String) -> Void
 
-    static func page(query: String, root: String, rg: URL, insert: @escaping Insert) -> PalettePageSpec {
+    static func page(query: String, root: String, rg: URL, effects: any FileExplorerEffects,
+                     insert: @escaping Insert) -> PalettePageSpec {
         let provider = AsyncPaletteProvider(id: "findInDirectory.results") {
-            items(for: await RipgrepSearch.run(rg, query: query, root: root), insert: insert)
+            items(for: await RipgrepSearch.run(rg, query: query, root: root), effects: effects, insert: insert)
         }
         return PalettePageSpec(id: "findInDirectory.results", title: query,
                                placeholder: (root as NSString).abbreviatingWithTildeInPath,
                                symbol: "folder.badge.magnifyingglass", providers: [provider])
     }
 
-    static func items(for outcome: RipgrepSearch.Outcome, insert: @escaping Insert) -> [PaletteItem] {
+    static func items(for outcome: RipgrepSearch.Outcome, effects: any FileExplorerEffects,
+                      insert: @escaping Insert) -> [PaletteItem] {
         switch outcome {
         case .failed(let status):
             return [notice(FindInDirectoryStrings.ripgrepExited(status))]
         case .matches(let matches, let limited):
-            let rows = matches.map { item(for: $0, insert: insert) }
+            let rows = matches.map { item(for: $0, effects: effects, insert: insert) }
             return limited ? rows + [notice(FindInDirectoryStrings.limited(RipgrepSearch.limit))] : rows
         }
     }
@@ -35,10 +39,12 @@ enum FindInDirectoryPage {
             PaletteCommand(id: "none", title: text, effect: .performKeepingOpen {}), rankBias: -1_000)
     }
 
-    private static func item(for match: RipgrepMatch, insert: @escaping Insert) -> PaletteItem {
+    private static func item(for match: RipgrepMatch, effects: any FileExplorerEffects, insert: @escaping Insert) -> PaletteItem {
         let url = URL(fileURLWithPath: match.path)
         let location = "\(match.relativePath):\(match.line)"
         let secondary = [
+            PaletteCommand(id: "openInDefaultApp", title: FindInDirectoryStrings.open, symbol: "arrow.up.forward.app",
+                           effect: .perform { effects.openInDefaultApp(url) }),
             PaletteCommand(id: "reveal", title: FindInDirectoryStrings.revealInFinder, symbol: "folder",
                            effect: .perform { NSWorkspace.shared.revealInBackground([url]) }),
             PaletteCommand(id: "copyPath", title: FindInDirectoryStrings.copyPath, symbol: "doc.on.doc",
@@ -51,8 +57,8 @@ enum FindInDirectoryPage {
         return PaletteItem(
             id: "\(match.path):\(match.line):\(match.column)", title: match.preview, subtitle: location,
             symbol: "doc.text", keywords: [location],
-            primary: PaletteCommand(id: "open", title: FindInDirectoryStrings.open, symbol: "return",
-                                    effect: .perform { NSWorkspace.shared.openInBackground(url) }),
+            primary: PaletteCommand(id: "open", title: FindInDirectoryStrings.openInCmux, symbol: "return",
+                                    effect: .perform { FindSectionModel.open(match, effects: effects) }),
             secondary: secondary)
     }
 
@@ -68,6 +74,7 @@ enum FindInDirectoryStrings {
     }
 
     static var open: String { text("findInDirectory.open", "Open in Default Editor") }
+    static var openInCmux: String { text("findInDirectory.openInCmux", "Open in cmux") }
     static var revealInFinder: String { text("findInDirectory.revealInFinder", "Reveal in Finder") }
     static var copyPath: String { text("findInDirectory.copyPath", "Copy Path") }
     static var copyRelativePath: String { text("findInDirectory.copyRelativePath", "Copy Relative Path") }

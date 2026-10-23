@@ -15,7 +15,7 @@ extension SidebarViewComponents {
         for (scroll, region) in [(aboveScroll, aboveRegion), (belowScroll, belowRegion)] {
             scroll.drawsBackground = false
             scroll.hasVerticalScroller = true
-            SystemScrollers.follow(scroll)
+            SystemScrollers.followThin(scroll)
             scroll.automaticallyAdjustsContentInsets = false
             scroll.contentView.drawsBackground = false
             scroll.verticalScrollElasticity = .none
@@ -42,9 +42,9 @@ extension SidebarViewComponents {
             region.appView = { [weak self] section in section.contribution.flatMap { self?.appSections?.makeView(for: $0) } }
         }
         SidebarPinDrops.install(self)
-        // The footer row (the profile control and the spaces dots) takes no
-        // drag and drop for now (SIDEBAR-FOOTER-AND-SPACE-MENU amendment 3).
-        // The band below keeps the same rule it had while it held the footer.
+        // The footer row's items (the profile control) do not drag; its space
+        // dots reorder by their own drag, dropped on the footer band
+        // (`ProfileBarView+DotDrag`). The band below keeps the rule it had while it held the footer.
         footerRegion.allowsDrag = false
         footerRegion.emptySpaceTarget = .footer
         belowRegion.allowsDrag = false
@@ -64,6 +64,9 @@ extension SidebarViewComponents {
             self?.model.send(.activateItem(id, opensWorkspace: flags.contains(.option)))
         }
         region.onToggleSection = { [weak self] id in self?.model.send(.toggleLayoutSection(id)) }
+        // Edit mode's ✕: the menu's Remove (one undo step, the document's own op).
+        region.onRemoveItem = { [weak self] id in self?.model.send(.layout(.itemRemove(id))) }
+        region.isEditing = isEditingItems && region !== footerRegion
     }
 
     /// Gives the three regions their sections: the band above the list,
@@ -83,25 +86,37 @@ extension SidebarViewComponents {
         let shownBelow = below.presenting(hidingItems: hidden, apps: apps)
         let isFooter = { (section: LayoutSection) in section.id == SidebarLayoutDocument.bottomSectionID }
         let look = SidebarSectionTunables.currentLook
-        let metrics = SidebarRegionMetrics.standard
+        // The footer keeps the full row (its avatar and search); the bands' rows follow Minimal Mode like the list's.
+        let footerBase = SidebarRegionMetrics.standard
+        let metrics = SidebarRegionMetrics.standard(minimal: design.sidebarSections.minimal)
         // The selection is not content: `showActiveTopItem` marks its item active (its glyph, accessibility).
         var selectedInfos = model.resolvedItemInfo
         for transient in model.transientTopItems { selectedInfos[transient.item.id] = transient.info }
-        func content(_ sections: [LayoutSection]) -> SidebarRegionView.Content {
+        func content(_ sections: [LayoutSection], metrics shown: SidebarRegionMetrics? = nil) -> SidebarRegionView.Content {
             SidebarRegionView.Content(sections: sections.map(titled), infos: selectedInfos, collapsed: model.collapsedLayoutSections,
-                                      look: look, metrics: metrics, drawsLines: Borders.drawsLines, appHeights: appHeights(sections, width: width),
+                                      look: look, metrics: shown ?? metrics, drawsLines: Borders.drawsLines, appHeights: appHeights(sections, width: width),
                                       fontSize: SidebarStyle.titleFont.pointSize)
         }
         if model.docDrag != nil {
             // The sidebar document (one renderer): its sections draw in the list, in document order; the band
-            // above keeps only the client's own item (What's New).
-            let docSections = above.presenting(hidingItems: hidden, apps: apps).map(titled)
+            // above keeps only the client's items with nothing to follow. One anchored after an item the
+            // document shows (Channels after Home) draws right after it in its block.
+            let docSections = model.placingTransientItems(in: above.presenting(hidingItems: hidden, apps: apps), anchoredOnly: true).map(titled)
             // Only the blocks' own items' infos: another item's change does not reload the list.
             let shownIDs = Set(docSections.flatMap(\.items).map(\.id))
+            // A block's rows end where the list's other rows do, short of the inset (`rowTrailingTrim`).
+            var listMetrics = metrics
+            listMetrics.trailingTrim = SidebarStyle.rowTrailingTrim
             let blocks = SidebarListBlocks(sections: Dictionary(docSections.map { ($0.id.rawValue, $0) }, uniquingKeysWith: { first, _ in first }),
-                                           infos: selectedInfos.filter { shownIDs.contains($0.key) }, collapsed: model.collapsedLayoutSections, look: look, metrics: metrics,
+                                           infos: selectedInfos.filter { shownIDs.contains($0.key) }, collapsed: model.collapsedLayoutSections, look: look,
+                                           metrics: listMetrics,
                                            drawsLines: Borders.drawsLines, appHeights: appHeights(docSections, width: width))
-            aboveRegion.update(content(model.placingTransientItems(in: [])), width: width)
+            let loose = model.placingTransientItems(in: []).map { section in
+                var section = section
+                section.items.removeAll { shownIDs.contains($0.id) }
+                return section
+            }
+            aboveRegion.update(content(loose.filter { !$0.items.isEmpty }), width: width)
             if list.blocks != blocks {
                 list.blocks = blocks
                 // The document changed under the list (an item added, a section an agent filled): calm, not under the pointer.
@@ -119,7 +134,10 @@ extension SidebarViewComponents {
         // its sections there (no user data is removed); they just do not draw.
         belowRegion.update(content([]), width: width)
         let footer = shownBelow.filter(isFooter)
-        footerRegion.update(content(footer), width: width)
+        // The footer line ends on the bottom margin, not on the section's padding over it.
+        var footerMetrics = footerBase
+        footerMetrics.bottomPadding = footerBand.footerBottomPadding(rowHeight: footerBase.rowHeight)
+        footerRegion.update(content(footer, metrics: footerMetrics), width: width)
         releaseAppSections(shown: shownAbove + footer)
     }
 

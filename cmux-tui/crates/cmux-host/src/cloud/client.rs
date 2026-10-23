@@ -1,6 +1,7 @@
 //! Bind and the authenticated API client, over two small traits so tests
 //! use a fake server and a memory store.
 
+use crate::json::JsonField;
 use std::collections::HashMap;
 
 use cmux_server_core::install_key::{InstallKey, SystemRandom};
@@ -64,8 +65,8 @@ pub fn ensure_install_key(
 ) -> Result<LoadedKey, String> {
     if let Some(saved) = store.read(INSTALL_KEY_FILE) {
         let parsed: Value = serde_json::from_str(&saved).unwrap_or(Value::Null);
-        if parsed["instance_id"] == instance_id
-            && let Some(text) = parsed["pkcs8"].as_str()
+        if *parsed.field("instance_id") == instance_id
+            && let Some(text) = parsed.field("pkcs8").as_str()
             && let Ok(key) = InstallKey::from_pkcs8_base64url(text, rng)
         {
             return Ok(LoadedKey { key, rotated: false });
@@ -86,8 +87,8 @@ pub fn ensure_wg_key(
 ) -> Result<String, String> {
     if let Some(saved) = store.read(WG_KEY_FILE) {
         let parsed: Value = serde_json::from_str(&saved).unwrap_or(Value::Null);
-        if parsed["instance_id"] == instance_id
-            && let Some(public) = parsed["public_key"].as_str()
+        if *parsed.field("instance_id") == instance_id
+            && let Some(public) = parsed.field("public_key").as_str()
         {
             return Ok(public.to_owned());
         }
@@ -157,24 +158,28 @@ pub fn bind_machine(
     if status >= 500 || status == 429 {
         return BindResult::Retry(format!("HTTP {status}"));
     }
-    let value = &answer["value"];
-    if status != 200 || answer["ok"] != true || !value.is_object() {
+    let value = answer.field("value");
+    if status != 200 || *answer.field("ok") != true || !value.is_object() {
         store.remove(BIND_FILE);
-        let code = answer["error"]["code"].as_str().map_or(format!("http.{status}"), str::to_owned);
+        let code = answer
+            .field("error")
+            .field("code")
+            .as_str()
+            .map_or(format!("http.{status}"), str::to_owned);
         return BindResult::Refused(code);
     }
     let text = |v: &Value| v.as_str().unwrap_or("").to_owned();
     let bound = Bound {
-        machine: text(&value["machine"]),
+        machine: text(value.field("machine")),
         team: file.team,
-        host: text(&value["host"]),
-        epoch: value["epoch"].as_u64().unwrap_or(0),
-        install: text(&value["install"]["id"]),
-        user: text(&value["install"]["user"]),
-        grant: text(&value["install"]["grant"]),
+        host: text(value.field("host")),
+        epoch: value.field("epoch").as_u64().unwrap_or(0),
+        install: text(value.field("install").field("id")),
+        user: text(value.field("install").field("user")),
+        grant: text(value.field("install").field("grant")),
         env: file.env,
         api_origin: file.api_origin,
-        keyset: value["keyset"].clone(),
+        keyset: value.field("keyset").clone(),
         bound_at: now_wall_ms,
     };
     let saved = serde_json::to_string(&bound).unwrap_or_default();
@@ -242,16 +247,16 @@ impl<H: Http> CloudClient<H> {
             self.bound.env.auth_environment(),
             self.bound.install
         );
-        if status != 200 || challenge["install"] != self.bound.install.as_str() {
+        if status != 200 || *challenge.field("install") != self.bound.install.as_str() {
             return Err(format!("challenge refused: HTTP {status}"));
         }
-        if challenge["message_prefix"] != expected.as_str() {
+        if *challenge.field("message_prefix") != expected.as_str() {
             return Err(
                 "challenge message prefix names another environment or install; not signing"
                     .to_owned(),
             );
         }
-        let nonce = match &challenge["nonce"] {
+        let nonce = match challenge.field("nonce") {
             Value::String(s) => s.clone(),
             other => other.to_string(),
         };
@@ -259,17 +264,17 @@ impl<H: Http> CloudClient<H> {
         let body = json!({
             "user": self.bound.user,
             "install": self.bound.install,
-            "nonce": challenge["nonce"],
+            "nonce": challenge.field("nonce"),
             "signature": signature,
         });
         let (status, token) = self.http.post(&self.url("/v1/auth/token"), &body, None)?;
-        let access = token["access_token"].as_str();
-        if status != 200 || token["token_type"] != "Bearer" || access.is_none() {
-            let code = token["code"].as_str().unwrap_or("");
+        let access = token.field("access_token").as_str();
+        if status != 200 || *token.field("token_type") != "Bearer" || access.is_none() {
+            let code = token.field("code").as_str().unwrap_or("");
             return Err(format!("token refused: HTTP {status} {code}"));
         }
         let access = access.unwrap_or_default().to_owned();
-        let expires = token["expires_at"].as_u64().unwrap_or(0);
+        let expires = token.field("expires_at").as_u64().unwrap_or(0);
         self.cached = Some((access.clone(), expires));
         Ok(access)
     }

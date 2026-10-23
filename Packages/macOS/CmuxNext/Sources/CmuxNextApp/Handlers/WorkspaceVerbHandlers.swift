@@ -13,7 +13,11 @@ import CmuxNextSidebar
 enum WorkspaceVerbHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind("workspace.newAbove", run: { try create(context, $0) { .above($0.id) } })
-        registry.bind("workspace.newBelow", run: { try create(context, $0) { .below($0.id) } })
+        // On one of several selected rows: below the last of them (Chrome's New Tab Below).
+        registry.bind("workspace.newBelow", run: { invocation in
+            let anchor = try WindowMembershipHandlers.rowTargets(invocation, context).last ?? context.workspace(invocation).model
+            try spawn(context, anchor: anchor, cwd: nil, slot: .below(anchor.id), newTabPage: invocation.origin == .user)
+        })
         registry.bind("workspace.newAtTop", run: { try create(context, $0, anchorFree: .top(anchor: nil)) })
         registry.bind("workspace.newAtBottom", run: { try create(context, $0, anchorFree: .bottom(anchor: nil)) })
         // Its directory, its place (below it, so in its group) and its first tab's kind
@@ -39,9 +43,7 @@ enum WorkspaceVerbHandlers {
                 throw ActionFailure.invalidTarget(WorkspaceVerbStrings.noMachine)
             }
             guard daemon.connection != nil else { throw ActionFailure.invalidTarget(WorkspaceVerbStrings.machineNotConnected) }
-            // Born in the window's room, so it shows even when that room
-            // does not follow the machine's session (data-model.md 3.2).
-            context.services.windows.newWorkspace(in: context.activeWindow?.state, on: daemon)
+            newWorkspace(on: daemon, invocation, context)
         })
 
         // Top or bottom of the row's container: its group, else the loose rows. A grouped row's
@@ -123,6 +125,40 @@ enum WorkspaceVerbHandlers {
                 return ActionWorkFailure("new workspace", error)
             }
         })
+    }
+
+    /// New Workspace on Machine: a new workspace on `daemon` in the active window, born in that
+    /// window's room so it shows even when the room does not follow the machine's session
+    /// (data-model.md 3.2). A person gets the New Tab page; a CLI, MCP or script run gets a
+    /// terminal and waits for the create, so `action.run` answers with what it made
+    /// (``createdFields``) and lists it in `created`.
+    static func newWorkspace(on daemon: DaemonService, _ invocation: ActionInvocation, _ context: AppActionContext) {
+        let services = context.services, windows = services.windows
+        let target = windows.targetWindow(preferring: context.activeWindow?.state.id)
+        let spawn = WorkspaceSpawn(newTabPage: invocation.origin == .user)
+        services.registry.track(result: Task {
+            do {
+                let id = try await windows.createWorkspace(spawn, on: daemon, into: target)
+                // The store lists it (its `ws_` id and name) once it applied the create's events.
+                if let connection = daemon.connection { await daemon.store.applied(through: await connection.eventSequence()) }
+                return .success(createdFields(id, on: daemon, services: services))
+            } catch {
+                daemon.logger.error("create workspace failed: \(String(describing: error), privacy: .public)")
+                return .failure(ActionWorkFailure("new workspace on machine", error))
+            }
+        })
+    }
+
+    /// `action.run`'s `result` for a workspace made on `daemon`: its public id (`ws_…` on
+    /// registry daemons, else its key), its name once the store lists it, and the machine.
+    static func createdFields(_ id: String, on daemon: DaemonService, services: AppServices) -> [String: ActionResultValue] {
+        let workspace = services.workspace(id: id)
+        var fields: [String: ActionResultValue] = [
+            "workspace_id": .string(workspace?.resourceID?.rawValue ?? id),
+            "machine_id": .string(daemon.machineID),
+        ]
+        if let workspace { fields["name"] = .string(workspace.displayName) }
+        return fields
     }
 
     /// The first tab of a workspace like `anchor`, by the kind of its first tab: a terminal, the

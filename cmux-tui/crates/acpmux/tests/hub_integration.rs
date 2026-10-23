@@ -17,6 +17,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 
+#[path = "hub_integration/agent_digest.rs"]
+mod agent_digest;
 #[path = "hub_integration/agent_pairs.rs"]
 mod agent_pairs;
 #[path = "hub_integration/auto_resume.rs"]
@@ -31,10 +33,16 @@ mod lanes;
 mod permission_groups;
 #[path = "hub_integration/prompt_context.rs"]
 mod prompt_context;
+#[path = "hub_integration/prompt_ledger.rs"]
+mod prompt_ledger;
 #[path = "hub_integration/prompt_provenance.rs"]
 mod prompt_provenance;
+#[path = "hub_integration/prompt_supersede.rs"]
+mod prompt_supersede;
 #[path = "hub_integration/prompt_withdraw.rs"]
 mod prompt_withdraw;
+#[path = "hub_integration/protocol_serve.rs"]
+mod protocol_serve;
 #[path = "hub_integration/purged_stays_purged.rs"]
 mod purged_stays_purged;
 #[path = "hub_integration/questions.rs"]
@@ -47,6 +55,8 @@ mod secrets;
 mod seen;
 #[path = "hub_integration/session_offers.rs"]
 mod session_offers;
+#[path = "hub_integration/silent_turn.rs"]
+mod silent_turn;
 #[path = "hub_integration/status_indicator.rs"]
 mod status_indicator;
 #[path = "hub_integration/steer_now.rs"]
@@ -55,6 +65,8 @@ mod steer_now;
 mod steer_only;
 #[path = "hub_integration/stop.rs"]
 mod stop;
+#[path = "hub_integration/surfaces.rs"]
+mod surfaces;
 #[path = "hub_integration/tags_rules.rs"]
 mod tags_rules;
 #[path = "hub_integration/xai_requests.rs"]
@@ -336,6 +348,222 @@ async fn fork_copies_history_and_gets_its_own_agent() {
         .await
         .unwrap();
     assert_eq!(r["stopReason"], "end_turn");
+}
+
+/// An agent that offers `session/fork` but fails it with a bare error (Claude's ACP
+/// adapter on a chat with no turn): the reason names the harness, and that the chat has
+/// no turn when it has none; no chat is made.
+#[tokio::test]
+async fn an_agents_bare_fork_error_names_the_harness() {
+    let env = BTreeMap::from([("FAKE_FORK_ERROR".to_owned(), "1".to_owned())]);
+    let (_hub, mut c) = setup_env(PermissionPolicy::ApproveAll, env).await;
+    let mut chat = async |name: &str, turn: bool| {
+        let s = c
+            .request(
+                method::SESSION_NEW,
+                json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"name": name}}}),
+            )
+            .await
+            .unwrap();
+        let id = s["sessionId"].as_str().unwrap().to_owned();
+        if turn {
+            c.request(
+                method::SESSION_PROMPT,
+                json!({"sessionId": id, "prompt": [{"type": "text", "text": "first"}]}),
+            )
+            .await
+            .unwrap();
+        }
+        c.request(method::SESSION_FORK, json!({"sessionId": id, "cwd": cwd()}))
+            .await
+            .expect_err("the agent fails the fork")
+    };
+    let err = chat("bare", true).await;
+    assert!(
+        err.contains("fake could not fork this chat") && err.contains("Internal error"),
+        "{err}"
+    );
+    // A chat with no turn: the reason is that, whatever the agent said.
+    let err = chat("empty", false).await;
+    assert!(err.contains("fake could not fork this chat") && err.contains("no turn"), "{err}");
+    let list = c.request(method::SESSION_LIST, json!({})).await.unwrap();
+    assert_eq!(list["sessions"].as_array().map(Vec::len), Some(2), "no chat is made: {list}");
+}
+
+/// An agent that fails a fork while the chat's turn runs (OMP answers a bare "Internal
+/// error"): the fork is never refused. It is made now from acpmux's copy of the chat, on a
+/// new agent session that gets the chat's transcript with its first prompt, and it says so
+/// in one line. The chat's turn goes on.
+#[tokio::test]
+async fn an_agent_that_fails_a_fork_while_the_chat_works_forks_from_the_chats_transcript() {
+    let env = BTreeMap::from([("FAKE_FORK_ERROR".to_owned(), "1".to_owned())]);
+    let (hub, mut c) = setup_env(PermissionPolicy::ApproveAll, env).await;
+    let s = c
+        .request(
+            method::SESSION_NEW,
+            json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"name": "busy"}}}),
+        )
+        .await
+        .unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    c.request(
+        method::SESSION_PROMPT,
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "first ZEBRA-7"}]}),
+    )
+    .await
+    .unwrap();
+    c.send(
+        method::SESSION_PROMPT,
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "until-cancel"}]}),
+    )
+    .await;
+    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "running").await;
+    let f = c
+        .request(method::SESSION_FORK, json!({"sessionId": id, "cwd": cwd()}))
+        .await
+        .unwrap_or_else(|e| panic!("a working chat forks, whatever its agent says: {e}"));
+    let fid = f["sessionId"].as_str().unwrap().to_owned();
+    let forked: Vec<Value> = hub
+        .events(&fid, 0, 1000)
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.kind == "forked")
+        .map(|e| e.msg)
+        .collect();
+    assert!(
+        forked.iter().any(|m| m["note"].as_str().is_some_and(|n| n.contains("transcript"))),
+        "the fork says how it was made: {forked:?}"
+    );
+    let results: Vec<Value> = hub
+        .events(&fid, 0, 1000)
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.kind == "turn_result")
+        .map(|e| e.msg)
+        .collect();
+    assert_eq!(
+        results.last().map(|r| r["status"].clone()),
+        Some(json!("cancelled")),
+        "{results:?}"
+    );
+    assert_eq!(
+        hub.resolve(&id).unwrap().meta().status,
+        acpmux::store::SessionStatus::Running,
+        "the chat's turn goes on"
+    );
+    let r = c
+        .request(
+            method::SESSION_PROMPT,
+            json!({"sessionId": fid, "prompt": [{"type": "text", "text": "what word?"}]}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(r["stopReason"], "end_turn", "{r}");
+    let reply: String = hub
+        .events(&fid, 0, 1000)
+        .unwrap()
+        .iter()
+        .filter(|e| e.kind == "agent_message_chunk")
+        .filter_map(|e| e.msg.pointer("/params/update/content/text").and_then(Value::as_str))
+        .collect();
+    assert!(
+        reply.contains("ZEBRA-7") && reply.contains("what word?"),
+        "the fork's agent got the chat's transcript with its first prompt: {reply}"
+    );
+    c.send(method::SESSION_CANCEL, json!({"sessionId": id})).await;
+    hub.shutdown_all().await;
+}
+
+/// A fork keeps the chat's model and effort. Codex answers `session/fork` with its
+/// defaults; the fork matrix found a chat on gpt-5.6-luna forking into one on the
+/// account's default model, which the account cannot run, so the fork's first
+/// prompt failed.
+#[tokio::test]
+async fn a_fork_keeps_the_chats_model_and_effort_when_the_agent_answers_with_its_defaults() {
+    let calls = std::env::temp_dir().join(format!("acpmux-fork-model-{}", uuid::Uuid::now_v7()));
+    let env = BTreeMap::from([
+        ("FAKE_PICKER".to_owned(), "1".to_owned()),
+        ("FAKE_PICKER_MODES".to_owned(), "claude".to_owned()),
+        ("FAKE_FORK_DEFAULTS".to_owned(), "1".to_owned()),
+        ("FAKE_CALLS".to_owned(), calls.to_string_lossy().into_owned()),
+    ]);
+    let (hub, mut c) = setup_env(PermissionPolicy::ApproveAll, env).await;
+    let s = c
+        .request(
+            method::SESSION_NEW,
+            json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"name": "picked"}}}),
+        )
+        .await
+        .unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    c.request(method::SESSION_SET_MODEL, json!({"sessionId": id, "modelId": "claude-haiku-5-5"}))
+        .await
+        .unwrap();
+    c.request(
+        method::SESSION_SET_CONFIG_OPTION,
+        json!({"sessionId": id, "configId": "effort", "value": "low"}),
+    )
+    .await
+    .unwrap();
+    c.request(
+        method::SESSION_PROMPT,
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "first"}]}),
+    )
+    .await
+    .unwrap();
+    let f = c.request(method::SESSION_FORK, json!({"sessionId": id, "cwd": cwd()})).await.unwrap();
+    let fid = f["sessionId"].as_str().unwrap().to_owned();
+    let fork = hub.session_summary(&hub.resolve(&fid).unwrap());
+    assert_eq!(fork["model"], "claude-haiku-5-5", "the fork runs the chat's model: {fork}");
+    // The fork's own agent session was told the chat's model and effort.
+    let agent_sid = hub.resolve(&fid).unwrap().meta().agent_session_id.unwrap();
+    let sets: Vec<Value> = std::fs::read_to_string(&calls)
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+        .filter(|c| c["params"]["sessionId"] == agent_sid.as_str())
+        .collect();
+    let set = |id: &str| {
+        sets.iter().rev().find_map(|c| {
+            (c["params"]["configId"] == id).then(|| c["params"]["value"].clone()).or_else(|| {
+                (id == "model" && c["method"] == "session/set_model")
+                    .then(|| c["params"]["modelId"].clone())
+            })
+        })
+    };
+    assert_eq!(set("model"), Some(json!("claude-haiku-5-5")), "{sets:?}");
+    assert_eq!(set("effort"), Some(json!("low")), "{sets:?}");
+    let _ = std::fs::remove_file(&calls);
+}
+
+/// An agent that does not offer `session/fork` (Kimi, DeepSeek, Prime, Unii in
+/// the fork matrix) is not asked: the fork is refused with a reason that names
+/// the harness, and no chat is made, instead of the agent's bare "Internal error".
+#[tokio::test]
+async fn a_fork_on_an_agent_without_session_fork_is_refused_with_a_reason() {
+    let env = BTreeMap::from([("FAKE_NO_FORK".to_owned(), "1".to_owned())]);
+    let (_hub, mut c) = setup_env(PermissionPolicy::ApproveAll, env).await;
+    let s = c
+        .request(
+            method::SESSION_NEW,
+            json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"name": "nofork"}}}),
+        )
+        .await
+        .unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    c.request(
+        method::SESSION_PROMPT,
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "first"}]}),
+    )
+    .await
+    .unwrap();
+    let err = c
+        .request(method::SESSION_FORK, json!({"sessionId": id, "cwd": cwd()}))
+        .await
+        .expect_err("the agent cannot fork");
+    assert!(err.contains("cannot fork") && err.contains("fake"), "{err}");
+    let list = c.request(method::SESSION_LIST, json!({})).await.unwrap();
+    assert_eq!(list["sessions"].as_array().map(Vec::len), Some(1), "no chat is made: {list}");
 }
 
 #[tokio::test]
@@ -1204,6 +1432,8 @@ async fn watchers_get_permission_pending_and_auto_approvals() {
     assert!(c.response(rid).await.0.is_ok());
 }
 
+#[path = "hub_integration/event_log_fds.rs"]
+mod event_log_fds;
 #[path = "hub_integration/handoff.rs"]
 mod handoff;
 #[path = "hub_integration/transcript_events.rs"]
@@ -1327,7 +1557,12 @@ mod session_git_state;
 #[cfg(unix)]
 #[path = "hub_integration/session_list_order.rs"]
 mod session_list_order;
+#[path = "hub_integration/session_pull_requests.rs"]
+mod session_pull_requests;
 #[path = "hub_integration/transfer.rs"]
 mod transfer;
 #[path = "hub_integration/transfer_guard.rs"]
 mod transfer_guard;
+#[path = "hub_integration/watch.rs"]
+#[cfg(unix)]
+mod watch;

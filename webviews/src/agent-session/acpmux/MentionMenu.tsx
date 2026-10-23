@@ -117,7 +117,7 @@ export function MentionMenu({
       ref={escape}
       aria-label={t("files.search")}
       aria-busy={state?.kind === "searching"}
-      className="ui-popup acpmux-slash-menu acpmux-mention-menu"
+      className="ui-popup ui-glass acpmux-slash-menu acpmux-mention-menu"
       id="acpmux-mention-menu"
     >
       {items.map((item, index) => (

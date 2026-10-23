@@ -16,7 +16,9 @@ import { requireBrowserLane } from "./support/requireBrowserLane";
 await requireBrowserLane("composer-menu-width.test.ts", async () => {
   setDefaultTimeout(120_000);
   const source = path.resolve(import.meta.dir, "../src/agent-session");
+  // The liquid glass first, as build-agent-pane-web.sh loads it: every popup's material.
   const css = [
+    "../ui/glass/glass.css",
     "shared/styles.css",
     "acpmux/styles.css",
     "acpmux/composerControls.css",
@@ -55,7 +57,7 @@ ${css}
   <div class="acpmux-chips">
   <span class="acpmux-picker acpmux-model" style="position:relative">
     <button class="acpmux-picker-button"><span class="acpmux-model-name" data-fit-part="model" data-fit-forms="full">GPT-6-Astra</span></button>
-    <div class="ui-popup ui-picker-popup acpmux-mp flex" style="${ANCHORED}">
+    <div class="ui-popup ui-glass ui-picker-popup acpmux-mp flex" style="${ANCHORED}">
       <div class="acpmux-mp-rail-scroll w-11 flex-none">
         <div class="acpmux-mp-rail-viewport" style="overflow:scroll">
           <div class="acpmux-mp-rail-list flex flex-col items-center gap-1 py-1.5">
@@ -88,7 +90,7 @@ ${css}
   <span class="acpmux-composer-actions"><button class="acpmux-send" style="width:28px;height:28px">↑</button></span>
 </div></div></div>
 <div class="ui-positioner" style="position:absolute;left:8px;top:8px">
-  <div class="acpmux-menu acpmux-location-menu">${row("~/fun/cmuxterm-hq")}</div>
+  <div class="ui-glass acpmux-menu acpmux-location-menu">${row("~/fun/cmuxterm-hq")}</div>
 </div>
 </body></html>`;
 

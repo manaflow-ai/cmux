@@ -308,10 +308,12 @@
   height: var(--icon-bar-height);
   padding: 0 14px;
   border-radius: calc(var(--icon-bar-height) / 2);
-  border: 1px solid var(--page-separator);
-  /* The solid popup surface: the grid's icons never show through the pill's labels. */
-  background: var(--surface-popup);
-  box-shadow: var(--elevation-2);
+  /* Clear, at its width: the glass rim draws the pill's one edge. */
+  border: 1px solid transparent;
+  /* Glass (.ui-glass): the frost keeps the grid's icons from reading through the pill's labels. */
+  --glass-elevation: var(--elevation-2);
+  /* glass-opaque-allow: the Reduce Transparency fill only */
+  --glass-opaque: var(--surface-popup);
   pointer-events: auto;
 }
 

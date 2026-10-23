@@ -158,7 +158,8 @@ const item = (name: string) =>
 test("the access chip's tooltip says what the control is", async () => {
   await render(reported("s1", "default"), () => undefined);
   const title = trigger()?.getAttribute("title") ?? "";
-  expect(title).toContain("Ask before edits");
+  // Claude Code's own name for its default mode (harnessModes.ts), not the reported one.
+  expect(title).toContain("Manual");
   expect(title).toContain("What the agent may do without asking you");
 });
 
@@ -174,7 +175,7 @@ test("a mode the agent refuses goes back to the mode in force and is marked refu
   await flush();
   expect(picked).toEqual(["bypassPermissions"]);
   // The chip shows the mode the session is really in, not the refused pick.
-  expect(chipText()).toBe("Ask before edits");
+  expect(chipText()).toBe("Manual");
   expect(host.querySelector(".acpmux-mode")!.classList.contains("acpmux-unrestricted")).toBe(false);
   // Nothing else can be picked: the chip is a plain label, its tooltip says why.
   expect(trigger()).toBeNull();

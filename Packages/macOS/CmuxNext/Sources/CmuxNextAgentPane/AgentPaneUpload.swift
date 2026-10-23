@@ -26,6 +26,9 @@ public nonisolated struct AgentPaneUpload: Sendable, Equatable, CustomStringConv
     public static let maximumFiles = 10
     public static let maximumFileBytes = 32 * 1024 * 1024
     public static let maximumTotalBytes = 64 * 1024 * 1024
+    /// The most bytes one file for a chat on an ssh peer has (acpmux `file_uploads::MAX_BYTES`): it
+    /// crosses the peer link as one WebSocket frame, and an older peer reads at most 16 MiB.
+    public static let maximumPeerFileBytes = 10 * 1024 * 1024
 
     /// The files of `chat.upload`'s params, nil when they break the contract: 1 to
     /// ``maximumFiles`` files, each with a name a folder holds as one file and base64 bytes, at most

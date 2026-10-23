@@ -14,8 +14,9 @@
 // The engine comes from `playwright install webkit`; where it is not installed, the cases are
 // skipped and say so.
 //
-// Starting Vite, warming the gallery (every entry, about 2,300 modules) and 22 page loads took
-// about 115 s on the CI runner (run-webviews-tests.sh):
+// Starting Vite, warming the named surfaces' frames and 22 page loads took about 90 s on a busy Huge
+// Blue; warming the whole gallery (about 2,300 modules) instead took 170 s there and 115 s on the CI
+// runner (run-webviews-tests.sh):
 // cmux-web-test-timeout: 240
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { spawn, type ChildProcess } from "node:child_process";
@@ -25,8 +26,8 @@ import fs from "node:fs";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { loadEntries } from "../scripts/gallery/entries";
 import { stopDevServer } from "./support/devServer";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmDevServer } from "./support/warmDevServer";
 
 await requireBrowserLane("text-field-focus.test.ts", async () => {
   setDefaultTimeout(180_000);
@@ -105,9 +106,14 @@ await requireBrowserLane("text-field-focus.test.ts", async () => {
       server!.stderr!.on("data", onData);
       server!.on("exit", (code) => reject(new Error(`dev server exited ${code}`)));
     });
-    await warmDevServer(base, "/gallery/frame.html");
     browser = await engine!.launch({ headless: true });
-  }, 300_000);
+    // The named surfaces only: the others may fail to mount, which their tests tolerate (below).
+    await warmGalleryFrame(base, [...new Set(cases.filter(({ named }) => named).map(({ entry }) => entry))], {
+      browser,
+      // Under the file's 240 s limit, so a stalled warm-up fails here, naming its entry.
+      timeoutMs: 150_000,
+    });
+  }, 200_000);
 
   afterAll(async () => {
     await browser?.close();
@@ -195,16 +201,9 @@ await requireBrowserLane("text-field-focus.test.ts", async () => {
           if (!browser) throw new Error("text-field-focus: the browser did not launch");
           const page = await browser.newPage({ viewport: { width: 1000, height: 760 } });
           try {
-            const params = new URLSearchParams({
-              entry,
-              variant,
-              theme,
-              colorScheme,
-              frame: "component",
-              width: "760",
-              height: "640",
-            });
-            await page.goto(`${base}/gallery/frame.html?${params}`);
+            await page.goto(
+              `${base}${galleryFrame(entry, { variant, theme, colorScheme, frame: "component", width: "760", height: "640" })}`,
+            );
             await page.waitForFunction(
               () => ["1", "error"].includes(document.documentElement.dataset.galleryReady ?? ""),
               null,
@@ -217,7 +216,15 @@ await requireBrowserLane("text-field-focus.test.ts", async () => {
             if (named) expect(ready).toBe("1");
             if (ready !== "1") return;
             if (open) {
-              await page.getByRole("button", { name: open, exact: true }).first().click();
+              // The model button opens its compact menu (Leo 2026-10-20), which has no search; the
+              // full picker with its search opens by its label, as automation and More models do.
+              await page.evaluate(
+                (label) =>
+                  (
+                    window as unknown as { cmuxAcpmuxDebug: { openMenu(label: string): Promise<unknown> } }
+                  ).cmuxAcpmuxDebug.openMenu(label),
+                open,
+              );
               await page.locator(field!).first().waitFor({ state: "visible" });
             }
             const name = `${entry}--${variant}${open ? `--${open.toLowerCase()}-open` : ""}--${colorScheme}`;

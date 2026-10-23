@@ -79,8 +79,29 @@ public nonisolated struct ChiefHome: Sendable, Equatable {
     var shutdownMarker: URL { root.appendingPathComponent("state/shutdown") }
     /// While a turn waits for the compactor: how far it is (optchat-chief settle_status.rs).
     var settleStatusFile: URL { root.appendingPathComponent("state/settle.json") }
-    /// `ACPMUX_HOME` of the Chief's turn, compactor and subagent sessions.
+    /// `ACPMUX_HOME` of the Chief's own daemon, where its turn, compactor and subagent sessions
+    /// run unless it uses the app's (``usesAppAcpmux``).
     public var acpmuxHome: URL { root.appendingPathComponent("acpmux", isDirectory: true) }
+    /// Whether this Chief runs on the app's own acpmux (`~/.acpmux`, the one daemon of this
+    /// machine) instead of ``acpmuxHome``: NIGHTLY's home only, unless `CMUX_CHIEF_OWN_ACPMUX=1` in
+    /// the app's environment brings the old daemon back. The app then starts and hands off that
+    /// daemon; the Chief host only waits for it (`OPTCHAT_ACPMUX_SUPERVISED=1`) and never starts or
+    /// stops it, and the Chief's sessions stay apart by their tags (`cmux.chief`, `mux.parent`).
+    public var usesAppAcpmux: Bool {
+        Self.usesAppAcpmux(isolated: isolated, buildID: buildID, ownAcpmux: Self.ownAcpmuxAtLaunch)
+    }
+
+    /// `CMUX_CHIEF_OWN_ACPMUX=1`, read once from the process environment, so the tab wiring, the
+    /// error journal and the Chief host, which resolve at different points of the launch, agree.
+    private static let ownAcpmuxAtLaunch = ownAcpmux(ProcessInfo.processInfo.environment)
+
+    static func ownAcpmux(_ environment: [String: String]) -> Bool {
+        environment["CMUX_CHIEF_OWN_ACPMUX"] == "1"
+    }
+
+    static func usesAppAcpmux(isolated: Bool, buildID: String?, ownAcpmux: Bool) -> Bool {
+        !isolated && buildID == nightlyBundleID && !ownAcpmux
+    }
     /// The conversation owner's cmux-tui session (its socket name).
     public var session: String { Self.sessionName(root: root) }
 

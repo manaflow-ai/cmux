@@ -79,7 +79,7 @@ public final class TabModel: Identifiable {
 
     /// Shows `marked` now, before the daemon's `tab.update` answers: the
     /// round trip (hundreds of ms on a busy daemon) is never on the visible
-    /// path of Toggle Tab Unread. The record's echo of `marked` settles it.
+    /// path of Mark Tab Read/Unread. The record's echo of `marked` settles it.
     public func expectMarkedUnread(_ marked: Bool) {
         pendingMarkedUnread = marked
         publishMarkedUnread()
@@ -93,9 +93,16 @@ public final class TabModel: Identifiable {
         publishMarkedUnread()
     }
 
+    /// Counts the times ``markedUnread`` turned on: each new mark is a new unread, so a ring
+    /// dismissed for an earlier mark shows again. Changes only with ``markedUnread``, which
+    /// observers already follow.
+    @ObservationIgnored public private(set) var markedUnreadGeneration: UInt64 = 0
+
     private func publishMarkedUnread() {
         let shown = pendingMarkedUnread ?? recordMarkedUnread
-        if markedUnread != shown { markedUnread = shown }
+        guard markedUnread != shown else { return }
+        if shown { markedUnreadGeneration &+= 1 }
+        markedUnread = shown
     }
     /// The tab's fit as given (`extra.emulation.fit.value`: "16:9" or "1280", browser-fit-v1), nil for none.
     public var fitValue: String? { emulation?["mode"]?.stringValue == "fit" ? emulation?["fit"]?["value"]?.stringValue ?? "16:9" : nil }
@@ -116,6 +123,15 @@ public final class TabModel: Identifiable {
     /// Bumped when `recheckCommand(after:)` fires: whoever read the command's age reads it again.
     public private(set) var commandRecheck = 0
     @ObservationIgnored private var commandTimer: DemandTimer?
+    /// Since when the shell sits at its prompt (`extra.prompt.since_ms`: OSC 133 A until C), nil while
+    /// a command runs and for a shell without integration.
+    public internal(set) var promptSinceMs: UInt64?
+    /// This clock's time when `promptSinceMs` arrived: another machine's daemon may run ahead.
+    @ObservationIgnored public private(set) var promptSeenAt: Date?
+    /// When the terminal last printed (`extra.last_output.at_ms`).
+    public internal(set) var lastOutputMs: UInt64?
+    /// This clock's time when `lastOutputMs` arrived: another machine's daemon may run ahead.
+    @ObservationIgnored public private(set) var lastOutputSeenAt: Date?
     /// The terminal a remote-terminal tab references (on another session).
     public internal(set) var remote: RemoteTerminalRef?
     /// What a `.conversation` tab shows (`TabSnapshot.conversation`). Stored and observed: a
@@ -276,7 +292,7 @@ public final class TabModel: Identifiable {
 
     /// Lays the daemon's tab record and terminal progress over the record.
     func applyState(_ record: SessionStateMirror.TabRecord?, progress: TerminalProgressReport?, programStatus: [ProgramStatusRecord] = [],
-                    commandSinceMs: UInt64? = nil) {
+                    commandSinceMs: UInt64? = nil, promptSinceMs: UInt64? = nil, lastOutputMs: UInt64? = nil) {
         let record = record ?? SessionStateMirror.TabRecord()
         if zoom != record.zoom { zoom = record.zoom }
         if userIcon != record.icon { userIcon = record.icon }
@@ -292,6 +308,14 @@ public final class TabModel: Identifiable {
             commandSeenAt = commandSinceMs.map { _ in Date() }
             self.commandSinceMs = commandSinceMs
             commandTimer?.cancel()
+        }
+        if self.promptSinceMs != promptSinceMs {
+            promptSeenAt = promptSinceMs.map { _ in Date() }
+            self.promptSinceMs = promptSinceMs
+        }
+        if self.lastOutputMs != lastOutputMs {
+            lastOutputSeenAt = lastOutputMs.map { _ in Date() }
+            self.lastOutputMs = lastOutputMs
         }
     }
 

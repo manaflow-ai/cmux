@@ -16,15 +16,29 @@ extension AppActions {
         registry.bind("renameWorkspace", invoke: { invocation in
             guard let workspace = scope(services, invocation).workspace, let key = workspace.key else { return }
             if let name = invocation["name"]?.stringValue, !name.isEmpty {
-                services.activeDaemon.send("rename-workspace") { _ = try await $0.renameWorkspace(key, to: name) }
-            } else {
-                services.windows.active?.sidebar.container.beginRename(workspace: SidebarWorkspaceID(workspace.id))
+                // The daemon that owns the workspace (a remote host's row too), not the active window's.
+                let daemon = services.machines.daemon(forWorkspace: workspace.id) ?? services.activeDaemon
+                daemon.send("rename-workspace") { _ = try await $0.renameWorkspace(key, to: name) }
+                return
             }
+            guard let window = renameRowWindow(workspace, services) else {
+                return services.registry.refuse(renameRowReason(workspace, services) ?? RefusalStrings.workspaceNotInSidebar)
+            }
+            // The name field opens on the row in the window that lists it, which comes forward.
+            if window !== services.windows.active { services.windows.bringToFront(window) }
+            window.sidebar.container.beginRename(workspace: SidebarWorkspaceID(workspace.id))
         })
+        AppActionContext(services: services).setTargetReason("renameWorkspace") { [weak services] invocation in
+            guard let services, invocation["name"]?.stringValue?.isEmpty ?? true, let workspace = scope(services, invocation).workspace else { return nil }
+            return renameRowReason(workspace, services)
+        }
         // Next / previous sidebar item and Cmd-1…9: one walk over every
         // visible item in shown order (SIDEBAR-NUMBERING-AND-STEPPING).
-        registry.bind("nextSidebarTab") { SidebarNavigation.step(by: 1, services) }
-        registry.bind("prevSidebarTab") { SidebarNavigation.step(by: -1, services) }
+        // Workspaces as tabs' Cmd-Shift-] / [ pass `scope` (workspaces only, wrapping); the table holds them
+        // only while its Debug tunable is on.
+        registry.bind("nextSidebarTab", invoke: { SidebarNavigation.step(by: 1, scope: $0["scope"]?.stringValue, services) })
+        registry.bind("prevSidebarTab", invoke: { SidebarNavigation.step(by: -1, scope: $0["scope"]?.stringValue, services) })
+        registry.includesWorkspaceTabKeys = { SidebarTunables.workspacesAsTabs.value }
         registry.bind("selectWorkspaceByNumber", invoke: { invocation in
             guard let number = invocation["index"]?.intValue else { return }
             SidebarNavigation.select(number: number, services)
@@ -33,7 +47,7 @@ extension AppActions {
         // fixture: registered at launch so a restored tab finds its provider (not blank).
         services.pages.register(HomePageTab(services: services))
         registry.bind("home.tab", invoke: { _ = HomePageTab.open(services, focus: $0.allowsViewChange) })
-        services.pages.register(HomeChannelsPageTab(services: services))
+        services.pages.register(HomeChannelsPageTab.make(services))
         // The docked Home's tab (HomeDockTab): the Messages or Channels view (the sidebar's Home or Channels entry).
         services.pages.register(HomeDockTab(services: services))
         #if DEBUG
@@ -79,6 +93,21 @@ extension AppActions {
         registry.bind("moveWorkspaceDown", invoke: { moveWorkspace(services, $0, by: 1) })
     }
 
+    /// Why Rename Workspace with no name cannot open a name field for `workspace`, or nil: a
+    /// workspace no window's sidebar lists has no row to edit (Home, while the sidebar shows it as
+    /// its Home item, keeps its name).
+    static func renameRowReason(_ workspace: WorkspaceModel, _ services: AppServices) -> String? {
+        guard renameRowWindow(workspace, services) == nil else { return nil }
+        return HomeRules.isHome(workspace) ? RefusalStrings.homeKeepsItsName : RefusalStrings.workspaceNotInSidebar
+    }
+
+    /// The window whose sidebar lists `workspace`'s row: the window that owns it, else the active one.
+    static func renameRowWindow(_ workspace: WorkspaceModel, _ services: AppServices) -> WindowController? {
+        let windows = services.windows
+        let owner = windows.registry.value.owner(of: workspace.id).flatMap(windows.controller(for:))
+        return [owner, windows.active].compactMap { $0 }.first { $0.sidebar.model.workspace(SidebarWorkspaceID(workspace.id)) != nil }
+    }
+
     /// New workspace (`WorkspaceSpawn` arguments: the New Tab page for a
     /// person, one terminal for a script or a `command`), shown
     /// in the active window unless `focus` is false (the CLI's default).
@@ -88,8 +117,15 @@ extension AppActions {
     private static func newWorkspace(_ services: AppServices, _ invocation: ActionInvocation) {
         SidebarNewRowTimer.shared.pressed() // debug.new_workspace times the row from here
         var spawn = WorkspaceSpawn(invocation)
+        spawn.followClassicMode(services) // before the key hold below, which waits only for a page
         let focus = NewWorkspaceFocus(invocation)
         let show = focus.shows
+        // A person's Cmd-N starts where they work: the focused terminal's folder or the focused
+        // agent chat's exact folder, unless `window-inherit-working-directory = false`.
+        if invocation.origin == .user, invocation["machine"] == nil, NewTerminalStart.inherits(.window),
+           let focused = services.windows.active?.focusedPane, focused.daemon === services.daemon {
+            spawn.inheritedCwd = NewTerminalStart.inherited(besides: focused.selectedTab, in: focused.pane, services: services)
+        }
 
         let windows = services.windows
         // Shown: the active window, or a new one when none is open. Not
@@ -148,12 +184,14 @@ extension AppActions {
         // A person's close of one of several selected rows closes them all, as the sidebar's Delete does.
         if invocation.origin == .user, !invocation.closesRowOnly, let sidebar = services.windows.registry.value.owner(of: workspace.id).flatMap(services.windows.controller(for:))?.sidebar.model,
            case let ids = sidebar.closeTargets(for: SidebarWorkspaceID(workspace.id)), ids.count > 1 { return sidebar.send(.close(ids)) }
-        // The workspace's own machine, for the question and the close alike.
-        let daemon = services.machines.daemon(forWorkspace: workspace.id) ?? services.activeDaemon
+        // The workspace's own machine, for the question and the close alike. `offline`: a person's close on a machine that is
+        // not connected (a paused Cloud VM): its row leaves as any other, and the close waits for the machine outside the
+        // window's lane (later creates and closes never wait for it) until it connects or leaves the app (the row then lists
+        // again); a row that cannot hide says why. CLI and socket closes still fail at once.
+        let daemon = services.machines.daemon(forWorkspace: workspace.id) ?? services.activeDaemon, offline = !daemon.isLive && invocation.origin == .user
         let terminals = WorkspaceClose.closing(workspace, on: daemon), id = workspace.id, owner = services.windows.registry.value.owner(of: id)
         let controller = owner.flatMap(services.windows.controller(for:)), shownAtPress = controller?.state.workspaceID == id
-        let warn = services.settings?.snapshot.warnBeforeClosingTab ?? CmuxConfigSnapshot.closeWarningFallback
-        let selected = WorkspaceCloseSelection()
+        let warn = services.settings?.snapshot.warnBeforeClosingTab ?? CmuxConfigSnapshot.closeWarningFallback, selected = WorkspaceCloseSelection()
         let flow = WorkspaceCloseFlow(
             // Instant (ClosingWorkspaces): the row starts closing and the selection moves now, in one sidebar pass.
             hide: {
@@ -175,8 +213,8 @@ extension AppActions {
             // Closed another way while the question was up (the CLI, another window): nothing to send or bring back.
             exists: { services.workspace(id: id) != nil },
             send: { hidden in
-                lanes.run(in: window) {
-                    let failure = await daemon.failure("close-workspace") { connection in
+                let close: @MainActor () async -> ActionWorkFailure? = {
+                    let failure = await daemon.failureOnceConnected("close-workspace", waits: offline, while: { services.machines.daemons.contains { $0 === daemon } }) { connection in
                         try await ClosingWorkspaces.shared.refusal()
                         try await WorkspaceClose.close(key, terminals: terminals, on: connection)
                     }
@@ -186,6 +224,7 @@ extension AppActions {
                     ClosingWorkspaces.shared.end(id, refused: failure != nil, in: controller?.window)
                     return failure
                 }
+                return !offline ? lanes.run(in: window, close) : hidden ? Task { await close() } : Task { services.registry.refuse(CloudStrings.closeNotConnected(services.machines.machineName(daemon.machineID) ?? daemon.machineID)); return nil }
             },
             // Cancel: the row is listed again, and the window shows it again unless the person moved on meanwhile
             // (or it closed another way meanwhile).

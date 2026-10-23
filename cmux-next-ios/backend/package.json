@@ -13,7 +13,7 @@
     "smoke": "bun scripts/smoke.ts"
   },
   "dependencies": {
-    "drizzle-orm": "0.45.3",
+    "drizzle-orm": "0.45.4",
     "jose": "6.2.12",
     "pg": "8.23.0"
   },
@@ -24,7 +24,11 @@
     "@types/pg": "8.23.1",
     "drizzle-kit": "0.31.11",
     "typescript": "7.0.2",
-    "vitest": "4.1.11",
+    "vitest": "4.1.12",
     "wrangler": "4.139.0"
+  },
+  "overrides": {
+    "sharp": "0.35.5",
+    "undici": "7.29.1"
   }
 }

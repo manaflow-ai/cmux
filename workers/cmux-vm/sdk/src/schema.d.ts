@@ -725,6 +725,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/agent-keys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Issue an agent key
+         * @description Issue an agent key. Requires the vm:write scope, from a credential that is not itself an agent key or limited to specific resources. The key reaches only VMs labelled cmux.agent=<its id> (plus any labels the issuer is confined to); every VM it creates gets those labels. Defaults: scopes vm:read, vm:write, vm:exec, ttlSeconds 14400 (at most 86400, never past the issuer's expiry), maxVms 5 (at most 20), maxUsdPerHour 2 (at most 50). When it expires or is revoked, its VMs and their client sessions are deleted within minutes.
+         */
+        post: operations["agents.createAgentKey"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agent-keys/{keyId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke an agent key and delete its VMs
+         * @description Revoke an agent key at once, then delete its VMs and their client sessions (the background cleanup finishes anything left). Allowed for the credential that issued it, an admin key or team admin, and the agent key itself. Anything else is 404.
+         */
+        delete: operations["agents.revokeAgentKey"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/vms/{vmId}/client-session": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mint a provider token for one VM
+         * @description Mint a provider access token scoped to this VM and one Linux user. Requires the vm:exec scope. The token works only on this VM, is shown once, and is revoked when the VM is deleted or the session is revoked. Another tenant's or another agent's VM is 404.
+         */
+        post: operations["agents.createClientSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/vms/{vmId}/client-sessions/{sessionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke a VM's client session
+         * @description Revoke a client session's provider token at once. Requires the vm:exec scope. Revoking twice is not an error.
+         */
+        delete: operations["agents.revokeClientSession"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/meshes": {
         parameters: {
             query?: never;
@@ -1318,7 +1398,7 @@ export interface components {
             pendingSnapshotId?: string;
             retryAfterSeconds?: components["schemas"]["Int"];
             /** @enum {string} */
-            budget?: "snapshots" | "vms" | "rate" | "capacity" | "mesh.perTenant" | "device.perMesh" | "firewallRule.perMesh" | "firewallRule.perResource" | "firewallRule.account" | "aclApply.perMeshPerMinute" | "enrollmentCode.perMeshPerHour" | "address.perDevice";
+            budget?: "snapshots" | "vms" | "rate" | "capacity" | "mesh.perTenant" | "device.perMesh" | "firewallRule.perMesh" | "firewallRule.perResource" | "firewallRule.account" | "aclApply.perMeshPerMinute" | "enrollmentCode.perMeshPerHour" | "address.perDevice" | "agent_vms" | "agent_usd_per_hour";
             /** @enum {string} */
             _tag: "QuotaExceeded";
         };
@@ -1881,6 +1961,65 @@ export interface components {
             createdAt: string;
             expiresAt: string | null;
             revokedAt: string | null;
+        };
+        CreateAgentKeyRequest: {
+            /**
+             * maxLength(200)
+             * @description a string at most 200 character(s) long
+             */
+            name: string;
+            /**
+             * maxItems(3)
+             * @description an array of at most 3 item(s)
+             */
+            scopes?: ("vm:read" | "vm:write" | "vm:network" | "vm:exec" | "vm:files" | "vm:terminal" | "snapshot:*" | "snapshot:read" | "snapshot:write" | "domain:*" | "deploy:*" | "git:*" | "mesh:read" | "mesh:write" | "mesh:join" | "acl:read" | "acl:write" | "admin")[];
+            /**
+             * between(60, 86400)
+             * @description a number between 60 and 86400
+             */
+            ttlSeconds?: components["schemas"]["Int"];
+            /**
+             * between(1, 20)
+             * @description a number between 1 and 20
+             */
+            maxVms?: components["schemas"]["Int"];
+            /**
+             * lessThanOrEqualTo(50)
+             * @description a number less than or equal to 50
+             */
+            maxUsdPerHour?: number;
+        };
+        CreatedAgentKey: {
+            /** @description a string matching the pattern ^vmk_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
+            id: string;
+            name: string;
+            key: string;
+            scopes: string[];
+            labels: {
+                [key: string]: string;
+            };
+            createdAt: string;
+            expiresAt: string;
+            maxVms: components["schemas"]["Int"];
+            maxUsdPerHour: number;
+        };
+        CreateClientSessionRequest: {
+            /** @description a string matching the pattern ^[a-z_][a-z0-9_-]{0,31}$ */
+            linuxUser?: string;
+        };
+        ClientSession: {
+            /** @description a string matching the pattern ^vcs_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
+            id: string;
+            vmId: string;
+            token: string;
+            providerVmId: string;
+            linuxUser: string;
+            apiBaseUrl: string;
+            ssh: {
+                host: string;
+                user: string;
+            };
+            createdAt: string;
         };
         CreateMeshRequest: {
             /**
@@ -5663,6 +5802,316 @@ export interface operations {
             };
             path: {
                 keyId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "agents.createAgentKey": {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateAgentKeyRequest"];
+            };
+        };
+        responses: {
+            /** @description CreatedAgentKey */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreatedAgentKey"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"] | components["schemas"]["BadRequest"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "agents.revokeAgentKey": {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path: {
+                keyId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "agents.createClientSession": {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path: {
+                vmId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateClientSessionRequest"];
+            };
+        };
+        responses: {
+            /** @description ClientSession */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientSession"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"] | components["schemas"]["BadRequest"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "agents.revokeClientSession": {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path: {
+                vmId: string;
+                sessionId: string;
             };
             cookie?: never;
         };

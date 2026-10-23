@@ -335,10 +335,9 @@ if ! awk '
   /^  generate-nightly-deltas:/ { job="delta"; next }
   /^  [a-zA-Z0-9_-]+:/ { job="" }
   job == "sign" && /SPARKLE_PREVIOUS_ARCHIVES_DIR|SPARKLE_MAXIMUM_DELTAS/ { initial_delta=1 }
-  job == "delta" && /--count 1/ { saw_previous=1 }
-  job == "delta" && /SPARKLE_MAXIMUM_DELTAS=1/ { saw_max=1 }
+  job == "delta" && /scripts\/ci\/generate-nightly-deltas\.sh/ { saw_deltas=1 }
   job == "delta" && /name: cmux-nightly-deltas-\$\{\{ matrix\.variant \}\}/ { saw_artifact=1 }
-  END { exit !(saw_previous && saw_max && saw_artifact && !initial_delta) }
+  END { exit !(saw_deltas && saw_artifact && !initial_delta) }
 ' "$WORKFLOW_FILE"; then
   echo "FAIL: initial appcasts must be full-only and delta generation must run later per variant"
   exit 1
@@ -1263,7 +1262,7 @@ for expected in \
   "LEGACY_ACTION: \${{ needs.legacy-identity-target.outputs.action }}" \
   "vars.NIGHTLY_NEXT_LEGACY_IDENTITY != 'off'" \
   "group: nightly-next-legacy-identity" \
-  "- name: Skip a build older than the old feed's" \
+  "- name: Skip a build the old feed already has" \
   "CMUX_NOTARY_WAIT_TIMEOUT=20m" \
   "CMUX_NOTARY_PENDING_ON_TIMEOUT=true" \
   "CMUX_NOTARY_CONTINUE_STATE=" \

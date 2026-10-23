@@ -301,7 +301,10 @@ struct SettingsTeamAvatar: View {
     @ScaledMetric(relativeTo: .body) private var scale: CGFloat = 1
 
     var body: some View {
-        TeamAvatar(name: team.name, colorHex: team.appearance.colorHex, emoji: team.appearance.emoji, size: size * min(scale, 2))
+        TeamAvatar(
+            name: team.name, colorHex: team.appearance.colorHex, emoji: team.appearance.emoji,
+            size: size * min(scale, 2), transparent: team.appearance.isTransparent
+        )
     }
 }
 

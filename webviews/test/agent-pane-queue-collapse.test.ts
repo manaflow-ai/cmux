@@ -17,6 +17,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { webkit, type Browser, type Page } from "playwright";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -152,6 +153,7 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
     queue = prompts.map((prompt, i) => ({ promptId: `q-${i + 1}`, prompt }));
     edits.length = 0;
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    await installPaintedFrames(page);
     const { port } = vite!.httpServer!.address() as { port: number };
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
     await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${SESSION}`);
@@ -159,13 +161,13 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
     return page;
   }
 
-  /// What the queue shows: each row's number and text, then its fold control's label and state.
+  /// What the queue shows: each row's text (rows carry no number, Leo 2026-10-21), then its fold
+  /// control's label and state.
   const shown = (page: Page) =>
     page.evaluate(() => {
       const list = document.querySelector(".acpmux-composer-queue");
       const rows = [...(list?.querySelectorAll<HTMLElement>(".acpmux-queued") ?? [])].map(
-        (row) =>
-          `${row.querySelector(".acpmux-queued-mark")?.textContent ?? ""} ${row.querySelector(".acpmux-queued-text")?.textContent ?? ""}`,
+        (row) => row.querySelector(".acpmux-queued-text")?.textContent ?? "",
       );
       const fold = document.querySelector<HTMLButtonElement>("button[aria-expanded].acpmux-queue-fold");
       return { rows, fold: fold ? `${fold.textContent} (${fold.getAttribute("aria-expanded")})` : null };
@@ -197,11 +199,55 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
       expect(layout).toEqual({ image: "none", rowImage: "none", blur: [], overlap: false });
       await page.close();
     });
+    test("a queued row's actions centre on its first line (layout pass, 2026-10-20)", async () => {
+      const page = await openChat(["one line"]);
+      const row = page.locator('.acpmux-queued[data-prompt-id="q-1"]');
+      await row.hover();
+      const offset = await row.evaluate((li) => {
+        const middle = (el: Element) => {
+          const box = el.getBoundingClientRect();
+          return box.top + box.height / 2;
+        };
+        // The text is one 18px line.
+        return middle(li.querySelector(".acpmux-queued-action")!) - middle(li.querySelector(".acpmux-queued-text")!);
+      });
+      expect(Math.abs(offset)).toBeLessThanOrEqual(0.5);
+      await page.close();
+    });
+
+    test("a glass queue band stays glass with the prompt focused, in each top strip (layout pass, 2026-10-20)", async () => {
+      const page = await openChat(["one line"]);
+      await page.locator(".acpmux-composer-prompt").click();
+      // What the see-through rule sets (composerStates.css); a CI host may ask for reduced transparency.
+      await page.evaluate(() => document.documentElement.style.setProperty("--acpmux-queue-glass", "60%"));
+      const alphas: Record<string, number> = {};
+      for (const strip of ["", "tray", "bump", "plain"]) {
+        alphas[strip || "none"] = await page.evaluate((strip) => {
+          const root = document.documentElement;
+          if (strip) root.setAttribute("data-top-strip", strip);
+          else root.removeAttribute("data-top-strip");
+          const fill = getComputedStyle(document.querySelector(".acpmux-composer-queue")!).backgroundColor;
+          // rgba(r, g, b, a) or color(srgb r g b / a); rgb(r, g, b) or color(srgb r g b) is opaque.
+          const alpha = (fill.match(/^rgba\(.*,\s*([\d.]+%?)\)$/) ?? fill.match(/\/\s*([\d.]+%?)\s*\)$/))?.[1];
+          if (alpha === undefined) return 1;
+          return alpha.endsWith("%") ? parseFloat(alpha) / 100 : parseFloat(alpha);
+        }, strip);
+      }
+      expect(await page.evaluate(() => !!document.activeElement?.closest(".acpmux-composer-prompt"))).toBe(true);
+      // Glass, focused or not: never solid; the plain strip has no fill at all.
+      expect({
+        none: alphas.none < 1,
+        tray: alphas.tray < 1,
+        bump: alphas.bump < 1,
+        plain: alphas.plain,
+      }).toEqual({ none: true, tray: true, bump: true, plain: 0 });
+      await page.close();
+    });
 
     test("six queued prompts fold behind '4 more queued', which opens and closes in place", async () => {
       const page = await openChat(PROMPTS);
       await page.locator(".acpmux-queue-fold").waitFor({ timeout: 10_000 });
-      expect(await shown(page)).toEqual({ rows: ["1 one", "2 two"], fold: "4 more queued (false)" });
+      expect(await shown(page)).toEqual({ rows: ["one", "two"], fold: "4 more queued (false)" });
 
       // ↑ from the empty prompt reaches the fold first; Return opens it, and it keeps focus.
       await page.locator(".acpmux-composer-prompt").click();
@@ -209,13 +255,13 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
       expect(await focused(page)).toBe("fold");
       await page.keyboard.press("Enter");
       expect(await shown(page)).toEqual({
-        rows: ["1 one", "2 two", "3 three", "4 four", "5 five", "6 six"],
+        rows: ["one", "two", "three", "four", "five", "six"],
         fold: "Show less (true)",
       });
       expect(await focused(page)).toBe("fold");
       // Space closes it; ↑ goes on to the last row it shows, ↓ comes back, and ↓ again to the prompt.
       await page.keyboard.press("Space");
-      expect(await shown(page)).toEqual({ rows: ["1 one", "2 two"], fold: "4 more queued (false)" });
+      expect(await shown(page)).toEqual({ rows: ["one", "two"], fold: "4 more queued (false)" });
       await page.keyboard.press("ArrowUp");
       expect(await focused(page)).toBe("q-2");
       await page.keyboard.press("ArrowDown");
@@ -246,17 +292,14 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
         page.evaluate(
           () =>
             new Promise<Record<string, unknown>>((resolve) =>
-              requestAnimationFrame(() =>
-                requestAnimationFrame(() => {
+              window.cmuxPaintFrame().then(() =>
+                window.cmuxPaintFrame().then(() => {
                   const list = document.querySelector<HTMLElement>(".acpmux-composer-queue")!;
                   const box = list.getBoundingClientRect();
                   const fold = document.querySelector<HTMLElement>(".acpmux-queue-fold")!.getBoundingClientRect();
                   const focused = document.activeElement as HTMLElement;
-                  // Rows show between a pinned header (if the list pins one) and the list's
-                  // bottom edge, never under the fold.
-                  const header = list.querySelector<HTMLElement>(".acpmux-queue-header");
-                  const pinned = header && getComputedStyle(header).position === "sticky";
-                  const top = pinned ? Math.max(box.top, header.getBoundingClientRect().bottom) : box.top;
+                  // Rows show between the list's top and bottom edges, never under the fold.
+                  const top = box.top;
                   const edge = Math.min(box.bottom, fold.top);
                   const inside = (rect: DOMRect) =>
                     rect.top >= top - 1 && rect.bottom <= edge + 1 && rect.bottom <= innerHeight + 1;
@@ -340,14 +383,14 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
     });
 
     /// The queue list's rows as drawn: how many it shows cut at its edges (a row it hides whole
-    /// does not count), whether a row draws over the "Queued" header, and whether the focused row
+    /// does not count), and whether the focused row
     /// is whole and in sight.
     const drawn = (page: Page) =>
       page.evaluate(
         () =>
           new Promise<Record<string, unknown>>((resolve) =>
-            requestAnimationFrame(() =>
-              requestAnimationFrame(() => {
+            window.cmuxPaintFrame().then(() =>
+              window.cmuxPaintFrame().then(() => {
                 const list = document.querySelector<HTMLElement>(".acpmux-composer-queue")!;
                 const box = list.getBoundingClientRect();
                 const shows = (el: Element) => {
@@ -360,7 +403,7 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
                   );
                 };
                 const whole = (r: DOMRect) => r.top >= box.top - 1 && r.bottom <= box.bottom + 1;
-                const parts = [...list.querySelectorAll<HTMLElement>(".acpmux-queued, .acpmux-queue-header")];
+                const parts = [...list.querySelectorAll<HTMLElement>(".acpmux-queued")];
                 // A row whose text runs out of it (over the next row) is cut too.
                 const spills = (el: Element) =>
                   [...el.querySelectorAll(".acpmux-queued-text")].some(
@@ -369,27 +412,19 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
                 const cut = parts.filter(
                   (el) => shows(el) && (!whole(el.getBoundingClientRect()) || spills(el)),
                 ).length;
-                const header = list.querySelector<HTMLElement>(".acpmux-queue-header");
-                let headerCovered = false;
-                if (header && shows(header)) {
-                  const r = header.getBoundingClientRect();
-                  const at = document.elementFromPoint(r.left + 20, (r.top + r.bottom) / 2);
-                  headerCovered = !at?.closest(".acpmux-queue-header");
-                }
                 const focused = document.activeElement as HTMLElement;
                 const row = focused.closest<HTMLElement>(".acpmux-queued");
                 resolve({
                   cut,
-                  headerCovered,
                   focusedWhole: row ? shows(row) && whole(row.getBoundingClientRect()) : true,
                 });
               }),
             ),
           ),
       );
-    const clean = { cut: 0, headerCovered: false, focusedWhole: true };
+    const clean = { cut: 0, focusedWhole: true };
 
-    test("an opened queue with a two-line row shows whole rows only, its header never under a row (capture, 2026-10-15)", async () => {
+    test("an opened queue with a two-line row shows whole rows only, no row under another (capture, 2026-10-15)", async () => {
       // The capture at 436917b: opened, a two-line first row left a sliver of row 3 over Show less,
       // and after ↑↑↑ row 5 drew over the pinned "Queued" header.
       const long = "words that wrap across the row ".repeat(12);
@@ -411,7 +446,7 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
       await page.close();
     });
 
-    test("opening the queue lands at its top: the header and row 1 in sight, nothing blanked (capture, 2026-10-15)", async () => {
+    test("opening the queue lands at its top: row 1 in sight, nothing blanked (capture, 2026-10-15)", async () => {
       // The capture at f1a737b: the first frame after ↑ then Return showed rows 2-5, the header and
       // row 1 scrolled away, and a blank band where rows were not drawn.
       const long = "words that wrap across the row ".repeat(12);
@@ -422,8 +457,28 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
       await page.keyboard.press("ArrowUp");
       await page.keyboard.press("Enter");
       await page.waitForFunction(() => document.querySelectorAll(".acpmux-queued").length === 8);
-      // Past any snap or scroll that settles after the first frames.
-      await page.waitForTimeout(400);
+      // Past any snap or scroll that settles after the first frames: no animation left running and
+      // the list's scroll position held over three painted frames.
+      await page.evaluate(async () => {
+        const list = document.querySelector<HTMLElement>(".acpmux-composer-queue")!;
+        const finite = () =>
+          document.getAnimations().filter((animation) => animation.effect?.getComputedTiming().endTime !== Infinity);
+        for (let tries = 0; tries < 20; tries++) {
+          await Promise.all(finite().map((animation) => animation.finished.catch(() => undefined)));
+          await new Promise<void>((resolve) => {
+            let last = -1;
+            let still = 0;
+            window.cmuxAfterPaint(() => {
+              still = list.scrollTop === last ? still + 1 : 0;
+              last = list.scrollTop;
+              if (still < 2) return true;
+              resolve();
+              return false;
+            });
+          });
+          if (finite().every((animation) => animation.playState !== "running")) return;
+        }
+      });
       const top = await page.evaluate(() => {
         const list = document.querySelector<HTMLElement>(".acpmux-composer-queue")!;
         const box = list.getBoundingClientRect();
@@ -433,12 +488,11 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
         };
         return {
           scrollTop: list.scrollTop,
-          header: inSight(list.querySelector(".acpmux-queue-header")),
           row1: inSight(list.querySelector('[data-prompt-id="q-1"]')),
           blanked: [...list.querySelectorAll("li")].filter((li) => getComputedStyle(li).opacity === "0").length,
         };
       });
-      expect(top).toEqual({ scrollTop: 0, header: true, row1: true, blanked: 0 });
+      expect(top).toEqual({ scrollTop: 0, row1: true, blanked: 0 });
       await page.close();
     });
 
@@ -475,22 +529,42 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
       return page;
     }
     /// Where the opened list rests once any snap or scroll settles: at its end or not, and whether
-    /// its last row shows whole.
+    /// its last row shows whole. Settled is ten painted frames running with no scroll event on the
+    /// list and no animation running, so a snap back (a scroll that ends and then moves again)
+    /// starts the count over and is read where it lands.
     const resting = (page: Page) =>
-      page.evaluate(
-        () =>
-          new Promise<{ atEnd: boolean; lastWhole: boolean }>((resolve) =>
-            setTimeout(() => {
-              const list = document.querySelector<HTMLElement>(".acpmux-composer-queue")!;
-              const box = list.getBoundingClientRect();
-              const last = [...list.querySelectorAll(".acpmux-queued")].at(-1)!.getBoundingClientRect();
-              resolve({
-                atEnd: list.scrollTop >= list.scrollHeight - list.clientHeight - 1,
-                lastWhole: last.top >= box.top - 1 && last.bottom <= box.bottom + 1,
-              });
-            }, 600),
-          ),
-      );
+      page.evaluate(async () => {
+        const list = document.querySelector<HTMLElement>(".acpmux-composer-queue")!;
+        let moved = true;
+        const mark = () => (moved = true);
+        list.addEventListener("scroll", mark);
+        list.addEventListener("scrollend", mark);
+        await new Promise<void>((resolve) => {
+          let still = 0;
+          let frames = 0;
+          window.cmuxAfterPaint(() => {
+            const running = document
+              .getAnimations()
+              .some(
+                (animation) =>
+                  animation.playState === "running" && animation.effect?.getComputedTiming().endTime !== Infinity,
+              );
+            still = moved || running ? 0 : still + 1;
+            moved = false;
+            if (still < 10 && ++frames < 600) return true;
+            resolve();
+            return false;
+          });
+        });
+        list.removeEventListener("scroll", mark);
+        list.removeEventListener("scrollend", mark);
+        const box = list.getBoundingClientRect();
+        const last = [...list.querySelectorAll(".acpmux-queued")].at(-1)!.getBoundingClientRect();
+        return {
+          atEnd: list.scrollTop >= list.scrollHeight - list.clientHeight - 1,
+          lastWhole: last.top >= box.top - 1 && last.bottom <= box.bottom + 1,
+        };
+      });
 
     test("an opened queue scrolled to its end stays there, its last row whole (Leo, 2026-10-20)", async () => {
       // Leo: the queue "scrolls to the bottom then shoots back up", and the last row is cut off.
@@ -507,9 +581,9 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
     });
 
     /// Rests the opened list half a row down, so its bottom edge cuts row 4, and returns the middle
-    /// of the shown part of that row's `action` button.
-    async function cutRowAction(page: Page, action: string) {
-      return page.evaluate((action) => {
+    /// of the shown part of that row's control that `control` selects.
+    async function cutRowAction(page: Page, control: string) {
+      return page.evaluate((control) => {
         const list = document.querySelector<HTMLElement>(".acpmux-composer-queue")!;
         const rows = [...list.querySelectorAll<HTMLElement>(".acpmux-queued")];
         list.scrollTop = rows[0].getBoundingClientRect().height / 2;
@@ -518,28 +592,30 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
           const rect = row.getBoundingClientRect();
           return rect.top < box.bottom - 2 && rect.bottom > box.bottom + 1;
         })!;
-        const button = cut.querySelector<HTMLElement>(`[data-action="${action}"]`)!.getBoundingClientRect();
+        const button = cut.querySelector<HTMLElement>(control)!.getBoundingClientRect();
         return {
           id: cut.dataset.promptId!,
           x: button.left + button.width / 2,
           y: (button.top + Math.min(button.bottom, box.bottom)) / 2,
         };
-      }, action);
+      }, control);
     }
 
     test("Remove and Edit on a row the list's edge cuts do what they say (Leo, 2026-10-20)", async () => {
       // The press focused the row, which scrolled the list to show it whole before the release: the
       // click landed on another row or none.
       const page = await openedQueue();
-      const remove = await cutRowAction(page, "remove");
+      const remove = await cutRowAction(page, '[data-action="delete"]');
       await page.mouse.click(remove.x, remove.y);
       await page.waitForFunction((id) => !document.querySelector(`.acpmux-queued[data-prompt-id="${id}"]`), remove.id, {
         timeout: 5_000,
       });
       expect(edits).toEqual([{ op: "remove", promptId: remove.id }]);
 
-      const edit = await cutRowAction(page, "edit");
+      // Edit message is in the row's ⋯ menu: the press on the ⋯ must open that row's menu.
+      const edit = await cutRowAction(page, '[data-menu="queued-more"]');
       await page.mouse.click(edit.x, edit.y);
+      await page.getByRole("menuitem", { name: /Edit message/ }).click();
       const field = page.locator(`.acpmux-queued[data-prompt-id="${edit.id}"] textarea`);
       await field.waitFor({ timeout: 5_000 });
       await page.keyboard.press("ControlOrMeta+a");
@@ -564,9 +640,9 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
       await page.locator(".acpmux-queue-fold").waitFor({ timeout: 10_000 });
       const row = page.locator('.acpmux-queued[data-prompt-id="q-1"]');
       await row.hover();
-      await row.getByRole("button", { name: "Send now" }).click();
+      await row.getByRole("button", { name: "Steer" }).click();
       await page.waitForFunction(() => !document.querySelector('.acpmux-queued[data-prompt-id="q-1"]'));
-      expect(await shown(page)).toEqual({ rows: ["1 two", "2 three"], fold: "3 more queued (false)" });
+      expect(await shown(page)).toEqual({ rows: ["two", "three"], fold: "3 more queued (false)" });
 
       // ⌥↓ on the last row shown moves it into the folded part: the list opens, and it keeps focus.
       await page.locator(".acpmux-composer-prompt").click();
@@ -583,7 +659,7 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
           { op: "send_now", promptId: "q-1" },
           { op: "move", promptId: "q-3", index: 2 },
         ],
-        rows: ["1 two", "2 four", "3 three", "4 five", "5 six"],
+        rows: ["two", "four", "three", "five", "six"],
         fold: "Show less (true)",
       });
       await page.close();

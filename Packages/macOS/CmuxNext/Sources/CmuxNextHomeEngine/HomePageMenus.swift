@@ -1,8 +1,8 @@
 public import AppKit
 import CmuxHomeCore
 public import CmuxNextActions
+import CmuxNextDesign
 import CmuxNextHome
-import CmuxNextIcons
 
 /// The Home page's compose-button menu. Each runs its catalog action
 /// through the registry (the CLI and `cmux action run` reach the same
@@ -40,7 +40,7 @@ final class HomeMenuTarget: NSObject {
         let item = NSMenuItem(title: title, action: #selector(fire(_:)), keyEquivalent: "")
         item.target = shared
         item.representedObject = HomeMenuRun(run)
-        item.image = NSImage.icon(symbol: symbol, size: 16)
+        item.image = NSImage.menuSymbol(symbol)
         return item
     }
 

@@ -120,10 +120,22 @@ test("a running MCP call's line names its server and action, never the raw id", 
   expect(toolLabel(call.tool!, call.text, (line) => line)).toBe("cmux-subsessions · start session sidebar-drag-bugs");
   expect(mcpTitleName("mcp__cmux__list_workspaces")).toBe("cmux · list workspaces");
   expect(mcpTitleName("Read config.ts")).toBeUndefined();
-  const rows: AcpmuxRow[] = [
-    { id: "u1", version: 1, at: 0, kind: "user", text: "start one" },
-    { id: "a1", version: 1, at: 1, kind: "activity", items: [call] },
+  // Two calls to one tool share a closed line, so the working line is what names the running one.
+  const listing = (id: string, status: "completed" | "in_progress"): AcpmuxActivity => ({
+    kind: "tool",
+    text: "mcp__cmux__list_workspaces",
+    tool: { id, title: "mcp__cmux__list_workspaces", kind: "other", status },
+  });
+  const user: AcpmuxRow = { id: "u1", version: 1, at: 0, kind: "user", text: "start one" };
+  const run = (items: AcpmuxActivity[]): AcpmuxRow[] => [
+    user,
+    { id: "a1", version: 1, at: 1, kind: "activity", items },
   ];
-  const working = turnView(rows, new Set(), { working: true }).find((row) => row.kind === WORKING);
-  expect(working?.doing).toBe("cmux-subsessions · start session sidebar-drag-bugs");
+  const doing = (items: AcpmuxActivity[]) =>
+    turnView(run(items), new Set(), { working: true }).find((row) => row.kind === WORKING)?.doing;
+  expect(doing([listing("list-0", "completed"), listing("list-1", "in_progress")])).toBe("cmux · list workspaces");
+  // A running sub-session start draws its own card (subsessionCalls.ts), which names it: the line
+  // does not say it again.
+  const earlier = { ...startSession(), tool: { ...startSession().tool!, id: "start-0" } };
+  expect(doing([earlier, call])).toBeUndefined();
 });

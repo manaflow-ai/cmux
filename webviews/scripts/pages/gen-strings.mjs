@@ -148,9 +148,9 @@ export const PAGES = {
           ),
       },
       {
-        // Machines > Add Server… (u3849): the palette action's own title.
-        file: `${sources}/CmuxNextActions/ServerActions.xcstrings`,
-        keys: () => ["action.server.addServer"],
+        // Machines > Add Device… (add-device-DESIGN.md): the palette action's own title, until the host lists arrive.
+        file: `${sources}/CmuxNextActions/RemoteActions.xcstrings`,
+        keys: () => ["action.device.add"],
       },
     ],
   },
@@ -229,6 +229,11 @@ export const PAGES = {
     out: "webviews/src/pages/chief-usage/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/chief-usage/Localizable.xcstrings" }],
   },
+  // The Chief view gallery (cmux-page://cmux.chief-views/); its table lives next to it.
+  "chief-views": {
+    out: "webviews/src/pages/chief-views/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/chief-views/Localizable.xcstrings" }],
+  },
   // The CodeRouter page (cmux-page://cmux.coderouter/) has no Swift page; its table lives next to it.
   coderouter: {
     out: "webviews/src/pages/coderouter/generated/strings.json",
@@ -249,7 +254,7 @@ export const PAGES = {
         keys: (all) =>
           all.filter(
             (key) =>
-              /^(tools|shell|code|image|media|markdown|duration|chip)\./.test(key) ||
+              /^(tools|shell|code|image|media|markdown|duration|chip|message\.channel)\./.test(key) ||
               [
                 "changes.noLineChanges",
                 "link.openPath",
@@ -261,6 +266,38 @@ export const PAGES = {
                 "message.noText",
                 "message.self",
                 "message.unknown",
+                // A sent message's line and status (MessageCard.tsx), which Channels draws too.
+                "message.sentTo",
+                "message.sendingTo",
+                "message.sending",
+                "message.sent",
+                "message.delivered",
+                // The recipient chip's tooltip, the full id behind its name (MessageCard.tsx).
+                "message.recipientId",
+              ].includes(key),
+          ),
+      },
+    ],
+  },
+  // The changelog's pull request chips draw the agent pane's link hover card (chips/LinkHoverCard.tsx,
+  // PullRequestCard.tsx, OpenInMenu.tsx), which read the pane's table; the page installs only these.
+  "changelog-pane": {
+    out: "webviews/src/pages/changelog/generated/pane-strings.json",
+    catalogs: [
+      {
+        file: "webviews/src/agent-session/acpmux/Localizable.xcstrings",
+        keys: (all) =>
+          all.filter(
+            (key) =>
+              /^(prCard|header\.prBadge|header\.prReview)\./.test(key) ||
+              [
+                "chatInspector.changes.failingOnBase",
+                "header.prConflicts",
+                "header.prNoChecks",
+                "image.open",
+                "preview.cmuxBrowser",
+                "preview.copyLink",
+                "preview.openIn",
               ].includes(key),
           ),
       },

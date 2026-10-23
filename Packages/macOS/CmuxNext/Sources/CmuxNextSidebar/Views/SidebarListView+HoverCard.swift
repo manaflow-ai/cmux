@@ -35,8 +35,16 @@ extension SidebarListViewComponents {
     func hoverCardGroup(at point: CGPoint) -> GroupID? {
         guard DesignSettings.shared.groupHoverCard.workspaceGroups, drag == nil, !inlineRename.isActive,
               visibleRect.contains(point), !isHiddenOrHasHiddenAncestor,
-              case .group(let id)? = displayed.row(at: point.y)?.key, groups[id] != nil else { return nil }
+              case .group(let id)? = displayed.row(at: point.y)?.key, groups[id] != nil, !isEmptyTree(id) else { return nil }
         return id
+    }
+    /// The workspaces in `id` and every group under it, in document order: the group's card counts them.
+    func subtreeWorkspaces(of id: GroupID) -> [SidebarWorkspace] {
+        (groupSubtrees[id] ?? [id]).flatMap { groups[$0]?.workspaces ?? [] }
+    }
+    /// No workspace in `id` nor under it: its card, which counts workspaces, would say nothing.
+    private func isEmptyTree(_ id: GroupID) -> Bool {
+        (groupSubtrees[id] ?? [id]).allSatisfy { groups[$0]?.workspaces.isEmpty ?? true }
     }
     /// The group header's frame on screen, nil when it is not laid out.
     func hoverCardAnchor(forGroup id: GroupID) -> CGRect? {
@@ -47,6 +55,19 @@ extension SidebarListViewComponents {
     func hoverCardAnchor(for id: WorkspaceID) -> CGRect? {
         guard let window, let row = displayed.row(for: .workspace(id)) else { return nil }
         return window.convertToScreen(convert(frame(for: row), to: nil))
+    }
+    /// Where a workspace row's hover card goes: the row's band across the sidebar column
+    /// (`HoverCardEscapeGeometry.rowBand`), so the card's top is the row's top and its near edge
+    /// one device pixel off the sidebar's visible edge. Nil when the row is not laid out.
+    func hoverCardBand(for id: WorkspaceID) -> CGRect? {
+        hoverCardAnchor(for: id).flatMap(hoverCardBand(row:))
+    }
+    /// A group header's band across the sidebar column, as `hoverCardBand(for:)`.
+    func hoverCardBand(forGroup id: GroupID) -> CGRect? {
+        hoverCardAnchor(forGroup: id).flatMap(hoverCardBand(row:))
+    }
+    private func hoverCardBand(row: CGRect) -> CGRect? {
+        sidebarColumnOnScreen.map { HoverCardEscapeGeometry.rowBand(row: row, column: $0) }
     }
 }
 

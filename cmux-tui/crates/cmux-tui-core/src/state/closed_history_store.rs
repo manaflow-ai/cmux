@@ -762,7 +762,14 @@ pub(crate) fn capture_closed(
     patch: &ResourcePatch,
 ) -> anyhow::Result<()> {
     let closing = Closing::of(patch);
-    if closing.is_empty() || !super::store::state_tables_ready(transaction)? {
+    if !super::store::state_tables_ready(transaction)? {
+        return Ok(());
+    }
+    // A whole-workspace stash (`stash-workspaces-v1`) takes this close's
+    // capture instead of the closed history.
+    let whole_stash = super::stash_store::take_workspace_stash(transaction)?;
+    if closing.is_empty() {
+        anyhow::ensure!(whole_stash.is_none(), "bad request: no workspace to stash");
         return Ok(());
     }
     let closing_workspaces = closing.workspaces.iter().cloned().collect::<HashSet<_>>();
@@ -820,6 +827,15 @@ pub(crate) fn capture_closed(
             capture.note_window(transaction, &workspace)?;
         }
         capture.members.push(tab);
+    }
+    if let Some((stash_id, name)) = whole_stash {
+        return super::stash_store::store_workspace_stash(
+            transaction,
+            &stash_id,
+            name.as_deref(),
+            capture.members,
+            tab_groups,
+        );
     }
     if capture.members.is_empty() {
         return Ok(());

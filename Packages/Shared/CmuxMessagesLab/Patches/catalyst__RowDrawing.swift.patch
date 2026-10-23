@@ -90,7 +90,7 @@
      /// The point the typing bubble grows from (row coordinates): Messages' fitted scale centre,
      /// 19.1 pt left of and 8.7 pt above the bubble's centre (tools/evidence/ANIMATIONS.md section 6).
      static var typingAnchor: CGPoint { CGPoint(x: typingBubble.midX - 19.07, y: typingBubble.midY - 8.71) }
-@@ -294,8 +306,7 @@
+@@ -295,8 +307,7 @@
                  ctx.drawLinearGradient(Fixture.outgoingGradient, start: CGPoint(x: 0, y: -windowY),
                                         end: CGPoint(x: 0, y: Fixture.gradientHeight - windowY), options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
              } else {
@@ -100,7 +100,7 @@
              }
              ctx.restoreGState()
              _ = lines
-@@ -346,8 +357,7 @@
+@@ -347,8 +358,7 @@
              if p.outgoing, SoftBalloon.clip(ctx, frame: body, row: p) {
                  ctx.fill(ctx.boundingBoxOfClipPath)
              } else {
@@ -110,7 +110,7 @@
              }
              ctx.restoreGState()
          }
-@@ -364,13 +374,16 @@
+@@ -365,13 +375,16 @@
      static func drawText(_ ctx: CGContext, _ tl: TextLayout, in body: CGRect, outgoing: Bool) {
          let color = outgoing ? Fixture.outgoingText : Fixture.incomingText
          // An outgoing link is the bubble's text colour (white; a themed host's own colour).
@@ -129,7 +129,7 @@
              CTLineDraw(l, ctx)
              ctx.restoreGState()
          }
-@@ -433,7 +446,7 @@
+@@ -434,7 +447,7 @@
              if !p.failed { drawSaveButton(ctx, body: body, outgoing: p.outgoing) }
          case "voiceMemo":
              fillBubble(ctx, shape, outgoing: p.outgoing, windowY: windowY)
@@ -138,7 +138,7 @@
              fg.setFill()
              UIBezierPath(ovalIn: CGRect(x: body.minX + 8, y: body.midY - 11, width: 22, height: 22)).fill()
              let tri = UIBezierPath()
-@@ -455,7 +468,7 @@
+@@ -456,7 +469,7 @@
                            baseline: body.midY + 4, in: ctx)
          default:
              fillBubble(ctx, shape, outgoing: p.outgoing, windowY: windowY)
@@ -147,7 +147,7 @@
              let icon = CGRect(x: body.minX + 10, y: body.minY + 10, width: 28, height: 36)
              if a.kind == "contact" {
                  UIColor(white: 0.55, alpha: 1).setFill()
-@@ -562,103 +575,72 @@
+@@ -563,103 +576,72 @@
          }
      }
  
@@ -291,7 +291,7 @@
              ctx.fill(thumb)
              if case let .link(_, _, _, image?, _) = pv.part, let img = Images.load(image) {
                  let s = max(thumb.width / img.size.width, thumb.height / img.size.height)
-@@ -667,16 +649,11 @@
+@@ -668,16 +650,11 @@
              }
              ctx.restoreGState()
              let (title, sub) = pv.lines
@@ -312,7 +312,7 @@
      }
  
      private static func fillBubble(_ ctx: CGContext, _ shape: UIBezierPath, outgoing: Bool, windowY: CGFloat) {
-@@ -1145,7 +1122,11 @@
+@@ -1146,7 +1123,11 @@
  enum BubbleView {
      static func drawBubble(_ ctx: CGContext, body: CGRect, lines: [String], outgoing: Bool, tail: Bool, windowY: CGFloat = 0,
                             cornersOf frame: CGSize? = nil, circularEnds: Bool = false) {
@@ -325,7 +325,7 @@
          if outgoing {
              if windowY.isNaN { return }     // filled by the row's gradient layer
              ctx.saveGState()
-@@ -1160,18 +1141,9 @@
+@@ -1161,18 +1142,9 @@
      }
  }
  

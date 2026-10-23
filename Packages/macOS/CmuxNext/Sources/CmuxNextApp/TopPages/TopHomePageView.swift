@@ -41,6 +41,7 @@ final class TopHomePageView: NSView {
     private var chiefObservation: Task<Void, Never>?
     private var accountObservation: Task<Void, Never>?
     private var requestsObservation: Task<Void, Never>?
+    private var unreadColorObservation: Task<Void, Never>?
 
     init(services: AppServices, windowKey: @escaping () -> String) {
         self.services = services
@@ -70,6 +71,7 @@ final class TopHomePageView: NSView {
             chiefObservation?.cancel()
             accountObservation?.cancel()
             requestsObservation?.cancel()
+            unreadColorObservation?.cancel()
         }
     }
 
@@ -181,9 +183,9 @@ final class TopHomePageView: NSView {
             // (a picture set by a tool or the CLI) reads the rows again, and the pictures with them.
             var picturedRows: [HomeInboxRequest.Response?]?
             var picturedChiefs: Set<String>?
-            // The chosen pet character is the avatar of a Chief with none of its own: a new one redraws the list.
+            // Each Chief's pet character is its avatar when it has none of its own: a new pick redraws the list.
             for await (all, archived, _, _, _, _, owned, _, _, _) in ObservationStream({
-                (store.rows, home.directory.archivedChiefs, sidebar.query, sidebar.pins, sidebar.unreadMarks, home.directory.chiefAvatars,
+                (store.rows, home.directory.archivedChiefs, sidebar.query, sidebar.pins, sidebar.unreadMarks, home.chiefFaces,
                  sidebar.ownerRows, home.directory.chiefHarnesses, home.chiefRoster, home.services.settings?.snapshot.homeChiefPetMascot)
             }) {
                 guard let self else { return }
@@ -229,6 +231,13 @@ final class TopHomePageView: NSView {
         requestsObservation = Task { [weak self] in
             for await count in ObservationStream({ home.requests.items.count }) { self?.list.showRequests(count) }
         }
+        // task-owner: lives as long as this view; event-driven (Observation). The unread dot is
+        // the unread rings' color (`notifications.attention.color`, nil: the notification blue).
+        unreadColorObservation = Task { [weak self] in
+            for await color in ObservationStream({ home.services.settings?.snapshot.attention.color }) {
+                self?.list.unreadDotColor = color?.nsColor
+            }
+        }
         // task-owner: lives as long as this view; event-driven (Observation)
         selectionObservation = Task { [weak self] in
             for await pending in ObservationStream({ (home.pendingSelection, store.rows.map(\.id)) }) {
@@ -273,17 +282,24 @@ final class TopHomePageView: NSView {
         return store.isInboxCurrent && store.isCacheOnly(shown)
     }
 
-    /// Shows the live Chief instead of a gone conversation; the text the user
-    /// typed there goes with it (after the Chief's own draft), so nothing typed is lost.
+    /// Shows the live Chief instead of a gone conversation; the text and pictures the user
+    /// put there go with it (after the Chief's own draft), so nothing typed or pasted is lost.
     private func replaceGone(with chief: ConversationID, store: HomeStore) {
         guard let gone = shown, gone != chief, store.summary(chief) != nil else { return }
-        if let text = store.draft(for: gone), !text.isEmpty {
+        let pictures = store.draftAttachments(for: gone)
+        if !pictures.isEmpty {
+            let own = store.draftAttachments(for: chief)
+            store.setDraftAttachments(own + pictures.filter { p in !own.contains { $0.ref.hash == p.ref.hash } }, for: chief)
+            store.setDraftAttachments([], for: gone)
+        }
+        let text = store.draft(for: gone) ?? ""
+        if !text.isEmpty {
             let own = store.draft(for: chief) ?? ""
             store.setDraft(own.isEmpty ? text : own + "\n" + text, for: chief)
             store.setDraft("", for: gone)
-            // Its view says the Chief restarted and that Return sends the text.
-            store.noteCarriedDraft(to: chief)
         }
+        // Its view says the Chief restarted and that Return sends what was carried.
+        if !text.isEmpty || !pictures.isEmpty { store.noteCarriedDraft(to: chief) }
         show(chief)
     }
 
@@ -361,6 +377,7 @@ final class TopHomePageView: NSView {
         }
         page.isHidden = false
         host?.isHidden = true
+        split.composing = true
         list.setDraftRow(HomeNewMessageDraft.rowTitle)
         list.select(HomeSidebarView.draftRowID)
         page.needsLayout = true
@@ -401,6 +418,7 @@ final class TopHomePageView: NSView {
         } else {
             page.isHidden = true
             host?.isHidden = false
+            split.composing = false
         }
         return true
     }
@@ -412,6 +430,7 @@ final class TopHomePageView: NSView {
         page.stop()
         page.removeFromSuperview()
         host?.isHidden = false
+        split.composing = false
         list.setDraftRow(nil)
     }
 

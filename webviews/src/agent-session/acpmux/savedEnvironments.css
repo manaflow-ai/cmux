@@ -1,0 +1,78 @@
+/* Saved environments on the New Tab page (preview): the inline Create environment / Edit
+   environment panel under the composer (SavedEnvironmentPanel.tsx). Compact rows, regular weight,
+   the pane's text tokens. */
+
+.acpmux-env-panel {
+  --glass-edge: var(--agent-border);
+  --glass-elevation: var(--elevation-1);
+  /* glass-opaque-allow: Reduce Transparency's fill only (glass.css applies it under that setting) */
+  --glass-opaque: var(--surface-popup, var(--agent-input-bg));
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  max-width: 560px;
+  box-sizing: border-box;
+  margin: 10px auto 0;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 10px;
+  color: var(--agent-text);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+}
+
+.acpmux-env-panel button { font: inherit; color: inherit; border: 0; border-radius: 5px; background: transparent; cursor: default; }
+.acpmux-env-panel button:hover:not(:disabled) { background: var(--agent-control); }
+.acpmux-env-panel button:focus-visible { outline: 2px solid var(--agent-text); outline-offset: -2px; }
+.acpmux-env-panel button:disabled { opacity: .45; }
+
+.acpmux-env-heading { min-height: 22px; font-weight: 500; }
+
+.acpmux-env-tabs { display: flex; gap: 2px; padding: 2px; border-radius: 7px; background: color-mix(in srgb, var(--agent-text) 6%, transparent); width: fit-content; }
+.acpmux-env-panel .acpmux-env-tab { height: 24px; padding: 0 10px; color: var(--agent-muted); }
+.acpmux-env-panel .acpmux-env-tab[aria-pressed="true"] { background: var(--agent-control); color: var(--agent-text); }
+
+.acpmux-env-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.acpmux-env-label { color: var(--agent-muted); font-size: var(--text-detail); line-height: var(--text-detail--line-height); }
+.acpmux-env-input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  border: var(--cmux-hairline, 0.5px) solid var(--agent-border);
+  border-radius: 6px;
+  background: var(--agent-input-bg);
+  color: var(--agent-text);
+  font: inherit;
+  outline: none;
+}
+.acpmux-env-input:focus { border-color: var(--agent-muted); }
+
+.acpmux-env-panel .acpmux-env-select {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  box-sizing: border-box;
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  border: var(--cmux-hairline, 0.5px) solid var(--agent-border);
+  border-radius: 6px;
+  background: var(--agent-input-bg);
+  text-align: start;
+}
+.acpmux-env-panel .acpmux-location-picker { display: flex; min-width: 0; }
+.acpmux-env-panel .acpmux-location-picker > button { flex: 1; min-width: 0; padding: 0; }
+.acpmux-env-select-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acpmux-env-select-text[data-placeholder] { color: var(--agent-muted); }
+
+.acpmux-env-check { display: flex; align-items: center; gap: 6px; width: fit-content; }
+
+.acpmux-env-footer { display: flex; align-items: center; justify-content: flex-end; gap: 6px; min-height: 28px; }
+.acpmux-env-error { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--agent-muted); font-size: var(--text-detail); }
+.acpmux-env-panel .acpmux-env-button { height: 26px; padding: 0 10px; }
+.acpmux-env-panel .acpmux-env-submit { background: var(--agent-control); }
+.acpmux-env-panel .acpmux-env-button[data-destructive] { color: var(--agent-danger); }

@@ -23,11 +23,14 @@ struct AgentPaneSendPickedFolderPromptTests {
         let inbox: AgentPaneRelayedAllowTests.PageInbox
         let clock: Clock
         let folder: String
+        /// A folder that is already a root of the pane: a chat the page starts there needs no pick.
+        let root: String
         let base: URL
         let id: Int
     }
 
-    /// A pane with no root for `folder` (a project outside the fresh workspace), on a stand-in acpmux.
+    /// A pane with no root for `folder` (a project outside the fresh workspace) and one root of its
+    /// own (`root`), on a stand-in acpmux.
     private func pane(home: Bool = false) async throws -> Pane {
         let server = AcpmuxStandInServer()
         try await server.start()
@@ -36,21 +39,25 @@ struct AgentPaneSendPickedFolderPromptTests {
         let created = base.appendingPathComponent("parity-demo").path
         try FileManager.default.createDirectory(atPath: created, withIntermediateDirectories: true)
         let folder = AcpmuxPathPolicy.canonical(created) ?? created
+        let rooted = base.appendingPathComponent("workspace").path
+        try FileManager.default.createDirectory(atPath: rooted, withIntermediateDirectories: true)
+        let root = AcpmuxPathPolicy.canonical(rooted) ?? rooted
         let clock = Clock()
         let inbox = AgentPaneRelayedAllowTests.PageInbox()
         let transport = AgentPaneTransport(gestures: AgentPaneUserGestures(now: { clock.now }))
         transport.deliver = { event, done in inbox.deliver(event.frames); done() }
         let model = AgentPaneModel(host: NoHost(), transport: transport)
+        transport.roots = { [root] }
         transport.homeFolder = home ? folder : "/nonexistent-home-\(UUID().uuidString)"
         let id = try await transport.open(AcpmuxConnection(url: server.url, dashboardToken: "t", localAppToken: nil))
         #expect(await transport.send(connection: id, frames: [#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{}}"#]) == nil)
-        return Pane(server: server, model: model, inbox: inbox, clock: clock, folder: folder, base: base, id: id)
+        return Pane(server: server, model: model, inbox: inbox, clock: clock, folder: folder, root: root, base: base, id: id)
     }
 
     private func status(_ reply: [String: Any]) -> String? { (reply["value"] as? [String: Any])?["status"] as? String }
 
-    private func start(_ pane: Pane, id: Int) async -> AgentPaneTransportError? {
-        let frame = #"{"jsonrpc":"2.0","id":\#(id),"method":"session/new","params":{"cwd":"\#(pane.folder)","mcpServers":[]}}"#
+    private func start(_ pane: Pane, id: Int, in cwd: String? = nil) async -> AgentPaneTransportError? {
+        let frame = #"{"jsonrpc":"2.0","id":\#(id),"method":"session/new","params":{"cwd":"\#(cwd ?? pane.folder)","mcpServers":[]}}"#
         let error = await pane.model.transport.send(connection: pane.id, frames: [frame])
         if error == nil { _ = await pane.inbox.frame(containing: #""id":\#(id)"#) }
         return error
@@ -97,18 +104,22 @@ struct AgentPaneSendPickedFolderPromptTests {
 
         #expect(status(await pane.model.respond(to: .useFolder(pane.folder, confirm: false))) == "ok")
         #expect(pane.model.transport.addedRoots.isEmpty)
+        // The page then starts a chat by itself in a folder that is already a root: the pick gave
+        // that start nothing to carry, so its first prompt still needs the person.
+        #expect(await start(pane, id: 1, in: pane.root) == nil)
         #expect(await prompt(pane, id: 2) == .gestureRequired)
     }
 
-    /// A pick passes its gesture only to a chat that starts: with no start, a prompt into the
-    /// pane's chat gets nothing from it.
+    /// A pick passes its gesture only to a chat that starts: with no start after it, a prompt into
+    /// the pane's chat gets nothing from it.
     @Test func aPickWithoutAStartGivesAPromptNothing() async throws {
         let pane = try await pane()
         defer { pane.server.stop(); try? FileManager.default.removeItem(at: pane.base) }
 
-        #expect(await start(pane, id: 1) == nil) // a chat the page started by itself
+        #expect(await start(pane, id: 1, in: pane.root) == nil) // a chat the page started by itself
         pane.model.transport.gestures.record(click: true) // a folder picked in the menu, no Send
         #expect(status(await pane.model.respond(to: .useFolder(pane.folder, confirm: false))) == "ok")
+        #expect(pane.model.transport.addedRoots == [pane.folder]) // the pick took the click
         #expect(await prompt(pane, id: 2) == .gestureRequired)
     }
 

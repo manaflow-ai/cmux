@@ -35,13 +35,14 @@ struct AgentChatTabActions {
         _ = registry()?.perform(ActionID(rawValue: id), invocation: invocation)
     }
 
-    /// Runs `id` (Changes' diff viewer, Preview's browser) as an agent's beside_caller run, keeping
-    /// focus in the chat: its tab opens selected in tab `target`'s column, or with no target in a new
-    /// column right of the chat.
+    /// Runs `id` (Changes' diff viewer, Preview's browser) where an agent's beside_caller run puts
+    /// its tab: in tab `target`'s column, or with no target in a new column right of the chat. A
+    /// person clicked it, so the tab takes the focus (``ActionInvocation/besideTakesFocus``).
     func runBeside(_ id: String, arguments: [String: ActionValue], on target: String?) {
         var invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: target ?? tab()), arguments: arguments, origin: .user)
         invocation.besideCaller = true
         invocation.newColumnBeside = target == nil
+        invocation.besideTakesFocus = true
         _ = registry()?.perform(ActionID(rawValue: id), invocation: invocation)
     }
 

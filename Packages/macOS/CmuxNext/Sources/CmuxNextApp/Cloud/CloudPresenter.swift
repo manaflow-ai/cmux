@@ -23,6 +23,20 @@ enum CloudPresenter {
         handle.onAction = { copy(body) }
     }
 
+    /// Shows a report as a toast: the title and `summary`, with a Copy
+    /// details action that copies `details` (the raw report) and only on a
+    /// click; the toast stays 12 s.
+    static func show(_ title: String, summary: String, details: String, in window: NSWindow?) {
+        guard let window else {
+            Logger(subsystem: "com.cmuxterm.app.next", category: "cloud").info("cloud result with no window: \(title, privacy: .public)")
+            return
+        }
+        let toast = CmuxToast(id: resultToastID, message: CloudStrings.result(title, summary),
+                              action: CmuxToast.Action(title: CloudStrings.copyDetails), duration: .seconds(12))
+        let handle = CmuxToastCenter.shared.show(toast, in: window)
+        handle.onAction = { copy(details) }
+    }
+
     /// One short line: the body itself, else its first non-empty line with "…".
     static func summary(_ body: String, limit: Int = 120) -> String {
         let lines = body.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
@@ -47,31 +61,6 @@ enum CloudPresenter {
                                   buttons: [.cancel(CloudStrings.cancel), CmuxDialogButton(id: "confirm", title: button, role: .default)],
                                   identifier: identifier)
         present(spec, in: window) { answer in done(answer?.button == "confirm") }
-    }
-
-    /// Asks for a line of text. Calls `done` with the text, or nil on cancel.
-    static func askText(_ title: String, initial: String, button: String, in window: NSWindow?, done: @escaping (String?) -> Void) {
-        let spec = CmuxDialogSpec(title: title, fields: [.text("text", initial: initial)],
-                                  buttons: [.cancel(CloudStrings.cancel), CmuxDialogButton(id: "confirm", title: button, role: .default)],
-                                  identifier: "cmux.dialog.cloud.text")
-        present(spec, in: window) { answer in
-            done(answer?.button == "confirm" ? answer?.text("text") : nil)
-        }
-    }
-
-    /// Asks to pick one of `choices` (title, value).
-    static func choose(_ title: String, _ choices: [(String, String)], selected: String?, in window: NSWindow?, done: @escaping (String?) -> Void) {
-        choose(title, options: choices.map { CmuxDialogOption(label: $0.0, value: $0.1) }, selected: selected, in: window, done: done)
-    }
-
-    /// Asks to pick one of `options`; a disabled option lists greyed out and cannot be picked.
-    static func choose(_ title: String, options: [CmuxDialogOption], selected: String?, in window: NSWindow?, done: @escaping (String?) -> Void) {
-        let spec = CmuxDialogSpec(title: title, fields: [.choice(id: "choice", label: nil, options: options, selected: selected)],
-                                  buttons: [.cancel(CloudStrings.cancel), CmuxDialogButton(id: "select", title: CloudStrings.select, role: .default)],
-                                  identifier: "cmux.dialog.cloud.choose")
-        present(spec, in: window) { answer in
-            done(answer?.button == "select" ? answer?.text("choice") : nil)
-        }
     }
 
     static func copy(_ text: String) {

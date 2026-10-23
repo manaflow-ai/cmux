@@ -9,9 +9,12 @@ use std::time::{Duration, Instant};
 use serde_json::Value;
 
 use super::{
-    CloudBackend, CloudEvent, CloudWire, ConnectError, HttpReply, TransportError, WireRecv,
+    CloudBackend, CloudEvent, CloudWire, ConnectError, HttpReply, RangeReply, TransportError,
+    WireRecv,
 };
 
+/// One request the daemon sent. `bearer` is empty when no Authorization
+/// header went out (a self-hosted Tailscale lease).
 #[derive(Debug, Clone)]
 pub struct Posted {
     pub url: String,
@@ -75,6 +78,16 @@ pub struct FakeBackend {
     pub posted: Mutex<Vec<Posted>>,
     pub wires: Mutex<VecDeque<Result<ScriptedWire, ConnectError>>>,
     pub connected: Mutex<Vec<Connected>>,
+    /// `GET` requests (body `Null`); replies come from `replies` by path.
+    pub got: Mutex<Vec<Posted>>,
+    /// `PUT` requests: url and byte count; replies come from `replies` by path.
+    pub put: Mutex<Vec<(String, usize)>>,
+    /// Objects a ranged read serves, by path without the query: (mime, bytes).
+    pub objects: Mutex<HashMap<String, (String, Vec<u8>)>>,
+}
+
+fn path_of(url: &str) -> String {
+    url.find("/v1/").map_or(url, |at| &url[at..]).to_string()
 }
 
 impl FakeBackend {
@@ -113,41 +126,103 @@ impl FakeBackend {
     pub fn connected(&self) -> Vec<Connected> {
         self.connected.lock().unwrap_or_else(PoisonError::into_inner).clone()
     }
+
+    pub fn got(&self) -> Vec<Posted> {
+        self.got.lock().unwrap_or_else(PoisonError::into_inner).clone()
+    }
+
+    pub fn put_requests(&self) -> Vec<(String, usize)> {
+        self.put.lock().unwrap_or_else(PoisonError::into_inner).clone()
+    }
+
+    /// Serves `bytes` for ranged reads of `path` (without its query).
+    pub fn object(&self, path: &str, mime: &str, bytes: Vec<u8>) {
+        self.objects
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(path.to_string(), (mime.to_string(), bytes));
+    }
+
+    fn scripted(&self, path: &str) -> Result<HttpReply, TransportError> {
+        self.replies
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get_mut(path)
+            .and_then(VecDeque::pop_front)
+            .unwrap_or_else(|| Err(TransportError(format!("no scripted reply for {path}"))))
+    }
 }
 
 impl CloudBackend for FakeBackend {
     fn post(
         &self,
         url: &str,
-        bearer: &str,
+        bearer: Option<&str>,
         client_version: Option<&str>,
         body: &Value,
     ) -> Result<HttpReply, TransportError> {
         self.posted.lock().unwrap_or_else(PoisonError::into_inner).push(Posted {
             url: url.to_string(),
-            bearer: bearer.to_string(),
+            bearer: bearer.unwrap_or_default().to_string(),
             client_version: client_version.map(str::to_string),
             body: body.clone(),
         });
-        let path = url.find("/v1/").map_or(url, |at| &url[at..]).to_string();
-        self.replies
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .get_mut(&path)
-            .and_then(VecDeque::pop_front)
-            .unwrap_or_else(|| Err(TransportError(format!("no scripted reply for {path}"))))
+        self.scripted(&path_of(url))
+    }
+
+    fn get(
+        &self,
+        url: &str,
+        bearer: Option<&str>,
+        client_version: Option<&str>,
+    ) -> Result<HttpReply, TransportError> {
+        self.got.lock().unwrap_or_else(PoisonError::into_inner).push(Posted {
+            url: url.to_string(),
+            bearer: bearer.unwrap_or_default().to_string(),
+            client_version: client_version.map(str::to_string),
+            body: Value::Null,
+        });
+        self.scripted(&path_of(url))
+    }
+
+    fn put(
+        &self,
+        url: &str,
+        _headers: &[(String, String)],
+        body: Vec<u8>,
+    ) -> Result<HttpReply, TransportError> {
+        self.put.lock().unwrap_or_else(PoisonError::into_inner).push((url.to_string(), body.len()));
+        self.scripted(&path_of(url))
+    }
+
+    fn get_range(&self, url: &str, offset: u64, length: u64) -> Result<RangeReply, TransportError> {
+        let path = path_of(url);
+        let path = path.split('?').next().unwrap_or_default().to_string();
+        let objects = self.objects.lock().unwrap_or_else(PoisonError::into_inner);
+        let Some((mime, bytes)) = objects.get(&path) else {
+            return Ok(RangeReply { status: 404, content_type: None, total: None, body: vec![] });
+        };
+        let start = usize::try_from(offset).unwrap_or(usize::MAX).min(bytes.len());
+        let end =
+            start.saturating_add(usize::try_from(length).unwrap_or(usize::MAX)).min(bytes.len());
+        Ok(RangeReply {
+            status: 206,
+            content_type: Some(mime.clone()),
+            total: Some(bytes.len() as u64),
+            body: bytes[start..end].to_vec(),
+        })
     }
 
     fn connect(
         &self,
         url: &str,
-        bearer: &str,
+        bearer: Option<&str>,
         _client_version: Option<&str>,
     ) -> Result<Box<dyn CloudWire>, ConnectError> {
-        self.connected
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .push(Connected { url: url.to_string(), bearer: bearer.to_string() });
+        self.connected.lock().unwrap_or_else(PoisonError::into_inner).push(Connected {
+            url: url.to_string(),
+            bearer: bearer.unwrap_or_default().to_string(),
+        });
         match self.wires.lock().unwrap_or_else(PoisonError::into_inner).pop_front() {
             Some(Ok(wire)) => Ok(Box::new(wire)),
             Some(Err(error)) => Err(error),

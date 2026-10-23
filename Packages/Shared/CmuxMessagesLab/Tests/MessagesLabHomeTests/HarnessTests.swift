@@ -74,6 +74,7 @@ import Testing
         // Each run starts as a fresh process would (DiffHarness runs one per
         // process): the first rows are configured before `captureMode` turns
         // synchronous bitmaps on, and the bitmap cache is cold.
+        HomeMarkdownPolicy.installSprings()  // springs.json from the package (f79bdbe Springs.bundle)
         RowCell.synchronousBitmaps = false
         RowBitmaps.shared.removeAll()
         MeasureCache.shared.trim(keeping: [])

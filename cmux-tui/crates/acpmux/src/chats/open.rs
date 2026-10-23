@@ -94,6 +94,8 @@ pub fn plan_open(
             if let Some(profile) = profile {
                 let adopt = json!({"harness": profile, "agentSessionId": entry.session_id});
                 plan["kind"] = json!("adopt");
+                // The profile is named freely; the family says what the chat is (View Only).
+                plan["family"] = json!(adapter_family(entry.harness));
                 plan["adopt"] = adopt.clone();
                 if let Some(cwd) = &cwd {
                     plan["sessionNew"] = json!({
@@ -165,16 +167,21 @@ pub(crate) fn store_dirs(chat: &IndexedChat) -> Vec<PathBuf> {
         .collect()
 }
 
+/// The acpmux family of a chat that adopts: `claude`, `codex` or `opencode`.
+fn adapter_family(harness: AdapterKind) -> Option<&'static str> {
+    match harness {
+        AdapterKind::ClaudeCode => Some("claude"),
+        AdapterKind::Codex => Some("codex"),
+        AdapterKind::OpenCode => Some("opencode"),
+        _ => None,
+    }
+}
+
 /// The family's profile when none's store holds the chat: the one named like
 /// the family first, then the others in name order.
 fn family_profile(harness: AdapterKind, profiles: &[StoreProfile]) -> Option<&str> {
-    let family = match harness {
-        AdapterKind::ClaudeCode => "claude",
-        AdapterKind::Codex => "codex",
-        // OpenCode keeps every chat in one data dir: any opencode profile loads it.
-        AdapterKind::OpenCode => "opencode",
-        _ => return None,
-    };
+    // OpenCode keeps every chat in one data dir: any opencode profile loads it.
+    let family = adapter_family(harness)?;
     profiles
         .iter()
         .filter(|profile| profile.family == family)

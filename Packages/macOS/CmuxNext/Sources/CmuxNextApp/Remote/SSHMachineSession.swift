@@ -1,6 +1,7 @@
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextRemote
+import CmuxNextSidebar
 import CmuxNextWorkspaceRepair
 import Foundation
 import Observation
@@ -10,7 +11,8 @@ import Observation
 /// machine's daemon is its own tree and sidebar section.
 @Observable
 final class SSHMachineSession {
-    let host: SSHHost
+    /// Its route and name; Add Machine may rename it (`SSHHost.named`), never reroute it.
+    var host: SSHHost
     /// The host's id, or the paired server's (`ServerMachineSession`).
     let machineID: String
     let daemon: DaemonService
@@ -49,7 +51,7 @@ final class SSHMachineSession {
          machineID: String? = nil) {
         self.host = host
         self.machineID = machineID ?? host.machineID
-        daemon = DaemonService(machineID: self.machineID)
+        daemon = DaemonService(machineID: self.machineID, echoesPlacementShift: SidebarMirror.isLinked)
         // The actor reports each status change; only the latest matters.
         let (statuses, continuation) = AsyncStream.makeStream(of: SSHConnectionMachine.Status.self, bufferingPolicy: .bufferingNewest(8))
         link = SSHMachineLink(host: host, binary: binary, paths: paths, environment: environment) { continuation.yield($0) }

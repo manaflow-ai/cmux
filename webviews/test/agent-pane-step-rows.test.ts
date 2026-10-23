@@ -1,8 +1,9 @@
 // l10n-allow-file: test fixture prompts, thoughts and commands, not shipped UI.
 // The steps of a turn read as one list (Leo 2026-10-13, cmux NEXT on macOS 27): tool calls,
 // thoughts and a background shell's end all draw as one 26px row style on one rhythm, whether
-// they share a transcript row or not. A thought shows in full, wrapped, with no tooltip, and a
-// row shows nothing more on hover: its disclosure chevron is there at rest.
+// they share a transcript row or not. A finished thought is one quiet row like the others that
+// opens to its full text, wrapped, with no tooltip (Leo 2026-10-20), and a row shows nothing more
+// on hover: its disclosure chevron is there at rest.
 //
 // Before: the background task's end used a smaller font in a 22px row with its own margins, a
 // step in the next transcript row sat 10px further down than one in the same row, a thought was
@@ -13,6 +14,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -67,7 +69,8 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
       }),
     ],
     ...call("c3", "Read build-acpmux.sh", "read", { locations: [{ path: "/home/dev/cmux/scripts/build-acpmux.sh" }] }),
-    // The turn is still running: a live turn lists each step instead of folding them.
+    // The turn is still running. Its finished steps fold under their run's line (Debug toggle
+    // agentPane.debug.codexToolRuns, on by default), which the tests open (`openRun`).
   ];
   const events = steps.map(([dir, kind, msg], index) => ({
     sessionId: CHAT,
@@ -115,9 +118,31 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     await page.goto(url());
     await page.getByText("build-acpmux.sh").first().waitFor();
-    // Rows place by their drawn heights a frame after they mount.
-    await page.waitForTimeout(300);
+    // Rows place by their drawn heights a frame after they mount: two painted frames later they have.
+    await installPaintedFrames(page);
+    await page.evaluate(() => window.cmuxPaintFrame().then(() => window.cmuxPaintFrame()));
     return page;
+  };
+  /// Opens the group of the first two commands and the thought between them ("Ran 2 commands",
+  /// conversation/ToolGroupRow.tsx; the thought stays in the group, toolGroups.ts), so each step in
+  /// it draws its own row.
+  const openRun = async (page: Page) => {
+    await page.locator(".acpmux-row button.cv-tool", { hasText: "Ran 2 commands" }).click();
+    await page.locator(".cv-thought").waitFor();
+    // The fold plays (a Web Animation, fold.ts), then the rows below it place by their drawn heights.
+    await page.evaluate(async () => {
+      const finite = () =>
+        document
+          .getAnimations()
+          .filter(
+            (animation) =>
+              animation.playState === "running" && Number.isFinite(animation.effect?.getComputedTiming().endTime),
+          );
+      for (let moving = finite(); moving.length > 0; moving = finite())
+        await Promise.allSettled(moving.map((animation) => animation.finished));
+      await window.cmuxPaintFrame();
+      await window.cmuxPaintFrame();
+    });
   };
   beforeAll(async () => {
     daemon = Bun.serve({
@@ -164,6 +189,7 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
 
   test("every step is one 26px row on one rhythm, across transcript rows", async () => {
     const page = await open();
+    await openRun(page);
     const rows = await page.locator(".acpmux-row .cv-tool").evaluateAll((nodes) =>
       nodes.map((node) => {
         const box = node.getBoundingClientRect();
@@ -175,9 +201,8 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
         };
       }),
     );
-    // The thought wraps to several lines; every other step is one line.
-    const single = rows.filter((row) => !row.text.startsWith("Thought"));
-    expect(single.map((row) => row.height)).toEqual(single.map(() => 26));
+    // The finished thought is folded to one line too.
+    expect(rows.map((row) => row.height)).toEqual(rows.map(() => 26));
     expect(new Set(rows.map((row) => row.fontSize)).size).toBe(1);
     // Each step starts where the one above it ends.
     const gaps = rows.slice(1).map((row, index) => row.top - (rows[index]!.top + rows[index]!.height));
@@ -189,9 +214,20 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
     await page.close();
   });
 
-  test("a thought shows in full, wrapped, with no tooltip", async () => {
+  test("a finished thought is one quiet row that opens to its full text, wrapped, with no tooltip", async () => {
     const page = await open();
-    const thought = page.locator(".cv-thought");
+    await openRun(page);
+    const toggle = page.locator("button.cv-thought");
+    expect((await toggle.innerText()).trim()).toBe("Thought");
+    expect(await page.locator(".cv-thought__body, .cv-thought__text").count()).toBe(0);
+    await toggle.click();
+    // The fold plays, then the text has its height.
+    const thought = page.locator(".cv-thought__body");
+    await page.waitForFunction(
+      () => (document.querySelector(".cv-thought__body")?.getBoundingClientRect().height ?? 0) > 26,
+      undefined,
+      { timeout: 5_000 },
+    );
     expect((await thought.innerText()).replace(/\s+/g, " ")).toContain(THOUGHT);
     expect(await thought.evaluate((node) => node.closest("[title]") === null && !node.querySelector("[title]"))).toBe(
       true,

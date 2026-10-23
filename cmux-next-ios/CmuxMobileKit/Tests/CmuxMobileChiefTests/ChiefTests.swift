@@ -577,7 +577,7 @@ private let tinyPNG = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAQAAAADCAIAA
 #if os(iOS)
 @Suite @MainActor struct ChiefDirectoryTests {
     func directory() -> ChiefDirectory {
-        let chief = ChiefDirectory.recipients(store: AppStore(teams: [], activeTeamID: "", workspaces: [], feed: []), identity: .standard)
+        let chief = ChiefDirectory.recipients(store: AppStore(teams: [], activeTeamID: "", workspaces: [], feed: []), identity: .standard, place: .mac)
         let agent = ChiefRecipient(
             contact: ConversationContact(id: "tab:t1", name: "Claude · cmux", initials: "CL", colorHex: "#636366",
                                          handles: [ConversationContactHandle(value: "cmux", label: "Claude", service: .iMessage)]),

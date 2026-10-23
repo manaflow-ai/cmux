@@ -38,6 +38,7 @@ final class ScreenBarController {
         preview = ScreenPreviewSource(content: content)
         view.dragsWindowFromEmptySpace = false
         view.renamesOnDoubleClick = true
+        view.newTabToolTip = nil // the screen bar's + makes a screen, not a tab
         view.previewProvider = preview
         view.setAccessibilityLabel(ScreenStrings.barAccessibility)
         model.intentHandler = { [weak self] intent in self?.handle(intent) }
@@ -122,7 +123,7 @@ final class ScreenBarController {
             ScreenCommands.close(Array(workspace.screens[(index + 1)...]), in: workspace, daemon: daemon, services: services)
         case .reorder(let id, _, let to):
             // A daemon without move-screen keeps the daemon's order.
-            guard daemon.supports(DaemonCapabilities.shared.screenMetadata), let screen = screen(id) else {
+            guard daemon.supports(DaemonCapabilities.screenMetadata), let screen = screen(id) else {
                 return view.discardPendingReorder()
             }
             ScreenCommands.move(screen, to: to, daemon: daemon)
@@ -219,7 +220,7 @@ final class ScreenBarController {
         case .emptyStrip, .newTabButton:
             registry.makeContextMenu(for: .screenBar)
         }
-        // The bar's rows highlight as the sidebar's and the tab strip's do: a wash of the theme's accent.
+        // A standard macOS menu in the bar's light or dark look, like every right-click menu.
         return menu.themeRows(in: content.themeScope.fullStrength)
     }
 }

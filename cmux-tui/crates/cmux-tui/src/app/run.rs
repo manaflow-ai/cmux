@@ -256,7 +256,7 @@ pub(super) fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Res
     // startup terminal probes so their replies cannot be consumed as key
     // input. Backpressure here must never block mutation completions.
     let input = host_input.producer(tx.clone());
-    let input_reader = match std::thread::Builder::new().name("input".into()).spawn(move || {
+    if let Err(error) = host_input.spawn_reader("input", move || {
         for event in crate::ui::graphics::finish_startup_input(pending_input) {
             if !input.send(event) {
                 return;
@@ -286,10 +286,8 @@ pub(super) fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Res
             }
         }
     }) {
-        Ok(reader) => reader,
-        Err(error) => return Err(terminal_restore.restore_after_error(error.into())),
-    };
-    host_input.attach_reader(input_reader);
+        return Err(terminal_restore.restore_after_error(error.into()));
+    }
 
     let graphics_writer = if graphics_supported {
         let graphics_ready = tx.clone();

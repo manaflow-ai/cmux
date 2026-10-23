@@ -1097,8 +1097,10 @@ class SideLanes(unittest.TestCase):
         self.assertIsInstance(rescue.sweep_target(fork, "manaflow-ai/cmux", late=False), str)
 
     def test_a_completed_failed_blacksmith_retry_is_not_watched_again(self):
+        # The bot's attempt 3; a person's re-run stays minis-first and is watched at any attempt.
         run = dict(side_event(path=rescue.CMUX_NEXT_WORKFLOW_PATH, run_attempt=3,
-                              status="completed", conclusion="failure")["workflow_run"])
+                              status="completed", conclusion="failure",
+                              triggering_actor={"login": rescue.RESCUE_ACTOR})["workflow_run"])
         self.assertFalse(rescue.owned_rerun(run))
         self.assertEqual(rescue.sweep_target(run, "manaflow-ai/cmux", late=False), "attempt 3")
 
@@ -1252,7 +1254,7 @@ class SideLanes(unittest.TestCase):
     def test_cmux_next_overflows_a_queued_side_job_with_a_running_sibling(self):
         # cmux-next's explicit rescue window is the overflow boundary. A queued
         # side job moves with the bot rerun even when another side job is still
-        # running; attempt 2 remains minis-first and attempt 3 is Blacksmith.
+        # running; the bot's attempt 2 is the Blacksmith overflow.
         def cmux_next(done_at):
             def jobs(seconds):
                 test = job("cmux-next swift test", labels=[SIDE], status="in_progress", runner="mini-5-glaeda-3")
@@ -1271,7 +1273,7 @@ class SideLanes(unittest.TestCase):
         self.assertIn("cancel", api.calls)
         self.assertIn("rerun-failed", api.calls)
         self.assertIn("overflowing the queued side jobs", summary)
-        self.assertIn("attempt 2 stays on the side lane's owned label", summary)
+        self.assertIn("attempt 2 takes the side lane's Blacksmith overflow", summary)
 
         # A non-cmux-next side lane keeps the historical sibling protection.
         clock = Clock()
@@ -1300,7 +1302,7 @@ class SideLanes(unittest.TestCase):
         target = rescue.target_from_event(side_event(), "manaflow-ai/cmux")
         self.assertIn("Blacksmith default", rescue.next_attempt(target))
         target = rescue.target_from_event(side_event(path=rescue.CMUX_NEXT_WORKFLOW_PATH), "manaflow-ai/cmux")
-        self.assertIn("stays on the side lane's owned label", rescue.next_attempt(target))
+        self.assertIn("attempt 2 takes the side lane's Blacksmith overflow", rescue.next_attempt(target))
         self.assertIn("Blacksmith overflow", rescue.next_attempt(dataclasses.replace(target, attempt=2)))
 
     def test_a_cmux_next_job_queued_past_the_ci_budget_is_not_cancelled(self):
@@ -1365,6 +1367,26 @@ class SideLanes(unittest.TestCase):
         self.assertNotIn("rerun", api.calls)
         self.assertIn("also failed for a reason that is not a refusal", outcome)
 
+    def test_a_cmux_next_attempt_two_on_blacksmith_gets_no_redundant_rerun(self):
+        # The rescue's attempt 2 overflows to a free Blacksmith slot. A job kept from attempt 1 still
+        # names the mini label, but nothing of attempt 2 waits on the fleet, so a long Blacksmith
+        # queue is never moved again as attempt 3.
+        kept = job("cmux-next swift test", status="completed", labels=[SIDE], runner="mini-1-glaeda-1")
+        kept.update(conclusion="success", started_at=stamp(-3600), completed_at=stamp(-1800))
+
+        def jobs(seconds):
+            moved = job("cmux app scheme compile (Debug)", labels=[BLACKSMITH], created=0,
+                        status="completed" if seconds >= 1800 else "queued")
+            if seconds >= 1800:
+                moved["conclusion"] = "success"
+            return [kept, moved]
+
+        api, outcome, log = self.follow_cmux_next_attempt_two(jobs)
+        self.assertNotIn("cancel", api.calls, log)
+        self.assertNotIn("rerun", api.calls, log)
+        self.assertNotIn("rerun-failed", api.calls, log)
+        self.assertTrue(outcome.startswith("stopped"), outcome)
+
     def test_a_bot_attempt_three_is_outside_the_owned_pool_sweep(self):
         self.assertFalse(rescue.owned_rerun({"path": rescue.CMUX_NEXT_WORKFLOW_PATH, "run_attempt": 3,
                                              "triggering_actor": {"login": rescue.RESCUE_ACTOR}}))
@@ -1378,8 +1400,8 @@ class SideLanes(unittest.TestCase):
         code, summary = run_main(api, clock, payload=side_event())
         self.assertIn("rerun-failed", api.calls)
         self.assertIn("refused", summary)
-        # Other side lanes still overflow on attempt 2.
-        self.assertNotIn("attempt 2 stays on the side lane's owned label", summary)
+        # Other side lanes take their Blacksmith default on attempt 2.
+        self.assertIn("attempt 2 takes the side lane's Blacksmith default", summary)
 
     def test_a_late_refusal_after_an_accepted_job_is_rerun(self):
         """A gated sibling may be refused after the first side job was accepted."""
@@ -1514,6 +1536,11 @@ class Nightly(unittest.TestCase):
         # cmux-next.yml's fast tier runs on CI_FAST_LANE_RUNNER, a reserved glaeda-fast-* runner.
         self.assertEqual(rescue.job_pool({"labels": ["glaeda-fast-std-xcode-26.6"]}),
                          "glaeda-fast-std-xcode-26.6")
+
+    def test_the_session_lane_is_an_owned_pool(self):
+        # cmux-next.yml's generated files run on CI_SESSION_LANE_RUNNER, a glaeda-session-* runner.
+        self.assertEqual(rescue.job_pool({"labels": ["glaeda-session-light-xcode-26.6"]}),
+                         "glaeda-session-light-xcode-26.6")
 
     def test_the_marker_listing_pages_past_the_window_by_the_id_order_skew(self):
         api = rescue.GitHub("token", "manaflow-ai/cmux")

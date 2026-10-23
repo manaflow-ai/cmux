@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 96e61acfae440a8a09afd96f3fcebb5b2aa189cff1cdcb74d026be328dd4ea67. */
+/* cmux-tui mux protocol 12, IR 1e8ed8d1c9488496f61ce39773888417486f7d9a3ecf0469f4e801cd383fe3bd. */
 
 
 import type * as T from "./types.js";
@@ -601,6 +601,12 @@ export interface CloudRequestsListRequest extends CmuxRequestBase {
 export type CloudRequestsListResult = T.JsonValue;
 
 /** Protocol v12; authority: local-admin. */
+export interface CloudSelfhostInfoRequest extends CmuxRequestBase {
+  cmd: "cloud-selfhost-info";
+}
+export type CloudSelfhostInfoResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
 export interface CloudSessionClearRequest extends CmuxRequestBase {
   cmd: "cloud-session-clear";
 }
@@ -609,10 +615,11 @@ export type CloudSessionClearResult = T.JsonValue;
 /** Protocol v12; authority: local-admin. */
 export interface CloudSessionSetRequest extends CmuxRequestBase {
   cmd: "cloud-session-set";
-  "access_token": string;
+  "access_token"?: string;
   "api_base_url": string;
+  "auth"?: (string) | null;
   "client_version"?: (string) | null;
-  "expires_at": bigint;
+  "expires_at"?: bigint;
 }
 export type CloudSessionSetResult = T.JsonValue;
 
@@ -1789,8 +1796,10 @@ export interface NewRowRequest extends CmuxRequestBase {
   "height_permille": bigint;
   "keep"?: boolean;
   "pane": T.Id;
+  "pane_id"?: (string) | null;
   "rows"?: (number) | null;
   "shell_args"?: (Array<string>) | null;
+  "tab_id"?: (string) | null;
   "terminal_id"?: (string) | null;
   "transaction"?: (string) | null;
 }
@@ -2233,8 +2242,10 @@ export type SelectWorkspaceResult = T.EmptyResult;
 export interface SendRequest extends CmuxRequestBase {
   cmd: "send";
   "bytes"?: (T.Base64) | null;
+  "expect_agent"?: (T.SendExpectAgent) | null;
   "expect_foreground"?: (string) | null;
   "paste"?: boolean;
+  "submit"?: boolean;
   "surface"?: (T.Id) | null;
   "terminal_id"?: (string) | null;
   "text"?: (string) | null;
@@ -2596,6 +2607,12 @@ export interface TerminalHistoryRequest extends CmuxRequestBase {
 export type TerminalHistoryResult = T.TerminalHistoryPagesResult;
 
 /** Protocol v12; authority: control. */
+export interface TerminalPortsRequest extends CmuxRequestBase {
+  cmd: "terminal-ports";
+  "surface": T.Id;
+}
+
+/** Protocol v12; authority: control. */
 export interface TerminalReadRangeRequest extends CmuxRequestBase {
   cmd: "terminal-read-range";
   "format"?: (string) | null;
@@ -2701,6 +2718,7 @@ export interface UpdateBrowserProfileRequest extends CmuxRequestBase {
   "color"?: (string) | null;
   "icon"?: (string) | null;
   "name"?: (string) | null;
+  "proxy"?: (T.JsonValue) | null;
 }
 export type UpdateBrowserProfileResult = T.JsonValue;
 
@@ -2904,6 +2922,7 @@ export type CmuxRequest =
   | CloudMuxUnsubscribeRequest
   | CloudParticipantAvatarGetRequest
   | CloudRequestsListRequest
+  | CloudSelfhostInfoRequest
   | CloudSessionClearRequest
   | CloudSessionSetRequest
   | CloudSessionStatusRequest
@@ -3100,6 +3119,7 @@ export type CmuxRequest =
   | TerminalClipboardSubscribeRequest
   | TerminalEventsRequest
   | TerminalHistoryRequest
+  | TerminalPortsRequest
   | TerminalReadRangeRequest
   | TerminalResourcesRequest
   | TerminalResumeCommandRequest
@@ -3592,6 +3612,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "local-admin";
     since: 12;
     capability: "cloud-conversations-v1";
+    stream: null;
+  };
+  "cloud-selfhost-info": {
+    request: CloudSelfhostInfoRequest;
+    result: CloudSelfhostInfoResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "cloud-selfhost-v1";
     stream: null;
   };
   "cloud-session-clear": {
@@ -5160,6 +5188,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 12;
     capability: "terminal-snapshot-v1";
+    stream: null;
+  };
+  "terminal-ports": {
+    request: TerminalPortsRequest;
+    result: T.TerminalPortsResult;
+    authority: "control";
+    since: 12;
+    capability: "terminal-ports-v1";
     stream: null;
   };
   "terminal-read-range": {

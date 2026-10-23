@@ -12,8 +12,31 @@ nonisolated enum CEFClipShape {
         var radius: CGFloat
     }
 
+    /// Everything `path` is worked out from for one view: equal inputs give
+    /// the same shape, so a reader keeps the last shape while they hold
+    /// (`CEFHostView.clipShape`).
+    nonisolated struct Inputs: Equatable, Sendable {
+        var bounds: CGRect
+        var clips: [RoundedRect]
+        var cutouts: [CGRect]
+
+        init(bounds: CGRect, clips: [RoundedRect], cutouts: [CGRect] = []) {
+            self.bounds = bounds
+            self.clips = clips
+            self.cutouts = cutouts
+        }
+
+        /// `view`'s bounds and the clips and cutouts of its ancestors now.
+        @MainActor
+        init(around view: NSView) {
+            self.init(bounds: view.bounds, clips: CEFClipShape.clips(around: view), cutouts: CEFClipShape.cutouts(around: view))
+        }
+
+        var path: CGPath? { CEFClipShape.path(bounds: bounds, clips: clips, cutouts: cutouts) }
+    }
+
     /// `bounds` intersected with every clip that cuts into it (a rounded
-    /// corner, or a square clip that does not hold all of `bounds`), or nil
+    /// corner, or a clip that does not hold all of `bounds`), or nil
     /// when none does (the page is a plain rectangle and the fork's
     /// visible-rect clip is enough). A page clipped away entirely gets an
     /// empty shape, so it shows nowhere. `cutouts` are left out of it (a pane
@@ -39,12 +62,15 @@ nonisolated enum CEFClipShape {
         path?.boundingBoxOfPath.isEmpty == true
     }
 
-    /// Whether a square `clip` leaves part of `bounds` out: the column strip's
-    /// clip on a pane that scrolled under a docked column or past the strip's
-    /// edge. The page is a child window, so this layer mask never reaches it
-    /// and the fork's visible-rect clip does not see masks.
+    /// Whether `clip` leaves part of `bounds` out past one of its sides: the
+    /// column strip's clip on a pane that scrolled under a docked column or
+    /// past the strip's edge, or the rounded main pane's straight edge across a
+    /// page held wider than it through a sidebar slide (`MainPaneCardView.contentHold`),
+    /// whose corners may not reach the page. The page is a child window, so
+    /// this layer mask never reaches it and the fork's visible-rect clip does
+    /// not see masks.
     static func cutsSide(of clip: RoundedRect, into bounds: CGRect) -> Bool {
-        clip.radius <= 0.01 && !clip.rect.insetBy(dx: -0.5, dy: -0.5).contains(bounds)
+        !clip.rect.insetBy(dx: -0.5, dy: -0.5).contains(bounds)
     }
 
     /// Whether one of `clip`'s rounded corner squares overlaps `bounds`.
@@ -89,15 +115,28 @@ nonisolated enum CEFClipShape {
 
     /// Clips around `view`: every ancestor whose layer clips with a corner
     /// radius (the layout's pane clip) or a plain rectangular mask (the column
-    /// strip's clip, `PaneHostView.setStripClip`), then the window's corners.
-    /// Rects are in `view`'s coordinates.
+    /// strip's clip, `PaneHostView.setStripClip`), the window's corners, and
+    /// the square region the square-clipping ancestors and the window leave
+    /// visible, when `view` reaches past it. Rects are in `view`'s coordinates.
+    ///
+    /// The square region keeps a page inside its screen and window while a
+    /// layout spring carries its pane past them (Leo 2026-10-20: the chat's
+    /// side panel drew past the window's right edge as it opened); at rest it
+    /// holds all of `view` and adds nothing.
     @MainActor
     static func clips(around view: NSView) -> [RoundedRect] {
         var result: [RoundedRect] = []
+        var visible: CGRect?
+        func clipVisible(to rect: CGRect) { visible = visible.map { $0.intersection(rect) } ?? rect }
         var ancestor = view.superview
         while let current = ancestor {
-            if let layer = current.layer, layer.masksToBounds, layer.cornerRadius > 0 {
-                result.append(RoundedRect(rect: view.convert(current.bounds, from: current), radius: layer.cornerRadius))
+            if let layer = current.layer, layer.masksToBounds {
+                let rect = view.convert(current.bounds, from: current)
+                if layer.cornerRadius > 0 {
+                    result.append(RoundedRect(rect: rect, radius: layer.cornerRadius))
+                } else {
+                    clipVisible(to: rect)
+                }
             }
             if let mask = current.layer?.mask, mask.name == CALayer.cmuxStripClipName {
                 result.append(RoundedRect(rect: view.convert(mask.frame, from: current), radius: 0))
@@ -105,11 +144,15 @@ nonisolated enum CEFClipShape {
             ancestor = current.superview
         }
         if let window = view.window {
+            let rect = view.convert(CGRect(origin: .zero, size: window.frame.size), from: nil)
+            clipVisible(to: rect)
             let radius = windowCornerRadius(window)
             if radius > 0 {
-                let rect = view.convert(CGRect(origin: .zero, size: window.frame.size), from: nil)
                 result.append(RoundedRect(rect: rect, radius: radius))
             }
+        }
+        if let visible, !visible.insetBy(dx: -0.5, dy: -0.5).contains(view.bounds) {
+            result.append(RoundedRect(rect: visible.isNull ? .zero : visible, radius: 0))
         }
         return result
     }

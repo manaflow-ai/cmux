@@ -74,9 +74,15 @@ failure) goes back to the minis on any attempt. Neither has a marker of its
 own; the sweeper finds them among the unfinished CI runs (owned_reruns()) and
 watches them like attempt 1, and a job stuck or refused there gets the bot's
 next re-run, which every runs-on sends to retry_runner (Blacksmith) from
-attempt 3 on, so a refusal costs two re-runs at most. cmux-next's bot attempt
-3 also drops the stale placement label and takes Blacksmith, so the sweeper
-stops after attempt 2 and cannot issue a redundant attempt 4.
+attempt 3 on, so a refusal costs two re-runs at most. cmux-next is the
+exception: the bot's first re-run (attempt 2) already drops the stale placement
+label and overflows to the free Blacksmith slot macos-placement found, else the
+owned side label (claude-sr2, 2026-10-21: under saturation a second mini queue
+cost a pull request another rescue window and its running jobs). The sweeper
+still watches that attempt 2, since it stays on the minis when no slot was
+free; one on Blacksmith has no job waiting on an owned label, so it is never
+moved again. The sweeper stops after attempt 2 and cannot issue a redundant
+attempt 4.
 
 Dispatch runs (DISPATCH_WORKFLOW_PATHS) are watched the same way; see below
 for the iOS and Iroh release gate workflows. A stuck dispatch run that
@@ -118,8 +124,9 @@ TRUSTED_SIDE_EVENTS), their small macOS jobs take vars.CI_LIGHT_LANE_RUNNER
 (the light minis' side label) or vars.CI_SIDE_LANE_RUNNER (the std minis'),
 both glaeda-side-* labels that only the minis' non-root runners carry. Most
 side lanes take the job's Blacksmith default on attempt 2 and later. cmux-next
-keeps trusted attempts 1 and 2 on the owned side label and only overflows a
-later bot attempt after its ten-minute queue budget. So the first job on an owned label marks the run as on a persistent
+keeps attempt 1 and a person's re-run on the owned side label and overflows
+the bot's re-run (attempt 2 on), which follows its ten-minute queue budget or a
+refusal, to a free Blacksmith slot. So the first job on an owned label marks the run as on a persistent
 pool (a job behind a Linux gate appears once the gate ends). The watch stays
 through run completion: a job behind a gate can be created after the first
 owned job is accepted, and glaeda's runner hook can refuse it at that point.
@@ -361,9 +368,10 @@ def owned_rerun(run: Mapping[str, Any]) -> bool:
     actor = str((run.get("triggering_actor") or {}).get("login") or "")
     if run.get("path") == CMUX_NEXT_WORKFLOW_PATH:
         # Manual side-lane reruns stay minis-first at any attempt. The bot's
-        # second attempt is still watched so a second long queue can overflow
-        # on attempt three; that attempt takes a free Blacksmith slot, else the
-        # owned side label (next_macos_cascade.retry_label), and is not watched again.
+        # second attempt takes a free Blacksmith slot, else the owned side label
+        # (next_macos_cascade.retry_label); it is still watched, so a second long
+        # queue on the minis moves once more as attempt three, which is not
+        # watched again. On Blacksmith no job of it waits on an owned label.
         return actor != RESCUE_ACTOR or attempt <= LAST_OWNED_ATTEMPT
     return run.get("path") == CI_WORKFLOW_PATH and (attempt <= LAST_OWNED_ATTEMPT or (
         run.get("event") == "pull_request" and actor != RESCUE_ACTOR))
@@ -571,8 +579,8 @@ def assess(jobs: Sequence[Mapping[str, Any]], *, now: dt.datetime, budget_second
     # persistent runner would die with the stuck one and move to Blacksmith
     # too (#16463). cmux-next's explicit rescue window is the overflow
     # boundary: move the run as the bot once a side job waits past budget even
-    # when another side job is still running. Manual reruns stay minis-first
-    # through attempt 2; the bot's next rerun is the overflow.
+    # when another side job is still running. Manual reruns stay minis-first;
+    # the bot's rerun (attempt 2 on) is the overflow.
     on_mini = [job for job in jobs if job_pool(job) and job.get("status") == "in_progress" and not in_setup(job)]
     if stuck and (allow_running_rescue or not on_mini):
         suffix = (" while another owned job is running; overflowing the queued side jobs"
@@ -1014,9 +1022,8 @@ def next_attempt(target: Target) -> str:
     """Where a re-run of failed jobs goes next."""
     following = target.attempt + 1
     if target.path == CMUX_NEXT_WORKFLOW_PATH:
-        if following <= LAST_OWNED_ATTEMPT:
-            return f"attempt {following} stays on the side lane's owned label"
-        return f"attempt {following} takes the side lane's Blacksmith overflow after the long mini queue"
+        # The bot's re-run: a free Blacksmith slot, else the owned label (next_macos_cascade.retry_label).
+        return f"attempt {following} takes the side lane's Blacksmith overflow, or its owned label with no free slot"
     if target.side:
         return f"attempt {following} takes the side lane's Blacksmith default"
     if following <= LAST_OWNED_ATTEMPT and not target.e2e:
@@ -1270,6 +1277,15 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
                             log=log, deadline=deadline, floor_seconds=effective_seconds)
     if outcome not in ("rescue", "refused"):
         return f"stopped: {reason}"
+    if outcome == "refused" and target.path == CMUX_NEXT_WORKFLOW_PATH and target.attempt > 1:
+        # A cmux-next re-run's next attempt takes the Blacksmith overflow, and a
+        # re-run of failed jobs would re-run a real failure with the refusal.
+        jobs = read(lambda: client.jobs(target.run_id, target.attempt), sleep, log)
+        other = [str(job.get("name")) for job in jobs if job.get("conclusion") in ("failure", "timed_out")
+                 and not carried(job, target.attempt_started_at) and not refused(job)]
+        if other:
+            return (f"not rescued: attempt {target.attempt} also failed for a reason that is not a refusal "
+                    f"({', '.join(sorted(other))})")
     log(f"{'rescue' if outcome == 'rescue' else 'refused'}: {reason}")
     while True:
         # From attempt 2 on, keep what passed: only the owned jobs are moved.

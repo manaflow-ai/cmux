@@ -135,6 +135,11 @@ pub(super) struct Pooled {
     target: Option<oneshot::Sender<mpsc::Sender<Inbound>>>,
     rss: u64,
     parked: bool,
+    /// Whether it was started with OpenCode asked to ask (`opencode_ask.rs`).
+    opencode_asks: bool,
+    /// The question preview format its command was pinned to at prewarm
+    /// (`agent::pinned_preview_format`), which the taking session records.
+    preview: crate::hub::questions::PreviewFormat,
 }
 
 /// What a pooled session is started from, and the key it is served under.
@@ -156,6 +161,9 @@ pub struct PrewarmRequest {
     pub remote: bool,
     /// Whether the request came from a gated LocalApp/Web path.
     pub trust_gate: bool,
+    /// From a Web client or a peer forwarding for one: an auto-trust rule is no Trust answer
+    /// (`trust::web_session_level`), also for the folder picked when the hint names none.
+    pub trust_web: bool,
 }
 
 /// A pool lock. A panic while one was held leaves plain data behind, so a
@@ -333,7 +341,7 @@ impl Hub {
         let generation = self.pool.hint_gen.fetch_add(1, Ordering::SeqCst) + 1;
         let debounce = Duration::from_millis(self.config.read().await.pool.debounce_ms);
         let hub = self.clone();
-        let PrewarmRequest { harness, preset, wait, trust_gate, .. } = req;
+        let PrewarmRequest { harness, preset, wait, trust_gate, trust_web, .. } = req;
         let task = tokio::spawn(async move {
             if !debounce.is_zero() {
                 let clock = lock(&hub.clock).clone();
@@ -349,7 +357,7 @@ impl Hub {
                 let folder = spec.draft.cwd.to_string_lossy().into_owned();
                 let family =
                     spec.draft.family.clone().unwrap_or_else(|| spec.draft.harness.clone());
-                if !hub.folder_trusted_cwd(paths, folder, family).await {
+                if !hub.folder_trusted_cwd(paths, folder, family, trust_web).await {
                     return Err(RpcError::invalid_params(
                         "trust.pending: answer the trust question for the folder first",
                     )
@@ -581,6 +589,19 @@ impl Hub {
         lock(&self.pool.claimed).remove(id)
     }
 
+    /// The claimed pooled session for `id`, when it asks OpenCode to ask as `spawn` does
+    /// (`opencode_ask.rs`). One claimed before the chat's policy changed is ended, and the
+    /// session starts cold.
+    pub(super) fn pool_take_claimed_for(&self, id: &str, spawn: &HarnessProfile) -> Option<Pooled> {
+        let p = self.pool_take_claimed(id)?;
+        if p.opencode_asks == spawn.env.contains_key(crate::opencode_ask::MARKER) {
+            return Some(p);
+        }
+        tracing::info!(session = %id, "pooled session not taken: the chat's policy changed since the claim");
+        self.pool_discard(vec![p]);
+        None
+    }
+
     /// `ensure_child` takes a claimed pooled session for `session`: move its
     /// record into the hosts directory, log its host start and held lines,
     /// switch it live, and record what its harness answered. An entry that
@@ -595,6 +616,7 @@ impl Hub {
             return Err(e);
         }
         self.forget_adopted_caller(&session.id);
+        self.record_preview_format(session, p.preview);
         let tap = self.session_tap(session);
         let mut started = json!({
             "incarnation": p.record.incarnation.clone(),

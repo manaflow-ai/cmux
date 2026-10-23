@@ -150,6 +150,20 @@ enabled = false
 /// hooks, plugins, skills or apps) and no native subagents: the Chief's
 /// subagents are `chief spawn` sessions. The session directory's AGENTS.md
 /// (the Chief's instructions) stays.
+///
+/// No approval config for the Chief's own tools: codex has one per MCP tool
+/// (`[mcp_servers.<server>.tools.<tool>] approval_mode = "approve"`, or the
+/// server's `default_tools_approval_mode`), but acpmux gives a codex turn no
+/// `optchat` MCP server, so its Chief tools are `chief <verb>` shell
+/// commands (`prompt::Tools::Cli`), which no per-tool setting covers. In a
+/// turn another person started (policy `ask`) each of them is a shell
+/// permission request, which the host refuses at once (acpmux takes an
+/// allow only from the person's app; `brain/approvals.rs`): the turn
+/// answers with its final text, and a model that runs a refused command
+/// again and again is stopped. An owner's turn under the default policy
+/// (approve-all) runs codex with full access and asks nothing. Serving
+/// `optchat` to codex as an MCP server with
+/// `default_tools_approval_mode = "approve"` would lift this.
 pub fn codex_turn_config(user: Option<&str>) -> Result<String, String> {
     let mut out = toml::Table::new();
     if let Some(text) = user {

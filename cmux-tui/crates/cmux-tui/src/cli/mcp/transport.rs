@@ -165,7 +165,21 @@ pub(super) fn resource(
         .map_err(|message| fail(sent, "transport.failed", message))?;
     match resolve::read_response(&mut reader, &request_id) {
         Ok(Ok(result)) => Ok(result),
-        Ok(Err(error)) => Err(CallFailure { kind: Rejected, error, idempotency_key: key.clone() }),
+        Ok(Err(error)) => {
+            // A browser the cmux app draws: the app runs the verb
+            // (app_browser_route.rs), as `cmux browser <id> <verb>` does.
+            #[cfg(unix)]
+            if let Some(routed) =
+                super::super::app_browser_route::run(global, &plan, &error, &socket)
+            {
+                return routed.map_err(|error| CallFailure {
+                    kind: Rejected,
+                    error,
+                    idempotency_key: key.clone(),
+                });
+            }
+            Err(CallFailure { kind: Rejected, error, idempotency_key: key.clone() })
+        }
         Err(message) => Err(fail(sent, "transport.failed", message)),
     }
 }

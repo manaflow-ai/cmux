@@ -79,8 +79,8 @@ It is `scripts/smoke-signed-app-cli.sh <app> --canary`, an extension of the
 signed-app CLI smoke. The checks
 (`scripts/cmux-next/signed-app-canary-checks.py`) use only what a Release
 control socket serves, plus the readiness soak's control and acpmux clients.
-Release builds have no `debug.*` methods, so the canary can't take a pixel
-capture. "Renders" here means the app's own model has the New Tab.
+Release builds have no `debug.*` methods, so the canary checks the app's model
+through its Release control socket.
 
 ### Before publication (Mac writer)
 
@@ -135,6 +135,29 @@ gh variable set NIGHTLY_NEXT_CANARY_ENFORCE_AFTER -R manaflow-ai/cmux --body 202
 gh variable delete NIGHTLY_NEXT_CANARY -R manaflow-ai/cmux               # back to auto
 ```
 
+### Release rings: Dev before Nightly
+
+The app's Update Channel setting picks a ring, and each ring accepts its own
+`sparkle:channel` tag and every slower ring's (`UpdateRing.swift`): Dev
+accepts `cmux-next-dev` and `cmux-next`, Nightly and every build from before
+rings accept only `cmux-next`. Sparkle never offers an item whose tag the
+updater does not allow.
+
+Repository variable `NIGHTLY_NEXT_DEV_RING` (`scripts/ci/nightly_next_ring.py`):
+
+| `NIGHTLY_NEXT_DEV_RING` | Effect |
+| --- | --- |
+| `on` | A new build is published as `cmux-next-dev`, so only Dev gets it. It moves to `cmux-next` once its durable verdict (`verdicts/<build>.json`, the one the train uses) is `pass`: `nightly-next-verdict.yml` retags the live feed after each verdict, and `republish-nightly-deltas` tags the earlier builds it lists from the same verdicts. A build the canary failed, skipped or never checked stays on Dev. The old cmux NIGHTLY-identity feed copies only builds already on `cmux-next`. |
+| unset, `off` or anything else | Every item is `cmux-next`, as before rings. The next verdict or publication puts any Dev item back on Nightly. |
+
+With `on`, Nightly gets nothing new while the canary passes no build, so turn
+it on only while the canary passes.
+
+```bash
+gh variable set NIGHTLY_NEXT_DEV_RING -R manaflow-ai/cmux --body on
+gh variable delete NIGHTLY_NEXT_DEV_RING -R manaflow-ai/cmux   # back to one ring
+```
+
 ### Fix-forward
 
 A pull stops a bad build spreading but can't move a Mac that already has it.
@@ -158,7 +181,7 @@ The train (train design, PRs 1 and 2) builds the tip without the suspect;
 the higher build it publishes is what moves every Mac forward.
 
 Before publication, a recovered build (one whose notarization finished in a
-later run) gets only `verify-recovered-nightly-next`'s DMG launch smoke. The
+later run) gets `verify-recovered-nightly-next`'s DMG check. The
 post-publication canary checks it.
 
 ## How a cmux NEXT nightly is built and published
@@ -168,7 +191,7 @@ post-publication canary checks it.
 | Promote | main's `nightly.yml` `promote-nightly-next` | Moves branch `nightly-next` to a green `feat-cmux-next` head. `cmux-next.yml` requests it after a green push run. |
 | Decide | `nightly.yml` `decide`, on the `nightly-next` push | Reads the holds below and picks the track (`nightly-next`), the `release-next` environment, and the feed. |
 | Build, sign, notarize | `build-nightly-app`, `build-sign-notarize-nightly` | Release build, Developer ID signing, Apple notary. A submission still in Apple's queue leaves a recovery artifact, which a later run (`recover-nightly-next-notarization`) continues. |
-| Verify | `verify-signed-nightly` and `verify-final-dmg-nightly` (no secrets; they run at the same time on two runners) | Signature, sidecar and SSH daemon contracts, the 15 s launch smoke with a crash-report check, the bundled-CLI smoke and the canary; the other job runs the final DMG smoke and the size budget. The tested DMG digests go to publication. |
+| Verify | `verify-signed-nightly` and `verify-final-dmg-nightly` (no secrets; they run at the same time on two runners) | Signature, sidecar and SSH daemon contracts, the canary; the other job verifies the final DMG bytes and size budget. The tested DMG digests go to publication. |
 | Publish | `publish-nightly` (`release-next`) | Uploads only the tested DMG bytes to the `nightly-next` GitHub release, reads `NIGHTLY_NEXT_WRITER` and `NIGHTLY_NEXT_HOLD` live, runs `nightly-next-guard.py` on every appcast and R2 key, then writes `appcast-arm64.xml` to R2 bucket `cmux-nightly-next` and moves the `nightly-next` tag. |
 | Deltas | `generate-nightly-deltas` | Adds a delta from the previous build and rewrites the feed, unless the live feed already serves a different build. |
 | Old identity | `publish-nightly-identity-legacy` | Re-signs the build as cmux NIGHTLY for installs from before cmux NEXT (`NIGHTLY_NEXT_LEGACY_FEED_BASE`). |

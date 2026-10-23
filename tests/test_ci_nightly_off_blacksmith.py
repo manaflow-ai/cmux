@@ -82,7 +82,7 @@ class NightlyOffBlacksmithTests(unittest.TestCase):
         """
         forbidden = re.compile(
             r"cmux11s|glaeda-(side-|root-|gui-|session-|aws-)?std-xcode"
-            r"|vars\.(CI_SIDE_LANE_RUNNER|CI_NEXT_DAEMON_POOL|CI_NEXT_PROMOTE_POOL|CI_LIGHT_LANE_RUNNER)\b"
+            r"|vars\.(CI_SIDE_LANE_RUNNER|CI_NEXT_DAEMON_POOL|CI_NEXT_PROMOTE_POOL|CI_PIN_DAEMON_POOL|CI_LIGHT_LANE_RUNNER)\b"
         )
         allowed = ("vars.CI_SEED_TRUSTED_POOL", "vars.CI_NIGHTLY_NEXT_TRUSTED_POOL")
         failures = []

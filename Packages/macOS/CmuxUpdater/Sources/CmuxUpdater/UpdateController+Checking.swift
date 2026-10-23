@@ -217,6 +217,7 @@ extension UpdateController: UpdateDriverEventDelegate {
     func updateDriverDidFinishCycle(_ updateCheck: SPUUpdateCheck, error: NSError?) {
         let finishedIntent = activeCheckIntent
         activeCheckIntent = nil
+        onUpdateCycleFinished?()
         log.append(
             "controller observed cycle finish (check=\(updateCheck.rawValue), active=\(finishedIntent?.rawValue ?? "external"), pending=\(pendingCheckIntent?.rawValue ?? "none"), state=\(describeLifecycleState(model.state)), error=\(error?.code.description ?? "none"))"
         )

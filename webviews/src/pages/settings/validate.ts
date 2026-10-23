@@ -34,6 +34,20 @@ export function isPageURL(value: unknown): value is string {
   return bare !== null && bare.includes(".");
 }
 
+/**
+ * An http or https address with a host and nothing else: no user info, no path other than "/",
+ * no query, no fragment (Swift `SettingDescriptor.httpOrigin`, cmux-config `is_http_origin`).
+ */
+export function isHttpOrigin(value: unknown): value is string {
+  if (typeof value !== "string" || /[\s?#@]/.test(value) || !/^https?:\/\//i.test(value)) return false;
+  try {
+    const url = new URL(value);
+    return url.hostname !== "" && url.pathname === "/";
+  } catch {
+    return false;
+  }
+}
+
 function hostOf(url: string): string | null {
   try {
     const host = new URL(url).hostname;
@@ -129,6 +143,14 @@ export function validate(row: SchemaRow, value: unknown, domains?: Partial<Domai
       return inRange(row, value)
         ? null
         : `expected one of ${choices.join(", ")} or a number from ${row.range?.min} to ${row.range?.max}`;
+    case "choice_or_url": {
+      if (typeof value === "string" && choices.includes(value)) return null;
+      const key = row.url_key ?? "url";
+      const members = typeof value === "object" && value !== null && !Array.isArray(value) ? Object.keys(value) : [];
+      return members.length === 1 && members[0] === key && isHttpOrigin((value as Record<string, unknown>)[key])
+        ? null
+        : `expected one of ${choices.join(", ")} or {"${key}": "http(s)://host[:port]"}`;
+    }
     case "number":
       return inRange(row, value) ? null : `expected a number from ${row.range?.min} to ${row.range?.max}`;
     case "color":

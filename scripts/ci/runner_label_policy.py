@@ -180,6 +180,24 @@ def fast_lane_reason(label: str) -> str | None:
     return forbidden_reason(label)
 
 
+SESSION_LANE_VARIABLE = "CI_SESSION_LANE_RUNNER"
+SESSION_LANE_PREFIX = "glaeda-session-"
+
+
+def session_lane_reason(label: str) -> str | None:
+    """Why CI_SESSION_LANE_RUNNER is not allowed, or None when it is fine.
+
+    cmux-next.yml's generated-files job reads it after its fork clause, for the
+    owned minis' session runners, glaeda-session-<class>-xcode-<version>.
+    Anything else is held to the workflow policy. Empty is fine (off).
+    """
+    if label.startswith(SESSION_LANE_PREFIX):
+        candidate = "glaeda-" + label[len(SESSION_LANE_PREFIX):]
+        if _owned_pattern().fullmatch(candidate):
+            return None
+    return forbidden_reason(label)
+
+
 AWS_SIDE_VARIABLE = "CI_AWS_SIDE_RUNNER"
 AWS_SIDE_PREFIX = "glaeda-aws-"
 
@@ -287,6 +305,8 @@ def drifted_runner_variables(
             reason = side_lane_reason(value.strip())
         elif name == FAST_LANE_VARIABLE:
             reason = fast_lane_reason(value.strip())
+        elif name == SESSION_LANE_VARIABLE:
+            reason = session_lane_reason(value.strip())
         elif name == AWS_SIDE_VARIABLE:
             reason = aws_side_reason(value.strip())
         elif name in (TRUSTED_POOL_VARIABLE, "CI_NIGHTLY_NEXT_TRUSTED_POOL"):

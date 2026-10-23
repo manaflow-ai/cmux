@@ -28,7 +28,14 @@ import { armIds, validateExperiments, type Experiment } from "../experiments/exp
 import { validateTunables, type Tunable } from "../experiments/tunable";
 import { optionAccepts, validateOptions, type GalleryOption } from "./options";
 import type { MockOptions } from "../pages/settings/mockProvider";
-import type { AccountsState, AgentsState, HarnessesState, HostLists } from "../pages/settings/ops";
+import type {
+  AccountsState,
+  AgentsState,
+  DevicesState,
+  HarnessesState,
+  HostLists,
+  IntegrationsState,
+} from "../pages/settings/ops";
 import type { MockData } from "../pages/passwords/mockProvider";
 
 /** Initial gestures use the real controls, so local forms remain interactive. */
@@ -49,6 +56,10 @@ export type SettingsPageVariant = VariantBase & {
   agents?: Partial<AgentsState>;
   /** Settings > Agents > Harnesses; default the mock's four. */
   harnesses?: HarnessesState;
+  /** Settings > Devices; default the mock's (this Mac, two other devices, two relays). */
+  devices?: DevicesState;
+  /** Settings > Agents > Agent integrations; default the mock's four (focus `agents.integrations` opens it). */
+  integrations?: IntegrationsState;
   /** Public-safe thumbnail data URLs for native-origin backdrop images. */
   backdropImages?: Record<string, string>;
   loading?: boolean;
@@ -70,13 +81,29 @@ export type PasswordsPageVariant = VariantBase & {
 export type ChipHostFixture = {
   paths?: Record<string, { place: "root" | "outside" | "denied" | "missing"; folder: boolean }>;
   sites?: Record<string, { icon?: string; title?: string }>;
-  policy?: { outsideRoots?: "confirm" | "text" | "open"; remoteImages?: "click" | "never" | "always" };
+  policy?: {
+    outsideRoots?: "confirm" | "text" | "open";
+    remoteImages?: "click" | "never" | "always";
+    clickFreeImageHosts?: string[];
+  };
   images?: Record<string, string | null>;
   /** `media.load` answers: the URL the player plays for each path. */
   media?: Record<string, string>;
   browsers?: { id: string; name: string; icon?: string }[];
   /** `project.icon` answers: a project folder's favicon as a data URL (projectIcon.ts). */
   projectIcons?: Record<string, string>;
+  /** `project.icon` answers' `glyph`: a project folder's language or framework (projectIcon.ts). */
+  projectGlyphs?: Record<string, string>;
+  /** `pr.inspect` answers, by pull request address: the pull request card's own fixture. */
+  pullRequests?: Record<string, PullRequestFixture>;
+};
+
+/** One `pr.inspect` answer: what the host has for a pull request, and how old it is. */
+export type PullRequestFixture = {
+  pullRequest: Record<string, unknown> | null;
+  /** Seconds since 1970; left out when the host has never had an answer. */
+  fetchedAt?: number;
+  reading?: boolean;
 };
 
 /** One step of an experiment's scripted interaction (the compare view replays them in sync). */
@@ -159,6 +186,9 @@ export type AgentPaneVariant = VariantBase & {
   /** The in-session status toggle (Debug Settings `agent.sessionStatus`, off by default) on, as the
    *  app's `sessionStatus` push sends it: the live plan card and the recap card. */
   sessionStatus?: boolean;
+  /** `<html data-*>` attributes the app sets at document start for Debug Settings choices
+   *  (AgentPaneTunables `documentAttributes`), by name without `data-`: `{ "needs-you": "off" }`. */
+  documentAttributes?: Record<string, string>;
 };
 
 /** The markdown editor page (src/pages/markdown) on an in-page cmuxPage host. */

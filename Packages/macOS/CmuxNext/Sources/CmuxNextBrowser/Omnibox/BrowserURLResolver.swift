@@ -12,11 +12,16 @@ public import Foundation
 ///    `chrome-extension://` pages and `about:` aliases of WebUI pages, in
 ///    Chromium's canonical form (ChromiumInternalURL: `chrome://extensions`
 ///    is `chrome://extensions/`); every tab also takes the `chrome://` pages
-///    cmux shows itself (ChromiumPageRoute). Every other scheme (`javascript:`,
+///    cmux shows itself (ChromiumPageRoute), `cmux://stashed`, the Stashed Tabs page
+///    (`cmuxAppPageHosts`; the App opens it), and Mac Screen addresses
+///    (`cmux://mac-screen`; an old `cmux-vnc://pair?…` pairing link, which the host refuses
+///    with a word and never loads). Every other scheme (`javascript:`,
 ///    `data:`, `mailto:`, ...) is searched, so typed text can never run
 ///    script or open another app.
 /// 3. `/abs/path`, `~`, and `~/path` are file URLs, spaces allowed.
-/// 4. Remaining text with whitespace is a search.
+/// 4. Remaining text with whitespace is a search, except an explicit
+///    `http`, `https` or `file` URL whose spaces all come after its host:
+///    it loads with them percent-encoded, as in Chrome.
 /// 5. Scheme-less text: userinfo (`user@host`) is refused, loopback hosts
 ///    and non-unique hosts (private IPs, `devbox:8080`, `router/`,
 ///    `nas.local`) get `http`, other dotted hosts, IPv6 literals or hosts
@@ -30,6 +35,23 @@ public nonisolated struct BrowserURLResolver: Sendable {
         self.allowsChromiumSchemes = allowsChromiumSchemes
     }
 
+    /// Whether `text` holds an old Mac Screen pairing link (`cmux-vnc://pair?…`
+    /// or `cmux-vnc:pair?…`, any case, anywhere in the text). The link carries a
+    /// room secret, so no input surface loads, searches or sends such text to an
+    /// agent: the address bar, the New Tab field and `newTab.submit` refuse it with
+    /// Mac Screen's word. The New Tab page's `newTabIntent.ts` keeps the same rule;
+    /// `webviews/test/fixtures/new-tab-intents.json` holds both to it.
+    public static func containsPairingLink(_ text: String) -> Bool {
+        let lower = text.lowercased()
+        var rest = lower[...]
+        while let scheme = rest.range(of: "cmux-vnc:") {
+            let after = rest[scheme.upperBound...]
+            if after.hasPrefix("pair") || after.hasPrefix("//pair") { return true }
+            rest = after
+        }
+        return false
+    }
+
     /// A URL to load, or nil when the text should be searched.
     public func url(for input: String) -> URL? {
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -39,12 +61,29 @@ public nonisolated struct BrowserURLResolver: Sendable {
         if let fileURL = fileURL(for: text) {
             return fileURL
         }
-        guard !text.contains(where: \.isWhitespace) else { return nil }
+        guard !text.contains(where: \.isWhitespace) else { return encodingSpaces(text) }
 
         if let scheme = explicitScheme(of: text) {
             return explicitURL(text, scheme: scheme)
         }
         return schemeLessURL(text)
+    }
+
+    // MARK: Spaces
+
+    /// An `http`, `https` or `file` URL with spaces only after its host
+    /// (`https://x.com/search?q=a b`, `file:///My Notes.html`): the spaces
+    /// percent-encoded, as Chrome loads them. Nil for everything else with
+    /// a space, which is searched.
+    private func encodingSpaces(_ text: String) -> URL? {
+        guard let scheme = explicitScheme(of: text), ["http", "https", "file"].contains(scheme),
+              let authorityStart = text.range(of: "://")?.upperBound,
+              let authorityEnd = text[authorityStart...].firstIndex(where: { "/?#".contains($0) }),
+              let firstSpace = text.firstIndex(where: \.isWhitespace), authorityEnd < firstSpace,
+              text.allSatisfy({ !$0.isWhitespace || $0 == " " }) else {
+            return nil
+        }
+        return explicitURL(text.replacingOccurrences(of: " ", with: "%20"), scheme: scheme)
     }
 
     // MARK: Wrapped paste
@@ -120,9 +159,34 @@ public nonisolated struct BrowserURLResolver: Sendable {
             return chromiumPage(text, scheme: scheme)
         case "chrome", "chrome-extension":
             return chromiumPage(text, scheme: scheme)
+        case "cmux-vnc":
+            return macScreenAddress(text, scheme: scheme)
+        case "cmux":
+            return macScreenAddress(text, scheme: scheme) ?? cmuxAppPage(text)
         default:
             return nil
         }
+    }
+
+    /// A Mac Screen address the host handles itself, never searched: a Mac
+    /// Screen tab record (`cmux://mac-screen`), or an old pairing link
+    /// (`cmux-vnc://pair?…`, which carries a room secret that must not reach a
+    /// search engine or its suggestions; the host refuses it, pairing links
+    /// being gone). No engine loads either.
+    private func macScreenAddress(_ text: String, scheme: String) -> URL? {
+        guard let url = URL(string: text) else { return nil }
+        if scheme == "cmux-vnc" { return Self.containsPairingLink(text) ? url : nil }
+        return url.host?.lowercased() == "mac-screen" ? url : nil
+    }
+
+    /// cmux's own pages that are no browser page, which the App opens instead of loading
+    /// (ChromiumPageRouter). Every other `cmux:` link (`cmux://tab/…`) is searched, never run.
+    static let cmuxAppPageHosts: Set<String> = ["stashed"]
+
+    /// `cmux://stashed` in canonical form, with any path, query or fragment dropped.
+    private func cmuxAppPage(_ text: String) -> URL? {
+        guard let host = URL(string: text)?.host()?.lowercased(), Self.cmuxAppPageHosts.contains(host) else { return nil }
+        return URL(string: "cmux://\(host)")
     }
 
     /// A Chromium internal page in canonical form. A WebKit tab takes only

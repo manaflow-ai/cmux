@@ -51,6 +51,8 @@ const INTERNAL_SCOPES = new Set([
   "e2e",
   "harness",
   "deps",
+  "cmux-git",
+  "cmux-tui-core",
 ]);
 /** Subject words that mark internal work even without a type. */
 const INTERNAL_WORDS = new RegExp(
@@ -61,7 +63,7 @@ const INTERNAL_WORDS = new RegExp(
     String.raw`frame budget|osc \d+|terminal host|seed|record\w*|nightly|headless|ffi|rust|regenerate|decode|renderer|texture|` +
     String.raw`machine code|scene captures?|policy log|host log|force unwrap|store intent|property model|false positive|inventory|` +
     String.raw`boundary|on the wire|debug reports?|dom events?|keybind actions?|main actor|shims?|` +
-    String.raw`consumers?|metrics|review fixes)\b`,
+    String.raw`consumers?|metrics|review fixes|byte limit)\b`,
   "i",
 );
 /** Product names whose casing is not code. */
@@ -139,7 +141,9 @@ export function readableChange(subject: string): ReadableChange {
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
-    if ([...words, ...scopes].some((w) => INTERNAL_AREA_SHAPE.test(w))) return internal(label.rest!);
+    // "acpmux test: …", "sidebar ci: …": a label that names test or CI work is internal too.
+    if ([...words, ...scopes].some((w) => INTERNAL_AREA_SHAPE.test(w) || INTERNAL_TYPES.has(w)))
+      return internal(label.rest!);
     text = label.rest!;
   }
   text = strip(text.replace(AREA_PREFIX, ""));

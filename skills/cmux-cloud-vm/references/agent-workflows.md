@@ -6,8 +6,8 @@ The Mac-side `cmux vm` verbs these recipes used (route, run, exec, agent, dev, p
 pull, tree, open, fork with flags, `cloud domains`) were removed with the Swift CLI.
 Every recipe below starts a terminal on the machine through the app, then works
 inside the machine with its own `cmux`. To run a one-off command or write a file,
-the app actions `cmux cloud exec` and `cmux cloud file-write` also work from the
-Mac; `file-read` shows a file only to the person, so read files inside the machine ([command reference](commands.md#shell-commands-and-files)).
+the app actions `cmux cloud exec` (returns the exit code and output), `cmux cloud file-write`
+and `cmux cloud file-read` also work from the Mac, each with `--target machine:vm-…` ([command reference](commands.md#shell-commands-and-files)).
 
 ## 0. Get a terminal on the machine
 
@@ -17,8 +17,11 @@ cmux cloud open-machine --target machine:vm-…              # a shell on the ma
 cmux cloud new-terminal-on-machine --target machine:vm-…   # another terminal there
 ```
 
-Creating a machine (`cmux cloud new-machine`) opens the app's sheet and needs the
-user's authorization. Prefer an existing machine and another workspace on it.
+Creating a machine (`cmux cloud new-machine`) asks the person in the app first and
+needs the user's authorization; it answers with the new `machine_id`. Prefer an existing machine and another workspace on it:
+`cmux cloud list-machines --json` lists them (`machine_id`, `target`, `status`), so a
+setup script checks for its machine before it creates one. Create only on `loaded: true`
+with no match; `loaded: false` means the list is not known yet, so run it again.
 
 Everything after this runs in that machine terminal.
 

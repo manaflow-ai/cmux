@@ -3,8 +3,11 @@ import CmuxHomeRender
 
 /// The cmux theme as MessagesLab's `Fixture` colours (`Fixture.theme`). The
 /// host builds `HomePalette`s from the cmux-next theme (the Ghostty theme and
-/// the user's accent, `HomeThemePalette`) for the key and the non-key window;
-/// this maps their roles onto the Fixture names the vendored drawing reads.
+/// the user's accent, `HomeThemePalette`), the key window's palette for every
+/// window and state (as Messages on macOS 27, a non-key window draws the same
+/// bubbles; the per-view inactive state greys only the typing indicator,
+/// MessagesLab 806ef0c); this maps its roles onto the Fixture names the
+/// vendored drawing reads.
 /// Geometry, fonts and motion stay MessagesLab's.
 struct FixtureTheme: Equatable {
     struct Colors: Equatable {
@@ -71,14 +74,12 @@ struct FixtureTheme: Equatable {
     }
 
     let active: Colors
-    let inactive: Colors
     /// The theme names no accent: sent bubbles keep MessagesLab's measured
     /// blue and gradient (Fixture.outgoing, gradientStops) and white text.
     let measuredAccent: Bool
 
-    init(active: HomePalette, inactive: HomePalette, measuredAccent: Bool = false) {
+    init(active: HomePalette, measuredAccent: Bool = false) {
         self.active = Colors(active, measured: measuredAccent)
-        self.inactive = Colors(inactive, measured: measuredAccent)
         self.measuredAccent = measuredAccent
     }
 }

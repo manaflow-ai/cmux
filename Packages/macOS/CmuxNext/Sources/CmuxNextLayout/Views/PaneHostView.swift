@@ -36,6 +36,9 @@ final class PaneHostView: NSView, RestingPlacement {
         wantsLayer = true
         layer?.masksToBounds = true
         clipView.frame = bounds
+        // `layoutClip` places the content itself: autoresizing would resize held content on every
+        // spring frame before it is set back (`contentFrame(in:)`).
+        clipView.autoresizesSubviews = false
         addSubview(clipView)
         content.translatesAutoresizingMaskIntoConstraints = true
         content.autoresizingMask = [.width, .height]
@@ -66,14 +69,62 @@ final class PaneHostView: NSView, RestingPlacement {
     /// landing frame still sees the motion, then hears it end once (`PaneMotionSettling`): a
     /// terminal reports its grid there, one PTY resize per zoom instead of one per frame.
     var isOnLayoutSpring = false {
-        didSet { if oldValue, !isOnLayoutSpring { content.notifyPaneMotionSettled() } }
+        didSet {
+            guard oldValue != isOnLayoutSpring else { return }
+            if isOnLayoutSpring {
+                heldContentSize = LayoutTunables.holdsContentInMotion.value ? content.frame.size : nil
+            } else {
+                heldContentSize = nil
+                // The one layout at the size the spring landed at, before the content hears it landed.
+                layoutClip()
+                content.notifyPaneMotionSettled()
+            }
+        }
+    }
+
+    /// The host's size at rest (its spring rect's target), set with ``restOffset`` on every
+    /// presented frame; nil before the screen first places it.
+    var restSize: CGSize?
+
+    /// The content's size when the current layout spring started; nil at rest or with
+    /// `LayoutTunables.holdsContentInMotion` off.
+    private var heldContentSize: CGSize?
+
+    /// The content's frame in the clip: the clip's bounds at rest. On a layout spring it keeps the
+    /// larger of its size when the spring started and its size at rest (Leo 2026-10-20: a panel
+    /// opening beside a chat lagged, the chat reflowing on every frame), so a page or a terminal
+    /// lays out once and the clip shows what each frame shows. It is pinned at the edge nearer its
+    /// rest, so it rides that edge: a pane opening on the right slides in from the right while the
+    /// chat keeps its width under it until the spring lands.
+    /// A host at its rest place and size holds nothing, whatever its spring flag says.
+    private func contentFrame(in clip: CGRect) -> CGRect {
+        guard let held = heldContentSize, let restSize, restOffset != .zero || frame.size != restSize else { return clip }
+        let rest = CGSize(width: max(0, clip.width + restSize.width - frame.width),
+                          height: max(0, clip.height + restSize.height - frame.height))
+        let size = CGSize(width: max(clip.width, held.width, rest.width), height: max(clip.height, held.height, rest.height))
+        // The far edge's distance from its rest against the near edge's (`restOffset`).
+        let trailing = abs(restOffset.dx + restSize.width - frame.width) < abs(restOffset.dx) - 0.5
+        let bottom = abs(restOffset.dy + restSize.height - frame.height) < abs(restOffset.dy) - 0.5
+        return CGRect(x: trailing ? clip.maxX - size.width : clip.minX,
+                      y: bottom == isFlipped ? clip.maxY - size.height : clip.minY,
+                      width: size.width, height: size.height)
     }
 
     /// A host taken out of the layout mid-spring is at rest: its content reports what it holds.
     override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
         if superview == nil { isOnLayoutSpring = false }
+        // Another screen (or none) places it now: its clip and overlay are computed afresh.
+        stripClipInput = nil
+        overlaySyncKey = nil
     }
+
+    /// What the host's strip clip was last computed from (`ScreenContentView.clipToStrip`).
+    var stripClipInput: StripClipInput?
+    /// What its ring and dim were last placed from (`LayoutRootView.syncOverlay`).
+    var overlaySyncKey: PaneOverlaySyncKey?
+    /// The chrome state last applied (`setChrome`); nil before the first.
+    private var chromeInputs: PaneChromeInputs?
 
     /// Whether the pane sits in a docked column: it then shows the
     /// user's docks background under its content (`appearance.surfaces.docks`).
@@ -123,11 +174,19 @@ final class PaneHostView: NSView, RestingPlacement {
     }
 
     override func setFrameSize(_ newSize: NSSize) {
+        let changed = newSize != frame.size
         super.setFrameSize(newSize)
-        layoutClip()
+        // `frame =` with only a new origin calls this too: the clip and content keep their size
+        // (held content is pinned by the rest offset, which a move changes: it lays out).
+        if changed || heldContentSize != nil { layoutClip() }
     }
 
+    /// Clip and content layouts this host ran, cumulative (PaneMotionWorkTests: a pane that only
+    /// moves lays out nothing).
+    private(set) var clipLayouts = 0
+
     private func layoutClip() {
+        clipLayouts += 1
         var style = LayoutStyle()
         style.panePadding = padding
         style.paneCornerRadius = cornerRadius
@@ -137,7 +196,8 @@ final class PaneHostView: NSView, RestingPlacement {
         // launch frame. AppKit does not reliably run the child's autoresizing
         // pass when the clip view is resized manually, so keep the content
         // frame in lockstep with the clip bounds here.
-        if content.frame != clipView.bounds { content.frame = clipView.bounds }
+        let content = contentFrame(in: clipView.bounds)
+        if self.content.frame != content { self.content.frame = content }
         applyChromeShape()
     }
 
@@ -211,10 +271,21 @@ final class PaneHostView: NSView, RestingPlacement {
 
     func setChrome(showsRing: Bool, dim: CGFloat, dimFill: PaneOverlayView.DimFill = .pane, focusRing: FocusRingSettings,
                    ringAlphaOverride: CGFloat? = nil, tabEmphasis: ChromeEmphasis = .full, border: PaneOverlayView.Border,
-                   attention: AttentionMark?, attentionSettings: AttentionSettings, animated: Bool) {
+                   attention: AttentionMark?, attentionSettings: AttentionSettings, readByEntry: Bool = false,
+                   focused: Bool = false, flashesFocus: Bool = false, animated: Bool) {
+        // A split or close re-runs every pane's chrome; a pane whose ring, dim, border, emphasis and
+        // attention are what they were keeps them as they are (no layer transactions per pane). A
+        // focus flash always runs: it is an event, not a state.
+        let inputs = PaneChromeInputs(showsRing: showsRing, dim: dim, dimFill: dimFill, focusRing: focusRing,
+                                      ringAlphaOverride: ringAlphaOverride, tabEmphasis: tabEmphasis, border: border,
+                                      attention: attention, attentionSettings: attentionSettings, readByEntry: readByEntry,
+                                      focused: focused)
+        guard flashesFocus || inputs != chromeInputs else { return }
+        chromeInputs = inputs
         reporter?.setChromeEmphasis(tabEmphasis, animated: animated)
         chrome.update(showsRing: showsRing, dim: dim, dimFill: dimFill, focusRing: focusRing, ringAlphaOverride: ringAlphaOverride, border: border,
-                      attention: attention, attentionSettings: attentionSettings, animated: animated)
+                      attention: attention, attentionSettings: attentionSettings, readByEntry: readByEntry,
+                      focused: focused, flashesFocus: flashesFocus, animated: animated)
     }
 }
 

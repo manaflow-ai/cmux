@@ -280,8 +280,8 @@ enum DaemonClosedHistory {
     }
 
     /// Shows a reopened item once the store has it.
-    private static func show(_ reopened: StateResourceClient.ReopenedItem, kind: ClosedItem.Kind, daemon: DaemonService,
-                             services: AppServices) {
+    static func show(_ reopened: StateResourceClient.ReopenedItem, kind: ClosedItem.Kind, daemon: DaemonService,
+                     services: AppServices) {
         guard let workspaceID = reopened.workspaceID, let workspace = daemon.store.workspace(resourceID: workspaceID),
               let window = services.windows.active else { return }
         services.windows.show(workspaceID: workspace.id, in: window.state)

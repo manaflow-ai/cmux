@@ -30,9 +30,15 @@ Two engines run a turn (`OPTCHAT_CHIEF_ENGINE`):
   AskUserQuestion, EnterPlanMode and ExitPlanMode: acpmux keeps those for a
   human under every policy, and nobody answers them in a turn.
 
-A message sent while a turn works never stops it, on any engine (decision
-2026-10-09, parity with the reference client; it replaces the 2026-10-04
-stop). On the acpmux engine the brain steers the message into the running
+A message sent while a turn works is steered into it at once (user
+2026-10-21: "we need to immediately interrupt and steer"; it replaces the
+2026-10-09 "a message never stops a turn"). When a person's message cannot
+go in now (acpmux refuses the steer), or Claude Code has not read it within
+`OPTCHAT_STEER_DEADLINE_SECONDS` (default 3; 0 waits for the next tool
+boundary), the turn is stopped at once, even mid-tool; its end posts
+nothing and the next turn starts with the message. The host never posts a
+message of its own about it (the old front desk receipt "Got it. The Chief
+is busy with a turn ..." is gone: "no fake messages"). On the acpmux engine the brain steers the message into the running
 session (`brain/steer.rs`): acpmux's Claude Code adapter writes it to
 claude's stdin, where Claude Code reads it at its next tool boundary
 (`--replay-user-messages` confirms it), and codex-acp takes it as a steer;
@@ -41,14 +47,51 @@ order, and logged as `user` where it arrived: when Claude Code read it, and
 at once on codex-acp (which answers a steer only at the turn's end). A
 message too big to go in whole (over the view's 128,000 bytes or 20 images)
 is not steered. When the turn cannot take it (its session has not started,
-an item of another conversation is ahead, or acpmux refuses the steer), the
-message waits at the head of the queue and the next turn starts the moment
-this one ends. The native engine delivers it after the next tool results,
+an item of another conversation is ahead, or acpmux refuses a report's
+steer), the message waits at the head of the queue and the next turn starts
+the moment this one ends. The native engine delivers it after the next tool results,
 or the next turn takes it. Messages that arrive while a turn waits for
 settle go into that same call. Subagent reports
-follow the same rule. Only chief.stop stops a turn: the runner waits until
+are steered the same way but never stop a turn. chief.stop also stops one: the runner waits until
 no tool call runs, then sends `session/cancel` every second until the turn
 ends, and the end posts nothing to the chat or any bridge.
+
+## Every person message gets a reply
+
+User 2026-10-21: "make every user message in the Chief DM get a reply,
+guaranteed." The reply ledger (`src/brain/reply_ledger.rs`,
+`HostState::awaiting`) holds each person message of the Chief conversation
+from the moment it is queued until the owner takes a post that answers it: a
+reply that names it (`answers`, `reply_to`), or any text the Chief posts once
+a turn has seen it (a `send`). The ledger is saved with the host state, so a
+host crash, a restart, or a cloud VM deleted mid-turn keeps it (a restarted
+host checks again after the longest wait, after its resume turn), and the mux
+ack of a cloud wake waits until the ledger is empty, so the queue delivers
+the wake again to the next host.
+
+Ways a message used to end with no reply, and what happens now:
+
+- The turn ends with `NO_REPLY`, or with `stop` and nothing sent: refused for
+  a person message of the Chief conversation (channels keep `NO_REPLY`).
+- The turn fails, times out, or is cut (acpmux lost, an upstream error past
+  `MAX_CUTS`): the failure text posts as before; when nothing posts, the
+  message waits for a retry.
+- The owner refuses the reply post (any reject other than `agent_rate`,
+  which retries on its own): the message waits for a retry.
+- The host dies before the reply posts: the ledger survives the restart.
+
+A message left unanswered gets a check after 5 s, 30 s and 120 s
+(`REPLY_RETRY_WAITS`). When no turn runs, the check starts a retry turn on
+a `[no reply]` note that names the messages, says why, and forbids
+`NO_REPLY`. After `MAX_REPLY_TRIES` (3) retries the host posts a short
+failure note in the message's thread ("I could not answer your message ...
+Please send it again.") and logs a note so the next turn does not answer it
+again. Only the owner's stop (chief.stop) and a retraction close a message
+with no post.
+
+Home (cmux-next, `ChiefReplyWatchdog`) shows a notice in the local Chief
+conversation when the person's last message has had no reply for 2 minutes,
+from the conversation head alone, so it also covers a host that is down.
 
 ## Several Chiefs and channels
 
@@ -195,11 +238,15 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
   call in the log, and the floor of that moment).
 - A turn whose subagents are at work gets `Subagents at work now: a1, a3.`
   after the view, before its new messages (never logged).
-- `chief.stop` stops the running turn and every subagent at work
-  (`session/cancel` on each; their reports come quiet) and drops the queued
-  ones; it answers `{"stopped": true, "subagents": [...]}`.
-  `chief.stop {name: "a3"}` stops only that subagent and answers the
-  note `Stopped by the user: a3.`; the turn and the other subagents go on.
+- `chief.stop` stops only the running turn; subagents at work and queued
+  ones go on. It answers `{"stopped": bool}`. The Chief's own `stop` tool
+  (`{"tool": "stop", "end_turn": true}` on the tools socket, or any call from
+  a turn session) only ends its turn and is never taken for `chief.stop`.
+  `chief.stop {name: "a3"}` stops only that subagent (`session/cancel`; its
+  report comes quiet) and answers the note `Stopped by the user: a3.`; the
+  turn and the other subagents go on. A stopped or cancelled subagent is not
+  at work any more, even when its session never ends the turn: its slot frees
+  at once.
 - A subagent prompt the harness fails ends that run with `[a<N>] (failed:
   <error>)`, never a subagent that waits forever.
 

@@ -122,7 +122,7 @@ struct OmnibarChromeParityTests {
         for keystroke in 1...20 {
             let typed = String(repeating: "e", count: keystroke)
             let rows = (0..<4).map { BrowserSuggestion(kind: .history, title: "\(typed) \($0)", detail: "", url: url, score: 1) }
-            panel.show(rows, highlighted: 0, below: bar, pane: window.contentView!, in: window)
+            panel.show(rows, highlighted: 0, at: bar, pane: window.contentView!, in: window)
             #expect(panel.rowViews.count == 4)
             #expect(panel.rowViews.first?.accessibilityLabel() == "\(typed) 0")
         }
@@ -200,6 +200,15 @@ struct OmnibarChromeParityTests {
         #expect(resolver.url(for: "localhost:3000")?.absoluteString == "http://localhost:3000")
         #expect(resolver.url(for: "devbox") == nil)
         #expect(resolver.url(for: "swift testing") == nil)
+    }
+
+    /// `cmux://stashed` loads (the App opens the Stashed Tabs page); any other `cmux:` link searches.
+    @Test func onlyCmuxAppPagesLoadFromTheCmuxScheme() {
+        let resolver = BrowserURLResolver()
+        #expect(resolver.url(for: "cmux://stashed")?.absoluteString == "cmux://stashed")
+        #expect(resolver.url(for: "CMUX://Stashed/?q=1")?.absoluteString == "cmux://stashed")
+        #expect(resolver.url(for: "cmux://tab/tab_0123") == nil)
+        #expect(resolver.url(for: "cmux:stashed") == nil)
     }
 
     /// A leading `?` forces a search (Chrome's "?" prefix), and the `?` is

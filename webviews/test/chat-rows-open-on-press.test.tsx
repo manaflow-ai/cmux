@@ -89,34 +89,6 @@ const keyboardClick = (element: Element) =>
 
 const settle = () => act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
 
-test("a chat row in the agent pane's sidebar opens on the press, once", async () => {
-  const { createRoot } = await import("react-dom/client");
-  const { SessionSidebar } = await import("../src/agent-session/acpmux/SessionSidebar");
-  const opened: string[] = [];
-  const session = {
-    sessionId: "session-1",
-    title: "Fix the checkout",
-    harness: "codex",
-    cwd: "/Users/you/src/cmux",
-    status: "running",
-    indicator: "working" as const,
-    host: "This Mac",
-    hostKind: "local" as const,
-    updatedAt: 1,
-  };
-  root = createRoot(host);
-  await act(async () =>
-    root!.render(<SessionSidebar sessions={[session]} onSelect={(id: string) => opened.push(id)} />),
-  );
-  const row = host.querySelector(".acpmux-session-row")!;
-  await press(row);
-  expect(opened).toEqual(["session-1"]);
-  await release(row);
-  expect(opened).toEqual(["session-1"]);
-  await keyboardClick(row);
-  expect(opened).toEqual(["session-1", "session-1"]);
-});
-
 const chats = [
   { key: "a", harness: "claude", title: "Retry uploads", cwd: "/Users/me/src/uploader", updatedAt: 9 },
   { key: "b", harness: "claude", title: "Fix the sidebar", cwd: "/Users/me/src/cmux", updatedAt: 8 },

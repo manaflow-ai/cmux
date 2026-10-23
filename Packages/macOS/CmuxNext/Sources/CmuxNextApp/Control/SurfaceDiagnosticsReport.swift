@@ -132,6 +132,9 @@ enum SurfaceDiagnosticsReport {
             "prewarmed_total": JSONValue(hibernation.prewarmedCount),
             "cold_shows_total": JSONValue(hibernation.coldShows),
             "exemptions": .object(hibernation.exemptions.mapValues { .string($0.rawValue) }),
+            "snapshots": JSONValue(hibernation.snapshots.count),
+            "snapshot_bytes": JSONValue(hibernation.snapshots.totalBytes),
+            "wakes": hibernation.wakeLog.json,
         ]
     }
 }

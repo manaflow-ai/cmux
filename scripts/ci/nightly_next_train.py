@@ -521,6 +521,26 @@ def source_base(base_commit: str) -> tuple[str, list[Car]]:
     return train.parents[1], carried_cars(train)
 
 
+def require_on_tip(source: str, cars: list[Car], tip: str) -> None:
+    """Refuse a train whose source or cars are not in the tip's history.
+
+    The base comes from a build or a dispatch input, and its trailers name the
+    carried cars, so a crafted base could name commits that never landed. The
+    car guards check out every car, and the drive job holds the release App
+    token while they run, so only feat-cmux-next history may get that far."""
+    def on_tip(sha: str) -> bool:
+        return bool(SHA_RE.match(sha)) and subprocess.run(
+            ["git", "merge-base", "--is-ancestor", sha, tip], capture_output=True,
+        ).returncode == 0
+
+    if not on_tip(source):
+        raise TrainError(f"the train's source {source[:12]} is not in the history of {tip[:12]}")
+    for car in cars:
+        off = [sha for sha in car.commits if not on_tip(sha)]
+        if off:
+            raise TrainError(f"car {car.id} names {off[0][:12]}, which is not in the history of {tip[:12]}")
+
+
 # ---------------------------------------------------------------- candidates
 
 def revert_order(cars: list[Car], quarantine: Iterable[str]) -> list[tuple[Car, str]]:

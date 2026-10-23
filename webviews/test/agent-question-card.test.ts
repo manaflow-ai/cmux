@@ -13,6 +13,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -70,9 +71,14 @@ await requireBrowserLane("agent-question-card.test.ts", async () => {
 
   /// The `chat.permission` calls so far, once at least `count` arrived.
   async function permissionCalls(page: Page, count: number): Promise<Call[]> {
-    const read = () => page.evaluate(() => (window as unknown as { permissionCalls: Call[] }).permissionCalls);
-    for (let i = 0; i < 100 && (await read()).length < count; i++) await page.waitForTimeout(50);
-    return read();
+    await page
+      .waitForFunction(
+        (count) => (window as unknown as { permissionCalls: Call[] }).permissionCalls.length >= count,
+        count,
+        { timeout: 5_000 },
+      )
+      .catch(() => {});
+    return page.evaluate(() => (window as unknown as { permissionCalls: Call[] }).permissionCalls);
   }
 
   const highlighted = (page: Page) =>
@@ -90,7 +96,10 @@ await requireBrowserLane("agent-question-card.test.ts", async () => {
     if (draft) await page.keyboard.type(draft);
     await page.locator(".acpmux-preview-controls select").selectOption("question-pending-single");
     await page.locator(".acpmux-question").waitFor();
-    await page.waitForTimeout(300);
+    // The card takes an idle keyboard in an effect after it renders; React has run its effects by
+    // the time the next frame has painted.
+    await installPaintedFrames(page);
+    await page.evaluate(() => window.cmuxPaintFrame());
     return page;
   }
 
@@ -148,7 +157,8 @@ await requireBrowserLane("agent-question-card.test.ts", async () => {
         Object.assign(window, { escapesSeen: seen });
       });
       await page.keyboard.press("Escape");
-      await page.waitForTimeout(100);
+      // The pane heard the key; by then the card had its say.
+      await page.waitForFunction(() => (window as unknown as { escapesSeen: boolean[] }).escapesSeen.length > 0);
       expect(await permissionCalls(page, 0)).toEqual([]);
       expect(await page.evaluate(() => (window as unknown as { escapesSeen: boolean[] }).escapesSeen)).toEqual([false]);
       expect(await focusedInCard(page)).toBe(false);
@@ -162,7 +172,7 @@ await requireBrowserLane("agent-question-card.test.ts", async () => {
       await page.close();
     });
 
-    test("Esc on the card while the turn runs is the double press's first: Stop shows the Esc hint, the next Esc stops", async () => {
+    test("Esc on the card while the turn runs is the double press's first: Stop is armed, the next Esc stops", async () => {
       // The card's Esc falls through to the composer's double press (escapeStop.ts), so a card Esc
       // and one more stop the turn: never three presses, and never an answer.
       const page = await pendingQuestion();
@@ -189,7 +199,8 @@ await requireBrowserLane("agent-question-card.test.ts", async () => {
         Object.assign(window, { escapesSeen: seen });
       });
       await page.keyboard.press("Escape");
-      await page.waitForTimeout(100);
+      // The pane heard the key; by then the card had its say.
+      await page.waitForFunction(() => (window as unknown as { escapesSeen: boolean[] }).escapesSeen.length > 0);
       expect(await permissionCalls(page, 0)).toEqual([]);
       expect(await page.evaluate(() => (window as unknown as { escapesSeen: boolean[] }).escapesSeen)).toEqual([true]);
       expect(await focusedInCard(page)).toBe(false);

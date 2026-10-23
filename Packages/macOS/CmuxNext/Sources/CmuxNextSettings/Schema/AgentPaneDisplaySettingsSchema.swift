@@ -3,7 +3,8 @@ import CoreGraphics
 /// The agent chat's look (Settings > Appearance > Agent Chat; plans/cmux-next/chat-display-settings-DESIGN.md):
 /// the same kind of rows the Markdown viewer has, under `agentPane.display`. The chat page reads the
 /// same names and ranges (webviews/src/agent-session/acpmux/chatDisplay.ts `CHAT_DISPLAY`), and its
-/// ··· menu's Text & Width popover writes them.
+/// ··· menu's Text & Width popover writes them. `inspector.placement` is where the chat's Inspector
+/// opens (webviews/src/agent-session/acpmux/inspector/ChatInspector.tsx).
 ///
 /// The font, code font and code size have no value of their own by default: the chat then follows
 /// the Markdown viewer's (`markdown.font.preset`, `markdown.code.family`, `markdown.code.scale`),
@@ -61,6 +62,14 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                                          "Code as a share of the chat's text size. Empty uses the Markdown viewer's."),
                 .number(SettingNumber(0.6...1.25, step: 0.025, unit: .fraction, placeholder: codeScaleFallback)), nil,
                 ["code", "font", "size", "monospace", "scale"]),
+            row(["inspector", "placement"], SettingsText.keyed("settings.agentPane.display.inspector", "Session Info"),
+                help: SettingsText.keyed("settings.agentPane.display.inspector.help",
+                                         "Where the Session Info panel opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat."),
+                .choice([
+                    SettingChoice("push", SettingsText.keyed("settings.choice.agentChatInspectorPush", "Push")),
+                    SettingChoice("overlay", SettingsText.keyed("settings.choice.agentChatInspectorOverlay", "Overlay")),
+                ]),
+                .string("overlay"), ["session", "info", "inspector", "panel", "side", "right", "overlay", "push", "details"]),
         ]
     }
 }

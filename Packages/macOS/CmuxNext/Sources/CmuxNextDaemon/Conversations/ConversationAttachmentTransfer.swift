@@ -1,7 +1,8 @@
 public import Foundation
 
 /// Attachment bytes over one daemon connection (`local-attachments-v1`):
-/// chunked uploads by SHA-256 and chunked reads into a local file.
+/// chunked uploads by SHA-256 and chunked reads into a local file
+/// (``AttachmentTransfer`` with the local owner's commands).
 extension ConversationClient {
     /// Decoded bytes per chunk and per read: the daemon's limit (4 MiB, about
     /// 5.6 MiB of base64 inside a 16 MiB request line).
@@ -11,13 +12,19 @@ extension ConversationClient {
     static let attachmentChunkTimeout: Duration = .seconds(30)
 
     public static func supportsAttachments(_ connection: DaemonConnection) async -> Bool {
-        await connection.identity?.supports(DaemonCapabilities.shared.localAttachments) == true
+        await connection.identity?.supports(DaemonCapabilities.localAttachments) == true
     }
 
     private func requireAttachments() async throws {
         guard await Self.supportsAttachments(connection) else {
-            throw DaemonError.missingCapabilities([DaemonCapabilities.shared.localAttachments])
+            throw DaemonError.missingCapabilities([DaemonCapabilities.localAttachments])
         }
+    }
+
+    /// The local owner's steps: `begin` on the connection's default deadline, the others on `attachmentChunkTimeout`.
+    private var transfer: AttachmentTransfer<ConversationAttachmentUploadRequest, ConversationAttachmentReadRequest> {
+        AttachmentTransfer(connection: connection, beginTimeout: nil, chunkTimeout: Self.attachmentChunkTimeout,
+                           commitTimeout: Self.attachmentChunkTimeout, readTimeout: Self.attachmentChunkTimeout)
     }
 
     /// Uploads `attachment`'s bytes from `file` (and its poster or preview
@@ -29,56 +36,8 @@ extension ConversationClient {
                                  posterFile: URL? = nil, previewFile: URL? = nil,
                                  progress: @Sendable (Double) -> Void = { _ in }) async throws -> StoredConversationAttachment {
         try await requireAttachments()
-        let begun = try await connection.request(ConversationAttachmentUploadRequest.begin(conversation: conversation,
-                                                                                         attachment: attachment))
-        guard let upload = begun.upload else {
-            guard let stored = begun.stored else { throw DaemonError.malformedResponse("attachment begin: no upload and no record") }
-            progress(1)
-            return stored
-        }
-        do {
-            let needs = begun.needs ?? [.original]
-            var pieces: [(variant: ConversationAttachmentVariant, url: URL, size: Int)] = []
-            for variant in needs {
-                switch variant {
-                case .original: pieces.append((variant, file, attachment.byteCount))
-                case .poster:
-                    guard let posterFile, let poster = attachment.poster else { throw DaemonError.malformedResponse("attachment begin: poster needed") }
-                    pieces.append((variant, posterFile, poster.byteCount))
-                case .preview:
-                    guard let previewFile, let preview = attachment.preview else { throw DaemonError.malformedResponse("attachment begin: preview needed") }
-                    pieces.append((variant, previewFile, preview.byteCount))
-                }
-            }
-            let total = max(1, pieces.reduce(0) { $0 + $1.size })
-            var sent = 0
-            for piece in pieces {
-                let handle = try FileHandle(forReadingFrom: piece.url)
-                defer { try? handle.close() }
-                var offset = 0
-                // Ends at the declared size; a file shorter than declared ends at its EOF
-                // and the commit refuses it (`incomplete`).
-                while offset < piece.size {
-                    try Task.checkCancellation()
-                    let bytes = try handle.read(upToCount: min(Self.attachmentChunkBytes, piece.size - offset)) ?? Data()
-                    guard !bytes.isEmpty else { break }
-                    _ = try await connection.request(ConversationAttachmentUploadRequest.chunk(upload: upload, piece: piece.variant,
-                                                                                               offset: offset, bytes: bytes),
-                                                     timeout: Self.attachmentChunkTimeout)
-                    offset += bytes.count
-                    sent += bytes.count
-                    progress(min(0.99, Double(sent) / Double(total)))
-                }
-            }
-            let committed = try await connection.request(ConversationAttachmentUploadRequest.commit(upload: upload),
-                                                         timeout: Self.attachmentChunkTimeout)
-            guard let stored = committed.stored else { throw DaemonError.malformedResponse("attachment commit: no record") }
-            progress(1)
-            return stored
-        } catch {
-            _ = try? await connection.request(ConversationAttachmentUploadRequest.cancel(upload: upload))
-            throw error
-        }
+        return try await transfer.upload(conversation: conversation, attachment: attachment, file: file, posterFile: posterFile,
+                                         previewFile: previewFile, progress: progress)
     }
 
     /// Reads `variant` of `hash` in `conversation` into `destination`
@@ -89,40 +48,6 @@ extension ConversationClient {
     public func downloadAttachment(conversation: String, hash: String, variant: ConversationAttachmentVariant,
                                    to destination: URL) async throws -> String {
         try await requireAttachments()
-        let directory = destination.deletingLastPathComponent()
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let temporary = directory.appendingPathComponent(".\(destination.lastPathComponent).\(UUID().uuidString).partial")
-        FileManager.default.createFile(atPath: temporary.path, contents: nil)
-        var moved = false
-        defer { if !moved { try? FileManager.default.removeItem(at: temporary) } }
-        let handle = try FileHandle(forWritingTo: temporary)
-        var offset = 0
-        var mimeType = "application/octet-stream"
-        do {
-            defer { try? handle.close() }
-            var eof = false
-            // Ends at the owner's eof; a read that moves no bytes before it is an error.
-            while !eof {
-                try Task.checkCancellation()
-                let reply = try await connection.request(
-                    ConversationAttachmentReadRequest(conversation: conversation, hash: hash, variant: variant, offset: offset,
-                                                      length: Self.attachmentChunkBytes),
-                    timeout: Self.attachmentChunkTimeout)
-                guard let bytes = Data(base64Encoded: reply.data) else { throw DaemonError.malformedResponse("attachment read: data is not base64") }
-                try handle.write(contentsOf: bytes)
-                offset += bytes.count
-                mimeType = reply.mimeType
-                eof = reply.eof
-                guard eof || !bytes.isEmpty else { throw DaemonError.malformedResponse("attachment read: no progress before eof") }
-            }
-            try handle.synchronize()
-        }
-        do {
-            try FileManager.default.moveItem(at: temporary, to: destination)
-            moved = true
-        } catch where FileManager.default.fileExists(atPath: destination.path) {
-            // A concurrent read of the same variant placed identical bytes first.
-        }
-        return mimeType
+        return try await transfer.download(conversation: conversation, hash: hash, variant: variant, to: destination)
     }
 }

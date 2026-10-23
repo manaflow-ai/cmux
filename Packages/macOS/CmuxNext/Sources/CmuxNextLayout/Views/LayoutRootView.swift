@@ -1,6 +1,6 @@
 public import AppKit
 import CmuxNextCompat
-import CmuxNextDesign
+public import CmuxNextDesign
 import Observation
 
 /// The workspace content area: renders every screen of a `LayoutModel`,
@@ -22,6 +22,8 @@ public final class LayoutRootView: NSView {
     weak var planeHost: (any OverlayPlaneHosting)?
     var reportedInteractiveRects: [CGRect] = []
     var reportedDividerMouseAreas: [LayoutMouseArea] = []
+    /// ``isInLayoutMotion`` at the last report: its end is reported even when no rect changed.
+    var reportedLayoutMotion = false
     let driver = DisplayLinkDriver()
     private var observationTask: Task<Void, Never>?
     private var eventMonitor: Any?
@@ -77,14 +79,27 @@ public final class LayoutRootView: NSView {
     /// syncs it once, before this turn's frame (`setNeedsOverlaySync`).
     var overlayIsStale = false
     var overlayFlushScheduled = false
+    /// Pane rings and dims the overlay syncs placed, cumulative (PaneMotionWorkTests: per frame it
+    /// is the panes that moved, not every pane).
+    var overlayHostsPlaced = 0
+    /// The panes whose ring, dim or window frame the last overlay sync changed: a pane that moved,
+    /// resized, faded or was newly covered. Observers of ``observeOverlaySync(_:)`` read it to touch
+    /// only those panes (a Chromium page's geometry post, a divider catcher); empty for a sync that
+    /// moved nothing.
+    public internal(set) var panesMovedInLastOverlaySync: Set<PaneID> = []
+    /// Whether a layout motion runs now (``observeLayoutMotion(_:)``).
+    public private(set) var isLayoutInMotion = false
+    /// Layout motion observers by id (`observeLayoutMotion`).
+    var layoutMotionObservers: [Int: (Bool) -> Void] = [:]
 
-    /// A pane close is springing on some screen: the panes around it change size every frame, and
-    /// their terminals keep their grids (the PTY resizes once, at rest) until it lands
-    /// (plans/cmux-next/close-animation/DESIGN.md). Called with true when the first close starts
-    /// and false when the last one lands; the App holds `ResizeCoordinator` with it.
+    /// A split or a pane close is springing on some screen: the panes it resizes change size every
+    /// frame, and their terminals keep their grids (the PTY resizes once, at rest) until it lands
+    /// (plans/cmux-next/close-animation/DESIGN.md, split-spring-animation/DESIGN.md). Called with
+    /// true when the first one starts and false when the last one lands; the App holds
+    /// `ResizeCoordinator` with it.
     public var onTerminalGridHold: ((Bool) -> Void)?
-    /// Whether a pane close holds the terminals' grids now (``onTerminalGridHold``).
-    public var holdsTerminalGrids: Bool { !context.closingScreens.isEmpty }
+    /// Whether a split or a pane close holds the terminals' grids now (``onTerminalGridHold``).
+    public var holdsTerminalGrids: Bool { !context.gridHoldScreens.isEmpty }
 
     /// Everything the view reads from the model, observed as one value.
     private struct Snapshot: Equatable, Sendable {
@@ -323,15 +338,26 @@ public final class LayoutRootView: NSView {
                 // An explicit equalize (same structure, new ratios) springs whenever motion is allowed (Lawrence
                 // 2026-10-16); the sizing after a split or close, and released drags, follow `ui.paneAnimations`.
                 let reflows = chromeAnimated && !structureChanged && !snapshot.gestureActive && model.animatesReflow
-                if view.update(layout: screen.layout, zoomed: screen.zoomed, canvas: canvas, animated: animated || reflows) {
+                // A hidden screen lands at once: frames step only the screens shown (`advanceFrame`), so a
+                // spring started there (a restore, a daemon echo) froze its panes mid-motion, their
+                // content held wider than the pane and pinned to its edge (Leo 2026-10-21).
+                if view.update(layout: screen.layout, zoomed: screen.zoomed, canvas: canvas,
+                               animated: (animated || reflows) && !view.isHidden) {
                     needsFrames = true
                 }
-                // The focus ring of a split's new pane appears with the pane.
+                // The focus ring of a split's new pane appears with the pane; the focus flash still
+                // runs, so the pane after a close or a link's new pane shows where focus went.
                 view.updateChrome(focused: snapshot.focused, dimsInactive: snapshot.dimsInactive, attention: snapshot.attention,
-                                  animated: chromeAnimated && !structureChanged)
+                                  animated: chromeAnimated && !structureChanged, flashAnimated: chromeAnimated)
             } else if chromeChanged {
+                // A focus move alone changes the chrome of two panes, the one left and the one focused: every
+                // other pane keeps its ring, dim and tab emphasis (O(2), not O(panes); speed-of-sound 3.2).
+                let focusMoveOnly = previous.map {
+                    !sharedChanged && $0.dimsInactive == snapshot.dimsInactive && $0.attention == snapshot.attention
+                } ?? false
                 view.updateChrome(focused: snapshot.focused, dimsInactive: snapshot.dimsInactive, attention: snapshot.attention,
-                                  animated: chromeAnimated)
+                                  animated: chromeAnimated,
+                                  only: focusMoveOnly ? Set([previous?.focused, snapshot.focused].compactMap { $0 }) : nil)
             }
             // A changed layout or focus reaches the scroll reducer: it anchors
             // the camera on layout changes, reveals focus, and springs back
@@ -371,6 +397,8 @@ public final class LayoutRootView: NSView {
         // re-read their clip shape (their frames may not have moved).
         if let previous, previous.style != snapshot.style { planeHost?.paneShapesDidChange(overlayPlane) }
         if needsFrames || snapshot.gestureActive { driver.start() }
+        // A change that starts springs (a split, a close) is in motion from the frame it lands in.
+        if needsFrames && driver.isRunning { setLayoutInMotion(true) }
     }
 
     // MARK: Frames
@@ -390,10 +418,22 @@ public final class LayoutRootView: NSView {
         applyScreenFrames()
         if highlight.step(dt) { moving = true }
         updateVisibility()
+        // The frame that lands still syncs as part of the motion; observers hear it ended after it.
+        if moving { setLayoutInMotion(true) }
         flushOverlaySync()
+        if !moving { setLayoutInMotion(false) }
         // A gesture requests frames on each pointer change; an active
         // gesture with a still pointer needs none.
         return moving
+    }
+
+    /// Tells the layout motion observers when the first spring starts and when the last one lands.
+    func setLayoutInMotion(_ moving: Bool) {
+        guard moving != isLayoutInMotion else { return }
+        isLayoutInMotion = moving
+        for block in layoutMotionObservers.values { block(moving) }
+        // The landing frame synced while still in motion: the window hears the rest now (catchers).
+        if !moving { reportInteractiveRects() }
     }
 
     func updateVisibility() {
@@ -425,6 +465,8 @@ public final class LayoutRootView: NSView {
     /// Layout passes of every root (`debug.layout_counters`): a window resize lays out the shown
     /// workspace only; a parked one keeps its frame until it shows again.
     public static var layoutPasses: UInt64 = 0
+    /// Panes whose chrome (ring, dim, tab emphasis) a sync re-ran, all windows (`debug.layout_counters`).
+    public static var paneChromeUpdates: UInt64 = 0
 
     override public func layout() {
         super.layout()
@@ -453,10 +495,13 @@ public final class LayoutRootView: NSView {
         if overlayPlane.syncFrame() || moved { setNeedsOverlaySync() }
     }
 
-    /// In a window and not hidden: the only state in which this root takes events, runs frames,
-    /// lends its overlay plane to the window and reports visible panes. A parked workspace stays in
-    /// its window, hidden (`WindowRootView.show`), so hiding is what parks it, as leaving did.
+    /// In a window and not hidden or parked: the only state in which this root takes events, runs
+    /// frames, lends its overlay plane to the window and reports visible panes. A parked workspace
+    /// stays in its window, hidden or parked (`WindowRootView.show`, ``ParkingContainer``), so that is
+    /// what parks it, as leaving did.
     public private(set) var isLive = false
+
+    private var isShown: Bool { window != nil && !isHiddenOrHasHiddenAncestor && !isParkedOrHasParkedAncestor }
 
     override public func viewWillMove(toWindow newWindow: NSWindow?) {
         super.viewWillMove(toWindow: newWindow)
@@ -465,7 +510,7 @@ public final class LayoutRootView: NSView {
 
     override public func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        setLive(window != nil && !isHiddenOrHasHiddenAncestor)
+        setLive(isShown)
     }
 
     override public func viewDidHide() {
@@ -475,8 +520,10 @@ public final class LayoutRootView: NSView {
 
     override public func viewDidUnhide() {
         super.viewDidUnhide()
-        setLive(window != nil && !isHiddenOrHasHiddenAncestor)
+        setLive(isShown)
     }
+
+    public func parkingDidChange() { setLive(isShown) }
 
     /// One transition per park or show: O(1) registrations, then one visibility report (the panes
     /// that hide or show), never per frame or per event.
@@ -510,3 +557,5 @@ public final class LayoutRootView: NSView {
     }
 
 }
+
+extension LayoutRootView: ParkingObserver {}

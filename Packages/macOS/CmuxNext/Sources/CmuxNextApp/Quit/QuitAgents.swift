@@ -41,8 +41,11 @@ enum QuitAgents {
     /// Ends the local agents. A failure is returned, so the quit shows it
     /// with Retry and Quit Anyway; agents that did not end keep running.
     /// `waitForShutdown` (a Retry) waits for a shutdown already in progress.
-    static func end(_ environment: AcpmuxEnvironment?, waitForShutdown: Bool = false) async -> [EndSessionsFailure] {
-        let result = await AcpmuxQuit.endAgents(environment, waitForShutdown: waitForShutdown)
+    /// `keep`: the Home Chief's sessions, unless the Chief runs on this daemon
+    /// (``ChiefHostStop/appAcpmuxEndKeep(chiefUsesAppAcpmux:)``).
+    static func end(_ environment: AcpmuxEnvironment?, keep: AcpmuxQuit.Keep = .chief,
+                    waitForShutdown: Bool = false) async -> [EndSessionsFailure] {
+        let result = await AcpmuxQuit.endAgents(environment, keep: keep, waitForShutdown: waitForShutdown)
         Logger(subsystem: "com.cmuxterm.app.next", category: "app.quit")
             .info("end agents: \(String(describing: result), privacy: .public)")
         return failures(for: result)

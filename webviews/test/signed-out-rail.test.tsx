@@ -2,7 +2,8 @@
 // pick started a chat that failed on its first turn ("authentication failed"). At the composer's
 // boundary: the real catalog and picker, and what the pane sends. A signed-out harness's tab is
 // dimmed and offers Log In (its login command) in place of its models, and no pick or search
-// reaches its models.
+// reaches its models. The full picker is opened by More models' shortcut: the model button opens the
+// compact menu first (Leo 2026-10-20).
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, useState } from "react";
@@ -179,6 +180,13 @@ async function mount(start: {
   return { sent, catalog: BUNDLED_MODEL_CATALOG };
 }
 
+/// The full picker, as More models' shortcut opens it (Cmd-Ctrl-M): the composer's model button opens
+/// the compact menu first (Leo 2026-10-20: one model button), and the full picker is reached from it.
+const openFullPicker = () =>
+  dom.window.dispatchEvent(
+    new dom.window.KeyboardEvent("keydown", { key: "m", metaKey: true, ctrlKey: true, bubbles: true }),
+  );
+
 const tabFor = (name: string) =>
   [...host.querySelectorAll<HTMLButtonElement>(".acpmux-mp-harness")].find(
     (button) => button.title.split(" · ")[0] === name,
@@ -195,7 +203,7 @@ test("a signed-out harness offers Log In, never its models", async () => {
   });
   const codex = catalog.harnesses.find((entry) => entry.id === "codex")!;
   await act(async () => {
-    host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click();
+    openFullPicker();
   });
   const tab = tabFor(codex.name);
   expect(tab, "the Codex rail tab").toBeDefined();
@@ -218,7 +226,7 @@ test("a search never lists a signed-out harness's models", async () => {
   });
   const codexModels = new Set(catalog.harnesses.find((entry) => entry.id === "codex")!.models.map((model) => model.id));
   await act(async () => {
-    host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click();
+    openFullPicker();
   });
   const input = host.querySelector<HTMLInputElement>(".acpmux-mp input")!;
   const setValue = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!;
@@ -241,7 +249,7 @@ test("the running chat's own harness keeps its models", async () => {
     signIn: { signedOut: { codex: "codex login" }, logIn: () => undefined },
   });
   await act(async () => {
-    host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click();
+    openFullPicker();
   });
   // A started chat's harness is fixed: its menu has no rail, only that harness's models.
   expect(host.querySelector(".acpmux-mp-harness")).toBeNull();
@@ -257,7 +265,7 @@ test("Starred lists no model of a signed-out harness", async () => {
   dom.window.localStorage.setItem("cmux.model-picker.favorites", JSON.stringify([codexModel, claudeModel]));
   await mount({ harness: "claude", signIn: { signedOut: { codex: "codex login" }, logIn: () => undefined } });
   await act(async () => {
-    host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click();
+    openFullPicker();
   });
   const starred = host.querySelector<HTMLButtonElement>('.acpmux-mp-rail-list [aria-label="Starred"]');
   expect(starred, "the Starred tab").not.toBeNull();

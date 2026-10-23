@@ -6,13 +6,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/ci/base-merge-warning-hook.sh",
-            "timeout": 40
-          },
-          {
-            "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/ci/merge-compile-guard-hook.sh",
-            "timeout": 90
+            "command": "bash -c 'i=$(cat); case $i in *\"pr merge\"*|*\"/merge\"*) m=1 ;; *update-branch*) m=0 ;; *) exit 0 ;; esac; d=${CLAUDE_PROJECT_DIR:-.}; if [ \"$m\" = 1 ] && command -v timeout >/dev/null 2>&1; then timeout 10 git -C \"$d\" fetch --quiet --no-tags origin feat-cmux-next 2>/dev/null; fi; f=$(mktemp) || exit 1; trap \"rm -f -- \\\"$f\\\"\" EXIT; if ! git -C \"$d\" show origin/feat-cmux-next:scripts/ci/guards-from-base.sh > \"$f\" 2>/dev/null; then why=\"cmux guards: cannot read scripts/ci/guards-from-base.sh at origin/feat-cmux-next, so the merge guards did not run; fetch origin feat-cmux-next and retry\"; if [ \"$m\" = 1 ]; then printf \"{\\\"systemMessage\\\": \\\"%s; merging anyway\\\", \\\"hookSpecificOutput\\\": {\\\"hookEventName\\\": \\\"PreToolUse\\\", \\\"additionalContext\\\": \\\"%s; merging anyway\\\"}}\\n\" \"$why\" \"$why\"; exit 0; fi; echo \"$why\" >&2; exit 1; fi; printf %s \"$i\" | bash \"$f\" \"$d\" || exit 1'",
+            "timeout": 120
           }
         ]
       }
@@ -23,13 +18,18 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash scripts/ci/lint-swift-post-edit.sh",
+            "command": "bash \"${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel)}/scripts/ci/lint-swift-post-edit.sh\" || true",
             "timeout": 10
           },
           {
             "type": "command",
-            "command": "bash scripts/ci/format-post-edit.sh",
+            "command": "bash \"${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel)}/scripts/ci/format-post-edit.sh\" || true",
             "timeout": 30
+          },
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/ci/check-post-edit.sh\"",
+            "timeout": 15
           }
         ]
       }

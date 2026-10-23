@@ -867,6 +867,8 @@ class OwnedPools(unittest.TestCase):
         self.assertTrue(pool.persistent("glaeda-light-xcode-26.6"))
         # The fast tier's reserved runner (CI_FAST_LANE_RUNNER) is owned too.
         self.assertTrue(pool.persistent("glaeda-fast-std-xcode-26.6"))
+        # So is generated files' session runner (CI_SESSION_LANE_RUNNER).
+        self.assertTrue(pool.persistent("glaeda-session-light-xcode-26.6"))
         for label in (SMALL, "ubuntu-24.04", "glaeda-mini", "glaeda-class-std", ""):
             self.assertFalse(pool.persistent(label), label)
 
@@ -2440,10 +2442,11 @@ class Wiring(unittest.TestCase):
     def test_the_picker_reads_the_runs_routing(self):
         changes = self.workflow("ci.yml")["jobs"]["changes"]
         ids = [step.get("id") for step in changes["steps"]]
-        for step_id in ("detect", "standalone", "suite"):
+        for step_id in ("detect", "standalone", "suite", "next-route"):
             self.assertLess(ids.index(step_id), ids.index("macos-pool"), step_id)
         env = changes["steps"][ids.index("macos-pool")]["env"]
-        self.assertEqual(env["RUN_FULL_SUITE"], "${{ steps.suite.outputs.full_suite }}")
+        # A feat-cmux-next pull request's routing (next-route) wins, as in the job's outputs.
+        self.assertEqual(env["RUN_FULL_SUITE"], "${{ steps.next-route.outputs.full_suite || steps.suite.outputs.full_suite }}")
         self.assertNotIn("RUN_CLI", env)
         self.assertNotIn("RUN_CLAUDE_WRAPPER", env)
         self.assertNotIn("OWNED_JOBS_PER_RUN", env)
@@ -2685,8 +2688,10 @@ class Wiring(unittest.TestCase):
     def test_the_picker_reads_the_package_lane_routing(self):
         env = next(step for step in self.workflow("ci.yml")["jobs"]["changes"]["steps"]
                    if step.get("id") == "macos-pool")["env"]
-        self.assertEqual(env["RUN_SWIFT_PACKAGES"], "${{ steps.detect.outputs.swift_packages }}")
-        self.assertEqual(env["RUN_RELEASE_BUILD"], "${{ steps.detect.outputs.release_build }}")
+        self.assertEqual(env["RUN_SWIFT_PACKAGES"],
+                         "${{ steps.next-route.outputs.swift_packages || steps.detect.outputs.swift_packages }}")
+        self.assertEqual(env["RUN_RELEASE_BUILD"],
+                         "${{ steps.next-route.outputs.release_build || steps.detect.outputs.release_build }}")
 
 
 IOS_SIM = "glaeda-ios-sim"
@@ -2695,7 +2700,9 @@ IOS_SLOTS = {MINI: 40, ROOT_MINI: 10, IOS_SIM: 2}
 
 
 # test-ios.yml's per-job Xcode pin: only on an owned Mac, and never for a fork's pull request.
+# feat-cmux-next pushes run test-ios on the owned minis too (adaccb5c3755), so they read the pin.
 IOS_XCODE_PIN = ("${{ startsWith(needs.runner.outputs.label, 'glaeda-') && (github.event_name == 'workflow_dispatch' || "
+                 "github.event_name == 'push' || "
                  "github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}")
 
 
@@ -3694,7 +3701,12 @@ class IOSWiring(unittest.TestCase):
         self.assertEqual(runner["permissions"], {"contents": "read", "actions": "read"})
         step = self.picker_step(runner)
         self.assertIn("--lane test-ios", step["run"])
-        self.assertEqual(step["env"]["REQUESTED_RUNNER"], "${{ inputs.runner }}")
+        # The cmux-next lane (feat-cmux-next pushes, same-repository pull requests into it)
+        # asks for the owned minis (user, 2026-10-20, adaccb5c3755); a fork pull request
+        # fails the same-repository clause and asks for nothing.
+        self.assertEqual(step["env"]["REQUESTED_RUNNER"], "${{ inputs.runner || ((github.event_name == 'push' || "
+                         "(github.base_ref == 'feat-cmux-next' && github.event.pull_request.head.repo.full_name == "
+                         "github.repository)) && 'owned' || '') }}")
         self.assertEqual(step["env"]["RUNNER_VARIABLE"], "${{ vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS }}")
         self.assertEqual(step["env"]["IOS_OWNED"], "${{ vars.CI_IOS_OWNED }}")
         self.assertEqual(step["env"]["IOS_VERSION"], "${{ inputs.ios_version }}")

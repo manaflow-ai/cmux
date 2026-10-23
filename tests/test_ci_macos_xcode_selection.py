@@ -67,11 +67,6 @@ EXEMPT = {
         "as the nightly and release callers always have; pinning it would "
         "change published artifacts",
     ("relay-publish-npm.yml", "smoke"): "npm package smoke test; no Xcode",
-    ("signing-keychain-macos.yml", "bash32-syntax"):
-        "parses shell scripts with the system /bin/bash 3.2; no Xcode",
-    ("nightly.yml", "nightly-next-macos15-launch"):
-        "launches the published, signed app on a macOS 15 runner; builds "
-        "nothing, so no Xcode",
     ("cmux-next-batch.yml", "build"):
         "submits the stack to the build fleet and waits; the build runs on a "
         "fleet worker, never with this runner's Xcode",
@@ -158,7 +153,12 @@ def is_macos(job: str) -> bool:
 
 def check_workflow(name: str, text: str) -> list[str]:
     errors = []
-    for job_id, job in jobs(text).items():
+    workflow_jobs = jobs(text)
+    # A hyphenated job id such as swift-canary-fleet (in `needs.` or a message) names a job, not the toolchain.
+    # A path such as scripts/build-x.sh keeps its name even when a job shares it.
+    job_ids = [job_id for job_id in workflow_jobs if "-" in job_id]
+    job_id_token = re.compile(r"(?<![\w/-])(" + "|".join(map(re.escape, job_ids)) + r")(?![\w-])") if job_ids else None
+    for job_id, job in workflow_jobs.items():
         key = (name, job_id)
         if not is_macos(job) or key in EXEMPT:
             continue
@@ -180,7 +180,8 @@ def check_workflow(name: str, text: str) -> list[str]:
                 errors.append(f"{label} chooses an Xcode itself; run {SELECTOR} instead")
             if BELOW_FLOOR in body and (name, job_id, step_name) not in BELOW_FLOOR_STEPS:
                 errors.append(f"{label} sets {BELOW_FLOOR}; only the SDK 15 helper may")
-            uses_toolchain = TOOLCHAIN.search(re.sub(r".*select-ci-xcode\.sh.*", "", body))
+            scanned = re.sub(r".*select-ci-xcode\.sh.*", "", body)
+            uses_toolchain = TOOLCHAIN.search(job_id_token.sub("", scanned) if job_id_token else scanned)
             if uses_toolchain and first_select is not None and index < first_select:
                 errors.append(f"{label} uses the toolchain ({uses_toolchain.group(0)}) before {SELECTOR} runs")
     return errors
@@ -291,6 +292,21 @@ def check_detects_regressions() -> list[str]:
                 "    strategy:\n      matrix:\n        os: [macos-15]\n    runs-on: ${{ matrix.os }}\n",
             ).replace("./scripts/select-ci-xcode.sh", "echo skipped"),
             ["never runs"],
+        ),
+        "job id is not the toolchain": (
+            base.replace(
+                "      - name: Select Xcode\n",
+                "      - name: Report\n        if: ${{ needs.swift-check.outputs.ok == 'true' }}\n"
+                "        run: echo \"swift-check passed\"\n      - name: Select Xcode\n",
+            ) + "  swift-check:\n    runs-on: ubuntu-24.04\n    steps:\n      - run: echo ok\n",
+            [],
+        ),
+        "toolchain beside a job id": (
+            base.replace(
+                "      - name: Select Xcode\n",
+                "      - name: Report\n        run: swift --version  # for swift-check\n      - name: Select Xcode\n",
+            ) + "  swift-check:\n    runs-on: ubuntu-24.04\n    steps:\n      - run: echo ok\n",
+            ["before scripts/select-ci-xcode.sh runs"],
         ),
         "indirect Swift": (
             base.replace("./scripts/select-ci-xcode.sh", "echo skipped").replace(

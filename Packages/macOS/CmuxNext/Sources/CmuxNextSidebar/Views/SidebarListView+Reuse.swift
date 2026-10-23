@@ -33,10 +33,9 @@ extension SidebarListViewComponents {
             // A link, tab or app row runs as the band's item does (AXPress too).
             view.onSelect = { [weak self] in self?.model.send(.activateItem(LayoutItemID(id))) }
         case (.block, let view as SidebarBlockRowView):
-            if view.region.docList !== self {
-                view.region.docList = self
-                configureBlockRegion?(view.region)
-            }
+            // On every dequeue: a parked block comes back in the sidebar's state now (its edit mode).
+            view.region.docList = self
+            configureBlockRegion?(view.region)
         case let (.tab(workspaceID, tabID), view as SidebarTabRowView):
             view.onSelect = { [weak self] in
                 self?.model.send(.selectTab(workspace: workspaceID, tab: tabID))
@@ -48,6 +47,9 @@ extension SidebarListViewComponents {
             view.onAdd = onGroupEditorItem == nil ? nil : { [weak self] in self?.onGroupEditorItem?(id, "workspaceGroup.newWorkspace") }
             view.isEditing = groupEditor.shownGroup == id
             view.isKeyboardFocused = showsFocusRing && focusedGroup == id
+        case let (.emptyGroup(id), view as EmptyGroupRowView):
+            // The same New Workspace in Group as the header's + (one action path).
+            view.onAdd = onGroupEditorItem == nil ? nil : { [weak self] in self?.onGroupEditorItem?(id, "workspaceGroup.newWorkspace") }
         case let (.section(sectionID), view as SectionHeaderRowView):
             if case let .machine(machine) = sectionID {
                 view.allowsAdd = true

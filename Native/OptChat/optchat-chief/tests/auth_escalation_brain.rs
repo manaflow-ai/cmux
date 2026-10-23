@@ -123,7 +123,22 @@ fn the_shipped_skill_installs_once_and_a_user_copy_is_kept() {
     assert_eq!(shared, dir.path().join("skills"));
 
     let written = skills::install_builtin(&shared).unwrap();
-    assert_eq!(written, vec!["chief-auth-escalation".to_owned()]);
+    assert_eq!(
+        written,
+        vec![
+            "chief-auth-escalation".to_owned(),
+            "cmux-adoption".to_owned(),
+            "cmux-setup".to_owned(),
+            "paid-plans".to_owned()
+        ]
+    );
+    // Chiefs offer a paid plan by default when a task needs one (paid-product-DESIGN.md section 8).
+    let paid = std::fs::read_to_string(shared.join("paid-plans").join("SKILL.md")).unwrap();
+    let (name, description) = skills::front_matter(&paid).unwrap();
+    assert_eq!(name, "paid-plans");
+    assert!(description.contains("cloud.plan.required"), "{description}");
+    assert!(paid.contains("cmux billing checkout --plan"), "{paid}");
+    assert!(paid.contains("Never say you bought"), "{paid}");
     let path = shared.join("chief-auth-escalation").join("SKILL.md");
     let text = std::fs::read_to_string(&path).unwrap();
     let (name, description) = skills::front_matter(&text).unwrap();

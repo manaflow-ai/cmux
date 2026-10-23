@@ -6,8 +6,10 @@
 import { useState, type ComponentProps } from "react";
 import { componentEntry } from "../../gallery/format";
 import { minutesAgo } from "../../gallery/clock";
-import { session } from "../../gallery/fixtures/acpmux";
+import { chat, session } from "../../gallery/fixtures/acpmux";
 import type { Play } from "../../gallery/play";
+import { Composer } from "./Composer";
+import { EmptyState } from "./EmptyState";
 import { HomeLists } from "./HomeLists";
 
 type Props = ComponentProps<typeof HomeLists>;
@@ -108,19 +110,39 @@ const capped: Props = {
   onSelect: () => undefined,
 };
 
+/// The new chat the lists sit in: no turns yet, in the fixture project's folder.
+const newChat = chat([], { title: "New chat" });
+const NoChips = () => null;
+
+/// The new chat's own frame (App.tsx): the hero in the stage, then the bottom stack with the home
+/// area over the real composer, so an empty home still shows the new chat it belongs to.
 function withReceipt(Component: typeof HomeLists) {
   return function GalleryHomeLists(props: Props) {
     const [selected, setSelected] = useState<string>();
     return (
-      <div className="home-lists-gallery" data-home-selection={selected ?? ""}>
-        <Component
-          {...props}
-          onSelect={(sessionId) => {
-            props.onSelect(sessionId);
-            setSelected(sessionId);
-          }}
-        />
-      </div>
+      <section
+        className="acpmux-shell home-lists-gallery"
+        aria-label={newChat.summary?.title}
+        data-home-selection={selected ?? ""}
+      >
+        <div className="acpmux-main" data-new-chat="">
+          <div className="acpmux-stage">
+            <EmptyState project="atlas-web" />
+          </div>
+          <div className="acpmux-dock">
+            <div className="acpmux-home-area">
+              <Component
+                {...props}
+                onSelect={(sessionId) => {
+                  props.onSelect(sessionId);
+                  setSelected(sessionId);
+                }}
+              />
+            </div>
+            <Composer snapshot={newChat} chips={NoChips} onSend={() => true} onStop={() => undefined} />
+          </div>
+        </div>
+      </section>
     );
   };
 }
@@ -151,7 +173,8 @@ export default componentEntry<Props>({
   id: "agent-pane.home-lists",
   title: "Home session lists",
   area: "Agent pane",
-  height: 360,
+  pane: true,
+  height: 640,
   widths: { narrow: 360, normal: 560, wide: 760 },
   anchors: [{ selector: ".home-lists-gallery" }],
   covers: ["agent-session/acpmux/HomeLists.tsx#HomeLists"],

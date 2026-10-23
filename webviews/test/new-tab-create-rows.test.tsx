@@ -21,7 +21,7 @@ const kinds = (rows: ScreenRow[]) => rows.map((row) => (row.type === "create" ? 
 
 test("a prompt's rows end with the three create actions", () => {
   const rows = screenRows("ff", context({ workspaces: [{ id: "ws", name: "ff-scratch" }] }));
-  expect(kinds(rows)).toEqual(["ask", "search", "workspace", "create:terminal", "create:browser", "create:chat"]);
+  expect(kinds(rows)).toEqual(["search", "ask", "workspace", "create:terminal", "create:browser", "create:chat"]);
 });
 
 test("an address keeps its top hit, the web search and Ask, then the create actions", () => {
@@ -136,12 +136,12 @@ async function type(text: string) {
 const rows = () => [...window.document.querySelectorAll<HTMLElement>('[role="option"]')];
 const label = (row: HTMLElement) => row.querySelector(".nt-row-title")?.textContent ?? "";
 
-test('typing "ff" lists Ask, the web search, the workspace and the three create actions', async () => {
+test('typing "ff" lists the web search, Ask, the workspace and the three create actions', async () => {
   await render([]);
   await type("ff");
   expect(rows().map(label)).toEqual([
-    "Ask Claude Code",
     "Search the web for ff",
+    "Ask Claude Code",
     "ff-scratch",
     "New terminal",
     "New browser tab",

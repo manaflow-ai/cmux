@@ -24,10 +24,27 @@ public protocol BrowserTabState: AnyObject {
 }
 
 extension BrowserTabState {
-    /// A URL, a bare host, or a search.
+    /// Schemes the address bar hands the Mac as typed. The Mac decides what loads and says
+    /// why it refuses the rest (`rb.navigate.refused`, PROTOCOL.md `browser`), so a typed
+    /// `javascript:` or `chrome:` is never turned into a search.
+    static var macSchemes: Set<String> {
+        ["file", "data", "blob", "view-source", "about", "javascript", "chrome", "chrome-extension", "devtools", "mailto", "tel"]
+    }
+
+    /// A URL, a Mac path (`/Users/...`, a `file:` URL), a bare host, or a search.
     public static func url(for text: String) -> URL? {
         if text.isEmpty { return nil }
-        if let url = URL(string: text), let scheme = url.scheme, ["http", "https"].contains(scheme.lowercased()) { return url }
+        if text.hasPrefix("/"), !text.hasPrefix("//") { return URL(filePath: text, directoryHint: .inferFromPath) }
+        // `localhost:3000`, `mac.local:8080/x`: a host and port, on the web.
+        if !text.contains(" "), let match = text.wholeMatch(of: /([A-Za-z0-9.-]+):[0-9]{1,5}(\/.*)?/),
+           !macSchemes.contains(String(match.1).lowercased()) {
+            return URL(string: "http://\(text)")
+        }
+        if let url = URL(string: text), let scheme = url.scheme?.lowercased() {
+            if ["http", "https"].contains(scheme) || macSchemes.contains(scheme) { return url }
+            // Another app's address (`zoommtg://...`): the Mac says it does not open those.
+            if text.dropFirst(scheme.count).hasPrefix("://") { return url }
+        }
         if !text.contains(" "), text.contains("."), let url = URL(string: "https://\(text)") { return url }
         var components = URLComponents(string: "https://duckduckgo.com/")
         components?.queryItems = [URLQueryItem(name: "q", value: text)]
@@ -66,6 +83,11 @@ public final class StreamedBrowserModel: BrowserTabState {
     public private(set) var isLoading = false
     public var progress: Double { isLoading ? 0.5 : 1 }
     public private(set) var phase: Phase = .connecting
+    /// Why the Mac did not load an address (the address bar's, or a link's inside the
+    /// page): shown over the page until the next navigation or a tap.
+    public private(set) var notice: String?
+    /// The page's focused text field (`rb.text_input`): the keyboard rises for it.
+    public private(set) var field: StreamedBrowserField?
     /// The newest numbers for the overlay: frames per second, kbit/s,
     /// capture-to-decoded latency (median of the last second), decode time.
     public private(set) var meter = Meter()
@@ -301,6 +323,8 @@ public final class StreamedBrowserModel: BrowserTabState {
         case "welcome":
             welcomed = true
             appliedScreen = nil
+            // The host reports focus only when it changes: a new session starts with none.
+            field = nil
             if let screen, let connection {
                 screenSeq = 0
                 try? connection.send(message: wire.open(tab: tab, viewer: "phone", screen: screen))
@@ -312,6 +336,11 @@ public final class StreamedBrowserModel: BrowserTabState {
             }
         case "refused", "ended":
             phase = .waiting(json["reason"] as? String ?? "The Mac ended the page")
+        case "rb.text_input":
+            let next = StreamedBrowserField(json: json)
+            if next != field { field = next }
+        case "rb.navigate.refused":
+            refused(code: json["code"] as? String, reason: json["reason"] as? String)
         case "rb.page":
             guard let page = RemoteBrowserPage(json: json) else { return }
             apply(page)
@@ -327,6 +356,7 @@ public final class StreamedBrowserModel: BrowserTabState {
         connection = nil
         self.sink = nil
         welcomed = false
+        field = nil
         liveSince = nil
         decoder.reset()
         log.info("browser \(self.tab, privacy: .public) closed: \(code, privacy: .public) \(reason, privacy: .public)")
@@ -463,8 +493,37 @@ public final class StreamedBrowserModel: BrowserTabState {
         send(wire.history(op))
     }
 
+    /// The Mac did not load an address: the page stays where it is (the address bar
+    /// goes back to it) and the person reads why, in this phone's words when the Mac
+    /// named the reason.
+    func refused(code: String?, reason: String?) {
+        // The refusal of the phone's own navigation: nothing loads. A link's inside the
+        // page: the Mac is taking the page back, and its reports say when it is done.
+        if let (_, from) = navigating {
+            navigating = nil
+            url = from
+            isLoading = false
+        }
+        notice = Self.refusalText(code: code) ?? reason ?? String(localized: "Your Mac can't open this address.")
+    }
+
+    static func refusalText(code: String?) -> String? {
+        switch code {
+        case "file_not_shared": String(localized: "This file isn't in a folder this Mac shares with your iPhone.")
+        case "file_missing": String(localized: "There's no such file in the folders this Mac shares.")
+        case "script": String(localized: "Scripts can't run from your iPhone's address bar.")
+        case "browser_page": String(localized: "Browser settings and internal pages can't open from your iPhone.")
+        case "app_scheme": String(localized: "Links that open other apps on your Mac can't open from your iPhone.")
+        case "malformed": String(localized: "This address can't be opened.")
+        default: nil
+        }
+    }
+
+    public func dismissNotice() { notice = nil }
+
     public func navigate(to text: String) {
         guard let target = Self.url(for: text.trimmingCharacters(in: .whitespacesAndNewlines)) else { return }
+        notice = nil
         navigating = (target, url)
         url = target
         history = nil
@@ -555,6 +614,10 @@ enum LinkErrorText {
     static func describe(_ error: any Error) -> String {
         if let error = error as? LinkError {
             if error.code == "no-link" { return "Not connected to the Mac" }
+            // An older Mac's scheme list (before the shared-folder rules): say what to do.
+            if error.code == "forbidden", error.message == "only http, https and about:blank load" {
+                return String(localized: "Update cmux on your Mac to open this page on your iPhone.")
+            }
             return error.message.isEmpty ? error.code : error.message
         }
         return String(describing: error)

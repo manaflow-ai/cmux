@@ -32,7 +32,9 @@ mod env_refs;
 #[path = "profile_sessions.rs"]
 mod sessions;
 use env_refs::is_reference;
-pub use env_refs::{file_secret, has_env_refs, keychain_lookup, resolve_env_refs};
+pub use env_refs::{
+    file_secret, has_env_refs, has_keychain_refs, keychain_lookup, resolve_env_refs,
+};
 pub use sessions::{
     FieldSelector, SESSION_BUILTIN_ADAPTERS, SESSION_DATA_ADAPTERS, SESSION_FIELDS, SessionsResume,
     SessionsSpec, check_sessions,

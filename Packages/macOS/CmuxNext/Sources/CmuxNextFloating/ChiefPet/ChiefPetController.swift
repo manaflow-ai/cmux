@@ -7,12 +7,19 @@ import CmuxNextWakeups
 /// show and kept, with its spot, while hidden), and the notice bubble over it
 /// (`ChiefPetFeed`). A finished notice leaves on its own after
 /// `doneSeconds`; one that waits for the user stays until its tab is read.
+/// The notices are a toast, not a sticky card: a new one shows for `toastSeconds` and then folds
+/// away (the badge keeps counting what waits), and they show over cmux only: over another app
+/// only the pet and its badge do, and a desktop banner is the system's to show (Leo 2026-10-20:
+/// a card floated over Chrome with the page's text bleeding through it). The rail's chevron
+/// unfolds them anywhere.
 /// The rail's chevron folds and unfolds the notices; a click on the pet, the rail's compose or
 /// Message the Chief opens the reply box (`ChiefPetController+Reply`).
 @MainActor
 public final class ChiefPetController {
     /// How long a finished notice stays up.
     static let doneSeconds: Double = 8
+    /// How long a new notice's card stays up before it folds into the badge.
+    static let toastSeconds: Double = 8
 
     private let makePanel: () -> ChiefPetPanel
     /// Opening and sending, the App's (a click on a notice opens its tab).
@@ -29,6 +36,14 @@ public final class ChiefPetController {
     var closingReply = false
     /// Finished notices' leave timers, by notification id (one-shot `DemandTimer`s).
     private var expiries: [UInt64: DemandTimer] = [:]
+    /// Folds the card away `toastSeconds` after the newest arrival.
+    private let toast: DemandTimer
+    /// A new notice's card is up (until `toast` fires); the chevron's `expanded` shows them regardless.
+    private(set) var presenting = false
+    /// Whether cmux is the active app: the card shows over cmux only.
+    private let appIsActive: @MainActor () -> Bool
+    /// The app-activation observers' tokens, kept for the controller's life.
+    private var activationObservers: [MainActorObservation] = []
     private var watch: Task<Void, Never>?
     /// `home.chiefPetEnabled` as last followed: off, arrivals are dropped.
     public private(set) var isOn = false
@@ -39,12 +54,24 @@ public final class ChiefPetController {
     /// and goes when its reply box closes; the setting turning on keeps it.
     var transient = false
 
+    /// `appIsActive`: whether cmux is the active app (the App passes `NSApp.isActive`; tests pin one).
+    /// `notifications`: where AppKit posts the app's activation changes; tests give their own.
     public init(makePanel: @escaping () -> ChiefPetPanel,
          actions: ChiefPetActions,
-         clock: any Clock<Duration> = ContinuousClock()) {
+         clock: any Clock<Duration> = ContinuousClock(),
+         appIsActive: @escaping @MainActor () -> Bool = { true },
+         notifications: NotificationCenter = .default) {
         self.makePanel = makePanel
         self.actions = actions
         self.clock = clock
+        self.appIsActive = appIsActive
+        toast = DemandTimer(owner: "chiefPet.toast", clock: clock)
+        // Switching to another app takes the card down at once; coming back shows it if its time is not up.
+        activationObservers = [NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification].map {
+            MainActorObservation($0, center: notifications) { [weak self] in
+                self?.render(animated: false)
+            }
+        }
     }
 
     var isShown: Bool { panel?.isVisible == true }
@@ -82,6 +109,8 @@ public final class ChiefPetController {
             feed.clear()
             expiries.values.forEach { $0.cancel() }
             expiries.removeAll()
+            toast.cancel()
+            presenting = false
             // A message summoned with the setting off (or turning off) keeps its box until it closes.
             if transient, replyPanel?.isVisible == true { return render(animated: false) }
             transient = false
@@ -108,7 +137,20 @@ public final class ChiefPetController {
         let change = feed.arrive(notice)
         // A finished notice that shows (newly, or as the newer id of the same content) leaves on its own.
         if !notice.kind.waits, feed.notices.contains(where: { $0.id == notice.id }) { scheduleExpiry(notice.id) }
+        // Only a new front notice puts the card up again: the same content posted again (an agent's
+        // next tool call) does not keep it up.
+        if change == .arrived { present() }
         render(animated: change == .arrived)
+    }
+
+    /// Puts the card up for `toastSeconds`, then folds it into the badge.
+    private func present() {
+        presenting = true
+        toast.schedule(after: .seconds(Self.toastSeconds)) { @MainActor [weak self] in
+            guard let self else { return }
+            self.presenting = false
+            self.render(animated: false)
+        }
     }
 
     /// Keeps only the notices whose tab `isUnread` says still holds one (a tab read anywhere else).
@@ -146,8 +188,10 @@ public final class ChiefPetController {
             expanded = false
             panel?.setExpanded(false)
         }
-        // While the reply box is up, it sits where the notices do.
-        guard let panel, isOn, replyPanel?.isVisible != true, !feed.notices.isEmpty else {
+        // While the reply box is up, it sits where the notices do. Unfolded by the chevron they show
+        // anywhere; otherwise a new notice's card shows over cmux only, until its time is up.
+        guard let panel, isOn, replyPanel?.isVisible != true, !feed.notices.isEmpty,
+              expanded || (presenting && appIsActive()) else {
             hideBubble()
             return
         }

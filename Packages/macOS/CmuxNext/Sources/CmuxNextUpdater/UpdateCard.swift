@@ -22,6 +22,9 @@ nonisolated public enum UpdateCard: Equatable, Sendable {
     case installing
     /// The result of a check the user asked for.
     case note(UpdateNote)
+    /// The running build was pulled off the feed (``PulledBuildWatch``): why, and the kept
+    /// build's version when a rollback to it would run.
+    case pulled(reason: String, rollbackVersion: String?)
 }
 
 /// What a notice card's button does. The raw value is the card action id.
@@ -34,6 +37,12 @@ nonisolated public enum UpdateCardAction: String, Sendable, CaseIterable {
     case retry
     /// Show a failure's details (the update sheet).
     case details
+    /// A pulled build: roll back to the kept build.
+    case rollBack = "roll_back"
+    /// A pulled build: keep it until the fix installs (the default).
+    case waitForFix = "wait_for_fix"
+    /// An install the relaunch gate holds: relaunch now anyway.
+    case relaunchNow = "relaunch_now"
 
     public var title: String {
         switch self {
@@ -41,9 +50,12 @@ nonisolated public enum UpdateCardAction: String, Sendable, CaseIterable {
         case .releaseNotes: UpdaterStrings.releaseNotes
         case .retry: UpdaterStrings.retry
         case .details: UpdaterStrings.details
+        case .rollBack: UpdaterStrings.pulledRollBack
+        case .waitForFix: UpdaterStrings.pulledWait
+        case .relaunchNow: UpdaterStrings.relaunch
         }
     }
 
     /// The call to action (filled); the others are quiet.
-    public var isProminent: Bool { self == .update }
+    public var isProminent: Bool { self == .update || self == .waitForFix }
 }

@@ -11,14 +11,14 @@ import CmuxNextDaemon
 /// another machine.
 enum ResumeCommandHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
-        let unavailable = context.needs(DaemonCapabilities.shared.resumeCommand)
+        let unavailable = context.needs(DaemonCapabilities.resumeCommand)
         for id: ActionID in ["resumeCommandSet", "resumeCommandEdit"] {
             registry.bind(id, unavailable: unavailable, invoke: { invocation in
                 guard let (surface, connection) = terminal(invocation, context) else { return }
                 if let command = invocation["command"]?.stringValue {
                     return registry.track(change(.set(command), surface, connection))
                 }
-                ask(editing: id == "resumeCommandEdit", surface, connection, context)
+                ask(id, editing: id == "resumeCommandEdit", invocation, surface, connection, context)
             })
         }
         registry.bind("resumeCommandClear", unavailable: unavailable, invoke: { invocation in
@@ -32,8 +32,8 @@ enum ResumeCommandHandlers {
         guard let (tab, _) = context.daemonTab(invocation) else { return nil }
         guard tab.kind == .pty else { return context.refuse(RefusalStrings.notATerminal) }
         let daemon = context.services.machines.daemon(forTab: tab)
-        guard daemon.supports(DaemonCapabilities.shared.resumeCommand) else {
-            return context.refuse(daemon.missingCapabilityMessage(DaemonCapabilities.shared.resumeCommand))
+        guard daemon.supports(DaemonCapabilities.resumeCommand) else {
+            return context.refuse(daemon.missingCapabilityMessage(DaemonCapabilities.resumeCommand))
         }
         guard let connection = daemon.connection else { return context.refuse(MiscHandlerStrings.daemonOffline) }
         return (tab.surface, connection)
@@ -51,22 +51,14 @@ enum ResumeCommandHandlers {
         }
     }
 
-    /// Asks for the line (Edit starts from the stored one) and stores a
-    /// non-empty answer; a failure shows as a sheet.
-    private static func ask(editing: Bool, _ surface: SurfaceID, _ connection: DaemonConnection, _ context: AppActionContext) {
-        let window = CloudHandlers.window(context)
-        // task-owner: ends when the person answers the sheet and the daemon replies
+    /// Asks for the line as a Cmd-Shift-P step (Edit starts from the stored one); Return runs `id`
+    /// again with it as `command`, which stores it.
+    private static func ask(_ id: ActionID, editing: Bool, _ invocation: ActionInvocation, _ surface: SurfaceID,
+                            _ connection: DaemonConnection, _ context: AppActionContext) {
+        // task-owner: ends when the daemon replies with the stored line
         Task { @MainActor in
             let stored = editing ? try? await connection.request(TerminalResumeCommandRequest(.surface(surface))).command : nil
-            CloudPresenter.askText(MiscHandlerStrings.resumeCommandTitle, initial: stored ?? "", button: MiscHandlerStrings.resumeCommandSave,
-                                   in: window) { text in
-                guard let text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-                Task { @MainActor in
-                    if let failure = await change(.set(text), surface, connection).value {
-                        CloudPresenter.show(MiscHandlerStrings.resumeCommandTitle, failure.message, in: window)
-                    }
-                }
-            }
+            context.services.registry.ask(id, invocation, ActionArgumentAsk(argument: "command", initialText: stored))
         }
     }
 }

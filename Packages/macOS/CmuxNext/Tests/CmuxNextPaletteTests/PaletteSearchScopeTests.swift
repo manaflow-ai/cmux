@@ -136,7 +136,10 @@ struct PaletteSearchScopeTests {
         let palette = Self.palette()
         defer { palette.hide() }
         let visible = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-        let window = NSWindow(contentRect: NSRect(x: visible.minX + 40, y: visible.minY + 40, width: 1100, height: 760),
+        // The window fits the screen: AppKit moves a bigger one, and on a 1024x768 runner (aws-m4pro-8
+        // and -9) that put the button below the screen, where no screen clamps the panel.
+        let window = NSWindow(contentRect: NSRect(x: visible.minX + 40, y: visible.minY + 40, width: min(1100, visible.width - 80),
+                                                  height: min(760, visible.height - 120)),
                               styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false // ARC owns it; close() would release it once more
         defer { window.close() }

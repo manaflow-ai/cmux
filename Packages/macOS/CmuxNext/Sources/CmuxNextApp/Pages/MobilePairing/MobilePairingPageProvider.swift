@@ -84,7 +84,7 @@ final class MobilePairingPageProvider: PageProvider {
         let state = MobilePairingState.resolve(signedIn: signedIn, allowed: allowed, phase: services.mobile.status.phase)
         var reply: [String: JSONValue] = [
             "state": .string(state.wireName),
-            "macName": .string(await MacName().computerName()),
+            "macName": .string(await MacName().displayName()),
             "allowed": .bool(allowed),
             "connectedPhones": JSONValue(services.mobile.status.connectedPhones),
         ]

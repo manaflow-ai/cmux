@@ -38,6 +38,12 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let setChromePolicyID: @convention(c) (UnsafePointer<CChar>?) -> Void
     let setBackgroundColor: @convention(c) (UInt32) -> Void
     let browserSetBackgroundColor: @convention(c) (Int32, UInt32) -> Int32
+    /// A see-through page (fork API 17, `CEFTab.pageSeeThrough`); 0 when the fork lacks it.
+    let tabSetTransparentBackground: @convention(c) (Int32, Int32) -> Int32
+    /// Fork API 26: `cmux_shim_browser_set_layer_hosting` (the page's CAContextID, 0 when off).
+    let browserSetLayerHosting: @convention(c) (Int32, Int32) -> UInt32
+    /// Fork API 27: `cmux_shim_browser_set_resize_sync` (deadline in ms, 0 never holds the commit).
+    let browserSetResizeSync: @convention(c) (Int32, Int32) -> Int32
     let initialize: @convention(c) (
         UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
         UnsafePointer<CChar>?, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
@@ -61,6 +67,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let stop: @convention(c) (Int32) -> Void
     let setFocus: @convention(c) (Int32, Int32) -> Void
     let setZoomLevel: @convention(c) (Int32, Double) -> Void
+    /// Chromium's page accessibility on (1) or off (0) (`CEFAccessibility`).
+    let setAccessibility: @convention(c) (Int32, Int32) -> Void
     /// Chromium's print preview over the page; 0 when the browser is gone.
     let printPage: @convention(c) (Int32) -> Int32
     let find: @convention(c) (Int32, Int32, UnsafePointer<CChar>?, Int32, Int32, Int32) -> Void
@@ -86,6 +94,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     }
 
     let devToolsSetKeyHandler: @convention(c) (KeyFn?) -> Void
+    /// Key downs the page left unhandled (`cmux_shim_set_unhandled_key_handler`).
+    let setUnhandledKeyHandler: @convention(c) (KeyFn?) -> Void
     let devToolsSetPlacement: @convention(c) (Int32, UnsafeMutableRawPointer?, Int32, Int32, Int32, Int32) -> Void
     let devToolsCommand: @convention(c) (Int32, Int32, Int32, Int32) -> Int32
     let devToolsBrowser: @convention(c) (Int32) -> Int32
@@ -184,6 +194,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     // Remote localhost (plans/cmux-next/remote-localhost.md).
     let setContextProxy: @convention(c) (UnsafePointer<CChar>?, Int32) -> Int32
     let contextProxyState: @convention(c) (UnsafePointer<CChar>?) -> Int32
+    let setContextProxyServer: @convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
     let releaseContext: @convention(c) (UnsafePointer<CChar>?) -> Void
     let setNavigationGuard: @convention(c) (Int32, Int32) -> Void
     /// A sign-in tab's callback: scheme, https host, https path (all empty clears).
@@ -202,6 +213,12 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let pageSchemeAdd: @convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
     /// The same for reserved (`cmux.`) ids only: the first-party path (`CEFPageSchemes`).
     let pageSchemeAddFirstParty: @convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
+    /// The same with the page's dynamic prefixes (newline-separated), which the page host answers,
+    /// and the file `/` serves (NULL = index.html).
+    let pageSchemeAddFirstPartyDynamic: @convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
+                                                        UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
+    /// Answers a PAGE_RESOURCE request: token, status, MIME, body, length; 1 when it was waiting.
+    let pageResourceRespond: @convention(c) (Int32, Int32, UnsafePointer<CChar>?, UnsafeRawPointer?, Int) -> Int32
 
     // Extension UI the app draws (fork API 12; no-ops and 0/NULL before).
     let setNewTabPageURL: @convention(c) (UnsafePointer<CChar>?) -> Void
@@ -241,19 +258,24 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         guard let handle = dlopen(url.path, RTLD_NOW | RTLD_LOCAL) else {
             throw .open(String(cString: dlerror()))
         }
-        let resolver = Resolver(handle: handle)
-        let library = try CEFShimLibrary(resolver)
+        let library = try CEFShimLibrary(Resolver { dlsym(handle, $0) })
         try checkABI(expected: expected, found: library.abiIDFn().map { String(cString: $0) })
         return library
     }
 
+    /// Each function by symbol name: `dlsym` on the opened shim, or a test's stand-ins (`resolving`).
     private struct Resolver {
-        let handle: UnsafeMutableRawPointer
+        let symbol: (String) -> UnsafeMutableRawPointer?
 
         func callAsFunction<T>(_ name: String) throws(LoadError) -> T {
-            guard let symbol = dlsym(handle, name) else { throw .missingSymbol(name) }
+            guard let symbol = symbol(name) else { throw .missingSymbol(name) }
             return unsafeBitCast(symbol, to: T.self)
         }
+    }
+
+    /// The functions `symbol` gives by name, with no shim loaded (a test's spy shim).
+    static func resolving(_ symbol: @escaping (String) -> UnsafeMutableRawPointer?) throws(LoadError) -> CEFShimLibrary {
+        try CEFShimLibrary(Resolver(symbol: symbol))
     }
 
     private init(_ r: Resolver) throws(LoadError) {
@@ -266,6 +288,9 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         setChromePolicyID = try r("cmux_shim_set_chrome_policy_id")
         setBackgroundColor = try r("cmux_shim_set_background_color")
         browserSetBackgroundColor = try r("cmux_shim_browser_set_background_color")
+        tabSetTransparentBackground = try r("cmux_shim_tab_set_transparent_background")
+        browserSetLayerHosting = try r("cmux_shim_browser_set_layer_hosting")
+        browserSetResizeSync = try r("cmux_shim_browser_set_resize_sync")
         initialize = try r("cmux_shim_initialize")
         doWork = try r("cmux_shim_do_work")
         createWindow = try r("cmux_shim_create_window")
@@ -282,6 +307,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         stop = try r("cmux_shim_stop")
         setFocus = try r("cmux_shim_set_focus")
         setZoomLevel = try r("cmux_shim_set_zoom_level")
+        setAccessibility = try r("cmux_shim_set_accessibility")
         printPage = try r("cmux_shim_print")
         find = try r("cmux_shim_find")
         stopFinding = try r("cmux_shim_stop_finding")
@@ -292,6 +318,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         devToolsWatchEvents = try r("cmux_shim_devtools_watch_events")
         devToolsSend = try r("cmux_shim_devtools_send")
         devToolsSetKeyHandler = try r("cmux_shim_devtools_set_key_handler")
+        setUnhandledKeyHandler = try r("cmux_shim_set_unhandled_key_handler")
         devToolsSetPlacement = try r("cmux_shim_devtools_set_placement")
         devToolsCommand = try r("cmux_shim_devtools_command")
         devToolsBrowser = try r("cmux_shim_devtools_browser")
@@ -361,6 +388,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         rendererClientIDs = try r("cmux_shim_renderer_client_ids")
         setContextProxy = try r("cmux_shim_set_context_proxy")
         contextProxyState = try r("cmux_shim_context_proxy_state")
+        setContextProxyServer = try r("cmux_shim_set_context_proxy_server")
         releaseContext = try r("cmux_shim_release_context")
         setNavigationGuard = try r("cmux_shim_set_navigation_guard")
         setAuthCallback = try r("cmux_shim_set_auth_callback")
@@ -370,6 +398,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         bookmarksSync = try r("cmux_shim_bookmarks_sync")
         pageSchemeAdd = try r("cmux_shim_page_scheme_add")
         pageSchemeAddFirstParty = try r("cmux_shim_page_scheme_add_first_party")
+        pageSchemeAddFirstPartyDynamic = try r("cmux_shim_page_scheme_add_first_party_dynamic")
+        pageResourceRespond = try r("cmux_shim_page_resource_respond")
         setNewTabPageURL = try r("cmux_shim_set_new_tab_page_url")
         addNativeMessagingDir = try r("cmux_shim_add_native_messaging_dir")
         installPromptReply = try r("cmux_shim_install_prompt_reply")

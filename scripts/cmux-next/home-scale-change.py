@@ -115,7 +115,7 @@ def scale_state(name, want):
     g = geometry()
     print(f"     {name}: " + json.dumps({k: g.get(k) for k in ("windowScale", "renderScale", "rowBitmaps", "rowBitmapsOffScale",
                                                              "cellsOffScale", "composeScale", "headerScale", "bitmapPxPerPtMin",
-                                                             "bitmapPxPerPtMax", "fixtureInactive", "windowKey", "appActive",
+                                                             "bitmapPxPerPtMax", "viewInactive", "windowKey", "appActive",
                                                              "lightAppearance", "colorSpaceIsScreen")}), flush=True)
     check(f"{name}: the window, the transcript view, its cells, compose bar and header are at {want:g}x",
           all(g.get(k) == want for k in ("windowScale", "renderScale", "composeScale", "headerScale")) and g.get("cellsOffScale") == 0, g)

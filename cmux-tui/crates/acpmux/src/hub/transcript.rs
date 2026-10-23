@@ -9,7 +9,8 @@ impl Hub {
     /// compaction it is the latest compaction summary and the messages
     /// since, and only those messages are cut to fit `max_chars`.
     pub(super) fn transcript(&self, session: &Session, max_chars: usize) -> Option<String> {
-        let events = self.store.events(&session.id, 0, 200_000).ok()?;
+        // Only the three kinds it reads, parsed one at a time (never the whole log in memory).
+        const KINDS: &[&str] = &["user_message", "agent_message_chunk", "compaction_summary"];
         let mut summary: Option<String> = None;
         let mut lines: Vec<String> = Vec::new();
         let mut agent_buf = String::new();
@@ -19,32 +20,41 @@ impl Hub {
             }
             agent_buf.clear();
         };
-        for e in events {
-            match e.kind.as_str() {
-                "user_message" => {
-                    flush(&mut agent_buf, &mut lines);
-                    if let Some(t) = e.msg.get("text").and_then(Value::as_str) {
-                        lines.push(format!("user: {t}"));
+        self.store
+            .scan_kinds(&session.id, KINDS, &mut |e: EventRecord| {
+                match e.kind.as_str() {
+                    "user_message" => {
+                        flush(&mut agent_buf, &mut lines);
+                        if let Some(t) = e.msg.get("text").and_then(Value::as_str) {
+                            lines.push(format!("user: {t}"));
+                        }
                     }
-                }
-                "agent_message_chunk" => {
-                    if let Some(t) =
-                        e.msg.pointer("/params/update/content/text").and_then(Value::as_str)
-                    {
-                        agent_buf.push_str(t);
+                    "agent_message_chunk" => {
+                        if let Some(t) = e
+                            .msg
+                            .get("params")
+                            .filter(|p| !crate::subagents::is_subagents(p))
+                            .and_then(|p| p.pointer("/update/content/text"))
+                            .and_then(Value::as_str)
+                        {
+                            agent_buf.push_str(t);
+                        }
                     }
-                }
-                // What came before is in the summary.
-                "compaction_summary" => {
-                    if let Some(t) = e.msg.pointer("/params/update/text").and_then(Value::as_str) {
-                        agent_buf.clear();
-                        lines.clear();
-                        summary = Some(t.to_owned());
+                    // What came before is in the summary.
+                    "compaction_summary" => {
+                        if let Some(t) =
+                            e.msg.pointer("/params/update/text").and_then(Value::as_str)
+                        {
+                            agent_buf.clear();
+                            lines.clear();
+                            summary = Some(t.to_owned());
+                        }
                     }
+                    _ => {}
                 }
-                _ => {}
-            }
-        }
+                true
+            })
+            .ok()?;
         flush(&mut agent_buf, &mut lines);
         if lines.is_empty() && summary.is_none() {
             return None;

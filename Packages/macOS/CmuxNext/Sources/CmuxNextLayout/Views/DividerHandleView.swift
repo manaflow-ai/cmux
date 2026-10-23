@@ -35,6 +35,10 @@ final class DividerHandleView: NSView {
         didSet { if showsActiveLine != oldValue { applyColors() } }
     }
     var onDrag: ((DragEvent) -> Void)?
+    /// The screen's uncovered rect and this handle's scroll area window when it was last placed
+    /// (`applyPresentation`): its hidden state and cursor clip follow from them and the frame, so
+    /// equal ones skip the work.
+    var placedClips: [CGRect?]?
     /// The pointer crossed this handle's tracking area. The screen that owns
     /// the handles decides hover from the pointer and the current frames
     /// (`ScreenContentView.refreshDividerHover`); the handle keeps no hover
@@ -115,11 +119,27 @@ final class DividerHandleView: NSView {
         if newSize != old { needsLayout = true }
     }
 
+    /// The part of the superview where the handle may take the pointer; nil for all of it. A strip
+    /// divider that runs on under a docked column stops where the dock begins: AppKit cursor rects
+    /// ignore the views above, so its whole frame showed a resize cursor over the docked pane.
+    var cursorClip: CGRect? {
+        didSet { if cursorClip != oldValue { window?.invalidateCursorRects(for: self) } }
+    }
+
+    /// Where the handle shows its resize cursor, in its own coordinates: its bounds within `cursorClip`.
+    var cursorRectInBounds: CGRect {
+        guard let cursorClip else { return bounds }
+        let rect = bounds.intersection(convert(cursorClip, from: superview))
+        return rect.isNull ? .zero : rect
+    }
+
     override func resetCursorRects() {
+        let rect = cursorRectInBounds
+        guard !rect.isEmpty else { return }
         if #available(macOS 15, *) {
-            addCursorRect(bounds, cursor: axis == .horizontal ? .columnResize : .rowResize)
+            addCursorRect(rect, cursor: axis == .horizontal ? .columnResize : .rowResize)
         } else {
-            addCursorRect(bounds, cursor: axis == .horizontal ? .resizeLeftRight : .resizeUpDown)
+            addCursorRect(rect, cursor: axis == .horizontal ? .resizeLeftRight : .resizeUpDown)
         }
     }
 

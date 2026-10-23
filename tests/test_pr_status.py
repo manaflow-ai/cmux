@@ -3,9 +3,13 @@
 
 Runs upsert against an in-memory fake of the four comment endpoints; nothing reaches GitHub.
 """
+from email.message import Message
+import io
+import os
 from pathlib import Path
 import sys
 import unittest
+import urllib.error
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts/ci"))
 import pr_status  # noqa: E402
@@ -187,6 +191,66 @@ class DispatchTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             pr_status.dispatch(REPO, 7, bead="not a bead", env={}, run=self.run_gh)
         self.assertEqual(self.runs, [])
+
+
+class RetryTests(unittest.TestCase):
+    """2026-10-21: GitHub's secondary rate limit refused the review-line write for 90% of pushes (HTTP 403)."""
+
+    def setUp(self):
+        os.environ.setdefault("GH_TOKEN", "t")
+
+    def call(self, answers, method="PATCH"):
+        sleeps, sent = [], []
+
+        class Response(io.BytesIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        def opener(request, timeout):
+            sent.append(request.get_method())
+            code, body, retry_after = answers.pop(0)
+            if code == 200:
+                return Response(body.encode())
+            headers = Message()
+            if retry_after:
+                headers["Retry-After"] = retry_after
+            raise urllib.error.HTTPError(request.full_url, code, "x", headers, io.BytesIO(body.encode()))
+
+        try:
+            result = pr_status.http_api(method, "/repos/o/r/issues/comments/1", {"body": "x"}, sleep=sleeps.append,
+                                        opener=opener)
+        except RuntimeError as error:
+            result = error
+        return result, sleeps, sent
+
+    def test_a_rate_limit_is_retried_with_backoff_and_retry_after(self):
+        limit = (403, '{"message":"You have exceeded a secondary rate limit"}', "")
+        result, sleeps, _ = self.call([limit, (429, "{}", "7"), (200, '{"id": 1}', "")])
+        self.assertEqual((result, sleeps), ({"id": 1}, [5, 7.0]))
+
+    def test_a_permission_403_and_other_4xx_are_final_and_say_why(self):
+        for code, body in ((403, '{"message":"Resource not accessible by integration"}'), (422, '{"message":"bad"}')):
+            result, sleeps, _ = self.call([(code, body, "")])
+            self.assertIsInstance(result, RuntimeError)
+            self.assertIn(f"HTTP {code}", str(result))
+            self.assertIn(body[13:30], str(result))
+            self.assertEqual(sleeps, [])
+
+    def test_a_5xx_post_is_not_sent_twice(self):
+        result, sleeps, sent = self.call([(502, "", "")], method="POST")
+        self.assertIsInstance(result, RuntimeError)
+        self.assertEqual(sent, ["POST"])
+        _, _, sent = self.call([(502, "", ""), (200, "{}", "")], method="PATCH")
+        self.assertEqual(sent, ["PATCH", "PATCH"])
+
+    def test_retries_stop(self):
+        limit = (429, "{}", "")
+        result, sleeps, _ = self.call([limit] * (len(pr_status.RETRY_WAITS) + 1))
+        self.assertIsInstance(result, RuntimeError)
+        self.assertEqual(sleeps, list(pr_status.RETRY_WAITS))
 
 
 if __name__ == "__main__":

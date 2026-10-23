@@ -106,6 +106,16 @@ function fromEntry(entry: WhatsNewEntry, language: string): ReleaseItem {
   };
 }
 
+/** A highlight file's id as scripts/whats-new/digest.py writes it: lower case, other runs as "-".
+    An id with no letter or digit to keep stays as it is, so two such ids never collide. */
+function entryId(id: string): string {
+  const normalized = id
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+  return normalized || id;
+}
+
 function fromHighlight(highlight: Highlight): ReleaseItem {
   const media = highlight.media?.find((m) => admissibleSource(m.url));
   const src = media ? admissibleSource(media.url)! : undefined;
@@ -217,19 +227,30 @@ export function releaseView(notes: ReleaseNotes, language: string): ReleaseView 
   const items: ReleaseItem[] = [];
   const ids = new Set<string>();
   const seen = new Set<string>();
+  // Ids compare as digest.py writes them, so a highlight file and its digest entry are one change
+  // even when the entry's title is in another language.
   const add = (item: ReleaseItem, byId: boolean, machine: boolean) => {
-    if (byId && ids.has(item.id)) return;
+    if (byId && ids.has(entryId(item.id))) return;
     const readable = readableItem(item, raw, machine);
     if (!readable) return;
     const key = readable.title.toLowerCase();
     if (seen.has(key)) return;
-    ids.add(item.id);
+    ids.add(entryId(item.id));
     seen.add(key);
     items.push(readable);
   };
+  // A digest entry has no picture of its own in a nightly; its highlight file's picture (taken
+  // from the change's pull request, release-notes.py) stands in. Ids match as digest.py makes them.
+  const pictures = new Map(notes.highlights.map((h) => [entryId(h.id), fromHighlight(h).media]));
   // A digest the pipeline made from summary lines names its entries "summary-N".
-  for (const entry of notes.whatsNew?.entries ?? [])
-    add(fromEntry(entry, language), false, entry.id.startsWith("summary-"));
+  for (const entry of notes.whatsNew?.entries ?? []) {
+    const item = fromEntry(entry, language);
+    add(
+      item.media ? item : { ...item, media: pictures.get(entryId(entry.id)) },
+      false,
+      entry.id.startsWith("summary-"),
+    );
+  }
   for (const highlight of notes.highlights) add(fromHighlight(highlight), true, false);
   for (const [index, line] of (notes.summary ?? []).entries()) {
     add({ id: `summary-${index}`, category: summaryCategory(line.group), title: line.title, summary: "" }, false, true);

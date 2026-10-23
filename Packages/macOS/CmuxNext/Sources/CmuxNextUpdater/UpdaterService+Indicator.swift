@@ -14,7 +14,7 @@ extension UpdaterService {
         return phase
     }
 
-    private var sourcePhase: UpdateIndicatorPhase {
+    var sourcePhase: UpdateIndicatorPhase {
         if let debugIndicatorPhase { return debugIndicatorPhase }
         if let controller, disabledReason == nil {
             let version = controller.stagedUpdate?.displayVersionString ?? controller.model.detectedUpdateVersion

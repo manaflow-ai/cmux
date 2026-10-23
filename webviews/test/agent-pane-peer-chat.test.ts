@@ -144,8 +144,14 @@ await requireBrowserLane("agent-pane-peer-chat.test.ts", async () => {
       const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
       await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${SESSION}`);
       await page.locator(".cv-worked").first().waitFor();
+      // Before any output the turn's one live line at its bottom times it from the prompt
+      // ("Thinking 5s", Thinking.tsx), moved onto this computer's clock.
+      const time = page.locator(".cv-worked.is-below .cv-worked__time");
+      await time.waitFor();
+      const label = (await time.textContent()) ?? "";
+      const seconds = /^(\d+)s$/.exec(label)?.[1];
 
-      // The peer starts a tool call: the turn has work now, under "Working for".
+      // The peer starts a tool call: the turn has work now.
       socket!.send(
         JSON.stringify({
           jsonrpc: "2.0",
@@ -171,21 +177,22 @@ await requireBrowserLane("agent-pane-peer-chat.test.ts", async () => {
           },
         }),
       );
-      // The line names the call in flight ("Run make") with its time beside it (WorkingFor.tsx).
-      const working = page.locator(".cv-worked__label");
-      await working.waitFor();
-      const label = (await working.textContent()) ?? "";
-      const time = (await page.locator(".cv-worked__time").textContent()) ?? "";
-      const seconds = /^(\d+)s$/.exec(time)?.[1];
+      // The call in flight ("Run make") is named once, on the same live line (Thinking.tsx, the
+      // Codex-style turn). The line already reads before the call comes in: wait for the call's name.
+      const row = page.locator(".cv-thinking", { hasText: "Run make" });
+      await row.first().waitFor();
+      const named = await row.count();
       const strips = await page.locator(".acpmux-composer-strip").count();
       // A few seconds (page load included), never the peer's ten minutes of clock skew.
       expect({
         label,
         recent: seconds !== undefined && Number(seconds) >= 4 && Number(seconds) < 30,
+        named,
         strips,
       }).toEqual({
-        label: "Run make",
+        label: expect.stringMatching(/^\d+s$/),
         recent: true,
+        named: 1,
         strips: 0,
       });
       await page.close();

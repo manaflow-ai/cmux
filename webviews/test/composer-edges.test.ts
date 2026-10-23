@@ -13,8 +13,8 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
 
 type Edge = { shadows: { inset: boolean; alpha: number }[]; border: { width: number; alpha: number } };
 
@@ -65,7 +65,7 @@ await requireBrowserLane("composer-edges.test.ts", async () => {
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
   const url = (entry: string, variant: string) =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=${entry}&variant=${variant}`;
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame(entry, { variant })}`;
 
   const open = async (entry: string, variant: string, ready: string): Promise<Page> => {
     const page = await browser!.newPage({ viewport: { width: 720, height: 420 } });
@@ -91,8 +91,8 @@ await requireBrowserLane("composer-edges.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
+    await warmGalleryFrame(vite, ["agent-pane.composer-row", "agent-pane.permission-panel"], { browser });
   });
   afterAll(async () => {
     await browser?.close();

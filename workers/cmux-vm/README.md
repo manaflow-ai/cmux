@@ -433,6 +433,55 @@ rule or installs guest hosts/CA files. With an Idempotency-Key, replaying a
 completed rotation does not overwrite a later one; changing policy or
 credentials under the same key is 409.
 
+## Agent keys and client sessions
+
+A cloud agent holds its own credential to start and clean up its own
+sandboxes; the team's provider key never leaves the Worker.
+
+`POST /v1/agent-keys` (operator CLI: none yet; the in-VM `cmux sandbox` verbs
+use the key) issues an agent key from a credential with `vm:write` that is not
+itself an agent key or resource-allowlisted: a session of a team member, an
+API key or a service key. The response shows the `cmuxvm_sk_` key once, with
+`labels`, `expiresAt`, `maxVms` and `maxUsdPerHour`. The key:
+
+- holds at most `vm:read`, `vm:write` and `vm:exec`, never more than its issuer;
+- reaches only VMs labelled `cmux.agent=<its id>` plus any labels its issuer is
+  confined to (a service key's `role=chief` stays in force); every VM it creates
+  gets those labels, and a label naming another agent is 403. Another agent's
+  VM, like another tenant's, is 404;
+- has a budget checked on each create: fewer than `maxVms` live VMs (default 5,
+  at most 20) and an estimated `maxUsdPerHour` (default 2, at most 50), counting
+  0.05 USD per vCPU-hour and 0.0075 USD per GiB-hour of the sizes the provider
+  reports (4 vCPU / 8 GiB is 0.26). Over budget is 429 with `budget`
+  `agent_vms` or `agent_usd_per_hour`. The check is not atomic with the create:
+  concurrent creates can overshoot by the in-flight count; the team quota holds;
+- expires after `ttlSeconds` (default 4 h, 60 s to 24 h), never after its issuer;
+- cannot fork and cannot issue agent keys.
+
+`DELETE /v1/agent-keys/{keyId}` revokes it at once and deletes its VMs, best
+effort; the issuer, an admin key or team admin, or the agent key itself may.
+The cron trigger (every 5 minutes) runs the agent reaper
+(`src/agents/reaper.ts`): for every agent key that expired or was revoked and is
+not cleaned yet, it deletes the key's VMs through the ordinary delete path as
+`service:agent-reaper` (audited), revokes their client sessions, and marks the
+key cleaned once none is left. It also revokes client sessions whose VM was
+deleted while their revoke failed. A run skips itself when the schema check
+fails.
+
+`POST /v1/vms/{vmId}/client-session` (`vm:exec`) mints a provider identity
+granted only this VM and one Linux user (`linuxUser`, default `ubuntu`), and one
+access token. The response shows the token once with `providerVmId`,
+`apiBaseUrl` and `ssh` (`<providerVmId>+<user>@beta-ssh.freestyle.sh`, token as
+password). This is the one response that names the provider's VM id: the token
+is useless without it. Only the identity id is stored
+(`cmux_vm.vm_client_sessions`); deleting the VM, or
+`DELETE /v1/vms/{vmId}/client-sessions/{sessionId}`, deletes the identity, which
+revokes the token and grant.
+
+Migrations 0016 (agent columns on `api_keys`, `vm_client_sessions`) and 0017
+(its concurrent index) apply through the release runner; grant the Worker role
+SELECT, INSERT and UPDATE on `cmux_vm.vm_client_sessions`.
+
 ## Layout
 
 | path | what |

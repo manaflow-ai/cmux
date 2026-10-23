@@ -15,11 +15,12 @@ import { CheckIcon, ChevronIcon, PICKER_LABELS, SearchIcon } from "./ComposerPic
 import { Icon } from "./icons/Icon";
 import { currentLanguage, useT } from "./i18n";
 import { useUpdateOffer } from "./HarnessHealthNotice";
-import { MODEL_PICKER_MIN_HEIGHT, pickerHeightBounds, type ModelPickerProps } from "./modelPickerLayout";
-import { modelSections } from "./modelSections";
+import { CHAT_COLUMN, MODEL_PICKER_MIN_HEIGHT, pickerHeightBounds, type ModelPickerProps } from "./modelPickerLayout";
+import { curatedSections, modelSections } from "./modelSections";
 import { effortWords, fitsQuery, modelEffort, parseQuery } from "./modelQuery";
 import { registerPicker } from "./pickerOpeners";
-import { QuickModelMenu, type QuickFamily, type QuickModel } from "./QuickModelMenu";
+import { QuickModelMenu, type QuickAccount, type QuickFamily, type QuickModel } from "./QuickModelMenu";
+import type { PickerProfile } from "./pickerProfiles";
 import { useUiAnchor } from "../../ui/anchor";
 import { useEscapeCloses } from "../../ui/escapeDismiss";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
@@ -100,28 +101,6 @@ function sectionsFor(entry: HarnessChoice | undefined): { latest: ModelChoice[];
   return sections;
 }
 
-/// With a curated list: its models first, in its order, each followed by its variants ("Fable 5.1 ·
-/// 1M context"), and every other model under More models, newest family first, then older ones. Without one, or when
-/// the harness offers none of it, the catalog's newest family stays first.
-function curatedSections(
-  sections: { latest: ModelChoice[]; older: ModelChoice[] },
-  top: readonly string[] | undefined,
-): { latest: ModelChoice[]; older: ModelChoice[] } {
-  if (!top) return sections;
-  const all = [...sections.latest, ...sections.older];
-  const latest: ModelChoice[] = [];
-  for (const id of top) {
-    const model = all.find((choice) => choice.id === id || choice.release === id);
-    if (!model) continue;
-    const variants = all.filter(
-      (choice) => choice !== model && (choice.id.startsWith(`${id}[`) || choice.name.startsWith(`${model.name} · `)),
-    );
-    for (const choice of [model, ...variants]) if (!latest.includes(choice)) latest.push(choice);
-  }
-  if (latest.length === 0) return sections;
-  return { latest, older: all.filter((choice) => !latest.includes(choice)) };
-}
-
 /// `sectionsFor`, with the model the chat runs listed after the top ones when it is a folded one
 /// (Leo 2026-10-12: a New Tab chip on Claude's default, Sonnet 5, opened the whole fold).
 function shownSections(
@@ -138,6 +117,13 @@ function shownSections(
 function choicesFor(entry: HarnessChoice | undefined): ModelChoice[] {
   const { latest, older } = sectionsFor(entry);
   return [...latest, ...older];
+}
+
+/// The harness the picker's face draws when the chat names none: its first installed, pickable
+/// harness (a bundled catalog harness acpmux does not have is not one), as `current` below picks it.
+/// The composer's other chips and the footer's harness item draw the same one (ComposerPickers).
+export function pickerFaceHarness(catalog: ModelPickerProps["catalog"]): string | undefined {
+  return uniqueHarnesses(catalog)[0]?.id;
 }
 
 function uniqueHarnesses(catalog: ModelPickerProps["catalog"]): HarnessChoice[] {
@@ -201,6 +187,50 @@ function uniqueHarnesses(catalog: ModelPickerProps["catalog"]): HarnessChoice[] 
 /// The rail's Starred tab (never a harness id).
 const STARRED = "\u0000starred";
 
+/// The compact menu's rail, one tab per harness (Leo 2026-10-22: "the harnes picker exists but it's
+/// ass and it's not per-account available"): profiles that draw one brand's mark (Claude Code,
+/// claude-sr2, a folder's Claude profile) are that harness's accounts, listed under its Account
+/// row, never tabs of their own. A tab is the account the chat runs, else its first signed-in one,
+/// named as the harness's first profile ("Claude Code"). Unbranded profiles keep their own tabs.
+/// `profiles` are the installed profiles each tab's catalog entry folded into one (pickerProfiles.ts,
+/// by tab id): `claude` and `claude-sr` are one Claude Code there, and both its accounts here.
+function railByHarness(
+  list: QuickFamily[],
+  running: string | undefined,
+  profiles: Readonly<Record<string, readonly PickerProfile[]>> = {},
+  signedOut: (id: string) => boolean = () => false,
+): QuickFamily[] {
+  const groups = new Map<string, QuickFamily[]>();
+  for (const family of list) {
+    const brand = family.starred || !family.mark ? undefined : agentBrand(family.mark);
+    const key = brand ? `brand:${brand}` : `id:${family.id}`;
+    groups.set(key, [...(groups.get(key) ?? []), family]);
+  }
+  return [...groups.values()].map((members) => {
+    const first = members[0]!;
+    const listed = members.flatMap((member): QuickAccount[] => {
+      const folded = profiles[member.id];
+      if (!folded?.length) return [{ id: member.id, name: member.name, ...(member.note ? { disabled: true } : {}) }];
+      return folded.map((profile) => ({
+        id: profile.id,
+        name: profile.name,
+        ...(profile.unavailable || signedOut(profile.id) ? { disabled: true } : {}),
+      }));
+    });
+    const seen = new Set<string>();
+    const unique = listed.filter((account) => !seen.has(account.id) && seen.add(account.id));
+    const accounts = unique.map((account) =>
+      unique.filter((other) => other.name === account.name).length > 1
+        ? { ...account, name: `${account.name} (${account.id})` }
+        : account,
+    );
+    const lead = members.find((member) => member.id === running) ?? members.find((member) => !member.note) ?? first;
+    const account = accounts.some((choice) => choice.id === running) ? running : lead.id;
+    if (members.length === 1 && accounts.length < 2) return first;
+    return { ...lead, name: first.name, accounts, ...(account ? { account } : {}) };
+  });
+}
+
 /// A folder profile row the user cannot start yet: waiting for the folder's Trust answer, or broken.
 const blockedProfile = (entry: HarnessChoice | undefined) =>
   entry?.folder?.state === "needs-trust" || entry?.folder?.state === "error";
@@ -257,12 +287,14 @@ export function ModelPicker(props: ModelPickerProps) {
     quick,
     detail,
     detailShort,
+    fork,
   } = props;
   /// A signed-out harness's login command ("" when acpmux names none); undefined when it can start.
   const loginFor = useCallback((entry: HarnessChoice) => signedOut?.[entry.acpmuxHarness ?? entry.id], [signedOut]);
   const t = useT();
-  /// The chat's agent CLI has an update (hq#2569 #12): a dot on the chip and a row in the picker,
-  /// never a banner over the chat.
+  /// The chat's agent CLI has an update (hq#2569 #12): a row in the menu and the picker and a line
+  /// in the chip's tooltip, never a banner over the chat. Never a dot on the chip: drawn between the
+  /// model and its effort it read "Opus 5.5 • Medium" (Leo 2026-10-21: "WE FUCKING HATE THE DOT").
   const update = useUpdateOffer();
   const updateText = update
     ? t("harness.outdated", { agent: update.agent, version: update.version, latest: update.latest })
@@ -392,6 +424,8 @@ export function ModelPicker(props: ModelPickerProps) {
     side: "above",
     align: "start",
     minHeight: MODEL_PICKER_MIN_HEIGHT,
+    // Inside the chat column, never over the session rail or sidebar beside it.
+    boundary: CHAT_COLUMN,
   });
   useLayoutEffect(() => {
     if (!open) {
@@ -495,6 +529,17 @@ export function ModelPicker(props: ModelPickerProps) {
     };
   }, [close, open]);
   useEffect(() => registerPicker(modelText, () => showRef.current()), [modelText]);
+  // The footer's harness item opens this menu: its rail is the composer's harness switcher.
+  const opener = props.opener;
+  const compact = quick !== undefined;
+  useEffect(() => {
+    if (!opener) return;
+    const openMenu = () => (compact ? setQuickOpen(true) : showRef.current());
+    opener.current = openMenu;
+    return () => {
+      if (opener.current === openMenu) opener.current = undefined;
+    };
+  }, [opener, compact]);
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
       // Cmd-Ctrl-M opens the picker (Lawrence 2026-10-08); typing then searches every harness.
@@ -538,14 +583,15 @@ export function ModelPicker(props: ModelPickerProps) {
   const quickFamilies = useMemo(() => {
     // A started chat's compact menu lists its own harness's models with no rail; More models
     // opens the full picker, which has no rail either.
-    if (!quick || harnessFixed) return undefined;
+    if (!quick || (harnessFixed && !fork)) return undefined;
     const row = (entry: HarnessChoice, model: ModelChoice): QuickModel => ({
       id: model.id,
       name: model.name,
       family: entry.id,
       ...(model.unavailable ? { disabled: true } : {}),
     });
-    const startable = harnesses.filter(
+    // A started chat that forks lists every harness, as a New Tab does; its own stays the chat's.
+    const startable = (fork ? allHarnesses : harnesses).filter(
       (entry) => entry.pickable && !blockedProfile(entry) && entry.folder?.state !== "needs-enable",
     );
     const list: QuickFamily[] = [];
@@ -570,8 +616,39 @@ export function ModelPicker(props: ModelPickerProps) {
           : {}),
       });
     }
-    return list;
-  }, [quick, harnessFixed, harnesses, loginFor, favorites, starredText, harness, props.model, t, onLogIn]);
+    const rail = railByHarness(list, harness ?? current?.id, props.profiles, (id) => signedOut?.[id] !== undefined);
+    if (!harnessFixed) return rail;
+    // A started chat (Leo 2026-10-22: "can expose as fork"): another harness's tab is Fork to it,
+    // Starred keeps the chat's own models, and another account of any harness forks there.
+    return rail.flatMap((family): QuickFamily[] => {
+      const accounts = family.accounts?.map((account) =>
+        account.id === harness || fork?.ready ? account : { ...account, disabled: true },
+      );
+      const own = { ...family, ...(accounts ? { accounts } : {}) };
+      if (family.starred) {
+        const models = family.models.filter((model) => model.family === current?.id);
+        return models.length ? [{ ...family, models }] : [];
+      }
+      if (family.id === current?.id || family.note) return [own];
+      return [{ ...own, models: [], more: [], fork: true }];
+    });
+  }, [
+    quick,
+    harnessFixed,
+    fork,
+    allHarnesses,
+    harnesses,
+    current?.id,
+    loginFor,
+    favorites,
+    starredText,
+    harness,
+    props.model,
+    t,
+    onLogIn,
+    props.profiles,
+    signedOut,
+  ]);
   /// A compact-menu pick: this harness's model lands in place; another harness's starts a chat there.
   const pickQuick = (model: QuickModel) => {
     const owner = harnesses.find((entry) => entry.id === model.family);
@@ -583,6 +660,21 @@ export function ModelPicker(props: ModelPickerProps) {
     const harnessId = owner.acpmuxHarness ?? owner.id;
     if (onCombo) onCombo({ harness: harnessId, model: model.id });
     else if (owner.acpmuxHarness) onHarness?.(owner.acpmuxHarness);
+  };
+  /// An Account pick: the harness's other profile starts a chat there, or forks a started chat there.
+  /// `id` is an acpmux profile: one a tab folded (pickerProfiles.ts) is no harness entry of its own.
+  const pickAccount = (id: string) => {
+    if (id === harness || signedOut?.[id] !== undefined) return;
+    const owner = allHarnesses.find((entry) => entry.id === id);
+    if (owner && loginFor(owner) !== undefined) return;
+    const target = owner?.acpmuxHarness ?? id;
+    if (harnessFixed) {
+      if (fork?.ready) fork.to(target);
+    } else onHarness?.(target);
+  };
+  const forkTo = (id: string) => {
+    const owner = allHarnesses.find((entry) => entry.id === id);
+    if (owner && fork?.ready) fork.to(owner.acpmuxHarness ?? owner.id);
   };
   const addHarness = () => {
     close();
@@ -783,9 +875,6 @@ export function ModelPicker(props: ModelPickerProps) {
           data-label={chipFamily}
         />
       )}
-      {update && (
-        <span aria-hidden="true" className="acpmux-model-update-dot size-1.5 flex-none rounded-full bg-accent" />
-      )}
     </>
   );
   return (
@@ -834,6 +923,8 @@ export function ModelPicker(props: ModelPickerProps) {
                     current: current?.id,
                     onPick: pickQuick,
                     ...(onAddAgent ? { onAddHarness: onAddAgent } : {}),
+                    ...(harnessFixed ? {} : onHarness ? { onAccount: pickAccount } : {}),
+                    ...(harnessFixed && fork ? { onAccount: pickAccount, onFork: forkTo, forkReady: fork.ready } : {}),
                   },
                 }
               : {}),
@@ -894,7 +985,7 @@ export function ModelPicker(props: ModelPickerProps) {
         <PickerDialog
           ref={menu}
           id={menuId}
-          className="ui-popup ui-picker-popup acpmux-mp z-(--layer-dropdown) flex w-[min(310px,calc(100vw-24px))] overflow-hidden rounded-[var(--ui-popup-radius,8px)] text-control text-fg"
+          className="ui-popup ui-glass ui-picker-popup acpmux-mp z-(--layer-dropdown) flex w-[min(310px,var(--available-width,calc(100vw-24px)))] overflow-hidden rounded-[var(--ui-popup-radius,8px)] text-control text-fg"
           // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the popover is positioned by the shared anchor helper.
           aria-label={modelText}
           // The anchor's room above or below the chip, between the picker's minimum and maximum
@@ -1122,6 +1213,7 @@ export function ModelPicker(props: ModelPickerProps) {
                           className={`acpmux-mp-favorite pointer-events-auto grid size-6 cursor-pointer place-items-center rounded-md border-0 bg-transparent p-0 text-muted hover:text-fg ${favorites.has(model.id) ? "" : "invisible group-hover:visible focus-visible:visible"}`}
                           aria-label={`${starredText}: ${model.name}`}
                           aria-pressed={favorites.has(model.id)}
+                          title={t(favorites.has(model.id) ? "picker.unstar" : "picker.star")}
                           onClick={() => toggleFavorite(model.id)}
                         >
                           <StarGlyph filled={favorites.has(model.id)} size={13} />

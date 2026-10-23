@@ -186,6 +186,13 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 Err(e) => errors::exit_with(&e, json_out),
             }
         }
+        Some(Command::Forum(cmd)) => {
+            let json_out = cli.json;
+            match crate::cli::forum::run(cmd, json_out).await {
+                Ok(()) => Ok(()),
+                Err(e) => errors::exit_with(&e, json_out),
+            }
+        }
         Some(Command::Harness(cmd)) => {
             let json_out = cli.json;
             match crate::cli::harness::run(cmd, json_out).await {
@@ -198,9 +205,16 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
         Some(Command::SecretMcp) => crate::secret_mcp::run().await,
         Some(Command::OfferMcp) => crate::offer_mcp::run().await,
         Some(Command::SubsessionMcp) => crate::subsession_mcp::run().await,
+        Some(Command::ForumMcp) => crate::forum_mcp::run().await,
         Some(Command::Skill) => {
             use std::io::Write;
             let _ = std::io::stdout().write_all(crate::cli::orchestrate::guide().as_bytes());
+            Ok(())
+        }
+        // No daemon: what this binary serves (`capabilities.rs`).
+        Some(Command::Capabilities) => {
+            use std::io::Write;
+            let _ = std::io::stdout().write_all(crate::capabilities::render(cli.json).as_bytes());
             Ok(())
         }
         Some(cmd) => {

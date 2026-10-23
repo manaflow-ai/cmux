@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxConversationCore
+import CmuxMobileArtifacts
 import CmuxConversationUI
 import SwiftUI
 import UIKit
@@ -90,6 +91,16 @@ struct ChiefConversationController: UIViewControllerRepresentable {
 
     private func configure(_ conversation: ConversationViewController) {
         conversation.onBack = back
+        // A file link in a Chief message opens the file preview (read from
+        // Chief's Mac); web links open in Safari as before.
+        conversation.onOpenLink = { [weak session, weak conversation] url in
+            guard let link = FileLink(url: url), let session, let conversation else { return false }
+            // Something is already up (Quick Look, a sheet): the tap does nothing.
+            guard conversation.presentedViewController == nil else { return true }
+            let source = session.fileSource ?? UnavailableArtifactSource()
+            FilePreviewRequest(reference: link.reference, source: source, line: link.line).present(from: conversation)
+            return true
+        }
         // Select mode's Forward opens New Message with the draft, as in the lab.
         conversation.onForward = { [compose] draft in
             compose?.present(forwarding: draft)
@@ -246,6 +257,44 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         for recognizer in sendButton?.gestureRecognizers ?? [] where recognizer is UILongPressGestureRecognizer {
             recognizer.isEnabled = sends
         }
+        updateCloudHandOff()
+    }
+
+    /// With the Mac offline (the Mac Chief on its cloud copy), one tap hands the
+    /// composer's text, or my newest message, to the Cloud Chief with the recent
+    /// messages as context (``ChiefSources/askCloudChief(_:)``).
+    private func updateCloudHandOff() {
+        let offlineMac = session === ChiefSources.shared.mac && session.backend is ChiefReplicaBackend
+        guard offlineMac else {
+            if navigationItem.rightBarButtonItem?.accessibilityIdentifier == "chief.askCloudChief" {
+                navigationItem.rightBarButtonItem = nil
+            }
+            return
+        }
+        guard navigationItem.rightBarButtonItem?.accessibilityIdentifier != "chief.askCloudChief" else { return }
+        let item = UIBarButtonItem(title: String(localized: "Ask Cloud Chief"), primaryAction: UIAction { [weak self] _ in
+            self?.askCloudChief()
+        })
+        item.accessibilityIdentifier = "chief.askCloudChief"
+        navigationItem.rightBarButtonItem = item
+    }
+
+    private func askCloudChief() {
+        let typed = composerTextView?.text.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let mine = session.store.messages.last { $0.senderID == session.identity.meID }?.text ?? ""
+        let request = typed.isEmpty ? mine : typed
+        guard !request.isEmpty else { return }
+        Task { await ChiefSources.shared.askCloudChief(request) }
+        if !typed.isEmpty, let field = composerTextView {
+            field.text = ""
+            field.delegate?.textViewDidChange?(field)
+        }
+        let alert = UIAlertController(
+            title: String(localized: "Sent to Cloud Chief"),
+            message: String(localized: "Cloud Chief has your message and the recent messages from this chat. Its answer is in the Cloud Chief chat."),
+            preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: String(localized: "OK"), style: .cancel))
+        present(alert, animated: true)
     }
 
     private struct GatedViews {

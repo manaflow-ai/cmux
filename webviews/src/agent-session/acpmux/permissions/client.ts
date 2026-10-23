@@ -223,7 +223,8 @@ export class PermissionGroupClient {
       this.state.supported = false;
       this.authoritative = false;
     }
-    this.state.error = error.message;
+    // A refusal the pane has words for shows them, not acpmux's English (transportErrors.ts).
+    this.state.error = errorMessage(error);
     this.state.uncertain = error.uncertain || this.state.uncertain;
     this.changed();
   }

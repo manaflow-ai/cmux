@@ -87,7 +87,5 @@ test("a project folder keeps its name", async () => {
       />,
     ),
   );
-  expect(host.querySelector(".acpmux-trust-ask-text")!.textContent).toBe(
-    "The agent can edit and run code in atlas-web",
-  );
+  expect(host.querySelector(".acpmux-trust-ask-text")!.textContent).toBe("Trust atlas-web?");
 });

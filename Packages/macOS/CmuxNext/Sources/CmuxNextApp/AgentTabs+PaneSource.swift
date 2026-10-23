@@ -1,6 +1,7 @@
 import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextControl
+import CmuxNextHomeEngine
 import Foundation
 
 /// The agent tabs' pane page and acpmux host (outside AgentTabStore, which is at its size limit).
@@ -35,11 +36,16 @@ import Foundation
         // endpoint.json exists there (ComputerUseHelperV2).
         let upstreamEnvironment = ComputerUseHelperV2.childEnvironment(directory: computerUse.upstream.directory)
         let launch = LaunchIdentity.current()
+        // NIGHTLY's Chief runs on this daemon (ChiefHome.usesAppAcpmux): acpmux's built-in Chief
+        // presets read its Chief home from the daemon's own environment (chief_builtins.rs).
+        let chief = ChiefHome.resolve(tag: build?.tag, environment: environment)
+        let chiefMuxHome = chief.usesAppAcpmux ? chief.muxHome.path : nil
         let resolve: @Sendable () -> AcpmuxEnvironment? = {
             AcpmuxEnvironment.resolve(build: build, bundledBinDirectory: bin, environment: environment,
                                       launchEnvironment: launch.terminalEnvironment).map {
                 var resolved = $0
                 resolved.childEnvironment.merge(upstreamEnvironment) { $1 }
+                if let chiefMuxHome { resolved.childEnvironment[AcpmuxEnvironment.chiefMuxHomeKey] = chiefMuxHome }
                 return resolved
             }
         }

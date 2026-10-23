@@ -10,6 +10,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -180,11 +181,11 @@ await requireBrowserLane("agent-pane-model-sticks.test.ts", async () => {
             const hold = holdNextPrompt;
             holdNextPrompt = false;
             prompted(message.params ?? {}, hold);
-            return;
+          } else if (message.id !== undefined) {
+            const result = answer(message.method, message.params ?? {});
+            if (result !== undefined) ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
           }
-          if (message.id === undefined) return;
-          const result = answer(message.method, message.params ?? {});
-          if (result !== undefined) ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
+          for (const check of checks) check();
         },
       },
     });
@@ -204,27 +205,52 @@ await requireBrowserLane("agent-pane-model-sticks.test.ts", async () => {
   });
 
   const CHIP = ".acpmux-model-name";
-  /// The chip's text once it settles: what it shows for half a second running.
+  let probes = 0;
+  /// The chip's text once the page has taken everything the daemon sent and drawn it: another chat
+  /// listed after them lands behind them on the socket, so the page lists it only once it has taken
+  /// the rest (the agent's own report of its default among them); two painted frames follow.
   async function settledChip(page: Page): Promise<string | null> {
-    let last: string | null = null;
-    let since = Date.now();
-    for (const deadline = Date.now() + 10_000; Date.now() < deadline; await Bun.sleep(50)) {
-      const text = (await page.locator(CHIP).first().textContent()) ?? null;
-      if (text !== last) [last, since] = [text, Date.now()];
-      else if (Date.now() - since >= 500) break;
-    }
-    return last;
+    const sessionId = `probe-${++probes}`;
+    broadcast("_acpmux/session_changed", {
+      sessionId,
+      session: summary(sessionId, { cwd: "/elsewhere" }),
+      kind: "created",
+    });
+    await page.waitForFunction(
+      (sessionId) =>
+        (window as any).cmuxAcpmuxDebug
+          .chatState()
+          .sessions.some((session: { sessionId: string }) => session.sessionId === sessionId),
+      sessionId,
+      { timeout: 15_000 },
+    );
+    for (let frame = 0; frame < 2; frame++) await page.evaluate(() => window.cmuxPaintFrame());
+    return (await page.locator(CHIP).first().textContent()) ?? null;
   }
+  /// A pick in the full picker, which Cmd-Ctrl-M opens over the model button (its click opens the
+  /// compact menu, whose More models leads to the full picker: Leo 2026-10-20).
   async function pickModel(page: Page, id: string) {
-    await page.locator('[data-menu="Model"]').first().click();
+    await page.locator('[data-menu="Model"]').first().waitFor();
+    await page.keyboard.press("Meta+Control+m");
     await page.locator(`.acpmux-mp-models [role="option"][data-key="model:${id}"]`).click();
   }
-  async function until(what: string, check: () => boolean) {
-    for (let waited = 0; !check(); waited += 50) {
-      if (waited > 10_000)
-        throw new Error(`timed out waiting for ${what}: ${JSON.stringify(calls.map((c) => c.method))}`);
-      await Bun.sleep(50);
-    }
+  /// Checks run once the daemon has taken each message.
+  const checks = new Set<() => void>();
+  function until(what: string, done: () => boolean): Promise<void> {
+    if (done()) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      const check = () => {
+        if (!done()) return;
+        checks.delete(check);
+        clearTimeout(timer);
+        resolve();
+      };
+      const timer = setTimeout(() => {
+        checks.delete(check);
+        reject(new Error(`timed out waiting for ${what}: ${JSON.stringify(calls.map((c) => c.method))}`));
+      }, 10_000);
+      checks.add(check);
+    });
   }
   /// The model acpmux ran each prompt on: the session's last set_model before it, else the default.
   function promptModels(sessionId: string): string[] {
@@ -242,6 +268,7 @@ await requireBrowserLane("agent-pane-model-sticks.test.ts", async () => {
     calls.length = 0;
     const context = await browser!.newContext({ viewport: { width: 1000, height: 760 } });
     const page = await context.newPage();
+    await installPaintedFrames(page);
     await page.goto(url("newtab"));
     await page.locator(".nt-field").waitFor();
     await page.waitForFunction((selector) => !!document.querySelector(selector)?.textContent, CHIP);
@@ -279,6 +306,7 @@ await requireBrowserLane("agent-pane-model-sticks.test.ts", async () => {
     record(chat, "turn_result", { status: "completed" });
     const context = await browser!.newContext({ viewport: { width: 1000, height: 760 } });
     const page = await context.newPage();
+    await installPaintedFrames(page);
     await page.goto(url(`session=${sessionId}`));
     await page.getByText("Retry added.").waitFor();
     expect(await settledChip(page)).toBe("Opus 5.5");

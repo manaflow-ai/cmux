@@ -172,8 +172,13 @@ fn cmux_next_ensure_refuses_the_owner_of_a_recreated_state_dir() {
     let first = fixture.run("ensure");
     assert_eq!(first["status"], "started", "{first}");
 
+    // The owner still writes in its state dir, so removing it in place can
+    // race a new file (ENOTEMPTY). Move it away first: the path is then free
+    // at once, as after a delete, and the old tree goes best effort.
     let state = fixture.dir.join("state");
-    fs::remove_dir_all(&state).unwrap();
+    let deleted = fixture.dir.join("state-deleted");
+    fs::rename(&state, &deleted).unwrap();
+    let _ = fs::remove_dir_all(&deleted);
     fs::create_dir_all(&state).unwrap();
 
     let output = fixture.command("ensure").output().unwrap();
@@ -268,17 +273,17 @@ fn owner_pid(fixture: &EnsureFixture) -> Option<u32> {
     })
 }
 
-/// A running `server ensure`, killed on drop if the test ends before it
-/// finishes (a failed assertion must not leave it waiting).
-struct EnsureRun(Option<std::process::Child>);
+/// A running `server ensure` or `server stop`, killed on drop if the test
+/// ends before it finishes (a failed assertion must not leave it waiting).
+struct ServerRun(Option<std::process::Child>);
 
-impl EnsureRun {
+impl ServerRun {
     fn output(mut self) -> Output {
-        self.0.take().expect("ensure child").wait_with_output().unwrap()
+        self.0.take().expect("server child").wait_with_output().unwrap()
     }
 }
 
-impl Drop for EnsureRun {
+impl Drop for ServerRun {
     fn drop(&mut self) {
         if let Some(mut child) = self.0.take() {
             let _ = child.kill();
@@ -287,15 +292,19 @@ impl Drop for EnsureRun {
     }
 }
 
-fn spawn_ensure(fixture: &EnsureFixture) -> EnsureRun {
+fn spawn_ensure(fixture: &EnsureFixture) -> ServerRun {
     spawn_ensure_with(fixture, &[])
 }
 
-fn spawn_ensure_with(fixture: &EnsureFixture, args: &[&str]) -> EnsureRun {
-    let mut command = fixture.command("ensure");
+fn spawn_ensure_with(fixture: &EnsureFixture, args: &[&str]) -> ServerRun {
+    spawn_server(fixture, "ensure", args)
+}
+
+fn spawn_server(fixture: &EnsureFixture, action: &str, args: &[&str]) -> ServerRun {
+    let mut command = fixture.command(action);
     command.args(args);
     command.stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
-    EnsureRun(Some(command.spawn().unwrap()))
+    ServerRun(Some(command.spawn().unwrap()))
 }
 
 /// cx-n3bs: an owner whose restore outlasts the 10 s contact bound is not
@@ -397,4 +406,120 @@ fn ensure_fails_fast_when_its_restoring_owner_dies() {
     });
     assert_eq!(error["code"], "server.unavailable", "{error}");
     assert!(waited < std::time::Duration::from_secs(5), "ensure waited {waited:?}");
+}
+
+/// Every line of `bytes` as JSON (a `--json` stop writes its progress lines,
+/// then its error, on stderr).
+fn json_lines(bytes: &[u8]) -> Vec<serde_json::Value> {
+    String::from_utf8_lossy(bytes)
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .map(|line| {
+            serde_json::from_str(line).unwrap_or_else(|_| panic!("not a JSON line: {line}"))
+        })
+        .collect()
+}
+
+/// Whether the owner process `pid` is gone, waiting for it a bounded time.
+fn owner_exits(fixture: &EnsureFixture, pid: u32) -> bool {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while std::time::Instant::now() < deadline {
+        if owner_pid(fixture) != Some(pid) {
+            return true;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    false
+}
+
+/// A stop's progress lines (stderr, `--json`): each one names the session,
+/// the restore phase it saw and a message.
+fn assert_stop_progress(fixture: &EnsureFixture, lines: &[serde_json::Value]) {
+    assert!(!lines.is_empty(), "the stop reported no restore progress while it waited");
+    for line in lines {
+        assert_eq!(line["progress"], "restoring", "{line}");
+        assert_eq!(line["session"], fixture.session.as_str(), "{line}");
+        assert!(matches!(line["phase"].as_str(), Some("restoring" | "starting")), "{line}");
+        assert!(line["waited_ms"].is_u64(), "{line}");
+        assert!(line["message"].as_str().is_some_and(|m| !m.is_empty()), "{line}");
+    }
+}
+
+/// `server stop` during a restore that outlasts the 10 s it used to give an
+/// owner's identify (d674e3164cc: an owner binds its socket before it
+/// restores and holds every connection until the restore ends) waits for the
+/// restore, reports it while it waits, and then stops the owner.
+#[test]
+fn stop_during_a_restore_waits_and_then_stops_the_owner() {
+    let fixture = EnsureFixture::new("stoprestoring");
+    let restore = SlowRestore::hold(&fixture);
+    let ensure = spawn_ensure(&fixture);
+    let _held = held_while_restoring(&fixture)
+        .expect("the owner did not hold its socket while it restored");
+    let pid = owner_pid(&fixture).expect("restoring owner pid");
+    let stop_started = std::time::Instant::now();
+    let stop = spawn_server(&fixture, "stop", &[]);
+    // Keep restoring past the stop's old 10 s identify deadline.
+    let hold = std::time::Duration::from_secs(12);
+    std::thread::sleep(hold);
+    drop(restore);
+
+    let output = stop.output();
+    let waited = stop_started.elapsed();
+    let stopped = parse_success("stop", &output);
+    assert_eq!(stopped["status"], "stopped", "{stopped}");
+    assert_eq!(stopped["pid"].as_u64(), Some(u64::from(pid)), "{stopped}");
+    assert!(waited >= hold, "the stop returned after {waited:?}, before the restore ended");
+    assert_stop_progress(&fixture, &json_lines(&output.stderr));
+    assert!(owner_exits(&fixture, pid), "the stop succeeded but its owner still runs");
+    // The ensure that started the owner ends too (its result may be either:
+    // the stop can end the owner before the ensure reads its identity).
+    let _ = ensure.output();
+}
+
+/// `server stop` waits for a restoring owner a bounded time
+/// (`--restore-wait-seconds`). Past it the stop fails and says why: the
+/// owner still restores, in which phase, how long the stop waited, and the
+/// command that retries with a longer wait. The owner keeps running and
+/// finishes its restore.
+#[test]
+fn stop_during_a_restore_past_its_wait_says_why() {
+    let fixture = EnsureFixture::new("stopbound");
+    let restore = SlowRestore::hold(&fixture);
+    let ensure = spawn_ensure(&fixture);
+    let _held = held_while_restoring(&fixture)
+        .expect("the owner did not hold its socket while it restored");
+    let pid = owner_pid(&fixture).expect("restoring owner pid");
+    let started = std::time::Instant::now();
+    let output = fixture.command("stop").args(["--restore-wait-seconds", "3"]).output().unwrap();
+    let waited = started.elapsed();
+
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+    assert!(waited >= std::time::Duration::from_secs(3), "the stop gave up after {waited:?}");
+    assert!(waited < std::time::Duration::from_secs(10), "the stop waited {waited:?}");
+    let mut lines = json_lines(&output.stderr);
+    let error = lines.pop().expect("an error line");
+    assert_stop_progress(&fixture, &lines);
+    assert_eq!(error["code"], "server.stop_restoring", "{error}");
+    assert_eq!(error["retryable"], true, "{error}");
+    let details = &error["details"];
+    assert_eq!(details["reason"], "restoring", "{error}");
+    assert_eq!(details["phase"], "restoring", "{error}");
+    assert!(details["waited_ms"].as_u64().is_some_and(|ms| ms >= 3000), "{error}");
+    let retry = details["retry"].as_str().expect("the error names the retry command");
+    assert!(retry.contains(" daemon stop ") && retry.contains("--restore-wait-seconds"), "{error}");
+    let message = error["message"].as_str().unwrap_or_default();
+    assert!(message.contains(retry), "the message does not name the retry: {error}");
+
+    assert_eq!(owner_pid(&fixture), Some(pid), "a stop that gave up ended its owner");
+    drop(restore);
+    let ensured = parse_success("ensure", &ensure.output());
+    assert_eq!(ensured["status"], "started", "{ensured}");
+    assert_eq!(ensured["pid"].as_u64(), Some(u64::from(pid)), "{ensured}");
 }

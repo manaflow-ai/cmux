@@ -19,7 +19,7 @@ import { createOnigurumaEngine } from "shiki/engine/oniguruma";
 import { EXTENSION_TO_FILE_FORMAT } from "cmux:pierre-filetypes";
 import { hostTerminalTheme, type DiffViewerAppearance } from "../../appearance";
 import { PLAIN_TEXT_LANGUAGE } from "../../diff-languages/detect";
-import { editorAction, isEditorAction, MONACO_QUICK_COMMAND, type EditorCommand } from "./keys";
+import { editorAction, isEditorAction, MONACO_QUICK_COMMAND, type EditorCommand, type RevealPosition } from "./keys";
 import { keybindingRules } from "./vscodeKeys";
 import type { CodeView, EditorDocument } from "./store";
 import type { FindRange, FindTarget } from "./editorFind";
@@ -344,10 +344,11 @@ export class MonacoView implements CodeView {
         },
       }),
       this.editor.onDidChangeCursorSelection(() => this.reportStatus()),
-      // Overlay scrollers show while the editor scrolls (scrollers.ts MONACO_SCROLLER_CSS).
-      this.editor.onDidScrollChange(() => {
+      // Overlay scrollers show while the editor scrolls (scrollers.ts MONACO_SCROLLER_CSS). Monaco
+      // reports a new scroll size too (its first layout, a pane or window resize); that is not a scroll.
+      this.editor.onDidScrollChange((event) => {
         const node = this.editor.getDomNode();
-        if (node) markScrolling(node);
+        if (node && (event.scrollTopChanged || event.scrollLeftChanged)) markScrolling(node);
       }),
       {
         dispose: onScrollerStyleChange(() => this.editor.updateOptions(this.editorOptions()), document.documentElement),
@@ -752,6 +753,17 @@ export class MonacoView implements CodeView {
         this.editor.pushUndoStop();
       },
     };
+  }
+
+  /** Moves the cursor to `position` (clamped to the document) and centers its line, then focuses. */
+  reveal(position: RevealPosition): void {
+    const model = this.model;
+    if (!model) return;
+    const lineNumber = Math.min(Math.max(1, position.line), model.getLineCount());
+    const column = Math.min(Math.max(1, position.column), model.getLineMaxColumn(lineNumber));
+    this.editor.setPosition({ lineNumber, column });
+    this.editor.revealPositionInCenter({ lineNumber, column });
+    this.editor.focus();
   }
 
   /** A page command from the app's key dispatcher. Returns false for an unknown command. */

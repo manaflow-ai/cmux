@@ -255,8 +255,10 @@ await requireBrowserLane("agent-pane-queue.test.ts", async () => {
       expect(await input.inputValue()).toBe("line one\nline two");
       await page.keyboard.press("Enter");
       await input.waitFor({ state: "detached" });
-      await page.waitForTimeout(300);
-      expect(edits).toEqual([]);
+      // The save sent nothing: the next change, a Delete, is the first acpmux hears.
+      await page.keyboard.press("Delete");
+      await page.waitForFunction(() => document.querySelectorAll(".acpmux-queued").length === 2);
+      expect(edits).toEqual([{ op: "remove", promptId: "q-1" }]);
       await page.close();
     });
 
@@ -267,8 +269,8 @@ await requireBrowserLane("agent-pane-queue.test.ts", async () => {
       await page.keyboard.press("ArrowUp");
       expect(await focused(page)).toBe("q-2");
       await page.keyboard.press("Meta+Enter");
-      await page.waitForTimeout(300);
-      expect({ edits, focused: await focused(page) }).toEqual({ edits: [], focused: "q-2" });
+      expect(await focused(page)).toBe("q-2");
+      // ⌘Return sent nothing: the Delete after it is the first change acpmux hears.
       await page.keyboard.press("Delete");
       await page.waitForFunction(() => document.querySelectorAll(".acpmux-queued").length === 2);
       expect({ edits, rows: await rows(page) }).toEqual({

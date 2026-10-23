@@ -495,7 +495,12 @@ impl RemoteSession {
                     Some("error") => NotificationLevel::Error,
                     _ => NotificationLevel::Info,
                 };
+                let text = |key: &str| value.get(key).and_then(Value::as_str).map(str::to_string);
                 self.emit(MuxEvent::Notification(NotificationEvent {
+                    id: text("id"),
+                    message: text("message"),
+                    prompt: text("prompt"),
+                    session: text("session"),
                     notification,
                     title: value
                         .get("title")
@@ -507,6 +512,10 @@ impl RemoteSession {
                     preview: value.get("preview").and_then(Value::as_str).map(str::to_string),
                     level,
                     surface: surface_id(),
+                    workspace_id: value
+                        .get("workspace_id")
+                        .and_then(Value::as_str)
+                        .and_then(|id| cmux_tui_core::resource::WorkspacePublicId::parse(id).ok()),
                     source: value
                         .get("source")
                         .and_then(Value::as_str)

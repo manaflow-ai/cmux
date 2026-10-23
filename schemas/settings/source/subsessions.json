@@ -34,6 +34,29 @@
           ]
         },
         {
+          "key": "agents.subsessions.answerQuestions",
+          "name": "subsessionsAnswerQuestions",
+          "note": "On: a session answers the questions (Claude Code AskUserQuestion, Grok and Cursor asks) of the sub-sessions under it (_acpmux/subsession/answer), never their permission prompts or plans. Off (the default, since it loosens the person-only answer rule): only the person answers them (subsessions.answers_off).",
+          "title": {
+            "key": "settings.agents.subsessions.answerQuestions",
+            "text": "Let Sessions Answer Their Sub-sessions' Questions"
+          },
+          "help": {
+            "key": "settings.agents.subsessions.answerQuestions.help",
+            "text": "When an agent in a sub-session asks a question, the session that started it can answer, and the answer shows who gave it. Permission requests always wait for you. Off: only you answer."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "subagent",
+            "sub-session",
+            "question",
+            "answer",
+            "coordinator",
+            "agents"
+          ]
+        },
+        {
           "key": "agents.subsessions.maxChildren",
           "name": "subsessionsMaxChildren",
           "note": "Open (not closed) sub-sessions one session may have at a time. A session or an ancestor can set a lower value for a subtree.",

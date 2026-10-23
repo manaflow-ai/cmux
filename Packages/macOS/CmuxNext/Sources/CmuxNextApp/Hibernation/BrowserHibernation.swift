@@ -30,10 +30,17 @@ import os
 /// as they become neighbors, so Ctrl-Tab, Cmd-Shift-[ ] and the next click
 /// show a live page. A hovered tab wakes too. Memory pressure and Low Power
 /// Mode turn this off (plans/cmux-next/neighbor-tabs-DESIGN.md).
+///
+/// Which page goes first is a ranking (`HibernationPlanner.idleness`): how long it has been
+/// hidden, how often the person showed it in the last hour, and under memory pressure how much
+/// memory it holds. A few pages go per pass (`HibernationPlanner.Pace`), never all at once.
+/// A page never hibernates while it shows, plays, captures, has DevTools open, an agent holds
+/// its lease or called it lately, a download it started runs, or it holds the person's form
+/// input; pinned tabs and Never Hibernate hosts stay unless the setting says otherwise.
 @MainActor
 final class BrowserHibernation {
-    private weak var cache: TabContentCache?
-    private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.hibernation")
+    private(set) weak var cache: TabContentCache?
+    let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.hibernation")
     private(set) var setting: BrowserHibernationSetting = .fallback
     private(set) var pressure: MemoryPressureLevel = .normal
     /// When each hidden page was last visible.
@@ -45,7 +52,12 @@ final class BrowserHibernation {
     /// or between two calls of one task.
     static let agentGrace: Double = 30
     /// History and snapshot captured by the probe, used by the `release` effect.
-    private var prepared: [String: (state: BrowserRestoreState, snapshot: CGImage?)] = [:]
+    private var prepared: [String: (state: BrowserRestoreState, snapshot: HibernationSnapshots.Picture?)] = [:]
+    /// Hibernated pages' pictures (`HibernationTunables.compressedSnapshots`), and their wakes (`debug.surfaces`).
+    let snapshots = HibernationSnapshots()
+    var wakeLog = HibernationWakes()
+    /// A navigation that woke a hibernated page, applied once it is back; at most one per page.
+    var pendingWakes: [String: HibernatedBrowserTab.Wake] = [:]
     private var probing: Set<String> = []
     private let deadline = DemandTimer(owner: "BrowserHibernation")
     /// Hidden pages frozen now (`browser.freezeHiddenTabs`); they thaw when shown or driven.
@@ -54,6 +66,16 @@ final class BrowserHibernation {
     private var freezeProbing: Set<String> = []
     /// When a page the probe kept awake (playing audio) is asked again.
     private var freezeKeptAt: [String: ContinuousClock.Instant] = [:]
+    /// Probes in a row each hidden page did not answer (`PageProbe.answered`).
+    private var unanswered: [String: Int] = [:]
+    /// Pages whose last answer reported capture or Web Audio, which only the page's recorder
+    /// knows on Chromium: they stay awake while later probes go unanswered.
+    private var answeredBusy: Set<String> = []
+    /// Probes in a row a page may leave unanswered before it counts as idle. One miss can be a
+    /// load or a pause of a few seconds; three in a row (the freeze probes are `freezeSeconds`
+    /// apart) mean a page busy the whole time, the one that costs the most to keep awake. A
+    /// freeze is undone on show.
+    static let unansweredLimit = 3
     private let freezeDeadline = DemandTimer(owner: "BrowserFreeze")
     private var pressureSource: (any DispatchSourceMemoryPressure)?
     /// Pinned state of a tab (the daemon record); injected by the App.
@@ -67,7 +89,7 @@ final class BrowserHibernation {
     var agentPages: AgentPageHibernation? {
         didSet { agentPages?.update(setting: setting, pressure: pressure) }
     }
-    private(set) var restoredCount = 0
+    var restoredCount = 0
     /// Each pane's tab order and shown tab, from its `PaneController`.
     private var neighbors = NeighborTabs()
     /// Tabs kept awake now because they sit beside a shown tab.
@@ -82,6 +104,27 @@ final class BrowserHibernation {
     private var lowPowerObservation: LowPowerModeObservation?
     /// The page's freeze control (a seam for tests; Chromium pages only in the app).
     var freezer: (any BrowserTab) -> (any BrowserFreezing)? = { $0 as? any BrowserFreezing }
+
+    /// When the person showed each tab lately (at most `focusLimit`, within `focusWindow`).
+    private var focusedAt: [String: [ContinuousClock.Instant]] = [:]
+    /// Seconds of focus history a tab's ranking counts.
+    static let focusWindow: Double = 3_600
+    static let focusLimit = 64
+    /// Tabs whose browser lease an agent holds now (`noteLease`).
+    private(set) var leased: Set<String> = []
+    /// A download tab `key` started still runs; injected by the App.
+    var isDownloading: (String) -> Bool = { _ in false }
+    /// Samples each browser tab's memory (renderer footprint, shared renderers split); injected
+    /// by the App. Run only under memory pressure, at most every `memoryMaxAge` seconds.
+    var measureMemory: (() async -> [String: UInt64])?
+    private(set) var memoryBytes: [String: UInt64] = [:]
+    private var memoryMeasuredAt: ContinuousClock.Instant?
+    private var measuringMemory = false
+    static let memoryMaxAge: Double = 30
+    /// When the probe last kept each page; under pressure such a page ranks after the others
+    /// for `keptBackoff` seconds, so one playing page does not hold up the relief of the rest.
+    private var probeKeptAt: [String: ContinuousClock.Instant] = [:]
+    static let keptBackoff: Double = 60
 
     init(cache: TabContentCache, lowPower: LowPowerMode = .system) {
         self.cache = cache
@@ -145,6 +188,44 @@ final class BrowserHibernation {
         agentPages?.update(setting: setting, pressure: pressure)
         refreshNeighbors(replans: false)
         replan()
+        refreshMemoryIfNeeded()
+    }
+
+    /// Under memory pressure, samples the tabs' memory when the last sample is stale, then
+    /// replans with it (the heaviest of equally idle pages goes first).
+    private func refreshMemoryIfNeeded() {
+        guard pressure != .normal, let measureMemory, !measuringMemory else { return }
+        if let at = memoryMeasuredAt, (ContinuousClock.now - at).seconds < Self.memoryMaxAge { return }
+        measuringMemory = true
+        Task { @MainActor [weak self] in
+            let sample = await measureMemory()
+            guard let self else { return }
+            self.measuringMemory = false
+            self.memoryBytes = sample
+            self.memoryMeasuredAt = .now
+            self.replan()
+        }
+    }
+
+    /// The host of the page tab `key` shows (Never Hibernate This Site); nil for none.
+    func host(of key: String) -> String? {
+        guard let host = cache?.browsers[key]?.tab.state.url?.host(), !host.isEmpty else { return nil }
+        return host
+    }
+
+    /// An agent took (`held`) or let go of tab `key`'s browser lease. A leased page never
+    /// freezes or hibernates; it thaws at once so the agent's next call runs.
+    func noteLease(_ key: String, held: Bool) {
+        if held {
+            guard leased.insert(key).inserted else { return }
+            thaw(key)
+        } else {
+            guard leased.remove(key) != nil else { return }
+            if exemptions[key] == .agentLease { exemptions[key] = nil }
+            // The agent left it: its hidden clock starts now.
+            if cache?.lifecycle.phase(key) == .mountedHidden { hiddenAt[key] = .now }
+        }
+        replan()
     }
 
     // MARK: Lifecycle notifications (from TabContentCache effects)
@@ -159,10 +240,26 @@ final class BrowserHibernation {
         if frozen.contains(key) { coldShows += 1 }
         thaw(key)
         freezeKeptAt[key] = nil
+        unanswered[key] = nil
         hoveredAt[key] = nil
         hiddenAt[key] = nil
         prepared[key] = nil
         exemptions[key] = nil
+        probeKeptAt[key] = nil
+        noteFocus(key, at: .now)
+    }
+
+    /// Records a show of tab `key` for its ranking, dropping shows older than `focusWindow`.
+    func noteFocus(_ key: String, at now: ContinuousClock.Instant) {
+        var times = focusedAt[key, default: []].filter { (now - $0).seconds < Self.focusWindow }
+        times.append(now)
+        if times.count > Self.focusLimit { times.removeFirst(times.count - Self.focusLimit) }
+        focusedAt[key] = times
+    }
+
+    /// Shows of tab `key` within `focusWindow` of `now`.
+    func recentFocusCount(_ key: String, now: ContinuousClock.Instant) -> Int {
+        focusedAt[key]?.filter { (now - $0).seconds < Self.focusWindow }.count ?? 0
     }
 
     /// An agent acted on tab `key` (`cmux browser`, MCP, the browser REPL):
@@ -190,8 +287,16 @@ final class BrowserHibernation {
         frozen.remove(key)
         freezeProbing.remove(key)
         freezeKeptAt[key] = nil
+        unanswered[key] = nil
+        answeredBusy.remove(key)
         hoveredAt[key] = nil
         awakeNeighbors.remove(key)
+        focusedAt[key] = nil
+        leased.remove(key)
+        memoryBytes[key] = nil
+        probeKeptAt[key] = nil
+        snapshots.remove(key)
+        wakeLog.forget(key)
     }
 
     // MARK: Neighbors
@@ -300,10 +405,15 @@ final class BrowserHibernation {
                 agentUsedAt[key] = nil
                 if exemptions[key] == .agentDriving { exemptions[key] = nil }
             }
-            return candidate(key, entry: entry, hiddenFor: (now - at).seconds)
+            var facts = candidate(key, entry: entry, hiddenFor: (now - at).seconds, now: now)
+            if let kept = probeKeptAt[key] {
+                if (now - kept).seconds < Self.keptBackoff { facts.recentlyKept = true } else { probeKeptAt[key] = nil }
+            }
+            return facts
         }
         let plan = HibernationPlanner.plan(setting, pressure: pressure, candidates: candidates)
         exemptions.merge(plan.exemptions) { $1 }
+        if !plan.due.isEmpty { refreshMemoryIfNeeded() }
         for key in plan.due { prepare(key) }
         if let next = [plan.nextCheck, graceEnds].compactMap(\.self).min() {
             deadline.schedule(after: .milliseconds(Int64(next * 1000) + 50)) { @MainActor [weak self] in self?.replan() }
@@ -342,8 +452,9 @@ final class BrowserHibernation {
     }
 
     /// Asks the page for playing media, Web Audio and capture, then freezes it
-    /// if it is still the same hidden page. A page that plays stays awake and
-    /// is asked again after `freezeSeconds`.
+    /// if it is still the same hidden page. A page that plays, or that did not
+    /// answer fewer than `unansweredLimit` times in a row, stays awake and is
+    /// asked again after `freezeSeconds`.
     private func freeze(_ key: String) {
         guard let cache, let tab = cache.browsers[key]?.tab, let page = freezer(tab),
               let generation = cache.lifecycle.record(key)?.generation, freezeProbing.insert(key).inserted else { return }
@@ -353,18 +464,50 @@ final class BrowserHibernation {
             self.freezeProbing.remove(key)
             guard cache.browsers[key]?.tab === tab, cache.lifecycle.record(key)?.generation == generation,
                   cache.lifecycle.phase(key) == .mountedHidden, self.hiddenAt[key] != nil else { return }
-            if let used = self.agentUsedAt[key], (ContinuousClock.now - used).seconds < Self.agentGrace { return }
-            // It became a neighbor (or was hovered) while the probe ran.
-            if self.awakeNeighbors.contains(key) || self.hoverLeft(key, now: .now) != nil { return }
-            if probe.capturing || probe.playingMedia || probe.webAudio {
+            // An agent called it, or it became a neighbor (or was hovered) while the probe ran.
+            guard self.mayFreeze(key) else { return }
+            let doubted = self.doubts(key, probe)
+            if probe.capturing || probe.playingMedia || probe.webAudio || doubted {
                 self.freezeKeptAt[key] = .now
                 self.replan()
                 return
             }
-            page.setFrozen(true)
-            self.frozen.insert(key)
-            cache.trace(key, "frozen")
+            self.freeze(key, page)
         }
+    }
+
+    /// No agent called the hidden page within `agentGrace` or holds its lease, and it is no
+    /// neighbor or hovered tab.
+    private func mayFreeze(_ key: String) -> Bool {
+        if let used = agentUsedAt[key], (ContinuousClock.now - used).seconds < Self.agentGrace { return false }
+        // An agent holds its lease: its next call would wait on a thaw.
+        if leased.contains(key) { return false }
+        return !awakeNeighbors.contains(key) && hoverLeft(key, now: .now) == nil
+    }
+
+    private func freeze(_ key: String, _ page: any BrowserFreezing) {
+        page.setFrozen(true)
+        frozen.insert(key)
+        cache?.trace(key, "frozen")
+    }
+
+    /// Counts a probe `key` did not answer, and clears the count on an answer. True while the
+    /// page still gets the benefit of the doubt: fewer than `unansweredLimit` in a row, or its
+    /// last answer reported capture or Web Audio. A probe that ends after a show counts nothing.
+    private func doubts(_ key: String, _ probe: PageProbe) -> Bool {
+        guard !probe.answered else {
+            unanswered[key] = nil
+            if probe.capturing || probe.webAudio { answeredBusy.insert(key) } else { answeredBusy.remove(key) }
+            return false
+        }
+        guard hiddenAt[key] != nil, !answeredBusy.contains(key) else { return true }
+        unanswered[key, default: 0] += 1
+        return doubted(key)
+    }
+
+    /// The page still gets the benefit of the doubt, without counting a probe.
+    private func doubted(_ key: String) -> Bool {
+        answeredBusy.contains(key) || unanswered[key, default: 0] < Self.unansweredLimit
     }
 
     /// Thaws a frozen page (shown, driven by an agent, about to hibernate, or
@@ -380,15 +523,20 @@ final class BrowserHibernation {
     /// switches neighbors exist to avoid (`debug.surfaces`, the bench).
     private(set) var coldShows = 0
 
-    private func candidate(_ key: String, entry: BrowserEntry, hiddenFor: Double) -> HibernationPlanner.Candidate {
+    private func candidate(_ key: String, entry: BrowserEntry, hiddenFor: Double, now: ContinuousClock.Instant = .now) -> HibernationPlanner.Candidate {
         let tab = entry.tab
         let capturing = (tab as? any PageInfoProviding).map { !$0.pageInfoInUse.union($0.pageInfoActivity.inUse).isEmpty } ?? false
-        return HibernationPlanner.Candidate(
+        var candidate = HibernationPlanner.Candidate(
             key: key, hiddenFor: hiddenFor, host: tab.state.url?.host(), isPinned: isPinned(key),
             hasDevTools: (tab as? any BrowserDevToolsHosting)?.devTools.isOpen ?? false, isCapturing: capturing,
             canRestore: (tab as? any BrowserHibernationSource)?.supportsHibernation ?? false,
             showsFormSubmission: (tab as? any BrowserHibernationSource)?.showsFormSubmission ?? false
         )
+        candidate.recentFocusCount = recentFocusCount(key, now: now)
+        candidate.memoryBytes = memoryBytes[key]
+        candidate.isDownloading = isDownloading(key)
+        candidate.hasAgentLease = leased.contains(key)
+        return candidate
     }
 
     // MARK: Hibernate
@@ -414,7 +562,12 @@ final class BrowserHibernation {
         thaw(key)
         Task { @MainActor [weak self] in
             let probe = user ? PageProbe() : await PageProbe.run(tab)
-            let exemption = probe.exemption(pressure: self?.pressure ?? .normal) ?? (source.showsFormSubmission ? .formSubmission : nil)
+            let pressure = self?.pressure ?? .normal
+            // A page that keeps not answering hibernates only under memory pressure: its form edits are
+            // unknown. The freeze probe counts the misses (it runs beside this one and refreezes the page).
+            let doubted = probe.answered ? self?.doubts(key, probe) ?? false : self?.doubted(key) ?? true
+            let exemption = probe.exemption(pressure: pressure) ?? (source.showsFormSubmission ? .formSubmission : nil)
+                ?? (!probe.answered && (doubted || pressure == .normal) ? .unanswered : nil)
             // A page that stays needs no picture (each replan probes it again).
             let snapshot = exemption == nil ? await self?.snapshot(tab, key: key) : nil
             guard let self, let cache = self.cache else { return }
@@ -427,6 +580,7 @@ final class BrowserHibernation {
             }
             if let exemption {
                 self.exemptions[key] = exemption
+                self.probeKeptAt[key] = .now
                 return
             }
             // It became a neighbor or was hovered while the probe ran (the person's Hibernate Tab still applies).
@@ -455,20 +609,10 @@ final class BrowserHibernation {
         }
     }
 
-    /// A fresh picture (never one from an earlier sleep), scaled so that several fit the 32 MB
-    /// `previews` cache, which refuses a picture larger than itself (a big pane at 2x).
-    private func snapshot(_ tab: any BrowserTab, key: String) async -> CGImage? {
-        guard let image = await capture(tab) else { return nil }
-        // A quarter of the cache, less a margin for row padding; same aspect and color space, off the main actor.
-        let bytes = Double((cache?.previews.capacityBytes ?? 32 << 20) / 4) * 0.98
-        let scale = min(1, (bytes / Double(max(image.width * image.height * 4, 1))).squareRoot())
-        return await TabPreviewFitting.fit(image, CGSize(width: Double(image.width) * scale, height: Double(image.height) * scale))
-    }
-
     /// The `release` effect: swaps the page for a `HibernatedBrowserTab`
-    /// holding its history, and closes the engine page. Its snapshot lives in the
-    /// 32 MB `previews` LRU only: each placeholder used to keep its own full-size
-    /// picture (about 7 MB of app memory per hibernated tab in the 2026-10-14 audit).
+    /// holding its history, and closes the engine page. Its snapshot lives in a bounded store
+    /// only (`keep`): each placeholder used to keep its own full-size picture (about 7 MB of
+    /// app memory per hibernated tab in the 2026-10-14 audit).
     func release(_ key: String, token: ContentLifecycle<String>.Token) {
         guard let cache, let entry = cache.browsers[key], let saved = prepared.removeValue(forKey: key) else {
             logger.error("hibernate \(key, privacy: .public): nothing prepared")
@@ -477,10 +621,10 @@ final class BrowserHibernation {
         let page = entry.tab
         let placeholder = HibernatedBrowserTab(
             id: page.id, engine: page.engineKind, profile: page.profileID, state: page.state,
-            favicon: page.favicon, restoreState: saved.state, snapshot: { [weak cache] in cache?.previews.image(for: key) }
+            favicon: page.favicon, restoreState: saved.state, snapshot: { [weak self] in self?.snapshotImage(key) }
         )
         placeholder.onWake = { [weak self] wake in self?.wakeForNavigation(key, wake) }
-        if let snapshot = saved.snapshot { cache.previews.insert(snapshot, for: key) }
+        if let snapshot = saved.snapshot { keep(snapshot, for: key) }
         cache.swapPage(key, with: placeholder)
         cache.dormantTabs.set(key, true)
         hiddenAt[key] = nil
@@ -488,83 +632,6 @@ final class BrowserHibernation {
         exemptions[key] = nil
         hibernatedCount += 1
         logger.info("hibernated \(key, privacy: .public) \(token.description, privacy: .public)")
-    }
-
-    // MARK: Restore
-
-    /// The user navigated, reloaded or went back or forward in a hibernated
-    /// page: restore it, then apply that request.
-    private func wakeForNavigation(_ key: String, _ wake: HibernatedBrowserTab.Wake) {
-        guard let cache else { return }
-        pendingWakes[key] = wake
-        cache.applyLifecycle(cache.lifecycle.send(.wake(key)))
-    }
-
-    /// At most one per hibernated page; dropped when it restores.
-    private var pendingWakes: [String: HibernatedBrowserTab.Wake] = [:]
-
-    /// The user's Wake Tab action (restores in the background).
-    func wake(_ key: String) -> Bool {
-        guard let cache, cache.lifecycle.phase(key) == .hibernated else { return false }
-        cache.applyLifecycle(cache.lifecycle.send(.wake(key)))
-        return true
-    }
-
-    /// The `restore` effect: recreates the engine page from the saved
-    /// history; the lifecycle shows it if it is still selected when it lands.
-    func restore(_ key: String, token: ContentLifecycle<String>.Token) {
-        guard let cache, let placeholder = cache.browsers[key]?.tab as? HibernatedBrowserTab else {
-            cache?.applyLifecycle(cache?.lifecycle.send(.mountFailed(key, token)) ?? [])
-            return
-        }
-        // The record's profile: a tab moved to another one while asleep wakes there, without the old one's history.
-        let profile = cache.tabModel(key) == nil ? placeholder.profileID : cache.browserProfile?(key) ?? placeholder.profileID
-        let history = profile == placeholder.profileID ? placeholder.restoreState : nil
-        var configuration = BrowserTabConfiguration(id: placeholder.id, profile: profile, zoom: placeholder.state.zoom)
-        switch placeholder.engineKind {
-        case .webkit:
-            let tab = cache.webKit.makeWebKitTab(id: configuration.id, profile: configuration.profile, zoom: configuration.zoom)
-            if !(history.map({ tab.restore($0) }) ?? false), let url = placeholder.state.url { tab.load(url) }
-            finishRestore(key, token: token, page: tab)
-        case .cef:
-            configuration.initialURL = placeholder.state.url
-            configuration.restoreState = history
-            let make = cache.makeCEFTab
-            let tab = cache.tabModel(key)
-            Task { @MainActor [weak self, weak cache] in
-                do {
-                    // The remote-localhost store and guard, as for any Chromium page.
-                    let configured = await cache?.chromiumConfiguration(for: tab, base: configuration) ?? configuration
-                    let page = try await make(configured)
-                    self?.finishRestore(key, token: token, page: page)
-                } catch {
-                    guard let cache = self?.cache else { return }
-                    self?.logger.error("restore \(key, privacy: .public) failed: \(String(describing: error), privacy: .public)")
-                    cache.applyLifecycle(cache.lifecycle.send(.mountFailed(key, token)))
-                }
-            }
-        }
-    }
-
-    private func finishRestore(_ key: String, token: ContentLifecycle<String>.Token, page: any BrowserTab) {
-        guard let cache, let asleep = cache.browsers[key]?.tab as? HibernatedBrowserTab, cache.lifecycle.record(key)?.pending == token else {
-            // Closed or superseded while it restored.
-            page.close()
-            return
-        }
-        cache.swapPage(key, with: page, asleep: asleep.state)
-        cache.dormantTabs.set(key, false)
-        cache.previews.remove(key)  // the live page now; a later sleep takes a new picture
-        restoredCount += 1
-        cache.applyLifecycle(cache.lifecycle.send(.mounted(key, token)))
-        // A navigation or history step that woke the page runs once its
-        // history is back (a reload just wakes it: restoring loads the page).
-        switch pendingWakes.removeValue(forKey: key) {
-        case .load(let url)?: page.load(url)
-        case .goBack?: page.goBack()
-        case .goForward?: page.goForward()
-        case .reload?, nil: break
-        }
     }
 }
 
@@ -577,6 +644,9 @@ struct PageProbe {
     /// A running Web Audio context. It may be silent (a chat app's notification sounds, a
     /// game), unlike a playing element, so critical memory pressure overrides it.
     var webAudio = false
+    /// False when the page did not answer (a script error, or no reply within the deadline):
+    /// only what the tab reported on its own (`BrowserTabState.media`) is known.
+    var answered = true
 
     func exemption(pressure: MemoryPressureLevel) -> HibernationPlanner.Exemption? {
         if capturing { return .capturing }
@@ -591,15 +661,28 @@ struct PageProbe {
                 (try await tab.evaluate(BrowserPageBusy.fieldProbeScript, world: .isolated), try await tab.pageBusy())
             }
             guard case .string(let json) = value, let data = json.data(using: .utf8),
-                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Bool] else { return PageProbe(playingMedia: true) }
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Bool] else { return unanswered(tab) }
             // Media the tab's mute silences still plays (cx-d0d.24): hibernating would drop the mute.
             let muted = tab.state.isAudioMuted && tab.state.media?.isPlaying == true
+            // A video in Picture in Picture plays on in its floating window, paused or muted alike.
+            let floating = tab.state.media?.isPictureInPicture == true
             // The recorder knows the person's edits (`BrowserPageBusy`); a page loaded before it compares every field.
-            return PageProbe(playingMedia: muted || (object["media"] ?? true), editedForm: busy.editedForm ?? object["form"] ?? true,
+            return PageProbe(playingMedia: muted || floating || (object["media"] ?? true), editedForm: busy.editedForm ?? object["form"] ?? true,
                              capturing: busy.capturing, webAudio: busy.audio)
         } catch {
-            return PageProbe(playingMedia: true)
+            return unanswered(tab)
         }
+    }
+
+    /// A page that did not answer. It used to count as playing, so a page too busy to answer
+    /// never froze and was asked again every `freezeSeconds` (the hottest renderer in the
+    /// 2026-10-21 audit: 25 % CPU, 586 MB). The media the tab last reported still keeps it: the
+    /// page's media script pushes that state (`BrowserMediaState+Scripts`), with no round trip.
+    /// WebKit's own camera and microphone state is the planner's `isCapturing`; Chromium reports none to the app.
+    static func unanswered(_ tab: any BrowserTab) -> PageProbe {
+        let media = tab.state.media
+        let playing = media.map { $0.isAudible || ($0.isPlaying && tab.state.isAudioMuted) || $0.isPictureInPicture } ?? false
+        return PageProbe(playingMedia: playing, answered: false)
     }
 }
 

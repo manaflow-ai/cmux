@@ -66,6 +66,15 @@ impl GitState {
     }
 }
 
+/// The folder holding `dir`'s HEAD file (its worktree's git directory, a
+/// linked worktree's under `.git/worktrees/`), resolved as FSEvents reports
+/// it, for a watch that sees a checkout (`hub/git_watch.rs`). `None` outside
+/// a repository.
+pub fn head_dir(dir: &Path) -> Option<PathBuf> {
+    let dir = std::fs::canonicalize(dir).ok()?;
+    std::fs::canonicalize(find_git_dir(&dir)?).ok()
+}
+
 /// The repository's git directory for `dir`: the nearest `.git` folder at or
 /// above it, or where the nearest `.git` file (`gitdir: <path>`) points.
 fn find_git_dir(dir: &Path) -> Option<PathBuf> {

@@ -41,7 +41,7 @@ JOBS = ("cmux-scheme-compile", "release-compile", "swift-test", "daemon-test", "
 # The fast tier reads the placement runner too, but runs only on feat-cmux-next PRs and pushes
 # and has its own fast-lane route, so the side-lane runs-on cases below cover JOBS only.
 PLACED_JOBS = (*JOBS, "fast-tier")
-# The jobs whose bot overflow (attempt 3+) reads the placement's free retry label. With no free
+# The jobs whose bot overflow (attempt 2+) reads the placement's free retry label. With no free
 # Blacksmith slot (an empty label) they take the owned side label: waiting behind the fleet is
 # acceptable, a Blacksmith queue is not (2026-10-20: 5+ hour waits on 12 vCPU). The GUI jobs keep
 # the Blacksmith fallback; the fleet's gui label is what they overflow from.
@@ -49,7 +49,7 @@ RETRY_JOBS = ("cmux-scheme-compile", "release-compile", "swift-canary")
 
 
 def overflow(name: str, placed: bool = True) -> str:
-    """The label a bot attempt 3+ takes with no free Blacksmith slot.
+    """The label a bot attempt 2+ takes with no free Blacksmith slot.
 
     A GUI job whose placement ran keeps the 6 vCPU escape from its gui label (it also covers a gui
     label with no online runner); with no placement result it waits on the fleet's gui label, never
@@ -386,7 +386,9 @@ class CmuxNextWiring(unittest.TestCase):
                 # Skipped or unreadable placement keeps today's configured route.
                 self.assertEqual(evaluate(runs_on, self.context(fallback_jobs=None)), on(name, SIDE))
                 self.assertEqual(evaluate(runs_on, self.context("2")), on(name, SIDE))
-                self.assertEqual(evaluate(runs_on, self.context("2", triggering_actor="github-actions[bot]")), on(name, SIDE))
+                # The rescue's first re-run overflows (test_the_rescues_first_rerun_overflows_to_blacksmith).
+                self.assertEqual(evaluate(runs_on, self.context("2", triggering_actor="github-actions[bot]")),
+                                 overflow(name, placed=False))
                 self.assertEqual(evaluate(runs_on, self.context("3", triggering_actor="teamleaderleo")), on(name, SIDE))
                 # The rescue's third attempt: a free Blacksmith slot, else the owned side label.
                 self.assertEqual(evaluate(runs_on, self.context("3", triggering_actor="github-actions[bot]")),
@@ -455,6 +457,36 @@ class CmuxNextWiring(unittest.TestCase):
                 # A person's re-run stays minis-first at any attempt.
                 self.assertEqual(evaluate(runs_on, self.context("4", runner=STD)), on(name, STD))
 
+    def test_the_rescues_first_rerun_overflows_to_blacksmith(self):
+        """claude-sr2, 2026-10-21: the bot's first re-run (attempt 2) may go to Blacksmith macOS as
+        overflow capacity. It used to queue on the minis again, so under saturation a pull request lost a
+        second rescue window (about 10 minutes) and its running jobs before attempt 3 overflowed."""
+        jobs = self.workflow()["jobs"]
+        bot = "github-actions[bot]"
+        for name in PLACED_JOBS:
+            job = jobs[name]
+            labels = {"runs-on": job["runs-on"]}
+            if "CMUX_NEXT_RUNNER" in job.get("env", {}):
+                labels["CMUX_NEXT_RUNNER"] = job["env"]["CMUX_NEXT_RUNNER"]
+            for key, expression in labels.items():
+                with self.subTest(job=name, key=key):
+                    # Minis first: attempt 1 and a person's re-run at any attempt.
+                    self.assertEqual(evaluate(expression, self.context(runner=STD)), on(name, STD))
+                    self.assertEqual(evaluate(expression, self.context("2", runner=STD)), on(name, STD))
+                    # The rescue's attempt 2 takes the free Blacksmith slot the placement found.
+                    free = self.context("2", runner=STD, triggering_actor=bot)
+                    free["needs"][self.PLACEMENT]["outputs"]["retry_runner"] = FALLBACK
+                    self.assertEqual(evaluate(expression, free), FALLBACK)
+                    # The fast tier's own fast-lane mini is left the same way.
+                    free["vars"]["CI_FAST_LANE_RUNNER"] = "glaeda-fast-std-xcode-26.6"
+                    self.assertEqual(evaluate(expression, free), FALLBACK)
+                    # With no free slot it waits behind the fleet, never in a Blacksmith queue, as attempt 3 does.
+                    full = self.context("2", runner=STD, triggering_actor=bot)
+                    self.assertEqual(evaluate(expression, full), SIDE if name == "fast-tier" else overflow(name))
+                    # A dispatch run's attempt 2 overflows the same way.
+                    free["github"].update(event_name="workflow_dispatch", ref="refs/heads/topic")
+                    self.assertEqual(evaluate(expression, free), FALLBACK)
+
     def test_placement_starts_only_where_attempt_1_may_take_the_side_label(self):
         # A fork, another owner, owned pools off or a re-run starts no Linux runner before the Mac jobs.
         jobs = self.workflow()["jobs"]
@@ -511,7 +543,14 @@ class CmuxNextWiring(unittest.TestCase):
                         names.index(mark["name"]))
         self.assertIn("steps.place.outputs.watch != 'false'", mark["if"])
         upload = next(step for step in steps if step.get("uses", "").startswith("actions/upload-artifact"))
-        self.assertEqual(upload["with"]["name"], "owned-pool-watch")
+        # With no free overflow slot a bot re-run rejoins the same side label (retry_runner is
+        # empty), so the sweeper on main watches it for refusals only and leaves a long queue
+        # alone (run 39615562861 was cancelled and re-queued twice, 2026-10-21).
+        name = upload["with"]["name"]
+        for free, marker in (("blacksmith-6vcpu-macos-26", "owned-pool-watch"), ("", "owned-pool-watch-refusals"),
+                             (None, "owned-pool-watch-refusals")):
+            outputs = {} if free is None else {"free_retry_runner": free}
+            self.assertEqual(evaluate(name, {"steps": {"place": {"outputs": outputs}}}), marker, free)
         checks = self.workflow()["jobs"]["checks"]["steps"]
         self.assertFalse(any(step.get("with", {}).get("name") == "owned-pool-watch" for step in checks))
 

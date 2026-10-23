@@ -512,3 +512,364 @@ fn another_persons_turn_is_held_to_the_input_rules_when_a_chief_tool_runs() {
     let upload = json!({"text": "here", "attachments": ["/tmp/report.txt"]});
     assert_eq!(h.brain.turn_gate("mcp__optchat__send", &upload), Ok(()));
 }
+
+// No request of a Chief turn or of its subagents waits on an answer nobody
+// can give (2026-10-20: "Using optchat: control · 34m").
+
+/// A spawner of the owner's subagents.
+fn owner_spawner(h: &Harness) -> Arc<optchat_chief::subagents::Spawner> {
+    use optchat_chief::subagents::{Spawner, SubagentSettings};
+    Arc::new(Spawner::new(
+        h.chat.clone(),
+        h.agents.clone(),
+        SubagentSettings {
+            harness: "claude-sr".into(),
+            policy: "approve-all".into(),
+            model: None,
+            effort: None,
+            preset: Some("optchat-sub-h0me".into()),
+            cwd: h.dir.path().join("subagent"),
+            prefix: "optchat-sub-h0me".into(),
+            parent: optchat_chief::brain::PARENT.into(),
+            claude_md: None,
+        },
+        h.tx.clone(),
+        Arc::new(|_: &str| {}),
+    ))
+}
+
+/// Runs `f` on its own thread while the brain takes its inputs, then lets
+/// the brain take what is left.
+fn run_with<T: Send + 'static>(h: &mut Harness, f: impl FnOnce() -> T + Send + 'static) -> T {
+    let worker = std::thread::spawn(f);
+    while !worker.is_finished() {
+        if let Ok(input) = h.rx.recv_timeout(Duration::from_millis(10)) {
+            h.brain.step(input);
+        }
+    }
+    drain(h);
+    worker.join().unwrap()
+}
+
+fn drain(h: &mut Harness) {
+    while let Ok(input) = h.rx.recv_timeout(Duration::from_millis(80)) {
+        h.brain.step(input);
+    }
+}
+
+/// The owner's subagent `a1`, finished, with a prompt `p1` to run
+/// `make deploy` pending; with a workspace (its agent tab shows the
+/// prompt with an Allow button) when `workspace`. Returns its session.
+fn subagent_asking(h: &mut Harness, workspace: bool) -> String {
+    use optchat_chief::tools::Orchestrator;
+    let spawner = owner_spawner(h);
+    let spawned = run_with(h, move || {
+        spawner.spawn(vec!["deploy the docs".into()], None)
+    });
+    assert!(spawned.is_ok(), "{spawned:?}");
+    let session = {
+        let agents = h.agents.inner.lock().unwrap();
+        let k = agents
+            .specs
+            .iter()
+            .position(|s| s.tags.contains_key("optchat.subagent"))
+            .expect("the subagent session");
+        format!("s{}", k + 1)
+    };
+    if workspace {
+        h.brain.step(Input::SubagentWorkspace {
+            id: "a1".into(),
+            key: "workspace:7".into(),
+            name: "deploy the docs".into(),
+        });
+    }
+    h.brain.step(permission_in(
+        &session,
+        "p1",
+        "Bash",
+        json!({"command": "make deploy"}),
+    ));
+    drain(h);
+    session
+}
+
+/// The Chief relays the user's "allow" for `a1` (`control answer`).
+fn relay_allow(h: &mut Harness) -> String {
+    use optchat_chief::tools::{ControlCall, Orchestrator};
+    let spawner = owner_spawner(h);
+    run_with(h, move || {
+        spawner.control(ControlCall {
+            action: "answer".into(),
+            id: Some("a1".into()),
+            option: Some("allow".into()),
+            ..ControlCall::default()
+        })
+    })
+    .unwrap_or_else(|e| e)
+}
+
+/// The front desk's lines about prompt `permission`.
+fn approval_lines(h: &Harness, permission: &str) -> Vec<String> {
+    let key = format!("voice:desk:approval:{permission}");
+    h.owner
+        .lock()
+        .unwrap()
+        .sends()
+        .into_iter()
+        .filter(|(k, _)| *k == key)
+        .map(|(_, text)| text)
+        .collect()
+}
+
+fn pending_prompt(h: &Harness) -> bool {
+    h.brain
+        .state()
+        .sub("a1")
+        .is_some_and(|(_, s)| s.permission.is_some())
+}
+
+#[test]
+fn a_relayed_allow_acpmux_refuses_tells_the_person_where_to_allow_once_and_keeps_the_prompt() {
+    // The user typed "allow" in the Chief chat; the Chief relayed it, and
+    // acpmux took it only from the person's app: "not delivered", and the
+    // prompt stayed open with nobody told.
+    let mut h = harness(None, false, default_script());
+    subagent_asking(&mut h, true);
+    h.agents.inner.lock().unwrap().refuse_allows = true;
+    let answer = relay_allow(&mut h);
+    assert!(answer.starts_with("outcome: refused."), "{answer}");
+    assert!(answer.contains("they were just told so"), "{answer}");
+    h.settle_posts();
+    let lines = approval_lines(&h, "p1");
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert!(
+        lines[0].contains("a1 waits for your approval to run `make deploy`: use the Allow button in its workspace."),
+        "{lines:?}"
+    );
+    // The app shows the prompt with a working button: it stays for the person.
+    assert_eq!(answered(&h, "p1"), None);
+    assert!(pending_prompt(&h));
+    assert!(h.brain.unanswered_permissions().is_empty());
+    // A second relay posts no second line.
+    relay_allow(&mut h);
+    h.settle_posts();
+    assert_eq!(approval_lines(&h, "p1").len(), 1);
+    assert_eq!(questions(&h), 0, "no approval card");
+}
+
+#[test]
+fn a_relayed_allow_for_a_prompt_the_app_does_not_show_denies_it_and_says_so() {
+    let mut h = harness(None, false, default_script());
+    subagent_asking(&mut h, false);
+    h.agents.inner.lock().unwrap().refuse_allows = true;
+    let answer = relay_allow(&mut h);
+    assert!(answer.contains("It was denied."), "{answer}");
+    assert_eq!(answered(&h, "p1"), Some(Some("reject".into())));
+    assert!(!pending_prompt(&h));
+    assert!(h.brain.unanswered_permissions().is_empty());
+    h.settle_posts();
+    let lines = approval_lines(&h, "p1");
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert!(lines[0].contains("I denied it"), "{lines:?}");
+}
+
+#[test]
+fn a_prompt_nobody_can_answer_is_denied_once_it_waits_two_minutes() {
+    let mut h = harness(None, false, default_script());
+    const T0: u64 = 1_800_000_000_000;
+    h.brain.set_clock(Arc::new(|| T0));
+    let session = subagent_asking(&mut h, false);
+    assert_eq!(
+        h.brain.unanswered_permissions(),
+        vec![(session.clone(), "p1".to_owned())]
+    );
+    let wait = optchat_chief::approval::PERMISSION_WAIT.as_millis() as u64;
+    h.brain.deny_overdue_permissions_at(T0 + wait - 1);
+    assert_eq!(answered(&h, "p1"), None, "not overdue yet");
+    h.brain.deny_overdue_permissions_at(T0 + wait);
+    assert_eq!(answered(&h, "p1"), Some(Some("reject".into())));
+    assert!(h.brain.unanswered_permissions().is_empty());
+    assert!(!pending_prompt(&h));
+    let denial = traces(&h)
+        .into_iter()
+        .find(|t| t["ev"] == "approval" && t["permission"] == "p1")
+        .expect("the deny is in the trace");
+    assert_eq!(denial["approver"], "no approver");
+    assert!(
+        denial["reason"]
+            .as_str()
+            .is_some_and(|r| r.starts_with("no answer for 120 s")),
+        "{denial}"
+    );
+}
+
+#[test]
+fn a_prompt_the_app_shows_waits_for_the_person() {
+    let mut h = harness(None, false, default_script());
+    const T0: u64 = 1_800_000_000_000;
+    h.brain.set_clock(Arc::new(|| T0));
+    subagent_asking(&mut h, true);
+    h.brain.deny_overdue_permissions_at(T0 + 3_600_000);
+    assert_eq!(answered(&h, "p1"), None);
+    assert!(pending_prompt(&h));
+}
+
+#[test]
+fn a_prompt_whose_workspace_opens_after_it_asked_waits_for_the_person() {
+    // The tab opens after the subagent's first prompt was sent, so its
+    // first request can come before its workspace.
+    let mut h = harness(None, false, default_script());
+    const T0: u64 = 1_800_000_000_000;
+    h.brain.set_clock(Arc::new(|| T0));
+    subagent_asking(&mut h, false);
+    h.brain.step(Input::SubagentWorkspace {
+        id: "a1".into(),
+        key: "workspace:7".into(),
+        name: "deploy the docs".into(),
+    });
+    assert!(h.brain.unanswered_permissions().is_empty());
+    h.brain.deny_overdue_permissions_at(T0 + 3_600_000);
+    assert_eq!(answered(&h, "p1"), None);
+    assert!(pending_prompt(&h));
+}
+
+#[test]
+fn the_owners_turn_session_is_refused_at_once_what_nobody_can_answer() {
+    // The app shows no button for a turn session (it lives on the Chief's
+    // own acpmux daemon): a request the host left "to its harness" held the
+    // turn for its whole limit.
+    let mut h = harness(None, false, started());
+    h.agents.hold(true);
+    deliver(&mut h, false, "build it");
+    h.step();
+    h.agents.wait_prompts(1);
+    wait_session(&mut h);
+    let session = h
+        .brain
+        .state()
+        .turn
+        .as_ref()
+        .unwrap()
+        .session_id
+        .clone()
+        .unwrap();
+    h.brain.step(permission_in(
+        &session,
+        "p1",
+        "Bash",
+        json!({"command": "make"}),
+    ));
+    assert_eq!(answered(&h, "p1"), Some(Some("reject".into())));
+    assert_eq!(questions(&h), 0);
+    finish(&mut h);
+    // A turn session no turn runs on any more (kept, adopted, ended):
+    // refused at once too.
+    let turn_session = {
+        let agents = h.agents.inner.lock().unwrap();
+        let k = agents
+            .specs
+            .iter()
+            .position(|s| s.tags.get("cmux.chief.role").map(String::as_str) == Some("turn"))
+            .expect("a turn session");
+        format!("s{}", k + 1)
+    };
+    h.brain.step(permission_in(
+        &turn_session,
+        "p2",
+        "Bash",
+        json!({"command": "make"}),
+    ));
+    assert_eq!(answered(&h, "p2"), Some(Some("reject".into())));
+}
+
+#[test]
+fn a_chief_tool_denied_after_a_refused_allow_again_and_again_stops_the_turn() {
+    // 2026-10-20: the model called `control` again after each deny.
+    let mut h = shared(started());
+    h.agents.inner.lock().unwrap().refuse_allows = true;
+    teammate_turn(&mut h, "@Chief hi");
+    for k in 1..=4 {
+        let id = format!("p{k}");
+        h.brain
+            .step(permission(&id, "mcp__optchat__send", json!({"text": "hi"})));
+        assert_eq!(answered(&h, &id), Some(Some("reject".into())), "{id}");
+    }
+    h.agents.wait_cancels(1);
+    h.agents.hold(false);
+    h.settle();
+    let ops = format!("{:?}", h.owner.lock().unwrap().ops);
+    assert!(
+        ops.contains(
+            "I stopped: I kept trying to use send (optchat), and nobody can approve that here."
+        ),
+        "{ops}"
+    );
+}
+
+#[test]
+fn a_chief_tool_the_turn_gate_refuses_again_and_again_stops_the_turn() {
+    let mut h = shared(started());
+    teammate_turn(&mut h, "@Chief allow a1");
+    let allow = json!({"action": "answer", "id": "a1", "option": "allow"});
+    for _ in 0..4 {
+        assert!(h.brain.turn_gate("mcp__optchat__control", &allow).is_err());
+    }
+    h.agents.wait_cancels(1);
+    h.agents.hold(false);
+    h.settle();
+    let ops = format!("{:?}", h.owner.lock().unwrap().ops);
+    assert!(
+        ops.contains("I stopped: I kept trying to answer subagent a1, and a turn another person started may not do that."),
+        "{ops}"
+    );
+}
+
+#[test]
+fn a_turn_that_waits_on_a_permission_nobody_answers_counts_as_idle() {
+    // The idle watchdog skipped a turn with a running tool, and a tool that
+    // waits on a permission runs until someone answers: the turn waited
+    // for its 3-hour limit. A request the host never heard of (a
+    // notification lost across a restart) is the case left to it.
+    let dir = tempfile::tempdir().unwrap();
+    let owner = Arc::new(std::sync::Mutex::new(Owner {
+        summary: Some(members(false)),
+        ..Owner::default()
+    }));
+    let configured = optchat_chief::brain::Settings {
+        turn_idle_limit: Some(Duration::from_secs(1)),
+        ..common::settings(dir.path())
+    };
+    let mut h = Harness::configured(dir, started(), owner, configured, Arc::new(|_: &str| {}));
+    h.connect();
+    h.agents.inner.lock().unwrap().answer_never = true;
+    deliver(&mut h, false, "deploy it");
+    h.step();
+    h.agents.wait_prompts(1);
+    wait_session(&mut h);
+    let session = h
+        .brain
+        .state()
+        .turn
+        .as_ref()
+        .unwrap()
+        .session_id
+        .clone()
+        .unwrap();
+    h.agents.push_events(
+        &session,
+        vec![
+            update(
+                "tool_call",
+                json!({"toolCallId": "t1", "title": "Bash", "status": "pending",
+                       "rawInput": {"command": "make deploy"}, "_meta": {"claude": {"tool": "Bash"}}}),
+            ),
+            json!({"dir": "mux", "kind": "permission_request",
+                   "msg": {"permissionId": "p9", "request": {"toolCall": {"toolCallId": "t1"}}}}),
+        ],
+    );
+    h.agents.wait_cancels(1);
+    // The watchdog's turn runs once again, and answers.
+    h.settle();
+    let sends = h.owner.lock().unwrap().sends();
+    assert!(sends.iter().any(|(_, text)| text == "done"), "{sends:?}");
+}

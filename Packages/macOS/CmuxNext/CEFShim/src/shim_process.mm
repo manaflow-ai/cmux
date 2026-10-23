@@ -26,6 +26,11 @@ Host& host() {
   return h;
 }
 
+bool& stopping() {
+  static bool value = false;
+  return value;
+}
+
 void Emit(int kind, int browser_id, int request, int64_t a, int64_t b,
           const std::string& s1, const std::string& s2) {
   Host& h = host();
@@ -138,6 +143,22 @@ void ApplyDefaultSearch(CefRefPtr<CefRequestContext> context) {
   context->SetPreference(kPref, value, error);
 }
 
+// Turns off Chromium's download bubble that opens by itself when a download
+// ends ("partial view"; download_bubble_ui_controller.cc returns no rows for
+// it while this preference is false, and the bubble then never shows). It
+// anchors to a toolbar cmux never shows, so it opened over the page; the
+// App's Downloads popup opens under its own toolbar button instead
+// (BrowserDownloadsPopup). The full bubble opens only from Chromium's
+// toolbar button, which cmux has none of.
+void DisableDownloadBubble(CefRefPtr<CefRequestContext> context) {
+  static const char kPref[] = "download_bubble.partial_view_enabled";
+  if (!context || !context->CanSetPreference(kPref)) return;
+  CefRefPtr<CefValue> value = CefValue::Create();
+  value->SetBool(false);
+  CefString error;
+  context->SetPreference(kPref, value, error);
+}
+
 // Applies per-profile preferences once the profile is loaded.
 class ContextHandler : public CefRequestContextHandler {
  public:
@@ -153,6 +174,7 @@ class ContextHandler : public CefRequestContextHandler {
     // Remote localhost: before any browser of this context navigates.
     ApplyContextProxy(context, cache_path_);
     ApplyDefaultSearch(context);
+    DisableDownloadBubble(context);
     initialized_contexts().insert(cache_path_);
     WatchBookmarks(cache_path_);
   }
@@ -280,6 +302,9 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(tab_navigation_state, "cmux_tab_navigation_state");
   CMUX_BIND(tab_restore_navigation, "cmux_tab_restore_navigation");
   CMUX_BIND(browser_set_background_color, "cmux_browser_set_background_color");
+  CMUX_BIND(tab_set_transparent_background, "cmux_tab_set_transparent_background");
+  CMUX_BIND(browser_set_layer_hosting, "cmux_browser_set_layer_hosting");
+  CMUX_BIND(browser_set_resize_sync, "cmux_browser_set_resize_sync");
   CMUX_BIND(set_new_tab_page_url, "cmux_set_new_tab_page_url");
   CMUX_BIND(set_install_prompt_handler, "cmux_set_install_prompt_handler");
   CMUX_BIND(install_prompt_reply, "cmux_install_prompt_reply");
@@ -379,6 +404,25 @@ int cmux_shim_prepare_application(void) {
              : 0;
 }
 
+// Chromium's page window (NativeWidgetMacNSWindow) re-encodes its restorable state after every
+// key, order or frame change (invalidateRestorableState -> saveRestorableState ->
+// reallySaveRestorableState -> -encodeRestorableStateWithCoder:), for Chrome's own session restore
+// (OnWindowStateRestorationDataChanged). Each encode asks the WindowServer for the window's Space
+// name, a synchronous round trip on the main thread; in cmux it ran after every pane focus move
+// across Chromium panes (a515). CEF never restores these windows and cmux restores its own, so the
+// encode becomes a no-op. A CEF without that private method keeps its behavior.
+static void StopChromiumWindowRestorationData() {
+  Class window_class = NSClassFromString(@"NativeWidgetMacNSWindow");
+  SEL selector = NSSelectorFromString(@"reallySaveRestorableState");
+  Method method = window_class ? class_getInstanceMethod(window_class, selector) : nullptr;
+  if (!method) {
+    return;
+  }
+  IMP no_op = imp_implementationWithBlock(^(id) {
+  });
+  class_replaceMethod(window_class, selector, no_op, method_getTypeEncoding(method));
+}
+
 int cmux_shim_initialize(const char* framework_dir, const char* main_bundle_path, const char* subprocess_path,
                          const char* root_cache_path, const char* log_file, int log_severity,
                          const char* locale, const char* accept_languages,
@@ -421,7 +465,11 @@ int cmux_shim_initialize(const char* framework_dir, const char* main_bundle_path
     switches.emplace_back(*it);
   }
   CefMainArgs args(0, nullptr);
-  return CefInitialize(args, settings, MakeApp(std::move(switches)), nullptr) ? 1 : 0;
+  if (!CefInitialize(args, settings, MakeApp(std::move(switches)), nullptr)) {
+    return 0;
+  }
+  StopChromiumWindowRestorationData();
+  return 1;
 }
 
 void cmux_shim_do_work(void) {
@@ -429,6 +477,7 @@ void cmux_shim_do_work(void) {
 }
 
 void cmux_shim_close_all(void) {
+  stopping() = true;
   // Copy: CloseBrowser can re-enter OnBeforeClose synchronously.
   auto all = browsers();
   for (auto& [id, browser] : all) {

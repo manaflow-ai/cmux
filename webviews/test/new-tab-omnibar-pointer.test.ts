@@ -50,6 +50,17 @@ await requireBrowserLane("new-tab-omnibar-pointer.test.ts", async () => {
     return page;
   }
 
+  /** Resolves once nothing on the page is easing: no transition or animation left to run (a
+   *  looping one never ends). */
+  const eased = (page: Page) =>
+    page.waitForFunction(() =>
+      document
+        .getAnimations()
+        .every(
+          (animation) => animation.playState !== "running" || animation.effect?.getTiming().iterations === Infinity,
+        ),
+    );
+
   /** The cursor CSS gives the element under a point, and that element's class. */
   function cursorAt(page: Page, x: number, y: number) {
     return page.evaluate(
@@ -100,7 +111,9 @@ await requireBrowserLane("new-tab-omnibar-pointer.test.ts", async () => {
     const rest = await fill(page);
     const box = (await page.locator(".nt-box").boundingBox())!;
     await page.mouse.move(box.x + box.width / 2, box.y + box.height - 6);
-    await page.waitForTimeout(300);
+    // The page sees the pointer over the box, and any hover ease has run out.
+    await page.waitForFunction(() => document.querySelector(".nt-box")?.matches(":hover"));
+    await eased(page);
     expect(await fill(page), "no hover lift (Leo 2026-10-18)").toBe(rest);
     await page.locator(".nt-field").focus();
     expect(await fill(page)).toBe(rest);

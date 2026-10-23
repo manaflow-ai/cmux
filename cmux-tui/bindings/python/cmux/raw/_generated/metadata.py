@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '96e61acfae440a8a09afd96f3fcebb5b2aa189cff1cdcb74d026be328dd4ea67'
+IR_SHA256 = '1e8ed8d1c9488496f61ce39773888417486f7d9a3ecf0469f4e801cd383fe3bd'
 
 
 @dataclass(frozen=True)
@@ -798,6 +798,16 @@ COMMANDS = {
         {
         },
     ),
+    'cloud-selfhost-info': CommandMetadata(
+        'cloud-selfhost-info',
+        'local-admin',
+        12,
+        'cloud-selfhost-v1',
+        ('local-admin',),
+        None,
+        {
+        },
+    ),
     'cloud-session-clear': CommandMetadata(
         'cloud-session-clear',
         'local-admin',
@@ -818,6 +828,7 @@ COMMANDS = {
         {
             'access_token': CommandFieldMetadata(None, None),
             'api_base_url': CommandFieldMetadata(None, None),
+            'auth': CommandFieldMetadata(None, None),
             'client_version': CommandFieldMetadata(None, None),
             'expires_at': CommandFieldMetadata(None, None),
         },
@@ -2311,8 +2322,10 @@ COMMANDS = {
             'height_permille': CommandFieldMetadata(None, None),
             'keep': CommandFieldMetadata(None, None),
             'pane': CommandFieldMetadata(None, None),
+            'pane_id': CommandFieldMetadata(None, 'row-client-keys-v1'),
             'rows': CommandFieldMetadata(None, None),
             'shell_args': CommandFieldMetadata(None, None),
+            'tab_id': CommandFieldMetadata(None, 'row-client-keys-v1'),
             'terminal_id': CommandFieldMetadata(None, None),
             'transaction': CommandFieldMetadata(None, None),
         },
@@ -2937,8 +2950,10 @@ COMMANDS = {
         None,
         {
             'bytes': CommandFieldMetadata(None, None),
+            'expect_agent': CommandFieldMetadata(None, 'send-expect-agent-v1'),
             'expect_foreground': CommandFieldMetadata(None, 'send-expect-foreground-v1'),
             'paste': CommandFieldMetadata(7, None),
+            'submit': CommandFieldMetadata(None, 'send-expect-agent-v1'),
             'surface': CommandFieldMetadata(None, None),
             'terminal_id': CommandFieldMetadata(None, 'terminal-input-while-creating-v1'),
             'text': CommandFieldMetadata(None, None),
@@ -3455,6 +3470,17 @@ COMMANDS = {
             'surface': CommandFieldMetadata(None, None),
         },
     ),
+    'terminal-ports': CommandMetadata(
+        'terminal-ports',
+        'control',
+        12,
+        'terminal-ports-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'surface': CommandFieldMetadata(None, None),
+        },
+    ),
     'terminal-read-range': CommandMetadata(
         'terminal-read-range',
         'control',
@@ -3604,6 +3630,7 @@ COMMANDS = {
             'color': CommandFieldMetadata(None, None),
             'icon': CommandFieldMetadata(None, None),
             'name': CommandFieldMetadata(None, None),
+            'proxy': CommandFieldMetadata(None, None),
         },
     ),
     'update-frontend-browser-tab': CommandMetadata(

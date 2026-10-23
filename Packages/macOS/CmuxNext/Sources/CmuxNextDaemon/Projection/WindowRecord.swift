@@ -71,6 +71,9 @@ public struct WindowRecord: Codable, Sendable, Hashable, Identifiable {
     /// The user closed the window: it keeps its workspaces (one closed
     /// group, reopen-closed.md 4) and stays closed across a relaunch.
     public var isClosed: Bool
+    /// The workspaces the window shows side by side (Debug Settings `sidebar.multiView`); nil shows
+    /// `workspaceKey` alone. Never written while the prototype is off.
+    public var multiView: WindowViewLayout?
 
     public init(id: String, workspaceKey: WorkspaceKey? = nil, workspaceKeys: [WorkspaceKey] = [], machine: String? = nil,
                 screenID: ResourceID? = nil, frame: WindowFrame? = nil, display: String? = nil, isFullScreen: Bool = false,
@@ -110,6 +113,7 @@ public struct WindowRecord: Codable, Sendable, Hashable, Identifiable {
         case selectedTabs = "selected_tabs"
         case focusedPane = "focused_pane"
         case focusedPanes = "focused_panes"
+        case multiView = "multi_view"
     }
 
     /// Keys only older builds wrote; read for migration, never written.
@@ -142,5 +146,6 @@ public struct WindowRecord: Codable, Sendable, Hashable, Identifiable {
         profileWorkspaces = try c.decodeIfPresent([String: WorkspaceKey].self, forKey: .profileWorkspaces) ?? [:]
         page = try c.decodeIfPresent(String.self, forKey: .page)
         isClosed = try c.decodeIfPresent(Bool.self, forKey: .isClosed) ?? false
+        multiView = try c.decodeIfPresent(WindowViewLayout.self, forKey: .multiView)
     }
 }

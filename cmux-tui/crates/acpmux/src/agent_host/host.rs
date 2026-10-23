@@ -76,7 +76,9 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
     if let Some(parent) = spec.socket.parent() {
         ensure_private_dir(parent)?;
     }
-    let nonce = random_hex(16);
+    let nonce = random_hex(16)?;
+    // Before anything starts, so a failure leaves nothing running.
+    let (incarnation, owner_token) = (random_hex(16)?, random_hex(32)?);
     let live_file = live_path(&spec.hosts_dir, &spec.session_id, &nonce);
     let live = lock_live_file(&live_file)?;
     // Until the start succeeds, every early return removes what it created.
@@ -106,11 +108,11 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
     let record = HostRecord {
         record_version: RECORD_VERSION,
         session_id: spec.session_id.clone(),
-        incarnation: random_hex(16),
+        incarnation,
         host_pid: std::process::id(),
         start_nonce: nonce,
         harness_pid: child.id(),
-        owner_token: random_hex(32),
+        owner_token,
         caller_token: spec.caller_token(),
         protocol_min: PROTOCOL_MIN,
         protocol_max: PROTOCOL_MAX,
@@ -228,13 +230,19 @@ struct State {
     stall_hello: bool,
 }
 
+/// The debug builds' hello-stall seam's variable ([`claim_hello_stall`]):
+/// the host launch passes it on (`link.rs`), since the host starts with a
+/// cleared environment.
+#[cfg(debug_assertions)]
+pub(super) const HELLO_STALL_DIR_ENV: &str = "ACPMUX_TEST_HOST_HELLO_STALL_DIR";
+
 /// Debug builds only: `ACPMUX_TEST_HOST_HELLO_STALL_DIR` names a directory of
 /// `stall-*` marker files. A host that removes one never answers `Hello`, as
 /// a wedged host does, so the daemon's integration tests can drive that
 /// path; each marker stalls one host. Release builds have no seam.
 fn claim_hello_stall() -> bool {
     #[cfg(debug_assertions)]
-    if let Some(dir) = std::env::var_os("ACPMUX_TEST_HOST_HELLO_STALL_DIR")
+    if let Some(dir) = std::env::var_os(HELLO_STALL_DIR_ENV)
         && let Ok(entries) = std::fs::read_dir(dir)
     {
         return entries.flatten().any(|e| {
@@ -712,7 +720,7 @@ impl State {
             self.write_codex_line(l);
         }
         for m in split.hub {
-            self.push(Entry::In { msg: m.to_value() });
+            self.push(Entry::In { msg: crate::codex_app_server::into_value(m) });
         }
     }
 

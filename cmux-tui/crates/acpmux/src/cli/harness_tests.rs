@@ -52,6 +52,7 @@ fn folder_fixture(name: &str) -> (PathBuf, Config) {
             codex_config: root.join("config.toml"),
             record: root.join("acpmux").join("trust.json"),
             agent_home: None,
+            cmux_worktrees: None,
         },
     };
     (folder, Config { folder_gate: Some(gate), ..Default::default() })

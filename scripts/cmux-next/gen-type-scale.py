@@ -69,7 +69,7 @@ def swift(data):
 public import AppKit
 
 /// The one type scale of cmux NEXT, shared with the webviews' `--text-*` tokens: every chrome font
-/// size is one of `sizes`, in one of two weights. New fonts use these (scripts/cmux-next/check-swift-type-scale.py).
+/// size is one of `sizes`, in one of the scale's weights. New fonts use these (scripts/cmux-next/check-swift-type-scale.py).
 public nonisolated struct TypeScale: Sendable {{
     public init() {{}}
 

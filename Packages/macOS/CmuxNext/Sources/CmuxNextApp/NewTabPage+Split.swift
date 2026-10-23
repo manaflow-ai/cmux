@@ -17,9 +17,11 @@ private final class SplitPageKey {
 /// and then moves it to a new split on `edge`, the way a new chat reaches its dock (NewChatPlacement.dock).
 extension NewTabPage {
     /// Whether a person's split of `pane` opens the New Tab page: its selected tab is a browser
-    /// tab, the New Tab page or an agent chat. Terminal splits keep the terminal.
+    /// tab, the New Tab page or an agent chat. Terminal splits keep the terminal, and so does every
+    /// split with `tabs.terminalFirst` on (#23021).
     static func splitsToPage(_ pane: PaneController?, direction: PaneDirection, byPerson: Bool) -> Bool {
-        guard byPerson, direction == .right || direction == .down, let pane, let key = pane.currentTabKey else { return false }
+        guard byPerson, direction == .right || direction == .down, let pane, let key = pane.currentTabKey,
+              !NewTabKind.terminalFirst(pane.services) else { return false }
         return NewTabKind.of(key, tab: pane.selectedTab, services: pane.services) != .terminal
     }
 
@@ -51,7 +53,7 @@ extension NewTabPage {
             guard target == .here else { return jump(target, id) }
             if let services, let key = opened.value { Self.moveHere(id, page: key, services: services) }
         }
-        let split: SplitDirection? = !source.daemon.supports(DaemonCapabilities.shared.conversationTabSplit) ? nil
+        let split: SplitDirection? = !source.daemon.supports(DaemonCapabilities.conversationTabSplit) ? nil
             : edge == .right ? .right : edge == .bottom ? .down : nil
         // Even split sizing, as a terminal split (PaneHandlers.split), once the store's pane is placed.
         let sizing = split.flatMap { source.workspace?.layoutModel.splitSizingChanges(splitting: source.layoutPaneID, axis: $0 == .right ? .horizontal : .vertical) } ?? []

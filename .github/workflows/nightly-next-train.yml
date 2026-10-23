@@ -36,7 +36,7 @@ on:
         default: drive
         type: string
       tip:
-        description: feat-cmux-next commit (40 hex) to end the train at; empty is the dispatched ref's head
+        description: feat-cmux-next commit (40 hex) to end the train at, an ancestor of the dispatched head; empty is that head
         required: false
         default: ''
         type: string
@@ -88,12 +88,33 @@ jobs:
       group: nightly-next-train
       cancel-in-progress: false
     steps:
+      # The scripts always run from the dispatched feat-cmux-next head, never
+      # from inputs.tip: the drive job holds the release App token, so it must
+      # not run code from a commit that never landed.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          ref: ${{ inputs.tip != '' && inputs.tip || github.sha }}
+          ref: ${{ github.sha }}
           fetch-depth: 0
           filter: blob:none
+
+      # Before any token exists: the tip must be a feat-cmux-next commit.
+      - name: Check the tip is on feat-cmux-next
+        env:
+          TIP: ${{ inputs.tip }}
+        run: |
+          set -euo pipefail
+          if [ -z "$TIP" ]; then
+            exit 0
+          fi
+          if ! [[ "$TIP" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::tip must be a 40-hex commit"
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$TIP" "$GITHUB_SHA"; then
+            echo "::error::tip $TIP is not on feat-cmux-next ($GITHUB_SHA); refusing to run the train"
+            exit 1
+          fi
 
       - name: Mint release App token
         id: app-token
@@ -121,7 +142,7 @@ jobs:
           NIGHTLY_NEXT_TRAIN_CAP_MINUTES: ${{ vars.NIGHTLY_NEXT_TRAIN_CAP_MINUTES }}
         run: |
           set -euo pipefail
-          tip="${TIP:-$(git rev-parse HEAD)}"
+          tip="${TIP:-$GITHUB_SHA}"
           if [ "$MODE" = on ]; then
             # Train commits and nightly-train/* refs are pushed with the App.
             # The token sits in this ephemeral runner's ~/.gitconfig, not the

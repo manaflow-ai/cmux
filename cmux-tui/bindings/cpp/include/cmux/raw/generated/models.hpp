@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "96e61acfae440a8a09afd96f3fcebb5b2aa189cff1cdcb74d026be328dd4ea67";
+inline constexpr std::string_view kProtocolIrSha256 = "1e8ed8d1c9488496f61ce39773888417486f7d9a3ecf0469f4e801cd383fe3bd";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -150,6 +150,7 @@ struct RunResult;
 struct SavedTabGroupMember;
 struct SavedTabGroupRecord;
 struct Screen;
+struct SendExpectAgent;
 struct ServerStatsConnections;
 struct ServerStatsHistogram;
 struct ServerStatsJournalWriter;
@@ -211,6 +212,8 @@ struct TerminalKeyInput;
 enum class TerminalLifecycle;
 struct TerminalModifiers;
 struct TerminalPlacement;
+struct TerminalPortsListener;
+struct TerminalPortsResult;
 struct TerminalReadRangeResult;
 struct TerminalRecord;
 struct TerminalRegistryEvent;
@@ -292,6 +295,7 @@ struct CloudMuxSubscribeRequest;
 struct CloudMuxUnsubscribeRequest;
 struct CloudParticipantAvatarGetRequest;
 struct CloudRequestsListRequest;
+struct CloudSelfhostInfoRequest;
 struct CloudSessionClearRequest;
 struct CloudSessionSetRequest;
 struct CloudSessionStatusRequest;
@@ -524,6 +528,7 @@ struct TerminalClipboardReplyRequest;
 struct TerminalClipboardSubscribeRequest;
 struct TerminalEventsRequest;
 struct TerminalHistoryRequest;
+struct TerminalPortsRequest;
 struct TerminalReadRangeRequest;
 struct TerminalResourcesRequest;
 struct TerminalResumeCommandRequest;
@@ -1833,6 +1838,10 @@ struct CloudRequestsListRequest {
     friend bool operator==(const CloudRequestsListRequest&, const CloudRequestsListRequest&) = default;
 };
 
+struct CloudSelfhostInfoRequest {
+    friend bool operator==(const CloudSelfhostInfoRequest&, const CloudSelfhostInfoRequest&) = default;
+};
+
 struct CloudSessionClearRequest {
     friend bool operator==(const CloudSessionClearRequest&, const CloudSessionClearRequest&) = default;
 };
@@ -1844,10 +1853,11 @@ struct CloudSessionNeededEvent {
 };
 
 struct CloudSessionSetRequest {
-    std::string access_token{};
+    std::optional<std::string> access_token{};
     std::string api_base_url{};
+    Field<std::string> auth{};
     Field<std::string> client_version{};
-    std::uint64_t expires_at{};
+    std::optional<std::uint64_t> expires_at{};
     friend bool operator==(const CloudSessionSetRequest&, const CloudSessionSetRequest&) = default;
 };
 
@@ -3941,8 +3951,10 @@ struct NewRowRequest {
     std::uint64_t height_permille{};
     std::optional<bool> keep{};
     Id pane{};
+    Field<std::string> pane_id{};
     Field<std::uint16_t> rows{};
     Field<std::vector<std::string>> shell_args{};
+    Field<std::string> tab_id{};
     Field<std::string> terminal_id{};
     Field<std::string> transaction{};
     friend bool operator==(const NewRowRequest&, const NewRowRequest&) = default;
@@ -3950,7 +3962,9 @@ struct NewRowRequest {
 
 struct NewRowResult {
     Id pane{};
+    std::optional<std::string> pane_id{};
     Id surface{};
+    std::optional<std::string> tab_id{};
     Field<std::string> terminal_id{};
     Field<std::string> terminal_incarnation{};
     std::optional<std::string> transaction{};
@@ -4720,6 +4734,11 @@ struct SelectWorkspaceRequest {
     friend bool operator==(const SelectWorkspaceRequest&, const SelectWorkspaceRequest&) = default;
 };
 
+struct SendExpectAgent {
+    Field<std::string> session{};
+    friend bool operator==(const SendExpectAgent&, const SendExpectAgent&) = default;
+};
+
 struct SendKeyRequest {
     std::vector<std::string> keys{};
     Id surface{};
@@ -4728,8 +4747,10 @@ struct SendKeyRequest {
 
 struct SendRequest {
     Field<Base64> bytes{};
+    Field<SendExpectAgent> expect_agent{};
     Field<std::string> expect_foreground{};
     std::optional<bool> paste{};
+    std::optional<bool> submit{};
     Field<Id> surface{};
     Field<std::string> terminal_id{};
     Field<std::string> text{};
@@ -5469,6 +5490,26 @@ struct TerminalPlacement {
     friend bool operator==(const TerminalPlacement&, const TerminalPlacement&) = default;
 };
 
+struct TerminalPortsListener {
+    std::string bound{};
+    std::string host{};
+    std::uint16_t port{};
+    std::string url{};
+    friend bool operator==(const TerminalPortsListener&, const TerminalPortsListener&) = default;
+};
+
+struct TerminalPortsRequest {
+    Id surface{};
+    friend bool operator==(const TerminalPortsRequest&, const TerminalPortsRequest&) = default;
+};
+
+struct TerminalPortsResult {
+    std::vector<std::uint16_t> closed{};
+    std::vector<TerminalPortsListener> listeners{};
+    Id surface{};
+    friend bool operator==(const TerminalPortsResult&, const TerminalPortsResult&) = default;
+};
+
 struct TerminalReadRangeRequest {
     Field<std::string> format{};
     RowMarkerPoint from{};
@@ -5651,6 +5692,7 @@ struct UpdateBrowserProfileRequest {
     Field<std::string> color{};
     Field<std::string> icon{};
     Field<std::string> name{};
+    Field<JsonValue> proxy{};
     friend bool operator==(const UpdateBrowserProfileRequest&, const UpdateBrowserProfileRequest&) = default;
 };
 
@@ -6698,6 +6740,12 @@ struct Codec<Screen> {
 };
 
 template <>
+struct Codec<SendExpectAgent> {
+    static Result<Json> encode(const SendExpectAgent& value);
+    static Result<SendExpectAgent> decode(const Json& value);
+};
+
+template <>
 struct Codec<ServerStatsConnections> {
     static Result<Json> encode(const ServerStatsConnections& value);
     static Result<ServerStatsConnections> decode(const Json& value);
@@ -7061,6 +7109,18 @@ template <>
 struct Codec<TerminalPlacement> {
     static Result<Json> encode(const TerminalPlacement& value);
     static Result<TerminalPlacement> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalPortsListener> {
+    static Result<Json> encode(const TerminalPortsListener& value);
+    static Result<TerminalPortsListener> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalPortsResult> {
+    static Result<Json> encode(const TerminalPortsResult& value);
+    static Result<TerminalPortsResult> decode(const Json& value);
 };
 
 template <>
@@ -7547,6 +7607,12 @@ template <>
 struct Codec<CloudRequestsListRequest> {
     static Result<Json> encode(const CloudRequestsListRequest& value);
     static Result<CloudRequestsListRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudSelfhostInfoRequest> {
+    static Result<Json> encode(const CloudSelfhostInfoRequest& value);
+    static Result<CloudSelfhostInfoRequest> decode(const Json& value);
 };
 
 template <>
@@ -8939,6 +9005,12 @@ template <>
 struct Codec<TerminalHistoryRequest> {
     static Result<Json> encode(const TerminalHistoryRequest& value);
     static Result<TerminalHistoryRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalPortsRequest> {
+    static Result<Json> encode(const TerminalPortsRequest& value);
+    static Result<TerminalPortsRequest> decode(const Json& value);
 };
 
 template <>

@@ -7,8 +7,8 @@
 //   prompt shows there from the send on, never first as a transcript bubble.
 // - Nothing sent stops the turn (Leo 2026-10-20): to an agent that cannot steer, ⌘Enter queues the
 //   prompt too, with no steer control and no `_meta.acpmux.interrupt`.
-// - Esc stops the turn on a second press (escapeStop.ts): the first turns Stop into an Esc hint,
-//   and typing, a click, focus moving or the window ending puts Stop back. An Esc nothing else took
+// - Esc stops the turn on a second press (escapeStop.ts): the first arms Stop (same glyph, no text,
+//   named "Press Esc again to stop"), and typing, a click, focus moving or the window ending puts Stop back. An Esc nothing else took
 //   (focus outside the composer, as in a question card) counts too; with no turn, Esc does nothing.
 // - Stop always frees the chat: acpmux's forced end of a turn whose agent ignored the cancel says
 //   so, and a turn still open a few seconds after Stop stops showing as working (cosmic-gray,
@@ -20,6 +20,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -96,6 +97,30 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
   const cancels: Record<string, any>[] = [];
   /// `_acpmux/events` reads: a lag resync's refetch, which rebuilds the transcript.
   let eventReads = 0;
+  /// Set once the late `queued` record (`queued a beat late`) went out.
+  let lateQueued = false;
+
+  /// The waits on what the daemon heard: each message it takes, and each record it sends late, wakes them.
+  const waiting = new Set<() => void>();
+  const heard = () => {
+    for (const wake of waiting) wake();
+  };
+  /// Resolves once `condition` holds, checked as the daemon hears each message; fails naming `what`.
+  const until = (condition: () => boolean, what: string, timeout = 5_000) =>
+    new Promise<void>((resolve, reject) => {
+      const check = () => {
+        if (!condition()) return;
+        waiting.delete(check);
+        clearTimeout(timer);
+        resolve();
+      };
+      const timer = setTimeout(() => {
+        waiting.delete(check);
+        reject(new Error(`the daemon never saw ${what} within ${timeout} ms`));
+      }, timeout);
+      waiting.add(check);
+      check();
+    });
 
   function answer(method: string): unknown {
     switch (method) {
@@ -143,7 +168,12 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
     };
     const deliver = () => ws.send(JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: event }));
     // acpmux's `queued` record can come a beat after the send (130 ms on cosmic-gray, 2026-10-13).
-    if (text === "queued a beat late") setTimeout(deliver, 400);
+    if (text === "queued a beat late")
+      setTimeout(() => {
+        deliver();
+        lateQueued = true;
+        heard();
+      }, 400);
     else deliver();
     // acpmux checks a queued prompt again when its turn comes (`check_dispatch`) and may refuse it.
     if (text === "refused at its turn")
@@ -164,14 +194,24 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
       }),
     );
 
-  /// acpmux dropped events for the page: it refetches and replays the whole transcript.
+  let notes = 0;
+  /// Returns once the page has drawn a record sent now, so it has handled and drawn everything
+  /// before it. The record is a failover note: the transcript draws it, and it is nothing to the
+  /// turn or to Stop.
+  async function drawn(page: Page): Promise<void> {
+    const to = `marker-${++notes}`;
+    record("failover", { from: "claude", to });
+    await page.getByText(`Continued on ${to}`).waitFor({ timeout: 5_000 });
+  }
+
+  /// acpmux dropped events for the page: it refetches and replays the whole transcript. Returns once
+  /// the rebuild is drawn, and anything the page sent before the refetch (a cancel, a prompt) has
+  /// reached the daemon.
   async function lag(page: Page): Promise<void> {
     const before = eventReads;
     socket?.send(JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/lagged", params: { sessionIds: [SESSION] } }));
-    const deadline = Date.now() + 5_000;
-    while (eventReads === before && Date.now() < deadline) await page.waitForTimeout(50);
-    expect(eventReads).toBeGreaterThan(before);
-    await page.waitForTimeout(300);
+    await until(() => eventReads > before, "the lag resync's refetch");
+    await drawn(page);
   }
 
   let daemon: ReturnType<typeof Bun.serve> | undefined;
@@ -191,7 +231,10 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
             method: string;
             params?: Record<string, any>;
           };
-          if (message.method === "session/prompt") return prompted(ws, message.params ?? {}, message.id);
+          if (message.method === "session/prompt") {
+            prompted(ws, message.params ?? {}, message.id);
+            return heard();
+          }
           if (message.method === "session/cancel") cancels.push(message.params ?? {});
           socket = ws;
           if (message.id !== undefined)
@@ -202,6 +245,7 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
                 result: answer(message.method),
               }),
             );
+          heard();
         },
       },
     });
@@ -220,12 +264,17 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
     await daemon?.stop(true);
   });
 
-  async function openChat(): Promise<Page> {
+  /// The chat with its turn running; `clock` puts the page's timers on Playwright's clock, so a test
+  /// can move past Stop's grace without waiting it out.
+  async function openChat({ clock = false } = {}): Promise<Page> {
     prompts.length = 0;
     cancels.length = 0;
+    lateQueued = false;
     const page = await browser!.newPage({
       viewport: { width: 900, height: 760 },
     });
+    await installPaintedFrames(page);
+    if (clock) await page.clock.install();
     const { port } = vite!.httpServer!.address() as { port: number };
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
     await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${SESSION}`);
@@ -265,22 +314,22 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
 
     test("a prompt sent behind the turn never draws as a transcript bubble before its queue row", async () => {
       const page = await openChat();
-      // Every bubble the transcript draws with the prompt's text, frame by frame.
+      // Every bubble the transcript draws with the prompt's text, painted frame by painted frame.
       await page.evaluate(() => {
         const seen: string[] = [];
         (window as unknown as { bubbles: string[] }).bubbles = seen;
-        const look = () => {
+        window.cmuxAfterPaint(() => {
           for (const row of document.querySelectorAll<HTMLElement>("[data-row-id]"))
             if (row.innerText.includes("queued a beat late")) seen.push(row.dataset.rowId ?? "");
-          requestAnimationFrame(look);
-        };
-        look();
+        });
       });
       await page.locator(".acpmux-composer-prompt").click();
       await page.keyboard.type("queued a beat late");
       await page.keyboard.press("Enter");
       await page.locator(".acpmux-queued", { hasText: "queued a beat late" }).waitFor();
-      await page.waitForTimeout(600);
+      // acpmux's late `queued` record went out, and the page has drawn what came after it.
+      await until(() => lateQueued, "the late queued record go out");
+      await lag(page);
       expect(await page.locator(".acpmux-queued", { hasText: "queued a beat late" }).count()).toBe(1);
       expect(await page.evaluate(() => (window as unknown as { bubbles: string[] }).bubbles)).toEqual([]);
       await page.close();
@@ -320,8 +369,7 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
     test("acpmux's end of a turn whose agent ignored Stop says so", async () => {
       const page = await openChat();
       await page.getByRole("button", { name: "Stop" }).click();
-      const deadline = Date.now() + 5_000;
-      while (cancels.length === 0 && Date.now() < deadline) await page.waitForTimeout(50);
+      await until(() => cancels.length > 0, "Stop's session/cancel");
       record("turn_end", { stopReason: "cancelled", turnId: "turn-1" });
       record("turn_result", { status: "cancelled", stopReason: "cancelled", turnId: "turn-1", cancelForced: true });
       await page.getByText("The agent didn't answer Stop, so cmux ended its turn.").waitFor({ timeout: 5_000 });
@@ -338,29 +386,33 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
     });
 
     test("a Stop the agent answered leaves the next turn alone", async () => {
-      const page = await openChat();
+      const page = await openChat({ clock: true });
       await page.getByRole("button", { name: "Stop" }).click();
-      const deadline = Date.now() + 5_000;
-      while (cancels.length === 0 && Date.now() < deadline) await page.waitForTimeout(50);
+      await until(() => cancels.length > 0, "Stop's session/cancel");
       record("turn_end", { stopReason: "cancelled", turnId: "turn-1" });
       record("turn_result", { status: "cancelled", stopReason: "cancelled", turnId: "turn-1" });
       // The next prompt's turn starts inside Stop's grace and is still running after it.
       record("turn_started", { turnId: "turn-2" });
-      await page.waitForTimeout(6_000);
+      await drawn(page);
+      // Past Stop's 5 s grace (STOP_GRACE_MS); then the page draws one more record, after the grace's end.
+      await page.clock.runFor(6_000);
+      await drawn(page);
       expect(await page.getByText("The agent didn't answer Stop, so cmux ended its turn.").count()).toBe(0);
       expect(await page.getByRole("button", { name: "Stop" }).count()).toBe(1);
       await page.close();
     });
 
     test("a turn that starts after Stop is never judged by that Stop", async () => {
-      const page = await openChat();
+      const page = await openChat({ clock: true });
       await page.getByRole("button", { name: "Stop" }).click();
-      const deadline = Date.now() + 5_000;
-      while (cancels.length === 0 && Date.now() < deadline) await page.waitForTimeout(50);
+      await until(() => cancels.length > 0, "Stop's session/cancel");
       // The stopped turn had already ended (the button was a frame stale): no turn_end follows,
       // and the next prompt's turn starts inside Stop's grace.
       record("turn_started", { turnId: "turn-2" });
-      await page.waitForTimeout(6_000);
+      await drawn(page);
+      // Past Stop's 5 s grace (STOP_GRACE_MS); then the page draws one more record, after the grace's end.
+      await page.clock.runFor(6_000);
+      await drawn(page);
       expect(await page.getByText("The agent didn't answer Stop, so cmux ended its turn.").count()).toBe(0);
       expect(await page.getByRole("button", { name: "Stop" }).count()).toBe(1);
       await page.close();
@@ -369,8 +421,7 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
     test("a transcript rebuild inside Stop's grace does not cancel it", async () => {
       const page = await openChat();
       await page.getByRole("button", { name: "Stop" }).click();
-      const deadline = Date.now() + 5_000;
-      while (cancels.length === 0 && Date.now() < deadline) await page.waitForTimeout(50);
+      await until(() => cancels.length > 0, "Stop's session/cancel");
       // The replay passes the stopped turn's own turn_started again; it is not a new turn.
       await lag(page);
       await page.getByText("The agent didn't answer Stop, so cmux ended its turn.").waitFor({ timeout: 10_000 });
@@ -396,7 +447,8 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
       await page.keyboard.press("Escape");
       await page.keyboard.press("Enter");
       await page.locator(".acpmux-attachment-note", { hasText: "access menu" }).waitFor({ timeout: 5_000 });
-      await page.waitForTimeout(300);
+      // A prompt the page sent would reach the daemon before the refetch.
+      await lag(page);
       expect(prompts.length).toBe(before);
       expect((await composerText(page)).trim()).toBe("/permissions");
       await page.close();
@@ -428,8 +480,9 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
       // The second press must land inside the 1.6 s window, so no long wait here.
       expect(cancels.length).toBe(0);
       await page.keyboard.press("Escape");
-      const deadline = Date.now() + 5_000;
-      while (cancels.length === 0 && Date.now() < deadline) await page.waitForTimeout(50);
+      await until(() => cancels.length > 0, "Stop's session/cancel");
+      // A second cancel would reach the daemon before the refetch.
+      await lag(page);
       expect(cancels.map((c) => c.sessionId)).toEqual([SESSION]);
       await page.close();
     });
@@ -443,24 +496,29 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
       // The placeholder goes back to its usual text once the window ends.
       await hint.waitFor({ state: "detached", timeout: 3_000 });
       await page.keyboard.press("Escape");
-      await page.waitForTimeout(300);
+      // The late press only arms again, and no cancel went before the refetch.
+      await hint.waitFor({ timeout: 2_000 });
+      await lag(page);
       expect(cancels.length).toBe(0);
       await page.close();
     });
 
     const escHint = (page: Page) => page.getByRole("button", { name: "Press Esc again to stop" });
     const stopButton = (page: Page) => page.getByRole("button", { name: "Stop", exact: true });
-    /// Arms the stop from the composer and waits for Stop to turn into the Esc hint.
+    /// Arms the stop from the composer and waits for Stop to be named "Press Esc again to stop".
     async function arm(page: Page): Promise<void> {
       await page.locator(".acpmux-composer-prompt").click();
       await page.keyboard.press("Escape");
       await escHint(page).waitFor({ timeout: 1_000 });
     }
 
-    test("the first Esc turns Stop into an Esc hint, and the window ending puts Stop back", async () => {
+    test("the first Esc arms Stop (renamed, its glyph kept, no text), and the window ending puts Stop back", async () => {
       const page = await openChat();
       await arm(page);
-      expect(await escHint(page).innerText()).toBe("Esc");
+      // The armed Stop is the same plain glyph, named "Press Esc again to stop" and cued by its color.
+      expect(await escHint(page).getAttribute("data-escape-armed")).toBe("");
+      expect(await escHint(page).locator("svg").count()).toBe(1);
+      expect((await escHint(page).innerText()).trim()).toBe("");
       expect(await stopButton(page).count()).toBe(0);
       await stopButton(page).waitFor({ timeout: 3_000 });
       expect(await escHint(page).count()).toBe(0);
@@ -477,7 +535,9 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
       // Well inside the window: only the typing can have disarmed it.
       await stopButton(page).waitFor({ timeout: 500 });
       await page.keyboard.press("Escape");
-      await page.waitForTimeout(300);
+      // The next press only arms again, and no cancel went before the refetch.
+      await escHint(page).waitFor({ timeout: 1_000 });
+      await lag(page);
       expect(cancels.length).toBe(0);
       await page.close();
     });
@@ -504,10 +564,11 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
       });
       expect(focused).toBe(true);
       await page.keyboard.press("Escape");
-      await page.waitForTimeout(200);
+      // The page has drawn a refetch that came after the press: an armed stop would show by then.
+      await lag(page);
       expect(await escHint(page).count()).toBe(0);
       await page.keyboard.press("Escape");
-      await page.waitForTimeout(300);
+      await lag(page);
       expect(cancels.length).toBe(0);
       await page.close();
     });
@@ -519,7 +580,9 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
       await page.locator(".acpmux-composer-prompt").click();
       await stopButton(page).waitFor({ timeout: 500 });
       await page.keyboard.press("Escape");
-      await page.waitForTimeout(300);
+      // The next press only arms again, and no cancel went before the refetch.
+      await escHint(page).waitFor({ timeout: 1_000 });
+      await lag(page);
       expect(cancels.length).toBe(0);
       await page.close();
     });
@@ -541,8 +604,9 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
       await escHint(page).waitFor({ timeout: 1_000 });
       expect(cancels.length).toBe(0);
       await page.keyboard.press("Escape");
-      const deadline = Date.now() + 5_000;
-      while (cancels.length === 0 && Date.now() < deadline) await page.waitForTimeout(50);
+      await until(() => cancels.length > 0, "Stop's session/cancel");
+      // A second cancel would reach the daemon before the refetch.
+      await lag(page);
       expect(cancels.map((c) => c.sessionId)).toEqual([SESSION]);
       await page.close();
     });
@@ -565,10 +629,11 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
         await page.locator(".cv-user__bubble", { hasText: turn.prompt }).waitFor({ timeout: 5_000 });
         expect(await stopButton(page).count()).toBe(0);
         await page.keyboard.press("Escape");
-        await page.waitForTimeout(200);
+        // The page has drawn a refetch that came after the press: an armed stop would show by then.
+        await lag(page);
         expect(await escHint(page).count()).toBe(0);
         await page.keyboard.press("Escape");
-        await page.waitForTimeout(300);
+        await lag(page);
         expect(await escHint(page).count()).toBe(0);
         expect(cancels.length).toBe(0);
         await page.close();

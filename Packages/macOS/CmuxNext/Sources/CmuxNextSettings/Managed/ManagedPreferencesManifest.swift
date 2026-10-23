@@ -45,6 +45,11 @@ public nonisolated enum ManagedPreferencesManifest {
             let more = help.isEmpty ? "" : " "
             let extra = "\(more)Also accepts a number from \(Int(number.range.lowerBound)) to \(Int(number.range.upperBound)) in a raw profile."
             return Entry(name: d.id, title: d.title, help: help + extra, type: .string, choices: choices.map(\.value), range: nil, defaultValue: d.defaultValue, members: [])
+        case .choiceOrURL(let choices, let urlKey):
+            // MDM schema editors have no string-or-dictionary type; the choices are offered, the address in a raw profile.
+            let more = help.isEmpty ? "" : " "
+            let extra = "\(more)Also accepts a dictionary {\"\(urlKey)\": \"http(s)://host[:port]\"} in a raw profile."
+            return Entry(name: d.id, title: d.title, help: help + extra, type: .string, choices: choices.map(\.value), range: nil, defaultValue: d.defaultValue, members: [])
         case .toggle:
             return Entry(name: d.id, title: d.title, help: help, type: .boolean, choices: [], range: nil, defaultValue: d.defaultValue, members: [])
         case .number(let number):

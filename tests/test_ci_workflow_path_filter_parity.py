@@ -22,22 +22,55 @@ WORKFLOWS = ROOT / ".github/workflows"
 # error, so a synced workflow cannot keep a stale exemption.
 EXEMPTIONS: dict[str, str] = {
     "web-complexity.yml": "pull requests must not self-queue the contributor-side candidate job",
+    # Pushes run only on codex/vm-api-cloud-* work branches and take backend/**
+    # whole, which contains each backend path the pull_request list names.
+    "cmux-vm-cloud.yml": "push covers backend/** on codex/vm-api-cloud-* branches; pull requests "
+    "name the cloud-VM API files inside it",
 }
 
 # name -> (filter, push-only patterns, why). A narrower exemption: only these
 # patterns may appear on push without pull_request. Any other difference in the
 # workflow, including any path guarded only on pull requests, still fails.
 PUSH_ONLY_PATTERNS: dict[str, tuple[str, frozenset[str], str]] = {
-    # #17114 (21710d9ef90): pull requests route packages outside CmuxNext to
-    # the generic workflow's focused package tests; base pushes keep the full
-    # side suite for every package. test_ci_change_areas.py's
-    # test_cmux_next_does_not_run_full_suite_for_unrelated_packages pins the
-    # pull-request side.
+    # A nightly repair must earn this commit's Release compile before promotion
+    # carries it to nightly-next, so feat-cmux-next and main pushes also start
+    # cmux-next.yml for the nightly release inputs (#21144).
     "cmux-next.yml": (
         "paths",
-        frozenset({"Packages/macOS/**"}),
-        "base pushes keep full side coverage for every package; pull requests send "
-        "packages outside CmuxNext to the focused package lane",
+        frozenset({
+            ".github/workflows/nightly.yml",
+            "scripts/apple-developer-id-certs/**",
+            "scripts/ci/*nightly*",
+            "scripts/ci/download-run-artifact.py",
+            "scripts/ci/finalize-release.py",
+            "scripts/ci/publish-release-assets.py",
+            "scripts/ci/signing-keychain.sh",
+            "scripts/ci/update-release-tag.py",
+            "scripts/ci/upload-r2-object.py",
+            "scripts/cmux-next/check-cef-objc-contract.py",
+            "scripts/cmux-next/chromium-objc-contract.json",
+            "scripts/import-apple-developer-id-intermediates.sh",
+            "scripts/prune_nightly_release_assets.py",
+        }),
+        "base pushes also compile for the nightly release inputs, so a nightly repair "
+        "earns its Release compile before promotion",
+    ),
+}
+
+# name -> (filter, pull-request-only patterns, why). The mirror allowance: only
+# these broad patterns may appear on pull requests without push.
+PULL_REQUEST_ONLY_PATTERNS: dict[str, tuple[str, frozenset[str], str]] = {
+    # #21504 starts cmux-next.yml for every product and CI input on pull
+    # requests and lets the router pick the tier; base pushes keep the product
+    # list, so a push of these alone does not start the workflow.
+    "cmux-next.yml": (
+        "paths",
+        frozenset({
+            ".github/actions/**", ".github/workflows/**", "Assets.xcassets/**", "Native/**",
+            "Resources/**", "TunnelExtension/**", "cmuxTests/**", "cmuxUITests/**", "daemon/**",
+            "scripts/cmux-next/**", "scripts/whats-new/**", "tests/**",
+        }),
+        "pull requests admit every product and CI input (#21504); the router picks the tier",
     ),
 }
 
@@ -74,6 +107,10 @@ def divergence(path):
 
     differences = {}
     for name in FILTERS:
+        # A push with no such filter runs for every file, so it guards all the
+        # pull request does (test-ios.yml builds on every feat-cmux-next push).
+        if name not in push:
+            continue
         push_patterns = push.get(name) or []
         pull_request_patterns = pull_request.get(name) or []
         on_push = set(push_patterns)
@@ -100,6 +137,16 @@ def unapproved(path, name=None):
     """Return divergence(path) minus the push-only patterns allowed for `name`."""
     name = name or path.name
     differences = divergence(path)
+    if name in PULL_REQUEST_ONLY_PATTERNS:
+        pr_filter, pr_allowed, _ = PULL_REQUEST_ONLY_PATTERNS[name]
+        push_only, pull_request_only = differences.get(pr_filter, ([], []))
+        if pull_request_only:
+            # Only membership is allowed; a pure order difference ([], []) stays.
+            narrowed = sorted(set(pull_request_only) - pr_allowed)
+            if push_only or narrowed:
+                differences[pr_filter] = (push_only, narrowed)
+            else:
+                del differences[pr_filter]
     if name not in PUSH_ONLY_PATTERNS:
         return differences
     allowed_filter, allowed, _ = PUSH_ONLY_PATTERNS[name]
@@ -186,9 +233,27 @@ def test_every_push_only_pattern_is_still_needed():
         )
 
 
+def test_every_pull_request_only_pattern_is_still_needed():
+    """Reject obsolete or unexplained pull-request-only pattern allowances."""
+    for name, (filter_name, allowed, reason) in sorted(PULL_REQUEST_ONLY_PATTERNS.items()):
+        assert name not in EXEMPTIONS, f"{name}: use EXEMPTIONS or the pattern allowances, not both"
+        assert (WORKFLOWS / name).exists(), f"PULL_REQUEST_ONLY_PATTERNS names {name}, which no longer exists"
+        assert reason.strip(), f"{name}: pull-request-only allowance needs a reason"
+        _, pull_request_only = divergence(WORKFLOWS / name).get(filter_name, ([], []))
+        stale = sorted(allowed - set(pull_request_only))
+        assert not stale, (
+            f"{name}: {', '.join(stale)} is no longer pull-request-only. "
+            "Remove it from PULL_REQUEST_ONLY_PATTERNS."
+        )
+
+
 def test_push_only_allowance_still_catches_pull_request_only_paths():
     """An allowed push-only pattern hides nothing else in the same workflow."""
     _, allowed, _ = PUSH_ONLY_PATTERNS["cmux-next.yml"]
+    check_push_only_allowance(allowed)
+
+
+def check_push_only_allowance(allowed):
     shared = ["App/**", "Packages/macOS/CmuxNext/**"]
     with TemporaryDirectory() as directory:
         path = Path(directory) / "workflow.yml"
@@ -214,6 +279,11 @@ def test_push_only_allowance_still_catches_pull_request_only_paths():
         assert unapproved(path, "cmux-next.yml") == {}
         write([*sorted(allowed), "!docs/**", *shared], [*shared, "!docs/**"])
         assert unapproved(path, "cmux-next.yml") == {"paths": ([], [])}
+        # An allowed pull-request-only pattern passes; others still fail.
+        write(shared, [*shared, "tests/**"])
+        assert unapproved(path, "cmux-next.yml") == {}
+        write(shared, [*shared, "tests/**", "docs/**"])
+        assert unapproved(path, "cmux-next.yml") == {"paths": ([], ["docs/**"])}
         # The allowance belongs to its workflow only.
         write([*shared, *sorted(allowed)], shared)
         assert unapproved(path, "other.yml") == {"paths": (sorted(allowed), [])}
@@ -229,10 +299,12 @@ def test_filter_pattern_order():
             ("paths", ["docs/**", "tests/**"], ["tests/**", "docs/**"], {}),
             ("paths-ignore", ["docs/**", "tests/**"], ["tests/**", "docs/**"], {}),
             ("paths", ["src/**"], ["tests/**"], {"paths": (["src/**"], ["tests/**"])}),
+            ("paths", None, ["tests/**"], {}),
+            ("paths", ["src/**"], None, {"paths": (["src/**"], [])}),
         ):
             path.write_text(yaml.safe_dump({"on": {
-                "push": {filter_name: push},
-                "pull_request": {filter_name: pull_request},
+                "push": {"branches": ["main"]} if push is None else {filter_name: push},
+                "pull_request": {"branches": ["main"]} if pull_request is None else {filter_name: pull_request},
             }}), encoding="utf-8")
             assert divergence(path) == expected, (filter_name, push, pull_request)
     assert "patterns differ in order or repetition" in describe(
@@ -245,5 +317,6 @@ if __name__ == "__main__":
     test_push_and_pull_request_filter_the_same_files()
     test_every_exemption_is_still_needed()
     test_every_push_only_pattern_is_still_needed()
+    test_every_pull_request_only_pattern_is_still_needed()
     test_push_only_allowance_still_catches_pull_request_only_paths()
     print("ok")

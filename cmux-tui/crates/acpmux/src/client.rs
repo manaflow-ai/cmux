@@ -1,6 +1,8 @@
 //! Client library used by the CLI and TUI: connect to the daemon socket,
 //! send requests, and receive notifications.
 
+use crate::no_panic::JsonExt;
+use crate::no_panic::LockExt;
 use crate::rpc::{Message, RpcError, method};
 use anyhow::{Context, Result, anyhow};
 use serde_json::{Value, json};
@@ -112,10 +114,10 @@ impl Client {
                 crate::hub::person::CALLER_FIELD.to_owned(),
                 json!({"sessionId": id, "token": token}),
             );
-            hello["_meta"] = json!({"acpmux": meta});
+            hello.set("_meta", json!({"acpmux": meta}));
         }
         let init = client.request(method::INITIALIZE, hello).await?;
-        *client.daemon_build.lock().unwrap() =
+        *client.daemon_build.lock_or_recover() =
             init.pointer("/_meta/acpmux/build").and_then(Value::as_str).map(str::to_owned);
         if let (Some(n), Some(c)) = (
             init.pointer("/_meta/acpmux/personChallenge/nonce").and_then(Value::as_str),
@@ -142,7 +144,7 @@ impl Client {
 
     /// The daemon's build id, as reported at initialize.
     pub fn daemon_build(&self) -> Option<String> {
-        self.daemon_build.lock().unwrap().clone()
+        self.daemon_build.lock_or_recover().clone()
     }
 
     /// The error for a connection that ended: says why, as far as the pid
@@ -174,6 +176,12 @@ impl Client {
             self.tag_spawned_by(&reply).await;
         }
         Ok(reply)
+    }
+
+    /// A `session/new` that never tags its caller's session as the parent: an ephemeral run
+    /// (`acpmux run --ephemeral`, an agent's probe, `probe_prompt.rs`) is no subagent.
+    pub async fn request_parentless(&self, m: &str, params: Value) -> Result<Value> {
+        self.send_request(m, params).await
     }
 
     /// A `session/new` sent from inside an acpmux session (its agent runs `acpmux new`,

@@ -1,6 +1,7 @@
 import Foundation
 import CmuxNextActions
 import CmuxNextAgentLanes
+import CmuxNextApps
 import CmuxNextDaemon
 import CmuxNextSidebar
 
@@ -10,12 +11,32 @@ import CmuxNextSidebar
 /// names it (`sidebar-section:sec_…`, `sidebar-item:itm_…` or a built-in
 /// name such as `sidebar-item:home`).
 enum SidebarSectionHandlers {
+    /// App Store Features' Sidebar cards (edit mode's Add Items): the built-in items beside the
+    /// Chief's own card. Get is Add to Sidebar, Remove takes every such item out.
+    static func storeItems(chief: SettingsAppFeatures.SidebarItems?, document: @escaping @MainActor () -> SidebarLayoutDocument,
+                           registry: ActionRegistry) -> SettingsAppFeatures.SidebarItems {
+        // Every sidebar item the Features tab lists but the Chief's, so a new card needs no change here.
+        let items = Set(AppFeature.catalog.compactMap(\.sidebarItem)).subtracting([SidebarBuiltIn.chief.rawValue])
+        return .init(names: items.union(chief?.names ?? []), isShown: { name in
+            guard items.contains(name) else { return chief?.isShown(name) == true }
+            // Home is an app now (R63), as Add to Sidebar adds it.
+            guard let builtIn = SidebarBuiltIn(rawValue: name) else { return false }
+            return document().firstItem(with: SidebarLayoutDocument.firstPartyApps[builtIn].map(LayoutItemRef.app) ?? .builtIn(builtIn)) != nil
+        }, set: { [weak registry] name, on in
+            guard items.contains(name) else { return chief?.set(name, on) == true }
+            let invocation = on ? ActionInvocation(arguments: ["item": .string(name)], origin: .user)
+                : ActionInvocation(target: ActionTargetRef(kind: .sidebarItem, id: name), origin: .user)
+            return registry?.perform(on ? "sidebar.item.add" : "sidebar.item.removeEverywhere", invocation: invocation) == true
+        })
+    }
+
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let layout = context.services.sidebarLayout
         let services = context.services
         ChiefSidebar.shared.bind(into: registry, host: .init(conversation: { TopHomePageView.chief(services.home) }, chiefHost: { services.agentTabs.chiefHost },
             tab: { services.agentTabs.tab(showing: $0, host: $1) }, reveal: { services.revealTab($0) },
             openWorkspace: { try AgentSessionWorkspace.open(session: $0, name: nil, cwd: nil, host: $1, services: services) }))
+        SettingsAppFeatures.sidebarItems = storeItems(chief: SettingsAppFeatures.sidebarItems, document: { layout.document }, registry: registry)
         // Item adds and removes are undo steps (P4) through the one pin path,
         // named as the menu showed them.
         func bind(_ id: ActionID, undoable: Bool = false, unavailable: @escaping @MainActor () -> String? = { nil },
@@ -80,6 +101,8 @@ enum SidebarSectionHandlers {
             return SidebarLayoutPlanner.add(ref, to: builtIn == .settings || builtIn == .account ? .bottom : .top, in: doc,
                                             showsLabel: builtIn != .account)
         }
+        // Edit mode (SidebarView+EditItems): the window's sidebar wiggles, or stops.
+        registry.bind("sidebar.edit") { services.windows.active?.sidebar.container.toggleEditingItems() }
         bind("sidebar.item.remove", undoable: true) { invocation, doc in
             .itemRemove(try SidebarSectionResolve.item(invocation.target, in: doc).id)
         }
@@ -124,9 +147,6 @@ enum SidebarSectionHandlers {
                 let section = try SidebarSectionResolve.section(invocation.target, in: doc)
                 return .sectionMove(section.id, region: region, index: region == .middle ? 0 : Int.max)
             }
-        }
-        bind("sidebar.section.moveToBottom", unavailable: { SidebarSectionStrings.noBottomArea }) { _, _ in
-            throw ActionFailure(message: SidebarSectionStrings.noBottomArea)
         }
         let looks: [(ActionID, SectionLook)] = [("sidebar.section.useBuiltInLook", .builtIn), ("sidebar.section.useListLook", .list)]
         for (id, look) in looks {

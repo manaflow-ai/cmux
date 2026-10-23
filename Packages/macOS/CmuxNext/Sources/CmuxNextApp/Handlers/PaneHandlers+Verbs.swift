@@ -5,15 +5,12 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextLayout
 
-// Swap, close, rename, flash, workspace font size, and pane kinds this
-// build does not have (simulator, sidebar-as-pane), which are bound
-// with a typed reason instead of left unbound.
+// Swap, close, rename, flash and workspace font size.
 extension PaneHandlers {
     static func bindPaneVerbs(into registry: ActionRegistry, context ctx: AppActionContext) {
         bindSwaps(registry, ctx)
         bindLifecycle(registry, ctx)
         bindFontSize(registry, ctx)
-        bindUnported(registry)
     }
 
     private static func bindSwaps(_ registry: ActionRegistry, _ ctx: AppActionContext) {
@@ -44,9 +41,11 @@ extension PaneHandlers {
             // split is cancelled, never the old pane closed (CancelledCreation); so is a provisional pane named.
             if invocation.target == nil, let content = ctx.focusedContent, case .tab(let id)? = content.focus.state.expectation?.key, content.daemon.cancelSplit(showing: id) { return ctx.services.keyRouter.creationInputCoordinator.drop(tab: id, in: content.contentView.window) }
             guard let pane = ctx.daemonPane(invocation), !ctx.services.daemon(for: pane).cancelCreation(pane: pane.handle) else { return }
-            // A person's close in the Home Chief pane does nothing, silently; the CLI and MCP still ask
-            // and get the daemon's `dock-column-pinned` refusal (home-chief-pane.md).
-            if invocation.origin == .user, ctx.services.paneController(for: pane)?.isPinnedDockPane == true { return }
+            // A person's close in the Home Chief pane keeps the pane and says why; the CLI and MCP
+            // still ask and get the daemon's `dock-column-pinned` refusal (home-chief-pane.md).
+            if invocation.origin == .user, ctx.services.paneController(for: pane)?.isPinnedDockPane == true {
+                return ctx.refuse(MiscHandlerStrings.homeChiefPaneStays)
+            }
             let handle = pane.handle
             // The pane leaves its window now and its neighbours spring into its space
             // (close-animation DESIGN.md); a refused close brings it back.
@@ -74,9 +73,13 @@ extension PaneHandlers {
             let kept = Set((screen?.columns ?? []).filter { $0.dock?.isPinned == true }.flatMap(\.layout.paneIDs))
             let others = (screen?.panes ?? []).filter { $0 !== pane && !kept.contains($0.handle) }
             guard !others.isEmpty else { return ctx.refuse(HandlerStrings.noOtherPanes) }
-            // One gesture: one question and one toast decision over every closing tab (cx-lb4al).
-            CloseUndoToasts.close(others.compactMap { ctx.services.paneController(for: $0) }.map { (pane: $0, ids: $0.stripModel.orderedTabs.map(\.id)) })
-            for other in others where ctx.services.paneController(for: other) == nil {
+            // Read before the close: the closing panes leave the layout at once, and a pane looked up
+            // after it has no view and got a second close the daemon refused (`unknown pane`).
+            let shown = others.compactMap { ctx.services.paneController(for: $0) }
+            let unshown = others.filter { ctx.services.paneController(for: $0) == nil }
+            // One gesture: one question, one toast decision and one closed group over every closing tab (cx-lb4al).
+            CloseUndoToasts.close(shown.map { (pane: $0, ids: $0.stripModel.orderedTabs.map(\.id)) })
+            for other in unshown {
                 let handle = other.handle
                 ctx.send("close-pane") { try await $0.closePane(handle) }
             }
@@ -88,10 +91,7 @@ extension PaneHandlers {
                 ctx.send("rename-pane") { try await $0.renamePane(handle, to: name) }
                 return
             }
-            guard let window = ctx.services.windows.active?.window ?? ctx.refuse(RefusalStrings.noWindowForRename) else { return }
-            RenamePrompt.run(title: HandlerStrings.renamePaneTitle, initial: pane.name ?? "", in: window) { name in
-                ctx.send("rename-pane") { try await $0.renamePane(handle, to: name) }
-            }
+            ctx.services.registry.ask("renamePane", invocation, ActionArgumentAsk(argument: "name", initialText: pane.name ?? ""))
         })
         registry.bind("triggerFlash", invoke: { invocation in
             guard let pane = ctx.paneController(invocation) else { return }
@@ -143,17 +143,5 @@ extension PaneHandlers {
                 if applied == 0 { ctx.refuse(RefusalStrings.noLiveTerminal) }
             })
         }
-    }
-
-    private static func bindUnported(_ registry: ActionRegistry) {
-        let simulator = RefusalStrings.simulatorUnported
-        // palette.newSimulatorPane opens the phone tab (PhoneHandlers). The keyboard-only simulator
-        // actions wait for a focused-phone context (simulatorFocused; plans/cmux-next/simulators-DESIGN.md).
-        for id: ActionID in ["simulatorHome", "simulatorRotateLeft", "simulatorRotateRight",
-                             "simulatorToggleAppearance", "simulatorToggleSoftwareKeyboard"] {
-            registry.bindUnavailable(id, reason: simulator)
-        }
-        registry.bindUnavailable("palette.openFilesPane", reason: RefusalStrings.filesPaneUnported)
-        registry.bindUnavailable("palette.openFindPane", reason: RefusalStrings.findPaneUnported)
     }
 }

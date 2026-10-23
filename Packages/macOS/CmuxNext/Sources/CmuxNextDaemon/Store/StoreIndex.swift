@@ -30,7 +30,7 @@ import Foundation
     private(set) var workspacesByID: [String: WorkspaceModel] = [:]
     private(set) var workspacesByResource: [ResourceID: WorkspaceModel] = [:]
     private(set) var tabGroupsByID: [TabGroupID: TabGroupModel] = [:]
-    /// Indexed tabs whose id is a provisional tab's (the intent overlay's).
+    /// Indexed tabs the intent overlay shows (``isOverlayTab(id:surface:)``).
     private(set) var provisionalTabCount = 0
     /// An order-free digest of which tab sits in which pane (XOR of one
     /// hash per indexed tab and its pane): a remove and re-add of the same
@@ -188,7 +188,7 @@ import Foundation
             if let terminal { tabsByTerminal[terminal] = tab }
             if let resource { tabsByResource[resource] = tab }
             if let terminalResource { tabsByTerminalResource[terminalResource] = tab }
-            if ProvisionalTab.isProvisional(id) { provisionalTabCount += 1 }
+            if Self.isOverlayTab(id: id, surface: surface) { provisionalTabCount += 1 }
         }
     }
 
@@ -224,8 +224,15 @@ import Foundation
             if let terminal { Self.drop(terminal, from: &tabsByTerminal, if: record) }
             if let resource { Self.drop(resource, from: &tabsByResource, if: record) }
             if let terminalResource { Self.drop(terminalResource, from: &tabsByTerminalResource, if: record) }
-            if ProvisionalTab.isProvisional(id) { provisionalTabCount -= 1 }
+            if Self.isOverlayTab(id: id, surface: surface) { provisionalTabCount -= 1 }
         }
+    }
+
+    /// Whether a tab is the overlay's stand-in: a provisional id, or a provisional surface. A
+    /// terminal split's stand-in carries the split's client-minted `tab_…` id, which the
+    /// daemon's tab keeps, so only its surface tells it apart.
+    private static func isOverlayTab(id: String, surface: SurfaceID) -> Bool {
+        ProvisionalTab.isProvisional(id) || ProvisionalTab.isProvisional(surface: surface)
     }
 
     private static func drop<K: Hashable, V: AnyObject>(_ key: K, from map: inout [K: V], if record: AnyObject) {

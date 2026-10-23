@@ -28,7 +28,7 @@ extension LayoutModel {
 /// The even sizes a close leaves: the closed pane's sibling takes its parent's place, and the
 /// same-axis chain around that place is equalized (each nested group counts as one cell per pane
 /// along the axis, `SplitNode.cellCount`).
-struct CloseSizing {
+nonisolated struct CloseSizing {
     let old: ScreenLayout
     let new: ScreenLayout
 

@@ -352,6 +352,7 @@ def main(argv: list[str] | None = None) -> int:
         train.ensure_history(base["commit"], args.tip)
         source, carried = train.source_base(base["commit"])
         cars = train.plan_cars(source, args.tip, args.repo, carried=carried)
+        train.require_on_tip(source, cars, args.tip)
         doc = train.train_json(base, source, args.tip, cars)
         guard = os.environ.get("NIGHTLY_NEXT_TRAIN_CAR_GUARD") or (DEFAULT_GUARD if os.path.exists(DEFAULT_GUARD) else "")
         guarded_out, warnings = run_car_guards(cars, guard)

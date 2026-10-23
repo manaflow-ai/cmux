@@ -7755,23 +7755,26 @@
       }
     },
     "request:cloud-requests-list": {},
+    "request:cloud-selfhost-info": {},
     "request:cloud-session-clear": {},
     "request:cloud-session-set": {
       "/access_token": {
-        "ty": "string",
-        "required": true
+        "ty": "string"
       },
       "/api_base_url": {
         "ty": "string",
         "required": true
+      },
+      "/auth": {
+        "ty": "string",
+        "nullable": true
       },
       "/client_version": {
         "ty": "string",
         "nullable": true
       },
       "/expires_at": {
-        "ty": "uint64",
-        "required": true
+        "ty": "uint64"
       }
     },
     "request:cloud-session-status": {},
@@ -10040,6 +10043,10 @@
         "ty": "uint64",
         "required": true
       },
+      "/pane_id": {
+        "ty": "string",
+        "nullable": true
+      },
       "/rows": {
         "ty": "uint16",
         "nullable": true
@@ -10050,6 +10057,10 @@
       },
       "/shell_args/*": {
         "ty": "string"
+      },
+      "/tab_id": {
+        "ty": "string",
+        "nullable": true
       },
       "/terminal_id": {
         "ty": "string",
@@ -10853,11 +10864,22 @@
         "ty": "string",
         "nullable": true
       },
+      "/expect_agent": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/expect_agent/session": {
+        "ty": "string",
+        "nullable": true
+      },
       "/expect_foreground": {
         "ty": "string",
         "nullable": true
       },
       "/paste": {
+        "ty": "boolean"
+      },
+      "/submit": {
         "ty": "boolean"
       },
       "/surface": {
@@ -11605,6 +11627,12 @@
         "required": true
       }
     },
+    "request:terminal-ports": {
+      "/surface": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
     "request:terminal-read-range": {
       "/format": {
         "ty": "string",
@@ -11767,6 +11795,10 @@
       },
       "/name": {
         "ty": "string",
+        "nullable": true
+      },
+      "/proxy": {
+        "ty": "json",
         "nullable": true
       }
     },
@@ -12561,6 +12593,12 @@
       }
     },
     "response:cloud-requests-list": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:cloud-selfhost-info": {
       "/data": {
         "ty": "json",
         "required": true
@@ -17930,9 +17968,15 @@
         "ty": "uint64",
         "required": true
       },
+      "/data/pane_id": {
+        "ty": "string"
+      },
       "/data/surface": {
         "ty": "uint64",
         "required": true
+      },
+      "/data/tab_id": {
+        "ty": "string"
       },
       "/data/terminal_id": {
         "ty": "string",
@@ -20013,6 +20057,42 @@
       },
       "/data/snapshot_version": {
         "ty": "uint16",
+        "required": true
+      },
+      "/data/surface": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "response:terminal-ports": {
+      "/data/closed": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/closed/*": {
+        "ty": "uint16"
+      },
+      "/data/listeners": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/listeners/*": {
+        "ty": "object"
+      },
+      "/data/listeners/*/bound": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/listeners/*/host": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/listeners/*/port": {
+        "ty": "uint16",
+        "required": true
+      },
+      "/data/listeners/*/url": {
+        "ty": "string",
         "required": true
       },
       "/data/surface": {

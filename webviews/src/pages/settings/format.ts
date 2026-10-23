@@ -74,7 +74,8 @@ export function valueText(row: SchemaRow, value: unknown): string {
   if (typeof value === "number") return `${displayNumber(value, row.range)} ${unitLabel(row.range)}`;
   if (typeof value === "boolean") return "";
   if (Array.isArray(value)) return value.join(" ");
-  if (typeof value === "object") return Object.values(value).join(" ");
+  // A map (browser.siteEngines) is found by its keys too: "spotify.com webkit".
+  if (typeof value === "object") return Object.entries(value).flat().join(" ");
   return String(value);
 }
 

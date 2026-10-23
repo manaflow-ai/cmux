@@ -4,7 +4,9 @@ use std::collections::BTreeSet;
 
 use serde_json::{Value, json};
 
-use super::{Choice, DomainKind, Kind, NumberRange, Row, new_tab_page_url_is_valid};
+use super::{
+    Choice, DomainKind, Kind, NumberRange, Row, is_http_origin, new_tab_page_url_is_valid,
+};
 use crate::domains::Domains;
 use crate::refusal::Refusal;
 use crate::text::{
@@ -24,6 +26,11 @@ pub enum Accepted {
         min: f64,
         max: f64,
     },
+    /// One of the choices, or an object of the shape described in words.
+    ChoicesOrShape {
+        choices: Vec<String>,
+        shape: String,
+    },
     /// A fixed shape, described in words (`boolean`, `#RRGGBB or #RRGGBBAA`, ...).
     Shape(&'static str),
     /// A name from a value domain; `values` is `None` while the app has not
@@ -42,6 +49,9 @@ impl Accepted {
             Accepted::ChoicesOrRange { choices, min, max } => {
                 json!({"choices": choices, "range": {"min": min, "max": max}})
             }
+            Accepted::ChoicesOrShape { choices, shape } => {
+                json!({"choices": choices, "shape": shape})
+            }
             Accepted::Shape(shape) => json!({"shape": shape}),
             Accepted::Domain { name, values } => json!({"domain": name, "values": values}),
         }
@@ -55,7 +65,9 @@ pub fn accepts(row: &Row, value: &Value, domains: &Domains) -> Result<(), Refusa
         return Ok(());
     }
     let accepted = if is_backdrop_selection(row) {
-        Accepted::Shape("none, a listed painting, system:<absolute path> or file:<absolute path>")
+        Accepted::Shape(
+            "none, a listed painting, system:<absolute path>, file:<absolute path> or folder:<absolute path>",
+        )
     } else if row.validation == super::Validation::Domain(DomainKind::ChatRoots) {
         Accepted::Shape(
             "an array of absolute folders outside / , the home folder, other volumes and privacy-protected folders",
@@ -107,12 +119,17 @@ fn row_accepts(row: &Row, value: &Value, domains: &Domains) -> bool {
     }
     if is_backdrop_selection(row) {
         let Some(text) = value.as_str() else { return false };
-        // `system:<absolute path>` (a macOS wallpaper) or `file:<absolute
-        // path>` (the person's own image), as Swift `BackdropSelectionSetting`.
+        // `system:<absolute path>` (a macOS wallpaper), `file:<absolute
+        // path>` (the person's own image) or `folder:<absolute path>` (the
+        // pictures of a folder shuffled, never `/` alone), as Swift
+        // `BackdropSelectionSetting`.
         let path = ["system:", "file:"]
             .iter()
             .any(|prefix| text.strip_prefix(prefix).is_some_and(|path| path.starts_with('/')));
-        return path || is_accepted(&row.kind, value, domains);
+        let folder = text
+            .strip_prefix("folder:")
+            .is_some_and(|path| path.starts_with('/') && path.len() > 1);
+        return path || folder || is_accepted(&row.kind, value, domains);
     }
     is_accepted(&row.kind, value, domains)
 }
@@ -123,6 +140,14 @@ fn is_accepted(kind: &Kind, value: &Value, domains: &Domains) -> bool {
         Kind::ChoiceOrNumber(choices, range) => match value {
             Value::String(text) => has_choice(choices, text),
             Value::Number(number) => number.as_f64().is_some_and(|x| in_range(range, x)),
+            _ => false,
+        },
+        Kind::ChoiceOrUrl(choices, url_key) => match value {
+            Value::String(text) => has_choice(choices, text),
+            Value::Object(members) => {
+                members.len() == 1
+                    && members.get(url_key).and_then(Value::as_str).is_some_and(is_http_origin)
+            }
             _ => false,
         },
         Kind::Toggle => value.is_boolean(),
@@ -254,6 +279,10 @@ fn accepted(kind: &Kind, domains: &Domains) -> Accepted {
         Kind::ChoiceOrNumber(choices, range) => {
             Accepted::ChoicesOrRange { choices: values(choices), min: range.min, max: range.max }
         }
+        Kind::ChoiceOrUrl(choices, url_key) => Accepted::ChoicesOrShape {
+            choices: values(choices),
+            shape: format!("{{\"{url_key}\": \"http(s)://host[:port]\"}}"),
+        },
         Kind::Number(range) => Accepted::Range { min: range.min, max: range.max },
         Kind::Toggle => Accepted::Shape("boolean"),
         Kind::Color => Accepted::Shape("#RRGGBB or #RRGGBBAA"),

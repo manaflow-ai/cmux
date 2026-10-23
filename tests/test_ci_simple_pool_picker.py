@@ -3,8 +3,10 @@
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import importlib.util
+import io
 import json
 import sys
 import unittest
@@ -343,6 +345,45 @@ class OwnedQueueTests(unittest.TestCase):
         self.assertEqual(values["runner"], STD)
         self.assertEqual(values["retry_runner"], picker.BLACKSMITH[1])
         self.assertTrue(values["retry_runner"].startswith("blacksmith-"))
+
+
+class ApiBudgetTests(unittest.TestCase):
+    """main() spends no GitHub request it cannot use (ci.yml runs it on every pull request push)."""
+
+    def run_main(self, env):
+        calls = []
+
+        class Recording(picker.LiveState):
+            def runners(self):
+                calls.append("runners")
+                return []
+
+            def snapshot(self):
+                calls.append("snapshot")
+                return None
+
+        original = picker.LiveState
+        picker.LiveState = Recording
+        try:
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                picker.main([], env={"GITHUB_REPOSITORY": "manaflow-ai/cmux", **OWNED_ENV, **env})
+        finally:
+            picker.LiveState = original
+        return calls
+
+    def test_a_run_with_no_macos_jobs_reads_nothing(self):
+        # A feat-cmux-next pull request: next-route sets every macOS route false.
+        calls = self.run_main({"GH_TOKEN": "g", "ROUTE_TOKEN": "r", "RUN_MACOS": "false",
+                               "RUN_SWIFT_PACKAGES": "false", "RUN_RELEASE_BUILD": "false"})
+        self.assertEqual(calls, [])
+
+    def test_without_the_routing_token_the_org_runners_are_not_listed(self):
+        # GITHUB_TOKEN always gets a 403 from /orgs/*/actions/runners.
+        self.assertEqual(self.run_main({"GH_TOKEN": "g", "RUN_MACOS": "true"}), ["snapshot"])
+
+    def test_the_routing_token_lists_the_org_runners(self):
+        self.assertEqual(self.run_main({"GH_TOKEN": "g", "ROUTE_TOKEN": "r", "RUN_MACOS": "true"}),
+                         ["runners", "snapshot"])
 
 
 class LiveReaderTests(unittest.TestCase):

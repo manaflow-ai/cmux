@@ -9,7 +9,7 @@ public struct AgentPaneHandoffStrings: Sendable {
 
     public nonisolated init() {
         values = [
-            "continueIn": String(localized: "agentPane.handoff.continueIn", defaultValue: "Continue in…", bundle: .module),
+            "continueIn": String(localized: "agentPane.handoff.continueIn", defaultValue: "Continue In…", bundle: .module),
             "review": String(localized: "agentPane.handoff.review", defaultValue: "Review continuation", bundle: .module),
             "fromTo": String(localized: "agentPane.handoff.fromTo", defaultValue: "Continue from %@ in %@", bundle: .module),
             "context": String(localized: "agentPane.handoff.context", defaultValue: "Context to carry forward", bundle: .module),

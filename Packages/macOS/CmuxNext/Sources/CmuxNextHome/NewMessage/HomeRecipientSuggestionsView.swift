@@ -22,6 +22,9 @@ public final class HomeRecipientSuggestionsView: NSView, NSTableViewDataSource, 
     let table = NSTableView()
     let scroll = NSScrollView()
     let emptyLabel = ThemedLabel(wrappingLabelWithString: "")
+    /// The list floats over the page: the shared overlay glass, never the solid popup surface
+    /// (Leo 2026-10-21: "STOP DOING SOLID. WE HAVE GLASS, SO JUST USE GLASS.").
+    let glass = Glass.makeOverlayPanel(cornerRadius: 10, interactive: false)
     static let rowHeight: CGFloat = 44
     static let avatarSize: CGFloat = 28
     static let maxRows = 6
@@ -31,7 +34,10 @@ public final class HomeRecipientSuggestionsView: NSView, NSTableViewDataSource, 
         wantsLayer = true
         layer?.cornerRadius = 10
         layer?.masksToBounds = true
-        layer?.borderWidth = 0.5
+        glass.translatesAutoresizingMaskIntoConstraints = true
+        glass.autoresizingMask = [.width, .height]
+        glass.frame = bounds
+        addSubview(glass)
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("recipient"))
         table.addTableColumn(column)
         table.headerView = nil
@@ -113,8 +119,7 @@ public final class HomeRecipientSuggestionsView: NSView, NSTableViewDataSource, 
     }
 
     func applyColors() {
-        layer?.backgroundColor = performWithTheme { Palette.popupSurface.cgColor }
-        layer?.borderColor = performWithTheme { Palette.separator.cgColor }
+        glass.applyTheme()
     }
 
     public override func viewDidChangeEffectiveAppearance() {

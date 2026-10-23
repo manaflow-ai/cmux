@@ -63,7 +63,7 @@ def scope_reason(paths: list[str] | None) -> str | None:
     if mapping["gallery"]:
         return (f"only webview code changed ({len(mapping['gallery'])} path(s)), which the gallery advisory "
                 "run checks in Linux Chromium on the pull request (its artifact holds any captures); add the "
-                "media-tour-mac label to tour it on a Mac")
+                "media-tour-mac label, then re-add media-tour, to tour it on a Mac")
     return "no UI paths changed"
 
 

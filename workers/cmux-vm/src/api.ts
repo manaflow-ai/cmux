@@ -24,6 +24,7 @@ import { VmCreationsGroupDefinition } from "./api/creations.ts";
 import { SnapshotsGroupDefinition } from "./api/snapshots.ts";
 import { TerminalsGroupDefinition } from "./api/terminals.ts";
 import { ApiKeysGroupDefinition } from "./api/api-keys.ts";
+import { AgentsGroupDefinition } from "./api/agents.ts";
 import { MeshDeviceGroupDefinition, MeshEnrollGroupDefinition, MeshGroupDefinition } from "./api/mesh.ts";
 import { OverlayServerDeviceGroupDefinition, OverlayServersGroupDefinition } from "./api/overlay-servers.ts";
 import { InitialVmNetwork, InitialVmNetworkReceipt } from "./api/initial-network.ts";
@@ -531,6 +532,7 @@ export class CmuxVmApi extends HttpApi.make("cmux-vm")
   .add(SnapshotsGroupDefinition.middleware(Authentication))
   .add(TerminalsGroupDefinition.middleware(Authentication))
   .add(ApiKeysGroupDefinition.middleware(Authentication))
+  .add(AgentsGroupDefinition.middleware(Authentication))
   .add(MeshGroupDefinition.middleware(Authentication))
   // No credential: a one-time enrollment code authorizes the call (mesh M2, cx-0op.4).
   .add(MeshEnrollGroupDefinition)

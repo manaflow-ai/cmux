@@ -23,6 +23,8 @@ public final class AcpmuxHub {
     @ObservationIgnored public var macLink: (any MacLink)?
 
     @ObservationIgnored private var connection: AcpmuxConnection?
+    /// Callers of `waitUntilReady` (a Feed answer whose Mac's link is opening).
+    @ObservationIgnored private var readyWaiters: [UUID: CheckedContinuation<Bool, Never>] = [:]
     @ObservationIgnored private var pumpTask: Task<Void, Never>?
     @ObservationIgnored private var sources: [String: WeakSource] = [:]
     /// Watch-level events for the Feed: `(sessionId, notification)`.
@@ -112,6 +114,9 @@ public final class AcpmuxHub {
             sessions = next
             isReady = true
             lastError = nil
+            let waiters = readyWaiters
+            readyWaiters = [:]
+            for waiter in waiters.values { waiter.resume(returning: true) }
             log.info("acpmux ready, \(next.count, privacy: .public) sessions")
             for entry in sources.values { entry.source?.linkUp() }
             onWatchEvent?(.sessionsLoaded(Array(next.values)))
@@ -143,6 +148,40 @@ public final class AcpmuxHub {
                 onWatchEvent?(.permissionPending(sessionID: session.id, permissionID: id, request: request))
             }
         }
+    }
+
+    /// Waits until a channel is bound and watched (`isReady`), for at most
+    /// `timeout` on `clock`. False on timeout or cancellation.
+    public func waitUntilReady(timeout: Duration, clock: any Clock<Duration>) async -> Bool {
+        if isReady { return true }
+        let id = UUID()
+        let timer = Task { @MainActor [weak self] in
+            try? await clock.sleep(for: timeout)
+            self?.resumeWaiter(id, false)
+        }
+        defer { timer.cancel() }
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                if isReady || Task.isCancelled {
+                    continuation.resume(returning: isReady)
+                } else {
+                    readyWaiters[id] = continuation
+                }
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in self?.resumeWaiter(id, false) }
+        }
+    }
+
+    /// The Mac's session is gone (another team, the Mac removed): nobody waits on it.
+    public func cancelWaiters() {
+        let waiters = readyWaiters
+        readyWaiters = [:]
+        for waiter in waiters.values { waiter.resume(returning: false) }
+    }
+
+    private func resumeWaiter(_ id: UUID, _ ready: Bool) {
+        readyWaiters.removeValue(forKey: id)?.resume(returning: ready)
     }
 
     public func request(_ method: String, _ params: JSONValue) async throws -> JSONValue {
@@ -303,7 +342,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
 
     public func events() -> AsyncStream<AgentSessionEvent> {
         let (stream, continuation) = AsyncStream<AgentSessionEvent>.makeStream(bufferingPolicy: .unbounded)
-        for event in replay { continuation.yield(event) }
+        // What this source already has is history to a new reader: one change, drawn in place.
+        if !replay.isEmpty { continuation.yield(.batch(replay)) }
         continuations.append(continuation)
         return stream
     }
@@ -531,6 +571,38 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         return summary.cwd
     }
 
+    /// A recorded prompt image's bytes from acpmux (`_acpmux/attachment`: only an image this
+    /// session's own log names is read).
+    public func attachmentData(_ attachment: AgentAttachment) async -> Data? {
+        guard let id = attachment.recordedImageID else { return nil }
+        if let cached = imageCache[id] { return cached }
+        // One read per image: a thumbnail and its preview asking at once share it.
+        if let reading = imageReads[id] { return await reading.value }
+        let hub = hub, session = sessionID
+        let reading = Task { @MainActor () -> Data? in
+            guard let hub,
+                  let reply = try? await hub.request("_acpmux/attachment", .object(["sessionId": .string(session), "id": .string(id)])),
+                  let base64 = reply["data"]?.stringValue else { return nil }
+            return Data(base64Encoded: base64)
+        }
+        imageReads[id] = reading
+        let data = await reading.value
+        imageReads[id] = nil
+        // A refusal or a dropped link is not cached: the next look tries again.
+        if let data {
+            imageCache[id] = data
+            imageCacheOrder.append(id)
+            while imageCacheOrder.count > Self.imageCacheLimit { imageCache[imageCacheOrder.removeFirst()] = nil }
+        }
+        return data
+    }
+
+    /// Recorded prompt images read this launch, by acpmux id (the newest few: bubbles scroll back).
+    private var imageCache: [String: Data] = [:]
+    private var imageCacheOrder: [String] = []
+    private var imageReads: [String: Task<Data?, Never>] = [:]
+    static let imageCacheLimit = 24
+
     public var artifactSource: any ArtifactSource {
         let hub = hub
         return LinkFileArtifactSource(macName: summary.macName, baseDirectory: baseDirectory) {
@@ -601,6 +673,11 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                 if !session.name.isEmpty { summary.name = session.name }
             }
             attached = true
+            // The replay boundary is the attach reply: its page (and the session state it
+            // carries) is history, applied as one change, so the chat opens on the whole
+            // transcript instead of animating every past record in (or, on a reattach, the
+            // records missed while the link was down). Records after the reply are live.
+            beginHistory()
             for record in page { receive(record: record) }
             // The session's models, modes and options as acpmux keeps them now (D4: a running
             // chat had no model menu, as they only came with later updates). After the page:
@@ -612,16 +689,28 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                     emit(event)
                 }
             }
+            // Permissions still open (records may be older than the page). Before the held
+            // records, so a decision among them lands after its request; an ask whose own
+            // request is held comes with it instead, in order (on the turn it belongs to).
+            // An ask whose record comes later still (it raced the reply) is sent again with
+            // that record, and the chat moves it to its turn (`AgentChatStore`).
+            // Only held records that will be applied (newer than the page) count.
+            let heldAsks = Set(held.compactMap { record -> String? in
+                let seq = Int(record["seq"]?.numberValue ?? 0)
+                guard seq == 0 || seq > lastSeq, record["kind"]?.stringValue == "permission_request" else { return nil }
+                return record["msg"]?["permissionId"]?.stringValue
+            })
+            for entry in result["session"]?["pending"]?.arrayValue ?? [] {
+                if let id = entry["permissionId"]?.stringValue, !heldAsks.contains(id), let request = entry["request"],
+                   let event = records.permission(id, request: request) { emitPermission(event, listedOnly: true) }
+            }
+            emit(.status(summary.status))
+            endHistory()
             let pending = held
             held = []
             for record in pending { receive(record: record) }
-            // Permissions still open (records may be older than the page).
-            for entry in result["session"]?["pending"]?.arrayValue ?? [] {
-                if let id = entry["permissionId"]?.stringValue, let request = entry["request"],
-                   let event = records.permission(id, request: request) { emitPermission(event) }
-            }
-            emit(.status(summary.status))
         } catch {
+            endHistory()
             emit(.clientError(Self.message(error)))
         }
     }
@@ -676,8 +765,11 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     }
 
     private var seenPermissions: Set<String> = []
+    /// Asks shown from an attach reply's pending list whose own record has not come yet.
+    private var listedPermissions: Set<String> = []
 
-    private func emitPermission(_ event: AgentSessionEvent) {
+    /// `listedOnly`: from the attach reply's pending list, not a record.
+    private func emitPermission(_ event: AgentSessionEvent, listedOnly: Bool = false) {
         let id: String
         switch event {
         case .permissionRequest(let request): id = request.id
@@ -686,14 +778,40 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             questions[question.id] = question
         default: return
         }
-        guard seenPermissions.insert(id).inserted else { return }
+        if seenPermissions.insert(id).inserted {
+            if listedOnly { listedPermissions.insert(id) }
+        } else if listedOnly || listedPermissions.remove(id) == nil {
+            return
+        }
         emit(event)
+    }
+
+    /// Events of the attach reply, sent as one `.batch` by `endHistory()` (no
+    /// suspension point between the two, so nothing else lands in between).
+    private var history: [AgentSessionEvent]?
+
+    private func beginHistory() {
+        history = []
+    }
+
+    private func endHistory() {
+        guard let events = history else { return }
+        history = nil
+        guard !events.isEmpty else { return }
+        replay.append(contentsOf: events)
+        for continuation in continuations { continuation.yield(.batch(events)) }
     }
 
     private func emit(_ event: AgentSessionEvent) {
         switch event {
-        case .clientError, .promptNotSent: break
-        default: replay.append(event)
+        case .clientError, .promptNotSent:
+            break
+        default:
+            if history != nil {
+                history?.append(event)
+                return
+            }
+            replay.append(event)
         }
         for continuation in continuations { continuation.yield(event) }
     }

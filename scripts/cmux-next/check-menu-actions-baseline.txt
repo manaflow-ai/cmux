@@ -10,7 +10,6 @@
 1 Packages/macOS/CmuxNext/Sources/CmuxNextApp/PaneToolbar.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Windows/SidebarToggleIconMenu.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Windows/StatusIconSetMenu.swift
-1 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Windows/TitlebarHistoryMenu.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkFolderMenu.swift
 2 Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFDevToolsDivider.swift
 # 2026-10-20 (base red): the address field's display rows (Always Show Full URLs, Manage Search Engines) from e1dafcb90aa2 have no registered action yet.
@@ -27,8 +26,11 @@
 1 Packages/macOS/CmuxNext/Sources/CmuxNextFilesUI/FileSidebarView.swift
 # 2026-10-21 (base red): the pet's Chief Pet Settings… and Hide Chief Pet rows from #22390; their closures run the toggle action and the settings popover (ChiefPetActions), but the pet target cannot see the registry and Settings… has no registered action yet.
 2 Packages/macOS/CmuxNext/Sources/CmuxNextFloating/ChiefPet/ChiefPetPanel.swift
+1 Packages/macOS/CmuxNext/Sources/CmuxNextHistory/TitlebarHistoryMenu.swift
 2 Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/HomeChiefSettingsView.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/HomePageMenus.swift
+# 2026-10-23: the one row builder (NSMenuItem.macScreen) of Mac Screen's toolbar Display, Quality and Send Keys menus and the device row's More menu; ported from SwiftUI Menu buttons (#22788, no-SwiftUI rule), which the check could not see. Those per-tab choices have no registered action yet.
+1 Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen/MacScreenButtons.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageSelectionMenu.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextRemoteView/Pane/RemoteHoverToolbar.swift
 2 Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarNoticeCardView.swift

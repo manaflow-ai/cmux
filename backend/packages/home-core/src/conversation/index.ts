@@ -94,6 +94,7 @@ export {
   attachmentQuota,
   attachmentRefWrites,
   checkAttachments,
+  cleanAttachmentPart,
   contentDisposition,
   GENERIC_FILE_TYPE,
   isSha256,

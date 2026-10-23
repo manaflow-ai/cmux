@@ -25,7 +25,8 @@ struct ScreenDividers {
               let point = screen.context.hoverPointer(window).map({ screen.convert($0, from: nil) }),
               screen.bounds.intersection(screen.visibleRect).contains(point) else { return nil }
         let hit = screen.subviews.reversed().lazy.compactMap { $0 as? DividerHandleView }.first {
-            !$0.isHidden && $0.alphaValue > 0.01 && $0.frame.contains(point)
+            // Where it shows its cursor: not the part under a dock or past its area's window.
+            !$0.isHidden && $0.alphaValue > 0.01 && screen.convert($0.cursorRectInBounds, from: $0).contains(point)
         }
         guard let hit, screen.context.hoverReachesWindow(window) else { return nil }
         return hit
@@ -37,7 +38,7 @@ struct ScreenDividers {
     var mouseAreas: [LayoutMouseArea] {
         screen.dividerViews.compactMap { kind, view in
             guard !view.isHidden, view.alphaValue > 0.01 else { return nil }
-            let rect = uncovered(view.frame.intersection(screen.bounds))
+            let rect = uncovered(screen.convert(view.cursorRectInBounds, from: view).intersection(screen.bounds))
             guard !rect.isNull, !rect.isEmpty else { return nil }
             return LayoutMouseArea(id: kind.mouseAreaID, rect: rect, resizesColumns: view.axis == .horizontal)
         }.sorted { $0.id < $1.id }
@@ -50,7 +51,9 @@ struct ScreenDividers {
     var lineRects: [CGRect] {
         screen.dividerViews.values.compactMap { view in
             guard !view.isHidden, view.alphaValue > 0.01, view.isLineVisible else { return nil }
-            let rect = uncovered(view.lineFrameInSuperview.intersection(screen.bounds))
+            // Cut where its cursor stops too (DividerHandleView `cursorClip`): no hole through a dock.
+            let line = view.lineFrameInSuperview.intersection(screen.bounds)
+            let rect = uncovered(view.cursorClip.map { line.intersection($0) } ?? line)
             return rect.isNull || rect.isEmpty ? nil : rect
         }.sorted { ($0.minX, $0.minY) < ($1.minX, $1.minY) }
     }

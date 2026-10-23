@@ -2,8 +2,9 @@
 import { createElement } from "react";
 import type { ReactNode } from "react";
 import { componentEntry } from "../../../gallery/format";
-import type { Play } from "../../../gallery/play";
+import type { Play, PlayContext } from "../../../gallery/play";
 import type { ChatMenuItem } from "./ChatHeaderTools";
+import { PanelToggle } from "./PanelToggle";
 import type { QuickAction } from "./quickActions";
 
 type HeaderToolsProps = {
@@ -73,11 +74,16 @@ const menuRows = (): ChatMenuItem[] => [
   { key: "close", label: "Close", icon: "tab.close", shortcutAction: "closeTab", onSelect: () => undefined },
 ];
 
-const summary = createElement(
-  "button",
-  { type: "button", className: "acpmux-summary-button", "aria-label": "Turn summary" },
-  "Completed",
-);
+// The summary's panel toggle as the App passes it (summary/SummaryButton.tsx).
+const panelToggle = (shown: boolean, icon = "view.list") =>
+  createElement(PanelToggle, {
+    className: "acpmux-summary-button",
+    label: "Chat summary",
+    shown,
+    icon,
+    onToggle: () => undefined,
+  });
+const summary = panelToggle(false);
 
 const openMenu: Play = async (ctx) => {
   await ctx.focus({ role: "button", name: "Chat actions" });
@@ -93,21 +99,25 @@ const panelsOpen: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector('.acpmux-header-tool[aria-pressed="true"]'));
 };
 
-// Action controls and session metadata stay separate in the compact top-right cluster while every
-// existing control keeps its 26px hit target.
+// Claude Code desktop's top strip (Leo 2026-10-21): no separators, the right-side panel's toggle
+// first, every button a 24px square on one 26px pitch, every glyph the same size.
 const groupedControls: Play = async (ctx) => {
-  const actions = ctx.find({ selector: ".acpmux-header-tool-group-actions" });
-  const meta = ctx.find({ selector: ".acpmux-header-tool-group-meta" });
-  const separator = ctx.find({ selector: ".acpmux-header-separator" });
-  if (actions.getBoundingClientRect().width <= 0 || meta.getBoundingClientRect().width <= 0)
-    throw new Error("header control groups must remain visible");
-  // An <hr> is a separator by its implicit role, so the play checks the element, not an attribute.
-  if (separator.tagName !== "HR") throw new Error("header group separator is not semantic");
-  if (separator.getAttribute("aria-orientation") !== "vertical")
-    throw new Error("header separator orientation changed");
-  const tools = ctx.document.querySelectorAll<HTMLElement>(".acpmux-header-tools button");
-  if ([...tools].some((button) => Math.round(button.getBoundingClientRect().height) !== 26))
-    throw new Error("header control hit target changed");
+  const first = ctx.document.querySelector(".acpmux-header-tools button");
+  if (!first?.classList.contains("acpmux-summary-button"))
+    throw new Error("the panel toggle must be the first of the header's icons");
+  if (ctx.document.querySelector(".acpmux-header-tools hr, .acpmux-header-separator"))
+    throw new Error("the header tools draw a separator");
+  const tools = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-header-tools button")];
+  for (const button of tools) {
+    const box = button.getBoundingClientRect();
+    if (Math.round(box.width) !== 24 || Math.round(box.height) !== 24)
+      throw new Error(`header button ${button.getAttribute("aria-label")} is not a 24px square`);
+  }
+  const lefts = tools.map((button) => button.getBoundingClientRect().left);
+  if (lefts.slice(1).some((left, index) => Math.round(left - lefts[index]!) !== 26))
+    throw new Error("header buttons are not on one 26px pitch");
+  const glyphs = new Set(tools.map((button) => button.querySelector("svg")?.getAttribute("width")));
+  if (glyphs.size !== 1) throw new Error(`header glyphs come in several sizes: ${[...glyphs].join(", ")}`);
 };
 
 // The App found the chat branch's pull request: open, 3 of 5 checks passed, one failing (cx-tcwj).
@@ -147,6 +157,14 @@ const worktreeRemoveRefused: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-worktree-remove [role=alert]"));
 };
 
+// The chip mounts on React's next render, not inside setHeaderState; let that render paint first so
+// its row shift is not counted against the click.
+async function chipShown(ctx: PlayContext) {
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-header-pr"));
+  const view = ctx.document.defaultView!;
+  await new Promise((done) => view.requestAnimationFrame(() => view.requestAnimationFrame(done)));
+}
+
 // A click on the chip opens its status: title, state and review, then each check, failing first
 // (cx-ncc.77.1).
 const pullRequestStatus: Play = async (ctx) => {
@@ -173,6 +191,7 @@ const pullRequestStatus: Play = async (ctx) => {
       ],
     },
   });
+  await chipShown(ctx);
   await ctx.click({ selector: ".acpmux-header-pr" });
   await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-pr-check").length === 5);
 };
@@ -196,6 +215,7 @@ const pullRequestMerge: Play = async (ctx) => {
       ],
     },
   });
+  await chipShown(ctx);
   await ctx.click({ selector: ".acpmux-header-pr" });
   await ctx.click({ role: "button", name: "Merge" });
   await ctx.waitFor(() => ctx.find({ role: "button", name: "Confirm merge" }));
@@ -273,6 +293,7 @@ export default componentEntry<HeaderToolsProps>({
     "agent-session/acpmux/header/WorktreePill.tsx#WorktreePill",
     "agent-session/acpmux/header/WorktreeApply.tsx#WorktreeApply",
     "agent-session/acpmux/header/WorktreeRemove.tsx#WorktreeRemove",
+    "agent-session/acpmux/header/PanelToggle.tsx#PanelToggle",
   ],
   load: () => import("./ChatHeaderTools").then((module) => module.ChatHeaderTools),
   // The pane's own stylesheets, as the app ships them (build-agent-pane-web.sh): its theme variables,
@@ -310,12 +331,28 @@ export default componentEntry<HeaderToolsProps>({
       },
       play: panelsOpen,
     },
+    "panel-open": {
+      note: "The right-side panel is open: its toggle, first of the icons, is pressed and its glyph's column filled.",
+      props: { ...base, summary: panelToggle(true) },
+    },
+    "panel-icon-list": {
+      note: "Panel icon option: three list rows with circular markers, matching ChatGPT's session rail control; this is the shipped choice.",
+      props: { ...base, summary: panelToggle(false, "view.list") },
+    },
+    "panel-icon-info": {
+      note: "Panel icon option: the compact information glyph, shown for comparison with the list control.",
+      props: { ...base, summary: panelToggle(false, "status.info") },
+    },
+    "panel-icon-session": {
+      note: "Panel icon option: the session speech-bubble glyph, shown for comparison with the list control.",
+      props: { ...base, summary: panelToggle(false, "agent.session") },
+    },
     "browser-preview": {
       note: "The chat's last turn named a local page: Browser opens it beside the chat and its tooltip names it; there is no separate Preview button.",
       props: { ...base, previewUrl: "http://localhost:5173/", onPreview: () => undefined },
     },
     "grouped-controls": {
-      note: "Quick actions and session metadata are separated without changing the existing button hit targets.",
+      note: "Claude Code desktop's strip: the panel toggle first, no separators, 24px square buttons on one 26px pitch, one glyph size.",
       props: base,
       play: groupedControls,
     },

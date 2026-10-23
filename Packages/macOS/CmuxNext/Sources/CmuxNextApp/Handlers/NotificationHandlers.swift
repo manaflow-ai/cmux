@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextDaemon
 
 /// Notification actions over the daemon's retained unread markers
@@ -10,7 +11,7 @@ import CmuxNextDaemon
 /// never made unread again. The row verbs act on the panel row their
 /// `notification` argument names, else on the latest unread.
 enum NotificationHandlers {
-    static let ack = DaemonCapabilities.shared.notificationAck
+    static let ack = DaemonCapabilities.notificationAck
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let services = context.services
@@ -48,7 +49,7 @@ enum NotificationHandlers {
             guard !tabs.isEmpty else { throw ActionFailure(message: MiscHandlerStrings.noUnread) }
             try acknowledge(tabs.map(\.tab.surface), context)
         })
-        // Toggle Tab Unread: reads an unread tab, else marks it unread (any tab, no notification needed).
+        // Mark Tab Read/Unread: reads an unread tab, else marks it unread (any tab, no notification needed).
         registry.bind("toggleUnread", run: { invocation in
             guard let (pane, id) = context.scope(invocation).tab, let tab = pane.tab(id) else {
                 throw ActionFailure(message: MiscHandlerStrings.noPane)
@@ -83,8 +84,14 @@ enum NotificationHandlers {
         registry.bind("notificationCopy", requires: ack, daemon: context.daemon, run: { invocation in
             _ = try context.requireConnection()
             if let row = try panel.row(invocation) { return context.copy(row.copyText) }
-            context.daemon.send("copy-notification") { connection in
-                guard let entry = try await connection.notificationLedger(limit: 1).first else { return }
+            // An empty ledger is refused: the CLI awaits the reason, a palette or key run shows it.
+            let awaited = registry.isCapturingWork, none = MiscHandlerStrings.noNotificationToCopy
+            context.daemon.send("copy-notification", onFailure: { [weak registry] failure in
+                if !awaited { registry?.refuse(failure.message) }
+            }) { connection in
+                guard let entry = try await connection.notificationLedger(limit: 1).first else {
+                    throw ActionFailure.invalidTarget(none)
+                }
                 let text = entry.body.isEmpty ? entry.title : "\(entry.title)\n\(entry.body)"
                 await MainActor.run { context.copy(text) }
             }
@@ -92,6 +99,12 @@ enum NotificationHandlers {
         NotificationSettingsHandlers.bind(into: registry, context: context)
         AgentChatMuteHandlers.bind(into: registry, context: context)
         AgentChatIdentifierHandlers.bind(into: registry, context: context)
+        // View Chat Only (`cmux agent view <chat>`, the palette): the All chats row's View Only opener.
+        registry.bind("agentChat.view", run: { invocation in
+            let key = (invocation["key"]?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard ChatOpenSubject.isWatchable(key: key) else { throw ActionFailure(message: RefusalStrings.notAWatchableChat(key)) }
+            context.services.chatsOpener.open(key, watch: true)
+        })
     }
 
     /// Removes a panel row. The daemon clears by terminal, so this removes

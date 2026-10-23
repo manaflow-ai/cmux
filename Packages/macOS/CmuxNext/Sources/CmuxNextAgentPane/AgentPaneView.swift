@@ -19,11 +19,14 @@ public final class AgentPaneView: NSView {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.webview")
     public let model: AgentPaneModel
     public let webView: WKWebView
-    /// Opens a link the user clicked in the transcript: the shared link rule (``LinkRouter``,
-    /// `browser.openLinksInCmuxBrowser`), `otherTarget` for a Shift-Command click, beside the pane
-    /// that shows this chat (set in `init`; never the focused pane).
-    public var openURL: (_ url: URL, _ otherTarget: Bool) -> Void = AgentPaneView.routedOpenURL
-    static let routedOpenURL: (URL, Bool) -> Void = { LinkRouter.shared.open($0, otherTarget: $1) }
+    /// Opens a link the user clicked in the transcript with the click's `modifiers`: the shared
+    /// link rule (``LinkRouter``, `browser.openLinksInCmuxBrowser`; Shift-Command the other target,
+    /// Command alone a background tab), from the pane that shows this chat (set in `init`; never
+    /// the focused pane).
+    public var openURL: (_ url: URL, _ modifiers: NSEvent.ModifierFlags) -> Void = AgentPaneView.routedOpenURL
+    static let routedOpenURL: (URL, NSEvent.ModifierFlags) -> Void = {
+        LinkRouter.shared.open($0, otherTarget: LinkRouter.isOtherTarget($1), background: LinkRouter.opensInBackground($1))
+    }
 
     public let source: AgentPaneSource
     public var customization = AgentPaneCustomization() { didSet { if customization != oldValue { applyCustomization() } } }
@@ -40,6 +43,8 @@ public final class AgentPaneView: NSView {
     }
     private let navigation = AgentPaneNavigation()
     let dictation: AgentPaneDictation
+    /// Where the Dictation key and Edit ▸ Start Dictation go from this pane (AgentPaneView+DictationKey).
+    var dictationKey = AgentPaneDictationKey()
     var crashReloads = PageCrashReloads()
     /// Shown instead of reloading once the page keeps crashing.
     var crashNotice: NSView?
@@ -67,12 +72,16 @@ public final class AgentPaneView: NSView {
     /// Pushes every color change of this view's scope to the page, shown or hidden, so a page
     /// shown after a change paints its first frame in the new colors (cx-8w027.12).
     private lazy var themeFollower = ThemeFollower(self) { [weak self] in self?.applyTheme() }
+    /// The wallpaper still the old host's page lenses (the page host's ``PageWebView`` has its own).
+    private lazy var glassFeed = GlassBackdropFeed(host: webView, zoom: { [webView] in webView.pageZoom * webView.magnification }) { [weak self] in
+        self?.evaluateScript($0)
+    }
     private var uiScaleObservation: Task<Void, Never>?
     public var zoom: Double = 1 {
         didSet { guard zoom != oldValue else { return }; applyZoom() }
     }
-    private var reduceMotionObserver: (any NSObjectProtocol)?
-    private var reduceMotionOverrideObserver: (any NSObjectProtocol)?
+    private var reduceMotionObserver: MainActorObservation?
+    private var reduceMotionOverrideObserver: MainActorObservation?
     /// Records the user's real key and mouse events in this pane (``AgentPaneUserGestures``).
     private var gestureMonitor: Any?
     var transportPacer: AgentPaneFramePacer?
@@ -82,13 +91,15 @@ public final class AgentPaneView: NSView {
     /// next context menu, and where the menu's copies go (tests record them instead).
     var messageMenuTarget: AgentPaneMessageTarget?
     var menuSelection: String?
+    /// Pairs a Chromium page's right-click with the page's report for it.
+    let menuReports = AgentPaneMenuReportWait()
     var copyText: @MainActor (String) -> Void = { text in
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
     }
     /// The pane's first frame until its page paints (`AgentPaneView+Loading`).
     public let loadingView = AgentPaneLoadingView()
-    public private(set) lazy var redraw = AgentPageRedraw(webView: webView) // a chat shown again draws first
+    public private(set) lazy var redraw = page.map { AgentPageRedraw(page: $0) } ?? AgentPageRedraw(webView: webView) // a chat shown again draws first
     public private(set) lazy var topBar = AgentPaneTopBar(pane: self) // the App's omnibar row over a New Tab page (cx-e2aa)
     /// The process pool every agent page shares (R81: fonts are listed once per pool).
     static let processPool = WKProcessPool()
@@ -112,16 +123,22 @@ public final class AgentPaneView: NSView {
     ///     do on a loaded machine (#16471).
     ///   - pageHost: Host the page on the shared page host (``PageWebView``) instead of this
     ///     view's own WebKit host. Only a bundled page can move; a dev-server page stays.
+    ///   - chromium: Makes the page host's Chromium view when the chat shows in Chromium (the app's
+    ///     ``PageWebView/chromiumHosting`` by default; tests pass a fake).
     public init?(model: AgentPaneModel, source: AgentPaneSource? = nil, renderRate: AgentPaneRenderRate = .capped,
-                 pageHost: Bool = false) {
+                 pageHost: Bool = false, chromium: (any PageChromiumHosting)? = PageWebView.chromiumHosting) {
         guard let source = source ?? Self.bundledPage.map({ AgentPaneSource.bundled($0) }) else { return nil }
         self.model = model
         self.source = source
         self.renderRate = renderRate
+        Self.warmupNoLongerNeeded = true
         let webView: WKWebView
         if pageHost, case .bundled(let index) = source {
             let provider = AgentPageProvider { [weak model] _ in model }
-            guard let page = AgentPanePageHost.makePage(root: index.deletingLastPathComponent(), provider: provider, renderRate: renderRate)
+            // Needs you reads the pane's own acpmux (a Chief chat's is the Chief home's), never another.
+            provider.pendingAsksSocket = { [weak model] in model?.pendingAsksSocket }
+            guard let page = AgentPanePageHost.makePage(root: index.deletingLastPathComponent(), provider: provider, renderRate: renderRate,
+                                                                 chromium: chromium)
             else { return nil }
             self.page = page
             pageEvents = provider
@@ -155,7 +172,7 @@ public final class AgentPaneView: NSView {
             inputReadiness = PageInputReadiness(configuration: configuration)
             // Pages share web content processes, 8 per process (WebProcessGroups): a process per
             // page made 55 tabs cost 54 processes and 4 GB (plans/cmux-next/sequoia-lag.md).
-            // webview-allow: agent chat needs WebKit (native context menu, file drops, input hooks)
+            // webview-allow: the old agent host (agent.pageHost off, or a dev-server page); the page host picks the engine otherwise
             webView = Self.processGroups.webView(for: configuration) { AgentPaneWKWebView(frame: .zero, configuration: $0) }
             #if DEBUG
             // Automation launches (capture slots) keep a covered window's page drawing, as
@@ -168,8 +185,8 @@ public final class AgentPaneView: NSView {
         }
         self.webView = webView
         super.init(frame: .zero)
-        openURL = { [weak self] url, other in
-            if let self { LinkRouter.shared.open(url, otherTarget: other, from: self) } else { Self.routedOpenURL(url, other) }
+        openURL = { [weak self] url, modifiers in
+            if let self { LinkRouter.shared.open(url, modifiers: modifiers, from: self) } else { Self.routedOpenURL(url, modifiers) }
         }
         inputReadiness.attach(webView)
         if let page {
@@ -242,13 +259,11 @@ public final class AgentPaneView: NSView {
             }
         }
         // Reduce Motion is not observable through Observation.
-        reduceMotionObserver = NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.applyTheme() } // main-proof: observer on queue: .main
+        reduceMotionObserver = MainActorObservation(NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, center: NSWorkspace.shared.notificationCenter) { [weak self] in
+            self?.applyTheme()
         }
-        reduceMotionOverrideObserver = NotificationCenter.default.addObserver(
-            forName: Motion.reduceMotionDidChange, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.applyTheme() } // main-proof: observer on queue: .main
+        reduceMotionOverrideObserver = MainActorObservation(Motion.reduceMotionDidChange) { [weak self] in
+            self?.applyTheme()
         }
     }
 
@@ -264,7 +279,13 @@ public final class AgentPaneView: NSView {
     }
 
     func applyZoom() {
-        if let page { page.additionalZoom = zoom } else { webView.pageZoom = Double(DesignSettings.shared.uiScale) * zoom }
+        // The page host applies the UI scale and the interface scale itself, in either engine.
+        if let page {
+            page.additionalZoom = zoom
+            return
+        }
+        webView.pageZoom = Double(DesignSettings.shared.uiScale) * zoom
+        glassFeed.refresh() // the zoom moves the art's rect in CSS px
         webView.evaluateJavaScript(DesignSettings.shared.interfaceScaleScript, completionHandler: nil)
     }
 
@@ -296,7 +317,7 @@ public final class AgentPaneView: NSView {
     var rateReapply: Task<Void, Never>?
     /// An image of the page as shown; nil skips the re-apply (tests set it).
     lazy var snapshotPage: () async -> NSImage? = { [weak self] in
-        try? await self?.webView.takeSnapshot(configuration: nil)
+        await self?.pageSnapshot()
     }
     /// Times the re-apply's steps (tests set it).
     var clock: any Clock<Duration> = ContinuousClock()
@@ -323,9 +344,8 @@ public final class AgentPaneView: NSView {
         motionObservation?.cancel()
         motionObservation = nil
         sessionStatusObservation?.cancel()
-        if let reduceMotionObserver { NSWorkspace.shared.notificationCenter.removeObserver(reduceMotionObserver) }
-        if let reduceMotionOverrideObserver { NotificationCenter.default.removeObserver(reduceMotionOverrideObserver) }
-        (reduceMotionObserver, reduceMotionOverrideObserver) = (nil, nil)
+        reduceMotionObserver = nil
+        reduceMotionOverrideObserver = nil
         dictation.close()
         model.shell.terminateAll()
         if let gestureMonitor { NSEvent.removeMonitor(gestureMonitor) }
@@ -370,13 +390,17 @@ public final class AgentPaneView: NSView {
         if window == nil {
             dictation.handle(.stop)
             popupHostStorage?.dismiss()
+        } else {
+            // The composer's + > Attach files or images opens without making a panel (PageOpenPanel).
+            MadeAheadOpenPanel.shared.warmWhenIdle()
         }
         applyTheme()
     }
 
     /// Runs a script in the page (tests record them).
     lazy var evaluateScript: (String) -> Void = { [weak self] script in
-        self?.webView.evaluateJavaScript(script, completionHandler: nil)
+        guard let self else { return }
+        if let page = self.page { page.evaluate(script) } else { self.webView.evaluateJavaScript(script, completionHandler: nil) }
     }
 
     /// Focus Location Bar on a new tab page: the field takes the keyboard and
@@ -396,8 +420,14 @@ public final class AgentPaneView: NSView {
     /// Pushes this view's scope tokens to the page (and to the area WebKit
     /// shows before the page paints); again when `surfaceKind` changes. The page gets a push
     /// only when its theme differs from the last one it got; `force` pushes it anyway (a page
-    /// that just loaded has none).
+    /// that just loaded has none). It runs in this view's scope (`performWithTheme`): whether the
+    /// window is see-through here comes from that scope's picture and tint, not the app's (a
+    /// workspace's picture at background-opacity 1 painted the chat opaque over it).
     public func applyTheme(force: Bool = false) {
+        performWithTheme { applyThemeInScope(force: force) }
+    }
+
+    private func applyThemeInScope(force: Bool) {
         themeFollower.rebind()
         let tokens = themeTokens
         let surface = surfaceKind
@@ -411,9 +441,12 @@ public final class AgentPaneView: NSView {
             deliveredThemeEvent = event
             pageEvents.publish(event)
         } else {
-            guard let script = AgentPaneTheme.script(tokens, surface: surface), force || script != deliveredThemeScript else { return }
-            deliveredThemeScript = script
-            evaluateScript(script)
+            if let script = AgentPaneTheme.script(tokens, surface: surface), force || script != deliveredThemeScript {
+                deliveredThemeScript = script
+                evaluateScript(script)
+            }
+            // After the theme, which sets `data-glass`; a forced push is a new document or its handshake.
+            glassFeed.refresh(newDocument: force)
         }
     }
 

@@ -15,6 +15,78 @@
   line-height: var(--text-title--line-height, 22px);
   color: var(--agent-text);
 }
+/* A long draft's soft edges (Leo 2026-10-21), the transcript's (.acpmux-scroll, conversation.css):
+   the edge with more draft past it (data-fade-top / data-fade-bottom, MarkdownField.tsx) fades the
+   text out as it scrolls under it. An alpha mask on the scroller itself, never a painted overlay, so
+   the composer's glass shows through; at the start and the end that edge is plain. The overlay
+   scrollbar's narrow lane at the right keeps full ink. Reduce Transparency keeps plain edges. The band
+   (--acpmux-md-fade-band) comes from MarkdownField.tsx, whose caret reveal keeps clear of it. */
+.acpmux-md-field {
+  --acpmux-md-fade-top: 0px;
+  --acpmux-md-fade-bottom: 0px;
+  --acpmux-md-scrollbar-lane: 8px;
+  /* The minimal scroller's track (scrollers.ts) stops short of the composer's rounded corners. */
+  --cmux-minimal-scroller-inset: calc(10px * var(--cmux-interface-scale, 1));
+  /* Under the scrollbar fade its thumb paces with the pane's other fades (conversation.css). */
+  --cmux-scroller-fade-in: var(--agent-motion-in, 120ms);
+  --cmux-scroller-fade-out: var(--agent-motion-move, 180ms);
+  /* Its lane is always reserved (scrollers.ts), so it comes out of the right padding: the
+     draft keeps the same width, and never rewraps, whether or not it overflows. */
+  padding-right: max(0px, calc(16px * var(--cmux-interface-scale, 1) - var(--cmux-scroller-size, 8px)));
+}
+.acpmux-md-field[data-fade-top] {
+  --acpmux-md-fade-top: var(--acpmux-md-fade-band);
+}
+.acpmux-md-field[data-fade-bottom] {
+  --acpmux-md-fade-bottom: var(--acpmux-md-fade-band);
+}
+.acpmux-md-field[data-fade-top],
+.acpmux-md-field[data-fade-bottom] {
+  -webkit-mask-image:
+    linear-gradient(
+      to bottom,
+      transparent,
+      #000 var(--acpmux-md-fade-top),
+      #000 calc(100% - var(--acpmux-md-fade-bottom)),
+      transparent
+    ),
+    linear-gradient(#000, #000);
+  mask-image:
+    linear-gradient(
+      to bottom,
+      transparent,
+      #000 var(--acpmux-md-fade-top),
+      #000 calc(100% - var(--acpmux-md-fade-bottom)),
+      transparent
+    ),
+    linear-gradient(#000, #000);
+  -webkit-mask-size:
+    100% 100%,
+    var(--acpmux-md-scrollbar-lane) 100%;
+  mask-size:
+    100% 100%,
+    var(--acpmux-md-scrollbar-lane) 100%;
+  -webkit-mask-position:
+    0 0,
+    100% 0;
+  mask-position:
+    0 0,
+    100% 0;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+}
+@media (prefers-reduced-transparency: reduce) {
+  .acpmux-md-field[data-fade-top],
+  .acpmux-md-field[data-fade-bottom] {
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+}
+:root[data-reduce-transparency] .acpmux-md-field[data-fade-top],
+:root[data-reduce-transparency] .acpmux-md-field[data-fade-bottom] {
+  -webkit-mask-image: none;
+  mask-image: none;
+}
 .acpmux-md-placeholder {
   position: absolute;
   left: calc(16px * var(--cmux-interface-scale, 1));

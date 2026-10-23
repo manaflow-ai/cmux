@@ -92,7 +92,7 @@ pub(super) fn build_id(identity: &Value) -> Option<&str> {
 }
 
 /// `identify`'s `data`, or None when the daemon does not answer it.
-pub(super) fn identify(socket: &Path) -> Option<Value> {
+pub(crate) fn identify(socket: &Path) -> Option<Value> {
     call_within(socket, json!({"cmd": "identify"}), IDENTIFY_BUDGET).ok()
 }
 

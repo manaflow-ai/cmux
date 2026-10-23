@@ -2,6 +2,7 @@ import CmuxNextCompat
 import CmuxNextWakeups
 import Darwin
 public import Foundation
+import os
 
 /// Keep in Sync: watches the history database of every synced source and,
 /// ``delay`` after its browser writes it, reads the pages again into that
@@ -72,18 +73,42 @@ public actor ImportHistorySync {
         if !pages.isEmpty { await deliver(profile, pages, []) }
     }
 
-    /// Saves one import batch; a source the re-import moved to another profile
-    /// leaves the old one (its imported bookmarks emptied, its pages taken out).
-    public func save(_ batch: ImportBatch, bookmarks: (any ImportedBookmarkSink)?) async throws {
-        guard let displaced = try await store.save(batch) else { return }
+    /// Saves one import batch and returns it as saved (less pages a Clear History
+    /// removed); a source the re-import moved to another profile leaves the old one
+    /// (its imported bookmarks emptied, its pages taken out).
+    @discardableResult
+    public func save(_ batch: ImportBatch, bookmarks: (any ImportedBookmarkSink)?) async throws -> ImportBatch {
+        let (saved, displaced) = try await store.save(batch)
+        guard let displaced else { return saved }
         if !displaced.bookmarks.isEmpty { try await bookmarks?.replaceImportedBookmarks([], source: displaced.source) }
         await deliver(displaced.source.targetProfileID, [], displaced.history.map(\.url))
+        return saved
     }
 
     /// Clear History: the saved imported pages of `profile` (nil: every
     /// profile) from `since` (nil: all) go, and later reads leave that time out.
     public func forget(profile: String?, since: Date?) async {
-        try? await store.forgetHistory(profile: profile, since: since)
+        do {
+            try await store.forgetHistory(profile: profile, since: since)
+        } catch {
+            Self.logForgetFailure("clear history", error)
+        }
+    }
+
+    /// Remove from History of one page in `profile`: its saved imported copy goes and stays out.
+    public func forgetPage(_ url: URL, profile: String) async {
+        do { try await store.forgetPage(url, profile: profile) } catch { Self.logForgetFailure("remove page", error) }
+    }
+
+    /// Remove Site: every profile's saved imported pages of `host` go and stay out.
+    public func forgetSite(host: String) async {
+        do { try await store.forgetSite(host: host) } catch { Self.logForgetFailure("remove site", error) }
+    }
+
+    /// The live history changed either way; the saved imported pages would come back at launch.
+    private static func logForgetFailure(_ what: String, _ error: any Error) {
+        Logger(subsystem: "com.cmuxterm.app.next", category: "browser-import")
+            .error("\(what, privacy: .public): saving the imported pages failed: \(String(describing: error), privacy: .public)")
     }
 
     /// Remove Imported Data: deletes what every import saved into `profile`,

@@ -7,8 +7,8 @@ import { readFileSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("popup-reduce-motion.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -26,7 +26,7 @@ await requireBrowserLane("popup-reduce-motion.test.ts", async () => {
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
   const url = (reduced = true, entry = "ui.menu") =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=${entry}${reduced ? "&reducedMotion=1" : ""}`;
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame(entry, { reducedMotion: reduced ? 1 : undefined })}`;
 
   async function ready(page: Page) {
     for (;;) {
@@ -46,13 +46,8 @@ await requireBrowserLane("popup-reduce-motion.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
-    // The first load can run Vite's dependency optimizer and reload mid-compile.
-    const warm = await browser.newPage();
-    await warm.goto(url());
-    await ready(warm);
-    await warm.close();
+    await warmGalleryFrame(vite, ["ui.menu", "ui.dialog"], { browser });
   });
   afterAll(async () => {
     await browser?.close();
@@ -99,7 +94,8 @@ await requireBrowserLane("popup-reduce-motion.test.ts", async () => {
         await page.getByRole("button", { name: "Open demo menu" }).click();
         const popup = page.locator(".ui-popup").first();
         await popup.waitFor();
-        await page.waitForTimeout(300); // the open settles
+        // The open settles: its fade-in has run to the end.
+        await popup.evaluate((element) => Promise.all(element.getAnimations({ subtree: true }).map((a) => a.finished)));
         await page.evaluate(() => {
           const faded: string[] = [];
           (window as unknown as { faded: string[] }).faded = faded;
@@ -152,7 +148,12 @@ await requireBrowserLane("popup-reduce-motion.test.ts", async () => {
         const forget = () => page.evaluate(() => ((window as unknown as { faded: string[] }).faded.length = 0));
         await page.getByRole("button", { name: "Open demo dialog" }).click();
         await page.locator(".ui-dialog").waitFor();
-        await page.waitForTimeout(300);
+        // Both fades start as the dialog opens; a transition that never runs leaves the wait to time out.
+        await page
+          .waitForFunction(() => new Set((window as unknown as { faded: string[] }).faded).size === 2, undefined, {
+            timeout: 5_000,
+          })
+          .catch(() => {});
         expect(await faded()).toEqual(["backdrop", "dialog"]);
         await forget();
         await page.keyboard.press("Escape");

@@ -191,6 +191,103 @@ class PrePushGateTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_push_that_adds_conflict_markers_is_refused_even_with_a_skip_reason(self):
+        # c779988d57d (2026-10-22) landed an unresolved merge in a test file; no scanner reads tests.
+        before = self.remote_head()
+        self.write(f"{PKG}/Tests/CmuxNextKitTests/MergedTests.swift",
+                   "struct T {\n<<<<<<< HEAD\n    let a = 1\n=======\n    let a = 2\n>>>>>>> abc1234 (other)\n}\n")
+        self.commit("unresolved merge")
+
+        result = self.push(CMUX_NEXT_CHECKS_SKIP_REASON="unrelated")
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before, "the conflicted file must not reach origin")
+        self.assertIn("Merge conflict markers", output)
+        self.assertIn("MergedTests.swift:2: <<<<<<< HEAD", output)
+
+    SIDEBAR_VIEW = f"{PKG}/Sources/CmuxNextSidebar/Views/RowView.swift"
+
+    def test_a_sidebar_view_change_without_a_sidebar_look_trailer_is_refused_even_with_a_skip_reason(self):
+        # 233 sidebar commits in four days undid each other (Lawrence 2026-10-23): the owner keeps the look.
+        before = self.remote_head()
+        self.write(self.SIDEBAR_VIEW, "struct RowView {\n    let inset = 22\n}\n")
+        self.commit("sidebar: move the title")
+
+        result = self.push(CMUX_NEXT_CHECKS_SKIP_REASON="unrelated")
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before)
+        self.assertIn("Sidebar look owner", output)
+        self.assertIn("no `Sidebar-Look:` trailer", output)
+
+    def test_a_visual_sidebar_change_must_update_the_owner_note(self):
+        self.write(self.SIDEBAR_VIEW, "struct RowView {\n    let inset = 22\n}\n")
+        self.commit("sidebar: move the title\n\nSidebar-Look: Lawrence 11405 text as left as possible")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertIn("must update plans/cmux-next/sidebar-owner.md", output)
+
+    def test_a_visual_sidebar_change_with_the_note_passes(self):
+        self.write(self.SIDEBAR_VIEW, "struct RowView {\n    let inset = 6\n}\n")
+        self.write("plans/cmux-next/sidebar-owner.md", "# owner\n- titles at the inset (Lawrence 11405)\n")
+        self.commit("sidebar: title at the inset\n\nSidebar-Look: Lawrence 11405 text as left as possible")
+
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_a_sidebar_change_marked_no_visual_change_passes_without_the_note(self):
+        self.write(self.SIDEBAR_VIEW, "struct RowView {\n    let cache = [Int]()\n}\n")
+        self.commit("sidebar: cache the rows\n\nSidebar-Look: no visual change")
+
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_a_later_commit_does_not_launder_an_earlier_sidebar_change(self):
+        self.write(self.SIDEBAR_VIEW, "struct RowView {\n    let inset = 22\n}\n")
+        self.commit("sidebar: move the title")
+        self.write(self.SIDEBAR_VIEW, "struct RowView {\n    let inset = 23\n}\n")
+        self.write("plans/cmux-next/sidebar-owner.md", "# owner\n")
+        self.commit("sidebar: tweak\n\nSidebar-Look: Lawrence said so")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertIn("sidebar: move the title", output)
+
+    def test_a_sidebar_change_the_owner_logged_passes_in_the_ci_sweep(self):
+        # dcd4316ef5c (2026-10-23) reached the branch from an old hook copy; the owner logs it once.
+        self.write(self.SIDEBAR_VIEW, "struct RowView {\n    let flash = true\n}\n")
+        self.commit("scrollers: flash on enter")
+        first = self.git("rev-parse", "HEAD").stdout.strip()
+        base = self.git("rev-parse", "HEAD^").stdout.strip()
+        gate = self.repo / "scripts/cmux-next/prepush-gate.py"
+        sweep = lambda: subprocess.run(["python3", "-I", str(gate), "--only", "sidebar", "--commits", f"{base}..HEAD"],
+                                       cwd=self.repo, env=self.env, text=True, capture_output=True)
+        unlogged = sweep()
+        self.assertNotEqual(unlogged.returncode, 0, unlogged.stdout + unlogged.stderr)
+        self.write("plans/cmux-next/sidebar-owner.md", f"# owner\n- {first[:11]} scrollers (a595), no look change\n")
+        self.commit("plans: log the scroller commit")
+
+        logged = sweep()
+
+        self.assertEqual(logged.returncode, 0, logged.stdout + logged.stderr)
+
+    def test_a_fixture_that_mentions_one_marker_passes(self):
+        self.write("docs/merging.md", "Git writes a line such as\n<<<<<<< HEAD\nat the top of a hunk.\n")
+        self.commit("docs mention a marker")
+
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_push_that_touches_a_file_with_old_debt_passes(self):
         self.write(f"{PKG}/Sources/CmuxNextKit/Old.swift", OLD.replace('"old"', '"renamed"'))
         self.write(f"{PKG}/Sources/CmuxNextKit/Fresh.swift", NEW_CLEAN)

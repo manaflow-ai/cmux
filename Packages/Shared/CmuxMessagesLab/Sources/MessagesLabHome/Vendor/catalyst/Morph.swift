@@ -78,7 +78,7 @@ final class MorphBubble {
         textSize = size
         fieldRect = field
         flyingRect = target
-        let bs = Springs.Bubble(fieldShrinks: fieldShrinks, lines: tl.lines.count)
+        let bs = Springs.Bubble(fieldShrinks: fieldShrinks, lines: tl.lines.count, travel: Double(field.width - target.width))
         springs = bs
         let none: [String: CAAction] = ["contents": NSNull(), "bounds": NSNull(), "position": NSNull(), "opacity": NSNull(),
                                         "transform": NSNull(), "path": NSNull(), "backgroundColor": NSNull()]

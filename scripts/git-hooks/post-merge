@@ -1,40 +1,48 @@
 #!/usr/bin/env bash
-# Migrate clone-local merge drivers after a trusted main fast-forward/pull.
+# Refresh the trusted hook copies and merge drivers after a fast-forward/pull
+# to trusted main or feat-cmux-next (where direct pushes land).
 set -euo pipefail
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 HEAD_SHA="$(git rev-parse HEAD)"
 
 # This hook is tracked, so never run its installer merely because an arbitrary
-# checked-out branch asks. The current commit must exactly equal main fetched
-# from the canonical manaflow-ai/cmux remote already configured by the user.
+# checked-out branch asks. The current commit must exactly equal main or
+# feat-cmux-next fetched from the canonical manaflow-ai/cmux remote already
+# configured by the user: the shared branches whose scripts the team already runs.
 while IFS= read -r remote; do
     url="$(git remote get-url "$remote" 2>/dev/null || true)"
     case "$url" in
         git@github.com:manaflow-ai/cmux.git|ssh://git@github.com/manaflow-ai/cmux.git|https://github.com/manaflow-ai/cmux.git|https://github.com/manaflow-ai/cmux)
-            trusted_ref="refs/remotes/$remote/main"
-            trusted_sha="$(git rev-parse --verify "$trusted_ref" 2>/dev/null || true)"
-            if [[ -n "$trusted_sha" && "$HEAD_SHA" == "$trusted_sha" ]]; then
-                trusted_inputs=(
-                    scripts/install-git-hooks.sh
-                    scripts/git-hooks/pre-commit
-                    scripts/git-hooks/post-merge
-                    scripts/merge-xcstrings.py
-                    scripts/merge-pbxproj.py
-                    scripts/merge-baseline.py
-                    scripts/merge-daemon-capabilities.py
-                    scripts/ci/merge_main_resolver.py
-                    scripts/ci/validate_test_execution_registry.py
-                    scripts/ci/test_execution_registry.py
-                    scripts/ci/workload_entrypoints.py
-                    scripts/normalize-pbxproj.py
-                )
-                if ! git diff --quiet "$trusted_sha" -- "${trusted_inputs[@]}"; then
-                    echo "warning: cmux merge-driver installer inputs differ from trusted main; rerun from a clean checkout." >&2
-                    exit 0
+            for trusted_branch in main feat-cmux-next; do
+                trusted_ref="refs/remotes/$remote/$trusted_branch"
+                trusted_sha="$(git rev-parse --verify "$trusted_ref" 2>/dev/null || true)"
+                if [[ -n "$trusted_sha" && "$HEAD_SHA" == "$trusted_sha" ]]; then
+                    trusted_inputs=(
+                        scripts/install-git-hooks.sh
+                        scripts/git-hooks/pre-commit
+                        scripts/git-hooks/post-merge
+                        scripts/merge-xcstrings.py
+                        scripts/merge-pbxproj.py
+                        scripts/merge-baseline.py
+                        scripts/merge-daemon-capabilities.py
+                        scripts/ci/merge_main_resolver.py
+                        scripts/ci/validate_test_execution_registry.py
+                        scripts/ci/test_execution_registry.py
+                        scripts/ci/workload_entrypoints.py
+                        scripts/normalize-pbxproj.py
+                        scripts/git-hooks/pre-push
+                        scripts/web_lint_prepush.py
+                        scripts/lint_swift_namespaces.py
+                        scripts/swift_source_mask.py
+                    )
+                    if ! git diff --quiet "$trusted_sha" -- "${trusted_inputs[@]}"; then
+                        echo "warning: cmux merge-driver installer inputs differ from trusted $trusted_branch; rerun from a clean checkout." >&2
+                        exit 0
+                    fi
+                    exec /bin/bash "$REPO_ROOT/scripts/install-git-hooks.sh"
                 fi
-                exec /bin/bash "$REPO_ROOT/scripts/install-git-hooks.sh"
-            fi
+            done
             ;;
     esac
 done < <(git remote)

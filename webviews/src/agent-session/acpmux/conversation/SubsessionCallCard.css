@@ -1,0 +1,54 @@
+/* A cmux-subsessions call (SubsessionCallCard.tsx): tool rows in their font, height and rhythm, with
+   nothing on hover (Leo 2026-10-13). States take the Ghostty theme's colours: a sub-session waiting
+   on the person the warning yellow, a failed one the red; a working one keeps the row's colour and
+   the working spinner. */
+.cv-subsession__name {
+  all: unset;
+  color: var(--cv-text);
+  font-weight: 500;
+}
+/* The name opens the sub-session's chat: the pointer and an underline on keyboard focus only, as
+   neighbouring transcript rows show focus, never a box. */
+.cv-subsession__name.is-link {
+  cursor: pointer;
+}
+.cv-subsession__name.is-link:focus-visible {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.cv-subsession__state[data-state="input"] {
+  color: var(--acpmux-warning);
+}
+.cv-subsession__state[data-state="failed"] {
+  color: var(--agent-danger);
+}
+.cv-subsession[data-state="failed"] > .cv-tool__icon {
+  color: var(--agent-danger);
+}
+.cv-subsession[data-state="input"] > .cv-tool__icon {
+  color: var(--acpmux-warning);
+}
+/* What a working sub-session does now, and a reply's first lines: under the row's text, at its
+   indent (the icon's 16px, less its -1.5px margin, plus the 8px gap). */
+.cv-subsession__under {
+  margin: -3px 0 4px 22.5px;
+  color: var(--cv-text-muted);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  min-width: 0;
+}
+.cv-subsession__doing {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-subsession__reply {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+  -webkit-user-select: text;
+}

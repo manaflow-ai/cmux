@@ -2899,133 +2899,133 @@
       }
     },
     "home.send.attachmentsUnsupported": {
-      "comment": "Home composer notice: a send with attachments was not delivered because this conversation's owner stores no attachments.",
+      "comment": "Home composer notice: a send with attachments was not delivered because this conversation's owner stores no files.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This conversation can’t receive attachments yet."
+            "value": "This conversation doesn’t store files. Remove the attachments and send again."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لا يمكن لهذه المحادثة تلقي مرفقات بعد."
+            "value": "هذه المحادثة لا تخزّن الملفات. أزل المرفقات وأرسل مرة أخرى."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ovaj razgovor još ne može primati priloge."
+            "value": "Ovaj razgovor ne čuva datoteke. Uklonite priloge i pošaljite ponovo."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Denne samtale kan ikke modtage vedhæftninger endnu."
+            "value": "Denne samtale gemmer ikke filer. Fjern vedhæftningerne, og send igen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Diese Unterhaltung kann noch keine Anhänge empfangen."
+            "value": "Diese Unterhaltung speichert keine Dateien. Entferne die Anhänge und sende erneut."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Esta conversación aún no puede recibir archivos adjuntos."
+            "value": "Esta conversación no guarda archivos. Quita los adjuntos y vuelve a enviar."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cette conversation ne peut pas encore recevoir de pièces jointes."
+            "value": "Cette conversation ne stocke pas de fichiers. Retirez les pièces jointes et renvoyez."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Questa conversazione non può ancora ricevere allegati."
+            "value": "Questa conversazione non archivia file. Rimuovi gli allegati e invia di nuovo."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "この会話ではまだ添付ファイルを受け取れません。"
+            "state": "translated",
+            "value": "この会話はファイルを保存しません。添付を外してもう一度送信してください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ការសន្ទនានេះមិនទាន់អាចទទួលឯកសារភ្ជាប់បានទេ។"
+            "value": "ការសន្ទនានេះមិនរក្សាទុកឯកសារទេ។ ដកឯកសារភ្ជាប់ចេញ ហើយផ្ញើម្តងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "이 대화는 아직 첨부 파일을 받을 수 없습니다."
+            "value": "이 대화는 파일을 저장하지 않습니다. 첨부 파일을 제거하고 다시 보내세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Denne samtalen kan ikke motta vedlegg ennå."
+            "value": "Denne samtalen lagrer ikke filer. Fjern vedleggene og send på nytt."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ta rozmowa nie może jeszcze odbierać załączników."
+            "value": "Ta rozmowa nie przechowuje plików. Usuń załączniki i wyślij ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Esta conversa ainda não pode receber anexos."
+            "value": "Esta conversa não guarda arquivos. Remova os anexos e envie novamente."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Этот разговор пока не может принимать вложения."
+            "value": "Этот разговор не хранит файлы. Удалите вложения и отправьте снова."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "การสนทนานี้ยังรับไฟล์แนบไม่ได้"
+            "value": "การสนทนานี้ไม่เก็บไฟล์ เอาไฟล์แนบออกแล้วส่งอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bu sohbet henüz ek alamıyor."
+            "value": "Bu konuşma dosya saklamaz. Ekleri kaldırıp yeniden gönderin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ця розмова поки не може отримувати вкладення."
+            "value": "Ця розмова не зберігає файли. Видаліть вкладення й надішліть знову."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cuộc trò chuyện này chưa thể nhận tệp đính kèm."
+            "value": "Cuộc trò chuyện này không lưu tệp. Hãy bỏ tệp đính kèm và gửi lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此对话暂时无法接收附件。"
+            "value": "此对话不存储文件。请移除附件后重新发送。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此對話暫時無法接收附件。"
+            "value": "此對話不儲存檔案。請移除附件後重新傳送。"
           }
         }
       }
@@ -12467,6 +12467,270 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "使用你的 Codex 登入在這台 Mac 上執行。"
+          }
+        }
+      }
+    },
+    "home.chief.backend.muse": {
+      "comment": "New Chief backend popup item and Chief Settings harness item: Meta's Muse Code (a product name, not translated).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muse Code"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muse Code"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muse Code"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muse Code"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muse Code"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muse Code"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muse Code"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muse Code"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muse Code"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muse Code"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muse Code"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muse Code"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muse Code"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muse Code"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muse Code"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muse Code"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muse Code"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muse Code"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muse Code"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muse Code"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muse Code"
+          }
+        }
+      }
+    },
+    "home.chief.backend.museHint": {
+      "comment": "One line under the New Chief backend popup when Muse Code is chosen: the Chief runs on this Mac through the muse-acp adapter.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Runs on this Mac with your Muse sign-in (`muse login`) through the muse-acp adapter."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يعمل على جهاز Mac هذا باستخدام تسجيل دخولك إلى Muse (`muse login`) عبر محوّل muse-acp."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Radi na ovom Macu s vašom Muse prijavom (`muse login`) preko muse-acp adaptera."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kører på denne Mac med dit Muse-login (`muse login`) via muse-acp-adapteren."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Läuft auf diesem Mac mit deiner Muse-Anmeldung (`muse login`) über den muse-acp-Adapter."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Funciona en este Mac con tu sesión de Muse (`muse login`) a través del adaptador muse-acp."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fonctionne sur ce Mac avec votre connexion Muse (`muse login`) via l’adaptateur muse-acp."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Funziona su questo Mac con il tuo accesso a Muse (`muse login`) tramite l’adattatore muse-acp."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "この Mac 上で、muse-acp アダプター経由であなたの Muse のサインイン（`muse login`）を使って動作します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ដំណើរការលើ Mac នេះ ដោយប្រើការចូល Muse របស់អ្នក (`muse login`) តាមរយៈ adapter muse-acp។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 Mac에서 muse-acp 어댑터를 통해 Muse 로그인(`muse login`)으로 실행됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kjører på denne Macen med Muse-påloggingen din (`muse login`) via muse-acp-adapteren."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Działa na tym Macu z Twoim logowaniem do Muse (`muse login`) przez adapter muse-acp."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Funciona neste Mac com seu login do Muse (`muse login`) pelo adaptador muse-acp."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Работает на этом Mac с вашим входом в Muse (`muse login`) через адаптер muse-acp."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ทำงานบน Mac เครื่องนี้ด้วยการลงชื่อเข้าใช้ Muse ของคุณ (`muse login`) ผ่านอะแดปเตอร์ muse-acp"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu Mac’te muse-acp bağdaştırıcısı üzerinden Muse oturumunuzla (`muse login`) çalışır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Працює на цьому Mac з вашим входом у Muse (`muse login`) через адаптер muse-acp."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chạy trên máy Mac này bằng phiên đăng nhập Muse của bạn (`muse login`) qua bộ chuyển đổi muse-acp."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "通过 muse-acp 适配器，使用你的 Muse 登录（`muse login`）在这台 Mac 上运行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "透過 muse-acp 轉接器，使用你的 Muse 登入（`muse login`）在這台 Mac 上執行。"
           }
         }
       }
@@ -22298,6 +22562,1319 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "「%@」是檔案夾。請附加其中的檔案，或該檔案夾的 ZIP 壓縮檔。"
+          }
+        }
+      }
+    },
+    "home.voice.microphoneDenied": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحتاج الإملاء إلى الوصول إلى الميكروفون. فعّله لـ cmux في إعدادات النظام."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diktiranje treba pristup mikrofonu. Uključite ga za cmux u Postavkama sistema."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diktering kræver adgang til mikrofonen. Slå den til for cmux i Systemindstillinger."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diktieren braucht Zugriff auf das Mikrofon. Aktiviere ihn für cmux in den Systemeinstellungen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dictation needs microphone access. Turn it on for cmux in System Settings."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El dictado necesita acceso al micrófono. Actívalo para cmux en Ajustes del Sistema."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La dictée a besoin d’accéder au micro. Activez-le pour cmux dans Réglages Système."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La dettatura richiede l’accesso al microfono. Attivalo per cmux in Impostazioni di Sistema."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声入力にはマイクへのアクセスが必要です。システム設定で cmux に許可してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការសរសេរតាមសំឡេងត្រូវការសិទ្ធិចូលប្រើមីក្រូហ្វូន។ សូមបើកវាសម្រាប់ cmux ក្នុងការកំណត់ប្រព័ន្ធ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "받아쓰기에는 마이크 접근 권한이 필요합니다. 시스템 설정에서 cmux에 허용하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diktering trenger tilgang til mikrofonen. Slå den på for cmux i Systeminnstillinger."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dyktowanie wymaga dostępu do mikrofonu. Włącz go dla cmux w Ustawieniach systemowych."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O ditado precisa de acesso ao microfone. Ative-o para o cmux nos Ajustes do Sistema."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для диктовки нужен доступ к микрофону. Включите его для cmux в Системных настройках."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การป้อนตามคำบอกต้องเข้าถึงไมโครโฟน เปิดให้ cmux ในการตั้งค่าระบบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dikte için mikrofon erişimi gerekir. Sistem Ayarları’nda cmux için açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для диктування потрібен доступ до мікрофона. Увімкніть його для cmux у Системних параметрах."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đọc chính tả cần quyền truy cập micrô. Hãy bật cho cmux trong Cài đặt hệ thống."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "听写需要麦克风权限。请在系统设置中为 cmux 开启。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聽寫需要麥克風權限。請在系統設定中為 cmux 開啟。"
+          }
+        }
+      }
+    },
+    "home.voice.speechDenied": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحتاج الإملاء بهذه اللغة إلى التعرّف على الكلام. فعّله لـ cmux في إعدادات النظام."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diktiranje na ovom jeziku treba prepoznavanje govora. Uključite ga za cmux u Postavkama sistema."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diktering på dette sprog kræver talegenkendelse. Slå den til for cmux i Systemindstillinger."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diktieren in dieser Sprache braucht Spracherkennung. Aktiviere sie für cmux in den Systemeinstellungen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dictation in this language needs speech recognition. Turn it on for cmux in System Settings."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El dictado en este idioma necesita reconocimiento de voz. Actívalo para cmux en Ajustes del Sistema."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La dictée dans cette langue a besoin de la reconnaissance vocale. Activez-la pour cmux dans Réglages Système."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La dettatura in questa lingua richiede il riconoscimento vocale. Attivalo per cmux in Impostazioni di Sistema."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この言語の音声入力には音声認識が必要です。システム設定で cmux に許可してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការសរសេរតាមសំឡេងជាភាសានេះត្រូវការការស្គាល់សំឡេង។ សូមបើកវាសម្រាប់ cmux ក្នុងការកំណត់ប្រព័ន្ធ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 언어로 받아쓰려면 음성 인식이 필요합니다. 시스템 설정에서 cmux에 허용하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diktering på dette språket trenger talegjenkjenning. Slå den på for cmux i Systeminnstillinger."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dyktowanie w tym języku wymaga rozpoznawania mowy. Włącz je dla cmux w Ustawieniach systemowych."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O ditado neste idioma precisa de reconhecimento de fala. Ative-o para o cmux nos Ajustes do Sistema."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для диктовки на этом языке нужно распознавание речи. Включите его для cmux в Системных настройках."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การป้อนตามคำบอกในภาษานี้ต้องใช้การรู้จำเสียงพูด เปิดให้ cmux ในการตั้งค่าระบบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu dilde dikte için konuşma tanıma gerekir. Sistem Ayarları’nda cmux için açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для диктування цією мовою потрібне розпізнавання мовлення. Увімкніть його для cmux у Системних параметрах."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đọc chính tả bằng ngôn ngữ này cần nhận dạng giọng nói. Hãy bật cho cmux trong Cài đặt hệ thống."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此语言的听写需要语音识别。请在系统设置中为 cmux 开启。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此語言的聽寫需要語音辨識。請在系統設定中為 cmux 開啟。"
+          }
+        }
+      }
+    },
+    "home.voice.openSettings": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فتح إعدادات النظام"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otvori Postavke sistema"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åbn Systemindstillinger"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Systemeinstellungen öffnen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open System Settings"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir Ajustes del Sistema"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir Réglages Système"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apri Impostazioni di Sistema"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "システム設定を開く"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បើកការកំណត់ប្រព័ន្ធ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시스템 설정 열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åpne Systeminnstillinger"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otwórz Ustawienia systemowe"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir Ajustes do Sistema"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открыть Системные настройки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปิดการตั้งค่าระบบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sistem Ayarları’nı Aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відкрити Системні параметри"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mở Cài đặt hệ thống"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开系统设置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打開系統設定"
+          }
+        }
+      }
+    },
+    "home.voice.languageUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الإملاء على الجهاز غير متاح لهذه اللغة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diktiranje na uređaju nije dostupno za ovaj jezik."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diktering på enheden er ikke tilgængelig for dette sprog."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diktieren auf dem Gerät ist für diese Sprache nicht verfügbar."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On-device dictation is not available for this language."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El dictado en el dispositivo no está disponible para este idioma."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La dictée sur l’appareil n’est pas disponible pour cette langue."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La dettatura sul dispositivo non è disponibile per questa lingua."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この言語ではデバイス上の音声入力を利用できません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការសរសេរតាមសំឡេងលើឧបករណ៍មិនមានសម្រាប់ភាសានេះទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 언어에서는 기기 내 받아쓰기를 사용할 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diktering på enheten er ikke tilgjengelig for dette språket."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dyktowanie na urządzeniu nie jest dostępne dla tego języka."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O ditado no dispositivo não está disponível para este idioma."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Диктовка на устройстве недоступна для этого языка."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การป้อนตามคำบอกบนอุปกรณ์ไม่พร้อมใช้งานสำหรับภาษานี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cihaz üzerinde dikte bu dil için kullanılamıyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Диктування на пристрої недоступне для цієї мови."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đọc chính tả trên thiết bị không khả dụng cho ngôn ngữ này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此语言不支持设备端听写。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此語言不支援裝置端聽寫。"
+          }
+        }
+      }
+    },
+    "home.voice.modelDownloadFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر تنزيل نموذج الكلام. حاول مرة أخرى عند الاتصال بالإنترنت."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Model govora nije moguće preuzeti. Pokušajte ponovo kada budete na mreži."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Talemodellen kunne ikke hentes. Prøv igen, når du er online."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Sprachmodell konnte nicht geladen werden. Versuche es erneut, wenn du online bist."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The speech model could not be downloaded. Try again when you are online."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo descargar el modelo de voz. Inténtalo de nuevo cuando tengas conexión."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le modèle vocal n’a pas pu être téléchargé. Réessayez une fois en ligne."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile scaricare il modello vocale. Riprova quando sei online."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声モデルをダウンロードできませんでした。オンラインのときにもう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចទាញយកម៉ូដែលសំឡេងបានទេ។ សូមព្យាយាមម្ដងទៀតនៅពេលអ្នកភ្ជាប់អ៊ីនធឺណិត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "음성 모델을 다운로드할 수 없습니다. 온라인 상태에서 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Talemodellen kunne ikke lastes ned. Prøv igjen når du er tilkoblet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie udało się pobrać modelu mowy. Spróbuj ponownie, gdy będziesz online."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível baixar o modelo de fala. Tente novamente quando estiver online."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось загрузить речевую модель. Повторите попытку, когда будете в сети."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถดาวน์โหลดโมเดลเสียงพูดได้ ลองอีกครั้งเมื่อออนไลน์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konuşma modeli indirilemedi. Çevrimiçi olduğunuzda tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося завантажити мовну модель. Спробуйте ще раз, коли будете онлайн."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không thể tải xuống mô hình giọng nói. Hãy thử lại khi bạn có kết nối mạng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法下载语音模型。请在联网后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法下載語音模型。請在連網後重試。"
+          }
+        }
+      }
+    },
+    "home.voice.noMicrophone": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يتوفر ميكروفون."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nijedan mikrofon nije dostupan."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der er ingen tilgængelig mikrofon."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein Mikrofon verfügbar."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No microphone is available."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay ningún micrófono disponible."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun micro n’est disponible."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessun microfono disponibile."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用できるマイクがありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនមានមីក្រូហ្វូនទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용할 수 있는 마이크가 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen mikrofon er tilgjengelig."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brak dostępnego mikrofonu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhum microfone disponível."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нет доступного микрофона."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่มีไมโครโฟนที่ใช้ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kullanılabilir mikrofon yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Немає доступного мікрофона."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không có micrô nào khả dụng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有可用的麦克风。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有可用的麥克風。"
+          }
+        }
+      }
+    },
+    "home.voice.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "توقفت الإملاء بشكل غير متوقع."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diktiranje se neočekivano zaustavilo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dikteringen stoppede uventet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Diktieren wurde unerwartet beendet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dictation stopped unexpectedly."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El dictado se detuvo inesperadamente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La dictée s’est arrêtée de façon inattendue."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La dettatura si è interrotta inaspettatamente."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声入力が予期せず停止しました。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការសរសេរតាមសំឡេងបានឈប់ដោយមិនបានរំពឹងទុក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "받아쓰기가 예기치 않게 중지되었습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dikteringen stoppet uventet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dyktowanie nieoczekiwanie się zatrzymało."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O ditado parou inesperadamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Диктовка неожиданно остановилась."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การป้อนตามคำบอกหยุดโดยไม่คาดคิด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dikte beklenmedik şekilde durdu."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Диктування неочікувано зупинилося."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đọc chính tả đã dừng đột ngột."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "听写意外停止。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聽寫意外停止。"
+          }
+        }
+      }
+    },
+    "home.send.attachmentsCloud": {
+      "comment": "Home composer notice: a send with attachments was not delivered because cmux Cloud conversations keep text only.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud conversations keep text only, so files can’t be sent here. Remove the attachments and send again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تحتفظ محادثات cmux Cloud بالنص فقط، لذا لا يمكن إرسال الملفات هنا. أزل المرفقات وأرسل مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud razgovori čuvaju samo tekst, pa se datoteke ovdje ne mogu poslati. Uklonite priloge i pošaljite ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud-samtaler gemmer kun tekst, så filer kan ikke sendes her. Fjern vedhæftningerne, og send igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud-Unterhaltungen speichern nur Text, daher können hier keine Dateien gesendet werden. Entferne die Anhänge und sende erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Las conversaciones de cmux Cloud solo guardan texto, así que aquí no se pueden enviar archivos. Quita los adjuntos y vuelve a enviar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les conversations cmux Cloud ne conservent que du texte : impossible d’y envoyer des fichiers. Retirez les pièces jointes et renvoyez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le conversazioni cmux Cloud conservano solo testo, quindi qui non si possono inviare file. Rimuovi gli allegati e invia di nuovo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud の会話はテキストだけを保存するため、ここではファイルを送信できません。添付を外してもう一度送信してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការសន្ទនា cmux Cloud រក្សាទុកតែអត្ថបទ ដូច្នេះមិនអាចផ្ញើឯកសារនៅទីនេះបានទេ។ ដកឯកសារភ្ជាប់ចេញ ហើយផ្ញើម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud 대화는 텍스트만 보관하므로 여기서는 파일을 보낼 수 없습니다. 첨부 파일을 제거하고 다시 보내세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud-samtaler lagrer bare tekst, så filer kan ikke sendes her. Fjern vedleggene og send på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rozmowy cmux Cloud przechowują tylko tekst, więc nie można tu wysyłać plików. Usuń załączniki i wyślij ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "As conversas do cmux Cloud guardam apenas texto, então não é possível enviar arquivos aqui. Remova os anexos e envie novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Разговоры cmux Cloud хранят только текст, поэтому файлы сюда отправить нельзя. Удалите вложения и отправьте снова."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การสนทนา cmux Cloud เก็บเฉพาะข้อความ จึงส่งไฟล์ที่นี่ไม่ได้ เอาไฟล์แนบออกแล้วส่งอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud konuşmaları yalnızca metin saklar, bu yüzden buraya dosya gönderilemez. Ekleri kaldırıp yeniden gönderin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Розмови cmux Cloud зберігають лише текст, тому файли сюди надіслати не можна. Видаліть вкладення й надішліть знову."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cuộc trò chuyện cmux Cloud chỉ lưu văn bản nên không thể gửi tệp ở đây. Hãy bỏ tệp đính kèm và gửi lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud 对话只保存文本，因此无法在此发送文件。请移除附件后重新发送。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud 對話只保存文字，因此無法在此傳送檔案。請移除附件後重新傳送。"
+          }
+        }
+      }
+    },
+    "home.send.attachmentsNeedNewerCmux": {
+      "comment": "Home composer notice: a send with attachments was not delivered because the cmux that owns the conversation is too old to store files.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The cmux that owns this conversation is too old to store files. Update cmux there, or remove the attachments and send again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إصدار cmux الذي يملك هذه المحادثة قديم جدًا لتخزين الملفات. حدّث cmux هناك، أو أزل المرفقات وأرسل مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux koji posjeduje ovaj razgovor je prestar za čuvanje datoteka. Ažurirajte cmux tamo ili uklonite priloge i pošaljite ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den cmux, der ejer denne samtale, er for gammel til at gemme filer. Opdater cmux der, eller fjern vedhæftningerne, og send igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das cmux, dem diese Unterhaltung gehört, ist zu alt, um Dateien zu speichern. Aktualisiere cmux dort oder entferne die Anhänge und sende erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El cmux que aloja esta conversación es demasiado antiguo para guardar archivos. Actualiza cmux allí o quita los adjuntos y vuelve a enviar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le cmux qui héberge cette conversation est trop ancien pour stocker des fichiers. Mettez cmux à jour là-bas, ou retirez les pièces jointes et renvoyez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il cmux che gestisce questa conversazione è troppo vecchio per archiviare file. Aggiorna cmux lì oppure rimuovi gli allegati e invia di nuovo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この会話を管理している cmux が古いため、ファイルを保存できません。そちらの cmux を更新するか、添付を外してもう一度送信してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux ដែលគ្រប់គ្រងការសន្ទនានេះចាស់ពេក មិនអាចរក្សាទុកឯកសារបានទេ។ ធ្វើបច្ចុប្បន្នភាព cmux នៅទីនោះ ឬដកឯកសារភ្ជាប់ចេញ ហើយផ្ញើម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 대화를 소유한 cmux가 오래되어 파일을 저장할 수 없습니다. 그곳의 cmux를 업데이트하거나 첨부 파일을 제거하고 다시 보내세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-en som eier denne samtalen, er for gammel til å lagre filer. Oppdater cmux der, eller fjern vedleggene og send på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux, do którego należy ta rozmowa, jest zbyt stary, by przechowywać pliki. Zaktualizuj tam cmux albo usuń załączniki i wyślij ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux que hospeda esta conversa é antigo demais para guardar arquivos. Atualize o cmux lá ou remova os anexos e envie novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux, которому принадлежит этот разговор, слишком старый для хранения файлов. Обновите там cmux или удалите вложения и отправьте снова."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux ที่เป็นเจ้าของการสนทนานี้เก่าเกินกว่าจะเก็บไฟล์ได้ อัปเดต cmux ที่นั่น หรือเอาไฟล์แนบออกแล้วส่งอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu konuşmanın sahibi olan cmux dosya saklamak için çok eski. Oradaki cmux'u güncelleyin ya da ekleri kaldırıp yeniden gönderin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux, якому належить ця розмова, застарий для зберігання файлів. Оновіть там cmux або видаліть вкладення й надішліть знову."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux sở hữu cuộc trò chuyện này quá cũ để lưu tệp. Hãy cập nhật cmux ở đó, hoặc bỏ tệp đính kèm và gửi lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "拥有此对话的 cmux 版本太旧，无法存储文件。请在那台机器上更新 cmux，或移除附件后重新发送。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "擁有此對話的 cmux 版本太舊，無法儲存檔案。請在那台機器上更新 cmux，或移除附件後重新傳送。"
+          }
+        }
+      }
+    },
+    "home.composer.attach.pending": {
+      "comment": "Home composer notice while files dropped from another app (a screenshot thumbnail, Photos, a browser) are still being written.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adding the dropped files…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "جارٍ إضافة الملفات المُفلتة…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dodavanje ispuštenih datoteka…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tilføjer de slupne filer…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die abgelegten Dateien werden hinzugefügt …"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Añadiendo los archivos soltados…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajout des fichiers déposés…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aggiunta dei file trascinati…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ドロップしたファイルを追加しています…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំពុងបន្ថែមឯកសារដែលបានទម្លាក់…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "놓은 파일을 추가하는 중…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Legger til filene du slapp …"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dodawanie upuszczonych plików…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adicionando os arquivos soltos…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Добавление перетащенных файлов…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กำลังเพิ่มไฟล์ที่ลากมาวาง…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bırakılan dosyalar ekleniyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Додавання перетягнутих файлів…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đang thêm các tệp đã thả…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在添加拖入的文件…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在加入拖入的檔案…"
           }
         }
       }

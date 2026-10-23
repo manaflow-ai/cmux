@@ -13,6 +13,10 @@ enum HomeStrings {
     static var attachFailed: String {
         String(localized: "home.composer.attach.failed", defaultValue: "The file couldn’t be attached.", bundle: .module)
     }
+    /// While a drop's files are still on their way from their app (a screenshot thumbnail, Photos, a browser).
+    static var attachPending: String {
+        String(localized: "home.composer.attach.pending", defaultValue: "Adding the dropped files…", bundle: .module)
+    }
     static func attachUnsupported(_ name: String) -> String {
         String(format: String(localized: "home.composer.attach.refused", defaultValue: "“%@” can’t be attached.", bundle: .module), name)
     }
@@ -37,14 +41,31 @@ enum HomeStrings {
         String(format: String(localized: "home.composer.attach.locationNotRemoved",
                               defaultValue: "Location data couldn’t be removed from “%@”, so it was not attached.", bundle: .module), name)
     }
-    /// Why a send shows "Not Delivered": attachments to an owner that
-    /// stores none, else the refusal's own notice.
+    /// Why a send shows "Not Delivered": the refusal's own notice (``rejection(_:)``), which says
+    /// why an owner took no files.
     static func notDeliveredReason(_ rejection: HomeRejection) -> String {
-        if rejection == .invalid("attachments unsupported") {
-            return String(localized: "home.send.attachmentsUnsupported", defaultValue: "This conversation can’t receive attachments yet.",
-                          bundle: .module)
+        Self.rejection(rejection)
+    }
+    /// Why an owner took no files, or nil for any other refusal. A file has nowhere to go on these
+    /// owners, and a path on this Mac means nothing to them, so the person removes the attachments.
+    private static func attachmentRefusalReason(_ rejection: HomeRejection) -> String? {
+        switch rejection {
+        // cmux Cloud keeps text only (`HomeSourceRouter.upload` names the Cloud owner).
+        case .invalid("cloud_attachments_unsupported"):
+            String(localized: "home.send.attachmentsCloud",
+                   defaultValue: "cmux Cloud conversations keep text only, so files can’t be sent here. Remove the attachments and send again.",
+                   bundle: .module)
+        // A cmux daemon owner without `local-attachments-v1`: an older cmux on the machine that owns the conversation.
+        case .invalid("attachments_unsupported"):
+            String(localized: "home.send.attachmentsNeedNewerCmux",
+                   defaultValue: "The cmux that owns this conversation is too old to store files. Update cmux there, or remove the attachments and send again.",
+                   bundle: .module)
+        // Any other owner with no file storage (`HomeSource.upload`'s default).
+        case .invalid("attachments unsupported"):
+            String(localized: "home.send.attachmentsUnsupported",
+                   defaultValue: "This conversation doesn’t store files. Remove the attachments and send again.", bundle: .module)
+        default: nil
         }
-        return Self.rejection(rejection)
     }
     static var unanswered: String {
         String(localized: "home.send.unanswered", defaultValue: "A change may not have gone through. Check your connection.",
@@ -53,7 +74,8 @@ enum HomeStrings {
     /// The composer notice for a send the owner refused after it left the
     /// composer (a resumed upload, a resend).
     static func rejection(_ rejection: HomeRejection) -> String {
-        switch rejection {
+        if let reason = attachmentRefusalReason(rejection) { return reason }
+        return switch rejection {
         case .notAuthorized:
             String(localized: "home.send.refused.notAuthorized", defaultValue: "You can’t send messages in this conversation.",
                    bundle: .module)

@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextRemote
+import CmuxNextServer
 
 /// SSH machine actions (`SSHService`). A machine is the invocation's
 /// `machine:` target (a section header's context menu, CLI `--machine`,
@@ -30,10 +31,8 @@ enum RemoteHandlers {
             if let text = invocation["destination"]?.stringValue {
                 return try connect(text)
             }
-            CloudPresenter.askText(RemoteStrings.connectTitle, initial: "", button: RemoteStrings.connect, in: CloudHandlers.window(context)) { text in
-                guard let text, !text.trimmingCharacters(in: .whitespaces).isEmpty else { return }
-                do { try connect(text) } catch { CloudPresenter.failure(error, in: CloudHandlers.window(context)) }
-            }
+            // The host as a Cmd-Shift-P step; Return runs this again with it.
+            registry.ask("remote.connect", invocation, ActionArgumentAsk(argument: "destination"))
         }
         // A terminal of another machine in this pane (a mixed workspace,
         // plans/cmux-next/data-model.md 1.2b): any connected session, SSH,
@@ -111,6 +110,25 @@ enum RemoteHandlers {
                 return nil
             }
             registry.track(work)
+        }
+        // The Add Machine card (plans/cmux-next/add-machine-DESIGN.md). A destination (the CLI, MCP)
+        // only fills the card: the enroll starts when the person presses Add, never from outside the
+        // app alone (trust policy, the conservative default until it is decided).
+        // Add Device (plans/cmux-next/add-device-DESIGN.md): the one entry; Add Machine and Add Server are its ways.
+        registry.bind("device.add", run: { invocation in
+            let way = invocation["way"]?.stringValue.flatMap(AddDeviceWay.init(rawValue:))
+            context.services.addDevice.open(way: way, over: CloudHandlers.window(context))
+        })
+        CloudHandlers.bind("machine.add", registry, reason: available) { invocation in
+            let card = context.services.addMachine
+            card.open(destination: invocation["destination"]?.stringValue, name: invocation["name"]?.stringValue,
+                      over: CloudHandlers.window(context))
+        }
+        // Check Machine: the same card's checklist for one SSH machine, with Fix.
+        CloudHandlers.bind("machine.doctor", registry, reason: hasMachine) { invocation in
+            let session = try machine(invocation, context), card = context.services.addMachine
+            card.check(host: session.host.destination.description, machineID: session.machineID, over: CloudHandlers.window(context))
+            registry.track(Task { await card.finished().map { ActionWorkFailure($0) } })
         }
     }
 

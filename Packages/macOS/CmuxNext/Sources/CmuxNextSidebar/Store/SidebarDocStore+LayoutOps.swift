@@ -11,11 +11,14 @@ public import Foundation
 extension SidebarDocStore {
     /// Why a band edit has no document op.
     public enum LayoutOpGap: Error, Hashable, Sendable {
-        /// An edit the document has no op for (a section that is not an item list, a non-workspace item into the workspace list).
+        /// An edit the document has no op for (a non-workspace item into the workspace list).
         case unsupported
         /// The workspace list stands for the machine sections: it cannot move, be removed, be renamed or be scoped to a space.
         case workspaceList
         case unknownItem
+        /// An edit the layout's own rules refuse (an app section without a valid contribution or with
+        /// items, a second workspace list), as the older layout owner refuses it.
+        case rejected(SidebarLayoutReject)
     }
 
     /// The document ops of `ops`, in order, planned over `layout` (the
@@ -61,7 +64,18 @@ private struct LayoutOpPlanner {
     mutating func ops(for op: SidebarLayoutOp) throws(Gap) -> [[String: Any]] {
         switch op {
         case let .sectionAdd(section, index):
-            guard section.content == .items else { throw .unsupported }
+            switch section.content {
+            case .items: break
+            // The workspace list is exactly one section (L1): the machine sections stand for it.
+            case .workspaces: throw .rejected(.workspacesRequired)
+            // An app section (`<app id>#<section id>`) is a document section of kind app; it holds no items.
+            case .app:
+                guard section.owningAppID != nil, let contribution = section.contribution,
+                      !contribution.hasSuffix("#") else { throw .rejected(.invalidContribution) }
+                guard section.items.isEmpty else { throw .rejected(.itemsNotAllowed) }
+                guard records.sections[section.id.rawValue] == nil else { return [] }
+                return [sectionAdd(section, index: index, kind: ["type": "app", "contribution": contribution])]
+            }
             // A section added with its first items (Add to Top, Pin into a new Pinned): the items follow it.
             // A section the document already has (Pinned, shown only when it holds something) takes just the items.
             var out: [[String: Any]] = []
@@ -132,8 +146,9 @@ private struct LayoutOpPlanner {
         }
     }
 
-    private mutating func sectionAdd(_ section: LayoutSection, index: Int) -> [String: Any] {
-        var wire: [String: Any] = ["id": section.id.rawValue, "kind": ["type": "custom"], "shows_title": section.showsTitle,
+    /// `section.add` of `section` as a document section of `kind` (a custom section unless named).
+    private mutating func sectionAdd(_ section: LayoutSection, index: Int, kind: [String: String] = ["type": "custom"]) -> [String: Any] {
+        var wire: [String: Any] = ["id": section.id.rawValue, "kind": kind, "shows_title": section.showsTitle,
                                    "region": section.region.rawValue, "look": section.look.rawValue,
                                    "arrangement": section.arrangement.layout.rawValue,
                                    "align": section.arrangement.align.rawValue]

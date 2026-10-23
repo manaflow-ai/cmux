@@ -7,7 +7,9 @@ import AppKit
 final class FieldTextView: NSTextView {
     var onSend: () -> Void = {}
     var onEscape: () -> Void = {}
-    var onPasteImage: (NSImage) -> Void = { _ in }
+    /// cmux: optional; nil (Home: the host's intake takes pictures) skips the picture decode
+    /// a declined paste made only to throw the image away.
+    var onPasteImage: ((NSImage) -> Void)?
     /// cmux: the host's attachment intake reads the pasteboard first
     /// (files and pictures, Home's type rule); true when it took the paste.
     var onPastePasteboard: (NSPasteboard) -> Bool = { _ in false }
@@ -18,6 +20,12 @@ final class FieldTextView: NSTextView {
     /// cmux: a drop on the field that the host's intake takes (the paste's
     /// type rule). A plain-text NSTextView would type a dropped file's path.
     var onDropPasteboard: (NSPasteboard) -> Bool = { _ in false }
+    /// cmux: whether the host's intake would take a drag's pasteboard (a drag also counts
+    /// file promises, which a paste cannot receive); nil uses `acceptsPastePasteboard`.
+    var acceptsDropPasteboard: ((NSPasteboard) -> Bool)?
+    /// cmux: the field became (true) or stopped being (false) the target of a drag the host's
+    /// intake takes: the pane's drop highlight follows it.
+    var onDropTargetChange: (Bool) -> Void = { _ in }
     /// Marked (IME) text changed. UITextView reports marked text through
     /// `textViewDidChange`, so the draft (and the field height) follows the
     /// composition; NSTextView does not post a text change for it.
@@ -27,6 +35,7 @@ final class FieldTextView: NSTextView {
     /// The release of that press (the mouse-up that ended the text view's tracking).
     var onRelease: (NSEvent) -> Void = { _ in }
     override func mouseDown(with event: NSEvent) {
+        pickerAnchor = nil  // cmux
         onPress(event)
         super.mouseDown(with: event)
         if let up = NSApp.currentEvent, up.type == .leftMouseUp { onRelease(up) }
@@ -58,12 +67,14 @@ final class FieldTextView: NSTextView {
     override func viewDidChangeBackingProperties() { super.viewDidChangeBackingProperties(); applyScale() }
 
     override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
+        pickerAnchor = nil  // cmux: an input method's window goes at the caret
         super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
         onMarkedTextChange()
     }
 
     override func keyDown(with event: NSEvent) {
         if Self.caretLog { Self.log("key down \(event.keyCode)"); Self.logRunLoop() }
+        pickerAnchor = nil  // cmux
         defer { if Self.caretLog { Self.log("key done") } }
         // Marked text (IME composition) owns Return and Esc.
         if hasMarkedText() { super.keyDown(with: event); return }
@@ -157,7 +168,8 @@ final class FieldTextView: NSTextView {
             if let r = caretRect(at: sel.location, upstream: textLayoutManager?.textSelections.first?.affinity == .upstream) {
                 local = CGRect(x: r.minX + Self.caretDX, y: r.minY, width: Self.caretWidth, height: 17)
             } else {
-                let screen = firstRect(forCharacterRange: NSRange(location: sel.location, length: 0), actualRange: nil)
+                // cmux: AppKit's own rect, never the emoji picker's anchor (`pickerAnchor`).
+                let screen = super.firstRect(forCharacterRange: NSRange(location: sel.location, length: 0), actualRange: nil)
                 let r = convert(window.convertFromScreen(screen), from: nil)
                 local = CGRect(x: r.minX + Self.caretDX, y: r.midY + Self.caretDY, width: Self.caretWidth, height: 17)
             }
@@ -226,6 +238,7 @@ final class FieldTextView: NSTextView {
         return ok
     }
     override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting: Bool) {
+        pickerAnchor = nil  // cmux
         caretByEdit = editing
         super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelecting)
         // A caret move (an arrow key) shows the caret by this rule whatever AppKit scrolls; an
@@ -264,6 +277,7 @@ final class FieldTextView: NSTextView {
         return ok
     }
     override func resignFirstResponder() -> Bool {
+        pickerAnchor = nil  // cmux
         let ok = super.resignFirstResponder()
         DispatchQueue.main.async { [weak self] in self?.updateCaret(reset: false) }
         return ok
@@ -475,13 +489,30 @@ final class FieldTextView: NSTextView {
         return super.scrollToVisible(rect)
     }
 
+    /// cmux: where the system emoji picker opens (screen coordinates), set by the emoji button
+    /// (ChatController+Emoji.swift) just before it asks for the picker. The picker places itself at
+    /// the first responder's `firstRect(forCharacterRange:)`; this field draws its own caret, and
+    /// AppKit's rect for it was zero or off screen, so the picker opened at the screen's corner.
+    /// One open only: the next selection change (the chosen emoji), key, modifier (Fn Fn
+    /// dictation), marked text, click or loss of the keyboard clears it, and the field reports
+    /// AppKit's rect again.
+    var pickerAnchor: NSRect?
+    override func flagsChanged(with event: NSEvent) {
+        pickerAnchor = nil  // cmux
+        super.flagsChanged(with: event)
+    }
+    override func firstRect(forCharacterRange range: NSRange, actualRange: NSRangePointer?) -> NSRect {
+        if let pickerAnchor { actualRange?.pointee = range; return pickerAnchor }  // cmux
+        return super.firstRect(forCharacterRange: range, actualRange: actualRange)
+    }
+
     /// The pasteboard Paste reads (a check injects its own).
     var pasteboard: NSPasteboard = .general
 
     override func paste(_ sender: Any?) {
         let pb = pasteboard
         if onPastePasteboard(pb) { return }  // cmux
-        if pb.string(forType: .string) == nil, let img = NSImage(pasteboard: pb) { onPasteImage(img); return }
+        if let onPasteImage, pb.string(forType: .string) == nil, let img = NSImage(pasteboard: pb) { onPasteImage(img); return }  // cmux
         super.paste(sender)
     }
 
@@ -512,23 +543,29 @@ final class FieldTextView: NSTextView {
     private var dragAnswer: (sequence: Int, accepts: Bool)?
     private func takesDrag(_ sender: any NSDraggingInfo) -> Bool {
         if let a = dragAnswer, a.sequence == sender.draggingSequenceNumber { return a.accepts }
-        let accepts = acceptsPastePasteboard(sender.draggingPasteboard)
+        let accepts = (acceptsDropPasteboard ?? acceptsPastePasteboard)(sender.draggingPasteboard)  // cmux
         dragAnswer = (sender.draggingSequenceNumber, accepts)
         return accepts
     }
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
         dragAnswer = nil
-        return takesDrag(sender) ? .copy : super.draggingEntered(sender)
+        let takes = takesDrag(sender)  // cmux
+        onDropTargetChange(takes)  // cmux
+        return takes ? .copy : super.draggingEntered(sender)  // cmux
     }
     override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        takesDrag(sender) ? .copy : super.draggingUpdated(sender)
+        let takes = takesDrag(sender)  // cmux
+        onDropTargetChange(takes)  // cmux: the host ignores a repeat
+        return takes ? .copy : super.draggingUpdated(sender)  // cmux
     }
     override func draggingExited(_ sender: (any NSDraggingInfo)?) {
         dragAnswer = nil
+        onDropTargetChange(false)  // cmux
         super.draggingExited(sender)
     }
     override func draggingEnded(_ sender: any NSDraggingInfo) {
         dragAnswer = nil
+        onDropTargetChange(false)  // cmux
         super.draggingEnded(sender)
     }
     override func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool {
@@ -537,6 +574,7 @@ final class FieldTextView: NSTextView {
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
         let takes = takesDrag(sender)
         dragAnswer = nil
+        onDropTargetChange(false)  // cmux
         if takes { return onDropPasteboard(sender.draggingPasteboard) }
         return super.performDragOperation(sender)
     }
@@ -747,13 +785,38 @@ final class ComposeView: UIView {
     var onSendPulse: ((CFTimeInterval) -> Void)?
     /// cmux: the field was placed or the draft changed (the send button, ComposeSendSlot).
     var onSlotChange: (() -> Void)?
+    /// cmux: the trailing width the text leaves free: the send button's slot, wider while the voice
+    /// input listens (its waveform, finish and mic buttons; ComposeVoiceControls.swift). A change
+    /// lays the text out at the new width and fits the field's height to it at once.
+    var trailingReserve: CGFloat = ComposeSendSlot.trailingReserve {
+        didSet {
+            guard trailingReserve != oldValue else { return }
+            let old = fieldHeight
+            fieldHeight = height(for: text, width: bounds.width)
+            place(height: fieldHeight)
+            if fieldHeight != old { onFieldJump?() }
+        }
+    }
+    /// cmux: the voice input's mic button stands where Messages' waveform is drawn.
+    var hidesWaveform = false { didSet { if hidesWaveform != oldValue { applyEmptyGlyphs() } } }
+    /// cmux: the voice input's "Listening…" line stands where the placeholder is drawn.
+    var hidesPlaceholder = false { didSet { if hidesPlaceholder != oldValue { applyEmptyGlyphs() } } }
+    /// cmux: the placeholder and the waveform show only in an empty field, unless the voice input
+    /// stands in for them.
+    private func applyEmptyGlyphs() {
+        let empty = text.isEmpty && chips.isEmpty
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        placeholderLayer.opacity = empty && !hidesPlaceholder ? 1 : 0
+        waveLayer.opacity = empty && !hidesWaveform ? 1 : 0
+        CATransaction.commit()
+    }
     /// cmux: the attachments in the field (the send button shows for them too).
     var attachmentCount: Int { chips.count }
 
     static func height(lines: Int, chips: Bool) -> CGFloat { ComposeMetrics.height(lines: lines, chips: chips) }
     /// per view (several Home tabs), from this compose bar's width.
     // cmux: the text always leaves the trailing slot (the waveform's, then the send button's).
-    var textWidth: CGFloat { ComposeView.fieldWidth(bounds.width) - 24 - ComposeSendSlot.trailingReserve }
+    var textWidth: CGFloat { ComposeView.fieldWidth(bounds.width) - 24 - trailingReserve }
     static func fieldWidth(_ windowWidth: CGFloat) -> CGFloat { 526 + windowWidth - Fixture.windowWidth }
     static let font = Fixture.bodyFont
     /// `writingTools`' raw value for reports: -1 on macOS 14 (no Writing Tools).
@@ -776,16 +839,32 @@ final class ComposeView: UIView {
     /// its text scrolls past it).
     func lines(_ text: String, windowWidth: CGFloat) -> Int {
         // One-entry memo: every compose update asks again for the same draft (a send asks for "").
-        let w = ComposeView.fieldWidth(windowWidth) - 24 - ComposeSendSlot.trailingReserve  // cmux: the send button's slot
+        let w = ComposeView.fieldWidth(windowWidth) - 24 - trailingReserve  // cmux: the send button's slot (wider while dictating)
         // The empty field (every send and every commit after it) has its own entry: the one-entry
         // memo held the last typed draft, so each send typeset " " again.
         // Its one line (a space) does not depend on the width: a live resize's every width
         // typeset it again (cx-3cb resize-drops).
         if text.isEmpty, let e = emptyLinesMemo, e.0 == w || (e.1 == 1 && w >= ComposeView.emptyLineMinWidth) { return e.1 }
-        if let m = linesMemo, m.0 == text, m.1 == w { return m.2 }
-        let n = TextLayout.make(text.isEmpty ? " " : text, runs: [], maxWidth: w, font: ComposeView.font).lines.count
-        if text.isEmpty { emptyLinesMemo = (w, n) } else { linesMemo = (text, w, n) }
-        return n
+        if let m = linesMemo, m.text == text, m.width == w { return m.count }
+        if text.isEmpty {
+            let n = TextLayout.make(" ", runs: [], maxWidth: w, font: ComposeView.font).lines.count
+            emptyLinesMemo = (w, n)
+            return n
+        }
+        // cmux: typing at the end of the draft (each key's case) lays out only from the start of the
+        // memo's second-to-last line: a greedy break before it cannot move when text is appended. The
+        // cost follows the change, not the draft (perf-lead.md issue 5, typing-frame-bench.py).
+        let u = text as NSString
+        var keep = 0, from = 0
+        if let m = linesMemo, m.width == w, u.length > (m.text as NSString).length, text.hasPrefix(m.text),
+           let second = m.starts.dropLast().last {
+            keep = m.starts.count - 2
+            from = second
+        }
+        let tail = TextLayout.make(u.substring(from: from), runs: [], maxWidth: w, font: ComposeView.font).lines
+        let starts = Array((linesMemo?.starts ?? []).prefix(keep)) + tail.map { $0.range.location + from }
+        linesMemo = (text, w, starts.count, starts)
+        return starts.count
     }
     /// The field's tallest text part. Real Messages (compose-e2e messages, 2026-10-10, 628 pt
     /// wide): the glass stops at the same height in a 940, 740 and 600 pt window (a fixed height,
@@ -798,12 +877,14 @@ final class ComposeView: UIView {
         if emptyAfterSend && text.isEmpty && chips.isEmpty { return ComposeMetrics.emptyAfterSend }
         // cmux: attachments in the text: the lines that hold them are as tall as their thumbnails.
         if !chips.isEmpty, let storage = textView.view.textStorage, storage.string == text {
-            let extra = ComposeInlineText.extraHeight(storage, width: ComposeView.fieldWidth(width) - 24 - ComposeSendSlot.trailingReserve)
+            let extra = ComposeInlineText.extraHeight(storage, width: ComposeView.fieldWidth(width) - 24 - trailingReserve)
             return min(ComposeView.height(lines: 1, chips: false) + extra, ComposeView.maxHeight) + strip.height
         }
         return min(ComposeView.height(lines: lines(text, windowWidth: width), chips: false), ComposeView.maxHeight) + strip.height
     }
-    private var linesMemo: (String, CGFloat, Int)?
+    /// cmux: the last draft's line count and where each of its lines starts (UTF-16), for the
+    /// incremental layout of the next key.
+    private var linesMemo: (text: String, width: CGFloat, count: Int, starts: [Int])?
     /// The empty draft's one line at any text width from this (a space is about 4 pt wide).
     static let emptyLineMinWidth: CGFloat = 20
     private var emptyLinesMemo: (CGFloat, Int)?
@@ -977,7 +1058,7 @@ final class ComposeView: UIView {
         let f = rect(height: h)
         let chipH: CGFloat = strip.height
         // cmux: the trailing slot stays free with text too (the send button), so the first character does not rewrap.
-        return CGRect(x: f.minX + 12, y: f.minY + chipH, width: f.width - 24 - ComposeSendSlot.trailingReserve, height: f.height - chipH)
+        return CGRect(x: f.minX + 12, y: f.minY + chipH, width: f.width - 24 - trailingReserve, height: f.height - chipH)
     }
 
     /// What the last `place` laid out (field height, empty text, chip row height, size): a commit
@@ -1190,8 +1271,7 @@ final class ComposeView: UIView {
         CATransaction.begin(); CATransaction.setDisableActions(true)
         // With an attachment Messages shows neither the placeholder nor the audio glyph
         // (compose-attach-image stills).
-        placeholderLayer.opacity = text.isEmpty && chips.isEmpty ? 1 : 0
-        waveLayer.opacity = text.isEmpty && chips.isEmpty ? 1 : 0
+        applyEmptyGlyphs()  // cmux: the voice input hides them (`hidesWaveform`, `hidesPlaceholder`)
         CATransaction.commit()
         let h = height(for: d.text, width: bounds.width)
         let old = fieldHeight
@@ -1207,7 +1287,8 @@ final class ComposeView: UIView {
             Animate.scalar(glass, "bounds.size.height", from: Double(old), to: Double(h), e, begin: begin)
             for l in [veil, rim, tint] { Animate.scalar(l, "bounds.size.height", from: Double(old), to: Double(h), e, begin: begin) }
             let dTop = Double(h - old)
-            for l in [placeholderLayer, chipsLayer] {
+            // The capture caret rides with the placeholder (Fixture.SendCaret).
+            for l in [placeholderLayer, chipsLayer, caret] {
                 Animate.scalar(l, "position.y", from: Double(l.position.y) + dTop, to: Double(l.position.y), e, begin: begin)
             }
             // The text view's top stays on the field top: Catalyst animates
@@ -1285,8 +1366,8 @@ final class ComposeView: UIView {
     func applyCaret(sinceEdit tau: Double, sinceSend: Double?) {
         guard captureMode else { return }
         refreshTextSnapshot()
-        var alpha = 1.0, gray = false
-        if let s = sinceSend, s >= 0, s < 0.65 { alpha = s < 0.02 ? 0 : 1; gray = true }
+        var alpha = 1.0, color: UIColor = Fixture.caret
+        if let s = sinceSend, let st = Fixture.SendCaret.state(s) { alpha = st.alpha; color = st.color }
         else if tau >= 0.99 {
             let p = (tau - 0.99).truncatingRemainder(dividingBy: 1.0)
             alpha = p < 0.6 ? 1 : p < 0.65 ? 1 - (p - 0.6) / 0.05 : p < 0.95 ? 0 : (p - 0.95) / 0.05
@@ -1300,7 +1381,7 @@ final class ComposeView: UIView {
         CATransaction.begin(); CATransaction.setDisableActions(true)
         // Messages' caret: 1 x 17 pt, its top 7 pt under the field top (13.25 above the first baseline).
         caret.frame = CGRect(x: cx.px, y: base - 13.25 + row * 16, width: 1, height: 17)
-        caret.backgroundColor = (gray ? NSColor(white: 0.5, alpha: 1) : Fixture.caret).cgColor
+        caret.backgroundColor = color.cgColor
         caret.opacity = Float(alpha)
         CATransaction.commit()
     }

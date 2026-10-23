@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextTabs
 import os
@@ -40,6 +41,9 @@ final class PaneToolbar {
     private let registry: () -> ActionRegistry?
     /// The strip plus's menu for this pane (what opens in it).
     private let newTabMenu: () -> NSMenu?
+    /// The shown content's own rows, first in the menu (``PaneMoreMenuContributing``: the docked
+    /// Home's Chief Actions), so the pane keeps one ⋮.
+    private let contentMenu: () -> [NSMenuItem]
     private(set) var target: String?
     private(set) var kind: Kind?
     private(set) var zoomed = false
@@ -48,9 +52,11 @@ final class PaneToolbar {
     var writePinned: (PaneToolbarButtonsSetting) -> Void = { _ in }
     private var observation: Task<Void, Never>?
 
-    init(registry: @escaping () -> ActionRegistry?, newTabMenu: @escaping () -> NSMenu?) {
+    init(registry: @escaping () -> ActionRegistry?, newTabMenu: @escaping () -> NSMenu?,
+         contentMenu: @escaping () -> [NSMenuItem] = { [] }) {
         self.registry = registry
         self.newTabMenu = newTabMenu
+        self.contentMenu = contentMenu
         view.moreMenu = { [weak self] in self?.moreMenu() }
         view.onPerform = { [weak self] id in self?.perform(ActionID(rawValue: id)) }
     }
@@ -68,7 +74,8 @@ final class PaneToolbar {
                   newTabMenu: { [weak pane] in
                       // The plus's rows, without its Chromium warmup: "…" is opened for a split as often.
                       pane.map { $0.services.registry.makeContextMenu(for: .newTab, target: ActionTargetRef(kind: .pane, id: $0.paneKey)) }
-                  })
+                  },
+                  contentMenu: { [weak pane] in (pane?.view.content as? PaneMoreMenuContributing)?.paneMoreMenuItems() ?? [] })
         writePinned = { [weak services] next in
             guard let settings = services?.settings else { return }
             // task-owner: one write; the menu item's gesture is the user's (SettingWriter.currentRun)
@@ -168,16 +175,20 @@ final class PaneToolbar {
         return Self.actions(kind).filter { ActionTargetReasons.canPerform($0, invocation: invocation, in: registry) }
     }
 
-    /// "…": what opens in the pane, the actions without a button with their keys, Search Tabs, then Show in Tab Bar.
+    /// "…": the content's own rows (the Chief's), what opens in the pane, the actions without a button
+    /// with their keys, Search Tabs, then Show in Tab Bar.
     private func moreMenu() -> NSMenu? {
         guard let registry = registry(), let target, kind != nil else { return nil }
         let menu = newTabMenu() ?? NSMenu()
+        let own = contentMenu()
+        if !own.isEmpty, !menu.items.isEmpty { menu.insertItem(.separator(), at: 0) }
+        for (index, item) in own.enumerated() { menu.insertItem(item, at: index) }
         let buttons = shownPins()
-        let own = registry.makeContextMenu(for: .tab, target: ActionTargetRef(kind: .tab, id: target),
-                                           entries: tabActions().filter { !buttons.contains($0) }.map { .action($0) })
-        if !menu.items.isEmpty, !own.items.isEmpty { menu.addItem(.separator()) }
-        for item in own.items {
-            own.removeItem(item)
+        let tabOwn = registry.makeContextMenu(for: .tab, target: ActionTargetRef(kind: .tab, id: target),
+                                              entries: tabActions().filter { !buttons.contains($0) }.map { .action($0) })
+        if !menu.items.isEmpty, !tabOwn.items.isEmpty { menu.addItem(.separator()) }
+        for item in tabOwn.items {
+            tabOwn.removeItem(item)
             menu.addItem(item)
         }
         // Search Tabs (was the bar's chevron) runs with no tab target: a tab target only reveals that tab.
@@ -189,7 +200,8 @@ final class PaneToolbar {
         }
         menu.addItem(.separator())
         menu.addItem(showInTabBarItem(registry: registry))
-        return menu
+        // Every row in the theme's highlight, like the sidebar's ⋮ menus and the strip's plus.
+        return menu.themeRows(in: view.themeScope.fullStrength)
     }
 
     /// Show in Tab Bar: one checked row per action the list may pin; choosing one pins or unpins it.

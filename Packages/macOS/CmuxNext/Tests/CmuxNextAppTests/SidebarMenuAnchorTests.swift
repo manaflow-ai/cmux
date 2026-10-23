@@ -58,6 +58,29 @@ import Testing
                 "width \(width): card \(card) is not just under the button \(button)")
     }
 
+    /// Sidebar sweep 2026-10-21: in a window wider than a narrow sidebar, the editor under the
+    /// more button hung about 80 pt past the window's leading edge (the card is wider than the
+    /// sidebar, and it lined its trailing edge up with the button). The card stays inside the
+    /// window: on the button's leading edge when its trailing edge leaves no room.
+    @Test func theGroupEditorStaysInsideTheWindow() throws {
+        let width: CGFloat = 200
+        let (sidebar, id, window) = try Self.sidebar(width: width)
+        defer { sidebar.list.groupEditor.hide(); window.close() }
+        window.setContentSize(NSSize(width: 900, height: 600))
+        let header = try #require(sidebar.list.rowViews[.group(id)] as? GroupHeaderRowView)
+        header.isHovered = true
+        header.layoutSubtreeIfNeeded()
+        let more = header.moreButton
+        #expect(more.sendAction(more.action, to: more.target), "the more button has no action")
+
+        let content = window.convertToScreen(window.contentLayoutRect)
+        let button = try Self.screenRect(of: more.frame, in: header)
+        let card = try Self.card(sidebar)
+        #expect(content.contains(card), "width \(width): card \(card) leaves the window's content \(content)")
+        #expect(abs(card.minX - button.minX) <= 1, "width \(width): card \(card) is not on the button \(button)'s leading edge")
+        #expect(card.maxY <= button.minY + 0.5 && button.minY - card.maxY <= 12)
+    }
+
     /// A click on the group's name still opens the editor under the name, on its leading edge.
     @Test(arguments: widths)
     func theNameOpensTheGroupEditorUnderTheName(width: CGFloat) throws {
@@ -129,7 +152,9 @@ import Testing
         defer { sidebar.list.groupEditor.hide(); window.close() }
         let list = sidebar.list
         let row = try #require(list.displayed.row(for: .group(id)))
-        let point = NSPoint(x: 500, y: list.frame(for: row).midY)
+        // Room for the card on the pointer's trailing side: past the window's edge it slides back
+        // inside (theGroupEditorStaysInsideTheWindow), which only a host with no screen skipped.
+        let point = NSPoint(x: 300, y: list.frame(for: row).midY)
         list.groupEditing.open(id, from: .pointer(point))
         let pointer = try #require(list.window).convertPoint(toScreen: list.convert(point, to: nil))
         let card = try Self.card(sidebar)

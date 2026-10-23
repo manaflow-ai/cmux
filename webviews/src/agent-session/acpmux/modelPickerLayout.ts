@@ -2,6 +2,7 @@
 import type { AcpmuxSnapshot } from "./model";
 import type { Choice, Combo } from "./ComposerPickers";
 import type { QuickMenuExtras } from "./QuickModelMenu";
+import type { PickerProfile } from "./pickerProfiles";
 
 /// What the picker gets from ComposerPickers. Picks go through `onLand` (model, then its effort
 /// once the agent reports that model) and `onEffort`.
@@ -56,11 +57,22 @@ export type ModelPickerProps = {
   onHarnessEnable?(folder: string, id: string): void;
   /// Add harness…, the menu's last row: the pane's Harnesses page, in place (cx-uj5g8).
   onAddAgent?(): void;
+  /// Set while the picker is mounted to a call that opens its menu (the compact one when `quick`
+  /// is set), whose rail switches harness: the footer's harness item opens it (ComposerHarness.tsx).
+  opener?: { current: (() => void) | undefined };
   /// The chat has started, so its harness is fixed, as in Claude Code (Leo 2026-10-19): the menu
   /// lists `harness`'s models alone, with search and More models, and no harness rail, Starred tab
   /// or Add harness…; the compact menu draws no rail either. A New Tab or a chat with no message
   /// yet leaves it unset and keeps the whole rail.
   harnessFixed?: boolean;
+  /// With `harnessFixed`, the started chat can fork to another harness (Leo 2026-10-22: "need to be
+  /// able to switch to different harnesses, can expose as fork"): the compact menu keeps the whole
+  /// rail, and another harness's tab, or another account of the chat's own, offers Fork to it.
+  /// `to` gets the acpmux profile id; `ready` false (a turn running, a queued prompt) disables it.
+  fork?: { to(harness: string): void; ready: boolean };
+  /// The installed acpmux profiles each catalog entry stands for, by its id (pickerProfiles.ts): the
+  /// accounts its Account row lists. An entry with none listed is its own one account.
+  profiles?: Readonly<Record<string, readonly PickerProfile[]>>;
   /// A short note per harness in place of "New chat" (a harness that failed to start).
   harnessNotes?: Readonly<Record<string, string>>;
   /// The harnesses this Mac's acpmux found signed out, by acpmux id, with each one's login
@@ -69,9 +81,10 @@ export type ModelPickerProps = {
   signedOut?: Readonly<Record<string, string>>;
   /// Runs a signed-out harness's login (its Log In row).
   onLogIn?(harness: string, login: string): void;
-  /// The compact menu a click on the chip opens (QuickModelMenu; the Debug Settings choice
-  /// `agent.modelMenu`). Without it the chip opens the full picker at once. With it the chip draws
-  /// `detail` (the effort) after the model and no chevron.
+  /// The compact menu a click on the chip opens (QuickModelMenu). Every composer passes it (Leo
+  /// 2026-10-20: one model button); the full picker is its More models row. Without it (a picker
+  /// on its own) the chip opens the full picker at once. With it the chip draws `detail` (the
+  /// effort) after the model and no chevron.
   quick?: QuickMenuExtras;
   /// The effort's short name ("Med") the compact chip shows in a narrow row (composerRowFit.ts).
   detailShort?: string;
@@ -101,6 +114,10 @@ export const MODEL_PICKER_MAX_HEIGHT = 480;
 /// has it does it open below and run past the room, where the page scrolls to it; above, it ran off
 /// the top of the window (the New Tab chip's menu, 94 px).
 export const MODEL_PICKER_MIN_HEIGHT = 220;
+
+/// The agent pane's chat column: the model menus and their submenus stay inside it, never over the
+/// session rail, summary column or sidebar beside it (a composer outside one keeps to the window).
+export const CHAT_COLUMN = ".acpmux-main";
 
 /// The open picker's height bounds: at most the anchor's room (`room`, when known) and
 /// MODEL_PICKER_MAX_HEIGHT, never below MODEL_PICKER_MIN_HEIGHT; at least its height when it

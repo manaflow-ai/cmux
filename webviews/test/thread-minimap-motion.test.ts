@@ -1,12 +1,14 @@
 // l10n-allow-file: test fixture prompts and replies, not shipped UI.
 // The thread minimap's motion, measured in WebKit (the engine the app draws the pane in) against the
-// Codex desktop app's recordings (minimap-ref SPEC): hover grows the tick to 26 px within 160 ms
+// Codex desktop app's recordings (minimap-ref SPEC): hover grows the tick to 26 px within 120 ms
+// (the motion scale's micro step; Codex's spring curve, run faster than its 160 ms)
 // with no delay; a click scrolls on cubic-bezier(0.35, 0.05, 0, 1) for about 400 ms and lands the
 // prompt's bubble 35 px below the transcript's top; its bubble's highlight runs 1400 ms. Under
 // Reduce Motion none of them animate.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { webkit, type Browser, type Page } from "playwright";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -57,27 +59,53 @@ await requireBrowserLane("thread-minimap-motion.test.ts", async () => {
   async function open(reduce: boolean): Promise<Page> {
     const { port } = vite!.httpServer!.address() as { port: number };
     const page = await browser!.newPage({ viewport: { width: 1280, height: 820 } });
+    await installPaintedFrames(page);
     await page.emulateMedia({ reducedMotion: reduce ? "reduce" : "no-preference" });
     await page.goto(`http://127.0.0.1:${port}/test/browser/thread-minimap.html`);
     await page.waitForFunction(() => "__showRows" in window);
     await page.evaluate((shown) => (window as unknown as { __showRows(rows: unknown): void }).__showRows(shown), rows);
     await page.waitForSelector(".acpmux-minimap__tick");
     // To the top, where the later prompts are below and still mounted.
-    await page.evaluate(async () => {
+    await page.evaluate(() => {
       document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop = 0;
-      await new Promise((resolve) => setTimeout(resolve, 300));
     });
+    await settled(page);
     return page;
   }
 
-  /// Samples, every frame for `ms` from now, `probe` (an expression over the page) with its time.
+  /// Until no animation is left running and the transcript has held its scroll position over three
+  /// painted frames.
+  const settled = (page: Page) =>
+    page.evaluate(async () => {
+      const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      const finite = () =>
+        document.getAnimations().filter((animation) => animation.effect?.getComputedTiming().endTime !== Infinity);
+      for (let tries = 0; tries < 20; tries++) {
+        await Promise.all(finite().map((animation) => animation.finished.catch(() => undefined)));
+        await new Promise<void>((resolve) => {
+          let last = -1;
+          let still = 0;
+          window.cmuxAfterPaint(() => {
+            still = node.scrollTop === last ? still + 1 : 0;
+            last = node.scrollTop;
+            if (still < 2) return true;
+            resolve();
+            return false;
+          });
+        });
+        if (finite().every((animation) => animation.playState !== "running")) return;
+      }
+    });
+
+  /// Samples, after every painted frame for `ms` from now, the tick's bar width and the transcript's
+  /// offset, with the time.
   const sample = (page: Page, ms: number) =>
     page.evaluate((duration) => {
       const samples: { t: number; width: number; scroll: number }[] = [];
       (window as unknown as { __samples: typeof samples }).__samples = samples;
       const start = performance.now();
       return new Promise<void>((resolve) => {
-        const step = () => {
+        window.cmuxAfterPaint(() => {
           const bar = document.querySelector<HTMLElement>('[data-tick="5"] .acpmux-minimap__bar');
           const matrix = bar ? new DOMMatrixReadOnly(getComputedStyle(bar).transform) : undefined;
           samples.push({
@@ -85,10 +113,10 @@ await requireBrowserLane("thread-minimap-motion.test.ts", async () => {
             width: 26 * (matrix?.a ?? 0),
             scroll: document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop,
           });
-          if (performance.now() - start < duration) requestAnimationFrame(step);
-          else resolve();
-        };
-        requestAnimationFrame(step);
+          if (performance.now() - start < duration) return true;
+          resolve();
+          return false;
+        });
       });
     }, ms);
   const samples = (page: Page) =>
@@ -99,14 +127,22 @@ await requireBrowserLane("thread-minimap-motion.test.ts", async () => {
       const box = document.querySelector<HTMLElement>(`[data-tick="${at}"]`)!.getBoundingClientRect();
       return { x: box.left + 8, y: box.top + box.height / 2 };
     }, index);
-  test("hover grows the tick to 26 px within 160 ms, with no delay, on the spring curve", async () => {
+  test("hover grows the tick to 26 px within 120 ms, with no delay, on the spring curve", async () => {
     const page = await open(false);
     const style = await page.evaluate(() => {
       const css = getComputedStyle(document.querySelector<HTMLElement>('[data-tick="5"] .acpmux-minimap__bar')!);
-      return { delay: css.transitionDelay, duration: css.transitionDuration, easing: css.transitionTimingFunction };
+      return {
+        property: css.transitionProperty,
+        delay: css.transitionDelay,
+        duration: css.transitionDuration,
+        easing: css.transitionTimingFunction,
+      };
     });
-    expect(style.delay).toBe("0s");
-    expect(style.duration).toBe("0.15s"); // at rest: the 150 ms settle; hovered rows use 160 ms
+    // At rest the bar also fades its opacity as the band moves (the wave): both properties start
+    // at once and run the scale's micro step.
+    expect(style.property).toBe("transform, opacity");
+    expect(style.delay).toBe("0s, 0s");
+    expect(style.duration).toBe("0.12s, 0.12s");
     const point = await tickPoint(page, 5);
     await page.mouse.move(point.x + 300, point.y);
     // The pointer's arrival starts a transform transition at once (no dwell). Its timeline is read
@@ -143,8 +179,8 @@ await requireBrowserLane("thread-minimap-motion.test.ts", async () => {
         running.currentTime = ms;
         return 26 * new DOMMatrixReadOnly(getComputedStyle(bar).transform).a;
       };
-      const widths = [0, 40, 80, 112, 160].map(width);
-      running.currentTime = 160;
+      const widths = [0, 30, 60, 84, 120].map(width);
+      running.currentTime = 120;
       running.play();
       return {
         duration: timing.duration,
@@ -156,23 +192,23 @@ await requireBrowserLane("thread-minimap-motion.test.ts", async () => {
     });
     expect(transition).toBeDefined();
     expect(transition!.wait).toBeLessThan(60);
-    // 160 ms, no delay, on the spring (the CSS `linear()` curve, or its cubic-bezier fallback).
-    expect(transition!.duration).toBe(160);
+    // 120 ms, no delay, on the spring (the CSS `linear()` curve, or its cubic-bezier fallback).
+    expect(transition!.duration).toBe(120);
     expect(transition!.delay).toBe(0);
-    const [w0, w40, w80, w112, w160] = transition!.widths;
+    const [w0, w30, w60, w84, w120] = transition!.widths;
     // From the 6 px rest through the lengths between (a transition, not a jump) to 26 px.
     expect(Math.round(w0!)).toBe(6);
-    expect(w40!).toBeGreaterThan(8);
-    expect(w40!).toBeLessThan(25.4);
-    expect(w80!).toBeGreaterThan(w40!);
+    expect(w30!).toBeGreaterThan(8);
+    expect(w30!).toBeLessThan(25.4);
+    expect(w60!).toBeGreaterThan(w30!);
     // The spring's small overshoot (about 0.8%), then 26 px.
-    expect(w112!).toBeLessThan(26 * 1.012);
-    expect(Math.round(w160!)).toBe(26);
+    expect(w84!).toBeLessThan(26 * 1.012);
+    expect(Math.round(w120!)).toBe(26);
     const hovered = await page.evaluate(() => {
       const css = getComputedStyle(document.querySelector<HTMLElement>('[data-tick="5"] .acpmux-minimap__bar')!);
       return { delay: css.transitionDelay, duration: css.transitionDuration };
     });
-    expect(hovered).toEqual({ delay: "0s", duration: "0.16s" });
+    expect(hovered).toEqual({ delay: "0s", duration: "0.12s" });
     await page.close();
   });
 
@@ -187,7 +223,9 @@ await requireBrowserLane("thread-minimap-motion.test.ts", async () => {
     });
     const point = await tickPoint(page, target);
     await page.mouse.move(point.x, point.y);
-    await page.waitForTimeout(400);
+    // The hover settles: the tick grown and, after the hover delay, its preview card open.
+    await page.locator(".acpmux-minimap__card").waitFor({ timeout: 5_000 });
+    await settled(page);
     const sampling = sample(page, 900);
     // The click, while the target's row is mounted (an unmounted one jumps at once, by design).
     const mounted = await page.evaluate((index) => {
@@ -227,11 +265,54 @@ await requireBrowserLane("thread-minimap-motion.test.ts", async () => {
     await page.close();
   });
 
+  /// The flash's keyframe colors' alpha, read off the landing animation on the clicked prompt's bubble.
+  async function landingAlphas(page: Page, index: number): Promise<number[]> {
+    return page.evaluate(async (index) => {
+      document.querySelector<HTMLElement>(`[data-tick="${index}"]`)!.click();
+      await window.cmuxPaintFrame();
+      await window.cmuxPaintFrame();
+      const bubble = document.querySelector<HTMLElement>(`.acpmux-row[data-row-id="t${index}-user"] .cv-user__bubble`)!;
+      const animation = bubble.getAnimations().find((entry) => entry.id === "acpmux-landing");
+      const frames = (animation?.effect as KeyframeEffect | null)?.getKeyframes() ?? [];
+      // Resolve each color through a probe, so color-mix() and named colors come back as rgb()/color().
+      const probe = document.createElement("div");
+      document.body.append(probe);
+      const alphas = frames.map((frame) => {
+        probe.style.backgroundColor = String(frame.backgroundColor ?? "");
+        const color = getComputedStyle(probe).backgroundColor;
+        const alpha = /\/\s*([\d.]+)\s*\)$/.exec(color)?.[1] ?? /^rgba\([^)]*,\s*([\d.]+)\)$/.exec(color)?.[1];
+        return alpha === undefined ? 1 : Number(alpha);
+      });
+      probe.remove();
+      return alphas;
+    }, index);
+  }
+
+  // Leo 2026-10-20: the prompt bubble is glass, never opaque, not even while it flashes.
+  test("the landing flash stays glass: every frame is translucent", async () => {
+    const page = await open(false);
+    const alphas = await landingAlphas(page, 9);
+    expect(alphas.length).toBe(3);
+    for (const alpha of alphas) expect(alpha).toBeLessThan(1);
+    await page.close();
+  });
+
+  // Reduce Transparency makes the bubble opaque (glass.css), and its flash with it: no frame lets the
+  // backdrop through.
+  test("under Reduce Transparency every frame of the landing flash is opaque", async () => {
+    const page = await open(false);
+    await page.evaluate(() => document.documentElement.setAttribute("data-reduce-transparency", ""));
+    const alphas = await landingAlphas(page, 9);
+    expect(alphas.length).toBe(3);
+    for (const alpha of alphas) expect(alpha).toBe(1);
+    await page.close();
+  });
+
   test("under Reduce Motion the tick, the scroll and the highlight do not animate", async () => {
     const page = await open(true);
     const point = await tickPoint(page, 9);
     await page.mouse.move(point.x, point.y);
-    await page.waitForTimeout(50);
+    await page.evaluate(() => window.cmuxPaintFrame().then(() => window.cmuxPaintFrame()));
     const hovered = await page.evaluate(() => {
       const css = getComputedStyle(document.querySelector<HTMLElement>('[data-tick="9"] .acpmux-minimap__bar')!);
       return { duration: css.transitionDuration, width: 26 * new DOMMatrixReadOnly(css.transform).a };
@@ -244,7 +325,8 @@ await requireBrowserLane("thread-minimap-motion.test.ts", async () => {
       const before = scroller.scrollTop;
       document.querySelector<HTMLElement>('[data-tick="9"]')!.click();
       const after = scroller.scrollTop;
-      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      await window.cmuxPaintFrame();
+      await window.cmuxPaintFrame();
       const bubble = document.querySelector<HTMLElement>('.acpmux-row[data-row-id="t9-user"] .cv-user__bubble');
       return {
         moved: after !== before,

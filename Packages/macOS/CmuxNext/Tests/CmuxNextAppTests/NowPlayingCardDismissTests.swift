@@ -210,7 +210,7 @@ import Testing
 
     /// The card's actions reach every surface: the palette, the CLI and MCP (one action each).
     @Test(arguments: ["nowPlaying.hideCard", "nowPlaying.hideCardUntilRelaunch", "nowPlaying.disableCard", "nowPlaying.showCard",
-                      "nowPlaying.playPause"])
+                      "nowPlaying.playPause", "tab.pictureInPicture"])
     func everyCardActionIsInThePaletteTheCLIAndMCP(_ id: String) throws {
         let descriptor = try #require(ActionCatalog.all.first { $0.id == ActionID(rawValue: id) }, "\(id) is not an action")
         #expect(descriptor.surfacePlan.palette.isOffered, "\(id) is not in the palette")

@@ -54,6 +54,22 @@ enum CmuxStrings {
     static var removeAttachment: String {
         String(localized: "home.compose.removeAttachment", defaultValue: "Remove Attachment", table: "CmuxHome", bundle: .module)
     }
+    /// The mic button in the message box at rest (its help and accessibility label).
+    static var dictate: String {
+        String(localized: "home.compose.dictate", defaultValue: "Dictate", table: "CmuxHome", bundle: .module)
+    }
+    /// The mic button while it records (a click stops and keeps the words).
+    static var stopDictation: String {
+        String(localized: "home.compose.stopDictation", defaultValue: "Stop Dictation", table: "CmuxHome", bundle: .module)
+    }
+    /// The return-key button beside the waveform while dictating: stop and keep the words.
+    static var finishDictation: String {
+        String(localized: "home.compose.finishDictation", defaultValue: "Finish Dictation", table: "CmuxHome", bundle: .module)
+    }
+    /// The empty message box while dictating, before any words arrive.
+    static var listening: String {
+        String(localized: "home.compose.listening", defaultValue: "Listening…", table: "CmuxHome", bundle: .module)
+    }
     /// The compose field's send button (its help and accessibility label).
     static var send: String {
         String(localized: "home.compose.send", defaultValue: "Send", table: "CmuxHome", bundle: .module)
@@ -127,6 +143,11 @@ enum CmuxStrings {
 
     static var playVideo: String { String(localized: "home.video.play", defaultValue: "Play Video", table: "CmuxHome", bundle: .module) }
     static var pauseVideo: String { String(localized: "home.video.pause", defaultValue: "Pause Video", table: "CmuxHome", bundle: .module) }
+    /// An attachment's Copy (the file and an image's pixels): Messages' own Copy title.
+    static var copyAttachment: String { Strings.menuCopy }
+    static var saveAttachmentAs: String {
+        String(localized: "home.attachment.saveAs", defaultValue: "Save As…", table: "CmuxHome", bundle: .module)
+    }
     static var openInDefaultApp: String {
         String(localized: "home.menu.openInDefaultApp", defaultValue: "Open in Default App", table: "CmuxHome", bundle: .module)
     }

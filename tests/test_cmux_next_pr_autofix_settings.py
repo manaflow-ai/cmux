@@ -99,13 +99,21 @@ class SettingsOnlyArtifactLeavesTheActionFollowers(unittest.TestCase):
             stub.parent.mkdir(parents=True, exist_ok=True)
             stub.write_text(STUB_AUTOFIX)
             stub.chmod(0o755)
+        # The base Repair step runs base-autofix-repair.sh (#23315), which calls the base-autofix.sh beside it.
+        repair = work / "scripts/cmux-next/base-autofix-repair.sh"
+        repair.write_text((ROOT / "scripts/cmux-next/base-autofix-repair.sh").read_text())
+        repair.chmod(0o755)
+        # The step's env names its runner paths; the test gives them under its own runner temp.
+        step_env = {key: value.replace("${{ runner.temp }}", str(temp))
+                    for key, value in (step(doc, job, "Repair").get("env") or {}).items()
+                    if isinstance(value, str) and value.startswith("${{ runner.temp }}")}
         args_out = work / "args"
         base_env = {"RUNNER_TEMP": str(temp), "GITHUB_WORKSPACE": str(work), "GITHUB_STEP_SUMMARY": str(work / "summary"),
                     "GITHUB_SHA": "0" * 40, "AUTOFIX": str(temp / "autofix/scripts/cmux-next"), "ARGS_OUT": str(args_out),
                     "GRAPH": "false", "STRINGS": "false", "SDK": "false", "SHORTCUTS": "false", "APPHOST": "false",
                     "ACTIONS": "false", "EXPORTS_VERIFIED": "true", "SETTINGS": "true", "SETTINGS_VERIFIED": "true",
                     "RATCHETS": "false", "CLOUD": "false", "GHOSTTY": "false", "FMT": "false"}
-        result = run_step(step(doc, job, "Repair")["run"], work, {**base_env, **env})
+        result = run_step(step(doc, job, "Repair")["run"], work, {**base_env, **step_env, **env})
         self.assertEqual(result.returncode, 0, result.stderr)
         return args_out.read_text().split("\n")
 

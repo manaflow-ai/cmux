@@ -233,6 +233,18 @@ async fn a_chat_switches_from_proxy_a_to_proxy_b_without_a_restart() {
     let active = local.ok("_acpmux/route/list", json!({"sessionId": id})).await;
     assert_eq!(active["active"], json!({"routeId": "proxy-b", "scope": "chat"}), "{active}");
 
+    // A remote device or a peer never picks a chat's route: the chat keeps its own.
+    for origin in [Origin::Web, Origin::Peer] {
+        let mut remote = client(&hub, origin);
+        remote
+            .ok("initialize", json!({"protocolVersion": 1, "clientInfo": {"name": "remote"}}))
+            .await;
+        let set = json!({"sessionId": id, "routeId": "proxy-a", "when": "after-turn"});
+        remote.err("_acpmux/chat/route.set", set).await;
+    }
+    let kept = local.ok("_acpmux/route/list", json!({"sessionId": id})).await;
+    assert_eq!(kept["active"], json!({"routeId": "proxy-b", "scope": "chat"}), "{kept}");
+
     // With a session, the list names its family and which routes serve it: the
     // composer's Account menu offers only those.
     local

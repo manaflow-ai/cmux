@@ -40,6 +40,14 @@ def needs(block: str) -> set[str]:
     return {n.strip() for n in m.group(1).strip("[] ").split(",") if n.strip()}
 
 
+def ordering_only(block: str, shadow: str) -> bool:
+    condition = re.search(r"^    if:\s*(.+)$", block, re.M)
+    return (condition is not None
+            and re.match(r"\$\{\{\s*always\(\)\s*&&", condition.group(1)) is not None
+            and f"needs.{shadow}." not in block
+            and not re.search(rf"needs\[\s*['\"]{re.escape(shadow)}['\"]\s*\]", block))
+
+
 class ShadowJobTests(unittest.TestCase):
     def test_every_shadow_job_is_compare_only(self) -> None:
         for workflow, shadow, compared in SHADOWS:
@@ -56,8 +64,13 @@ class ShadowJobTests(unittest.TestCase):
                 self.assertNotRegex(block, r"(?m)^    environment:")
                 # Only another compare-only shadow job may need a shadow job.
                 shadows = {job for wf, job, _ in SHADOWS if wf == workflow}
+                # A job may still order itself after a shadow job when it runs
+                # whatever the shadow's result (`if: ${{ always() && ...`) and
+                # never reads it: cmux-tui-artifacts' notify-unpublished-tree
+                # waits so it ends the run (cx-urd.26).
                 dependents = sorted(job for job, other in all_jobs.items()
-                                    if shadow in needs(other) and job not in shadows)
+                                    if shadow in needs(other) and job not in shadows
+                                    and not ordering_only(other, shadow))
                 self.assertEqual(dependents, [], f"{workflow}: {dependents} must not need {shadow}")
 
     def test_shadow_jobs_run_the_shared_script(self) -> None:

@@ -68,6 +68,7 @@ public final class Commands {
     public static final CommandMetadata CLOUD_MUX_UNSUBSCRIBE = new CommandMetadata("cloud-mux-unsubscribe", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_PARTICIPANT_AVATAR_GET = new CommandMetadata("cloud-participant-avatar-get", Authority.LOCAL_ADMIN, 12, "participant-avatars-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_REQUESTS_LIST = new CommandMetadata("cloud-requests-list", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata CLOUD_SELFHOST_INFO = new CommandMetadata("cloud-selfhost-info", Authority.LOCAL_ADMIN, 12, "cloud-selfhost-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_SESSION_CLEAR = new CommandMetadata("cloud-session-clear", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_SESSION_SET = new CommandMetadata("cloud-session-set", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_SESSION_STATUS = new CommandMetadata("cloud-session-status", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -179,7 +180,7 @@ public final class Commands {
     public static final CommandMetadata NEW_PANE = new CommandMetadata("new-pane", Authority.CONTROL, 9, null, StreamKind.NONE, Map.ofEntries(Map.entry("cwd", 12L), Map.entry("env", 12L), Map.entry("keep", 12L), Map.entry("pane_id", 12L), Map.entry("shell_args", 12L), Map.entry("tab_id", 12L), Map.entry("terminal_id", 12L)), Map.ofEntries(Map.entry("cwd", "terminal-placement-env-v1"), Map.entry("env", "terminal-placement-env-v1"), Map.entry("keep", "terminal-reap-v1"), Map.entry("pane_id", "split-client-keys-v1"), Map.entry("shell_args", "terminal-shell-args-v1"), Map.entry("tab_id", "split-client-keys-v1"), Map.entry("terminal_id", "terminal-placement-env-v1")));
     public static final CommandMetadata NEW_PANE_RIGHT = new CommandMetadata("new-pane-right", Authority.CONTROL, 9, "viewport-splits-v1", StreamKind.NONE, Map.ofEntries(Map.entry("cwd", 12L), Map.entry("env", 12L), Map.entry("keep", 12L), Map.entry("kind", 12L), Map.entry("pane_id", 12L), Map.entry("shell_args", 12L), Map.entry("tab_id", 12L), Map.entry("terminal_id", 12L), Map.entry("url", 12L)), Map.ofEntries(Map.entry("cwd", "terminal-placement-env-v1"), Map.entry("env", "terminal-placement-env-v1"), Map.entry("keep", "terminal-reap-v1"), Map.entry("kind", "pane-browser-kind-v1"), Map.entry("pane_id", "split-client-keys-v1"), Map.entry("shell_args", "terminal-shell-args-v1"), Map.entry("tab_id", "split-client-keys-v1"), Map.entry("terminal_id", "terminal-placement-env-v1"), Map.entry("url", "pane-browser-kind-v1")));
     public static final CommandMetadata NEW_REMOTE_TERMINAL_TAB = new CommandMetadata("new-remote-terminal-tab", Authority.CONTROL, 12, "remote-terminal-tabs-v1", StreamKind.NONE, Map.of(), Map.of());
-    public static final CommandMetadata NEW_ROW = new CommandMetadata("new-row", Authority.CONTROL, 12, "rows-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata NEW_ROW = new CommandMetadata("new-row", Authority.CONTROL, 12, "rows-v1", StreamKind.NONE, Map.of(), Map.ofEntries(Map.entry("pane_id", "row-client-keys-v1"), Map.entry("tab_id", "row-client-keys-v1")));
     public static final CommandMetadata NEW_SCREEN = new CommandMetadata("new-screen", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("env", 12L), Map.entry("shell_args", 12L), Map.entry("terminal_id", 12L)), Map.ofEntries(Map.entry("env", "screen-terminal-env-v1"), Map.entry("shell_args", "screen-terminal-env-v1"), Map.entry("terminal_id", "screen-terminal-env-v1")));
     public static final CommandMetadata NEW_TAB = new CommandMetadata("new-tab", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("env", 12L), Map.entry("keep", 12L), Map.entry("shell_args", 12L), Map.entry("terminal_id", 12L)), Map.ofEntries(Map.entry("env", "terminal-env-v1"), Map.entry("keep", "terminal-reap-v1"), Map.entry("shell_args", "terminal-shell-args-v1"), Map.entry("terminal_id", "terminal-placement-env-v1")));
     public static final CommandMetadata NEW_WORKSPACE = new CommandMetadata("new-workspace", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
@@ -226,7 +227,7 @@ public final class Commands {
     public static final CommandMetadata SELECT_SCREEN = new CommandMetadata("select-screen", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SELECT_TAB = new CommandMetadata("select-tab", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SELECT_WORKSPACE = new CommandMetadata("select-workspace", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
-    public static final CommandMetadata SEND = new CommandMetadata("send", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("paste", 7L)), Map.ofEntries(Map.entry("expect_foreground", "send-expect-foreground-v1"), Map.entry("terminal_id", "terminal-input-while-creating-v1")));
+    public static final CommandMetadata SEND = new CommandMetadata("send", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("paste", 7L)), Map.ofEntries(Map.entry("expect_agent", "send-expect-agent-v1"), Map.entry("expect_foreground", "send-expect-foreground-v1"), Map.entry("submit", "send-expect-agent-v1"), Map.entry("terminal_id", "terminal-input-while-creating-v1")));
     public static final CommandMetadata SEND_KEY = new CommandMetadata("send-key", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SERVER_STATS = new CommandMetadata("server-stats", Authority.LOCAL_ADMIN, 12, "server-stats-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SET_CELL_PIXELS = new CommandMetadata("set-cell-pixels", Authority.FRONTEND, 6, null, StreamKind.NONE, Map.of(), Map.of());
@@ -264,6 +265,7 @@ public final class Commands {
     public static final CommandMetadata TERMINAL_CLIPBOARD_SUBSCRIBE = new CommandMetadata("terminal-clipboard-subscribe", Authority.FRONTEND, 12, "terminal-clipboard-read-v1", StreamKind.SUBSCRIBE, Map.of(), Map.of());
     public static final CommandMetadata TERMINAL_EVENTS = new CommandMetadata("terminal-events", Authority.CONTROL, 9, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata TERMINAL_HISTORY = new CommandMetadata("terminal-history", Authority.CONTROL, 12, "terminal-snapshot-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata TERMINAL_PORTS = new CommandMetadata("terminal-ports", Authority.CONTROL, 12, "terminal-ports-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata TERMINAL_READ_RANGE = new CommandMetadata("terminal-read-range", Authority.CONTROL, 12, "terminal-snapshot-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata TERMINAL_RESOURCES = new CommandMetadata("terminal-resources", Authority.CONTROL, 12, "terminal-resources-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata TERMINAL_RESUME_COMMAND = new CommandMetadata("terminal-resume-command", Authority.CONTROL, 12, "resume-command", StreamKind.NONE, Map.of(), Map.of());
@@ -353,6 +355,7 @@ public final class Commands {
         values.put("cloud-mux-unsubscribe", CLOUD_MUX_UNSUBSCRIBE);
         values.put("cloud-participant-avatar-get", CLOUD_PARTICIPANT_AVATAR_GET);
         values.put("cloud-requests-list", CLOUD_REQUESTS_LIST);
+        values.put("cloud-selfhost-info", CLOUD_SELFHOST_INFO);
         values.put("cloud-session-clear", CLOUD_SESSION_CLEAR);
         values.put("cloud-session-set", CLOUD_SESSION_SET);
         values.put("cloud-session-status", CLOUD_SESSION_STATUS);
@@ -549,6 +552,7 @@ public final class Commands {
         values.put("terminal-clipboard-subscribe", TERMINAL_CLIPBOARD_SUBSCRIBE);
         values.put("terminal-events", TERMINAL_EVENTS);
         values.put("terminal-history", TERMINAL_HISTORY);
+        values.put("terminal-ports", TERMINAL_PORTS);
         values.put("terminal-read-range", TERMINAL_READ_RANGE);
         values.put("terminal-resources", TERMINAL_RESOURCES);
         values.put("terminal-resume-command", TERMINAL_RESUME_COMMAND);

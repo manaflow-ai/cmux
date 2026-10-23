@@ -123,6 +123,24 @@ public final class CmuxMobileAuthModel {
             )
         )
         coordinator.start()
+        #if targetEnvironment(simulator) && !DEBUG
+        // A simulator build of a shipping configuration (TestFlight, Production, Release) is how
+        // the shipped app is verified end to end, and a simulator binary never runs on an iPhone.
+        // Those configurations offer only email code and OAuth, which a Stack test account cannot
+        // finish, so `CMUX_MOBILE_STACK_EMAIL` / `CMUX_MOBILE_STACK_PASSWORD` sign it in by
+        // password against the build's own (production) Stack project, once, when signed out.
+        // DEBUG builds use the coordinator's auto-login above instead.
+        if let email = environment["CMUX_MOBILE_STACK_EMAIL"], !email.isEmpty,
+           let password = environment["CMUX_MOBILE_STACK_PASSWORD"], !password.isEmpty {
+            Task { @MainActor in
+                await coordinator.awaitBootstrapped()
+                guard !coordinator.isAuthenticated else { return }
+                do { try await coordinator.signInWithPassword(email: email, password: password) } catch {
+                    authModelLog.error("simulator test sign-in failed: \(String(describing: type(of: error)), privacy: .public)")
+                }
+            }
+        }
+        #endif
         let apiBase = Self.apiBase(environment: isDebug ? environment : [:], infoValue: Bundle.main.object(forInfoDictionaryKey: "CmuxMobileAPIBase") as? String, isDebug: isDebug)
         // Which backend this build talks to (public ids only, no tokens).
         authModelLog.info("Stack project \(config.stack.projectId, privacy: .public) (\(isDebug || stagingStack ? "development" : "production", privacy: .public)), callback \(config.magicLinkCallbackURL, privacy: .public), service \(apiBase?.host() ?? "none", privacy: .public)")

@@ -6,7 +6,7 @@ import { afterAll, afterEach, expect, jest, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
-// These tests drive the full-height map, the default arm (layout.experiment.ts).
+// These tests drive the full-height map; the default arm draws no minimap (layout.experiment.ts).
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "full" };
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
@@ -246,6 +246,20 @@ test("the previewed prompt stays lit while focus is on its card", async () => {
     await act(async () => bookmark.focus());
     expect(card()?.textContent).toContain("Question 6");
     expect(tick(6).dataset.tone).toBe("active");
+  } finally {
+    await view.unmount();
+  }
+});
+
+test("the card draws outside the transcript scroller, whose edge mask would keep its blur from the rows", async () => {
+  const view = await mount(12);
+  try {
+    await act(async () => tick(6).focus());
+    expect(card()?.textContent).toContain("Question 6");
+    // A masked ancestor is the card's backdrop root (conversation.css's soft edges, #23782).
+    expect(card()!.closest(".acpmux-scroll")).toBeNull();
+    expect(card()!.parentElement).toBe(view.scroller.parentElement);
+    expect(view.scroller.querySelector(".acpmux-minimap > .acpmux-minimap__anchor")).not.toBeNull();
   } finally {
     await view.unmount();
   }

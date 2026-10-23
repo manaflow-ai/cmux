@@ -66,7 +66,10 @@ cp "$work/cmux" "$work/after/cmux"
 cp "$work/cmux" "$work/before/cmux"
 scripts/cmux-next/build-acpmux.sh --output "$work/after/acpmux"
 if [[ -n "$before" ]]; then
-  git fetch -q --depth 1 origin "$before"
+  # --depth only in an already-shallow checkout; it would make a full clone shallow.
+  depth=()
+  [[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth 1)
+  git fetch -q ${depth[@]+"${depth[@]}"} origin "$before"
   git worktree add -q --detach "$work/before-src" "$before"
   trap 'git -C "$root" worktree remove --force "$work/before-src" 2>/dev/null || true' EXIT
   (cd "$work/before-src" && git submodule update --init --depth 1 ghostty-next && scripts/cmux-next/build-acpmux.sh --output "$work/before/acpmux")

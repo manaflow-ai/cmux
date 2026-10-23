@@ -3,8 +3,8 @@
 // `data-status-indicators="static"` on the root: the app's WebTheme bootstrap sets it from the theme
 // payload (`statusIndicators`), which this test runs as the app does, and under it, or under Reduce
 // Motion, no web loop may run: the mic's wait pulse, the model picker and harness spinners, the
-// floating chat's breathing dot, the Thinking sweep, the running line's working dots, the todo
-// list's spinner, the activity line's dots, the Jump to Latest dots and Home's "writing" pulse.
+// floating chat's breathing dot, the Thinking sweep, the todo list's spinner, the Jump to Latest
+// dots and Home's "writing" pulse.
 // The diff viewer does not get the pane's theme, so its spinners stop under Reduce Motion alone.
 // Static also gives the color-only marks a shape each.
 // This loads the real stylesheets in Chromium and lists the animations that never end.
@@ -42,16 +42,20 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
   // The script the app installs at document start in every cmux web view (WebTheme.swift).
   const bootstrap = readWebThemeBootstrap();
 
+  // A running transcript row's working mark (Spinner, WORKING-LOOK) with its words.
+  const working =
+    `<div class="cv-tool"><span class="cv-tool__icon"><span class="cv-spinner" data-working>` +
+    `<span class="cv-spinner__arc"></span><span class="cv-spinner__dot"></span></span></span>` +
+    `<span class="cv-tool__text">Compacting</span></div>`;
   const paneLoops =
     `<button class="acpmux-mic" data-state="starting">mic</button>` +
     `<span class="acpmux-mp-refresh-spinner"></span><span class="acpmux-harness-spinner"></span>` +
     `<span class="acpmux-floating-status" data-status="streaming"></span>` +
     `<div class="cv-md"><span class="cv-thinking">Thinking</span></div>` +
-    `<div class="cv-worked"><span class="cv-working-mark"><span></span><span></span><span></span></span></div>` +
     `<button class="acpmux-jump-latest" data-shown data-working><span class="acpmux-jump-latest__dots"><i></i><i></i><i></i></span></button>` +
     `<ul class="cv-plan"><li class="cv-plan__item" data-status="in_progress"><span class="cv-plan__mark"></span></li></ul>` +
     `<span class="cv-spinner"></span>` +
-    `<div class="cv-activity"><span class="cv-activity__dots"><span></span><span></span><span></span></span></div>` +
+    working +
     `<span class="hc-writing">writing</span>`;
   const diffLoops = `<span class="base-picker-spinner"></span><div id="status" data-pending="true">Loading</div>`;
 
@@ -116,6 +120,25 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
     expect(running.some((loop) => loop.startsWith("cv-plan__mark") && loop.endsWith("cmux-spin"))).toBe(true);
     // The running rows' spinner (compaction, tool runs) too: it once had no rule and never turned.
     expect(running.some((loop) => loop.startsWith("cv-spinner") && loop.endsWith("cmux-spin"))).toBe(true);
+    // Agent work breathes by default (WORKING-LOOK), as its whole mark (SPINNERS-OFF-MAIN: the svg box
+    // gets a compositor layer, the dot inside it does not).
+    expect(running.some((loop) => loop.startsWith("cv-spinner ") && loop.endsWith("cmux-breathe"))).toBe(true);
+  });
+
+  test("each working look runs its own loop on agent work, and loading keeps the spinner", async () => {
+    const looks: Record<string, string[]> = {};
+    for (const look of ["breathe", "shimmer", "spinner"]) {
+      const p = await page(`${desktop}${pane}`, `<span class="cv-spinner"></span>${working}`, "no-preference");
+      await p.evaluate((value) => {
+        document.documentElement.dataset.workingLook = value;
+        return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      }, look);
+      looks[look] = (await loops(p)).map((loop) => loop.replace(/\s+/g, " ")).sort();
+      await p.close();
+    }
+    expect(looks.breathe).toEqual(["cv-spinner cmux-breathe", "cv-spinner cmux-spin"]);
+    expect(looks.shimmer).toEqual(["cv-spinner cmux-spin", "cv-tool__text cmux-shimmer"]);
+    expect(looks.spinner).toEqual(["cv-spinner cmux-spin", "cv-spinner cmux-spin"]);
   });
 
   test("Static status indicators stop every pane loop", async () => {
@@ -162,9 +185,6 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
       `<span class="acpmux-floating-status" data-status="attention"></span>` +
       ["running", "done", "failed"]
         .map((state) => `<span class="acpmux-summary-dot" data-state="${state}"></span>`)
-        .join("") +
-      ["running", "waiting", "completed", "failed", "cancelled"]
-        .map((state) => `<span class="acpmux-lineage__icon" data-state="${state}"></span>`)
         .join("");
     // The theme the pane always gets (applyAgentTheme), so state colors resolve as in the app.
     const colors =
@@ -184,13 +204,11 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
       return {
         floating: [...document.querySelectorAll(".acpmux-floating-status")].map((node) => shape(node)),
         summary: [...document.querySelectorAll(".acpmux-summary-dot")].map((node) => shape(node, "::after")),
-        lineage: [...document.querySelectorAll(".acpmux-lineage__icon")].map((node) => shape(node, "::after")),
       };
     });
     await p.close();
     expect(new Set(shapes.floating).size).toBe(2);
     expect(new Set(shapes.summary).size).toBe(3);
-    expect(new Set(shapes.lineage).size).toBe(5);
   });
 
   test("the theme push sets the attribute the stylesheets read", async () => {

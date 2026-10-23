@@ -64,7 +64,8 @@ extension AgentTabStore {
                     var request = NewConversationTabRequest(agentSession: record, workspace: workspace.workspace, origin: Self.createOrigin,
                                                             mutationID: UUID().uuidString)
                     request.transaction = transaction
-                    let response = try await connection.request(request)
+                    // One mutation id for every send: a tab the daemon made after the deadline replays.
+                    let response = try await DaemonConnection.retryingLateReplies(NewConversationTabRequest.command) { try await connection.request(request) }
                     BenchSpans.mark("cmdN.tab.created")
                     let tab = AgentTabCreated(key: response.tabResourceID?.rawValue ?? "surface:\(response.surface.rawValue)",
                                               surface: response.surface)

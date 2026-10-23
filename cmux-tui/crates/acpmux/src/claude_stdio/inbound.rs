@@ -1,21 +1,19 @@
 //! claude stdout → ACP: stream-json lines become session updates and replies.
 
 use super::*;
+use crate::no_panic::JsonExt;
 
 impl Translator {
     /// Translate one line from claude's stdout into ACP messages for the hub.
     pub async fn inbound(&self, line: &Value) -> Vec<Message> {
+        // A Ctrl-B the hub stopped waiting for leaves no mark (`end_background_asks`).
+        let now = std::time::Instant::now();
+        self.end_background_asks(false, |_, deadline| deadline.is_some_and(|d| d <= now)).await;
         let kind = line.get("type").and_then(Value::as_str).unwrap_or("");
         let sub = line.get("subtype").and_then(Value::as_str).unwrap_or("");
-        // A subagent's lines carry its Agent tool call's id and stream under
-        // its own session (ACP draft #1992).
+        // A subagent's lines stream under its own session, ended or not (`subagent_route`).
         let parent = line.get("parent_tool_use_id").and_then(Value::as_str);
-        let mut sid = self.acp_session_id.clone();
-        if let Some(p) = parent
-            && let Some(child) = self.subagents.lock().await.get(p)
-        {
-            sid = child.clone();
-        }
+        let sid = self.line_session(parent);
         let upd = |u: Value| {
             Message::notification(method::SESSION_UPDATE, json!({"sessionId": sid, "update": u}))
         };
@@ -128,15 +126,21 @@ impl Translator {
                         let d = ev.get("delta").cloned().unwrap_or(Value::Null);
                         match d.get("type").and_then(Value::as_str) {
                             Some("text_delta") => {
+                                if let Some(p) = parent {
+                                    self.streamed_subagents.lock().await.insert(p.to_owned());
+                                }
                                 let mut chunk = json!({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": d.get("text").and_then(Value::as_str).unwrap_or("")}});
                                 if let Some(id) =
                                     self.message_ids.lock().await.get(parent.unwrap_or(""))
                                 {
-                                    chunk["messageId"] = json!(id);
+                                    chunk.set("messageId", json!(id));
                                 }
                                 out.push(upd(chunk));
                             }
                             Some("thinking_delta") => {
+                                if let Some(p) = parent {
+                                    self.streamed_subagents.lock().await.insert(p.to_owned());
+                                }
                                 let t = d.get("thinking").and_then(Value::as_str).unwrap_or("");
                                 if !t.is_empty() {
                                     out.push(upd(json!({"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": t}})));
@@ -176,6 +180,37 @@ impl Translator {
                 }
             }
             "assistant" => {
+                // A subagent's text and thinking, which Claude Code sends only
+                // in its whole lines (Leo: "why subagents have so little
+                // talking?"), go to its session before the line's tool calls.
+                // The chat's own, and a subagent's that streams, came as
+                // stream events already.
+                if let Some(p) = parent
+                    && !self.streamed_subagents.lock().await.contains(p)
+                {
+                    let id = line.pointer("/message/id").and_then(Value::as_str);
+                    for c in line
+                        .pointer("/message/content")
+                        .and_then(Value::as_array)
+                        .into_iter()
+                        .flatten()
+                    {
+                        let (kind, key) = match c.get("type").and_then(Value::as_str) {
+                            Some("text") => ("agent_message_chunk", "text"),
+                            Some("thinking") => ("agent_thought_chunk", "thinking"),
+                            _ => continue,
+                        };
+                        let text = c.get(key).and_then(Value::as_str).unwrap_or("");
+                        if text.is_empty() {
+                            continue;
+                        }
+                        let mut chunk = json!({"sessionUpdate": kind, "content": {"type": "text", "text": text}});
+                        if let (Some(id), "agent_message_chunk") = (id, kind) {
+                            chunk.set("messageId", json!(id));
+                        }
+                        out.push(upd(chunk));
+                    }
+                }
                 for c in line
                     .pointer("/message/content")
                     .and_then(Value::as_array)
@@ -214,15 +249,16 @@ impl Translator {
                                     == Some(&Value::Bool(true)),
                                 launched: input.get("run_in_background")
                                     == Some(&Value::Bool(true)),
+                                asked: false,
                                 announced: false,
                                 output: None,
                             };
                             self.background_shells.lock().await.insert(id.to_owned(), shell);
                         }
                         let mut call = tool_call_fields(name, &input);
-                        call["sessionUpdate"] = json!("tool_call");
-                        call["toolCallId"] = c.get("id").cloned().unwrap_or(Value::Null);
-                        call["status"] = json!("in_progress");
+                        call.set("sessionUpdate", json!("tool_call"));
+                        call.set("toolCallId", c.get("id").cloned().unwrap_or(Value::Null));
+                        call.set("status", json!("in_progress"));
                         if let (Some(diffs), Some(id)) =
                             (call.get("content"), c.get("id").and_then(Value::as_str))
                         {
@@ -232,7 +268,7 @@ impl Translator {
                         if let Some(id) = c.get("id").and_then(Value::as_str)
                             && self.take_announced(id).await
                         {
-                            call["sessionUpdate"] = json!("tool_call_update");
+                            call.set("sessionUpdate", json!("tool_call_update"));
                         }
                         out.push(upd(call));
                     }
@@ -319,11 +355,7 @@ impl Translator {
                                 shell.output = Some(file);
                                 if shell.announced && shell.background {
                                     let mut update = background_task_update(tool, shell, "running");
-                                    update["origin"] = json!(if shell.launched {
-                                        "background"
-                                    } else {
-                                        "auto_backgrounded"
-                                    });
+                                    update.set("origin", json!(origin(shell)));
                                     out.push(shell_update(shell, update));
                                 }
                             }
@@ -331,7 +363,9 @@ impl Translator {
                         // ACP content replaces the call's content: a finished edit
                         // keeps its diff, and a failed one says why.
                         let content = match self.edits.lock().await.remove(tool) {
-                            Some(diffs) if !is_err => diffs,
+                            Some(diffs) if !is_err => {
+                                settle_write(diffs, &text, line.get("tool_use_result"))
+                            }
                             _ => {
                                 json!([{"type": "content", "content": {"type": "text", "text": text}}])
                             }
@@ -490,6 +524,24 @@ impl Translator {
                     let id: Id = serde_json::from_str(acp).unwrap_or(Value::String(acp.to_owned()));
                     self.pending.lock().await.remove(&id.to_string());
                     out.push(super::workflows::stop_reply(acp, ok, &resp));
+                } else if let Some(acp) = rid.strip_prefix("bg-") {
+                    // A background_tasks answer (`BACKGROUND_TASKS`, Ctrl-B). Claude Code's
+                    // SDK reads a missing `backgrounded` as true.
+                    let id: Id = serde_json::from_str(acp).unwrap_or(Value::String(acp.to_owned()));
+                    let moved =
+                        ok && inner.get("backgrounded").and_then(Value::as_bool).unwrap_or(true);
+                    // Nothing moved: a shell Claude Code moves later on its own is not the
+                    // person's, unless another Ctrl-B moved it or still waits.
+                    let key = id.to_string();
+                    self.end_background_asks(moved, |k, _| k == key).await;
+                    out.push(if ok {
+                        Message::ok(id, json!({"backgrounded": moved}))
+                    } else {
+                        let why = resp.get("error").and_then(Value::as_str);
+                        let why =
+                            why.unwrap_or("Claude Code did not move its work to the background");
+                        Message::err(id, RpcError::internal(why))
+                    });
                 } else if let Some(acp) = rid.strip_prefix("now-") {
                     // A step stopped for a steer sent now (`MUX_STEP_NOW`).
                     let id: Id = serde_json::from_str(acp).unwrap_or(Value::String(acp.to_owned()));
@@ -559,6 +611,8 @@ impl Translator {
                 out.extend(self.fail_steers().await);
                 *self.prompt_echo.lock().await = None;
                 self.in_turn.store(false, Ordering::SeqCst);
+                // A Ctrl-B still unanswered leaves no mark past its turn.
+                self.end_background_asks(false, |_, _| true).await;
                 let waiting: Vec<String> = self
                     .pending
                     .lock()
@@ -709,6 +763,7 @@ impl Translator {
                     task: None,
                     background: false,
                     launched: backgrounded(line.get("is_backgrounded")),
+                    asked: false,
                     announced: false,
                     output: None,
                 });
@@ -740,11 +795,11 @@ impl Translator {
         };
         let mut update = background_task_update(&tool, &shell, state);
         if let Some(task) = task {
-            update["taskId"] = json!(task);
+            update.set("taskId", json!(task));
         }
         for key in ["reason", "summary"] {
             if let Some(value) = text(key) {
-                update[key] = json!(value);
+                update.set(key, json!(value));
             }
         }
         Some(shell_update(&shell, update))
@@ -833,7 +888,7 @@ impl Translator {
     /// names an agent; a workflow, which always runs in the background, is
     /// named by its saved name until its launch names the run.
     async fn spawn_subagent(&self, tool_use_id: &str, tool: &str, input: &Value) -> Value {
-        let child = format!("{}/{tool_use_id}", self.acp_session_id);
+        let child = self.line_session(Some(tool_use_id));
         self.subagents.lock().await.insert(tool_use_id.to_owned(), child.clone());
         let workflow = tool == "Workflow";
         if workflow {
@@ -858,7 +913,7 @@ impl Translator {
         });
         // It outlives a stopped turn: a client keeps it running past one.
         if background {
-            update["background"] = json!(true);
+            update.set("background", json!(true));
         }
         update
     }
@@ -902,7 +957,7 @@ fn compaction_update(state: &str, line: &Value) -> Value {
         ("post_tokens", "postTokens"),
     ] {
         if let Some(v) = field(from) {
-            update[to] = v;
+            update.set(to, v);
         }
     }
     // Why it failed, in Claude Code's words (2.1.305 `compact_error`).
@@ -910,7 +965,7 @@ fn compaction_update(state: &str, line: &Value) -> Value {
         && let Some(error) = line.get("compact_error").and_then(Value::as_str)
         && !error.trim().is_empty()
     {
-        update["error"] = json!(error.trim());
+        update.set("error", json!(error.trim()));
     }
     update
 }
@@ -941,7 +996,7 @@ fn compaction_summary_text(line: &Value) -> Option<String> {
 /// being written to: PATH"), as Claude Code words it; None for any other text.
 fn launch_output_file(text: &str) -> Option<String> {
     const MARK: &str = "Output is being written to: ";
-    let rest = &text[text.find(MARK)? + MARK.len()..];
+    let (_, rest) = text.split_once(MARK)?;
     let path = rest.lines().next()?.trim();
     (path.starts_with('/') && path.ends_with(".output")).then(|| path.to_owned())
 }
@@ -958,8 +1013,7 @@ fn background_task_update(tool: &str, shell: &BackgroundShell, state: &str) -> V
 }
 
 /// The `running` update of a shell Claude runs in the background now, once
-/// per shell, with its `origin` (`background` when it started there,
-/// `auto_backgrounded` when it moved there): the hub lists it as a process
+/// per shell, with its `origin`: the hub lists it as a process
 /// (`hub/processes.rs`) and keeps a chat with one alive (`hub/idle.rs`).
 /// Clients note only how a shell ended.
 fn running(tool: &str, shell: &mut BackgroundShell) -> Option<Message> {
@@ -968,8 +1022,19 @@ fn running(tool: &str, shell: &mut BackgroundShell) -> Option<Message> {
     }
     shell.announced = true;
     let mut update = background_task_update(tool, shell, "running");
-    update["origin"] = json!(if shell.launched { "background" } else { "auto_backgrounded" });
+    update.set("origin", json!(origin(shell)));
     Some(shell_update(shell, update))
+}
+
+/// How a shell got to the background: `background` when it started there,
+/// `user_backgrounded` when the person moved it (Ctrl-B), else
+/// `auto_backgrounded` (Claude Code moved it).
+fn origin(shell: &BackgroundShell) -> &'static str {
+    match (shell.launched, shell.asked) {
+        (true, _) => "background",
+        (false, true) => "user_backgrounded",
+        (false, false) => "auto_backgrounded",
+    }
 }
 
 /// `update` as a session update in the shell's session, with its output
@@ -979,7 +1044,7 @@ fn running(tool: &str, shell: &mut BackgroundShell) -> Option<Message> {
 fn shell_update(shell: &BackgroundShell, update: Value) -> Message {
     let mut params = json!({"sessionId": shell.sid, "update": update});
     if let Some(output) = &shell.output {
-        params["_meta"] = json!({"acpmux": {"outputFile": output}});
+        params.set("_meta", json!({"acpmux": {"outputFile": output}}));
     }
     Message::notification(method::SESSION_UPDATE, params)
 }

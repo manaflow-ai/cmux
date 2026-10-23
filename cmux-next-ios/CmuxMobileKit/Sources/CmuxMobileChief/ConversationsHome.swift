@@ -1,6 +1,4 @@
 #if os(iOS)
-import CmuxAgentBrands
-import CmuxMobileAgentChat
 import CmuxMobileDesign
 import CmuxMobileModel
 import SwiftUI
@@ -8,163 +6,166 @@ import UIKit
 
 private let theme = CmuxMobileTheme.standard
 
-/// One agent conversation in the Home list (an agent tab of a workspace).
-struct AgentConversation: Identifiable, Hashable {
-    let workspaceID: String
-    let tabID: String
-    /// The row's title: the workspace ("cmux"); a workspace's second and
-    /// later agent tabs add the agent ("cmux · Codex").
-    let title: String
-    let name: String
-    let workspaceTitle: String
-    let harness: String
-    let preview: String
-    let date: Date
-    let needsYou: Bool
-    var id: String { tabID }
-}
-
-/// Markdown to one plain line, as a list preview: the rows, Chief's pin
-/// bubble and its VoiceOver label (F4).
-func plainPreview(_ markdown: String) -> String {
-    markdown
-        .replacingOccurrences(of: "```[a-z]*", with: "", options: .regularExpression)
-        .replacingOccurrences(of: "[*_`#>]", with: "", options: .regularExpression)
-        .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
-        .trimmingCharacters(in: .whitespaces)
-}
-
-/// Home (SPEC 3.1, 6): a Messages-style conversation list. Chief is pinned
-/// in Messages' pinned grid at the top (large avatar, preview or typing
-/// bubble above it); agent conversations follow as Messages rows (unread
-/// dot gutter, 45 pt monogram, name, date and chevron, two-line preview,
-/// swipe actions). Chief pushes the CmuxConversation transcript; agents push
-/// their chat.
+/// Home (user direction 2026-10-21: "Home should be exact information parity
+/// with macOS"): the Mac's Home list, the rows its conversation owner derives
+/// (`home-inbox`, ``MacHomeFeed``) drawn as the Mac's Home sidebar draws them
+/// (`HomeSidebarModel`): the pinned grid in the owner's pin order, then every
+/// other conversation newest first, each with its avatar, name, where a Chief
+/// runs, preview, time, unread dot and typing. The Cloud Chief (the account's
+/// Chief, which the Mac lists as its Main Chief tagged "Main · Cloud") is a row
+/// placed by its newest message; its pin is the Cloud inbox's, which the phone
+/// does not read, so it never takes a tile.
+/// The header has what the Mac's has: search, the Unread toggle (the Mac's only
+/// filter) and compose. Agent chats live in their workspaces, as on the Mac.
+/// The list shows one Mac's Home, the focused Mac's; the Mac menu picks it.
 public struct ConversationsHome<Leading: ToolbarContent>: View {
     let store: AppStore
     /// The Cloud Chief (the default once it answers) and the Mac Chief.
     let sources: ChiefSources
+    let feed: MacHomeFeed
     let leading: Leading
     let open: (HomeConversationRoute) -> Void
+    /// The Mac filter, shared with Workspaces (remembered per team): here it picks whose Home shows.
+    let macFilter: MacFilter
+    /// Live: choosing a Mac links it and moves the Mac Chief and Home to it.
+    let selectMac: ((String) -> Void)?
+    @State private var macText = MacFilterMemo()
     @State private var query = ""
-    @State private var filter: Filter = .all
-    @State private var unread: Set<String> = []
-    @State private var muted: Set<String> = []
-    @State private var deleted: Set<String> = []
+    @State private var unreadOnly = false
     /// The New Chief name prompt is up.
     @State private var namingChief = false
     @State private var newChiefName = ""
 
-    enum Filter: String, CaseIterable, Identifiable {
-        case all, unread, needsYou
-        var id: String { rawValue }
-        var title: LocalizedStringKey {
-            switch self {
-            case .all: "All Conversations"
-            case .unread: "Unread"
-            case .needsYou: "Needs You"
-            }
-        }
-    }
-
     /// `open` pushes a conversation New Message opened onto Home's stack.
-    public init(store: AppStore, sources: ChiefSources = .shared,
+    public init(store: AppStore, sources: ChiefSources = .shared, feed: MacHomeFeed = .shared, macFilter: MacFilter = MacFilter(),
+                selectMac: ((String) -> Void)? = nil,
                 open: @escaping (HomeConversationRoute) -> Void,
                 @ToolbarContentBuilder leading: () -> Leading) {
         self.store = store
         self.sources = sources
+        self.feed = feed
+        self.macFilter = macFilter
+        self.selectMac = selectMac
         self.open = open
         self.leading = leading()
+    }
+
+    /// The listed Macs (one per computer, whatever builds run on it: ``MacRoster``).
+    private var macs: [MacDevice] { macText.roster(store.activeTeam?.macs ?? []).visible }
+
+    private var labels: HomeMacLabels {
+        HomeMacLabels(macs: macs, scope: macFilter.scope(in: store.activeTeam),
+                             accountMacs: MacRoster.accountMacs(store.teams))
     }
 
     /// The default Chief: compose, New Message and the first pin.
     private var session: ChiefSession { sources.primary }
 
-    private var agents: [AgentConversation] {
-        var all: [AgentConversation] = []
-        for workspace in store.activeWorkspaces {
-            for tab in workspace.tabs where tab.kind == .agent {
-                all.append(conversation(tab, in: workspace))
+    /// The Mac whose Home shows: the one its rows came from, else the Mac Chief's.
+    private var homeMacID: String? { feed.macID ?? sources.mac.macID }
+
+    /// Under a Chief's name: where it runs ("Cloud", or the Mac's name), as the Mac's list tags each Chief.
+    private var macTag: String? {
+        labels.chiefDetail(place: .mac, macID: homeMacID, macName: sources.mac.macName)
+    }
+
+    /// The Mac's list as its sidebar lays it out, under the search and the Unread toggle.
+    private var list: MacHomeList { MacHomeList(feed.rows ?? [], query: query, unreadOnly: unreadOnly) }
+
+    /// The Cloud Chief (the Mac lists it as its Main Chief, "Main · Cloud", among the rows by its
+    /// newest message), while it answers and passes the filters.
+    private var showsCloudChief: Bool {
+        guard sources.isCloudReady else { return false }
+        if unreadOnly, sources.cloud.unreadCount == 0 { return false }
+        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        return needle.isEmpty || primaryName.localizedStandardContains(needle) || sources.cloud.preview.localizedStandardContains(needle)
+    }
+
+    /// Before the Mac's list arrives (no Mac yet, or it is connecting), its Chief stays reachable.
+    private var fallbackMacChief: ChiefSession? {
+        guard feed.rows == nil, query.isEmpty else { return nil }
+        let mac = sources.mac
+        let holds = !mac.outbox.isEmpty || mac.unreadCount > 0 || mac.openQuestion != nil
+        guard mac.macName != nil || holds || !sources.isCloudReady else { return nil }
+        if unreadOnly, mac.unreadCount == 0 { return nil }
+        return mac
+    }
+
+    /// The Mac Chief's own conversation: the one its session holds, else the one the Mac's
+    /// list names (before the session has found it).
+    private func isMacChief(_ row: MacHomeRow) -> Bool {
+        row.id == sources.mac.conversationID || (sources.mac.conversationID == nil && row.id == feed.macChiefID)
+    }
+
+    /// Where a row of the Mac's list goes: the Mac Chief's own conversation is the Mac Chief.
+    private func route(_ row: MacHomeRow) -> HomeConversationRoute {
+        if isMacChief(row) { return .chief(.mac) }
+        return .mac(MacConversationRoute(conversationID: row.id, chief: row.chief, title: row.title))
+    }
+
+    /// A row's avatar text: the Mac Chief's own avatar for its conversation, else the name's initials.
+    private func avatarText(_ row: MacHomeRow) -> String {
+        if isMacChief(row) { return sources.mac.avatar }
+        return homeInitials(row.title)
+    }
+
+    /// The tag after a row's name, as the Mac's list draws it (`HomeChiefRoster.tag`): "Main" for
+    /// the main Chief (the Cloud Chief when there is one, else this Mac's), then where a Chief runs.
+    private func tag(_ row: MacHomeRow) -> String? {
+        guard row.kind == .chief else { return nil }
+        return chiefTag(main: !sources.isCloudReady && isMacChief(row), place: macTag)
+    }
+
+    private func chiefTag(main: Bool, place: String?) -> String? {
+        let parts = [main ? String(localized: "Main") : nil, place].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " \u{00B7} ")
+    }
+
+    /// One row of Home: a row of the Mac's list, the Cloud Chief, or the Mac Chief before the list arrives.
+    enum Entry: Identifiable {
+        case row(MacHomeRow)
+        case cloud
+        case macChief
+        var id: String {
+            switch self {
+            case let .row(row): row.id
+            case .cloud: "cloud-chief"
+            case .macChief: "mac-chief"
             }
         }
-        return all
-            .filter { !deleted.contains($0.id) && matches($0) }
-            .sorted { $0.date > $1.date }
     }
 
-    private func conversation(_ tab: WorkspaceTab, in workspace: Workspace) -> AgentConversation {
-        let chat = AgentSessionDirectory.shared.existingStore(id: tab.id)
-        let lastTurn = chat?.turns.last
-        let answer: String? = lastTurn.map { $0.lastAnswerMarkdown ?? $0.prompt }
-        let agentTabs = workspace.tabs.filter { $0.kind == .agent }
-        return AgentConversation(
-            workspaceID: workspace.id, tabID: tab.id,
-            title: Self.title(of: tab, in: workspace.title, agentIDs: agentTabs.map(\.id)),
-            name: tab.title, workspaceTitle: workspace.title,
-            harness: tab.harness ?? "claude",
-            preview: Self.plain(answer ?? tab.subtitle ?? ""),
-            date: lastTurn?.promptAt ?? workspace.lastActivityAt,
-            needsYou: workspace.needsAttention && tab.id == agentTabs.first?.id
-        )
-    }
-
-    /// A row's title (SPEC 1.2): the workspace, and for its second and later
-    /// agent tabs the agent too, so rows read by topic, not by "Claude".
-    static func title(of tab: WorkspaceTab, in workspace: String, agentIDs: [String]) -> String {
-        guard let index = agentIDs.firstIndex(of: tab.id), index > 0 else { return workspace }
-        return "\(workspace) · \(tab.title)"
-    }
-
-    private func matches(_ conversation: AgentConversation) -> Bool {
-        let passesFilter: Bool = switch filter {
-        case .all: true
-        case .unread: unread.contains(conversation.id)
-        case .needsYou: conversation.needsYou
+    /// The rows in the Mac's order, with the Cloud Chief (and, before the list arrives, the Mac
+    /// Chief) placed among the unpinned rows by its newest message, as the Mac merges its owners.
+    private func entries(_ list: MacHomeList) -> [Entry] {
+        var entries = list.rows.map(Entry.row)
+        func place(_ entry: Entry, at date: Date) {
+            let index = entries.firstIndex { if case let .row(row) = $0 { return !row.isPinned && row.activityAt < date }; return false }
+            entries.insert(entry, at: index ?? entries.endIndex)
         }
-        guard passesFilter else { return false }
-        if query.isEmpty { return true }
-        let haystack = "\(conversation.name) \(conversation.workspaceTitle) \(conversation.preview)"
-        return haystack.localizedCaseInsensitiveContains(query)
+        if let mac = fallbackMacChief { place(.macChief, at: mac.lastMessage?.sentAt ?? .distantPast) }
+        if showsCloudChief { place(.cloud, at: sources.cloud.lastMessage?.sentAt ?? .distantPast) }
+        return entries
     }
 
-    /// Chief's pin follows the filter too (SPEC 1.6): Unread while it has
-    /// unread messages, Needs You while it waits on the user.
-    private var showsChief: Bool { shows(session) || sources.secondary.map(shows) == true }
-
-    private func shows(_ session: ChiefSession) -> Bool {
-        let passesFilter: Bool = switch filter {
-        case .all: true
-        case .unread: session.unreadCount > 0
-        case .needsYou: session.needsYou
-        }
-        guard passesFilter else { return false }
-        return query.isEmpty || "chief \(session.preview)".localizedCaseInsensitiveContains(query)
-    }
-
-    /// Markdown to one plain line, as a list preview.
-    static func plain(_ markdown: String) -> String { plainPreview(markdown) }
 
     public var body: some View {
         let stamp = MessagesStamp()
+        let list = list
+        let searching = !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         List {
-            if showsChief {
-                HStack(alignment: .bottom, spacing: 0) {
-                    if shows(session) {
-                        PinnedGrid(session: session, route: ChiefRoute(place: sources.primaryPlace), name: primaryName,
-                                   identifier: "home.chief", cloud: sources.isCloudReady ? sources : nil,
-                                   newChief: newChiefAction)
-                    }
-                    if let mac = sources.secondary, shows(mac) {
-                        PinnedGrid(session: mac, route: ChiefRoute(place: .mac), name: String(localized: "Mac Chief"),
-                                   identifier: "home.chief.mac")
-                    }
+            let tiles = pinnedTiles(list)
+            if !tiles.isEmpty {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 0, alignment: .bottom), count: 3), spacing: 4) {
+                    ForEach(tiles) { $0 }
                 }
+                .padding(.horizontal, 8)
                 .listRowInsets(EdgeInsets())
                 .listRowSeparator(.hidden)
                 .listRowBackground(theme.colors.bg.color)
             }
-            // The Cloud Chief could not take the pin: say why, under the Mac Chief.
-            if filter == .all, query.isEmpty, let status = sources.cloudStatus {
+            // The Cloud Chief could not take the pin: say why.
+            if !unreadOnly, !searching, let status = sources.cloudStatus {
                 VStack(spacing: 6) {
                     Text(status)
                         .font(.footnote)
@@ -178,7 +179,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                 .listRowInsets(EdgeInsets())
                 .listRowSeparator(.hidden)
                 .listRowBackground(theme.colors.bg.color)
-            } else if filter == .all, query.isEmpty, let error = sources.changeError {
+            } else if !unreadOnly, !searching, let error = sources.changeError {
                 // A refused switch or create while the Cloud Chief is open.
                 Text(error)
                     .font(.footnote)
@@ -191,9 +192,38 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                     .listRowBackground(theme.colors.bg.color)
                     .accessibilityIdentifier("home.chief.changeError")
             }
-            let rows = agents
-            if filter != .all, rows.isEmpty, !showsChief {
-                Text("No Conversations")
+            let entries = entries(list)
+            ForEach(entries) { entry in
+                switch entry {
+                case let .row(row):
+                    Button { open(route(row)) } label: {
+                        MessagesRow(title: row.title, subtitle: tag(row), preview: row.preview,
+                                    stamp: row.activityAt > .distantPast ? stamp.string(for: row.activityAt) : "",
+                                    isUnread: row.unreadCount > 0, isMuted: row.isMuted, needsYou: false,
+                                    isTyping: row.isWorking) { size in
+                            ChiefAvatar(text: avatarText(row), size: size)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 16))
+                    .listRowBackground(theme.colors.bg.color)
+                    .contextMenu { rowMenu(row) }
+                    .accessibilityIdentifier(isMacChief(row) ? "home.chief.mac" : "home.row.\(row.id)")
+                case .cloud:
+                    sessionRow(sources.cloud, name: primaryName, tag: chiefTag(main: true, place: String(localized: "Cloud")),
+                               stamp: stamp, identifier: "home.chief", place: .cloud) { cloudTileMenu }
+                case .macChief:
+                    sessionRow(sources.mac, name: String(localized: "Chief"), tag: chiefTag(main: !sources.isCloudReady, place: macTag),
+                               stamp: stamp, identifier: "home.chief.mac", place: .mac) { EmptyView() }
+                }
+            }
+            if let problem = feed.problem, !searching {
+                note(String(localized: "Couldn't read this Mac's Home: \(problem)"), identifier: "home.note.problem")
+            } else if feed.rows == nil, homeMacID != nil, !searching {
+                note(String(localized: "Connecting to \(macTag ?? String(localized: "your Mac"))…"), identifier: "home.note.connecting")
+            }
+            if tiles.isEmpty, entries.isEmpty, feed.rows != nil || searching || unreadOnly {
+                Text(unreadOnly ? "No Unread Conversations" : searching ? "No Results" : "No Conversations")
                     .font(.callout)
                     .foregroundStyle(theme.colors.label2.color)
                     .multilineTextAlignment(.center)
@@ -202,82 +232,34 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                     .listRowInsets(EdgeInsets())
                     .listRowSeparator(.hidden)
                     .listRowBackground(theme.colors.bg.color)
-            }
-            ForEach(rows) { conversation in
-                NavigationLink(value: AgentChatDestination(workspaceID: conversation.workspaceID, tabID: conversation.tabID)) {
-                    MessagesRow(
-                        title: conversation.title,
-                        agent: conversation.title.hasSuffix("· \(conversation.name)") ? nil : conversation.name,
-                        preview: conversation.preview,
-                        stamp: stamp.string(for: conversation.date),
-                        isUnread: unread.contains(conversation.id),
-                        isMuted: muted.contains(conversation.id),
-                        needsYou: conversation.needsYou
-                    ) { size in
-                        AgentAvatar(harness: conversation.harness, size: size)
-                    }
-                }
-                .navigationLinkIndicatorVisibility(.hidden)
-                .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 16))
-                .listRowBackground(theme.colors.bg.color)
-                // Trailing only: a rightward pan on a tab root opens the team
-                // drawer (SPEC swipe rules). Messages' set, outermost first.
-                .swipeActions(edge: .trailing) {
-                    Button("Delete", systemImage: "trash", role: .destructive) { deleted.insert(conversation.id) }
-                        // The shell tints every tab with the label color (white in
-                        // dark mode); clear it so the destructive role draws the
-                        // system red, as in Mail.
-                        .tint(nil)
-                    Button(muted.contains(conversation.id) ? "Show Alerts" : "Hide Alerts",
-                           systemImage: muted.contains(conversation.id) ? "bell" : "bell.slash") {
-                        toggle(&muted, conversation.id)
-                    }
-                    .tint(Color(uiColor: .systemIndigo))
-                    Button(unread.contains(conversation.id) ? "Read" : "Unread",
-                           systemImage: unread.contains(conversation.id) ? "message" : "message.badge") {
-                        toggle(&unread, conversation.id)
-                    }
-                    .tint(Color(uiColor: .systemBlue))
-                }
-                .contextMenu {
-                    Button(unread.contains(conversation.id) ? "Mark as Read" : "Mark as Unread", systemImage: "message.badge") {
-                        toggle(&unread, conversation.id)
-                    }
-                    Button(muted.contains(conversation.id) ? "Show Alerts" : "Hide Alerts", systemImage: "bell.slash") {
-                        toggle(&muted, conversation.id)
-                    }
-                    Button("Delete", systemImage: "trash", role: .destructive) { deleted.insert(conversation.id) }
-                }
+                    .accessibilityIdentifier("home.empty")
             }
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .background(theme.colors.bg.color.ignoresSafeArea())
-        // Workspaces' search: the native drawer, revealed by a pull-down.
+        // The Mac's search field, as the native drawer revealed by a pull-down.
         .cmuxMobilePullDownSearch(text: $query)
-        // No visible title (user feedback): Chief's pin sits right under the
-        // toolbar. The title still names the screen for
-        // VoiceOver and the back menu.
-        .navigationTitle("Conversations")
+        // No visible title (user feedback): the grid sits right under the
+        // toolbar. The title still names the screen for VoiceOver and the back menu.
+        .navigationTitle("Home")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(removing: .title)
         .toolbar {
             leading
             ToolbarItemGroup(placement: .topBarTrailing) {
-                Menu {
-                    Picker("Filter", selection: $filter) {
-                        ForEach(Filter.allCases) { Text($0.title).tag($0) }
-                    }
+                if macs.count > 1 { macMenu }
+                // The Mac's Unread toggle: all or unread only, the filled glyph while on.
+                Button {
+                    theme.haptics.selection()
+                    withAnimation(theme.motion.smooth.animation) { unreadOnly.toggle() }
                 } label: {
-                    // A Label, not a bare Image: the bar then hosts a native button whose touch
-                    // area covers the whole 44 pt glass circle (a bare Image label was 36 pt).
-                    Label("Filter", systemImage: filter == .all ? "line.3.horizontal.decrease" : "line.3.horizontal.decrease.circle.fill")
+                    Label("Unread", systemImage: unreadOnly ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
                 }
-                .accessibilityLabel("Filter")
+                .accessibilityIdentifier("home.unread")
+                .accessibilityValue(unreadOnly ? "On" : "Off")
                 // Compose opens the Chief conversation with the keyboard up
-                // (SPEC 1.4): the phone cannot create conversations, so
-                // every other recipient is already a row here, and Chief
-                // routes work to agents itself.
+                // (SPEC 1.4): the phone starts no conversations.
                 Button("New Message to Chief", systemImage: "square.and.pencil") {
                     open(.chiefComposing(sources.primaryPlace))
                 }
@@ -289,8 +271,14 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
             ChiefConversationScreen(session: chief, compose: ChiefComposer(store: store, session: chief, open: open),
                                     focusesComposer: route.focusesComposer)
         }
-        // Back on Home: look for the Cloud Chief again if it was not reachable.
-        .task { sources.refreshIfNeeded() }
+        .navigationDestination(for: MacConversationRoute.self) { route in
+            MacConversationScreen(route: route, feed: feed)
+        }
+        // Back on Home: look for the Cloud Chief again if it was not reachable, and read the Mac's list.
+        .task {
+            sources.refreshIfNeeded()
+            feed.refresh()
+        }
         .alert("New Chief", isPresented: $namingChief) {
             TextField("Name", text: $newChiefName)
                 // Names and prompts are code-like: no autocorrect, no capitals (full verify D5).
@@ -306,8 +294,113 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         } message: {
             Text("A new Cloud Chief with its own conversation and memory.")
         }
-        .animation(theme.motion.smooth.animation, value: filter)
-        .animation(theme.motion.smooth.animation, value: deleted)
+        .animation(theme.motion.smooth.animation, value: list)
+    }
+
+    /// The grid's tiles: the Mac's pinned conversations in the owner's order.
+    /// Each tile is its own button, so a tap opens that tile only.
+    private func pinnedTiles(_ list: MacHomeList) -> [HomeTile] {
+        var tiles: [HomeTile] = []
+        for row in list.pinned {
+            let macChief = isMacChief(row)
+            tiles.append(HomeTile(id: row.id, avatar: avatarText(row), name: row.title, detail: tag(row),
+                                  unread: row.unreadCount > 0, working: row.isWorking,
+                                  bubble: row.unreadCount > 0 && !row.preview.isEmpty ? row.preview : nil,
+                                  muted: row.isMuted, identifier: macChief ? "home.chief.mac" : "home.pin.\(row.id)",
+                                  open: { open(route(row)) }, menu: AnyView(rowMenu(row))))
+        }
+        return tiles
+    }
+
+    /// A Chief the phone holds itself (the Cloud Chief, or the Mac Chief before the list arrives) as a row.
+    private func sessionRow<Menu: View>(_ chief: ChiefSession, name: String, tag: String?, stamp: MessagesStamp, identifier: String,
+                                        place: ChiefRoute.Place, @ViewBuilder menu: () -> Menu) -> some View {
+        Button { open(.chief(place)) } label: {
+            MessagesRow(title: name, subtitle: tag, preview: plainPreview(chief.preview),
+                        stamp: chief.lastMessage.map { stamp.string(for: $0.sentAt) } ?? "",
+                        isUnread: chief.unreadCount > 0, isMuted: chief.isMuted, needsYou: chief.needsYou,
+                        isTyping: chief.isWorking) { size in
+                ChiefAvatar(text: chief.avatar, size: size)
+            }
+        }
+        .buttonStyle(.plain)
+        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 16))
+        .listRowBackground(theme.colors.bg.color)
+        .contextMenu { menu() }
+        .accessibilityIdentifier(identifier)
+    }
+
+    /// The Mac's row menu, the actions that are the person's list state:
+    /// Pin or Unpin, Mark as Read or Mark as Unread.
+    @ViewBuilder private func rowMenu(_ row: MacHomeRow) -> some View {
+        Button(row.isPinned ? "Unpin" : "Pin", systemImage: row.isPinned ? "pin.slash" : "pin") {
+            theme.haptics.selection()
+            feed.setPinned(!row.isPinned, row.id)
+        }
+        if row.unreadCount > 0 {
+            Button("Mark as Read", systemImage: "message") { feed.markRead(row.id) }
+        } else {
+            Button("Mark as Unread", systemImage: "message.badge") { feed.setMarkedUnread(true, row.id) }
+        }
+    }
+
+    @ViewBuilder private var cloudTileMenu: some View {
+        let cloud = sources.cloud
+        if cloud.conversationID != nil {
+            Button(cloud.isMuted ? "Show Alerts" : "Hide Alerts", systemImage: cloud.isMuted ? "bell" : "bell.slash") {
+                cloud.setMuted(!cloud.isMuted)
+            }
+        }
+        ChiefPickerItems(sources: sources, newChief: newChiefAction)
+    }
+
+    private func note(_ text: String, identifier: String) -> some View {
+        Text(text)
+            .font(.footnote)
+            .foregroundStyle(theme.colors.label2.color)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
+            .listRowInsets(EdgeInsets())
+            .listRowSeparator(.hidden)
+            .listRowBackground(theme.colors.bg.color)
+            .accessibilityIdentifier(identifier)
+    }
+
+    /// Whose Home shows: each Mac (online first) with its presence and link
+    /// line; choosing one links it, as on Workspaces.
+    private var macMenu: some View {
+        let entries = macText.entries(MacFilterMemo.Input(macs: macs, connection: store.macConnection,
+                                                          linkStatus: store.macLinkStatus, live: store.tracksMacData,
+                                                          now: MinuteClock.shared.now))
+        return Menu {
+            Section("Show Home of") {
+                ForEach(entries) { mac in
+                    Toggle(isOn: chosen(mac.id)) {
+                        Text(mac.title)
+                        Text(mac.detail)
+                        Image(systemName: "desktopcomputer")
+                    }
+                    .accessibilityIdentifier("home.mac.\(mac.id)")
+                }
+            }
+        } label: {
+            Label("Mac", systemImage: "desktopcomputer")
+        }
+        .accessibilityIdentifier("home.mac")
+        .accessibilityValue(homeMacID.flatMap { labels.macName($0) } ?? "")
+    }
+
+    private func chosen(_ id: String) -> Binding<Bool> {
+        Binding(get: { homeMacID == id }, set: { if $0 { selectHome(id) } })
+    }
+
+    private func selectHome(_ id: String) {
+        guard let team = store.activeTeam, id != homeMacID else { return }
+        theme.haptics.selection()
+        withAnimation(theme.motion.smooth.animation) { macFilter.select(.mac(id), in: team.id) }
+        // The chosen Mac is linked and focused: its Chief and its Home show.
+        if macs.contains(where: { $0.id == id && $0.isOnline }) { selectMac?(id) }
     }
 
     /// The first pin's name: the Cloud Chief's own name once it is the default.
@@ -360,120 +453,130 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                 .accessibilityIdentifier("home.chief.changeError")
         }
     }
-
-    private func toggle(_ set: inout Set<String>, _ id: String) {
-        if set.contains(id) { set.remove(id) } else { set.insert(id) }
-        theme.haptics.selection()
-    }
 }
 
-/// Messages' pinned conversations: a grid of large avatars with names, a
-/// preview (or typing) bubble above an avatar with something new.
-struct PinnedGrid: View {
-    let session: ChiefSession
-    /// Which Chief the pin opens.
-    var route = ChiefRoute()
-    var name = String(localized: "Chief")
-    var identifier = "home.chief"
-    /// The Cloud Chief's pin: its menu lists the account's other chiefs.
-    var cloud: ChiefSources?
-    var newChief: (() -> Void)?
+/// One tile of Messages' pinned grid, as the Mac's Home draws it: a large
+/// avatar, the name (the unread dot before it, the muted bell after it),
+/// where a Chief runs, and a typing or preview bubble above the avatar. A
+/// button of its own: a tap opens this tile only.
+struct HomeTile: View, Identifiable {
+    let id: String
+    let avatar: String
+    let name: String
+    let detail: String?
+    let unread: Bool
+    let working: Bool
+    /// The unread preview, shown in a bubble over the avatar.
+    let bubble: String?
+    let muted: Bool
+    let identifier: String
+    let open: () -> Void
+    let menu: AnyView?
+
+    @ScaledMetric(relativeTo: .body) private var scaledClearance: CGFloat = 10
+    private var bubbleClearance: CGFloat { min(max(scaledClearance, 10), 18) }
+    private var showsBubble: Bool { working || bubble != nil }
 
     var body: some View {
-        NavigationLink(value: route) {
-            pin
+        Button(action: open) {
+            tile
                 .frame(maxWidth: .infinity)
-                // The bubble rides above the avatar: room for it, so it
-                // keeps clear of the bar and the search drawer at every size (F3).
                 .padding(.top, showsBubble ? 14 + bubbleClearance : 14)
                 .padding(.bottom, 10)
                 .contentShape(.rect)
         }
-        .navigationLinkIndicatorVisibility(.hidden)
         .buttonStyle(.plain)
-        .contextMenu {
-            if session.conversationID != nil {
-                Button(session.isMuted ? "Show Alerts" : "Hide Alerts", systemImage: session.isMuted ? "bell" : "bell.slash") {
-                    session.setMuted(!session.isMuted)
-                }
-            }
-            if let cloud {
-                ChiefPickerItems(sources: cloud, newChief: newChief)
-            }
-        }
+        .contextMenu { if let menu { menu } }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityLabel)
         .accessibilityIdentifier(identifier)
-        .animation(theme.motion.snappy.animation, value: session.isWorking)
-        .animation(theme.motion.snappy.animation, value: showsPreview)
-        .animation(theme.motion.snappy.animation, value: showsBubble)
+        .animation(theme.motion.snappy.animation, value: working)
+        .animation(theme.motion.snappy.animation, value: bubble)
     }
-
-    /// The preview bubble: something unread, or Chief waiting on the user
-    /// (an unsent message, or a question not yet opened), which stays up
-    /// after the unread count clears until the chat is opened (SPEC 1.5).
-    private var showsPreview: Bool {
-        session.unreadCount > 0 || session.isWaitingOnYou
-    }
-
-    private var showsBubble: Bool { session.isWorking || showsPreview }
-
-    /// Extra top room while a bubble shows, growing with the text (the
-    /// search drawer above does too). Measured round 2: 10 pt left 8 pt at Large
-    /// and 4 pt at AX5; scaled, capped at 18 pt, it leaves at least 6 pt at
-    /// every size (R2-7).
-    @ScaledMetric(relativeTo: .body) private var scaledClearance: CGFloat = 10
-    private var bubbleClearance: CGFloat { min(max(scaledClearance, 10), 18) }
-
-    private var previewText: String { plainPreview(session.preview) }
 
     private var accessibilityLabel: Text {
-        if session.isWorking { return Text("\(name), typing") }
-        if showsPreview { return Text("\(name), \(previewText)") }
+        let name = detail.map { "\(self.name), \($0)" } ?? self.name
+        if working { return Text("\(name), typing") }
+        if let bubble { return Text("\(name), \(bubble)") }
         return Text("\(name), pinned")
     }
 
-    private var pin: some View {
+    private var tile: some View {
         VStack(spacing: 6) {
             ZStack(alignment: .topLeading) {
-                ChiefAvatar(text: session.avatar, size: 88)
-                if session.isWorking {
+                ChiefAvatar(text: avatar, size: 72)
+                if working {
                     TypingBubble()
                         .offset(x: -14, y: -18)
                         .transition(.scale(scale: 0.6, anchor: .bottomTrailing).combined(with: .opacity))
-                } else if showsPreview {
-                    Text(previewText)
+                } else if let bubble {
+                    Text(bubble)
                         .font(.caption2)
-                        // A glance, not the message: it stays a small bubble
-                        // over the avatar at accessibility sizes too.
+                        // A glance, not the message: it stays a small bubble at accessibility sizes too.
                         .dynamicTypeSize(...DynamicTypeSize.xxLarge)
                         .lineLimit(2)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 5)
-                        .frame(maxWidth: 110, alignment: .leading)
+                        .frame(maxWidth: 100, alignment: .leading)
                         .background(theme.colors.surfaceRaised.color, in: .rect(cornerRadius: 12, style: .continuous))
                         .offset(x: -24, y: -26)
                         .transition(.scale(scale: 0.6, anchor: .bottomTrailing).combined(with: .opacity))
                 }
             }
             HStack(spacing: 4) {
-                if session.unreadCount > 0 {
+                if unread {
                     Circle().fill(theme.colors.label.color).frame(width: 8, height: 8)
                 }
                 Text(name)
                     .font(.footnote)
                     .foregroundStyle(theme.colors.label.color)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.center)
-                if session.isMuted {
+                    .lineLimit(1)
+                if muted {
                     Image(systemName: "bell.slash.fill")
                         .font(.caption2)
                         .foregroundStyle(theme.colors.label3.color)
                         .accessibilityLabel("Alerts hidden")
                 }
             }
+            if let detail {
+                Text(detail)
+                    .font(.caption2)
+                    .foregroundStyle(theme.colors.label2.color)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
         }
-        .frame(minWidth: 110)
+    }
+}
+
+/// A conversation of the Mac's Home list other than the Mac Chief's, over
+/// its own `chief` channel to that Mac (``MacHomeFeed/session(for:)``).
+struct MacConversationScreen: View {
+    struct SessionKey: Hashable {
+        let route: MacConversationRoute
+        let epoch: Int
+    }
+
+    let route: MacConversationRoute
+    let feed: MacHomeFeed
+    @State private var session: ChiefSession?
+    @State private var failure: String?
+
+    var body: some View {
+        Group {
+            if let session {
+                ChiefConversationScreen(session: session)
+            } else if let failure {
+                ContentUnavailableView(route.title, systemImage: "bubble.left.and.exclamationmark.bubble.right", description: Text(failure))
+            } else {
+                ProgressView().accessibilityIdentifier("home.conversation.loading")
+            }
+        }
+        // A new link closes the conversation's channel: the screen takes a new session on it.
+        .task(id: SessionKey(route: route, epoch: feed.sessionEpoch)) {
+            failure = nil
+            do { session = try await feed.session(for: route) } catch { failure = MacHomeFeed.reason(error) }
+        }
     }
 }
 
@@ -486,11 +589,15 @@ struct MessagesRow<Avatar: View>: View {
     /// The agent, for VoiceOver (F5): the avatar mark says it to the eye
     /// only. nil when the title already names it ("cmux · Codex").
     var agent: String?
+    /// The agent and its Mac ("Codex · Aziz's MacBook Pro"), under the title.
+    var subtitle: String?
     let preview: String
     let stamp: String
     let isUnread: Bool
     let isMuted: Bool
     let needsYou: Bool
+    /// The Chief types or runs: the typing bubble stands in for the preview, as on the Mac.
+    var isTyping = false
     @ViewBuilder let avatar: (CGFloat) -> Avatar
     @Environment(\.dynamicTypeSize) private var typeSize
     @ScaledMetric(relativeTo: .body) private var scaledAvatar: CGFloat = 45
@@ -521,8 +628,9 @@ struct MessagesRow<Avatar: View>: View {
         var parts: [String] = []
         if isUnread { parts.append(String(localized: "Unread")) } else if needsYou { parts.append(String(localized: "Needs you")) }
         parts.append(title)
-        if let agent { parts.append(agent) }
+        if let subtitle { parts.append(subtitle) } else if let agent { parts.append(agent) }
         parts.append(stamp)
+        if isTyping { parts.append(String(localized: "Typing")) }
         if !preview.isEmpty { parts.append(preview) }
         if isMuted { parts.append(String(localized: "Alerts hidden")) }
         return parts.joined(separator: ", ")
@@ -549,6 +657,16 @@ struct MessagesRow<Avatar: View>: View {
         Text(title).font(.body.weight(.semibold))
     }
 
+    @ViewBuilder private var subtitleText: some View {
+        if let subtitle, !subtitle.isEmpty {
+            Text(subtitle)
+                .font(.subheadline)
+                .foregroundStyle(theme.colors.label.color)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+    }
+
     private var dateAndChevron: some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             Text(stamp)
@@ -563,11 +681,15 @@ struct MessagesRow<Avatar: View>: View {
         }
     }
 
-    private func previewText(lines: Int) -> some View {
-        Text(preview.isEmpty ? " " : preview)
-            .font(.subheadline)
-            .foregroundStyle(theme.colors.label2.color)
-            .lineLimit(lines, reservesSpace: true)
+    @ViewBuilder private func previewText(lines: Int) -> some View {
+        if isTyping {
+            TypingBubble().scaleEffect(0.8, anchor: .leading)
+        } else {
+            Text(preview.isEmpty ? " " : preview)
+                .font(.subheadline)
+                .foregroundStyle(theme.colors.label2.color)
+                .lineLimit(lines, reservesSpace: true)
+        }
     }
 
     private var standard: some View {
@@ -577,6 +699,7 @@ struct MessagesRow<Avatar: View>: View {
                 Spacer(minLength: 4)
                 dateAndChevron
             }
+            subtitleText
             previewText(lines: 2)
         }
     }
@@ -587,6 +710,7 @@ struct MessagesRow<Avatar: View>: View {
                 .lineLimit(2)
                 .frame(maxWidth: .infinity, alignment: .leading)
             dateAndChevron
+            subtitleText
             Text(preview.isEmpty ? " " : preview)
                 .font(.subheadline)
                 .foregroundStyle(theme.colors.label2.color)
@@ -627,24 +751,6 @@ struct ChiefAvatar: View {
 
     var body: some View {
         Monogram(text: text, size: size)
-    }
-}
-
-/// An agent conversation's avatar: the harness's mark (Claude, Codex)
-/// white on the monogram gradient, 20 pt at the row's 45 pt.
-struct AgentAvatar: View {
-    let harness: String
-    let size: CGFloat
-
-    var body: some View {
-        Circle()
-            .fill(monogramGradient)
-            .overlay {
-                AgentBrandMark(agent: harness, size: size * 20 / 45)
-                    .foregroundStyle(.white)
-            }
-            .frame(width: size, height: size)
-            .accessibilityHidden(true)
     }
 }
 

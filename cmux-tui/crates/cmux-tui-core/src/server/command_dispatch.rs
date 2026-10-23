@@ -234,7 +234,9 @@ pub(super) fn handle_command_with_cancellation(
         Command::ReportAgent { surface, state, source, session } => {
             cmd_frontend::report_agent(mux, surface, state, source, session)
         }
-        Command::VtState { .. } => unreachable!("vt-state uses its streaming response path"),
+        Command::VtState { .. } => {
+            anyhow::bail!("vt-state is served by its streaming response path")
+        }
         Command::MintTerminalRenderer { surface, ttl_ms } => {
             cmd_terminals::mint_terminal_renderer(mux, client, surface, ttl_ms)
         }
@@ -429,6 +431,7 @@ pub(super) fn handle_command_with_cancellation(
         }
         Command::ZoomPane { pane, mode } => cmd_panes::zoom_pane(mux, actor, pane, mode),
         Command::ProcessInfo { surface } => cmd_terminals::process_info(mux, surface),
+        Command::TerminalPorts { surface } => terminal_ports::terminal_ports(mux, surface),
         Command::TerminalResources { surfaces } => cmd_terminals::terminal_resources(mux, surfaces),
         Command::MoveTerminal { terminal_id, workspace_key, terminal_incarnation, mutation } => {
             cmd_terminals::move_terminal(
@@ -608,6 +611,7 @@ pub(super) fn handle_command_with_cancellation(
         Command::WsListen(params) => page_listener::ws_listen(mux, client, params),
         Command::CloudInboxList(params) => cloud_conversations::inbox_list(mux, client, params),
         Command::CloudRequestsList(_) => cloud_conversations::requests_list(mux, client),
+        Command::CloudSelfhostInfo(_) => cloud_conversations::selfhost_info(mux, client),
         Command::CloudConversationSnapshot(params) => {
             cloud_conversations::snapshot(mux, client, params)
         }
@@ -893,17 +897,24 @@ pub(super) fn handle_command_with_cancellation(
             expected_generation,
             expected_terminal_id,
             snapshot,
-        } => cmd_attach::attach_surface(
-            mux,
-            client,
-            writer,
-            surface_id,
-            mode,
-            cols,
-            rows,
-            expected_generation,
-            expected_terminal_id,
-            snapshot,
-        ),
+        } => {
+            // A sized attach is a size report: it starts (or renews) the
+            // lease before the size applies.
+            if let Some(surface) = surface_id.filter(|_| cols.is_some() && rows.is_some()) {
+                size_lease::renew_size_lease(mux, client, surface);
+            }
+            cmd_attach::attach_surface(
+                mux,
+                client,
+                writer,
+                surface_id,
+                mode,
+                cols,
+                rows,
+                expected_generation,
+                expected_terminal_id,
+                snapshot,
+            )
+        }
     }
 }

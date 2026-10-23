@@ -5,8 +5,11 @@
         --variant arm64 --exclude-build 3371353821401 --count 2 --out previous-nightlies
 
 Assets are matched by name (cmux-nightly-macos-<variant>-<build>.dmg), ordered by
-build number, and the newest <count> below --exclude-build are downloaded by the
-asset API URL from that same listing, then checked against the listed digest.
+build number, and the newest <count> below --exclude-build are chosen. Each
+--older-than-hours H adds the newest build uploaded at least H hours ago (when
+it is not chosen yet), so a Mac that was offline for a day still finds a delta.
+The chosen builds are downloaded by the asset API URL from that same listing,
+then checked against the listed digest.
 `gh release download --pattern` is not used: it resolves names against the REST
 release object, whose embedded asset list is incomplete on a release holding
 ~1000 assets, so a DMG present in the paginated listing could be "not found".
@@ -17,6 +20,7 @@ skips that build with a warning; the publish ships without that delta.
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import re
@@ -37,6 +41,7 @@ def main() -> int:
     )
     parser.add_argument("--exclude-build", type=int, default=0)
     parser.add_argument("--count", type=int, default=2)
+    parser.add_argument("--older-than-hours", type=float, action="append", default=[])
     parser.add_argument("--out", required=True)
     args = parser.parse_args()
 
@@ -62,6 +67,12 @@ def main() -> int:
         candidates.append((build, asset))
     candidates.sort(key=lambda item: item[0], reverse=True)
     chosen = candidates[: args.count]
+    now = datetime.now(timezone.utc)
+    for hours in sorted(args.older_than_hours):
+        cutoff = now - timedelta(hours=hours)
+        older = next((c for c in candidates if uploaded_at(c[1]) and uploaded_at(c[1]) <= cutoff), None)
+        if older and older not in chosen:
+            chosen.append(older)
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     fetched = 0
@@ -72,6 +83,13 @@ def main() -> int:
             fetched += 1
     print(f"fetched {fetched} of {len(chosen)} previous {args.variant} build(s) into {out}")
     return 0
+
+
+def uploaded_at(asset: dict) -> datetime | None:
+    try:
+        return datetime.fromisoformat(asset["createdAt"].replace("Z", "+00:00"))
+    except (KeyError, AttributeError, ValueError):
+        return None
 
 
 def download_asset(asset: dict, destination: Path) -> bool:

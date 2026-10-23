@@ -3,7 +3,13 @@
 import { createContext } from "react";
 
 export type ArtifactKind = "html" | "svg" | "markdown";
-export type Artifact = { kind: ArtifactKind; lang: string; code: string };
+export type Artifact = {
+  kind: ArtifactKind;
+  lang: string;
+  code: string;
+  /// The render card it came from (its key, renderCall.ts `renderPages`), whose pages are its versions.
+  render?: string;
+};
 
 const KINDS: Record<string, ArtifactKind> = {
   html: "html",

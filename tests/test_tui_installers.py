@@ -26,12 +26,18 @@ def run_unix_installer(
     base_url: str,
     commit: str | None = COMMIT,
     payload: bytes = PAYLOAD,
+    args: list[str] | None = None,
+    env: dict[str, str] | None = None,
+    binary: bytes | None = None,
 ) -> tuple[subprocess.CompletedProcess[str], Path, list[str]]:
+    """`binary`, when given, is published and served as the verified build."""
+    if binary is not None:
+        payload = binary
     fake_bin = tmp_path / "fake-bin"
     fake_bin.mkdir()
     manifest = {
         "binaries": {
-            "cmux-tui-aarch64-apple-darwin": hashlib.sha256(PAYLOAD).hexdigest(),
+            "cmux-tui-aarch64-apple-darwin": hashlib.sha256(binary or PAYLOAD).hexdigest(),
         },
     }
     if commit is not None:
@@ -76,7 +82,7 @@ esac
 
     install_root = tmp_path / "install"
     result = subprocess.run(
-        ["/bin/sh", str(UNIX_INSTALLER)],
+        ["/bin/sh", str(UNIX_INSTALLER), *(args or [])],
         cwd=ROOT,
         env={
             **os.environ,
@@ -85,12 +91,14 @@ esac
             "FIXTURES": str(tmp_path),
             "PATH": f"{fake_bin}:{os.environ['PATH']}",
             "SHELL": "/bin/sh",
+            **(env or {}),
         },
         check=False,
         capture_output=True,
         text=True,
     )
-    return result, install_root / "bin/cmux", downloads.read_text().splitlines()
+    downloaded = downloads.read_text().splitlines() if downloads.exists() else []
+    return result, install_root / "bin/cmux", downloaded
 
 
 def test_unix_installer_selects_verifies_and_installs_native_binary(
@@ -168,6 +176,81 @@ def test_unix_installer_rejects_wrong_commit_binary_checksum() -> None:
         assert not installed.exists()
 
 
+# A cmux that records how it was run, one line of arguments per run.
+RECORDING_CMUX = b"""#!/bin/sh
+printf '%s\\n' "$*" >>"$FIXTURES/cmux-runs"
+"""
+TICKET = "cmxt1.eyJ2IjoxfQ"
+
+
+def runs(directory: Path) -> list[str]:
+    path = directory / "cmux-runs"
+    return path.read_text().splitlines() if path.exists() else []
+
+
+def test_unix_installer_joins_with_a_pasted_ticket() -> None:
+    # `sh -s -- <ticket>`, `--join <ticket>` and CMUX_JOIN_TICKET all join,
+    # with --serve unless CMUX_HOST already turned hosting on, and pass
+    # `--advertise` / CMUX_JOIN_ADVERTISE through.
+    cases = [
+        ([TICKET], {}, [f"host join --serve {TICKET}"]),
+        (["--join", TICKET], {}, [f"host join --serve {TICKET}"]),
+        ([], {"CMUX_JOIN_TICKET": TICKET}, [f"host join --serve {TICKET}"]),
+        ([TICKET], {"CMUX_HOST": "1"}, ["host enable", f"host join {TICKET}"]),
+        ([TICKET], {"CMUX_HOST": "0"}, [f"host join {TICKET}"]),
+        # A daemon-role ticket: the address the other machine dials this one at.
+        (
+            [TICKET, "--advertise", "wss://new.example/acp"],
+            {},
+            [f"host join --serve --advertise wss://new.example/acp {TICKET}"],
+        ),
+        (
+            ["--advertise=wss://new.example/acp", TICKET],
+            {"CMUX_HOST": "0"},
+            [f"host join --advertise wss://new.example/acp {TICKET}"],
+        ),
+        (
+            [TICKET],
+            {"CMUX_JOIN_ADVERTISE": "wss://new.example/acp"},
+            [f"host join --serve --advertise wss://new.example/acp {TICKET}"],
+        ),
+        ([], {}, []),
+    ]
+    for args, env, expected in cases:
+        with tempfile.TemporaryDirectory() as directory:
+            result, installed, _ = run_unix_installer(
+                Path(directory), "https://fixtures.invalid/cmux-tui/latest",
+                args=args, env=env, binary=RECORDING_CMUX,
+            )
+            assert result.returncode == 0, (args, env, result.stderr)
+            assert installed.exists()
+            assert runs(Path(directory)) == expected, (args, env)
+
+
+def test_unix_installer_refuses_an_unknown_argument_before_downloading() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        result, installed, downloads = run_unix_installer(
+            Path(directory), "https://fixtures.invalid/cmux-tui/latest",
+            args=["not-a-ticket"],
+        )
+        assert result.returncode == 2
+        assert "unknown argument" in result.stderr
+        assert not installed.exists()
+        assert downloads == []
+
+
+def test_unix_installer_fails_when_the_join_fails() -> None:
+    failing = b"#!/bin/sh\ncase \"$*\" in *join*) exit 1 ;; esac\n"
+    with tempfile.TemporaryDirectory() as directory:
+        result, installed, _ = run_unix_installer(
+            Path(directory), "https://fixtures.invalid/cmux-tui/latest",
+            args=[TICKET], binary=failing,
+        )
+        assert result.returncode == 1
+        assert installed.exists()
+        assert "did not join" in result.stderr
+
+
 if __name__ == "__main__":
     with tempfile.TemporaryDirectory() as directory:
         test_unix_installer_selects_verifies_and_installs_native_binary(Path(directory))
@@ -176,4 +259,7 @@ if __name__ == "__main__":
     test_unix_installer_preserves_overrides_and_trims_trailing_slashes()
     test_unix_installer_rejects_missing_or_invalid_commit_before_binary_download()
     test_unix_installer_rejects_wrong_commit_binary_checksum()
+    test_unix_installer_joins_with_a_pasted_ticket()
+    test_unix_installer_refuses_an_unknown_argument_before_downloading()
+    test_unix_installer_fails_when_the_join_fails()
     print("cmux-tui installer tests passed")

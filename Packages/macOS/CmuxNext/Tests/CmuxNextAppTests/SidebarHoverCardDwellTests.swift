@@ -114,9 +114,13 @@ import Testing
         #expect(!panel.isShowingCard, "the fade did not start on the move off the card")
         try await Self.expectClearWithinTheFade(panel)
 
-        // Again, leaving the row itself (not onto the card): the same at once.
+        // Again, leaving the row itself (not onto the card): the same at once. First the reshow
+        // window ends (a return within it shows the card at once, with no dwell timer): its timer
+        // must be asleep before the clock moves past it, and its deadline must land.
+        try await clock.waitForSleeper()
         clock.advance(by: HoverCardTiming.reshowWindow + .milliseconds(100))
-        try await Self.settle()
+        try await Self.settle(until: { coordinator.machine.phase == .idle })
+        try #require(coordinator.machine.phase == .idle, "the reshow window did not end: \(coordinator.machine.phase)")
         Self.move(list, to: (row.y + row.maxY) / 2)
         try await clock.waitForSleeper()
         clock.advance(by: DesignSettings.shared.hoverCardDelay + .milliseconds(100))

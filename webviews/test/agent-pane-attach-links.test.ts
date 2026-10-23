@@ -67,6 +67,8 @@ await requireBrowserLane("agent-pane-attach-links.test.ts", async () => {
   };
   session = local;
   const prompts: unknown[] = [];
+  /// Runs on the next `session/prompt` the daemon takes.
+  let prompted = () => {};
 
   function answer(method: string): unknown {
     switch (method) {
@@ -101,7 +103,10 @@ await requireBrowserLane("agent-pane-attach-links.test.ts", async () => {
       websocket: {
         message(ws, raw) {
           const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: { prompt?: unknown } };
-          if (message.method === "session/prompt") prompts.push(message.params?.prompt);
+          if (message.method === "session/prompt") {
+            prompts.push(message.params?.prompt);
+            prompted();
+          }
           if (message.id !== undefined)
             ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method) }));
         },
@@ -177,8 +182,9 @@ await requireBrowserLane("agent-pane-attach-links.test.ts", async () => {
     await page.locator(".acpmux-composer-prompt").click();
     await page.keyboard.type("Compare these");
     prompts.length = 0;
+    const sent = new Promise<void>((resolve) => (prompted = resolve));
     await page.keyboard.press("Enter");
-    for (let i = 0; i < 100 && prompts.length === 0; i++) await page.waitForTimeout(50);
+    await sent;
     expect(prompts[0]).toEqual([
       { type: "text", text: "Compare these" },
       { type: "resource_link", uri: "file:///home/dev/notes/drafts", name: "drafts/" },

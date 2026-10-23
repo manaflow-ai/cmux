@@ -1,21 +1,31 @@
 /* The Updated card and the update-ready highlights (cx-urd.61): the changelog page's tokens and
    type steps, nested radii, a hairline instead of a shadow. The host draws the surface's material
    (glass or opaque) around them; these paint only the content and the elevated fill. */
-/* The composer's surface (--acpmux-composer-bg/-edge, agent-session/acpmux/styles.css), as every
-   sidebar card's (CardSurfaceView in Swift, Leo 2026-10-13): the text at 13% over the wallpaper
-   (this page is transparent), a one-device-pixel edge (--cmux-hairline) at 18%, no shadow. Opaque
-   under Reduce Transparency. Glass on purpose, never an opaque fill (Leo 2026-10-20: "we want a
-   lot of glass... I hate opaque"): the card reads because the sidebar gives it its own room
+/* The liquid glass (.ui-glass, ui/glass/glass.css; plans/cmux-next/glass-lens-DESIGN.md): its tint,
+   frost and specular rim, the wallpaper bent at the rounded rim, no shadow. Opaque under Reduce
+   Transparency. Glass on purpose, never an opaque fill (Leo 2026-10-20: "we want a lot of glass...
+   I hate opaque"): the card reads because the sidebar gives it its own room
    (SidebarCardSlotMotion), so no list row sits behind it. */
 .wn-card {
   position: relative;
   padding: 10px 12px;
   border-radius: 12px;
-  background: color-mix(in srgb, var(--page-text) 13%, transparent);
-  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) color-mix(in srgb, var(--page-text) 18%, transparent);
   color: var(--page-text);
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
+}
+/* Plain glass keeps the card's look from before the lens, the composer's surface as every sidebar
+   card's (CardSurfaceView in Swift, Leo 2026-10-13): the text at 13% over the wallpaper (this page
+   is transparent) and no blur, under the plain rim. Reduce Transparency still makes it opaque
+   (glass.css's surface): the same selector again, later, so it outranks the plain fill. */
+:root:not([data-glass="lens"], [data-glass="spectrum"]):not([data-reduce-transparency]) .wn-card {
+  --glass-tint: color-mix(in srgb, var(--page-text) 13%, transparent);
+  --glass-backdrop: none;
+}
+@media (prefers-reduced-transparency: reduce) {
+  :root:not([data-glass="lens"], [data-glass="spectrum"]):not([data-reduce-transparency]) .wn-card {
+    --glass-tint: var(--glass-surface);
+  }
 }
 /* The words are text a person reads and quotes (u4466: "i cant select text in what's new"): a
    drag selects, a double-click takes a word, Copy copies. pageBase.css makes the body desktop

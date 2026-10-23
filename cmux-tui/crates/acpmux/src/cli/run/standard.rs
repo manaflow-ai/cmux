@@ -193,7 +193,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                         req.get("options").and_then(Value::as_array).cloned().unwrap_or_default();
                     let hint = crate::question_answer::pending_hint(&req, &name);
                     let is_question = crate::question_answer::question(&req).is_some();
-                    out.push(json!({"session": name, "sessionId": id, "permissionId": p.get("permissionId"), "title": title, "kind": kind, "options": options, "question": is_question, "answer": hint}));
+                    // The ask's Needs you link: an agent writes it in a reply instead of restating
+                    // the ask, and the pane draws it as a chip that opens the list on this ask.
+                    let needs_you = p
+                        .get("permissionId")
+                        .and_then(Value::as_str)
+                        .map(|pid| format!("cmux://needs-you/{pid}"));
+                    out.push(json!({"session": name, "sessionId": id, "permissionId": p.get("permissionId"), "title": title, "kind": kind, "options": options, "question": is_question, "answer": hint, "needsYou": needs_you}));
                 }
             }
             if json_out {
@@ -284,11 +290,12 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         }
         Command::New(args) => {
             // Checked before connecting, so the error needs no daemon.
-            let cwd = new_session_cwd(args.host.as_deref(), args.cwd.clone())?;
+            let launch = launch::Launch::prepare(&args)?;
+            let cwd = match &launch.worktree {
+                Some((_, repo)) => Some(repo.clone()),
+                None => new_session_cwd(args.host.as_deref(), args.cwd.clone())?,
+            };
             let client = connect(true).await?;
-            if let Some(n) = &args.name {
-                crate::session_name::validate(n).map_err(|e| anyhow!(e))?;
-            }
             let mut meta = json!({});
             if let Some(spec) = &args.model {
                 let (h, m) = orchestrate::split_target(spec);
@@ -303,7 +310,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             if let Some(h) = &args.host {
                 meta["peer"] = json!(h);
             }
-            if let Some(n) = &args.name {
+            if let Some(n) = &launch.name {
                 meta["name"] = json!(n);
             }
             if let Some(p) = &args.policy {
@@ -315,34 +322,157 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             if let Some(e) = &args.effort {
                 meta["effort"] = json!(e);
             }
+            // A detached launch only queues its prompt, with --json too. Known
+            // before the create (a prompt file or words make the first prompt).
+            let one_shot = launch.first_prompt(&args, &Value::Null).is_some()
+                && (args.quiet || json_out || args.ephemeral)
+                && !(args.detach && launch.launches());
+            // Checked before the session exists, so a bad value leaves none behind.
+            let on_permission = OnPermission::parse(&args.on_permission)?;
+            // A route check an agent runs from its shell ("Reply with only: OK",
+            // `probe_prompt.rs`) is a throwaway, never the agent's subagent: a one-shot
+            // one goes as an ephemeral chat does once its reply is printed. A named
+            // one is kept, since the agent may check a worker is up before giving it
+            // its task; only `--ephemeral` purges that.
+            let probe = std::env::var("ACPMUX_SESSION_ID").is_ok_and(|id| !id.is_empty())
+                && crate::probe_prompt::is_probe(&args.prompt.join(" "));
+            let ephemeral = one_shot && (args.ephemeral || (probe && args.name.is_none()));
+            // The daemon purges an ephemeral session when this connection ends
+            // (`server/ephemeral.rs`), however the CLI exits: killed during the
+            // turn, by a caller's timeout, or a lost connection. The kill after
+            // the reply below stays the normal path.
+            if ephemeral {
+                meta["ephemeral"] = json!(true);
+            }
+            if let Some((w, _)) = &launch.worktree {
+                meta["worktree"] = w.clone();
+            }
+            if let Some(tools) = launch.disallowed_tools() {
+                meta["disallowedTools"] = tools;
+            }
+            // A session of this name already running is the one asked for:
+            // found before the create, or after losing the create to another
+            // launcher with the same name.
+            let key = launch.name.as_ref().map(|n| match &args.host {
+                Some(h) => format!("{h}/{n}"),
+                None => n.clone(),
+            });
+            let mut reused = None;
+            // Found after a lost create: the winner sends the first prompt.
+            let mut lost_race = false;
+            if launch.reuse
+                && let Some(key) = &key
+            {
+                reused = launch::existing(&client, key).await?;
+            }
             let mut p = json!({"mcpServers": [], "_meta": {"acpmux": meta}});
-            p["cwd"] = json!(cwd);
-            let v = client.request(method::SESSION_NEW, p).await?;
+            if let Some(cwd) = &cwd {
+                p["cwd"] = json!(cwd);
+            }
+            let v = match reused.clone() {
+                Some(info) => info,
+                None => match if ephemeral || probe {
+                    client.request_parentless(method::SESSION_NEW, p).await
+                } else {
+                    client.request(method::SESSION_NEW, p).await
+                } {
+                    Ok(v) => v,
+                    Err(e) => {
+                        let found = match &key {
+                            Some(key) if launch.reuse && launch::name_taken(&e) => {
+                                launch::existing(&client, key).await?
+                            }
+                            _ => None,
+                        };
+                        reused = Some(found.ok_or(e)?);
+                        lost_race = true;
+                        reused.clone().unwrap_or_default()
+                    }
+                },
+            };
             let id = v.get("sessionId").and_then(Value::as_str).unwrap_or("").to_owned();
-            let name =
-                v.pointer("/_meta/acpmux/name").and_then(Value::as_str).unwrap_or(&id).to_owned();
-            let one_shot = !args.prompt.is_empty() && (args.quiet || json_out || args.ephemeral);
+            let name = v
+                .pointer("/_meta/acpmux/name")
+                .or_else(|| v.get("name"))
+                .and_then(Value::as_str)
+                .unwrap_or(&id)
+                .to_owned();
+            // A failed sidebar step only warns: the prompt is still sent.
+            let show = || {
+                if let Some(group) = &args.group {
+                    let title = launch.title.as_deref().unwrap_or(&name);
+                    if let Err(e) = launch::show_in_group(&id, title, group) {
+                        eprintln!("acpmux: {e:#}");
+                    }
+                }
+            };
+            if let Some(info) = &reused {
+                launch::check_reusable(
+                    info,
+                    &name,
+                    launch.worktree.as_ref().map(|(_, r)| r.as_path()),
+                )?;
+                // Its first prompt went with the first run and is not sent
+                // twice, unless that run stopped before sending it.
+                let first = launch
+                    .first_prompt(&args, &v)
+                    .filter(|_| !lost_race && launch::never_prompted(info));
+                if let Some(text) = &first {
+                    let prompt = PromptId::new(args.prompt_id.clone());
+                    let accepted = queue_prompt(client, &id, text, false, None, &prompt).await?;
+                    if !json_out {
+                        warn_host_pressure(&accepted);
+                    }
+                }
+                show();
+                if json_out {
+                    let mut info = info.clone();
+                    info["reused"] = json!(true);
+                    info["prompted"] = json!(first.is_some());
+                    print_json(&info);
+                } else if first.is_some() {
+                    println!(
+                        "reused {name} ({}): it had no prompt yet, so its first prompt is queued",
+                        &id[..8.min(id.len())]
+                    );
+                } else {
+                    println!(
+                        "reused {name} ({}): it already runs, so the prompt was not sent again; \
+                         use `acpmux send {name}` to give it more",
+                        &id[..8.min(id.len())]
+                    );
+                }
+                return Ok(());
+            }
+            let first = launch.first_prompt(&args, &v);
             if json_out && !one_shot {
-                let info = client
+                let mut info = client
                     .request(method::MUX_INFO, json!({"sessionId": id}))
                     .await
                     .unwrap_or(v.clone());
+                if let Some(w) = v.pointer("/_meta/acpmux/worktree") {
+                    info["worktree"] = w.clone();
+                }
                 print_json(&info);
             } else if !one_shot {
                 println!("created {name} ({})", &id[..8.min(id.len())]);
+                if let Some(w) = v.pointer("/_meta/acpmux/worktree") {
+                    let g = |k: &str| w.get(k).and_then(Value::as_str).unwrap_or_default();
+                    println!("  worktree {} on {} from {}", g("root"), g("branch"), g("base"));
+                }
             }
-            if !args.prompt.is_empty() {
-                let text = args.prompt.join(" ");
+            if let Some(text) = first {
                 let prompt = PromptId::new(args.prompt_id.clone());
                 if one_shot {
                     let opts = CollectOpts {
                         timeout: args.timeout,
-                        on_permission: OnPermission::parse(&args.on_permission)?,
+                        on_permission,
                         stall_secs: args.stall,
                         retries: args.retries,
                     };
+                    show();
                     let outcome = collect_reply(client.clone(), &id, &text, opts, &prompt).await;
-                    if args.ephemeral {
+                    if ephemeral {
                         let _ = client
                             .request(method::MUX_KILL, json!({"sessionId": id, "purge": true}))
                             .await;
@@ -350,7 +480,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     let r = outcome?;
                     if json_out {
                         print_json(
-                            &json!({"sessionId": id, "name": name, "reply": r.reply, "stopReason": r.stop_reason, "permissions": r.permissions_asked, "permissionsDenied": r.permissions_denied, "ephemeral": args.ephemeral}),
+                            &json!({"sessionId": id, "name": name, "reply": r.reply, "stopReason": r.stop_reason, "permissions": r.permissions_asked, "permissionsDenied": r.permissions_denied, "ephemeral": ephemeral}),
                         );
                     } else {
                         println!("{}", r.reply);
@@ -358,15 +488,22 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     return Ok(());
                 }
                 if args.detach {
-                    queue_prompt(client, &id, &text, false, None, &prompt).await?;
+                    // The prompt is queued before the sidebar step, so a
+                    // session never runs without its instructions.
+                    let accepted = queue_prompt(client, &id, &text, false, None, &prompt).await?;
+                    if !json_out {
+                        warn_host_pressure(&accepted);
+                    }
+                    show();
                     return Ok(());
                 }
                 let opts = CollectOpts {
                     timeout: args.timeout,
-                    on_permission: OnPermission::parse(&args.on_permission)?,
+                    on_permission,
                     stall_secs: args.stall,
                     retries: args.retries,
                 };
+                show();
                 return stream_prompt(
                     client,
                     &id,
@@ -380,6 +517,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 )
                 .await;
             }
+            show();
             if args.detach || json_out {
                 return Ok(());
             }
@@ -396,12 +534,34 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             on_permission,
             stall,
             prompt_id,
+            from,
+            status,
+            supersede,
         } => {
-            let prompt_id = PromptId::new(prompt_id);
+            let client = connect(true).await?;
+            if let Some(delivery) = status {
+                return super::send_async::status(&client, &delivery, json_out).await;
+            }
+            let session = session.ok_or_else(|| anyhow!("a session is required"))?;
+            let mut prompt_id = PromptId::new(prompt_id);
+            prompt_id.from_agent = from;
+            let superseding = supersede.is_some();
+            prompt_id.supersede = supersede;
             // A message (--no-wait) steers; a send that waits for its reply queues.
             let steer = send_steers(steer, no_steer, no_wait);
-            let client = connect(true).await?;
             let text = arg_or_stdin(&prompt)?;
+            if no_wait {
+                return super::send_async::queue(
+                    &client,
+                    &session,
+                    &text,
+                    steer,
+                    &prompt_id,
+                    superseding,
+                    json_out,
+                )
+                .await;
+            }
             let id = resolve_id(&client, &session).await?;
             let on_permission = OnPermission::parse(&on_permission)?;
             // Never refuse: report what the prompt queues behind.
@@ -430,21 +590,6 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     ));
                 }
                 eprintln!("queued behind {}", parts.join(" and "));
-            }
-            if no_wait {
-                // Return once the daemon recorded the prompt, not after a guess.
-                let accepted = queue_prompt(client, &id, &text, steer, None, &prompt_id).await?;
-                let steered = accepted.get("steer") == Some(&json!(true));
-                if json_out {
-                    print_json(
-                        &json!({"sessionId": id, "queued": !steered, "steered": steered, "queuedBehind": behind, "promptId": prompt_id.id, "accepted": accepted}),
-                    );
-                } else if steered {
-                    println!("steered");
-                } else {
-                    println!("queued");
-                }
-                return Ok(());
             }
             let opts = CollectOpts { timeout, on_permission, stall_secs: stall, retries: 0 };
             if quiet || json_out {

@@ -16,6 +16,11 @@ the failure. A ready dispatch removes the marker; a failed one keeps it, so a
 later publication of the same key (a takeover run, a cmux-tui-pin-* push)
 still starts the jobs.
 
+--state failed is checked against the tree's completion.json on R2 first.
+publish-cmux-tui-tree.py writes it last and only once, so it is the record
+that the tree is published: a run cancelled after (or while another run)
+published the key reports ready, not the run's conclusion (#23517).
+
 Usage: cmux_next_tree_notify.py --repo OWNER/NAME --key KEY --state ready|failed
        [--reason TEXT]
 Needs GH_TOKEN with actions: write (dispatch, delete markers), contents: read
@@ -26,11 +31,13 @@ turn a good publication red; it prints a ::warning:: instead.
 from __future__ import annotations
 
 import argparse
+import http.client
 import io
 import json
 import os
 import re
 import sys
+import time
 import urllib.error
 import urllib.request
 import zipfile
@@ -41,6 +48,7 @@ REF = re.compile(r"^[A-Za-z0-9._/-]{1,200}$")
 TIERS = ("daemon", "scheme")
 MAX_MARKERS = 50
 WORKFLOW = "cmux-next.yml"
+TREE_BASE = "https://files.cmux.com/cmux-tui/tree"
 
 
 class Api(Protocol):
@@ -87,6 +95,23 @@ class GitHub:
 
     def delete(self, path: str) -> int:
         return self._request("DELETE", f"{self.api_url}/{path}")[0]
+
+
+def fetch_completion(key: str) -> object | None:
+    """The tree's published completion.json, or None when it is absent or unreadable."""
+    # The query string bypasses a cached 404 at the CDN edge.
+    url = f"{TREE_BASE}/{key}/completion.json?notify={int(time.time())}"
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url), timeout=30) as response:
+            return json.loads(response.read())
+    except (urllib.error.URLError, http.client.HTTPException, OSError, ValueError):
+        return None
+
+
+def completion_attests(completion: object, key: str) -> bool:
+    """The checks the artifacts workflow makes of a completion.json: its key and a binaries object."""
+    return (isinstance(completion, dict) and completion.get("key") == key
+            and isinstance(completion.get("binaries"), dict))
 
 
 def read_marker(api: Api, artifact: dict, key: str) -> dict | None:
@@ -159,8 +184,14 @@ def is_current(api: Api, repo: str, marker: dict) -> bool:
 
 
 def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
-           log: Callable[[str], None] = print) -> int:
+           log: Callable[[str], None] = print,
+           fetch_completion: Callable[[str], object | None] = fetch_completion) -> int:
     """Dispatches same-tree runs for the markers of <key>; returns how many."""
+    if state == "failed" and completion_attests(fetch_completion(key), key):
+        log(f"tree {key}: its completion.json is published, so the tree is ready whatever the "
+            f"reporting run's conclusion; starting the tree jobs (ready)")
+        state = "ready"
+        reason = f"tree {key} is published ({TREE_BASE}/{key}/completion.json)"
     listing = api.get(f"repos/{repo}/actions/artifacts?name=cmux-next-tree-wait-{key}&per_page=100")
     artifacts = [artifact for artifact in listing.get("artifacts", []) if not artifact.get("expired")]
     dispatched = 0

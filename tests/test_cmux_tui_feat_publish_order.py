@@ -16,6 +16,13 @@ published only after the tests passed, so a pin's tree waited ~1 h for the
 macOS runner. Nightly-next promotion still needs the daemon-tests marker,
 which only publish-tree-tested writes, after this run's tests of the key pass.
 
+No tree publication waits for the Windows build either (2026-10-21): the
+Windows leg (24 min median, 32 p90) ended last in 217 of 219 published trees,
+so every nightly-next promotion waited for a target the nightly does not
+ship. build-windows is its own call, and publish-windows and
+publish-tree-windows (the same steps, CMUX_TUI_PUBLISH_PASS=windows) add the
+Windows daemon to the tree the first pass published.
+
 This evaluates each publishing job's `if` with GitHub's expression rules for
 a feat-cmux-next push and for other refs, and walks its `needs`.
 """
@@ -113,13 +120,21 @@ def context(ref, event="push", daemon_tests="true", daemon_result="success"):
     if daemon_result is not None:
         values[f"needs.{DAEMON}.result"] = daemon_result
         values[f"needs.{DAEMON}.outputs.key"] = KEY if daemon_result == "success" else ""
+        # The feat-cmux-next promotion gate runs the tests on its Mac pool.
+        values[f"needs.{DAEMON}.outputs.runner_os"] = "macOS"
     return values
 
 
-def publishers(all_jobs):
+def windows_pass(job):
+    return (job.get("env") or {}).get("CMUX_TUI_PUBLISH_PASS") == "windows"
+
+
+def publishers(all_jobs, windows=False):
+    """The jobs that publish the tree; windows=True: the Windows passes that add to it."""
     return [name for name, job in all_jobs.items()
-            if any(step.get("name", "").startswith("Publish the") and "trusted helper" in step.get("name", "")
-                   for step in job.get("steps", []))]
+            if windows_pass(job) == windows
+            and any(step.get("name", "").startswith("Publish the") and "trusted helper" in step.get("name", "")
+                    for step in job.get("steps", []))]
 
 
 def runs(all_jobs, name, values):
@@ -223,6 +238,28 @@ def main():
     for name in tree_publishers:
         _check(name in needs(notify) and f"needs.{name}.result != 'success'" in str(notify["if"]),
                f"notify-unpublished-tree waits for {name} and stays quiet when it published")
+
+    # Nothing on the path to the tree and nightly-next waits for the Windows build.
+    _check("build-windows" in all_jobs, "Windows builds in its own job, build-windows")
+    for name in [*tree_publishers, "publish", "publish-tree-tested", "request-nightly-next"]:
+        _check("build-windows" not in all_needs(all_jobs, name), f"{name} does not wait for build-windows")
+    _check(all_jobs["build"]["with"].get("include_windows") is False,
+           "the macOS and Linux build call builds no Windows target")
+    windows_with = all_jobs["build-windows"]["with"]
+    _check(windows_with.get("include_windows") is True and windows_with.get("target_set") == "windows",
+           "build-windows builds only the Windows target")
+    windows_publishers = publishers(all_jobs, windows=True)
+    _check(windows_publishers == ["publish-tree-windows"], f"one Windows tree pass ({windows_publishers})")
+    for name in windows_publishers:
+        job = all_jobs[name]
+        _check({"publish-tree", "publish-windows"} <= set(needs(job)) and "build-windows" in all_needs(all_jobs, name),
+               f"{name} adds to the tree publish-tree published, after build-windows")
+        _check(job["steps"] is all_jobs["publish-tree"]["steps"], f"{name} runs publish-tree's own steps")
+        _check(name in needs(all_jobs["notify-unpublished-tree"]), f"notify-unpublished-tree stays the run's last job ({name})")
+    _check(all_jobs["publish-windows"]["steps"] is all_jobs["publish"]["steps"]
+           and windows_pass(all_jobs["publish-windows"])
+           and "needs.build-windows.outputs.windows_built == 'true'" in str(all_jobs["publish-windows"]["if"]),
+           "publish-windows runs publish's own steps, only for a Windows build that uploaded its artifact")
 
     if FAILURES:
         print(f"{len(FAILURES)} failure(s)")

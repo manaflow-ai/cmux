@@ -1,7 +1,8 @@
 name: cmux-next media
 
-# Screenshots and a short video of each cmux-next UI pull request, posted in
-# the `tour` part of the PR's status comment (scripts/cmux-next/media/publish.py).
+# Screenshots and a short video of each cmux-next UI merge, and of a pull
+# request on demand, posted in the `tour` part of the PR's status comment
+# (scripts/cmux-next/media/publish.py).
 # The tour builds the merge base and head as separate tagged dev apps on an
 # owned Mac's gui runner, launches each, drives them through the bundled cmux CLI
 # (scripts/cmux-next/media/tour.py), and captures every affected step. Path
@@ -11,34 +12,51 @@ name: cmux-next media
 # Not a required check. It never runs on Blacksmith, whose macOS sessions sit
 # at a locked screen and cannot capture: with no owned gui runner the tour
 # does not run and the comment says why (scripts/ci/cmux_next_media_runner.py).
-# Same-repository heads only: owned Macs run trusted code, and the publish job
-# holds the pr-media write token. That job never checks out or runs the pull
-# request's code: its scripts come from the base revision (the merged
-# feat-cmux-next head for a merge tour), and it reads the tour artifact as data
-# (publish.py validates names and paths before upload).
-# A pull_request run still takes this file from the pull request, so the
-# boundary that holds is same-repository write access: anyone who can push a
-# branch here could edit these jobs, and forks never reach them.
+# Same-repository heads only: owned Macs run trusted code. Only the publish job
+# holds the pr-media write token and the private-terms list, and it runs only
+# on feat-cmux-next, in the pr-media environment (which admits only the
+# protected branches): a merge tour publishes from its own run, and a pull
+# request run's hand-off job starts a run here on feat-cmux-next with
+# publish_run=<its run id>. So a pull request run, which takes this file from
+# the pull request, never sees the secret: its ref cannot enter the environment.
+# It gets no pr-media write token either, though anyone who can push a branch
+# here could edit its jobs to ask for one; forks never reach them. The publisher
+# never checks out or runs pull request code, reads the tour artifact as data
+# (publish.py validates names and paths before upload), and writes only through
+# .github/actions/pr-media-publish: its privacy check refuses a private name
+# before the write (tesseract reads the images here; main's
+# pr-media-privacy.yml rescans with Vision after the push).
 
 # WHEN IT RUNS: the tour holds an owned Mac's gui runner (one per mini) for up
 # to two hours. Run on every push of every UI pull request, it had 32 queued
-# and 8 running jobs on 2026-10-14 and saturated those runners. It now runs:
+# and 8 running jobs on 2026-10-14 and saturated those runners; on every push
+# of a labeled pull request, and on unlabeled Swift UI a tour covered, it was
+# still second in queued minutes. Since 2026-10-21 (Leo: only on a merge or on
+# demand, never on every pull request push) it runs:
 #   - on a merge: a push to feat-cmux-next that touches the UI paths tours
 #     that merge (the previous head against the new one) and comments on the
 #     merged pull request. Every merge gets its own run and is never
 #     cancelled: tours run side by side in a Mac's slots (#22046) and queue
 #     for a gui runner otherwise. A merge that changes nothing a Mac tours
 #     takes no Mac and finishes in the route job.
-#   - on a pull request labeled `media-tour` (add the label to get a tour;
-#     every later push of that pull request tours again).
+#   - once per `media-tour` label: the `labeled` event that adds it tours the
+#     pull request's head at that moment (scripts/ci/media_auto_tour.py; never
+#     with the `no-media-tour` label). A later push does not tour again, and
+#     no pull request tours without the label. To tour a newer head, remove
+#     and re-add the label, or run `cmux-ci capture` (stills for the
+#     description, which pr-capture-check accepts).
+#   - on a workflow_dispatch with base_sha: the batch queue's group tours, or
+#     by hand on a branch; it posts no comment, the tour is the run's artifact.
+# The route job decides; when no tour is wanted it takes no Mac and the PR
+# gets no comment.
 # Either way a change with nothing for a Mac to tour takes no Mac: no UI
 # paths, or only webview code, whose look the gallery advisory run checks in
 # Linux Chromium on the pull request (a webview-only merge gets no capture of
 # its own). Native-bridge, glass and theme webview files still tour. Add the
-# `media-tour-mac` label (with `media-tour`) to tour a webview change on a Mac.
-# A pull request without the label starts no job. Classic main has no
-# cmux-next UI, and a nightly schedule would run only from main's copy of
-# this file, so neither has a tour.
+# `media-tour-mac` label, then add (or re-add) `media-tour`, to tour a webview
+# change on a Mac; `media-tour-mac` alone starts no tour.
+# Classic main has no cmux-next UI, and a nightly schedule would run only
+# from main's copy of this file, so neither has a tour.
 on:
   push:
     branches: [feat-cmux-next]
@@ -52,7 +70,8 @@ on:
       - 'scripts/cmux-next/media/tours/**'
   pull_request:
     branches: [feat-cmux-next]
-    types: [opened, synchronize, reopened, ready_for_review, labeled]
+    # Only adding a label starts a run: no push of a pull request tours.
+    types: [labeled]
     paths:
       - 'Packages/macOS/CmuxNext/Sources/**'
       - 'Packages/macOS/CmuxNext/Resources/**'
@@ -68,24 +87,31 @@ on:
         description: Commit the tour compares against (the batch stack's base); empty tours nothing
         required: false
         default: ''
+      # Set only by a pull request run's hand-off job: publish that run's tour
+      # from feat-cmux-next, inside the pr-media environment (see `publish`).
+      publish_run:
+        description: A pull request run of this workflow whose tour to publish; empty publishes nothing
+        required: false
+        default: ''
 
 permissions: {}
 
-# A pull request run that tours (labeled media-tour, and not a label event for
-# another label) shares the pull request's group and replaces its older tour.
-# Any other pull request run gets a group of its own, so it cancels nothing.
+# Adding `media-tour` shares the pull request's group, so re-adding it
+# replaces the older tour. Adding `no-media-tour` joins it too, so it cancels a
+# running tour. A label event for another label
+# gets a group of its own, so it cancels nothing.
 # Each merge run gets a group of its own. One shared merge group made every
 # merge wait behind the running tour, and a newer merge then replaced the
 # waiting run: 95 of 100 cancelled runs on 2026-10-20 were such zero-job
 # replacements, and each replaced merge lost its tour and its PR comment.
 concurrency:
-  group: ${{ github.event_name == 'push' && format('cmux-next-media-merge-{0}', github.sha) || contains(github.event.pull_request.labels.*.name, 'media-tour') && (github.event.action != 'labeled' || github.event.label.name == 'media-tour') && format('cmux-next-media-{0}', github.event.pull_request.number) || format('cmux-next-media-idle-{0}', github.run_id) }}
+  group: ${{ github.event_name == 'push' && format('cmux-next-media-merge-{0}', github.sha) || github.event_name == 'pull_request' && github.event.action == 'labeled' && (github.event.label.name == 'media-tour' || github.event.label.name == 'no-media-tour') && format('cmux-next-media-{0}', github.event.pull_request.number) || format('cmux-next-media-idle-{0}', github.run_id) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   route:
     name: Pick the tour runner
-    if: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch' && inputs.base_sha != '' || github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'media-tour') && (github.event.action != 'labeled' || github.event.label.name == 'media-tour')) }}
+    if: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch' && inputs.base_sha != '' || github.event.pull_request.head.repo.full_name == github.repository && github.event.action == 'labeled' && (github.event.label.name == 'media-tour' || github.event.label.name == 'no-media-tour')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
@@ -94,6 +120,7 @@ jobs:
     outputs:
       runs_on: ${{ steps.pick.outputs.runs_on }}
       reason: ${{ steps.pick.outputs.reason }}
+      wanted: ${{ steps.decide.outputs.wanted }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -101,8 +128,42 @@ jobs:
           sparse-checkout: |
             scripts/ci/cmux_next_media_runner.py
             scripts/ci/pr_runner_pool.py
+            scripts/ci/media_auto_tour.py
             scripts/cmux-next/media/path_map.py
           sparse-checkout-cone-mode: false
+
+      - name: Decide whether this pull request gets a tour
+        id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          PR: ${{ github.event.pull_request.number }}
+          LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          ACTION: ${{ github.event.action }}
+          LABEL: ${{ github.event.label.name }}
+          DRAFT: ${{ github.event.pull_request.draft }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" != pull_request ]; then
+            echo "wanted=true" >> "$GITHUB_OUTPUT"
+            echo "a merge to feat-cmux-next or a batch dispatch tours"
+            exit 0
+          fi
+          # The changed paths from git, not the files API (a call per 100
+          # files on every push): the event's merge commit against its first
+          # parent, the base, fetched without blobs. With rename detection
+          # this is the files API's `.filename` set, less a change the base
+          # already carries. The files API is the fallback; it lists at most
+          # 3000, and past that the label decides.
+          if git fetch --no-tags --quiet --depth=2 --filter=blob:none origin "$GITHUB_SHA" \
+            && git diff --name-only -z -M "$GITHUB_SHA^1" "$GITHUB_SHA" | tr '\0' '\n' > "$RUNNER_TEMP/changed.txt"; then
+            echo "listed=true" >> "$GITHUB_OUTPUT"
+          elif ! gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files?per_page=100" --jq '.[].filename' \
+            > "$RUNNER_TEMP/changed.txt"; then
+            echo "::warning::could not list the pull request's files; only the media-tour label tours"
+            : > "$RUNNER_TEMP/changed.txt"
+          fi
+          python3 scripts/ci/media_auto_tour.py --changed "$RUNNER_TEMP/changed.txt"
 
       # The changed paths, read here on Linux so a change the Mac tour would
       # not capture (no UI, or only webview code, which the gallery advisory
@@ -110,6 +171,7 @@ jobs:
       # written only when the listing is complete; without it the picker
       # picks a Mac as before and the tour maps the paths itself.
       - name: List the changed paths
+        if: ${{ steps.decide.outputs.wanted == 'true' }}
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -117,8 +179,17 @@ jobs:
           # the event, or the push's before and after.
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
           HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          LISTED: ${{ steps.decide.outputs.listed }}
         run: |
           set -euo pipefail
+          # A pull request whose merge commit the step above diffed: the same
+          # diff with every rename as both paths, and no 300-file cap.
+          if [ "$LISTED" = true ] && git diff --no-renames --name-only -z "$GITHUB_SHA^1" "$GITHUB_SHA" \
+            | tr '\0' '\n' | sort -u > "$RUNNER_TEMP/changed-paths.txt"; then
+            echo "$(wc -l < "$RUNNER_TEMP/changed-paths.txt") changed path(s)"
+            exit 0
+          fi
+          rm -f "$RUNNER_TEMP/changed-paths.txt"
           listing="$RUNNER_TEMP/changed-files.json"
           gh api "repos/$GITHUB_REPOSITORY/compare/$BASE...$HEAD" --jq '[.files[] | {filename, previous_filename}]' > "$listing"
           python3 - "$listing" "$RUNNER_TEMP/changed-paths.txt" <<'PY'
@@ -135,6 +206,7 @@ jobs:
 
       - name: Pick an owned gui runner
         id: pick
+        if: ${{ steps.decide.outputs.wanted == 'true' }}
         env:
           POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
           OWNED_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
@@ -264,7 +336,7 @@ jobs:
         if: steps.scope.outputs.is_ui == 'true'
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: "24.11.1"
+          node-version: "24.22.1"
 
       # Tours run side by side on a Mac's session runners, each capturing only
       # its own app's window. Each claims a slot of its own: its tag's
@@ -493,6 +565,32 @@ jobs:
           mkdir -p "$RUNNER_TEMP/media"
           cp "$RUNNER_TEMP/tour-scope.json" "$RUNNER_TEMP/media/capture-receipt.json"
 
+      # Whatever happened above. A cancel can land while the app starts, after
+      # tour.py's own cleanup ran: run 39199091515's chief host and acpmux
+      # daemon outlived the job by days and held 10 GiB of DerivedData open on
+      # cmux10s, which the prune keeps while it is open. This ends both apps'
+      # daemons and every process run from either bundle. A head branched
+      # before --stop takes tour.py from the run's commit.
+      - name: Stop this tour's apps and daemons
+        if: ${{ always() && env.TOUR_TAG != '' }}
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          tour=scripts/cmux-next/media/tour.py
+          if ! grep -q -- '--stop' "$tour" 2>/dev/null; then
+            git cat-file -e "$GITHUB_SHA^{commit}" 2>/dev/null || git fetch --no-tags origin "$GITHUB_SHA"
+            tour="$RUNNER_TEMP/media-stop/tour.py"
+            mkdir -p "${tour%/*}"
+            git show "$GITHUB_SHA:scripts/cmux-next/media/tour.py" > "$tour"
+          fi
+          shopt -s nullglob
+          args=()
+          for app in "$HOME/Library/Developer/Xcode/DerivedData/cmux-${TOUR_TAG}"-{base,head}/Build/Products/*/*.app; do
+            args+=(--stop "$app")
+          done
+          [ "${#args[@]}" -gt 0 ] || { echo "no app built under ${TOUR_TAG}; nothing to stop"; exit 0; }
+          python3 "$tour" "${args[@]}"
+
       - name: Keep the media for the publish job
         if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -508,78 +606,174 @@ jobs:
           git worktree remove -f -f "$RUNNER_TEMP/cmux-next-base" 2>/dev/null || true
           git worktree prune || true
 
+  # A pull request run never holds the private-terms list or the pr-media write
+  # token: its tour reaches the branch through a run of this workflow on
+  # feat-cmux-next, which the pr-media environment admits (it holds the
+  # PR_MEDIA_PRIVATE_TERMS secret and admits only main, feat-cmux-next and
+  # nightly-next; a pull request run's ref, refs/pull/N/merge, is refused).
+  hand-off:
+    name: Hand the tour to the publisher
+    needs: [route, tour]
+    if: ${{ github.event_name == 'pull_request' && !cancelled() && needs.route.result == 'success' && needs.route.outputs.wanted == 'true' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    # actions: write starts the publisher; nothing here can write pr-media.
+    permissions:
+      actions: write
+    steps:
+      # Data only: the publisher reads these with the tour artifact and takes the
+      # pull request and its head from this run's own record, never from here.
+      - name: Keep what the comment needs
+        env:
+          ROUTE_REASON: ${{ needs.route.outputs.reason }}
+          TOUR_RESULT: ${{ needs.tour.result }}
+          TOUR_IS_UI: ${{ needs.tour.outputs.is_ui }}
+          TREE_NOTE: ${{ needs.tour.outputs.tree_note }}
+        run: |
+          python3 - "$RUNNER_TEMP/context/context.json" <<'PY'
+          import json, os, pathlib, sys
+          path = pathlib.Path(sys.argv[1])
+          path.parent.mkdir(parents=True, exist_ok=True)
+          keys = ("ROUTE_REASON", "TOUR_RESULT", "TOUR_IS_UI", "TREE_NOTE")
+          path.write_text(json.dumps({key.lower(): os.environ.get(key, "") for key in keys}))
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-media-context
+          path: ${{ runner.temp }}/context/context.json
+          retention-days: 3
+      - name: Start the publisher on feat-cmux-next
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh workflow run cmux-next-media.yml --repo "$GITHUB_REPOSITORY" --ref feat-cmux-next \
+            -f publish_run="$GITHUB_RUN_ID"
+          echo "::notice::The tour is published by a cmux-next-media run on feat-cmux-next (publish_run=$GITHUB_RUN_ID)."
+
   publish:
     name: Post the tour media
     needs: [route, tour]
-    # A batch dispatch has no PR to post on: the queue reads the tour's artifact.
-    if: ${{ github.event_name != 'workflow_dispatch' && !cancelled() && needs.route.result == 'success' }}
+    # A merge tour publishes from its own run; a pull request's tour from the run
+    # its hand-off job starts. A batch dispatch has no PR to post on: the queue
+    # reads the tour's artifact.
+    if: ${{ !cancelled() && (github.event_name == 'push' && needs.route.result == 'success' && needs.route.outputs.wanted == 'true' || github.event_name == 'workflow_dispatch' && inputs.publish_run != '') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 15
+    # OCR of every still and of one frame per second of each video comes first.
+    timeout-minutes: 30
+    # The private-terms secret lives only in this environment, which admits only
+    # the protected branches (main, feat-cmux-next, nightly-next).
+    environment: pr-media
     # contents: write reaches the pr-media branch; main and the feature
-    # branches are protected by their rulesets.
+    # branches are protected by their rulesets. actions: read downloads a
+    # pull request run's tour.
     permissions:
       contents: write
       pull-requests: write
+      actions: read
     steps:
-      # The publisher comes from the base revision, never the head: this job
-      # holds a write token and runs no pull request code.
-      - name: Checkout the publisher from the base revision
+      # The publisher is this protected branch's own revision; it runs no pull
+      # request code and reads the tour artifact as data.
+      - name: Checkout the publisher
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          ref: ${{ github.sha }}
           persist-credentials: false
+          # Every write goes through .github/actions/pr-media-publish and its
+          # privacy check (pr_media_privacy.py, with tesseract OCR on Linux).
           sparse-checkout: |
+            .github/actions/pr-media-publish
             scripts/pr-media.py
             scripts/ci/pr_status.py
+            scripts/ci/pr_media_privacy.py
+            scripts/ci/pr_media_gate.py
+            scripts/ci/pr_media_ocr_tesseract.py
+            scripts/ci/pr_media_ocr.swift
             scripts/cmux-next/media/publish.py
           sparse-checkout-cone-mode: false
 
-      # The pull request to comment on: the event's, or for a merge tour the
-      # pull request merged as this feat-cmux-next commit (publish.py posts
-      # only while that pull request's head is the one given).
+      # The pull request to comment on: for a merge tour the one merged as this
+      # feat-cmux-next commit; for a pull request's tour the one its run was for,
+      # read from that run's record (publish.py posts only while that pull
+      # request's head is the one given).
       - name: Find the pull request
         id: target
         env:
           GH_TOKEN: ${{ github.token }}
           EVENT_NAME: ${{ github.event_name }}
-          PR: ${{ github.event.pull_request.number }}
-          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PUBLISH_RUN: ${{ inputs.publish_run }}
           SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
+          PR=""
+          PR_HEAD=""
           if [ "$EVENT_NAME" = push ]; then
             found="$(gh api "repos/$GITHUB_REPOSITORY/commits/$SHA/pulls" \
               --jq '[.[] | select(.merged_at != null and .base.ref == "feat-cmux-next")][0] | "\(.number)\t\(.head.sha)"' || true)"
-            PR="$(printf '%s' "$found" | cut -f1)"
-            PR_HEAD="$(printf '%s' "$found" | cut -f2)"
+          else
+            case "$PUBLISH_RUN" in ''|*[!0-9]*) echo "::error::publish_run must be a run id"; exit 1 ;; esac
+            # Only this workflow's run for a pull request from this repository.
+            found="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PUBLISH_RUN" --jq \
+              'select(.path == ".github/workflows/cmux-next-media.yml" and .event == "pull_request" and .head_repository.full_name == .repository.full_name) | "\([.pull_requests[] | select(.base.ref == "feat-cmux-next")][0].number // "")\t\(.head_sha)"')"
+            if [ -z "$found" ]; then
+              echo "::error::run $PUBLISH_RUN is not a cmux-next-media pull request run of this repository"
+              exit 1
+            fi
           fi
+          PR="$(printf '%s' "$found" | cut -f1)"
+          PR_HEAD="$(printf '%s' "$found" | cut -f2)"
           case "$PR" in
-            ''|null|*[!0-9]*) echo "::notice::no merged pull request for $SHA; the media stays in the run artifact"; PR="" ;;
+            ''|null|*[!0-9]*) echo "::notice::no pull request for this tour; the media stays in the run artifact"; PR="" ;;
           esac
           echo "pr=$PR" >> "$GITHUB_OUTPUT"
           echo "sha=$PR_HEAD" >> "$GITHUB_OUTPUT"
 
+      - name: Download the pull request run's tour media
+        if: ${{ inputs.publish_run != '' }}
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-next-media
+          path: ${{ runner.temp }}/media
+          run-id: ${{ inputs.publish_run }}
+          github-token: ${{ github.token }}
+
+      - name: Download the pull request run's context
+        id: context_file
+        if: ${{ inputs.publish_run != '' }}
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-next-media-context
+          path: ${{ runner.temp }}/context
+          run-id: ${{ inputs.publish_run }}
+          github-token: ${{ github.token }}
+
+      - name: Read the pull request run's context
+        id: context
+        if: ${{ inputs.publish_run != '' }}
+        run: |
+          python3 - "$RUNNER_TEMP/context/context.json" >> "$GITHUB_OUTPUT" <<'PY'
+          import json, pathlib, sys
+          path = pathlib.Path(sys.argv[1])
+          data = json.loads(path.read_text()) if path.is_file() else {
+              "tour_result": "skipped", "route_reason": "the pull request run's context could not be read"}
+          for key in ("route_reason", "tour_result", "tour_is_ui", "tree_note"):
+              # One line each: a newline in the data must not start another output.
+              print(f"{key}={' '.join(str(data.get(key, '')).split())}")
+          PY
+
       - name: Download the tour media
-        if: ${{ needs.tour.result != 'skipped' }}
+        if: ${{ inputs.publish_run == '' && needs.tour.result != 'skipped' }}
         continue-on-error: true
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: cmux-next-media
           path: ${{ runner.temp }}/media
 
-      - name: Check for a publisher in the base revision
-        id: publisher
-        run: |
-          if [ -f scripts/cmux-next/media/publish.py ]; then
-            echo "present=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "::notice::The base revision has no cmux-next media publisher yet; the media stays in the run artifact."
-          fi
-
       # Without ffmpeg the comment still carries the screenshots, only no
       # video, so a slow or stuck apt never holds the comment back.
       - name: Install ffmpeg
-        if: ${{ steps.publisher.outputs.present == 'true' }}
         timeout-minutes: 4
         continue-on-error: true
         env:
@@ -587,61 +781,65 @@ jobs:
         run: command -v ffmpeg >/dev/null || (sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends ffmpeg >/dev/null)
 
       - name: Upload the media and update the comment
-        if: ${{ steps.publisher.outputs.present == 'true' && steps.target.outputs.pr != '' }}
+        if: ${{ steps.target.outputs.pr != '' }}
+        uses: ./.github/actions/pr-media-publish
         env:
-          GH_TOKEN: ${{ github.token }}
           PR: ${{ steps.target.outputs.pr }}
           HEAD_SHA: ${{ steps.target.outputs.sha }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          ROUTE_REASON: ${{ needs.route.outputs.reason }}
-          TOUR_RESULT: ${{ needs.tour.result }}
-          TOUR_IS_UI: ${{ needs.tour.outputs.is_ui }}
-          TREE_NOTE: ${{ needs.tour.outputs.tree_note }}
-        run: |
-          set -euo pipefail
-          note=""
-          receipt="$RUNNER_TEMP/media/capture-receipt.json"
-          if [ -f "$receipt" ]; then
-            capture_note="$(python3 - "$receipt" <<'PY'
-          import json, pathlib, sys
-          data = json.loads(pathlib.Path(sys.argv[1]).read_text())
-          status = data.get("status", "unknown")
-          tours = ", ".join(data.get("tours", [])) or "none"
-          # Name only the tours (and side) that failed, not every tour that ran.
-          failed = set()
-          for path in pathlib.Path(sys.argv[1]).parent.glob("*/manifest.json"):
-              try:
-                  manifest = json.loads(path.read_text())
-                  steps = [step for step in manifest.get("steps") or [] if isinstance(step, dict)]
-              except (OSError, ValueError, AttributeError):
-                  failed.add(path.parent.name)
-                  continue
-              if manifest.get("error") or manifest.get("frames_error") or not steps \
-                      or any(step.get("status") == "failed" for step in steps):
-                  failed.add(path.parent.name)
-          if status == "recorder-failed":
-              print(f"The path-selected recorder failed for {', '.join(sorted(failed)) or tours}; see the run artifact and failed manifests.")
-          elif status == "no-ui-paths" and data.get("gallery"):
-              print("Only webview code changed; the gallery advisory run checks it in Linux Chromium.")
-          elif status == "no-ui-paths":
-              print("No UI paths changed; no interaction tour was needed.")
-          PY
-            )"
-            note="$capture_note"
-          elif [ "$TOUR_IS_UI" = true ] && [ "$TOUR_RESULT" = success ]; then
-            # Capture is continue-on-error, so the tour job stays green when it
-            # exits before writing a receipt.
-            note="The capture step failed before writing a receipt; see the run log."
-          fi
-          case "$TOUR_RESULT" in
-            skipped) note="The tour did not run: $ROUTE_REASON. ${note}" ;;
-            failure)
-              if compgen -G "$RUNNER_TEMP/media/*/manifest.json" >/dev/null; then
-                note="${note:+$note }The tour failed; the failed steps are below."
-              else
-                note="${note:+$note }The tour job failed before the tour ran (build or setup); the run log has the output."
-              fi ;;
-          esac
-          note="${note:+$note }$TREE_NOTE"
-          python3 scripts/cmux-next/media/publish.py --repo "$GITHUB_REPOSITORY" \
-            --media "$RUNNER_TEMP/media" --pr "$PR" --sha "$HEAD_SHA" --run-url "$RUN_URL" --note "$note"
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ inputs.publish_run || github.run_id }}
+          ROUTE_REASON: ${{ steps.context.outputs.route_reason || needs.route.outputs.reason }}
+          TOUR_RESULT: ${{ steps.context.outputs.tour_result || needs.tour.result }}
+          TOUR_IS_UI: ${{ steps.context.outputs.tour_is_ui || needs.tour.outputs.is_ui }}
+          TREE_NOTE: ${{ steps.context.outputs.tree_note || needs.tour.outputs.tree_note }}
+        with:
+          private-terms: ${{ secrets.PR_MEDIA_PRIVATE_TERMS }}
+          agent-authors: ${{ vars.PR_MEDIA_AGENT_AUTHORS }}
+          github-token: ${{ github.token }}
+          command: |
+            set -euo pipefail
+            note=""
+            receipt="$RUNNER_TEMP/media/capture-receipt.json"
+            if [ -f "$receipt" ]; then
+              capture_note="$(python3 - "$receipt" <<'PY'
+            import json, pathlib, sys
+            data = json.loads(pathlib.Path(sys.argv[1]).read_text())
+            status = data.get("status", "unknown")
+            tours = ", ".join(data.get("tours", [])) or "none"
+            # Name only the tours (and side) that failed, not every tour that ran.
+            failed = set()
+            for path in pathlib.Path(sys.argv[1]).parent.glob("*/manifest.json"):
+                try:
+                    manifest = json.loads(path.read_text())
+                    steps = [step for step in manifest.get("steps") or [] if isinstance(step, dict)]
+                except (OSError, ValueError, AttributeError):
+                    failed.add(path.parent.name)
+                    continue
+                if manifest.get("error") or manifest.get("frames_error") or not steps \
+                        or any(step.get("status") == "failed" for step in steps):
+                    failed.add(path.parent.name)
+            if status == "recorder-failed":
+                print(f"The path-selected recorder failed for {', '.join(sorted(failed)) or tours}; see the run artifact and failed manifests.")
+            elif status == "no-ui-paths" and data.get("gallery"):
+                print("Only webview code changed; the gallery advisory run checks it in Linux Chromium.")
+            elif status == "no-ui-paths":
+                print("No UI paths changed; no interaction tour was needed.")
+            PY
+              )"
+              note="$capture_note"
+            elif [ "$TOUR_IS_UI" = true ] && [ "$TOUR_RESULT" = success ]; then
+              # Capture is continue-on-error, so the tour job stays green when it
+              # exits before writing a receipt.
+              note="The capture step failed before writing a receipt; see the run log."
+            fi
+            case "$TOUR_RESULT" in
+              skipped) note="The tour did not run: $ROUTE_REASON. ${note}" ;;
+              failure)
+                if compgen -G "$RUNNER_TEMP/media/*/manifest.json" >/dev/null; then
+                  note="${note:+$note }The tour failed; the failed steps are below."
+                else
+                  note="${note:+$note }The tour job failed before the tour ran (build or setup); the run log has the output."
+                fi ;;
+            esac
+            note="${note:+$note }$TREE_NOTE"
+            python3 scripts/cmux-next/media/publish.py --repo "$GITHUB_REPOSITORY" \
+              --media "$RUNNER_TEMP/media" --pr "$PR" --sha "$HEAD_SHA" --run-url "$RUN_URL" --note "$note"

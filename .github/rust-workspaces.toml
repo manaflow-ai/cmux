@@ -1,0 +1,157 @@
+# Every Cargo workspace in the repository, and how pull requests check it.
+#
+# A workspace is a Cargo.toml with a [workspace] table, or a package outside every
+# workspace (none above it, or excluded by the one above it). Each one has exactly
+# one entry here, and `.github/scripts/rust-workspaces.py check` fails the
+# rust-workspaces workflow when the tree and this list disagree, so a new workspace
+# cannot land without saying how it is checked.
+#
+# An entry is one of:
+#   run = true             rust-workspaces.yml runs `cargo clippy --workspace
+#                          --all-targets -- -D warnings` and `cargo test --workspace`
+#                          on it when a pull request changes it or a path dependency
+#                          of it (--locked when it tracks a Cargo.lock). Optional:
+#                          `args` (added to both commands), `apt` (packages to
+#                          install), `ghostty` is derived (ghostty-vt-sys in its
+#                          path dependencies), `inputs` (more paths whose change
+#                          plans it, for files its code reads that the source scan
+#                          cannot see). Without a tracked Cargo.lock the dependencies
+#                          resolve fresh each run.
+#   covered_by = "FILE"    another workflow runs clippy --all-targets and the tests
+#                          on its own paths; FILE must name the root.
+#   skip = "why"           nothing checks it, for the reason given.
+
+[[workspace]]
+root = "cmux-screen"
+skip = "standalone screen host on LiveKit's prebuilt libwebrtc; not linked into the app, which streams with CmuxScreenKit"
+
+[[workspace]]
+root = "cmux-tui"
+covered_by = ".github/workflows/cmux-tui-spec.yml"
+
+[[workspace]]
+root = "Native/DiffSidecar"
+covered_by = ".github/workflows/ci-web.yml"
+
+[[workspace]]
+root = "coderouter"
+covered_by = ".github/workflows/coderouter-ci.yml"
+
+[[workspace]]
+root = "workers/cmux-vm/cli"
+covered_by = ".github/workflows/cmux-vm-clients.yml"
+
+[[workspace]]
+root = "cmux-tui/relays/cloudflare-do"
+covered_by = ".github/workflows/cloudflare-relay.yml"
+
+[[workspace]]
+root = "cmux-tui/bindings/examples/rust-agent-dashboard"
+covered_by = ".github/workflows/cmux-tui-sdks.yml"
+
+[[workspace]]
+root = "cmux-tui/bindings/examples/rust-sidebar-monitor"
+covered_by = ".github/workflows/cmux-tui-sdks.yml"
+
+[[workspace]]
+root = "Native/OptChat/chief-turn"
+run = true
+
+[[workspace]]
+root = "Native/OptChat/optchat-chief"
+run = true
+
+[[workspace]]
+root = "Native/OptChat/optchat-core"
+run = true
+
+[[workspace]]
+root = "Native/OptChat/optchat-host"
+run = true
+
+[[workspace]]
+root = "Native/OptChat/optchat-wasm"
+run = true
+
+[[workspace]]
+root = "cmux-next-ios/rust"
+run = true
+
+[[workspace]]
+root = "first-party-apps/cloud/server"
+run = true
+
+[[workspace]]
+root = "samples/apps/ssh-terminal/server"
+run = true
+
+[[workspace]]
+root = "services/iroh-relay-minter"
+run = true
+
+[[workspace]]
+root = "workers/cmux-vm/mesh/agent"
+run = true
+
+[[workspace]]
+root = "cmux-tui/bindings/bootstrap/rust-sdk"
+run = true
+
+[[workspace]]
+root = "cmux-tui/bindings/bootstrap/rust-sidebar"
+run = true
+
+[[workspace]]
+root = "cmux-tui/bindings/conformance/adapters/rust"
+run = true
+
+[[workspace]]
+root = "cmux-tui/bindings/conformance/raw/adapters/rust"
+run = true
+
+[[workspace]]
+root = "cmux-tui/bindings/examples/rust-agent-screen-detection"
+run = true
+
+[[workspace]]
+root = "cmux-tui/crates/cmux-app-ffi"
+run = true
+
+[[workspace]]
+root = "cmux-tui/crates/cmux-layout-reducer-ffi"
+run = true
+
+[[workspace]]
+root = "cmux-tui/crates/cmux-rd-ffi"
+run = true
+
+# The bench feature set is the one that builds without x264 (OpenH264 from source),
+# as in scripts/ci/cmux-tui-rust-check.sh rd-host.
+[[workspace]]
+root = "cmux-tui/crates/cmux-rd-host"
+run = true
+args = ["--no-default-features", "--features", "bench"]
+
+[[workspace]]
+root = "cmux-tui/crates/cmux-remote-browser-host"
+run = true
+
+[[workspace]]
+root = "cmux-tui/crates/cmux-remote-browser-testhost"
+run = true
+
+[[workspace]]
+root = "cmux-tui/vendor/crossterm"
+skip = "vendored upstream crate with cmux's patch; cmux-tui.yml runs its tests"
+
+[[workspace]]
+root = "experiments/iroh-byte-transport"
+skip = "experiment, unchanged since 2026-05"
+
+[[workspace]]
+root = "experiments/iroh-swift-ffi-spike/rust"
+skip = "experiment, unchanged since 2026-06"
+
+[[workspace]]
+root = "experiments/remote-desktop/rdhost"
+skip = "prototype superseded by cmux-tui/crates/cmux-rd-host"

@@ -71,12 +71,13 @@ public final class PageHostPool {
     /// the page with its ordinary initializer while the next spare continues warming.
     @discardableResult
     public func claim(_ descriptor: PageDescriptor, routes: [PageRoute], route: String? = nil,
-                      documentAttributes: [String: String] = [:], surface: SurfaceKind? = nil,
+                      documentAttributes: [String: String] = [:], options: PageEngineOptions = .standard,
+                      surface: SurfaceKind? = nil,
                       dynamicResources: (any PageDynamicResourceSource)? = nil, window: NSWindow?,
                       focus: Bool = true) -> PageWebView? {
         guard PageServedHosts.pooledDescriptors.contains(descriptor) else { return nil }
         // Spares are WebKit views: a page that shows in Chromium is made fresh (PageWebView+Chromium).
-        let decision = PageWebView.engineDecision(for: descriptor, options: .standard)
+        let decision = PageWebView.engineDecision(for: descriptor, options: options)
         guard decision.engine == .webKit else { return nil }
         isLikely = true
         if target == nil, let window { follow(window) }

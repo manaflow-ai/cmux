@@ -3,6 +3,8 @@ import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextPages
 import CmuxNextFocus
+import CmuxNextSidebar
+import CmuxNextTerminal
 
 // The context keys of the window a key goes to (plans/cmux-next/keybindings.md
 // section 4): built from that window's focus, never from the process-wide
@@ -18,6 +20,8 @@ extension KeyRouter {
     nonisolated static let diffPageID = "cmux.diff"
     /// The code editor page (Monaco): `codeEditorFocused`.
     nonisolated static let codeEditorPageID = "cmux.editor"
+    /// The phone tab's page kind (`InternalPageID.phone`): `simulatorFocused`.
+    nonisolated static let phonePageKind = "phone"
 
     /// The context keys for a key in a window with `focus`.
     func keyContext(for focus: FocusState, facts: Facts) -> KeyContext {
@@ -38,6 +42,8 @@ extension KeyRouter {
         if facts.pageID == Self.diffPageID { bits.insert(.diffViewerFocused) }
         if facts.pageID == Self.codeEditorPageID { bits.insert(.codeEditorFocused) }
         if facts.textBoxFocused { bits.insert(.textBoxFocused) }
+        if isPhone(focus.resolved, internalPage: facts.internalPage) { bits.insert(.simulatorFocused) }
+        if facts.fileExplorerFocused { bits.insert(.fileExplorerFocused) }
         var context = KeyContext(bits: bits)
         if let page = facts.pageID { context[KeyContext.pageID] = .string(page) }
         context[KeyContext.windowKind] = .string(KeyContext.WindowKindValue.main)
@@ -53,7 +59,20 @@ extension KeyRouter {
         if facts.terminalCopyMode, case .terminal = resolved { context[KeyContext.terminalCopyMode] = .bool(true) }
         let omnibarList = facts.omnibarListOpen && { if case .addressBar = resolved { true } else { false } }()
         if facts.listFocus || omnibarList || Self.isNativeList(resolved) { context[KeyContext.listFocus] = .bool(true) }
+        if facts.sidebarMultiSelection, case .sidebar = resolved { context[KeyContext.sidebarMultiSelection] = .bool(true) }
+        if facts.workspacesAsTabs { context[KeyContext.workspacesAsTabs] = .bool(true) }
         return context
+    }
+
+    /// Whether a phone tab has the keyboard (`simulatorFocused`: the Simulator shortcuts).
+    nonisolated static func isPhone(_ resolved: FocusState.Resolved, internalPage: String?) -> Bool {
+        guard case .page(_, let tab) = resolved else { return false }
+        return internalPageKind(tab, page: internalPage) == phonePageKind
+    }
+
+    /// Whether `controller`'s focused tab is a phone tab (``isPhone(_:internalPage:)`` for the registry context).
+    func focusesPhone(in controller: WindowController) -> Bool {
+        Self.isPhone(controller.focus.state.resolved, internalPage: focusedInternalPage(in: controller))
     }
 
     /// `surfaceKind`: what has the keyboard; nil outside a pane.
@@ -112,7 +131,22 @@ extension KeyRouter {
                      showsPageHistory: services?.locationTrail.pageHistory(in: controller) != nil,
                      topPage: controller.shownTopPage == .home ? "home" : nil,
                      pageKeySequencePending: editor.map { services?.viewers.editorPages.keySequencePending(on: $0) ?? false } ?? false,
-                     textBoxFocused: window.firstResponder is TextBoxTextView)
+                     textBoxFocused: window.firstResponder is TextBoxTextView,
+                     sidebarMultiSelection: controller.sidebar.model.selection.count > 1,
+                     fileExplorerFocused: FileExplorerService.hasKeyboard(window),
+                     workspacesAsTabs: SidebarTunables.workspacesAsTabs.value,
+                     pageReportsUnhandledKeys: chromiumPageHasKeys(window, controller: controller))
+    }
+
+    /// The focused live Chromium tab's page window is `window`, the key window: the key reaches
+    /// the page, and Chromium reports it if the page leaves it unhandled. While the shell window
+    /// itself is key (a page the model names but Chromium has not been handed the keyboard), the
+    /// key would reach no page, so cmux runs its action first as before.
+    private func chromiumPageHasKeys(_ window: NSWindow, controller: WindowController) -> Bool {
+        guard case .browserPage = controller.focus.state.resolved, let pane = controller.focus.state.resolved.pane,
+              case .browser(let entry)? = controller.content?.paneController(key: pane)?.currentContent,
+              let tab = entry.tab as? CEFTab else { return false }
+        return tab.isPageWindow(window)
     }
 
     /// The page id of the focused internal page tab.

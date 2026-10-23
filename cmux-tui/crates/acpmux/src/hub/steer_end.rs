@@ -82,9 +82,15 @@ impl Hub {
         let msg = json!({"text": text, "steer": true, "client": client, "promptId": prompt_id, "turnId": turn_id});
         let msg = crate::prompt_provenance::marked(msg, opts.provenance.as_ref());
         self.append_prompt(session, msg, &blocks);
-        accept(
-            json!({"sessionId": session.id, "promptId": prompt_id, "turnId": turn_id, "queued": false, "steer": true}),
-        );
+        let mut accepted = json!({"sessionId": session.id, "promptId": prompt_id, "turnId": turn_id, "queued": false, "steer": true});
+        // Steered in: the sender's prompts still queued under its key are replaced (`supersede.rs`).
+        if let Some(key) = opts.supersede.as_deref() {
+            let sender =
+                super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref());
+            let gone = self.supersede_queued(session, key, sender.as_deref(), &prompt_id);
+            super::queue::supersede::mark(&mut accepted, Some(&gone));
+        }
+        accept(accepted);
         let fallback = (!opts.steer_only).then(|| blocks.clone());
         let wire_blocks = super::turns::acp_prompt_blocks(session, &blocks)?;
         let mut params = json!({"sessionId": agent_sid, "prompt": wire_blocks});
@@ -117,6 +123,9 @@ impl Hub {
                     trust_gate,
                     interrupt: opts.interrupt,
                     provenance: opts.provenance,
+                    agent: opts.agent,
+                    // Queued under its key, so a later correction still replaces it.
+                    supersede: opts.supersede,
                     ..PromptOptions::default()
                 };
                 return Box::pin(self.run_prompt(session, blocks, client, false, opts)).await;

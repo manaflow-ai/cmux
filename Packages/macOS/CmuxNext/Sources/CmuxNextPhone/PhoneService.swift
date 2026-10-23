@@ -121,9 +121,25 @@ public final class PhoneService {
 
     /// Turns the phone a quarter turn (Android emulators; iOS rotation comes later).
     public func rotate(_ id: PhoneDeviceID) async throws {
+        try await rotate(id, .right)
+    }
+
+    /// Turns the phone a quarter turn left or right (Android emulators; iOS rotation comes later).
+    public func rotate(_ id: PhoneDeviceID, _ direction: PhoneRotation) async throws {
         guard let platform = backend as? PlatformPhoneBackend else { throw PhoneError.unsupported(mode: id.mode, what: "rotate") }
-        try await platform.rotate(id)
+        try await platform.rotate(id, direction)
         changeCount += 1
+    }
+
+    /// Switches the phone to the other appearance (read from the phone, so a change made on the
+    /// phone itself is seen) and returns the one it now shows.
+    @discardableResult
+    public func toggleAppearance(_ id: PhoneDeviceID) async throws -> PhoneAppearance {
+        let device = try await device(id)
+        guard backend.capabilities(for: device).contains(.appearance) else { throw PhoneError.unsupported(mode: id.mode, what: "appearance") }
+        let next: PhoneAppearance = try await backend.appearance(id) == .dark ? .light : .dark
+        try await send(.appearance(next), to: id)
+        return next
     }
 
     /// The screen's accessibility tree (frames in tap points).

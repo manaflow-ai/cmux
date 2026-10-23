@@ -123,7 +123,7 @@ extension TabHandlers {
         registry.bind("tab.unmuteAudio", invoke: { BrowserTabAudio.setMuted(false, ctx, $0) })
         registry.bind("tab.muteOtherAudio", invoke: { BrowserTabAudio.muteOthers(ctx, $0) })
         registry.bind(BrowserTabAudio.workspaceToggleActionID, run: { invocation in
-            try BrowserTabAudio.toggleWorkspace(try ctx.workspace(invocation).model, cache: ctx.services.cache)
+            try BrowserTabAudio.toggleWorkspaces(WindowMembershipHandlers.rowTargets(invocation, ctx), cache: ctx.services.cache)
         })
     }
 

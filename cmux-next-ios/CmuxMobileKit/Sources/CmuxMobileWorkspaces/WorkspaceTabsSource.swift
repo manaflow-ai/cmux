@@ -174,7 +174,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
         switch tab.kind {
         case .agent:
             // A new session takes its title from the agent, or its first prompt, after a turn.
-            let session = AgentSessionDirectory.shared.existingStore(id: tab.id)?.displayTitle ?? tab.subtitle ?? tab.title
+            let session = AgentSessionDirectory.shared.existingStore(id: tab.id, macID: workspace.macID)?.displayTitle ?? tab.subtitle ?? tab.title
             return TabsKitTab(
                 id: tab.id, kind: TabsKitTabKind("agent"), title: session, subtitle: "\(tab.title) · \(workspace.title)",
                 systemImage: tab.isPinned ? "pin.fill" : "sparkle",
@@ -196,7 +196,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
                 statusBarStyle: .lightContent
             )
         case .browser:
-            let model: (any BrowserTabState)? = streamed.model(tab: tab.id, url: tab.url) ?? browsers[tab.id]
+            let model: (any BrowserTabState)? = streamed.model(tab: tab.id, url: tab.url, macID: workspace.macID) ?? browsers[tab.id]
             // A new tab's about:blank is no address: the field reads "Search or enter website",
             // never "about:blank" (VoiceOver read it after a navigation, parity finding 4).
             let url = (model?.url ?? tab.url).flatMap { $0.absoluteString == "about:blank" ? nil : $0 }
@@ -265,7 +265,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
         let next = store.removeTab(id, from: workspaceID)
         surfaces[id] = nil
         browsers[id] = nil
-        streamed.drop(tab: id)
+        streamed.drop(tab: id, macID: store.workspace(id: workspaceID)?.macID)
         if selectedTabID == id || workspaceTab(selectedTabID ?? "") == nil {
             selectedTabID = next?.id
             if let next { store.noteOpened(tabID: next.id, in: workspaceID) }
@@ -551,7 +551,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
 
     /// The tab's page: streamed from the Mac while linked, else a local web view.
     func browser(_ tab: WorkspaceTab) -> any BrowserTabState {
-        if let model = streamed.model(tab: tab.id, url: tab.url) { return model }
+        if let model = streamed.model(tab: tab.id, url: tab.url, macID: store.workspace(id: workspaceID)?.macID) { return model }
         return localBrowser(tab)
     }
 

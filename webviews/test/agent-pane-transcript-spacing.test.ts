@@ -13,6 +13,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -102,10 +103,27 @@ await requireBrowserLane("agent-pane-transcript-spacing.test.ts", async () => {
   };
   const open = async (): Promise<Page> => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 900 } });
+    await installPaintedFrames(page);
     await page.goto(url());
     await page.getByText("Meanwhile the PR checks").waitFor();
     await page.mouse.move(0, 0);
-    await page.waitForTimeout(300);
+    // At rest: a frame has painted with no hover fade or other finite animation still running.
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          window.cmuxAfterPaint(() => {
+            const moving = document
+              .getAnimations()
+              .some(
+                (animation) =>
+                  animation.playState === "running" && animation.effect?.getComputedTiming().endTime !== Infinity,
+              );
+            if (moving) return true;
+            resolve();
+            return false;
+          }),
+        ),
+    );
     return page;
   };
   beforeAll(async () => {

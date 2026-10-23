@@ -29,7 +29,9 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import contextlib
 import dataclasses
+import fcntl
 import json
 import os
 import re
@@ -95,6 +97,9 @@ GROUP_TERM = re.compile(
 GROUP_EXPRESSION = re.compile(
     rf"(?:{GROUP_TERM.pattern})(?:\s*\|\|\s*(?:{GROUP_TERM.pattern}))*"
 )
+# The prefix every workflow-guard-tests step carries so a red guard does not
+# skip the rest of its group.
+KEEP_GOING = re.compile(r"!cancelled\(\)\s*&&\s*(.+)")
 EXPRESSION = re.compile(r"\$\{\{\s*(.*?)\s*\}\}")
 SHELL = ["bash", "--noprofile", "--norc", "-eo", "pipefail"]
 # Steps run in their own sessions, so Ctrl-C reaches only this process; it
@@ -102,6 +107,13 @@ SHELL = ["bash", "--noprofile", "--norc", "-eo", "pipefail"]
 STOPPING = threading.Event()
 RUNNING: set[int] = set()
 RUNNING_LOCK = threading.Lock()
+# Steps that install packages with apt-get hold the dpkg and apt list locks, so
+# two at once fail ("Could not get lock /var/lib/dpkg/lock-frontend"). They take
+# turns, host-wide, so concurrent guard runs on one runner host wait too. Not
+# "cmux-": tests rewrite the workflows' fixed /tmp/cmux-* paths.
+APT_GET = re.compile(r"\bapt-get\b")
+APT_LOCK = Path("/tmp/ci-guards-apt.lock")
+APT_TURN = threading.Lock()
 
 
 def stop_running() -> None:
@@ -164,6 +176,13 @@ def step_groups(condition: str) -> tuple[set[str], bool]:
         return set(), False
     if wrapped.startswith("${{") and wrapped.endswith("}}"):
         expression = wrapped[3:-2].strip()
+        # `!cancelled() && <groups>` keeps a group running past a red step in
+        # CI; a local run already runs every step, so only the groups count.
+        keep_going = KEEP_GOING.fullmatch(expression)
+        if keep_going:
+            expression = keep_going.group(1).strip()
+            if expression.startswith("(") and expression.endswith(")"):
+                expression = expression[1:-1].strip()
         if GROUP_EXPRESSION.fullmatch(expression):
             return set(GROUP_CONDITION.findall(expression)), False
     return set(GROUP_CONDITION.findall(condition)), True
@@ -278,10 +297,18 @@ def is_stateful(unit: Unit) -> bool:
     return any(
         step.working_directory
         or "git submodule" in step.run
+        or "init-submodule.sh" in step.run
         or "GITHUB_ENV" in step.run
         or "GITHUB_PATH" in step.run
         for step in unit.steps
     )
+
+
+def needs_clean_tree(steps: list[Step]) -> bool:
+    """The workload profile runner refuses a checkout with source changes, and
+    other steps (a submodule init) change the shared checkout while they run,
+    so a task holding it runs alone, before the parallel steps."""
+    return any("cmux_workload_profile.py run" in step.run for step in steps)
 
 
 def skipped_here(step: Step) -> bool:
@@ -343,6 +370,46 @@ def run_steps(
     return results
 
 
+def wait_for(take) -> bool:
+    """Retry `take()` until it succeeds (True) or the run is interrupted
+    (False), so an interrupted run never stays blocked on another's turn."""
+    while not take():
+        if STOPPING.is_set():
+            return False
+        time.sleep(0.2)
+    return True
+
+
+def try_flock(handle) -> bool:
+    try:
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        return False
+    return True
+
+
+@contextlib.contextmanager
+def apt_turn(step: Step):
+    """Hold the host-wide apt turn while a step that runs apt-get runs. An
+    interrupted wait yields without the turn; run_step then skips the step."""
+    if not APT_GET.search(step.run) or not wait_for(lambda: APT_TURN.acquire(timeout=0.2)):
+        yield
+        return
+    try:
+        try:
+            handle = APT_LOCK.open("a")
+        except OSError:
+            # Another user's lock file: the in-process turn and apt-get's own
+            # DPkg::Lock::Timeout still apply.
+            yield
+            return
+        with handle:
+            wait_for(lambda: try_flock(handle))
+            yield
+    finally:
+        APT_TURN.release()
+
+
 def run_step(step: Step, cwd: Path, env: dict[str, str], log_path: Path) -> tuple[int, str]:
     """Run one step in its own session and reap whatever it leaves behind.
 
@@ -351,7 +418,7 @@ def run_step(step: Step, cwd: Path, env: dict[str, str], log_path: Path) -> tupl
     the pipe open and the runner would wait on it forever. Actions ends a job
     by killing its process tree; this does the same per step.
     """
-    with log_path.open("w+", errors="replace") as out:
+    with log_path.open("w+", errors="replace") as out, apt_turn(step):
         if STOPPING.is_set():
             return 130, "not started: interrupted"
         proc = subprocess.Popen(
@@ -389,6 +456,17 @@ def select_steps(units: list[Unit], names: set[str]) -> list[Unit]:
         steps = unit.steps[: indexes[-1] + 1] if is_stateful(unit) else [unit.steps[i] for i in indexes]
         selected.append(dataclasses.replace(unit, steps=steps))
     return selected
+
+
+def feat_routed_groups(changed_files: str) -> tuple[str, ...]:
+    """The groups a feat-cmux-next change routes to; an unreadable list routes every one."""
+    import detect_linux_guard_changes  # noqa: PLC0415 - the router, beside this script
+
+    try:
+        paths = [line.strip() for line in Path(changed_files).read_text(encoding="utf-8").splitlines() if line.strip()]
+    except (OSError, UnicodeError):
+        paths = []
+    return detect_linux_guard_changes.classify_feat(paths)
 
 
 def git(*args: str) -> str:
@@ -485,6 +563,11 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--root", help="run this checkout's guard steps instead of the runner's own (no stamp)")
     parser.add_argument("--results", help="write {step name: passed} as JSON to this file")
     parser.add_argument("--json", dest="json_path", help="write the plan and every step's result to this file")
+    parser.add_argument(
+        "--feat-routes", metavar="FILE",
+        help="run the fast set plus the groups the changed files in FILE (one per line) route to for a "
+             "feat-cmux-next change (detect_linux_guard_changes.classify_feat); no stamp",
+    )
     args = parser.parse_args(argv)
     if args.root:
         ROOT = Path(args.root).resolve()
@@ -508,6 +591,10 @@ def main(argv: list[str]) -> int:
         print(f"run_ci_guards.py: {error}", file=sys.stderr)
         return 2
     wanted = set(args.group) if args.group else (None if args.all else set(FAST_GROUPS))
+    if args.feat_routes:
+        routed = feat_routed_groups(args.feat_routes)
+        print(f"feat-cmux-next routed guard groups: {', '.join(routed) or 'none'}", flush=True)
+        wanted = (wanted or set(FAST_GROUPS)) | set(routed)
     if wanted is not None:
         units = [u for u in units if u.group in wanted or u.job in wanted]
         if not units:
@@ -560,18 +647,22 @@ def main(argv: list[str]) -> int:
         else:
             tasks.extend((unit, [step]) for step in unit.steps)
     tasks.sort(key=lambda task: -len(task[1]))
+    # Tasks that need a clean checkout run one at a time first; then the rest share the pool.
+    batches = [[task] for task in tasks if needs_clean_tree(task[1])]
+    batches.append([task for task in tasks if not needs_clean_tree(task[1])])
     results: list[StepResult] = []
     pool = concurrent.futures.ThreadPoolExecutor(max_workers=max(1, args.jobs))
-    futures = [pool.submit(run_steps, unit, steps, env, base_sha, args.keep_going) for unit, steps in tasks]
     try:
-        for future in concurrent.futures.as_completed(futures):
-            for result in future.result():
-                results.append(result)
-                if result.ok is False:
-                    print(f"  FAIL {result.seconds:6.1f}s  {result.unit.label}: {result.step.name}", flush=True)
-                    print(f"::group::{result.step.name}\n{result.output.rstrip()}\n::endgroup::", flush=True)
-                elif args.verbose and result.ok:
-                    print(f"  ok   {result.seconds:6.1f}s  {result.unit.label}: {result.step.name}", flush=True)
+        for batch in batches:
+            futures = [pool.submit(run_steps, unit, steps, env, base_sha, args.keep_going) for unit, steps in batch]
+            for future in concurrent.futures.as_completed(futures):
+                for result in future.result():
+                    results.append(result)
+                    if result.ok is False:
+                        print(f"  FAIL {result.seconds:6.1f}s  {result.unit.label}: {result.step.name}", flush=True)
+                        print(f"::group::{result.step.name}\n{result.output.rstrip()}\n::endgroup::", flush=True)
+                    elif args.verbose and result.ok:
+                        print(f"  ok   {result.seconds:6.1f}s  {result.unit.label}: {result.step.name}", flush=True)
     except KeyboardInterrupt:
         pool.shutdown(wait=False, cancel_futures=True)
         stop_running()
@@ -594,7 +685,7 @@ def main(argv: list[str]) -> int:
     if failed:
         print("failed: " + "; ".join(f"{r.unit.label}: {r.step.name}" for r in failed), file=sys.stderr)
         return 1
-    if args.no_stamp or args.group or args.step or args.root:
+    if args.no_stamp or args.group or args.step or args.root or args.feat_routes:
         return 0
     if not (clean_at_start and tree_is_clean()) or git("rev-parse", "HEAD") != head_sha:
         print("tree has uncommitted or untracked files (or HEAD moved); no pass stamp written. Commit, then rerun to stamp.")

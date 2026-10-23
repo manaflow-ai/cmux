@@ -49,4 +49,14 @@ nonisolated struct KeyFacts: Equatable, Sendable {
     /// A terminal's TextBox composer has the keyboard (`textBoxFocused`): its Shift-Tab cycles the
     /// submit action instead of reaching the terminal.
     var textBoxFocused = false
+    /// The window's sidebar has two or more rows selected (`sidebar.multiSelection` while it has the keyboard).
+    var sidebarMultiSelection = false
+    /// The right sidebar's file explorer list has the keyboard (`fileExplorerFocused`).
+    var fileExplorerFocused = false
+    /// Workspaces as tabs is on (`SidebarTunables.workspacesAsTabs`): context key `sidebar.workspacesAsTabs`.
+    var workspacesAsTabs = false
+    /// The focused browser page reports the keys it did not handle (a Chromium tab, through
+    /// `CefKeyboardHandler::OnKeyEvent`): Find and content shortcuts go to it first
+    /// (``KeyRouter/offersToPage(_:focus:facts:)``).
+    var pageReportsUnhandledKeys = false
 }

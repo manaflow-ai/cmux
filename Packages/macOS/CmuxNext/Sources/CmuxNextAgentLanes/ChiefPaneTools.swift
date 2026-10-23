@@ -7,21 +7,22 @@ import Foundation
 import Observation
 
 /// The Chief's tools in the docked Home's tab row (Leo 2026-10-20: the Chief's pane gets a top-right
-/// area like a workspace's, with its status, its subagents and its actions;
-/// `HomeDockSwitchView.rowTools`): the Chief's status mark (``ChiefSidebar/status``, what its sidebar
-/// item shows), Subagents (each row opens like its sidebar row) and Chief Actions. Every slot keeps
-/// its width, so a status change or a first subagent never moves the tabs.
-public final class ChiefPaneTools: NSView {
+/// area like a workspace's; `HomeDockSwitchView.rowTools`): only the Chief's status mark
+/// (``ChiefSidebar/status``, what its sidebar item shows; hidden while idle, its slot kept, so a
+/// status change never moves the tabs). Chief Actions and Subagents are rows at the top of the
+/// pane's one more menu (⋮, ``PaneMoreMenuContributing``), not buttons of their own (Lawrence
+/// 2026-10-22: "fix it so it's simple, like tf are these buttons for").
+public final class ChiefPaneTools: NSView, PaneMoreMenuContributing {
     public let indicator = StatusIndicatorView()
-    public let subagentsButton = TitlebarBandButton(symbol: "person.2")
-    public let actionsButton = TitlebarBandButton(symbol: "ellipsis")
     /// What Chief Actions lists, in this order (each runs on the shown Chief, as from the palette).
-    public static let actions: [ActionID] = ["home.stopChief", "home.toggleChiefSettings", "chief.openMemoryInspector",
-                                             "chief.openUsage", "home.newChief"]
+    public static let actions: [ActionID] = ["home.stopChief", "home.stopAllAgents", "home.toggleChiefSettings",
+                                             "chief.openMemoryInspector", "chief.openUsage", "home.newChief"]
     private let chief: ChiefSidebar
     private weak var registry: ActionRegistry?
     private var watch: Task<Void, Never>?
     private var shownInRow = ChromeTunables.tabRowTools.value
+    /// The Chief has a subagent now (the Subagents row is enabled).
+    public private(set) var hasSubagents = false
 
     public init(chief: ChiefSidebar = .shared, registry: ActionRegistry) {
         self.chief = chief
@@ -29,18 +30,7 @@ public final class ChiefPaneTools: NSView {
         super.init(frame: .zero)
         setAccessibilityIdentifier("cmux.chief.paneTools")
         indicator.tracksWindowOcclusion = true
-        for (button, title, id) in [(subagentsButton, ChiefToolStrings.subagents, "subagents"), (actionsButton, ChiefToolStrings.actions, "actions")] {
-            button.target = self
-            button.action = #selector(openMenu(_:))
-            button.longPressOpensMenu = false
-            button.themedToolTip = title
-            button.setAccessibilityLabel(title)
-            button.setAccessibilityIdentifier("cmux.chief.paneTools.\(id)")
-            addSubview(button)
-        }
         addSubview(indicator)
-        subagentsButton.pressMenu = { [weak self] in self?.subagentsMenu() }
-        actionsButton.pressMenu = { [weak self] in self?.actionsMenu() }
         // task-owner: this view (cancelled in deinit); event-driven (Observation).
         watch = Task { [weak self, chief] in
             for await (status, subagents, inRow) in ObservationStream({ (chief.status, chief.allSubagents().count, ChromeTunables.tabRowTools.value) }) {
@@ -66,40 +56,49 @@ public final class ChiefPaneTools: NSView {
 
     private static var slot: CGFloat { TitlebarBandButton.side }
 
-    override public var intrinsicContentSize: NSSize {
-        NSSize(width: Self.slot * 3 + Metrics.space1 * 2, height: Self.slot)
-    }
+    override public var intrinsicContentSize: NSSize { NSSize(width: Self.slot, height: Self.slot) }
 
     override public func layout() {
         super.layout()
-        let side = Self.slot, y = max(0, (bounds.height - side) / 2)
-        for (index, view) in [indicator, subagentsButton, actionsButton].enumerated() {
-            let x = CGFloat(index) * (side + Metrics.space1)
-            let mark = view === indicator ? Metrics.smallIconSize : side
-            view.frame = NSRect(x: x + (side - mark) / 2, y: y + (side - mark) / 2, width: mark, height: mark)
-        }
+        let side = Self.slot, mark = Metrics.smallIconSize, y = max(0, (bounds.height - side) / 2)
+        indicator.frame = NSRect(x: (side - mark) / 2, y: y + (side - mark) / 2, width: mark, height: mark)
     }
 
     /// The Chief's status on the mark (hidden while idle, its slot kept) and whether it has subagents.
     func show(_ status: ChiefSidebar.Status, subagents: Int) {
         if indicator.state != status.activity { indicator.configure(status.activity) }
-        subagentsButton.isEnabled = subagents > 0
+        hasSubagents = subagents > 0
     }
 
-    /// A keyboard or VoiceOver press opens the button's menu (a click opens it on press).
-    @objc private func openMenu(_ sender: TitlebarBandButton) {
-        guard let menu = sender.pressMenu?(), !menu.items.isEmpty else { return }
-        sender.presentMenu(menu, sender)
+    /// The pane's more menu's first rows: Chief Actions, then Subagents (a submenu of every
+    /// subagent, disabled with none).
+    public func paneMoreMenuItems() -> [NSMenuItem] {
+        var items = actionsMenu()?.items ?? []
+        items.forEach { $0.menu?.removeItem($0) }
+        let subagents = NSMenuItem(title: ChiefToolStrings.subagents, action: nil, keyEquivalent: "")
+        subagents.identifier = NSUserInterfaceItemIdentifier("cmux.chief.paneTools.subagents")
+        subagents.image = NSImage(systemSymbolName: "person.2", accessibilityDescription: nil)
+        let menu = subagentsMenu()
+        subagents.submenu = menu
+        subagents.isEnabled = !menu.items.isEmpty
+        if !items.isEmpty { items.append(.separator()) }
+        items.append(subagents)
+        return items
     }
 
-    /// Every subagent, with its status; a row opens it like its sidebar row.
+    /// Every subagent, with its status; a row runs Open Chief Subagent on its sidebar row's item,
+    /// as a click on that row does.
     func subagentsMenu() -> NSMenu {
         let menu = NSMenu()
+        guard let registry else { return menu }
         for row in chief.allSubagents() {
-            let item = NSMenuItem(title: row.info.title, action: #selector(openSubagent(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = row.item.id.rawValue
-            item.toolTip = row.info.activity.shortLabel
+            let target = ActionTargetRef(kind: .sidebarItem, id: row.item.id.rawValue)
+            let built = registry.makeContextMenu(for: .sidebarItem, target: target, entries: [.action(ChiefSidebar.openSubagentAction)])
+            guard let item = built.items.first else { continue }
+            built.removeItem(item)
+            // The subagent's own row: its title and status, no action icon or key.
+            (item.title, item.toolTip, item.image) = (row.info.title, row.info.activity.shortLabel, nil)
+            (item.keyEquivalent, item.keyEquivalentModifierMask) = ("", [])
             menu.addItem(item)
         }
         return menu
@@ -112,15 +111,16 @@ public final class ChiefPaneTools: NSView {
         for id in Self.actions { if let item = registry.makeMenuItem(for: id) { menu.addItem(item) } }
         return menu
     }
-
-    @objc private func openSubagent(_ item: NSMenuItem) {
-        guard let registry, let id = item.representedObject as? String else { return }
-        _ = chief.activate(LayoutItemID(id), registry: registry)
-    }
 }
 
-/// Strings of the Chief's pane tools (Resources/Localizable.xcstrings).
+/// Strings of the Chief's pane tools and Open Chief Subagent (Resources/Localizable.xcstrings).
 enum ChiefToolStrings {
     static var subagents: String { String(localized: "chief.tools.subagents", defaultValue: "Subagents", bundle: .module) }
     static var actions: String { String(localized: "chief.tools.actions", defaultValue: "Chief Actions", bundle: .module) }
+    /// A Chief subagent's row or menu item before its chat has a title.
+    nonisolated static var subagent: String { String(localized: "chief.subagent.untitled", defaultValue: "Subagent", bundle: .module) }
+    /// Open Chief Subagent's refusal when its run names no subagent row.
+    static var noSubagent: String {
+        String(localized: "chief.openSubagent.noSubagent", defaultValue: "Choose a subagent from the Subagents menu or the sidebar.", bundle: .module)
+    }
 }

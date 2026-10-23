@@ -20,6 +20,8 @@ struct RemotePaneColors: Equatable {
     var success = ThemeTokens.unresolved.success.nsColor
     /// The Ghostty theme accent (`Palette.accent`), never the system blue.
     var accent = ThemeTokens.unresolved.accent.nsColor
+    /// A lit button's label (`Palette.litGlyph`): the accent, never fainter than at rest.
+    var litGlyph = ThemeTokens.unresolved.litGlyph.nsColor
     var drawsBorders = true
 
     /// Reads the chrome tokens; callers run it inside `performWithTheme`.
@@ -32,6 +34,7 @@ struct RemotePaneColors: Equatable {
             selectionFill: plain(Palette.selectionFill), badgeFill: plain(Palette.badgeFill),
             separator: plain(Palette.separator), attention: plain(Palette.attention),
             danger: plain(Palette.danger), success: plain(Palette.success), accent: plain(Palette.accent),
+            litGlyph: plain(Palette.litGlyph),
             drawsBorders: Borders.drawsLines)
     }
 
@@ -39,7 +42,7 @@ struct RemotePaneColors: Equatable {
     func dot(for path: RemotePath?) -> NSColor {
         switch path {
         case .direct: success
-        case .viaCloudRegion, .relayed: attention
+        case .viaCloudRegion, .relayed, .compatibility: attention
         case nil: textTertiary
         }
     }

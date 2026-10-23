@@ -37,8 +37,8 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     public var projects: [String]
     /// The design to show; nil is the page's default (B).
     public var layout: AgentPaneNewTabLayout?
-    /// The template (`tabs.newTabTemplate`: "cards", "default", "composer", "threads", "console",
-    /// "classic" or "terminal"); nil follows `layout`. The page validates it.
+    /// The template (`tabs.newTabTemplate`: "minimal", "cards", "default", "composer", "threads",
+    /// "console", "classic" or "terminal"); nil follows `layout`. The page validates it.
     public var template: String?
     /// The agent last picked.
     public var lastAgent: String?
@@ -46,6 +46,9 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     public var lastPicks: AgentPaneLastPicks?
     /// The home folder, so the field reads `~/path` as a folder.
     public var home: String?
+    /// The project of the chat the person last picked and started (`newTab.remember` `started`):
+    /// where a page with no folder of its own starts. nil on another machine or before any start.
+    public var startedProject: String?
     /// Identifies the opening whose focused field must acknowledge readiness.
     public var inputToken: String?
     /// false: the page leaves its field unfocused (Cmd-L opened it for the omnibar, cx-e2aa);
@@ -63,15 +66,30 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     /// true: the page shows the widget view under its composer (Debug Settings `newTab.widgets`,
     /// ``AgentPaneTunables/newTabWidgets``); nil shows none.
     public var widgets: Bool?
+    /// The Minimal layout's widgets the user turned on (`tabs.newTabWidgets.*`: "greeting" (the
+    /// headline asking what to work on), "projects", "actions", "chats", "styleDots"); Minimal draws
+    /// the composer and only these besides. nil is Settings' defaults (none). The other layouts ignore it.
+    /// The page validates it.
+    public var pageWidgets: [String]?
+    /// The weather widget's last reading (`tabs.newTabWidgets.weather`, ``AgentPaneNewTabWeather``);
+    /// nil while it is off or before the first reading. The page dims one older than its refresh.
+    public var weather: AgentPaneNewTabWeather?
+    /// true: `tabs.newTabWidgets.greeting` is false in cmux.json, not the default
+    /// (``NewTabWidgetSettings/greetingTurnedOff``): Minimal keeps no room over the composer for the
+    /// headline, so the composer stays where it sat with the greeting off; nil keeps the room.
+    public var headlineOff: Bool?
     /// true: the page lists only its own connection's chats, not the store every page shares
     /// (Debug Settings `newTab.privateChatLists`, ``AgentPaneTunables/newTabPrivateChatLists``).
     public var privateChatLists: Bool?
+    /// false: Show All Chats on New Tab is off (`sidebar.showChats`): the page lists the recent
+    /// chats only, never All chats; nil lists All chats where the template does.
+    public var allChats: Bool?
 
     public init(kind: AgentPaneTabKind, hotkeys: [AgentPaneTabKind: String] = [:], cwd: String? = nil,
                 location: String? = nil, omnibar: AgentPaneOmnibar = AgentPaneOmnibar(), projects: [String] = [],
                 layout: AgentPaneNewTabLayout? = nil,
                 lastAgent: String? = nil, lastPicks: AgentPaneLastPicks? = nil, home: String? = nil,
-                template: String? = nil, widgets: Bool? = nil) {
+                template: String? = nil, widgets: Bool? = nil, pageWidgets: [String]? = nil) {
         self.kind = kind
         self.hotkeys = Dictionary(uniqueKeysWithValues: hotkeys.map { ($0.key.rawValue, $0.value) })
         self.cwd = cwd
@@ -82,6 +100,7 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
         self.projects = projects
         self.layout = layout
         self.template = template
+        self.pageWidgets = pageWidgets
         self.lastAgent = lastAgent
         self.lastPicks = lastPicks
         self.home = home

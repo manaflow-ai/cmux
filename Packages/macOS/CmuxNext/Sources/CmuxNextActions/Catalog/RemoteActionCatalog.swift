@@ -20,11 +20,43 @@ nonisolated enum RemoteActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "remote.connect",
                 title: String(localized: "action.remote.connect", defaultValue: "Connect to Machine…", table: "RemoteActions", bundle: .module),
-                keywords: ["ssh", "remote", "host", "server", "machine", "cmux-tui"], category: .remote, symbol: "server.rack",
+                keywords: ["ssh", "remote", "host", "server", "machine", "cmux-tui"], category: .remote, symbol: "cable.connector",
                 surfaces: [.palette, .menu, .contextMenu],
                 arguments: [CatalogArgument.destinationString, CatalogArgument.sessionString, CatalogArgument.binaryString,
                             CatalogArgument.stateDirString],
                 cliName: "remote connect", mainMenu: .file
+            ),
+            // The one entry for every new device (plans/cmux-next/add-device-DESIGN.md): a computer on
+            // your network, a computer that shows a code, or a new device. It hands off to Add Machine
+            // or Add Server, which stay as its ways; CLI and MCP only open the card.
+            ActionDescriptor(
+                id: "device.add",
+                title: String(localized: "action.device.add", defaultValue: "Add Device…", table: "RemoteActions", bundle: .module),
+                keywords: ["device", "add", "computer", "phone", "iphone", "mac", "linux", "windows", "server", "machine",
+                           "pair", "code", "tailscale", "tailnet", "network", "join", "enroll", "approve"],
+                category: .remote, symbol: "ipad.and.iphone", surfaces: [.palette, .menu, .contextMenu],
+                arguments: [CatalogArgument.addDeviceWay],
+                cliName: "device add", mainMenu: .file
+            ),
+            // One click from a host name to a working agent machine (plans/cmux-next/add-machine-DESIGN.md):
+            // the Add Machine card runs `cmux-tui acp host enroll`; a destination only fills it (Add starts it).
+            // Add Device's "On your network" way; the sidebar menu offers Add Device instead.
+            ActionDescriptor(
+                id: "machine.add",
+                title: String(localized: "action.machine.add", defaultValue: "Add Machine…", table: "RemoteActions", bundle: .module),
+                keywords: ["ssh", "remote", "host", "machine", "tailscale", "tailnet", "enroll", "agent", "peer", "acpmux"],
+                category: .remote, symbol: "plus.rectangle.on.rectangle", surfaces: [.palette],
+                arguments: [CatalogArgument.optionalDestination, CatalogArgument.optionalMachineName],
+                cliName: "machine add",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+            ),
+            // The same card's checklist for one SSH machine (`host doctor`), with Fix (`--fix`).
+            ActionDescriptor(
+                id: "machine.doctor",
+                title: String(localized: "action.machine.doctor", defaultValue: "Check Machine", table: "RemoteActions", bundle: .module),
+                keywords: ["ssh", "remote", "host", "machine", "doctor", "health", "check", "fix", "agent", "peer", "acpmux"],
+                category: .remote, symbol: "stethoscope", surfaces: [.palette, .contextMenu], targets: [.machine],
+                cliName: "machine doctor"
             ),
             ActionDescriptor(
                 id: "remote.newGroup",
@@ -100,7 +132,7 @@ nonisolated enum RemoteActionCatalog: ActionCatalogGroup {
             // tab shows the host's refusal (cx-erey).
             ActionDescriptor(
                 id: "remote.openBrowserTab",
-                title: String(localized: "action.remote.openBrowserTab", defaultValue: "Open Remote Browser Tab", table: "RemoteActions", bundle: .module),
+                title: String(localized: "action.remote.openBrowserTab", defaultValue: "Open Remote Browser Tab…", table: "RemoteActions", bundle: .module),
                 keywords: ["remote", "browser", "tab", "rb", "stream", "chromium", "host"], category: .remote, symbol: "globe",
                 surfaces: [.palette],
                 arguments: [
@@ -135,6 +167,31 @@ nonisolated enum RemoteActionCatalog: ActionCatalogGroup {
 }
 
 nonisolated extension CatalogArgument {
+    /// Add Machine's host: the card opens on the field without it.
+    static var optionalDestination: ActionArgument {
+        ActionArgument(name: "destination", title: String(localized: "argument.destination", defaultValue: "SSH Destination", table: "RemoteActions", bundle: .module),
+                       kind: .string, isRequired: false)
+    }
+
+    /// Which of Add Device's ways the card opens on; it picks one without it.
+    static var addDeviceWay: ActionArgument {
+        func way(_ value: String, _ title: String) -> ActionEnumCase { ActionEnumCase(value: value, title: title) }
+        return ActionArgument(
+            name: "way",
+            title: String(localized: "argument.addDeviceWay", defaultValue: "Way", table: "RemoteActions", bundle: .module),
+            kind: .enumeration([
+                way("network", String(localized: "argument.value.addDeviceWay.network", defaultValue: "On Your Network", table: "RemoteActions", bundle: .module)),
+                way("code", String(localized: "argument.value.addDeviceWay.code", defaultValue: "It Shows a Code", table: "RemoteActions", bundle: .module)),
+                way("newDevice", String(localized: "argument.value.addDeviceWay.newDevice", defaultValue: "Set Up a New Device", table: "RemoteActions", bundle: .module)),
+            ]),
+            isRequired: false)
+    }
+
+    /// Add Machine's name for the machine; the short host without it.
+    static var optionalMachineName: ActionArgument {
+        ActionArgument(name: "name", title: String(localized: "argument.name", defaultValue: "Name", bundle: .module), kind: .string, isRequired: false)
+    }
+
     /// `machine` (the workspace's machine), `thisMac`, or `setting`
     /// (follow `browser.remoteLocalhost`).
     static var remoteLocalhostChoice: ActionArgument {

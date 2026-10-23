@@ -2,8 +2,8 @@ import { authenticate, bearerOf, primaryProject, stackProjects, type Caller } fr
 import type { Env } from "./env.ts"
 import { iceServers } from "./ice.ts"
 import { createTeam, sendTeamInvite, userTeams } from "./stack.ts"
-import { apnsConfig, apnsTopics, clean, sendApns } from "./push.ts"
-import { openStore, PUSH_KINDS, type Device, type PushKind, type Store } from "./store.ts"
+import { apnsConfig, apnsTopics, clean, sendApns, TURN_PUSH_WINDOW_MS, turnPushKey } from "./push.ts"
+import { hasIcon, mergePrefs, openStore, PUSH_KINDS, type Device, type Prefs, type PushKind, type Store } from "./store.ts"
 import { userHubName, type Attachment } from "./team-hub.ts"
 import { Timing, timingFor } from "./timing.ts"
 
@@ -21,6 +21,12 @@ const PERSONAL = "personal-"
 export const personalTeamId = (userId: string) => `${PERSONAL}${userId}`
 const COLOR = /^#[0-9A-Fa-f]{6}$/
 const WG_KEY = /^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$/
+/** A Mac's machine id (PROTOCOL.md "Devices"): 128 bits of a keyed hash, lowercase hex. */
+const MACHINE_ID = /^[0-9a-f]{32}$/
+/** `{machineId}` when the Mac has one, else nothing: a Mac that never sent one keeps its older wire shape. */
+const machineOf = (d: { machineId: string | null }) => (d.machineId ? { machineId: d.machineId } : {})
+/** Other builds' device ids one registration may name (`siblingDeviceIds`). */
+const MAX_SIBLINGS = 16
 const EMAIL = /^[^\s@]{1,64}@[^\s@]{1,255}$/
 const APNS_TOKEN = /^[0-9a-f]{64,200}$/
 const EVENT_ID = /^[A-Za-z0-9._:-]{1,64}$/
@@ -219,7 +225,11 @@ const withStore = async <T>(env: Env, ctx: ExecutionContext, f: (s: Store) => Pr
 }
 
 /** The PROTOCOL.md device object: `ownerUserId` is the bare sub (the project is recorded, not returned). */
-const publicDevice = (env: Env, d: Device): Device => ({ ...d, ownerUserId: splitOwner(env, d.ownerUserId).userId })
+const publicDevice = (env: Env, { machineId, ...d }: Device) => ({
+  ...d,
+  ownerUserId: splitOwner(env, d.ownerUserId).userId,
+  ...machineOf({ machineId })
+})
 
 const colo = (req: Request): string | null => {
   const c = (req as Request & { cf?: { colo?: unknown } }).cf?.colo
@@ -333,6 +343,7 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
         updatedAt: d.updatedAt,
         lastSeenAt: d.lastSeenAt,
         online: d.kind === "mac" ? (live.get(d.deviceId) ?? false) : null,
+        ...machineOf(d),
         push: d.push
       }))
     })
@@ -395,6 +406,11 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
       const kind = b.kind as PushKind
       const targets = config ? (await withStore(env, ctx, (s) => s.listOwnerPush(me))).filter((t) => t.kinds.includes(kind)).slice(0, 20) : []
       if (!config || targets.length === 0) return json({ configured: !!config, sent: 0, failed: 0, dropped: 0 })
+      // A burst of turn ends from one session is one notification (a Mac on an older host sends every one).
+      // Checked only once some phone wants this kind, so an unwanted kind never uses up the window.
+      const key = turnPushKey(deviceId, { kind, ...(typeof b.sessionId === "string" ? { sessionId: b.sessionId } : {}) })
+      if (key && !(await userHub(env, caller).turnPushAllowed(me, key, TURN_PUSH_WINDOW_MS)))
+        return json({ configured: true, sent: 0, failed: 0, dropped: 0, coalesced: true })
       const results = await sendApns(config, targets, {
         eventId: b.eventId,
         kind,
@@ -417,22 +433,60 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
 
   if (path === "/v1/devices" && method === "POST") {
     const b = await readJson(req)
-    const { deviceId, kind, name, teamId, wgPublicKey } = b
+    const { deviceId, kind, name, teamId, wgPublicKey, machineId, siblingDeviceIds } = b
     if (typeof deviceId !== "string" || !UUID.test(deviceId.toLowerCase())) throw new HttpError(400, "bad_request", "deviceId must be a UUID")
     if (kind !== "mac" && kind !== "phone") throw new HttpError(400, "bad_request", "kind must be mac or phone")
     if (typeof name !== "string" || !name.trim() || name.length > 100) throw new HttpError(400, "bad_request", "name must be 1-100 characters")
     if (typeof teamId !== "string") throw new HttpError(400, "bad_request", "teamId is required")
     if (wgPublicKey !== undefined && wgPublicKey !== null && (typeof wgPublicKey !== "string" || !WG_KEY.test(wgPublicKey)))
       throw new HttpError(400, "bad_request", "wgPublicKey must be a base64 Curve25519 key")
-    await requireMember(env, teamId, caller)
-    const r = await withStore(env, ctx, (s) =>
-      s.upsertDevice({ deviceId: deviceId.toLowerCase(), ownerUserId: ownerKey(env, caller), teamId, kind, name: name.trim(), wgPublicKey: (wgPublicKey as string | null | undefined) ?? null })
+    // A Mac's machine id: which computer it runs on, so the phone lists two builds on one Mac as one Mac. A
+    // name never says that (several Macs can share one), and only a Mac has one.
+    if (machineId !== undefined && (kind !== "mac" || typeof machineId !== "string" || !MACHINE_ID.test(machineId)))
+      throw new HttpError(400, "bad_request", "machineId must be 32 lowercase hex digits, for a Mac")
+    if (
+      siblingDeviceIds !== undefined &&
+      (machineId === undefined ||
+        !Array.isArray(siblingDeviceIds) ||
+        siblingDeviceIds.length > MAX_SIBLINGS ||
+        siblingDeviceIds.some((id) => typeof id !== "string" || !UUID.test(id.toLowerCase())))
     )
+      throw new HttpError(400, "bad_request", `siblingDeviceIds must be at most ${MAX_SIBLINGS} device ids, with a machineId`)
+    await requireMember(env, teamId, caller)
+    const id = deviceId.toLowerCase()
+    const siblings = [...new Set(((siblingDeviceIds ?? []) as Array<string>).map((s) => s.toLowerCase()))].filter((s) => s !== id)
+    const owner = ownerKey(env, caller)
+    const r = await withStore(env, ctx, async (s) => {
+      const up = await s.upsertDevice({
+        deviceId: id,
+        ownerUserId: owner,
+        teamId,
+        kind,
+        name: name.trim(),
+        wgPublicKey: (wgPublicKey as string | null | undefined) ?? null,
+        ...(machineId === undefined ? {} : { machineId: machineId as string })
+      })
+      if (up === "not_owner") return up
+      // Other builds on this Mac (a deleted build's record that will never register again): this Mac's machine
+      // id, only for the caller's own Macs that have none. Never another owner's device, never a phone.
+      const claimed = typeof machineId === "string" && siblings.length ? await s.claimSiblings(owner, machineId, siblings) : []
+      return { ...up, claimed }
+    })
     if (r === "not_owner") throw new HttpError(403, "not_owner", "this deviceId belongs to another user")
     // The caller's hub notes the device (and its team; a team move closes its socket with 4001 `moved`).
     await t.span(
       "hub",
-      userHub(env, caller).register({ deviceId: r.device.deviceId, ownerKey: r.device.ownerUserId, kind: r.device.kind, name: r.device.name, teamId, userId: caller.userId, projectId: caller.projectId })
+      userHub(env, caller).register({
+        deviceId: r.device.deviceId,
+        ownerKey: r.device.ownerUserId,
+        kind: r.device.kind,
+        name: r.device.name,
+        teamId,
+        userId: caller.userId,
+        projectId: caller.projectId,
+        machineId: r.device.machineId,
+        claimed: r.claimed
+      })
     )
     return json({ device: publicDevice(env, r.device) })
   }
@@ -459,7 +513,7 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
       macs: rows.flatMap((d) => {
         if (!reachable.has(d.teamId)) return []
         const p = presence.get(d.deviceId)
-        return [{ deviceId: d.deviceId, name: d.name, teamId: d.teamId, online: p?.online ?? false, lastSeenAt: later(d.lastSeenAt, p?.lastSeenAt ?? null), ownerUserId: caller.userId }]
+        return [{ deviceId: d.deviceId, name: d.name, teamId: d.teamId, online: p?.online ?? false, lastSeenAt: later(d.lastSeenAt, p?.lastSeenAt ?? null), ownerUserId: caller.userId, ...machineOf(d) }]
       })
     })
   }
@@ -508,7 +562,7 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
     const [device, macs] = await withStore(env, ctx, (s) => Promise.all([s.getDevice(deviceId), s.listOwnerMacs(me)]))
     if (!device || device.ownerUserId !== me) throw new HttpError(403, "not_owner", "register this device first")
     if (device.teamId !== teamId) throw new HttpError(403, "wrong_team", "device is registered in another team")
-    await t.span("hub", hub.seed(me, { userId: caller.userId, projectId: caller.projectId }, macs.map((m) => ({ deviceId: m.deviceId, name: m.name, teamId: m.teamId, lastSeenAt: m.lastSeenAt }))))
+    await t.span("hub", hub.seed(me, { userId: caller.userId, projectId: caller.projectId }, macs.map((m) => ({ deviceId: m.deviceId, name: m.name, teamId: m.teamId, lastSeenAt: m.lastSeenAt, machineId: m.machineId }))))
     const att: Attachment = { userId: caller.userId, projectId: caller.projectId, deviceId, kind: device.kind, name: device.name, teamId }
     const headers = new Headers({ upgrade: "websocket", "x-cmux-mobile-attachment": JSON.stringify(att), "x-cmux-mobile-owner-key": me })
     if (subprotocol) headers.set("x-cmux-mobile-subprotocol", "cmux-mobile.v1")
@@ -532,7 +586,7 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
       macs: rows.flatMap((d) => {
         if (d.teamId !== teamId || d.ownerUserId !== me) return []
         const p = byId.get(d.deviceId)
-        return [{ deviceId: d.deviceId, name: d.name, online: p?.online ?? false, lastSeenAt: later(d.lastSeenAt, p?.lastSeenAt ?? null), ownerUserId: caller.userId }]
+        return [{ deviceId: d.deviceId, name: d.name, online: p?.online ?? false, lastSeenAt: later(d.lastSeenAt, p?.lastSeenAt ?? null), ownerUserId: caller.userId, ...machineOf(d) }]
       })
     })
   }
@@ -544,7 +598,7 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
 
   if (action === "prefs" && method === "PUT") {
     const b = await readJson(req)
-    const patch: { color?: string | null; emoji?: string | null } = {}
+    const patch: Partial<Prefs> = {}
     if (b.color !== undefined) {
       if (b.color !== null && (typeof b.color !== "string" || !COLOR.test(b.color))) throw new HttpError(400, "bad_request", "color must be #RRGGBB")
       patch.color = b.color === null ? null : (b.color as string).toUpperCase()
@@ -555,8 +609,23 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
         throw new HttpError(400, "bad_request", "emoji must be one grapheme, empty, or null")
       patch.emoji = b.emoji as string | null
     }
+    if (b.transparent !== undefined) {
+      if (typeof b.transparent !== "boolean") throw new HttpError(400, "bad_request", "transparent must be a boolean")
+      patch.transparent = b.transparent
+    }
     await requireMember(env, teamId, caller)
-    return json(await withStore(env, ctx, (s) => s.putPrefs(ownerKey(env, caller), teamId, patch)))
+    const owner = ownerKey(env, caller)
+    return json(
+      await withStore(env, ctx, async (s) => {
+        const next = mergePrefs(await s.getPrefs(owner, teamId), patch)
+        // Transparent only with an icon: the team must keep an icon or a color.
+        if (patch.transparent && !next.transparent) throw new HttpError(400, "bad_request", "transparent needs an icon (a one-grapheme emoji)")
+        // Writes only the requested fields, plus the flag when this PUT decides it (sets it, picks a color, or
+        // removes the icon, so a later icon never brings it back), so a concurrent PUT of other fields keeps its edit.
+        const decides = patch.transparent !== undefined || patch.color !== undefined || (patch.emoji !== undefined && !hasIcon(patch.emoji))
+        return s.putPrefs(owner, teamId, decides ? { ...patch, transparent: next.transparent } : patch)
+      })
+    )
   }
 
   if (action === "invites" && method === "POST") {

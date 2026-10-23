@@ -28,6 +28,7 @@ scripts/cmux-next/fetch-release-notes-span.sh
 scripts/cmux-next/check-*.sh
 scripts/cmux-next/drop-cef-without-arch.sh
 scripts/cmux-next/write-cmux-tui-version.sh
+scripts/cmux-next/write-daemon-capabilities.sh
 scripts/cmux-next/notices/**
 scripts/cmux-next/media/**
 scripts/derive_sparkle_public_key.swift

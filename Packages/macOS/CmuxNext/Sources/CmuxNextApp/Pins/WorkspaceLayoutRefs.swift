@@ -53,6 +53,15 @@ struct WorkspaceLayoutRefs {
         workspaceID(for: ref) ?? (Self.split(ref.value) == nil ? ref.value : nil)
     }
 
+    /// Whether the workspace a layout ref `value` names belongs to a window
+    /// other than `windowID` (open or closed): that window's band leaves it
+    /// out (`SidebarLayoutDocument.scopedToWindow`). A closed workspace or
+    /// another device's belongs to no window here and stays.
+    func ownedElsewhere(_ value: String, window windowID: String, registry: WindowRegistry) -> Bool {
+        guard let id = workspaceID(for: .workspace(value)), let owner = registry.owner(of: id) else { return false }
+        return owner != windowID
+    }
+
     /// Sidebar ids of the workspaces the top region shows in `room` (tiles
     /// and top rows), which the workspace list leaves out.
     func topWorkspaceIDs(in layout: SidebarLayoutDocument, room: String?) -> Set<String> {

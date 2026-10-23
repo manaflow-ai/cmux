@@ -358,12 +358,16 @@ function useSelection(rows: AllChatsRow[], query: string) {
   return { selected, click, collapse, clear };
 }
 
+/// A chat acpmux can show without running it: Claude Code and Codex (acpmux `hub/watch.rs`).
+export const watchable = (key: string) => /^(claude-code|codex):./.test(key);
+
 export function AllChatsList({
   load,
   onOpen,
   active = [],
   onOpenActive,
   onOpenInTerminal,
+  onViewOnly,
   onBring,
   now: fixedNow,
 }: {
@@ -372,6 +376,9 @@ export function AllChatsList({
   active?: ActiveChat[];
   onOpenActive?(id: string): void;
   onOpenInTerminal?(key: string): void;
+  /// View Only: a Claude Code or Codex chat in a tab that shows it and follows the app that runs
+  /// it, without running it, until Take Over (`chats.watch`, the same opener as `cmux agent view`).
+  onViewOnly?(key: string): void;
   /// Rows select, and the menu's Bring into Active Sessions opens the selection (cx-zlnl).
   onBring?(keys: string[]): void;
   now?: number;
@@ -549,6 +556,16 @@ export function AllChatsList({
             label: t("shell.openInTerminal"),
             disabled: !menuTarget,
             onSelect: () => menuTarget && onOpenInTerminal(menuTarget),
+          },
+        ]
+      : []),
+    ...(onViewOnly
+      ? [
+          {
+            id: "viewOnly",
+            label: nt("viewOnly"),
+            disabled: !menuTarget || !watchable(menuTarget),
+            onSelect: () => menuTarget && watchable(menuTarget) && onViewOnly(menuTarget),
           },
         ]
       : []),

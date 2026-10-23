@@ -165,13 +165,10 @@ await requireBrowserLane("agent-pane-diff-find.test.ts", async () => {
     await daemon?.stop(true);
   });
 
-  /** Waits until `read` gives `want` (2 s), then checks it. */
+  /** Reads until `read` gives `want` (each read is a round trip to the page; 5 s at most), then checks it. */
   async function until<T>(read: () => Promise<T>, want: T) {
     let got = await read();
-    for (let i = 0; i < 40 && !Bun.deepEquals(got, want); i++) {
-      await Bun.sleep(50);
-      got = await read();
-    }
+    for (const deadline = Date.now() + 5_000; !Bun.deepEquals(got, want) && Date.now() < deadline;) got = await read();
     expect(got as unknown).toEqual(want);
   }
   /** The diff find's highlights: how many matches and the active one's text and line. */

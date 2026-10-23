@@ -91,12 +91,15 @@ uuid.workspace = true
 wait-timeout.workspace = true
 # Verifies the signed invite-wave flags (feature_flags.rs); tests sign with it.
 ring.workspace = true
+# `cmux acp` and the `acpmux` multicall name (plans/cmux-next/cli.md), unix
+# only; on every platform, the tailnet CLI wrapper `remote_host` shares
+# (acpmux::tailnet). `-p acpmux` checks on Windows in the same CI job.
+acpmux = { path = "../acpmux" }
 
 [target.'cfg(unix)'.dependencies]
+cmux-holder.workspace = true
 # `cmux host …`, the machine supervisor and process roles (server.md 5.1).
 cmux-host.workspace = true
-# `cmux acp` and the `acpmux` multicall name (plans/cmux-next/cli.md).
-acpmux = { path = "../acpmux" }
 # Reads the enclosing app bundle's Info.plist (app_identity.rs).
 plist = "1.10"
 # The build identity (daemon skew, SSH re-bootstrap). Only this crate reads

@@ -1,4 +1,5 @@
 import AppKit
+public import CmuxNextDesignTokens
 
 /// A find pill's round button: borderless, ``FindPillMetrics/buttonSize`` square, with a
 /// circular hover fill (and the accent tint while a toggle is on), the way Safari's find
@@ -62,11 +63,11 @@ final class FindPillButton: NSButton {
         applyColors()
     }
 
-    /// Re-reads the theme's inks: secondary at rest, primary under the pointer, accent while on.
+    /// Re-reads the theme's inks: secondary at rest, primary under the pointer, the lit glyph while on.
     func applyColors() {
         performWithTheme {
             let on = state == .on
-            let ink = on ? Palette.accent : (hovering && isEnabled ? Palette.textPrimary : Palette.textSecondary)
+            let ink = on ? Palette.litGlyph : (hovering && isEnabled ? Palette.textPrimary : Palette.textSecondary)
             contentTintColor = ink
             if !title.isEmpty {
                 attributedTitle = NSAttributedString(string: title, attributes: [

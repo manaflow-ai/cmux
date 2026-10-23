@@ -1,3 +1,4 @@
+import { SCROLLER_FADE_ATTRIBUTE } from "../../scrollers";
 import type { AgentSessionTheme } from "./types";
 
 const cssVariables: Record<keyof AgentSessionTheme, string | null> = {
@@ -13,6 +14,7 @@ const cssVariables: Record<keyof AgentSessionTheme, string | null> = {
   softText: "--agent-soft",
   accent: "--agent-accent",
   accentSoft: "--agent-accent-soft",
+  litGlyph: "--agent-lit-glyph",
   accentText: "--agent-accent-text",
   onAccent: "--agent-on-accent",
   danger: "--agent-danger",
@@ -25,9 +27,14 @@ const cssVariables: Record<keyof AgentSessionTheme, string | null> = {
   borders: null,
   chatWidth: null,
   codexToolRuns: null,
+  liveLineBelow: null,
+  toolRunLook: null,
   turnActionsPlacement: null,
   motion: null,
   statusIndicators: null,
+  workingLook: null,
+  subagentTray: null,
+  scrollerFade: null,
 };
 
 const motionVariables = {
@@ -55,6 +62,11 @@ export function applyAgentTheme(theme: AgentSessionTheme): void {
   // Static status indicators (or Reduce Motion): the stylesheets stop their loops under it.
   if (theme.statusIndicators) root.dataset.statusIndicators = theme.statusIndicators;
   else delete root.dataset.statusIndicators;
+  // How agent work shows on running rows (conversation.css WORKING-LOOK).
+  if (theme.workingLook) root.dataset.workingLook = theme.workingLook;
+  else delete root.dataset.workingLook;
+  // The opt-in scrollbar fade (scrollers.ts SCROLLER_FADE_ATTRIBUTE): shown scrollers fade at rest.
+  root.toggleAttribute(SCROLLER_FADE_ATTRIBUTE, theme.scrollerFade === true);
   for (const [key, variable] of Object.entries(cssVariables) as Array<[keyof AgentSessionTheme, string | null]>) {
     if (!variable) {
       continue;

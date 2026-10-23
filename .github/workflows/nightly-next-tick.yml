@@ -30,6 +30,11 @@ on:
 
 permissions: {}
 
+env:
+  # `workflows:` spells display names; these are the files behind them
+  # (tests/test_ci_workflow_run_sources.py).
+  SOURCE_WORKFLOW_PATHS: .github/workflows/cmux-next.yml .github/workflows/cmux-tui-artifacts.yml
+
 concurrency:
   group: nightly-next-tick
   cancel-in-progress: false

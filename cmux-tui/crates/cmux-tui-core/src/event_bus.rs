@@ -1,5 +1,6 @@
 //! Per-subscriber mux event delivery with bounded coalesced state.
 
+use crate::panic_free::RecoverPoison;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::sync::mpsc::{RecvError, RecvTimeoutError, TryRecvError};
@@ -42,7 +43,7 @@ pub(crate) fn defer_session_paths<R>(f: impl FnOnce() -> R) -> (R, DeferredSessi
     let previous = DEFERRED_SESSION_PATHS.with(|cell| cell.borrow_mut().replace(Vec::new()));
     let mut restore = Restore(Some(previous));
     let output = f();
-    let previous = restore.0.take().expect("deferral scope restores once");
+    let previous = restore.0.take().flatten();
     let recorded = DEFERRED_SESSION_PATHS
         .with(|cell| std::mem::replace(&mut *cell.borrow_mut(), previous))
         .unwrap_or_default();
@@ -68,6 +69,8 @@ enum MuxEventFilter {
     /// changes alone are left out: a busy terminal retitles itself many
     /// times a second, and the live tree corrects a stale title at once.
     LaunchSnapshot,
+    /// Local conversation changes (the host replica's Chief stream).
+    Conversations,
     AttachedSurface(SurfaceId),
     SurfaceSession(SurfaceSessionScope),
 }
@@ -127,6 +130,10 @@ impl MuxEventBroadcaster {
         self.subscribe_with_filter(MuxEventFilter::LaunchSnapshot)
     }
 
+    pub(crate) fn subscribe_conversations(&self) -> MuxEventReceiver {
+        self.subscribe_with_filter(MuxEventFilter::Conversations)
+    }
+
     pub fn subscribe_attached_surface(&self, surface: SurfaceId) -> MuxEventReceiver {
         self.subscribe_with_filter(MuxEventFilter::AttachedSurface(surface))
     }
@@ -161,7 +168,7 @@ impl MuxEventBroadcaster {
         if deferred.is_some() {
             return;
         }
-        let mut subscribers = self.subscribers.lock().unwrap();
+        let mut subscribers = self.subscribers.lock().recover_poison();
         subscribers.retain_mut(|subscriber| {
             let Some(mailbox) = subscriber.mailbox.upgrade() else { return false };
             if let MuxEventFilter::SurfaceSession(scope) = &mut subscriber.filter
@@ -188,13 +195,13 @@ impl MuxEventBroadcaster {
         let mailbox = Arc::new(MuxEventMailbox::default());
         self.subscribers
             .lock()
-            .unwrap()
+            .recover_poison()
             .push(MuxEventSubscriber { mailbox: Arc::downgrade(&mailbox), filter });
         MuxEventReceiver { mailbox }
     }
 
     pub fn emit(&self, event: MuxEvent) {
-        let mut subscribers = self.subscribers.lock().unwrap();
+        let mut subscribers = self.subscribers.lock().recover_poison();
         subscribers.retain_mut(|subscriber| {
             let Some(mailbox) = subscriber.mailbox.upgrade() else { return false };
             !subscriber.filter.accepts(&event) || mailbox.push(event.clone())
@@ -225,6 +232,7 @@ impl MuxEventFilter {
                     | MuxEvent::FrontendProjectionChanged { .. }
                     | MuxEvent::Empty
             ),
+            Self::Conversations => matches!(event, MuxEvent::Conversation(_) | MuxEvent::Empty),
             Self::AttachedSurface(surface) => match event {
                 MuxEvent::Notification(notification) => notification.surface == Some(*surface),
                 MuxEvent::ScrollChanged { surface: event_surface, .. } => {
@@ -319,7 +327,7 @@ impl SurfaceSessionScope {
 
 impl Drop for MuxEventBroadcaster {
     fn drop(&mut self) {
-        for subscriber in self.subscribers.get_mut().unwrap().drain(..) {
+        for subscriber in self.subscribers.get_mut().recover_poison().drain(..) {
             if let Some(mailbox) = subscriber.mailbox.upgrade() {
                 mailbox.close();
             }
@@ -329,7 +337,7 @@ impl Drop for MuxEventBroadcaster {
 
 impl MuxEventMailbox {
     fn push(&self, event: MuxEvent) -> bool {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         if state.closed {
             return false;
         }
@@ -408,7 +416,7 @@ impl MuxEventMailbox {
     }
 
     fn close(&self) {
-        self.state.lock().unwrap().closed = true;
+        self.state.lock().recover_poison().closed = true;
         self.changed.notify_all();
     }
 }
@@ -475,11 +483,11 @@ impl MuxEventReceiver {
     }
 
     pub fn overflowed(&self) -> bool {
-        self.mailbox.state.lock().unwrap().overflowed
+        self.mailbox.state.lock().recover_poison().overflowed
     }
 
     pub fn recv(&self) -> Result<MuxEvent, RecvError> {
-        let mut state = self.mailbox.state.lock().unwrap();
+        let mut state = self.mailbox.state.lock().recover_poison();
         loop {
             if let Some(event) = state.pop() {
                 return Ok(event);
@@ -487,7 +495,7 @@ impl MuxEventReceiver {
             if state.closed {
                 return Err(RecvError);
             }
-            state = self.mailbox.changed.wait(state).unwrap();
+            state = self.mailbox.changed.wait(state).recover_poison();
         }
     }
 
@@ -508,7 +516,7 @@ impl MuxEventReceiver {
         &self,
         interrupt: &crate::stream_interrupt::StreamInterrupt,
     ) -> Result<MuxEvent, RecvTimeoutError> {
-        let mut state = self.mailbox.state.lock().unwrap();
+        let mut state = self.mailbox.state.lock().recover_poison();
         loop {
             if let Some(event) = state.pop() {
                 return Ok(event);
@@ -519,12 +527,12 @@ impl MuxEventReceiver {
             if interrupt.is_fired() {
                 return Err(RecvTimeoutError::Timeout);
             }
-            state = self.mailbox.changed.wait(state).unwrap();
+            state = self.mailbox.changed.wait(state).recover_poison();
         }
     }
 
     pub fn try_recv(&self) -> Result<MuxEvent, TryRecvError> {
-        let mut state = self.mailbox.state.lock().unwrap();
+        let mut state = self.mailbox.state.lock().recover_poison();
         if let Some(event) = state.pop() {
             Ok(event)
         } else if state.closed {
@@ -541,7 +549,7 @@ impl MuxEventReceiver {
     pub fn recv_timeout(&self, timeout: Duration) -> Result<MuxEvent, RecvTimeoutError> {
         let started = Instant::now();
         let mut remaining = timeout;
-        let mut state = self.mailbox.state.lock().unwrap();
+        let mut state = self.mailbox.state.lock().recover_poison();
         loop {
             if let Some(event) = state.pop() {
                 return Ok(event);
@@ -549,7 +557,8 @@ impl MuxEventReceiver {
             if state.closed {
                 return Err(RecvTimeoutError::Disconnected);
             }
-            let (next, waited) = self.mailbox.changed.wait_timeout(state, remaining).unwrap();
+            let (next, waited) =
+                self.mailbox.changed.wait_timeout(state, remaining).recover_poison();
             state = next;
             if waited.timed_out() {
                 if let Some(event) = state.pop() {

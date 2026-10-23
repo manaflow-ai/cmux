@@ -1,4 +1,5 @@
 import { isAgentMotionOff } from "./agent-session/shared/motion";
+import { MOTION_MS } from "./motion/scale.generated";
 
 /**
  * The files panel's open and close motion.
@@ -28,22 +29,30 @@ import { isAgentMotionOff } from "./agent-session/shared/motion";
 export type SpringParameters = { response: number; dampingFraction: number };
 
 /**
- * The cmux-next motion springs the webviews use (this panel, the changes tree), at speed "fast"
- * (Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift,
- * cmux-tui/crates/cmux-motion/src/spring.rs; plans/cmux-next/motion.md owns
- * the values): `appear` for sidebar show, `disappear` for sidebar hide.
+ * The cmux-next motion springs the webviews use (this panel, the changes tree, the sync lists), at
+ * speed "fast": MotionTunables.springDefaults (Packages/macOS/CmuxNext/Sources/CmuxNextDesign/
+ * Motion/MotionTunables.swift), critically damped, so a move is visibly at rest within the motion
+ * scale's standard step (180 ms). `appear` for sidebar show, `disappear` for sidebar hide.
  */
 export const MOTION_SPRINGS = {
-  move: { response: 0.2, dampingFraction: 0.9 },
-  appear: { response: 0.18, dampingFraction: 0.9 },
-  disappear: { response: 0.15, dampingFraction: 0.9 },
+  move: { response: 0.15, dampingFraction: 1 },
+  appear: { response: 0.135, dampingFraction: 1 },
+  disappear: { response: 0.11, dampingFraction: 1 },
 } as const satisfies Record<string, SpringParameters>;
 
 /**
- * The cmux-next fade tokens the webviews use, in ms at speed "fast" (MotionFadeTokens.swift;
- * plans/cmux-next/motion.md). Under Reduce Motion a fade is at most `crossfade` long.
+ * The cmux-next fade tokens the webviews use, in ms at speed "fast" (MotionTunables.fadeDefaults),
+ * on the motion scale (MOTION_MS). Under Reduce Motion a fade is at most `crossfade` long: Swift's
+ * crossfade, the scale's quick step (80 ms), as in design-tokens.json. `highlight` is a settled
+ * row's long fade out (1.2 s), not a transition.
  */
-export const MOTION_FADES = { hover: 80, fadeIn: 120, fadeOut: 80, crossfade: 100, highlight: 1200 } as const;
+export const MOTION_FADES = {
+  hover: MOTION_MS.quick,
+  fadeIn: MOTION_MS.micro,
+  fadeOut: MOTION_MS.quick,
+  crossfade: MOTION_MS.quick,
+  highlight: 1200,
+} as const;
 
 /** Seconds until the spring reaches 95% of its travel (cmux-next `perceivedDuration`, Motion.duration(spring)). */
 export function springPerceivedDuration(spring: SpringParameters): number {

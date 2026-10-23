@@ -414,7 +414,21 @@ async fn health_reads_version_channel_newest_signin_and_update_per_install() {
         (Some("bun"), Some("1.0.0"), Some(false)),
         "{r}"
     );
-    assert_eq!(r["update"]["argv"], json!(["bun", "add", "-g", "pi-acp@latest"]), "{r}");
+    assert_eq!(
+        r["update"]["argv"],
+        json!([
+            "/usr/bin/env",
+            "-u",
+            "XDG_CONFIG_HOME",
+            format!("BUN_INSTALL_GLOBAL_DIR={}", home.join(".bun/install/global").display()),
+            format!("BUN_INSTALL_BIN={}", home.join(".bun/bin").display()),
+            "bun",
+            "add",
+            "-g",
+            "pi-acp@latest"
+        ]),
+        "{r}"
+    );
 
     let r = row(&reply, "claude");
     assert_eq!(

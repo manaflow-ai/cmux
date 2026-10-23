@@ -28,7 +28,7 @@ pub mod host {
 }
 pub mod link;
 #[cfg(unix)]
-mod record_watch;
+pub(crate) mod record_watch;
 pub mod sweep;
 #[cfg(unix)]
 pub(crate) mod tree;
@@ -302,11 +302,11 @@ pub fn ensure_private_dir(dir: &Path) -> Result<()> {
     Ok(crate::owner_only::private_dir(dir)?)
 }
 
-/// Random lowercase hex.
-pub fn random_hex(bytes: usize) -> String {
+/// Random lowercase hex; an error when the OS random generator fails.
+pub fn random_hex(bytes: usize) -> Result<String> {
     let mut buf = vec![0u8; bytes];
-    getrandom::fill(&mut buf).expect("the OS random generator");
-    buf.iter().map(|b| format!("{b:02x}")).collect()
+    getrandom::fill(&mut buf).map_err(|e| anyhow!("the OS random generator: {e}"))?;
+    Ok(buf.iter().map(|b| format!("{b:02x}")).collect())
 }
 
 /// Every record in `dir`: those this build reads, and those it cannot.

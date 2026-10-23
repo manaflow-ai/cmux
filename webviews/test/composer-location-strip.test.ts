@@ -9,8 +9,11 @@
 //   - only a new chat has the strip, before its first send: a started chat's card stands alone,
 //     with nothing drawn and no gap above it, and its queued prompts sit on the card;
 //   - while the session has not reported effort and access, no skeleton or placeholder draws, and
-//     the controls keep their places when the values arrive;
+//     the controls keep their places when the values arrive (the effort is the model button's own
+//     label since Leo 2026-10-20, not a chip of its own);
 //   - the folder popover filters with its search field and tells duplicate names apart;
+//   - the folder popover folds a repository's worktrees under one row (Austin 2026-10-20: each cmux
+//     worktree listed as a project of its own), opened by → or the count and found by branch;
 //   - the strip and the card read as one surface: no hairline draws across the seam where the
 //     strip stands on the card (Leo: the card's top hairline showed under the strip).
 //   - design panel (compact composer): the strip's first and last marks line up with the prompt's
@@ -23,6 +26,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { PNG } from "pngjs";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -41,8 +45,17 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
   const { createServer } = await import("vite");
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
+  // Each page loads its entry file alone (`entryPath`, src/gallery/registry.ts). Without it every
+  // page loaded all ~150 gallery entries (about 2,300 modules) and the warm-up transformed them all
+  // first: beside the other dev server files on a CI runner the file was killed at its 120 s limit
+  // after eight of its cases (job 119080446280), with nothing stuck.
+  const ENTRY_PATHS: Record<string, string> = {
+    "agent-pane.composer-strip": "src/agent-session/acpmux/composerStrip.gallery.ts",
+    "agent-pane.composer-context": "src/agent-session/acpmux/ComposerContext.gallery.tsx",
+    "agent-pane.new-tab": "src/agent-session/acpmux/newtab/NewTabScreen.gallery.ts",
+  };
   const stageURL = (entry: string, variant: string) =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=${entry}&variant=${variant}`;
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=${entry}&entryPath=${ENTRY_PATHS[entry]}&variant=${variant}`;
 
   beforeAll(async () => {
     vite = await createServer({
@@ -51,7 +64,17 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
+    // The entry files and the hosts they mount (the strip and the New Tab in frame/agentPane.ts,
+    // which imports acpmux/main; the folder popover in frame/component.tsx), not the frame: its
+    // registry names every entry. Module URLs carry the config's base, /gallery/; a path outside it
+    // is a 404 that warms nothing, so that fails here.
+    for (const file of [
+      ...Object.values(ENTRY_PATHS),
+      "src/gallery/frame/agentPane.ts",
+      "src/gallery/frame/component.tsx",
+    ])
+      if ((await warmViteServer(vite, `/gallery/${file}`)) === 0)
+        throw new Error(`warmViteServer: ${file} imports nothing; is it served?`);
     browser = await chromium.launch({ headless: true });
     // Warm the stage once: the first load can run Vite's dependency optimizer and reload mid-compile.
     const warm = await browser.newPage({ viewport: { width: 720, height: 400 } });
@@ -199,7 +222,7 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
           ).length,
           plus: left(".acpmux-composer-plus"),
           model: left(".acpmux-model"),
-          effort: left(".acpmux-effort"),
+          effort: left(".acpmux-model .acpmux-model-detail"),
           access: left(".acpmux-access"),
           // Claude desktop's box: no Send until there is a draft (Leo 2026-10-20); the mic is the
           // trailing control of this empty new chat.
@@ -273,6 +296,65 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     await page.close();
   });
 
+  test("the folder popover folds worktrees under their repository and opens them by arrow or count", async () => {
+    const page = await open("agent-pane.composer-context", "repo-worktrees", 720);
+    const rows = () =>
+      page
+        .locator('.acpmux-location-menu [role="option"] .acpmux-location-row')
+        .evaluateAll((all) =>
+          all.map(
+            (row) =>
+              (row.hasAttribute("data-worktree") ? "  " : "") +
+              (row.querySelector(".acpmux-menu-text")?.textContent ?? "").replace(/\s+/g, " ").trim(),
+          ),
+        );
+    // One cmux row, named by the current worktree's branch; its five folders are one project.
+    expect(await rows()).toEqual(["cmux · issue-22273-runaway-children", "atlas-web", "relay", "notes"]);
+    expect(await page.locator(".acpmux-location-worktrees").first().textContent()).toBe("4");
+    // The strip names the repository, not the worktree's folder.
+    expect(await page.getByRole("button", { name: "Folder", exact: true }).textContent()).toContain("cmux");
+    // → opens the highlighted repository's other worktrees, newest first; ← closes them.
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("ArrowRight");
+    await page.waitForFunction(() => document.querySelector(".acpmux-location-row[data-worktree]"));
+    expect(await rows()).toEqual([
+      "cmux · issue-22273-runaway-children",
+      "  feat-cmux-next-unread-ring-classic",
+      "  feat-cmux-next",
+      "  agent-caller-scoped-current-selector",
+      "  agent-21352-sidebar-drag",
+      "atlas-web",
+      "relay",
+      "notes",
+    ]);
+    await page.keyboard.press("ArrowLeft");
+    await page.waitForFunction(() => !document.querySelector(".acpmux-location-row[data-worktree]"));
+    // The count opens them too, and a press on it never picks the row.
+    await page.locator(".acpmux-location-worktrees").first().click();
+    await page.waitForFunction(() => document.querySelector(".acpmux-location-row[data-worktree]"));
+    expect(await page.locator(".acpmux-location-menu").count()).toBe(1);
+    // A branch search lists the worktree it names under its repository; the repository's name, once.
+    await page.getByRole("combobox", { name: "Search projects" }).fill("unread");
+    await page.waitForFunction(
+      () => document.querySelectorAll(".acpmux-location-menu .acpmux-location-row").length === 2,
+    );
+    expect(await rows()).toEqual(["cmux · issue-22273-runaway-children", "  feat-cmux-next-unread-ring-classic"]);
+    await page.getByRole("combobox", { name: "Search projects" }).fill("cmux");
+    await page.waitForFunction(
+      () => document.querySelectorAll(".acpmux-location-menu .acpmux-location-row").length === 1,
+    );
+    await page.close();
+  });
+
+  test("an older host's worktrees still fold under their repository by path", async () => {
+    const page = await open("agent-pane.composer-context", "repo-worktrees-guessed", 720);
+    const names = await page
+      .locator('.acpmux-location-menu [role="option"] .acpmux-location-row')
+      .evaluateAll((all) => all.map((row) => (row.querySelector(".acpmux-menu-label")?.textContent ?? "").trim()));
+    expect(names).toEqual(["cmux", "atlas-web", "relay", "notes"]);
+    await page.close();
+  });
+
   // The seam: one column through the strip's empty fill and down into the card, at 2x. A line across
   // the seam is a row far from its neighbors' tone; the strip's and the card's fills are the same.
   // The New Tab has no seam: its strip is text over the card, which keeps its whole rim (#21133).
@@ -323,6 +405,24 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
       const { left, right, top, bottom, width } = element.getBoundingClientRect();
       return { left, right, top, bottom, width };
     };
+    // A stroke icon's drawn ink, left to right in page px: its shapes' boxes widened by half their
+    // stroke, mapped through the icon's viewBox. The ink lies a different way inside each icon's box
+    // (the mic's ~2.7 px, the chevron's ~3.5 px), so the marks are compared ink to ink.
+    const ink = (element: Element | null | undefined) => {
+      const svg = element instanceof SVGSVGElement ? element : element?.querySelector("svg");
+      const shapes = [
+        ...(svg?.querySelectorAll<SVGGraphicsElement>("path, line, circle, rect, polyline, polygon") ?? []),
+      ];
+      const edges = shapes.flatMap((shape) => {
+        const box = shape.getBBox();
+        const matrix = shape.getScreenCTM();
+        if (!matrix) return [];
+        const style = getComputedStyle(shape);
+        const half = style.stroke === "none" ? 0 : parseFloat(style.strokeWidth) / 2;
+        return [matrix.a * (box.x - half) + matrix.e, matrix.a * (box.x + box.width + half) + matrix.e];
+      });
+      return edges.length ? { left: Math.min(...edges), right: Math.max(...edges) } : null;
+    };
     const strip = document.querySelector(".acpmux-composer-strip")!;
     const pickers = [...strip.querySelectorAll<HTMLElement>(".acpmux-location-picker")];
     const computer = strip.querySelector<HTMLElement>('.acpmux-location-picker[data-kind="computer"]');
@@ -335,15 +435,15 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
         document.querySelector(".acpmux-composer-box .acpmux-input, .acpmux-composer-box [contenteditable]"),
       ),
       // The Claude desktop box (composerLocation.css): + and the trailing actions sit beside the
-      // prompt, so the box's columns are the + glyph's 16 px box and the last action's glyph: the
-      // mic in this empty new chat (no Send until there is a draft, Leo 2026-10-20), Send with one.
-      plusGlyph: rect(document.querySelector(".acpmux-composer-inner .acpmux-composer-plus .acpmux-icon")),
-      trailGlyph: rect(
+      // prompt, so the box's columns are the + glyph and the last action's glyph: the mic in this
+      // empty new chat (no Send until there is a draft, Leo 2026-10-20), Send with one.
+      plusInk: ink(document.querySelector(".acpmux-composer-inner .acpmux-composer-plus .acpmux-icon")),
+      trailInk: ink(
         [...document.querySelectorAll(".acpmux-composer-inner .acpmux-composer-actions .acpmux-icon")].at(-1),
       ),
       strip: rect(strip),
-      folderIcon: rect(pickers[0]?.querySelector(".acpmux-location-icon")),
-      branchChevron: rect(branch.querySelector(".ui-ghost-icon:last-child")),
+      folderInk: ink(pickers[0]?.querySelector(".acpmux-location-icon")),
+      branchChevronInk: ink(branch.querySelector(".ui-ghost-icon:last-child")),
       text: strip.textContent ?? "",
       head: head ? { clipped: head.scrollWidth > head.clientWidth + 0.5, text: head.textContent } : null,
       tail: rect(strip.querySelector(".acpmux-location-tail")),
@@ -378,15 +478,19 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
       const marks = await page.evaluate(measureMarks);
       await page.close();
       const prompt = marks.prompt!;
-      const folderIcon = marks.folderIcon!;
-      const branchChevron = marks.branchChevron!;
-      // The marks sit over the box's content edges: the prompt's, or + and the last action's
-      // (the mic at rest) where they stand beside it. A 14 px stroke icon's ink starts ~1.5 px inside its box; the chevron's
-      // ink ends 4 px inside.
-      const lead = marks.plusGlyph?.left ?? prompt.left;
-      const trail = marks.trailGlyph?.right ?? prompt.right;
-      expect(Math.abs(folderIcon.left + 1.5 - lead)).toBeLessThanOrEqual(2);
-      expect(Math.abs(branchChevron.right - 4 - trail)).toBeLessThanOrEqual(2);
+      const folderInk = marks.folderInk!;
+      const chevronInk = marks.branchChevronInk!;
+      // The marks sit over the box's content edges: the prompt's, or the ink of + and of the last
+      // action (the mic at rest) where they stand beside it. Both offsets in one check, so a failure
+      // names both. The folder's ink starts 2.0 px before the +'s (CI, 2026-10-21): within half a
+      // pixel more of that, the strip still reads as lined up.
+      const lead = marks.plusInk?.left ?? prompt.left;
+      const trail = marks.trailInk?.right ?? prompt.right;
+      const offsets = { lead: folderInk.left - lead, trail: chevronInk.right - trail };
+      expect(
+        Math.max(Math.abs(offsets.lead), Math.abs(offsets.trail)),
+        `the folder's ink is ${offsets.lead.toFixed(2)} px from the leading mark's, the branch chevron's ${offsets.trail.toFixed(2)} px from the last action's`,
+      ).toBeLessThanOrEqual(2.5);
       expect(marks.text).not.toContain("·");
       // At or under 460 px the computer is its icon (the strip's first step).
       expect(marks.computerLabelShown).toBe(width > 460);
@@ -460,8 +564,9 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
   // Focus draws no ring (Leo 2026-10-19): a focused footer control leaves the strip's rim at rest.
   test("focusing a footer control changes neither the strip rim nor its geometry", async () => {
     const page = await open("agent-pane.composer-strip", "project", 420);
+    await installPaintedFrames(page);
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
-    await page.waitForTimeout(20);
+    await page.evaluate(() => window.cmuxPaintFrame());
     const before = await page.evaluate(() => {
       const strip = document.querySelector<HTMLElement>(".acpmux-composer-strip")!;
       const rect = strip.getBoundingClientRect();
@@ -471,6 +576,7 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
       };
     });
     await page.evaluate(() => document.querySelector<HTMLElement>(".acpmux-composer-strip button")!.focus());
+    await page.evaluate(() => window.cmuxPaintFrame());
     const after = await page.evaluate(() => {
       const strip = document.querySelector<HTMLElement>(".acpmux-composer-strip")!;
       const rect = strip.getBoundingClientRect();

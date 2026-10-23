@@ -1,0 +1,38 @@
+id: no-opaque-glass
+language: swift
+severity: error
+message: "glass is never opaque: tint glass with a translucent theme token (Palette.glassTint, CardMaterial), or `// glass-opaque-allow: <reason>`"
+note: >-
+  Leo 2026-10-20: "we want a lot of glass... I hate opaque". A glass view (NSGlassEffectView,
+  NSVisualEffectView, GlassPanelView, a SwiftUI .glassEffect) that is tinted, filled or declared
+  opaque hides its own blur. Matched: an opaque tintColor or layer fill on a view named glass or
+  visual effect, `isOpaque = true` or `isOpaque { true }` in a glass subclass, and an opaque
+  .background next to .glassEffect. Opaque means Palette.popupSurface (always solid), alpha 1, or a
+  solid system color. Reduce Transparency draws a separate plain view (OverlaySurface's `.opaque`
+  material view, a chip's fill), which this rule does not match. The web side is
+  webviews/scripts/check-glass-never-opaque.ts.
+rule:
+  any:
+    # An opaque tint or fill on the glass view itself.
+    - all:
+        - kind: assignment
+        - regex: '^[\w?.()\s]*([Gg]lass|[Vv]isualEffect|[Ee]ffectView)[\w?()\s]*\.(tintColor|layer\??\.backgroundColor)\s*=\s*(Palette\.popupSurface|NSColor\.(white|black|windowBackgroundColor|controlBackgroundColor|textBackgroundColor|underPageBackgroundColor)|.*withAlphaComponent\(1(\.0)?\)|.*alpha:\s*1(\.0)?\))(\.cgColor)?$'
+    # A glass subclass that claims to be opaque: AppKit then draws nothing behind it.
+    - all:
+        - any:
+            - all:
+                - kind: assignment
+                - regex: '^(self\.)?isOpaque\s*=\s*true$'
+            - all:
+                - kind: property_declaration
+                - regex: '\bvar\s+isOpaque\s*:\s*Bool\s*\{\s*(return\s+)?true\s*\}'
+        - inside:
+            kind: class_declaration
+            stopBy: end
+            has:
+              kind: inheritance_specifier
+              regex: '^(NSVisualEffectView|NSGlassEffectView|GlassPanelView)$'
+    # SwiftUI: an opaque background modifier right before or after .glassEffect (the call ends there).
+    - all:
+        - kind: call_expression
+        - regex: '(\.glassEffect(\([^()]*(\([^()]*\)[^()]*)*\))?\s*\.background\(\s*(Color\.(white|black)|\.(white|black)|Color\(nsColor:\s*Palette\.popupSurface\)|Color\([^()]*opacity:\s*1(\.0)?\))\s*\)|\.background\(\s*(Color\.(white|black)|\.(white|black)|Color\(nsColor:\s*Palette\.popupSurface\)|Color\([^()]*opacity:\s*1(\.0)?\))\s*\)\s*\.glassEffect(\([^()]*(\([^()]*\)[^()]*)*\))?)$'

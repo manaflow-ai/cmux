@@ -11,8 +11,6 @@
   padding: var(--ui-popup-padding);
   border: 0;
   border-radius: var(--ui-popup-radius);
-  background-color: var(--surface-popup);
-  box-shadow: var(--acpmux-popup-elevation);
   color: var(--agent-text);
 }
 .ui-menu-item.acpmux-effort-item {
@@ -28,7 +26,7 @@
   font-size: var(--text-control);
   color: var(--agent-text);
 }
-.ui-menu-item.acpmux-effort-item[data-highlighted] { background: var(--acpmux-menu-hover); }
+.ui-menu-item.acpmux-effort-item[data-highlighted] { background: var(--acpmux-menu-highlight); }
 .acpmux-effort-item .ui-menu-check {
   grid-row: 1;
   grid-column: 2;
@@ -120,7 +118,7 @@
   margin-top: calc(12px * var(--cmux-interface-scale, 1));
   border-radius: 12px;
   background: color-mix(in srgb, var(--agent-text) 14%, transparent);
-  animation: acpmux-effort-track-in 180ms cubic-bezier(0.2, 0, 0, 1) both;
+  animation: acpmux-effort-track-in var(--cmux-motion-standard) cubic-bezier(0.2, 0, 0, 1) both;
 }
 .acpmux-effort-fill {
   position: absolute;
@@ -128,7 +126,7 @@
   width: calc(var(--acpmux-effort-inset) + (100% - 2 * var(--acpmux-effort-inset)) * var(--acpmux-effort));
   border-radius: 12px;
   background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 58%, transparent);
-  transition: width 240ms cubic-bezier(0.22, 1, 0.36, 1), background-color 180ms ease-out;
+  transition: width var(--cmux-motion-standard) cubic-bezier(0.22, 1, 0.36, 1), background-color var(--cmux-motion-standard) ease-out;
   will-change: width;
 }
 .acpmux-effort-stop {
@@ -165,7 +163,7 @@
   background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 16%, var(--surface-popup));
   box-shadow: var(--elevation-1), 0 0 0 1px color-mix(in srgb, var(--agent-accent, var(--agent-text)) 22%, transparent);
   pointer-events: none;
-  transition: left 240ms cubic-bezier(0.22, 1, 0.36, 1), background-color 180ms ease-out;
+  transition: left var(--cmux-motion-standard) cubic-bezier(0.22, 1, 0.36, 1), background-color var(--cmux-motion-standard) ease-out;
   will-change: left;
   transform: translateZ(0);
 }
@@ -248,3 +246,31 @@
    chip's face, inert until the session's own replaces it in place (ComposerPickers PendingChip). */
 .acpmux-chip-pending { pointer-events: none; }
 .acpmux-chip-pending .acpmux-picker-button:hover { background: none; }
+/* The Options chip (AgentOptionsMenu): the harness's other settings, a quiet small-radius rect
+   (no capsule: agent-pane-no-capsules), its face one option's name and choice or "Options". */
+:is(.acpmux-composer-bar, .nt-pickers) .acpmux-options .acpmux-picker-button {
+  width: auto;
+  height: 28px;
+  min-width: 0;
+  gap: 4px;
+  padding: 0 6px 0 8px;
+  color: var(--agent-muted);
+}
+.acpmux-options .acpmux-picker-button[aria-expanded="true"],
+.acpmux-options .acpmux-picker-button:hover { color: var(--agent-text); }
+/* It truncates only when the row is full, never at a fixed width (chip-fixed-width). */
+.acpmux-options-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.acpmux-goal { flex: none; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px var(--cv-edge,18px); color: var(--agent-soft); font-size: var(--text-detail); }
+.acpmux-goal-copy { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; }
+.acpmux-goal-state, .acpmux-goal-budget { flex: none; color: var(--agent-muted); font-size: var(--text-caption); }
+.acpmux-goal-objective { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acpmux-goal button { border: 0; border-radius: 6px; background: none; color: inherit; font: inherit; padding: 4px 6px; cursor: default; }
+.acpmux-goal button:hover { background: var(--acpmux-row-hover); }
+.acpmux-goal button:focus-visible { outline: var(--cmux-focus-ring-width) solid var(--cmux-focus-ring-color); }
+.acpmux-goal-error { flex-basis: 100%; color: var(--agent-danger); }

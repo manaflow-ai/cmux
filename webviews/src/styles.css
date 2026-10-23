@@ -57,6 +57,17 @@
   --cmux-diff-muted-bg: color-mix(in lab, var(--cmux-diff-fg) 8%, transparent);
   --cmux-diff-hover-bg: color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
   --cmux-diff-accent: var(--cmux-accent, light-dark(#0a84ff, #7ab7ff));
+  /* cmux NEXT chrome (the toolbar, the files panel, the file bars): every chip has a one-pixel
+     rim, what is selected or open takes the theme accent, and the toolbar and files panel share
+     one lift off the backdrop so they frame the code. The lift is a tint of the text color, so it
+     stays translucent over a see-through window (glass) and follows every theme. */
+  --cmux-diff-rim: color-mix(in srgb, var(--cmux-diff-fg) 12%, transparent);
+  --cmux-diff-chrome-lift: color-mix(in srgb, var(--cmux-diff-fg) 3%, transparent);
+  --cmux-diff-accent-tint: color-mix(in srgb, var(--cmux-diff-accent) 18%, transparent);
+  /* The files panel paints opaque (the tree's truncation marker must hide the text under it):
+     the same lift, composited onto the solid backdrop. */
+  --cmux-diff-files-bg: color-mix(in srgb, var(--cmux-diff-fg) 3%, var(--cmux-diff-solid-bg));
+  --cmux-diff-files-selected-bg: color-mix(in srgb, var(--cmux-diff-accent) 16%, var(--cmux-diff-files-bg));
   --cmux-diff-text-muted: color-mix(in lab, var(--cmux-diff-fg) 72%, var(--cmux-diff-bg));
   --cmux-diff-text-subtle: color-mix(in lab, var(--cmux-diff-fg) 84%, var(--cmux-diff-bg));
   /* The page background is the shared backdrop (R48): the host's
@@ -317,7 +328,8 @@ body {
      floor keeps `<head> -> <base>` legible; the secondaries (reason,
      ahead/behind) shed via .base-picker-meta + the toolbar-left container
      queries before the ref itself ellipsizes. Free toolbar space is left empty
-     to the right rather than padding out this button. */
+     to the right rather than padding out this button. In a narrow cell the head
+     side hides and the floor drops to fit `<base> v` (the query below). */
   flex: 0 1 auto;
   min-width: 150px;
 }
@@ -375,8 +387,8 @@ body {
   /* Read-only head side of the comparison (current branch / detached HEAD). It
      is the least important token, so it ellipsizes FIRST: a higher flex-shrink
      than the base ref and a smaller min-width floor (4ch) mean it gives up
-     characters before the base ref does, but it does not vanish entirely while
-     any space remains. */
+     characters before the base ref does, and it hides whole only in a narrow
+     toolbar-left (the container query below). */
   flex: 0 8 auto;
   min-width: 4ch;
   overflow: hidden;
@@ -430,10 +442,25 @@ body {
 /* Clean-hide the secondaries at narrow toolbar-left widths so they disappear
    whole rather than clipping mid-glyph. The .base-picker-meta flex shrink above
    is the hard guarantee that the ref always wins; these container queries only
-   make the transition tidy. Widest-first: ahead/behind, then reason. */
+   make the transition tidy. Widest-first: ahead/behind, then the head side, then
+   reason. */
 @container toolbar-left (max-width: 380px) {
   .base-picker-aheadbehind {
     display: none;
+  }
+}
+@container toolbar-left (max-width: 330px) {
+  /* The head side and its arrow, beside the files sidebar (the cell is about 313px
+     at 560px) before "HEAD" would clip to "HE…": the base ref is what it picks. */
+  .base-picker-head,
+  .base-picker-head + svg {
+    display: none;
+  }
+  /* The floor fits what is left, the ref's 6ch and the chevron in the chip's
+     padding: 150px pushed jump-to-file under the toolbar pill here, and no floor
+     let the label spill out of the chip. */
+  #base-picker {
+    min-width: calc(6ch + 50px);
   }
 }
 @container toolbar-left (max-width: 312px) {
@@ -763,7 +790,7 @@ body[data-status-only="true"] #content {
   flex-direction: column;
   overflow: hidden;
   border-left: 1px solid var(--cmux-diff-border);
-  background: var(--cmux-diff-solid-bg);
+  background: var(--cmux-diff-files-bg);
   contain: strict;
   /* Its own compositor layer before any slide starts. */
   will-change: transform;
@@ -816,7 +843,7 @@ body[data-status-only="true"] #files-sidebar {
   bottom: 0;
   z-index: 1;
   width: var(--cmux-diff-files-width);
-  background: var(--cmux-diff-solid-bg);
+  background: var(--cmux-diff-files-bg);
   pointer-events: none;
   transform-origin: left center;
   transform: scaleX(0);
@@ -839,9 +866,9 @@ body[data-status-only="true"] #files-motion-curtain {
   height: 28px;
   margin: 4px 8px 1px;
   padding: 0 4px 0 10px;
-  border: 1px solid color-mix(in srgb, var(--cmux-diff-fg) 11%, transparent);
+  border: 1px solid var(--cmux-diff-rim);
   border-radius: 9px;
-  background: color-mix(in srgb, var(--cmux-diff-fg) 3.5%, var(--cmux-diff-solid-bg));
+  background: color-mix(in srgb, var(--cmux-diff-fg) 4%, var(--cmux-diff-files-bg));
   color: var(--cmux-diff-text-dim);
 }
 #files-filter:focus-within {
@@ -902,11 +929,12 @@ body[data-status-only="true"] #files-motion-curtain {
   /* Classic viewer rows (screenshot 5.20.26): 13 px regular text on 29 px
      rows, dim file names, bright folder names and selection, a 16 px icon
      lane and the library's guide line under the open folder. */
-  --trees-bg-override: var(--cmux-diff-solid-bg);
+  --trees-bg-override: var(--cmux-diff-files-bg);
   --trees-fg-override: var(--cmux-diff-text-dim);
   --trees-fg-muted-override: var(--cmux-diff-text-dim);
-  --trees-bg-muted-override: color-mix(in srgb, var(--cmux-diff-fg) 4%, var(--cmux-diff-solid-bg));
-  --trees-selected-bg-override: color-mix(in srgb, var(--cmux-diff-fg) 5.5%, var(--cmux-diff-solid-bg));
+  --trees-bg-muted-override: color-mix(in srgb, var(--cmux-diff-fg) 5%, var(--cmux-diff-files-bg));
+  /* The file in view (the selected row) takes the theme accent, as a sidebar selection does. */
+  --trees-selected-bg-override: var(--cmux-diff-files-selected-bg);
   --trees-selected-fg-override: var(--cmux-diff-fg);
   --trees-selected-focused-border-color-override: transparent;
   --trees-border-color-override: var(--cmux-diff-border);
@@ -1061,8 +1089,8 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
     visibility: visible;
     opacity: 1;
     pointer-events: auto;
-    border-left: 1px solid var(--cmux-diff-border);
-    background: var(--cmux-diff-solid-bg);
+    border-left: 1px solid var(--cmux-diff-rim);
+    background: var(--cmux-diff-files-bg);
     box-shadow: var(--elevation-2);
     isolation: isolate;
   }
@@ -1384,7 +1412,7 @@ body[data-loading="true"] #status::before {
   display: inline-flex;
   gap: 2px;
   opacity: 0;
-  transition: opacity 100ms ease;
+  transition: opacity var(--cmux-motion-quick) ease;
 }
 .comment-card:hover .comment-card-actions,
 .comment-card:focus-within .comment-card-actions {
@@ -1595,6 +1623,11 @@ svg[data-icon-fill] {
   gap: 6px;
   min-height: 50px;
   padding: 0 7px 0 8px;
+  /* Glass: the chrome lift over the window's backdrop, blurred where a menu or the narrow files
+     panel passes under it (--surface-blur is none under Reduce Transparency). */
+  background: var(--cmux-diff-chrome-lift);
+  -webkit-backdrop-filter: var(--surface-blur);
+  backdrop-filter: var(--surface-blur);
 }
 /* toolbar-left is an inline-size container (the base picker's drop-order
    queries), so it cannot size to its content: it takes the header's width. */
@@ -1610,8 +1643,9 @@ svg[data-icon-fill] {
   gap: 2px;
   height: 28px;
   padding: 2px 10px 2px 2px;
-  border-radius: 6px;
-  background: color-mix(in lab, var(--cmux-diff-fg) 8%, transparent);
+  border-radius: 7px;
+  background: color-mix(in lab, var(--cmux-diff-fg) 7%, transparent);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--cmux-diff-rim);
   font-variant-numeric: tabular-nums;
 }
 .source-pill-button {
@@ -1627,9 +1661,11 @@ svg[data-icon-fill] {
   font: inherit;
   cursor: pointer;
 }
-.source-pill-button:hover,
-.source-pill-button[aria-expanded="true"] {
+.source-pill-button:hover {
   background: color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
+}
+.source-pill-button[aria-expanded="true"] {
+  background: var(--cmux-diff-accent-tint);
 }
 .source-pill-button svg,
 .toolbar-round-button svg {
@@ -1653,13 +1689,16 @@ svg[data-icon-fill] {
   height: 28px;
   padding: 0 10px 0 12px;
   border: 0;
-  border-radius: 6px;
-  background: color-mix(in lab, var(--cmux-diff-fg) 8%, transparent);
+  border-radius: 7px;
+  background: color-mix(in lab, var(--cmux-diff-fg) 7%, transparent);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--cmux-diff-rim);
   font-weight: 400;
 }
-#toolbar .base-picker-button:hover:not(:disabled),
+#toolbar .base-picker-button:hover:not(:disabled) {
+  background: color-mix(in lab, var(--cmux-diff-fg) 12%, transparent);
+}
 #toolbar .base-picker-button[aria-expanded="true"] {
-  background: color-mix(in lab, var(--cmux-diff-fg) 13%, transparent);
+  background: var(--cmux-diff-accent-tint);
 }
 #toolbar .base-picker-ref {
   font-weight: 500;
@@ -1673,14 +1712,17 @@ svg[data-icon-fill] {
   height: 28px;
   padding: 0;
   border: 0;
-  border-radius: 6px;
-  background: color-mix(in lab, var(--cmux-diff-fg) 8%, transparent);
+  border-radius: 7px;
+  background: color-mix(in lab, var(--cmux-diff-fg) 7%, transparent);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--cmux-diff-rim);
   color: var(--cmux-diff-fg);
   cursor: pointer;
 }
-.toolbar-round-button:hover,
+.toolbar-round-button:hover {
+  background: color-mix(in lab, var(--cmux-diff-fg) 12%, transparent);
+}
 .toolbar-round-button[aria-expanded="true"] {
-  background: color-mix(in lab, var(--cmux-diff-fg) 13%, transparent);
+  background: var(--cmux-diff-accent-tint);
 }
 .source-pill-button:focus-visible,
 .toolbar-round-button:focus-visible,
@@ -1940,8 +1982,8 @@ svg[data-icon-fill] {
   pointer-events: none;
   opacity: 0;
   transition:
-    opacity 90ms ease,
-    translate 90ms ease;
+    opacity var(--cmux-motion-quick) ease,
+    translate var(--cmux-motion-quick) ease;
 }
 .diff-pill-button:last-child::after {
   left: auto;
@@ -2109,11 +2151,43 @@ svg[data-icon-fill] {
   text-overflow: ellipsis;
   color: var(--cmux-diff-text-muted);
 }
+/* The delineated diff's kind pill: which group this file is in, quiet enough to ignore. */
+.file-header-kind {
+  flex: 0 0 auto;
+  margin-right: 8px;
+  padding: 1px 6px;
+  border: 1px solid var(--cmux-diff-border);
+  border-radius: 4px;
+  color: var(--cmux-diff-text-muted);
+  font-size: calc(var(--cmux-diff-ui-font-size) * 0.85);
+  white-space: nowrap;
+}
+/* "+N -N" then a five-block bar of the added share (FileHeader.tsx DiffStatBar), in tabular figures
+   so the counts of stacked headers line up. */
 .file-header-stats {
   flex: 0 0 auto;
   display: inline-flex;
+  align-items: center;
   gap: 5px;
+  font-size: var(--text-detail);
   font-variant-numeric: tabular-nums;
+}
+.file-header-bar {
+  display: inline-flex;
+  gap: 1.5px;
+  margin-left: 2px;
+}
+.file-header-bar > span {
+  width: 6px;
+  height: 6px;
+  border-radius: 1.5px;
+  background: var(--cmux-diff-muted-bg);
+}
+.file-header-bar > span[data-kind="added"] {
+  background: var(--cmux-diff-count-added);
+}
+.file-header-bar > span[data-kind="deleted"] {
+  background: var(--cmux-diff-count-deleted);
 }
 .file-header-additions {
   color: var(--cmux-diff-count-added);

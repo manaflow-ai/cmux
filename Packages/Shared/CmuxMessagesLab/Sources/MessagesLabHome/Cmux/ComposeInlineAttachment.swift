@@ -42,10 +42,13 @@ final class ComposeInlineAttachment: NSTextAttachment {
     static let baselineOffset: CGFloat = -4
     /// The space between a picture and the text line under it (Messages, Austin's capture 2026-10-20).
     static let gapBelow: CGFloat = 6
-    /// Messages' picture in the message box: about 150 x 79 pt for a 1.9 : 1 screenshot (Austin's
-    /// capture 2026-10-20), so aspect-fit in 240 x 80 pt.
-    static let pictureMaxWidth: CGFloat = 240
-    static let pictureMaxHeight: CGFloat = 80
+    /// Messages' picture in the message box: 176 pt wide for a 1412 x 1106 px screenshot at 2x, so
+    /// 176 x 138 pt (Lawrence's capture 2026-10-20, cmux-prompts/refs/composer-images/1.png: 352 px
+    /// of the 2x capture), so aspect-fit in 176 x 176 pt; a smaller picture keeps its size.
+    static let pictureMaxWidth: CGFloat = 176
+    static let pictureMaxHeight: CGFloat = 176
+    /// The picture's corner radius in the box (the same capture: about 24 px at 2x).
+    static let corner: CGFloat = 12
 
     /// Images: aspect-fit in `pictureMaxWidth` x `pictureMaxHeight`; files: the 200 x 52 pt pill.
     static func size(of a: Attachment, scale: CGFloat) -> CGSize {
@@ -126,7 +129,7 @@ final class ComposeInlineAttachment: NSTextAttachment {
     /// fill until it decodes), or the file's pill with its icon, name and kind.
     func drawnImage(_ size: CGSize) -> NSImage {
         let fill = Fixture.isLight ? Fixture.chipFill : NSColor(white: 1, alpha: 0.08)
-        let corner = ComposeAttachmentStrip.corner
+        let corner = Self.corner
         let labels = isImage ? nil : FileLabels(model, width: pictureSize.width - 60)
         // The thumbnail is read when the image draws, not when it is made: the field may keep this
         // image from before the thumbnail decoded.

@@ -52,27 +52,32 @@ pub(super) struct Guide {
     pub(super) text: &'static str,
 }
 
-pub(super) const GUIDES: &[Guide] = &[Guide {
-    topic: "Show your work to the user without moving their focus",
-    keywords: &[
-        "show",
-        "user",
-        "person",
-        "visible",
-        "see",
-        "focus",
-        "steal",
-        "status",
-        "progress",
-        "report",
-        "chat",
-        "conversation",
-        "notify",
-        "attention",
-    ],
-    text: "Open an agent session's chat: the app action agent.openSessionWorkspace (MCP \
-        app_agent_open {session}, CLI `cmux agent open SESSION`) opens that \
-        session's chat in a new workspace; the workspace the user looks at stays. Open a link: \
+pub(super) const GUIDES: &[Guide] = &[
+    Guide {
+        topic: "Show your work to the user without moving their focus",
+        keywords: &[
+            "show",
+            "user",
+            "person",
+            "visible",
+            "see",
+            "focus",
+            "steal",
+            "status",
+            "progress",
+            "report",
+            "chat",
+            "conversation",
+            "notify",
+            "attention",
+        ],
+        text: "Open an agent session's chat: the app action agent.openSessionWorkspace (MCP \
+        app_agent_open {session, group}, CLI `cmux agent open SESSION [--group G]`) opens that \
+        session's chat in a new workspace, in sidebar group G (made when missing) when given; \
+        the workspace the user looks at stays. agent.openSessionTab (MCP app_agent_open_tab \
+        {session, target}, CLI `cmux agent open-tab SESSION [--target T]`) opens it as a tab of the \
+        target pane (a pane or tab id; default the focused pane) and selects it only with focus: \
+        true; a session a tab already shows gets no second tab. Open a link: \
         workspace_open_url {url, workspace} loads it in a browser tab on the workspace's right \
         side and keeps the keyboard focus, but it navigates a browser tab already there, so \
         when the user's page must stay use browser_profile_open {url, profile: \"default\", pane, \
@@ -81,11 +86,116 @@ pub(super) const GUIDES: &[Guide] = &[Guide {
         status on a workspace's sidebar row: workspace_status_set {workspace, key, text, state, \
         progress, ttl_ms} (CLI `cmux workspace WS status set KEY TEXT`), workspace_progress_set \
         and workspace_log_append; clear them when the work is done. Ask for attention: \
-        notification_create {title, body} (desktop: false shows no banner). The focus tools \
+        notification_create {title, body} (desktop: false shows no banner). When the user must \
+        act in a tab (confirm, log in, approve, pick), mark it: tab_update {tab, attention: \
+        \"one-line reason\"} (CLI `cmux attention request --tab TAB --reason TEXT`); it never \
+        moves focus, and tab_update {tab, attention: null} (`cmux attention clear --tab TAB`) \
+        drops it. Tell the user the workspace and tab by their titles, never a ws_ or tab_ id. \
+        The focus tools \
         (tab_focus, pane_focus, screen_focus, workspace_focus, agents_tab_select) and focus: true \
         move the user's focus: use them only when the user asked. The selector `current` is what \
         the user looks at, not your own workspace.",
-}];
+    },
+    Guide {
+        topic: "Set up cmux for the person: trust, harnesses, machines, accounts",
+        keywords: &[
+            "setup",
+            "configure",
+            "install",
+            "onboard",
+            "onboarding",
+            "trust",
+            "login",
+            "signin",
+            "harness",
+            "outdated",
+            "peer",
+            "enroll",
+            "machine",
+            "ssh",
+            "mcp",
+            "computer",
+            "grant",
+            "cloud",
+            "notifications",
+            "bookmarks",
+            "cookies",
+        ],
+        text: "`cmux setup list` names every setup task (folder trust, harness install and sign-in, \
+        ssh machines, peer updates, accounts, Cloud machines, Tailscale, pairing tickets, MCP \
+        wiring, Computer Use, browser import, key bindings, notifications, team invites) with \
+        the read-only \
+        commands that check it, the commands that do it, and what only the person can do. \
+        `cmux setup status` checks the tasks setup runs. `cmux setup trust [FOLDER]` records \
+        trust for a folder; it changes nothing when the folder is already trusted, --dry-run \
+        prints the plan, and every result names its undo command. `cmux setup machine \
+        SSH_TARGET [--name NAME]` adds an ssh machine as an acpmux peer (`cmux acp host \
+        setup`), updates a peer on an older build (`cmux acp host update`), and is ok when the \
+        peer is connected and current; it uses key-only ssh, and a host it cannot reach comes \
+        back as needs_user with the ssh command to try. `cmux setup harness [ID ...]` reports \
+        whether each harness (default: every configured or found one) is installed, signed in \
+        and outdated; a missing CLI or sign-in is needs_user with the install docs or `cmux \
+        harness login ID`. `cmux setup mcp [claude|codex ...]` gives Claude Code and Codex \
+        started outside cmux the cmux MCP server through their own `mcp add`; until the \
+        person turns on `mcp.enabled` (\"mcp\": {\"enabled\": true}) in the settings file, \
+        it writes nothing and names that switch. `cmux setup computer-use` turns Computer Use \
+        on once the person allows it on the sheet cmux shows, and names each missing macOS \
+        grant with the command that opens its System Settings pane. `cmux setup \
+        cloud-machine` is ok when cmux shows a Cloud machine; otherwise, once the person is \
+        signed in, it creates one after the person allows it on the card cmux shows (it costs \
+        money every hour it runs). It keeps the request and reads cmux's list before anything \
+        else, so a rerun adopts the machine that appeared, waits for one on its way, and never \
+        creates a second; kind wait means run it again later, kind declined means ask first, \
+        kind many_machines means setup claims none, inferred: true means check the machine \
+        with the person before the undo, and its undo is `cmux cloud kill-machine --target \
+        machine:ID --confirm && cmux setup cloud-machine --forget` (--forget drops setup's \
+        record so it may ask again). `cmux setup notifications` lets cmux show macOS \
+        notifications: it shows the macOS prompt once, and when they are denied or their alert \
+        style is None names the command that opens cmux's page in System Settings > \
+        Notifications. `cmux setup browser-import --browser BROWSER[:PROFILE]` \
+        imports that browser's bookmarks (ok when any profile of it is in, or the named one; \
+        the undo removes the folders the run added); with \
+        --cookies it imports its sign-ins once the person allows it on the panel cmux shows, \
+        and that has no undo. History and passwords come in only from Import from Browser... \
+        in cmux. `cmux setup tailnet [--owner LOGIN]` serves this machine to the person's \
+        other machines over Tailscale (what `cmux host enable` does; undo `cmux host disable \
+        --json`); until Tailscale runs it names the person's one step (kind install, start, \
+        sign_in, approve or wait), and a tagged node with no owner is kind owner. \
+        `cmux setup status` lists every peer with connected and outdated, every \
+        harness, the MCP wiring, Computer Use, the Cloud machine, notifications, the \
+        imported browsers and the tailnet. Every `cmux setup` command prints one JSON object: state is ok, \
+        changed, planned, needs_user, failed or not_applicable.",
+    },
+    Guide {
+        topic: "Set up cmux with Chief: copyable setup prompts",
+        keywords: &[
+            "setup",
+            "prompt",
+            "prompts",
+            "chief",
+            "copy",
+            "paste",
+            "starter",
+            "remote",
+            "tailnet",
+            "tailscale",
+            "pair",
+            "pairing",
+            "ticket",
+        ],
+        text: "Every task `cmux setup list` names has a `prompt`: one paragraph a person pastes \
+        into Chief, or any agent chat in cmux, that names the exact command to run, what to hand \
+        the person and what to reply; its `status_prompt` sets up this Mac (`cmux setup status` \
+        and the fix of each check). docs/chief-setup-prompts.md has them as copyable blocks \
+        (`cmux setup list --prompts-md` writes it). A pasted prompt is the person's request for \
+        that task: run its command. Words left in capitals (HOST, FOLDER, BROWSER, EMAIL) are \
+        the person's to fill in, so ask for them. Remote machines: `cmux setup machine HOST` adds \
+        a Mac on the tailnet or any ssh host as an agent peer, and `cmux acp host doctor NAME \
+        [--fix]` checks or repairs one; `cmux host ticket new` mints a single-use line that \
+        installs cmux on another machine and joins it (`cmux host join`) without ssh; `cmux \
+        setup tailnet` serves this machine over Tailscale.",
+    },
+];
 
 /// The guides for `query` (see [`Guide`]).
 pub(super) fn guides(query: &str) -> Vec<Guide> {
@@ -325,6 +435,26 @@ mod tests {
             assert!(operations.contains_key(op), "{op}");
             assert!(GUIDES[0].text.contains(&op.replace('.', "_")), "{op}");
         }
+    }
+
+    /// `cmux docs search setup` and an agent asking in its own words for
+    /// setup prompts or a remote machine find the Chief prompts guide, and it
+    /// sends them to `cmux setup list`, where the prompts live.
+    #[test]
+    fn chief_prompt_guide_is_found_by_setup_words() {
+        let topic = "Set up cmux with Chief: copyable setup prompts";
+        for query in
+            ["setup", "chief setup prompts", "set up a remote machine", "pair a tailnet mac"]
+        {
+            assert!(guides(query).iter().any(|guide| guide.topic == topic), "{query}");
+        }
+        let guide = GUIDES.iter().find(|guide| guide.topic == topic).unwrap();
+        for words in
+            ["`cmux setup list`", "`prompt`", "docs/chief-setup-prompts.md", "--prompts-md"]
+        {
+            assert!(guide.text.contains(words), "{words}");
+        }
+        assert_eq!(guides("status").len(), 1);
     }
 
     #[test]

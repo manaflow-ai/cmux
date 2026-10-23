@@ -1,6 +1,923 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "agentPane.error.environment": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر تغيير البيئات المحفوظة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sačuvana okruženja nije moguće promijeniti."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De gemte miljøer kunne ikke ændres."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die gespeicherten Umgebungen konnten nicht geändert werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The saved environments could not be changed."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudieron cambiar los entornos guardados."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de modifier les environnements enregistrés."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile modificare gli ambienti salvati."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存した環境を変更できませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចផ្លាស់ប្ដូរបរិស្ថានដែលបានរក្សាទុកបានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장된 환경을 변경할 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke endre de lagrede miljøene."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie można zmienić zapisanych środowisk."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível alterar os ambientes salvos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось изменить сохранённые окружения."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถเปลี่ยนสภาพแวดล้อมที่บันทึกไว้ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kayıtlı ortamlar değiştirilemedi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося змінити збережені середовища."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không thể thay đổi các môi trường đã lưu."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法更改已保存的环境。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法變更已儲存的環境。"
+          }
+        }
+      }
+    },
+    "agentPane.menu.copyFile": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "نسخ"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopiraj"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopiér"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copiar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copier"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copia"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コピー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចម្លង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "복사"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopier"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopiuj"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copiar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Скопировать"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คัดลอก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopyala"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Скопіювати"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sao chép"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "拷贝"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "拷貝"
+          }
+        }
+      }
+    },
+    "agentPane.menu.copyImage": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "نسخ الصورة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopiraj sliku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopiér billede"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bild kopieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Image"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copiar imagen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copier l’image"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copia immagine"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "イメージをコピー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចម្លងរូបភាព"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이미지 복사"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopier bilde"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopiuj obraz"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copiar Imagem"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Скопировать изображение"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คัดลอกภาพ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Resmi Kopyala"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Скопіювати зображення"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sao chép hình ảnh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "拷贝图像"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "拷貝影像"
+          }
+        }
+      }
+    },
+    "agentPane.menu.quickLook": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "نظرة سريعة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Brzi pregled"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lynoversigt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Übersicht"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quick Look"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vista rápida"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Coup d’œil"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vista rapida"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クイックルック"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មើលរហ័ស"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "훑어보기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hurtigvisning"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Szybki przegląd"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Visualização Rápida"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Быстрый просмотр"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ดูอย่างเร็ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Göz At"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Швидкий перегляд"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Xem nhanh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "快速查看"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "快速查看"
+          }
+        }
+      }
+    },
+    "agentPane.menu.saveAs": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "حفظ باسم…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sačuvaj kao…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arkivér som…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sichern unter …"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save As…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Guardar como…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enregistrer sous…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Salva come…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別名で保存…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រក្សាទុកជា…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "다른 이름으로 저장…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arkiver som …"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zapisz jako…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Salvar Como…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сохранить как…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "บันทึกเป็น…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Farklı Kaydet…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Зберегти як…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lưu thành…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "存储为…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "儲存為…"
+          }
+        }
+      }
+    },
+    "agentPane.menu.saveImageAs": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "حفظ الصورة باسم…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sačuvaj sliku kao…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arkivér billede som…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bild sichern unter …"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save Image As…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Guardar imagen como…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enregistrer l’image sous…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Salva immagine come…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "イメージを別名で保存…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រក្សាទុករូបភាពជា…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이미지를 다른 이름으로 저장…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arkiver bilde som …"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zapisz obraz jako…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Salvar Imagem Como…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сохранить изображение как…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "บันทึกภาพเป็น…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Resmi Farklı Kaydet…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Зберегти зображення як…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lưu hình ảnh thành…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "将图像存储为…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "將影像儲存為…"
+          }
+        }
+      }
+    },
+    "agentPane.menu.showInFinder": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إظهار في Finder"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikaži u Finderu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis i Finder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Im Finder zeigen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show in Finder"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar en el Finder"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afficher dans le Finder"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra nel Finder"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finderに表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញក្នុង Finder"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Finder에서 보기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis i Finder"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokaż w Finderze"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar no Finder"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показать в Finder"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดงใน Finder"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Finder’da Göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показати у Finder"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiển thị trong Finder"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在访达中显示"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在 Finder 中顯示"
+          }
+        }
+      }
+    },
     "agentPane.processTerminal.title": {
       "comment": "Title of the terminal tab that shows everything a background task printed, until the task's command replaces it",
       "extractionState": "manual",
@@ -5259,131 +6176,131 @@
     "extractionState": "manual",
     "localizations": {
       "en": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Continue in…"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continue In…"
+          }
+        },
       "ja": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "…で続行"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "…で続行"
+          }
+        },
       "ar": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "المتابعة في…"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "المتابعة في…"
+          }
+        },
       "bs": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Nastavi: Continue in…"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nastavi u…"
+          }
+        },
       "da": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Fortsæt: Continue in…"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fortsæt i…"
+          }
+        },
       "de": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Weiter in…"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "Weiter in…"
+          }
+        },
       "es": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Continuar en…"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continuar en…"
+          }
+        },
       "fr": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Continuer dans…"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continuer dans…"
+          }
+        },
       "it": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Continua: Continue in…"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continua in…"
+          }
+        },
       "km": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "បន្ត៖ Continue in…"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "បន្តក្នុង…"
+          }
+        },
       "ko": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "다음에서 계속…"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "다음에서 계속…"
+          }
+        },
       "nb": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Fortsett: Continue in…"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fortsett i…"
+          }
+        },
       "pl": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Kontynuuj: Continue in…"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontynuuj w…"
+          }
+        },
       "pt-BR": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Continuar: Continue in…"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continuar em…"
+          }
+        },
       "ru": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Продолжить: Continue in…"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "Продолжить в…"
+          }
+        },
       "th": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "ดำเนินการต่อ: Continue in…"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "ดำเนินการต่อใน…"
+          }
+        },
       "tr": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Devam: Continue in…"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "Şurada devam et…"
+          }
+        },
       "uk": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Продовжити: Continue in…"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "Продовжити в…"
+          }
+        },
       "vi": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Tiếp tục: Continue in…"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tiếp tục trong…"
+          }
+        },
       "zh-Hans": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "继续使用…"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "继续使用…"
+          }
+        },
       "zh-Hant": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "繼續使用…"
+          "stringUnit": {
+            "state": "translated",
+            "value": "繼續使用…"
+          }
         }
-      }
     }
   },
     "agentPane.handoff.review": {
@@ -26740,264 +27657,264 @@
         }
       }
     },
-    "agentPane.error.daemonHeldByOtherBuild": {
+    "agentPane.error.daemonHeldByOtherBuildFix": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "acpmux is running, but %1$@ owns it (%2$@) and this build may not use it. Quit %1$@, or use that build."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "acpmux は実行中ですが、%1$@ が所有しているため (%2$@)、このビルドでは使えません。%1$@ を終了するか、そのビルドを使ってください。"
-          }
-        },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux قيد التشغيل، لكن %1$@ يملكه (%2$@) ولا يمكن لهذا الإصدار استخدامه. أغلق %1$@، أو استخدم ذلك الإصدار."
+            "value": "ينتمي acpmux على %2$@ إلى %1$@، ولا يمكن لهذا الإصدار استخدامه. أغلق %1$@. إذا ظل acpmux يعمل، فشغّل هذا في الطرفية: %3$@ (تستمر الوكلاء المستضافة في العمل لـ acpmux التالي)، ثم افتح دردشة وكيل جديدة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux radi, ali ga posjeduje %1$@ (%2$@) i ovaj build ga ne smije koristiti. Zatvorite %1$@ ili koristite taj build."
+            "value": "acpmux na %2$@ pripada %1$@ i ova verzija ga ne smije koristiti. Zatvori %1$@. Ako acpmux i dalje radi, pokreni ovo u terminalu: %3$@ (hostovani agenti nastavljaju raditi za sljedeći acpmux), pa otvori novi agent chat."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux kører, men %1$@ ejer den (%2$@), og denne build må ikke bruge den. Afslut %1$@, eller brug den build."
+            "value": "acpmux på %2$@ tilhører %1$@, og denne build må ikke bruge den. Afslut %1$@. Hvis acpmux stadig kører, så kør dette i en terminal: %3$@ (hostede agenter bliver ved med at køre til den næste acpmux), og åbn derefter en ny agentchat."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux läuft, gehört aber %1$@ (%2$@) und dieser Build darf es nicht verwenden. Beende %1$@ oder verwende diesen Build."
+            "value": "acpmux unter %2$@ gehört zu %1$@, und dieser Build darf es nicht nutzen. Beende %1$@. Läuft acpmux danach noch, führe dies im Terminal aus: %3$@ (gehostete Agenten laufen für das nächste acpmux weiter), und öffne dann einen neuen Agent-Chat."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux at %2$@ belongs to %1$@, and this build may not use it. Quit %1$@. If acpmux still runs, run this in a terminal: %3$@ (hosted agents keep running for the next acpmux), then open a new agent chat."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux se está ejecutando, pero pertenece a %1$@ (%2$@) y esta compilación no puede usarlo. Cierra %1$@ o usa esa compilación."
+            "value": "acpmux en %2$@ pertenece a %1$@ y esta compilación no puede usarlo. Cierra %1$@. Si acpmux sigue en marcha, ejecuta esto en una terminal: %3$@ (los agentes alojados siguen funcionando para el próximo acpmux) y luego abre un nuevo chat de agente."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux est en cours d’exécution, mais %1$@ en est propriétaire (%2$@) et cette build ne peut pas l’utiliser. Quittez %1$@ ou utilisez cette build."
+            "value": "acpmux sur %2$@ appartient à %1$@, et ce build ne peut pas l’utiliser. Quittez %1$@. Si acpmux tourne encore, lancez ceci dans un terminal : %3$@ (les agents hébergés continuent de tourner pour le prochain acpmux), puis ouvrez une nouvelle discussion d’agent."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux è in esecuzione, ma appartiene a %1$@ (%2$@) e questa build non può usarlo. Chiudi %1$@ o usa quella build."
+            "value": "acpmux su %2$@ appartiene a %1$@ e questa build non può usarlo. Esci da %1$@. Se acpmux è ancora attivo, esegui questo in un terminale: %3$@ (gli agenti ospitati continuano a funzionare per il prossimo acpmux), poi apri una nuova chat con un agente."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%2$@ の acpmux は %1$@ のもので、このビルドでは使えません。%1$@ を終了してください。acpmux がまだ動いている場合は、ターミナルで %3$@ を実行してから (ホストされたエージェントは次の acpmux のために動き続けます)、新しいエージェントチャットを開いてください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux កំពុងដំណើរការ ប៉ុន្តែ %1$@ ជាម្ចាស់ (%2$@) ហើយ build នេះមិនអាចប្រើវាបានទេ។ បិទ %1$@ ឬប្រើ build នោះ។"
+            "value": "acpmux នៅ %2$@ ជារបស់ %1$@ ហើយ build នេះមិនអាចប្រើវាបានទេ។ បិទ %1$@។ ប្រសិនបើ acpmux នៅតែដំណើរការ សូមរត់ពាក្យបញ្ជានេះក្នុង terminal៖ %3$@ (agent ដែលបានបង្ហោះនៅតែដំណើរការសម្រាប់ acpmux បន្ទាប់) រួចបើកការជជែក agent ថ្មី។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux가 실행 중이지만 %1$@이(가) 소유하고 있어(%2$@) 이 빌드에서는 사용할 수 없습니다. %1$@을(를) 종료하거나 해당 빌드를 사용하세요."
+            "value": "%2$@의 acpmux는 %1$@의 것이므로 이 빌드에서 사용할 수 없습니다. %1$@을(를) 종료하세요. acpmux가 계속 실행 중이면 터미널에서 %3$@을(를) 실행한 다음(호스팅된 에이전트는 다음 acpmux를 위해 계속 실행됩니다) 새 에이전트 채팅을 여세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux kjører, men %1$@ eier den (%2$@), og denne builden kan ikke bruke den. Avslutt %1$@, eller bruk den builden."
+            "value": "acpmux på %2$@ tilhører %1$@, og denne builden kan ikke bruke den. Avslutt %1$@. Hvis acpmux fortsatt kjører, kjør dette i en terminal: %3$@ (vertsbaserte agenter fortsetter å kjøre for neste acpmux), og åpne deretter en ny agentchat."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux działa, ale należy do %1$@ (%2$@) i ta kompilacja nie może go używać. Zamknij %1$@ albo użyj tamtej kompilacji."
+            "value": "acpmux pod %2$@ należy do %1$@ i ta kompilacja nie może go używać. Zamknij %1$@. Jeśli acpmux nadal działa, uruchom w terminalu: %3$@ (hostowani agenci działają dalej dla następnego acpmux), a potem otwórz nowy czat z agentem."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O acpmux está em execução, mas pertence a %1$@ (%2$@) e esta build não pode usá-lo. Encerre %1$@ ou use essa build."
+            "value": "O acpmux em %2$@ pertence a %1$@, e esta build não pode usá-lo. Feche %1$@. Se o acpmux continuar rodando, execute isto em um terminal: %3$@ (os agentes hospedados continuam rodando para o próximo acpmux) e depois abra um novo chat de agente."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux запущен, но принадлежит %1$@ (%2$@), и эта сборка не может его использовать. Закройте %1$@ или используйте ту сборку."
+            "value": "acpmux на %2$@ принадлежит %1$@, и эта сборка не может его использовать. Закройте %1$@. Если acpmux всё ещё работает, выполните в терминале: %3$@ (размещённые агенты продолжают работать для следующего acpmux), затем откройте новый чат с агентом."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux กำลังทำงาน แต่ %1$@ เป็นเจ้าของ (%2$@) และบิลด์นี้ใช้ไม่ได้ ปิด %1$@ หรือใช้บิลด์นั้นแทน"
+            "value": "acpmux ที่ %2$@ เป็นของ %1$@ และบิลด์นี้ใช้ไม่ได้ ปิด %1$@ หาก acpmux ยังทำงานอยู่ ให้รันคำสั่งนี้ในเทอร์มินัล: %3$@ (เอเจนต์ที่โฮสต์ไว้ยังทำงานต่อสำหรับ acpmux ตัวถัดไป) แล้วเปิดแชตเอเจนต์ใหม่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux çalışıyor, ancak %1$@ ona sahip (%2$@) ve bu derleme onu kullanamaz. %1$@ uygulamasından çıkın veya o derlemeyi kullanın."
+            "value": "%2$@ konumundaki acpmux %1$@ uygulamasına ait ve bu derleme onu kullanamaz. %1$@ uygulamasından çıkın. acpmux hâlâ çalışıyorsa terminalde şunu çalıştırın: %3$@ (barındırılan ajanlar sonraki acpmux için çalışmaya devam eder), ardından yeni bir ajan sohbeti açın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux запущено, але він належить %1$@ (%2$@), і ця збірка не може його використовувати. Закрийте %1$@ або скористайтеся тією збіркою."
+            "value": "acpmux на %2$@ належить %1$@, і ця збірка не може його використовувати. Закрийте %1$@. Якщо acpmux досі працює, виконайте в терміналі: %3$@ (розміщені агенти працюють далі для наступного acpmux), а потім відкрийте новий чат з агентом."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux đang chạy, nhưng %1$@ sở hữu nó (%2$@) và bản build này không thể dùng. Hãy thoát %1$@ hoặc dùng bản build đó."
+            "value": "acpmux tại %2$@ thuộc về %1$@, và bản build này không được dùng nó. Hãy thoát %1$@. Nếu acpmux vẫn chạy, hãy chạy lệnh này trong terminal: %3$@ (các agent được lưu trữ vẫn chạy cho acpmux kế tiếp), rồi mở một cuộc trò chuyện agent mới."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux 正在运行，但归 %1$@ 所有（%2$@），此版本无法使用。请退出 %1$@，或使用该版本。"
+            "value": "%2$@ 上的 acpmux 属于 %1$@，此版本不能使用它。请退出 %1$@。如果 acpmux 仍在运行，请在终端中运行：%3$@（托管的智能体会继续运行，等待下一个 acpmux），然后打开新的智能体聊天。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux 正在執行，但歸 %1$@ 所有（%2$@），此版本無法使用。請結束 %1$@，或使用該版本。"
+            "value": "%2$@ 上的 acpmux 屬於 %1$@，此版本不能使用它。請結束 %1$@。如果 acpmux 仍在執行，請在終端機中執行：%3$@（託管的代理程式會繼續執行，等待下一個 acpmux），然後開啟新的代理程式聊天。"
           }
         }
       }
     },
-    "agentPane.error.daemonRefused": {
+    "agentPane.error.daemonRefusedFix": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "acpmux is running at %1$@, but this build may not use it: %2$@."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "acpmux は %1$@ で実行中ですが、このビルドでは使えません: %2$@。"
-          }
-        },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux قيد التشغيل على %1$@، لكن لا يمكن لهذا الإصدار استخدامه: %2$@."
+            "value": "رفض acpmux على %1$@ هذا الإصدار: %2$@. شغّل هذا في الطرفية: %3$@ (تستمر الوكلاء المستضافة في العمل لـ acpmux التالي)، ثم افتح دردشة وكيل جديدة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux radi na %1$@, ali ga ovaj build ne smije koristiti: %2$@."
+            "value": "acpmux na %1$@ je odbio ovu verziju: %2$@. Pokreni ovo u terminalu: %3$@ (hostovani agenti nastavljaju raditi za sljedeći acpmux), pa otvori novi agent chat."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux kører på %1$@, men denne build må ikke bruge den: %2$@."
+            "value": "acpmux på %1$@ afviste denne build: %2$@. Kør dette i en terminal: %3$@ (hostede agenter bliver ved med at køre til den næste acpmux), og åbn derefter en ny agentchat."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux läuft unter %1$@, aber dieser Build darf es nicht verwenden: %2$@."
+            "value": "acpmux unter %1$@ hat diesen Build abgelehnt: %2$@. Führe dies im Terminal aus: %3$@ (gehostete Agenten laufen für das nächste acpmux weiter), und öffne dann einen neuen Agent-Chat."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux at %1$@ refused this build: %2$@. Run this in a terminal: %3$@ (hosted agents keep running for the next acpmux), then open a new agent chat."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux se está ejecutando en %1$@, pero esta compilación no puede usarlo: %2$@."
+            "value": "acpmux en %1$@ rechazó esta compilación: %2$@. Ejecuta esto en una terminal: %3$@ (los agentes alojados siguen funcionando para el próximo acpmux) y luego abre un nuevo chat de agente."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux est en cours d’exécution sur %1$@, mais cette build ne peut pas l’utiliser : %2$@."
+            "value": "acpmux sur %1$@ a refusé ce build : %2$@. Lancez ceci dans un terminal : %3$@ (les agents hébergés continuent de tourner pour le prochain acpmux), puis ouvrez une nouvelle discussion d’agent."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux è in esecuzione su %1$@, ma questa build non può usarlo: %2$@."
+            "value": "acpmux su %1$@ ha rifiutato questa build: %2$@. Esegui questo in un terminale: %3$@ (gli agenti ospitati continuano a funzionare per il prossimo acpmux), poi apri una nuova chat con un agente."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ の acpmux はこのビルドを拒否しました: %2$@。ターミナルで %3$@ を実行してから (ホストされたエージェントは次の acpmux のために動き続けます)、新しいエージェントチャットを開いてください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux កំពុងដំណើរការនៅ %1$@ ប៉ុន្តែ build នេះមិនអាចប្រើវាបានទេ៖ %2$@។"
+            "value": "acpmux នៅ %1$@ បានបដិសេធ build នេះ៖ %2$@។ រត់ពាក្យបញ្ជានេះក្នុង terminal៖ %3$@ (agent ដែលបានបង្ហោះនៅតែដំណើរការសម្រាប់ acpmux បន្ទាប់) រួចបើកការជជែក agent ថ្មី។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux가 %1$@에서 실행 중이지만 이 빌드에서는 사용할 수 없습니다: %2$@."
+            "value": "%1$@의 acpmux가 이 빌드를 거부했습니다: %2$@. 터미널에서 %3$@을(를) 실행한 다음(호스팅된 에이전트는 다음 acpmux를 위해 계속 실행됩니다) 새 에이전트 채팅을 여세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux kjører på %1$@, men denne builden kan ikke bruke den: %2$@."
+            "value": "acpmux på %1$@ avviste denne builden: %2$@. Kjør dette i en terminal: %3$@ (vertsbaserte agenter fortsetter å kjøre for neste acpmux), og åpne deretter en ny agentchat."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux działa pod adresem %1$@, ale ta kompilacja nie może go używać: %2$@."
+            "value": "acpmux pod %1$@ odrzucił tę kompilację: %2$@. Uruchom w terminalu: %3$@ (hostowani agenci działają dalej dla następnego acpmux), a potem otwórz nowy czat z agentem."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O acpmux está em execução em %1$@, mas esta build não pode usá-lo: %2$@."
+            "value": "O acpmux em %1$@ recusou esta build: %2$@. Execute isto em um terminal: %3$@ (os agentes hospedados continuam rodando para o próximo acpmux) e depois abra um novo chat de agente."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux запущен по адресу %1$@, но эта сборка не может его использовать: %2$@."
+            "value": "acpmux на %1$@ отклонил эту сборку: %2$@. Выполните в терминале: %3$@ (размещённые агенты продолжают работать для следующего acpmux), затем откройте новый чат с агентом."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux กำลังทำงานที่ %1$@ แต่บิลด์นี้ใช้ไม่ได้: %2$@"
+            "value": "acpmux ที่ %1$@ ปฏิเสธบิลด์นี้: %2$@ รันคำสั่งนี้ในเทอร์มินัล: %3$@ (เอเจนต์ที่โฮสต์ไว้ยังทำงานต่อสำหรับ acpmux ตัวถัดไป) แล้วเปิดแชตเอเจนต์ใหม่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux %1$@ konumunda çalışıyor, ancak bu derleme onu kullanamaz: %2$@."
+            "value": "%1$@ konumundaki acpmux bu derlemeyi reddetti: %2$@. Terminalde şunu çalıştırın: %3$@ (barındırılan ajanlar sonraki acpmux için çalışmaya devam eder), ardından yeni bir ajan sohbeti açın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux запущено за адресою %1$@, але ця збірка не може його використовувати: %2$@."
+            "value": "acpmux на %1$@ відхилив цю збірку: %2$@. Виконайте в терміналі: %3$@ (розміщені агенти працюють далі для наступного acpmux), а потім відкрийте новий чат з агентом."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux đang chạy tại %1$@, nhưng bản build này không thể dùng: %2$@."
+            "value": "acpmux tại %1$@ đã từ chối bản build này: %2$@. Hãy chạy lệnh này trong terminal: %3$@ (các agent được lưu trữ vẫn chạy cho acpmux kế tiếp), rồi mở một cuộc trò chuyện agent mới."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux 正在 %1$@ 运行，但此版本无法使用：%2$@。"
+            "value": "%1$@ 上的 acpmux 拒绝了此版本：%2$@。请在终端中运行：%3$@（托管的智能体会继续运行，等待下一个 acpmux），然后打开新的智能体聊天。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux 正在 %1$@ 執行，但此版本無法使用：%2$@。"
+            "value": "%1$@ 上的 acpmux 拒絕了此版本：%2$@。請在終端機中執行：%3$@（託管的代理程式會繼續執行，等待下一個 acpmux），然後開啟新的代理程式聊天。"
           }
         }
       }

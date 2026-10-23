@@ -87,9 +87,22 @@ impl Mux {
             None => Vec::new(),
         };
         let mut handled_terminals = HashSet::new();
+        // Live hosts this pass hands to their adoption threads.
+        let mut deferred: Vec<(
+            crate::terminal_host_runtime::TerminalHostRecord,
+            std::path::PathBuf,
+        )> = Vec::new();
         // At most one warm snapshot host becomes the first terminal of a
         // fresh registry (SurfaceOptions::adopt_template_terminal).
         let mut template_claimed = false;
+        let mut claimed_template = None;
+        // Hosts this pass marks adopting together, with their rows.
+        let mut adopting = Vec::new();
+        let mut candidates = Vec::new();
+        // Records whose cleanup failed retry on a thread scheduled after the
+        // live hosts': a second record of a live terminal must not claim its
+        // adoption thread first.
+        let mut cleanup_retries = Vec::new();
         let mut recovery_workspace = None;
         // Sidecars are host-owned write-ahead completion records. Reconcile
         // them before live discovery records so a daemon crash after host
@@ -129,16 +142,36 @@ impl Mux {
             )?;
             handled_terminals.insert(record.terminal_id);
         }
+        // Every host's row and public id under one registry lock: taken per
+        // host, the lock waits on other startup threads cost about 7 ms each.
+        let mut prefetched = {
+            let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
+            let mut rows = HashMap::new();
+            for (_, record) in &records {
+                let row = registry.terminal_record(&record.terminal_id)?;
+                let public_id = registry.terminal_resource_id(&record.terminal_id)?;
+                rows.insert(record.terminal_id.clone(), (row, public_id));
+            }
+            rows
+        };
         for (record_path, record) in records {
             let terminal_id = record.terminal_id.clone();
             if handled_terminals.contains(&terminal_id) {
                 if !cleanup_terminal_host_record(&record, &record_path) {
-                    self.schedule_terminal_adoption(options.clone(), record, record_path);
+                    cleanup_retries.push((record, record_path));
                 }
                 continue;
             }
-            let mut terminal =
-                self.workspace_registry.lock().unwrap().terminal_record(&terminal_id)?;
+            let (mut terminal, public_id) = match prefetched.remove(&terminal_id) {
+                Some(prefetched) => prefetched,
+                None => (
+                    self.workspace_registry
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .terminal_record(&terminal_id)?,
+                    None,
+                ),
+            };
             if terminal.is_none()
                 && !template_claimed
                 && options.adopt_template_terminal
@@ -149,6 +182,7 @@ impl Mux {
             {
                 terminal = Some(self.claim_template_terminal(&options, &record)?);
                 template_claimed = true;
+                claimed_template = Some(terminal_id.clone());
             }
             if terminal.is_none() {
                 // One-release migration path for hosts launched before SQLite
@@ -186,7 +220,7 @@ impl Mux {
                     }
                 } else {
                     if !cleanup_terminal_host_record(&record, &record_path) {
-                        self.schedule_terminal_adoption(options.clone(), record, record_path);
+                        cleanup_retries.push((record, record_path));
                     }
                     continue;
                 }
@@ -194,7 +228,7 @@ impl Mux {
             let terminal = terminal.expect("terminal imported or loaded");
             if terminal.lifecycle == TerminalLifecycle::Tombstoned {
                 if !cleanup_terminal_host_record(&record, &record_path) {
-                    self.schedule_terminal_adoption(options.clone(), record, record_path);
+                    cleanup_retries.push((record, record_path));
                 }
                 continue;
             }
@@ -202,7 +236,7 @@ impl Mux {
                 self.detach_exited_terminal_topology(&terminal.terminal_id)?;
                 handled_terminals.insert(terminal_id.clone());
                 if !cleanup_terminal_host_record(&record, &record_path) {
-                    self.schedule_terminal_adoption(options.clone(), record, record_path);
+                    cleanup_retries.push((record, record_path));
                 }
                 continue;
             }
@@ -215,17 +249,32 @@ impl Mux {
                 )?;
                 handled_terminals.insert(terminal_id.clone());
                 if !cleanup_terminal_host_record(&record, &record_path) {
-                    self.schedule_terminal_adoption(options.clone(), record, record_path);
+                    cleanup_retries.push((record, record_path));
                 }
                 continue;
             }
-            if let Err(error) = self.transition_terminal_lifecycle(
-                "terminal-adopting",
-                "adopt-terminal",
-                &terminal_id,
-                TerminalLifecycle::Adopting,
-                Some(&record.incarnation),
-            ) {
+            // A second record for this terminal is cleaned up, not adopted.
+            handled_terminals.insert(terminal_id.clone());
+            let incarnation = record.incarnation.clone();
+            adopting.push((terminal, incarnation));
+            candidates.push((record, record_path, public_id));
+        }
+
+        // Every host this pass adopts is marked adopting in one registry
+        // transaction: a commit each cost 2.6 ms per host before the first
+        // answer (plans/cmux-next/service-start-PERF.md 5b).
+        let marked = {
+            let mut registry =
+                self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
+            let (marked, revision) = commit_terminals_adopting(&mut registry, &adopting)?;
+            if let Some(revision) = revision {
+                self.emit_terminal_registry_changed(&registry, revision);
+            }
+            marked
+        };
+        for ((record, record_path, public_id), marked) in candidates.into_iter().zip(marked) {
+            let terminal_id = record.terminal_id.clone();
+            if let Err(error) = marked {
                 let current =
                     self.workspace_registry.lock().unwrap().terminal_record(&terminal_id)?;
                 if current.as_ref().is_some_and(|terminal| {
@@ -242,11 +291,11 @@ impl Mux {
                     }
                     handled_terminals.insert(terminal_id.clone());
                     if !cleanup_terminal_host_record(&record, &record_path) {
-                        self.schedule_terminal_adoption(options.clone(), record, record_path);
+                        cleanup_retries.push((record, record_path));
                     }
                     continue;
                 }
-                return Err(error);
+                anyhow::bail!("terminal {terminal_id} could not be marked adopting: {error}");
             }
             if terminal_host_record_liveness(&record_path, &record) == TerminalHostLiveness::Dead {
                 // Commit the durable exit before deleting the record. The
@@ -266,76 +315,49 @@ impl Mux {
                 handled_terminals.insert(terminal_id.clone());
                 continue;
             }
-            let restored_binding = self.restored_terminal_binding(&terminal_id)?;
-            // Bound startup head-of-line blocking per host. One handshake is
-            // enough for healthy hosts; live or indeterminate failures
-            // continue on the asynchronous adoption loop instead of retrying
-            // serially ahead of every later terminal.
-            let adopted = self
-                .adopt_restored_terminal(restored_binding, &options, &record, &record_path)
-                .ok();
-            let surface = match adopted {
-                Some(surface) => surface,
-                None => {
-                    if terminal_host_record_liveness(&record_path, &record)
-                        == TerminalHostLiveness::Dead
-                    {
-                        self.mark_terminal_ended(
-                            &terminal_id,
-                            "terminal-host-proven-dead",
-                            "host-process-ended-before-adoption",
-                            &options,
-                        )?;
-                        let _ = crate::terminal_host_runtime::remove_stale_terminal_host_record(
-                            &record_path,
-                            &record,
-                        );
-                        handled_terminals.insert(terminal_id.clone());
-                    } else {
-                        // Socket loss and descriptor pressure are not process
-                        // death proof. Keep the capability and retry the same
-                        // host rather than spawning a replacement shell. The
-                        // tab has no surface meanwhile; it is adopting, not
-                        // dead (R41).
-                        handled_terminals.insert(terminal_id.clone());
-                        self.set_pending_terminal(&terminal_id, PendingTerminal::Adopting);
-                        self.schedule_terminal_adoption(options.clone(), record, record_path);
-                    }
-                    continue;
-                }
-            };
-            if self
-                .finish_terminal_adoption(&terminal_id, &record.incarnation, surface.clone())
-                .is_err()
-            {
-                let host_is_dead = surface.is_dead()
-                    || terminal_host_record_liveness(&record_path, &record)
-                        == TerminalHostLiveness::Dead;
-                surface.disconnect_for_daemon_shutdown();
-                handled_terminals.insert(terminal_id.clone());
-                if host_is_dead {
-                    self.mark_terminal_ended(
-                        &terminal_id,
-                        "terminal-adoption-failed",
-                        "host-exited-during-adoption",
-                        &options,
-                    )?;
-                    let _ = crate::terminal_host_runtime::remove_stale_terminal_host_record(
-                        &record_path,
-                        &record,
-                    );
-                } else {
-                    self.set_pending_terminal(&terminal_id, PendingTerminal::Adopting);
-                    self.schedule_terminal_adoption(options.clone(), record, record_path);
-                }
+            handled_terminals.insert(terminal_id.clone());
+            if claimed_template.as_ref() == Some(&terminal_id) {
+                // A Cloud clone's first answer must already list the template
+                // terminal under its new identity: a client that listed
+                // nothing (the Cloud prompt sync) created a second workspace.
+                self.adopt_template_terminal_inline(&options, record, record_path)?;
                 continue;
             }
-            self.ensure_template_adoption_completed(&terminal_id);
-            handled_terminals.insert(terminal_id);
-            self.reap_if_dead(&surface);
+            // The host adopts on its own thread, after the owner answers its
+            // clients: one host's handshake and replay must not hold the first
+            // answer, nor every other terminal (launch to a live terminal,
+            // plans/cmux-next/service-start-PERF.md 5b). The tab is adopting,
+            // not dead, until then (R41).
+            match public_id {
+                // An imported or recovered row has no prefetched id: read it now.
+                Some(public_id) => {
+                    self.set_pending_terminal_as(
+                        public_id,
+                        &terminal_id,
+                        PendingTerminal::Adopting,
+                    );
+                }
+                None => {
+                    self.set_pending_terminal(&terminal_id, PendingTerminal::Adopting);
+                }
+            }
+            deferred.push((record, record_path));
         }
 
         self.mark_unadoptable_terminal_hosts(&options, &mut handled_terminals)?;
+        // The threads start after this pass: their registry commits would
+        // otherwise queue each read above behind them (745 ms for 60 hosts).
+        for (record, record_path) in deferred {
+            self.schedule_terminal_adoption_after(
+                options.clone(),
+                record,
+                record_path,
+                Duration::ZERO,
+            );
+        }
+        for (record, record_path) in cleanup_retries {
+            self.schedule_terminal_adoption(options.clone(), record, record_path);
+        }
 
         // No launcher survives a daemon restart. A durable lifecycle row
         // without a host-owned record therefore represents a closed crash
@@ -352,13 +374,39 @@ impl Mux {
                 self.record_terminal_end(&terminal.terminal_id);
                 continue;
             }
-            self.mark_terminal_ended(
-                &terminal.terminal_id,
-                "terminal-record-missing",
-                "missing-host-record",
-                &options,
-            )?;
+            self.adopt_from_holder_or_end(&terminal, &options)?;
         }
+        self.release_unclaimed_holder_terminals(&options);
+        Ok(())
+    }
+
+    /// Adopt the template terminal this pass claimed before the owner
+    /// answers anyone, then bind the warm shell to its new identity. A host
+    /// that does not answer yet keeps adopting on its own thread.
+    #[cfg(any(unix, windows))]
+    fn adopt_template_terminal_inline(
+        self: &Arc<Self>,
+        options: &SurfaceOptions,
+        record: crate::terminal_host_runtime::TerminalHostRecord,
+        record_path: std::path::PathBuf,
+    ) -> anyhow::Result<()> {
+        let terminal_id = record.terminal_id.clone();
+        let restored_binding = self.restored_terminal_binding(&terminal_id)?;
+        let adopted =
+            self.adopt_restored_terminal(restored_binding, options, &record, &record_path).ok();
+        if let Some(surface) = adopted {
+            if self
+                .finish_terminal_adoption(&terminal_id, &record.incarnation, surface.clone())
+                .is_ok()
+            {
+                self.ensure_template_adoption_completed(&terminal_id);
+                self.reap_if_dead(&surface);
+                return Ok(());
+            }
+            surface.disconnect_for_daemon_shutdown();
+        }
+        self.set_pending_terminal(&terminal_id, PendingTerminal::Adopting);
+        self.schedule_terminal_adoption(options.clone(), record, record_path);
         Ok(())
     }
 
@@ -657,6 +705,16 @@ impl Mux {
                 return Err(error);
             }
         };
+        if let Some(public_id) = restored_public_id {
+            let mut names = self.restored_tab_names.lock().unwrap_or_else(PoisonError::into_inner);
+            for placement in state.placements_of_content(&ContentPublicId::Terminal(public_id)) {
+                if let (Some(name), Some(surface)) =
+                    (names.remove(placement), state.surfaces.get(placement))
+                {
+                    surface.set_name(Some(name));
+                }
+            }
+        }
         drop(state);
         self.emit_terminal_registry_changed(&registry, revision);
         drop(registry);
@@ -744,6 +802,24 @@ impl Mux {
         record: crate::terminal_host_runtime::TerminalHostRecord,
         record_path: std::path::PathBuf,
     ) {
+        self.schedule_terminal_adoption_after(
+            options,
+            record,
+            record_path,
+            Duration::from_millis(100),
+        );
+    }
+
+    /// Adopts a surviving host on its own thread, first after `first_delay` (zero:
+    /// at a start, once the owner says ready), then retrying with backoff. At most ``ADOPTION_SLOTS`` hosts replay at once, so a
+    /// start with hundreds of hosts does not hold every replay in memory together.
+    pub(super) fn schedule_terminal_adoption_after(
+        self: &Arc<Self>,
+        options: SurfaceOptions,
+        record: crate::terminal_host_runtime::TerminalHostRecord,
+        record_path: std::path::PathBuf,
+        first_delay: Duration,
+    ) {
         let terminal_id = record.terminal_id.clone();
         if !self.terminal_adoptions.lock().unwrap().insert(terminal_id.clone()) {
             return;
@@ -753,13 +829,43 @@ impl Mux {
         let spawn_result = std::thread::Builder::new()
             .name(format!("terminal-adopt-{terminal_id}"))
             .spawn(move || {
-                let mut delay = Duration::from_millis(100);
+                if first_delay.is_zero() {
+                    // A start's adoptions wait for the owner to say ready: their
+                    // registry and state locks held the rest of its start back
+                    // (230 ms for 60 hosts). A mux that never says ready (a bare
+                    // test mux) adopts after STARTUP_READY_WAIT.
+                    let deadline = Instant::now() + STARTUP_READY_WAIT;
+                    while !mux.server_lifecycle_ready()
+                        && !mux.startup_adoptions_released.load(Ordering::Acquire)
+                        && !mux
+                            .terminal_adoptions_now
+                            .lock()
+                            .unwrap_or_else(PoisonError::into_inner)
+                            .contains(&terminal_id)
+                        && !mux.shutting_down.load(Ordering::Acquire)
+                        && Instant::now() < deadline
+                    {
+                        std::thread::sleep(Duration::from_millis(5));
+                    }
+                }
+                // Test hook (fault injection, debug builds): the adoption starts
+                // this much later, so a test can act while the terminal adopts.
+                #[cfg(debug_assertions)]
+                if let Some(ms) = std::env::var("CMUX_TUI_TEST_ADOPTION_DELAY_MS")
+                    .ok()
+                    .and_then(|ms| ms.parse::<u64>().ok())
+                {
+                    std::thread::sleep(Duration::from_millis(ms));
+                }
+                let mut delay = first_delay;
                 let mut refusals = pending_terminals::RefusalStreak::default();
                 loop {
                     if mux.shutting_down.load(Ordering::Acquire) {
                         break;
                     }
                     std::thread::sleep(delay);
+                    // Retries back off from 100 ms, also after an immediate first try.
+                    delay = delay.max(Duration::from_millis(50));
                     if mux.shutting_down.load(Ordering::Acquire) {
                         break;
                     }
@@ -821,6 +927,8 @@ impl Mux {
                         delay = (delay * 2).min(Duration::from_secs(5));
                         continue;
                     }
+                    // Only a running row goes back to adopting: a launching one
+                    // belongs to a respawn, and its new host must not be dropped.
                     if terminal.lifecycle == TerminalLifecycle::Running {
                         let already_live = mux
                             .resolve_terminal(&terminal_id)
@@ -872,12 +980,15 @@ impl Mux {
                             continue;
                         }
                     };
-                    let adopted = mux.adopt_restored_terminal(
-                        restored_binding,
-                        &options,
-                        &record,
-                        &record_path,
-                    );
+                    let adopted = {
+                        let _slot = AdoptionSlot::take();
+                        mux.adopt_restored_terminal(
+                            restored_binding,
+                            &options,
+                            &record,
+                            &record_path,
+                        )
+                    };
                     if mux.refused_all(
                         &mut refusals,
                         Instant::now(),
@@ -954,10 +1065,89 @@ impl Mux {
                 }
                 mux.clear_adopting_marker(&terminal_id);
                 mux.terminal_adoptions.lock().unwrap().remove(&terminal_id);
+                mux.terminal_adoption_ended.notify_all();
             });
         if spawn_result.is_err() {
             self.terminal_adoptions.lock().unwrap().remove(&cleanup_id);
+            self.terminal_adoption_ended.notify_all();
             self.clear_pending_terminal(&cleanup_id);
         }
+    }
+
+    /// Waits, at most `bound`, until the adoption of `terminal_id` (a host id)
+    /// ended, and has it start at once instead of after the owner says ready.
+    /// Holds no other lock while it waits.
+    pub(crate) fn wait_for_terminal_adoption(&self, terminal_id: &str, bound: Duration) {
+        self.terminal_adoptions_now
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(terminal_id.to_owned());
+        let deadline = Instant::now() + bound;
+        let mut adoptions = self.terminal_adoptions.lock().unwrap_or_else(PoisonError::into_inner);
+        while adoptions.contains(terminal_id) {
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                break;
+            }
+            adoptions = self
+                .terminal_adoption_ended
+                .wait_timeout(adoptions, left)
+                .unwrap_or_else(PoisonError::into_inner)
+                .0;
+        }
+        drop(adoptions);
+        self.terminal_adoptions_now
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(terminal_id);
+    }
+
+    /// The running terminal `terminal_id` names, for a reopen that gives it a
+    /// new view instead of a new process. A restarted owner answers before it
+    /// adopted its surviving terminals (#23561): a terminal that still adopts
+    /// is waited for (at most `REOPEN_ADOPTION_WAIT`), not taken for gone.
+    pub(crate) fn resolve_running_terminal(&self, terminal_id: &str) -> Option<TerminalResolution> {
+        let resolution = self.resolve_terminal(terminal_id).ok().flatten()?;
+        let resolution = if resolution.terminal.lifecycle == TerminalLifecycle::Adopting {
+            self.wait_for_terminal_adoption(&resolution.terminal.terminal_id, REOPEN_ADOPTION_WAIT);
+            self.resolve_terminal(terminal_id).ok().flatten()?
+        } else {
+            resolution
+        };
+        (resolution.terminal.lifecycle == TerminalLifecycle::Running).then_some(resolution)
+    }
+}
+
+/// The longest a reopen waits for its terminal's adoption
+/// (`resolve_running_terminal`); after it the reopen starts a new shell.
+const REOPEN_ADOPTION_WAIT: Duration = Duration::from_secs(10);
+
+/// Hosts that may replay into this owner at once (`schedule_terminal_adoption_after`).
+const ADOPTION_SLOTS: usize = 8;
+
+/// The longest a start's adoption waits for its owner to say ready.
+const STARTUP_READY_WAIT: Duration = Duration::from_secs(2);
+
+/// One of the ``ADOPTION_SLOTS``, held while a host's handshake and replay run.
+struct AdoptionSlot;
+
+static ADOPTIONS_IN_FLIGHT: Mutex<usize> = Mutex::new(0);
+static ADOPTION_SLOT_FREED: Condvar = Condvar::new();
+
+impl AdoptionSlot {
+    fn take() -> Self {
+        let mut in_flight = ADOPTIONS_IN_FLIGHT.lock().unwrap_or_else(PoisonError::into_inner);
+        while *in_flight >= ADOPTION_SLOTS {
+            in_flight = ADOPTION_SLOT_FREED.wait(in_flight).unwrap_or_else(PoisonError::into_inner);
+        }
+        *in_flight += 1;
+        AdoptionSlot
+    }
+}
+
+impl Drop for AdoptionSlot {
+    fn drop(&mut self) {
+        *ADOPTIONS_IN_FLIGHT.lock().unwrap_or_else(PoisonError::into_inner) -= 1;
+        ADOPTION_SLOT_FREED.notify_one();
     }
 }

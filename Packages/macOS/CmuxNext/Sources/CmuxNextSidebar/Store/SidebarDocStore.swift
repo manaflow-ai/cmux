@@ -32,6 +32,9 @@ public final class SidebarDocStore {
     public private(set) var isActive = false
     /// What the sidebar draws from the document (`show(live:)`); nil while inactive.
     public internal(set) var shown: SidebarDocProjection?
+    /// The `version` `shown` was built at: behind `version` while an applied change (a Cmd-N move) waits for the next
+    /// `show`, a hop later.
+    @ObservationIgnored public internal(set) var shownVersion: UInt64 = 0
 
     @ObservationIgnored private let mirror: SidebarMirror?
     @ObservationIgnored private let remote: (any SidebarDocRemote)?
@@ -235,7 +238,7 @@ public final class SidebarDocStore {
     /// `group.update` with the value, not a toggle, so fast clicks each send what they show, and it
     /// rebuilds no row, now or at the echo. `refused` runs when the daemon or the mirror refuses it.
     public func setGroupCollapsed(_ group: String, _ collapsed: Bool, refused: @escaping @MainActor () -> Void) {
-        let ops: [[String: Any]] = [["op": "group.update", "id": group, "patch": ["collapsed": collapsed]]]
+        let ops: [[String: Any]] = [["op": "group.update", "id": Self.item(group: GroupID(group), in: records), "patch": ["collapsed": collapsed]]]
         guard let data = try? JSONSerialization.data(withJSONObject: ops) else { return refused() }
         let intent = SidebarMirrorIntent.apply(data, key: Self.newKey())
         foldRefusals[intent.idempotencyKey] = refused

@@ -143,6 +143,9 @@ extension HistoryService {
 /// visit it names.
 final class RoutingVisitSink: BrowserHistoryPersistence {
     let local: BrowserVisitSink
+    /// A page removed from the history (Remove from History, Shift-Delete in the omnibar): the
+    /// import store drops its imported copy too, so it does not come back at the next launch.
+    var onRemove: ((URL) -> Void)?
     private let profile: String
     private let daemon: () -> DaemonHistoryClient?
     private let continuation: AsyncStream<@Sendable () async -> Void>.Continuation
@@ -177,6 +180,7 @@ final class RoutingVisitSink: BrowserHistoryPersistence {
     }
 
     func didRemoveEntry(for url: URL) {
+        onRemove?(url)
         guard let daemon = daemon() else { return local.didRemoveEntry(for: url) }
         let profile = profile, text = url.absoluteString
         continuation.yield { try? await daemon.removeVisits(profile: profile, url: text) }

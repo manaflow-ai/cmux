@@ -8,14 +8,14 @@ import Foundation
 /// before the first byte (``AcpmuxCheckedLine``). The whole connection lives at most `deadline`;
 /// every request still waiting then answers nil.
 @MainActor
-final class AcpmuxPersonLine {
+public final class AcpmuxPersonLine {
     private let line: AcpmuxCheckedLine
     private let timer = DemandTimer(owner: "acpmux.person-line")
     private var nextID = 10
     private var waiters: [Int: CheckedContinuation<ResultBox?, Never>] = [:]
     private var closed = false
     /// acpmux took the person proof: this connection may allow.
-    private(set) var isPerson = false
+    public private(set) var isPerson = false
 
     private init(environment: AcpmuxEnvironment) {
         line = AcpmuxCheckedLine(environment: environment)
@@ -23,7 +23,7 @@ final class AcpmuxPersonLine {
 
     /// Connects, initializes and proves the person; nil when no acpmux answers. A connection
     /// whose proof was refused still reads and denies (``isPerson`` is false).
-    static func open(_ environment: AcpmuxEnvironment, deadline: Duration = .seconds(5)) async -> AcpmuxPersonLine? {
+    public static func open(_ environment: AcpmuxEnvironment, deadline: Duration = .seconds(5)) async -> AcpmuxPersonLine? {
         guard FileManager.default.fileExists(atPath: environment.socketPath) else { return nil }
         let connection = AcpmuxPersonLine(environment: environment)
         connection.timer.schedule(after: deadline) { @MainActor [weak connection] in connection?.close() }
@@ -40,7 +40,7 @@ final class AcpmuxPersonLine {
     }
 
     /// One request; its `result`, or nil when it failed or the connection closed.
-    func call(_ method: String, _ params: [String: Any]) async -> [String: Any]? {
+    public func call(_ method: String, _ params: [String: Any]) async -> [String: Any]? {
         guard !closed else { return nil }
         nextID += 1
         let id = nextID
@@ -57,7 +57,7 @@ final class AcpmuxPersonLine {
         (await call("_acpmux/info", ["sessionId": session]))?["pending"] as? [[String: Any]] ?? []
     }
 
-    func close() {
+    public func close() {
         guard !closed else { return }
         closed = true
         timer.cancel()

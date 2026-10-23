@@ -299,6 +299,25 @@ fn taken(daemon: &Daemon, session: &str) -> bool {
     daemon.events(session).iter().any(|e| e["kind"] == "pool_taken")
 }
 
+/// `session` runs on the pooled host `pooled` (its pool record): the same
+/// host and agent processes, started once. A switch that started a fresh
+/// host instead would wait the fake's initialize and session/new delays; its
+/// wall time is no proof on a loaded machine, the processes are.
+fn assert_runs_on_pooled_host(daemon: &Daemon, session: &str, pooled: &Value) {
+    let record = daemon
+        .host_records()
+        .into_iter()
+        .find(|r| r["session_id"] == session)
+        .unwrap_or_else(|| panic!("{session} has no host record"));
+    assert_eq!(record["host_pid"], pooled["host_pid"], "not the pooled host: {record}");
+    assert_eq!(record["harness_pid"], pooled["harness_pid"], "not the pooled agent: {record}");
+    let kinds: Vec<Value> = daemon.events(session).iter().map(|e| e["kind"].clone()).collect();
+    for once in ["host_started", "initialize"] {
+        let n = kinds.iter().filter(|kind| *kind == once).count();
+        assert_eq!(n, 1, "{once} {n} times: {kinds:?}");
+    }
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_hinted_switch_takes_a_hidden_session_that_was_never_listed() {
     let daemon = Daemon::new("hit", 0);
@@ -320,14 +339,15 @@ async fn a_hinted_switch_takes_a_hidden_session_that_was_never_listed() {
     assert_eq!(daemon.stored_sessions(), 1);
     assert_eq!(daemon.host_records().len(), 1, "only the user's session has a host record");
     assert_eq!(daemon.pool_records().len(), 1);
-    let pooled_id = daemon.pool_records()[0]["session_id"].as_str().unwrap().to_owned();
+    let pooled = daemon.pool_records()[0].clone();
+    let pooled_id = pooled["session_id"].as_str().unwrap().to_owned();
 
     let (second, warm) = new_session(&mut rpc, &home, "fakeb").await;
     eprintln!("session/new: cold {cold:?}, pooled {warm:?}");
     assert_eq!(second, pooled_id, "the session takes the pooled id");
     assert!(taken(&daemon, &second));
     assert!(cold >= Duration::from_millis(INIT_MS + NEW_MS), "cold {cold:?}");
-    assert!(warm < Duration::from_millis(300), "pooled switch took {warm:?}");
+    assert_runs_on_pooled_host(&daemon, &second, &pooled);
     // The taken session is durable like any other: its record moved.
     assert!(daemon.pool_records().is_empty());
     assert!(daemon.host_records().iter().any(|r| r["session_id"] == second.as_str()));
@@ -350,10 +370,11 @@ async fn a_hinted_switch_takes_a_hidden_session_that_was_never_listed() {
 
     // Back and forth: the harness used before (fake) is now pooled.
     wait_pool_ready(&mut rpc, "fake").await;
+    let pooled_fake = daemon.pool_records()[0].clone();
     let (third, back) = new_session(&mut rpc, &home, "fake").await;
     eprintln!("session/new back to the last-used harness: {back:?}");
     assert!(taken(&daemon, &third));
-    assert!(back < Duration::from_millis(300), "{back:?}");
+    assert_runs_on_pooled_host(&daemon, &third, &pooled_fake);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -469,7 +490,8 @@ async fn a_session_new_that_fails_after_its_claim_puts_the_entry_back() {
     let (_first, _) = new_session(&mut rpc, &home, "fake").await;
     rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home, "wait": true})).await;
     wait_pool_ready(&mut rpc, "fakeb").await;
-    let pooled = daemon.pool_records()[0]["session_id"].as_str().unwrap().to_owned();
+    let record = daemon.pool_records()[0].clone();
+    let pooled = record["session_id"].as_str().unwrap().to_owned();
     // The name is taken: the create fails after it claimed the pooled entry
     // (a cancelled session/new drops its claim the same way).
     let err = rpc
@@ -484,10 +506,10 @@ async fn a_session_new_that_fails_after_its_claim_puts_the_entry_back() {
     assert_eq!(entry["harness"], "fakeb", "{status}");
     assert_eq!(entry["state"], "ready", "the entry is back in the pool: {status}");
     assert_eq!(daemon.pool_records().len(), 1, "its host still runs");
-    let (second, warm) = new_session(&mut rpc, &home, "fakeb").await;
+    let (second, _) = new_session(&mut rpc, &home, "fakeb").await;
     assert_eq!(second, pooled, "the next switch takes the same entry");
     assert!(taken(&daemon, &second));
-    assert!(warm < Duration::from_millis(300), "{warm:?}");
+    assert_runs_on_pooled_host(&daemon, &second, &record);
 }
 
 /// ACP-REMOTE-GUARD B1: a pool claim writes the pooled session's mode
@@ -896,4 +918,74 @@ async fn a_dead_pooled_host_is_not_served_and_the_session_starts_on_a_fresh_host
         .await;
     assert_eq!(reply["stopReason"], "end_turn", "{reply}");
     end_group(harness);
+}
+
+impl Rpc {
+    /// The agent text streamed while `session` answers `text`.
+    async fn prompt_text(&mut self, session: &str, text: &str) -> String {
+        self.next += 1;
+        let id = self.next;
+        let prompt = json!({"sessionId": session, "prompt": [{"type": "text", "text": text}]});
+        let line =
+            json!({"jsonrpc": "2.0", "id": id, "method": "session/prompt", "params": prompt});
+        self.wr.write_all(format!("{line}\n").as_bytes()).await.unwrap();
+        let mut streamed = String::new();
+        loop {
+            let line = tokio::time::timeout(Duration::from_secs(60), self.lines.next_line())
+                .await
+                .expect("daemon answered in time")
+                .unwrap()
+                .expect("daemon closed the socket");
+            let v: Value = serde_json::from_str(&line).unwrap();
+            if v.get("id") == Some(&json!(id)) {
+                assert!(v.get("error").is_none(), "{v}");
+                return streamed;
+            }
+            let chunk = v.pointer("/params/update/content/text").and_then(Value::as_str);
+            if v.pointer("/params/sessionId") == Some(&json!(session))
+                && let Some(t) = chunk
+            {
+                streamed.push_str(t);
+            }
+        }
+    }
+}
+
+/// An OpenCode chat whose permission policy is narrower than approve-all never takes a pooled
+/// agent started without OpenCode asked to ask (the pool key holds the spawn env,
+/// `hub/policy_mode.rs`): it starts cold, on an agent host, with `OPENCODE_CONFIG_CONTENT`
+/// asking before every tool. An approve-all chat takes the pooled agent, which runs with none.
+#[tokio::test(flavor = "multi_thread")]
+async fn opencode_policy_a_pooled_agent_is_never_taken_by_a_chat_it_would_not_ask_for() {
+    let fakeb = json!({"argv": ["python3", FAKE], "family": "opencode"});
+    let daemon = Daemon::with_fakeb("ocask", 0, &fakeb);
+    let mut rpc = daemon.rpc().await;
+    let home = daemon.home.clone();
+    let config = |text: String| match text.strip_prefix("OPENCODE_CONFIG_CONTENT=") {
+        Some("") => Value::Null,
+        Some(v) => serde_json::from_str(v).unwrap_or_else(|e| panic!("{v:?}: {e}")),
+        None => panic!("the agent names the variable: {text:?}"),
+    };
+    rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home, "wait": true})).await;
+    wait_pool_ready(&mut rpc, "fakeb").await;
+    let meta = json!({"harness": "fakeb", "policy": "approve-reads"});
+    let created = rpc
+        .call("session/new", json!({"cwd": home, "mcpServers": [], "_meta": {"acpmux": meta}}))
+        .await;
+    let narrow = created["sessionId"].as_str().expect("session id").to_owned();
+    assert!(!taken(&daemon, &narrow), "the pooled agent does not ask: never taken");
+    assert!(
+        daemon.host_records().iter().any(|r| r["session_id"] == narrow.as_str()),
+        "the chat's agent runs on an agent host"
+    );
+    let seen = rpc.prompt_text(&narrow, "env: OPENCODE_CONFIG_CONTENT").await;
+    assert_eq!(config(seen), json!({"permission": {"*": "ask"}}));
+
+    // An approve-all chat takes a pooled agent, which OpenCode's own settings drive.
+    rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home, "wait": true})).await;
+    wait_pool_ready(&mut rpc, "fakeb").await;
+    let (wide, _) = new_session(&mut rpc, &home, "fakeb").await;
+    assert!(taken(&daemon, &wide), "an approve-all chat takes the pooled agent");
+    let seen = rpc.prompt_text(&wide, "env: OPENCODE_CONFIG_CONTENT").await;
+    assert_eq!(config(seen), Value::Null);
 }

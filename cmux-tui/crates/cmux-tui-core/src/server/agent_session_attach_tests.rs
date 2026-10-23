@@ -136,6 +136,9 @@ fn serve(stream: UnixStream, frames: Sender<Value>) {
                 }))
             }
             "_acpmux/watch" => Some(json!({"sessions": [{"sessionId": "acp_unrelated"}]})),
+            // The machine's whole list: the attached session's family and others
+            // (agent_session_children_tests.rs).
+            "_acpmux/sessions" => Some(machine_sessions()),
             "_acpmux/events" => Some(json!({"events": [], "hasMore": false, "lastSeq": 1})),
             "_acpmux/permission_respond" => Some(json!({})),
             // `acpmux.transfer.v1` with the guarded receive (agent_transfer_tests.rs).
@@ -426,6 +429,7 @@ pub(super) fn assert_code(reply: &Value, code: &str) {
 }
 
 include!("agent_session_observe_tests.rs");
+include!("agent_session_children_tests.rs");
 
 // MARK: Capability and trust
 

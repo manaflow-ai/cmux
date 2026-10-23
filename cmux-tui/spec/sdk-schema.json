@@ -3942,6 +3942,88 @@
    },
    "additional_properties": false
   },
+  "TerminalPortsListener": {
+   "kind": "object",
+   "fields": {
+    "port": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint16"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "host": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "The host as the terminal printed it: localhost, 127.0.0.1, 0.0.0.0, [::1], ..."
+    },
+    "url": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "The printed URL, or http://HOST:PORT/ when the text had no scheme."
+    },
+    "bound": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "The loopback address that accepted the daemon's connect: 127.0.0.1 or ::1."
+    }
+   },
+   "additional_properties": false
+  },
+  "TerminalPortsResult": {
+   "kind": "object",
+   "fields": {
+    "surface": {
+     "type": {
+      "kind": "ref",
+      "name": "Id"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "listeners": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "TerminalPortsListener"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "closed": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "scalar",
+       "name": "uint16"
+      }
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "Ports the text names that refused the connect."
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "Ports come from the terminal's text (the active screen with scrollback, the last 1 MiB) on loopback or wildcard hosts, newest mention first, at most 32.",
+    "A port is listed only when a TCP connect to 127.0.0.1 or ::1 succeeds within 150 ms."
+   ]
+  },
   "TerminalResourcesResult": {
    "kind": "object",
    "fields": {
@@ -7094,6 +7176,24 @@
       "kind": "scalar",
       "name": "string"
      }
+    },
+    "pane_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "capability": "row-client-keys-v1"
+    },
+    "tab_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "capability": "row-client-keys-v1"
     }
    },
    "kind": "object"
@@ -9195,6 +9295,21 @@
     "user",
     "auto"
    ]
+  },
+  "SendExpectAgent": {
+   "kind": "object",
+   "fields": {
+    "session": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null
+    }
+   },
+   "additional_properties": false
   }
  },
  "commands": {
@@ -10038,13 +10153,34 @@
       "nullable": true,
       "default": null,
       "capability": "send-expect-foreground-v1"
+     },
+     "expect_agent": {
+      "type": {
+       "kind": "ref",
+       "name": "SendExpectAgent"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "send-expect-agent-v1"
+     },
+     "submit": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false,
+      "capability": "send-expect-agent-v1"
      }
     },
     "additional_properties": false,
     "constraints": [
      "When both are present, UTF-8 text bytes precede decoded bytes.",
      "Exactly one of surface and terminal_id; terminal_id (terminal-input-while-creating-v1) is the host terminal id, also of a terminal still being created, and has the semantics of terminal.input.write.",
-     "expect_foreground (send-expect-foreground-v1) needs surface: the write happens only while the surface's foreground executable equals it, else the request fails with nothing written."
+     "expect_foreground (send-expect-foreground-v1) needs surface: the write happens only while the surface's foreground executable equals it, else the request fails with nothing written.",
+     "expect_agent and submit (send-expect-agent-v1) need surface: with expect_agent the write happens only while the agent of the surface's own terminal is idle in expect_agent.session (required), else the request fails with 'agent not waiting' and nothing written; submit writes Return after the payload in the same request."
     ]
    },
    "result": {
@@ -13347,6 +13483,34 @@
    "stream": null,
    "constraints": [
     "PTY surfaces only."
+   ]
+  },
+  "terminal-ports": {
+   "authority": "control",
+   "since": 12,
+   "capability": "terminal-ports-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "TerminalPortsResult"
+   },
+   "stream": null,
+   "constraints": [
+    "PTY surfaces only.",
+    "Read when the request arrives; the daemon keeps no poller or cache and never scans processes."
    ]
   },
   "terminal-resources": {
@@ -19297,6 +19461,15 @@
       "presence": "optional",
       "nullable": true,
       "default": null
+     },
+     "proxy": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
      }
     },
     "additional_properties": false
@@ -22306,6 +22479,38 @@
        "kind": "scalar",
        "name": "string"
       }
+     },
+     "pane_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "row-client-keys-v1",
+      "constraints": [
+       {
+        "pattern": "^pane_[0-9a-f]{32}$",
+        "format": "client-minted public pane id"
+       }
+      ]
+     },
+     "tab_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "row-client-keys-v1",
+      "constraints": [
+       {
+        "pattern": "^tab_[0-9a-f]{32}$",
+        "format": "client-minted public tab id"
+       }
+      ]
      }
     },
     "kind": "object"
@@ -22426,12 +22631,20 @@
       "presence": "required",
       "nullable": false
      },
+     "auth": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true
+     },
      "access_token": {
       "type": {
        "kind": "scalar",
        "name": "string"
       },
-      "presence": "required",
+      "presence": "optional",
       "nullable": false
      },
      "expires_at": {
@@ -22439,7 +22652,7 @@
        "kind": "scalar",
        "name": "uint64"
       },
-      "presence": "required",
+      "presence": "optional",
       "nullable": false
      },
      "client_version": {
@@ -22459,7 +22672,7 @@
    },
    "stream": null,
    "constraints": [
-    "Trusted local connections only. Leases the app's cmux Cloud session to the daemon (memory only; never echoed). api_base_url is an https origin (http only for loopback). See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+    "Trusted local connections only. Leases the app's cmux Cloud session to the daemon (memory only; never echoed). api_base_url is an https origin (http only for loopback); access_token and expires_at are required. With auth \"tailscale\" (capability cloud-selfhost-v1) the lease names a self-hosted chat server: an http or https origin on a tailnet host (*.ts.net, 100.64.0.0/10, fd7a:115c:a1e0::/48), no access_token, no expiry, and no Authorization header is sent. See plans/cmux-next/home-cloud-proxy.md, plans/cmux-next/dm-group-chat-DESIGN.md and spec/commands.md."
    ]
   },
   "cloud-session-clear": {
@@ -22729,6 +22942,24 @@
    "stream": null,
    "constraints": [
     "Trusted local connections only. Reads the lease person's open message requests (POST /v1/read home.requests.list); no fields are accepted. Returns {requests} with rows whose conversation is not a conversation id dropped. Calls the cloud; errors carry error_code, reason and retryable. See spec/commands.md."
+   ]
+  },
+  "cloud-selfhost-info": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "cloud-selfhost-v1",
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local connections only. Needs a self-hosted lease (cloud-session-set with auth \"tailscale\"), else cloud_conversation_rejected with reason not_selfhost. Reads GET /v1/selfhost/info without an Authorization header and returns {kind:\"selfhost\", user_id, login?, display_name?, server_name?}; user_id becomes the lease's account (events carry it as account, cloud-session-status as participant). Calls the cloud; errors carry error_code, reason and retryable. See spec/commands.md."
    ]
   },
   "cloud-conversation-snapshot": {

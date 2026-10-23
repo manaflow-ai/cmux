@@ -778,16 +778,18 @@ body {
   z-index: 20;
   max-width: min(560px, calc(100vw - 16px));
   padding: 6px 10px;
-  border: 1px solid var(--cmux-md-border-color);
   border-radius: 8px;
-  background: var(--cmux-md-popover-background);
-  box-shadow: var(--cmux-md-popover-shadow);
   color: var(--cmux-md-text-color);
   font-family: var(--cmux-md-font-family);
   font-size: var(--cmux-md-popover-font-size);
 }
 
+/* The edit form is a glass popover (ui Popover): the glass rim is its one edge and .ui-popup gives
+   it no border and its elevation, so it sets neither (test/glass-one-edge.test.ts). */
 .md-link-bubble {
+  border: 1px solid var(--cmux-md-border-color);
+  background: var(--cmux-md-popover-background);
+  box-shadow: var(--cmux-md-popover-shadow);
   min-width: 220px;
   padding: 4px 4px 6px 8px;
   pointer-events: auto;

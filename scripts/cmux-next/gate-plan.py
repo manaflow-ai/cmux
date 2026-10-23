@@ -9,7 +9,8 @@ change instead, with the same rules CI uses:
 
   CmuxNext Swift  scripts/ci/cmux_next_route.py (the SwiftPM target graph): only
                   the test targets the change reaches, as one cmux-ci
-                  package-test-lane `suite` step (one build, one filter each).
+                  package-test-lane `suite` step (one build, one filter each);
+                  more steps only when the filters pass cmux-ci's arg limits.
   Release compile only when the route's native tier runs and the change is not
                   a small Sources-only diff (CI's canary rule). The push to
                   feat-cmux-next still runs every tier as the backstop.
@@ -52,6 +53,39 @@ CMUX_CI = "~/.local/bin/cmux-ci"  # unquoted in the step line, so bash expands ~
 XCODE_APP = "/Applications/Xcode_26.6.app"
 CMUXNEXT_DIR = "Packages/macOS/CmuxNext"
 RUST_WORKSPACE_FILES = ("cmux-tui/Cargo.toml", "cmux-tui/Cargo.lock", "cmux-tui/rust-toolchain.toml")
+# The cmux-ci controller's ci-step limits (hq build-fleet/cmd/controller/ci_step.go): at most
+# ciStepMaxArgs args per step and ciStepMaxArgLen bytes per arg. A longer arg is refused with
+# HTTP 400 before anything runs (a 1,275-suite list was one 26 KB arg on 2026-10-22).
+CI_STEP_MAX_ARGS = 16
+CI_STEP_MAX_ARG_LEN = 2048
+
+
+def suite_args(names: list[str]) -> list[list[str]]:
+    """The suite filters as package-test-lane `suite` steps the controller accepts: each step's
+    args are "suite", the package dir and comma lists of at most CI_STEP_MAX_ARG_LEN bytes, at
+    most CI_STEP_MAX_ARGS in all. Order is kept; a name is never split."""
+    per_step = CI_STEP_MAX_ARGS - 2
+    lists: list[str] = []
+    for name in dict.fromkeys(names):
+        if len(name) > CI_STEP_MAX_ARG_LEN:
+            raise SystemExit(f"gate-plan: suite name longer than {CI_STEP_MAX_ARG_LEN} bytes: {name[:80]}...")
+        if lists and len(lists[-1]) + 1 + len(name) <= CI_STEP_MAX_ARG_LEN:
+            lists[-1] += "," + name
+        else:
+            lists.append(name)
+    return [["suite", CMUXNEXT_DIR, *lists[i:i + per_step]] for i in range(0, len(lists), per_step)]
+
+
+def suite_steps(names: list[str], head: str, lane: str) -> list[str]:
+    """One cmux-ci step per suite_args() group; a second group gets its own idempotency key."""
+    groups = suite_args(names)
+    steps = []
+    for index, group in enumerate(groups):
+        key = f"{lane}-gate-{head[:12]}" if len(groups) == 1 else f"{lane}-gate{index}-{head[:12]}"
+        steps.append(CMUX_CI + " " + shlex.join(["run", "--class", "light", "--script", "scripts/ci/package-test-lane.sh",
+                                                 "--ref", head, "--key", key, *[f"--arg={a}" for a in group],
+                                                 "--env", f"CMUX_CI_XCODE_APP={XCODE_APP}"]))
+    return steps
 
 
 def git(*args: str) -> str:
@@ -266,10 +300,12 @@ def main(argv: list[str]) -> int:
                 picked, why = suite_filters(graph, target, changed, every=result.full)
                 names += picked
                 notes.append(f"#   {target}: {why}")
-            filters = ",".join(dict.fromkeys(names))
-            steps.append(CMUX_CI + " " + shlex.join(["run", "--class", "light", "--script", "scripts/ci/package-test-lane.sh",
-                                     "--ref", head, "--key", f"{args.lane}-gate-{head[:12]}", "--arg=suite",
-                                     f"--arg={CMUXNEXT_DIR}", f"--arg={filters}", "--env", f"CMUX_CI_XCODE_APP={XCODE_APP}"]))
+            # One step while the filters fit the controller's arg limits; more steps (each its own build) past them.
+            suite_group = suite_steps(names, head, args.lane)
+            steps += suite_group
+            if len(suite_group) > 1:
+                notes.append(f"#   CmuxNext suites: {len(dict.fromkeys(names))} filters in {len(suite_group)} steps"
+                             f" (cmux-ci allows {CI_STEP_MAX_ARGS} args of {CI_STEP_MAX_ARG_LEN} bytes per step)")
             notes.append(f"#   CmuxNext test targets: {' '.join(targets)}")
 
     if result.daemon:

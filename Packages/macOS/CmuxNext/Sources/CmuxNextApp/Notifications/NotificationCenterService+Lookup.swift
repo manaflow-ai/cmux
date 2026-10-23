@@ -40,15 +40,9 @@ extension NotificationCenterService {
         }
     }
 
-    static func tab(id: String, in store: DaemonStore) -> TabModel? {
-        for workspace in store.workspaces {
-            for screen in workspace.screens {
-                for pane in screen.panes {
-                    if let tab = pane.tabs.first(where: { $0.id == id }) { return tab }
-                }
-            }
-        }
-        return nil
+    static func tab(id: String, in store: DaemonStore) -> TabModel? { // perf-hot: 0.1ms key-dispatch (every key-down: noteTyping)
+        // The store's index: every keystroke looks its tab up here (noteTyping), so no walk over every tab.
+        store.tab(id: id)
     }
 
     func locate(surface: SurfaceID, in store: DaemonStore) -> LocatedTab? {
@@ -85,8 +79,8 @@ extension NotificationCenterService {
 
     /// The badge count now: the store's unread tabs and Home's unread conversations.
     func currentUnreadCount() -> Int {
-        let rows = services?.home.homeStore.rows ?? []
-        return Self.unreadCount(services?.daemon.store, homeUnread: rows.filter { $0.unread > 0 }.map(\.id.rawValue))
+        let home = services?.home.unreadConversations ?? []
+        return Self.unreadCount(services?.daemon.store, homeUnread: home.map(\.rawValue))
     }
 
     /// Sets the Dock tile's unread count. Compares with the label it set
@@ -110,7 +104,7 @@ extension NotificationCenterService {
         }
         return FeedHandoffDriver(
             daemon: .init(
-                serves: { daemon.isLocal && daemon.identity?.supports(DaemonCapabilities.shared.feedLocalOwner) == true },
+                serves: { daemon.isLocal && daemon.identity?.supports(DaemonCapabilities.feedLocalOwner) == true },
                 list: { state, unread in
                     try await connection().request(FeedLocalListRequest(state: state, unread: unread ? true : nil)).items
                 },
@@ -148,27 +142,82 @@ extension NotificationCenterService {
         Double(duration.components.seconds) + Double(duration.components.attoseconds) / 1e18
     }
 
-    /// Attention marks for `workspace`'s panes: every pane with an unread
-    /// tab, unless the workspace is muted or the style is `none`. The mark
-    /// changes with the newest notification, so its animation restarts;
+    /// Attention marks for `workspace`'s panes: every pane whose shown tab
+    /// reads unread (``TabModel/showsUnread``: an unread notification or Mark
+    /// as Unread, the value every unread dot reads; ``unreadRing(of:dismissed:)``),
+    /// unless the workspace is muted or the style is `none`. As
+    /// classic's ring lived on the notifying terminal, a pane showing a read
+    /// tab (a Markdown file) draws none; the unread tab's dot marks it. The
+    /// mark changes with the newest notification, so its animation restarts;
     /// its color is the notification source's override, if any.
-    func attentionMarks(for workspace: WorkspaceModel) -> [LayoutPaneID: AttentionMark] {
-        guard DesignSettings.shared.attention.style != .none, !preferences.mutedWorkspaces.contains(workspace.id) else { return [:] }
+    /// - Parameter shownTab: the tab id a window shows in the pane; nil
+    ///   falls back to ``shownTab(of:)``.
+    func attentionMarks(for workspace: WorkspaceModel,
+                        shownTab: @MainActor (PaneModel) -> String? = { _ in nil }) -> [LayoutPaneID: AttentionMark] {
+        let attention = DesignSettings.shared.attention
+        guard attention.style != .none, !preferences.mutedWorkspaces.contains(workspace.id) else { return [:] }
         let sameSession = dismissedHighlightSession == services?.daemon.identity?.session
         let dismissed = sameSession ? dismissedHighlights[workspace.id] ?? 0 : 0
         var marks: [LayoutPaneID: AttentionMark] = [:]
         for screen in workspace.screens {
             for pane in screen.panes {
-                let unread = pane.tabs.filter(\.hasUnread)
-                guard let newest = unread.max(by: { ($0.notification?.notification.rawValue ?? 0) < ($1.notification?.notification.rawValue ?? 0) }) else { continue }
-                let generation = newest.notification?.notification.rawValue ?? 1
-                // A dismissed highlight stays hidden until a newer notification arrives.
-                guard generation > dismissed else { continue }
-                let color = preferences.sources[source(of: newest)]?.color
-                marks[LayoutPaneID(pane.id)] = AttentionMark(color: color, generation: generation)
+                guard let id = shownTab(pane) ?? self.shownTab(of: pane), let shown = pane.tabs.first(where: { $0.id == id }) else { continue }
+                // Each kind of pane rings only when its setting is on: terminals by default,
+                // agent chats opt-in (`notifications.attention.agentChats`).
+                let agentChat = shown.agentSession != nil
+                guard attention.rings(agentChat: agentChat) else { continue }
+                // An agent chat whose turn ended rings until the person goes into it.
+                if let finished = agentFinished[shown.id] {
+                    marks[LayoutPaneID(pane.id)] = AttentionMark(color: preferences.sources[.agent]?.color, generation: finished,
+                                                                 agentChat: agentChat, quiet: quietAgentFinishes.contains(shown.id))
+                    continue
+                }
+                guard let generation = unreadRing(of: shown, dismissed: dismissed) else { continue }
+                // A marked tab with no notification has no source: the ring's own color.
+                let color = shown.hasUnread ? preferences.sources[source(of: shown)]?.color : nil
+                marks[LayoutPaneID(pane.id)] = AttentionMark(color: color, generation: generation, agentChat: agentChat)
             }
         }
         return marks
+    }
+
+    /// The generation of `tab`'s unread ring, or nil when it draws none: derived from the tab's
+    /// unread state alone, so Mark as Unread rings and every read clears with no ring code of
+    /// their own. An unread notification rings unless Dismiss Highlight hid it (`dismissed`, the
+    /// workspace's newest dismissed notification id); a manual mark rings unless this mark was
+    /// dismissed. A mark's generation sits above every notification id, so its ring restarts.
+    func unreadRing(of tab: TabModel, dismissed: UInt64) -> UInt64? {
+        guard tab.showsUnread else { return nil }
+        if tab.hasUnread {
+            let generation = tab.notification?.notification.rawValue ?? 1
+            if generation > dismissed { return generation }
+        }
+        guard tab.markedUnread, tab.markedUnreadGeneration > (dismissedMarks[tab.id] ?? 0) else { return nil }
+        return Self.markRingBase | tab.markedUnreadGeneration
+    }
+
+    /// The bit a marked tab's ring generation carries, apart from notification ids.
+    static let markRingBase: UInt64 = 1 << 63
+
+    /// Of the panes in `removed` (their mark just went away), those read because
+    /// the person went into them: their ring blinks out. Forgets the entry
+    /// reads of every tab in `workspace`, so a later mark starts clean.
+    func takeEntryReads(removed: Set<LayoutPaneID>, in workspace: WorkspaceModel) -> Set<LayoutPaneID> {
+        guard !entryReads.isEmpty else { return [] }
+        var entered: Set<LayoutPaneID> = []
+        for pane in workspace.screens.flatMap(\.panes) {
+            let read = pane.tabs.contains { entryReads.contains($0.id) }
+            if read, removed.contains(LayoutPaneID(pane.id)) { entered.insert(LayoutPaneID(pane.id)) }
+            for tab in pane.tabs { entryReads.remove(tab.id) }
+        }
+        return entered
+    }
+
+    /// The tab `pane` shows: the selection of the window that shows it, else the daemon's default tab.
+    func shownTab(of pane: PaneModel) -> String? {
+        if let selected = services?.paneController(for: pane)?.stripModel.selectedID { return selected.rawValue }
+        guard !pane.tabs.isEmpty else { return nil }
+        return pane.tabs[min(max(pane.defaultTabIndex, 0), pane.tabs.count - 1)].id
     }
 
     /// Whether `workspace` draws an attention ring now (the Dismiss Highlight item shows only then).
@@ -177,15 +226,20 @@ extension NotificationCenterService {
     }
 
     /// Dismiss Highlight (cx-epgo): hides `workspace`'s attention rings
-    /// until a newer notification arrives. The notifications stay unread
-    /// (the tab mark, the row badge and the Dock badge keep them).
+    /// until a newer notification arrives or a tab is marked unread again.
+    /// The tabs stay unread (the tab dot, the row badge and the Dock badge
+    /// keep them).
     func dismissHighlight(_ workspace: WorkspaceModel) {
-        let newest = workspace.screens.flatMap(\.panes).flatMap(\.tabs).filter(\.hasUnread)
-            .map { $0.notification?.notification.rawValue ?? 1 }.max() ?? 0
+        let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
+        let newest = tabs.filter(\.hasUnread).map { $0.notification?.notification.rawValue ?? 1 }.max() ?? 0
         let session = services?.daemon.identity?.session
         if session != dismissedHighlightSession {
             dismissedHighlights = [:]
             dismissedHighlightSession = session
+        }
+        for tab in tabs where agentFinished[tab.id] != nil { agentFinished[tab.id] = nil; quietAgentFinishes.remove(tab.id) }
+        for tab in tabs where tab.markedUnread && dismissedMarks[tab.id] != tab.markedUnreadGeneration {
+            dismissedMarks[tab.id] = tab.markedUnreadGeneration
         }
         guard newest > (dismissedHighlights[workspace.id] ?? 0) else { return }
         dismissedHighlights[workspace.id] = newest

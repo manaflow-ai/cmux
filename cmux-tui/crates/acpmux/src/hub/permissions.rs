@@ -102,9 +102,11 @@ impl Hub {
             return;
         }
         let kind = update.get("sessionUpdate").and_then(Value::as_str).unwrap_or("");
+        self.note_activity(session, update);
         // A mode or option change goes through the one setter below.
         let mut mode_write = None;
         let mut reported_tools = None;
+        let mut goal_write = false;
         let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
         match kind {
             "agent_message_chunk" => {
@@ -124,7 +126,11 @@ impl Hub {
                     m.preview = Some(preview);
                 }
             }
+            "tool_call" | "tool_call_update" => {
+                super::pull_requests::absorb(session, update, &mut m)
+            }
             "usage_update" => m.usage = Some(update.clone()),
+            "available_commands_update" => m.available_commands = Some(update.clone()),
             "current_mode_update" => {
                 mode_write = update.get("currentModeId").cloned().map(ModeWrite::CurrentMode);
             }
@@ -132,6 +138,10 @@ impl Hub {
                 mode_write = update.get("configOptions").cloned().map(ModeWrite::ConfigOptions);
             }
             "session_info_update" => {
+                if let Some(goal) = update.pointer("/_meta/goal") {
+                    m.goal = goal.as_object().map(|_| goal.clone());
+                    goal_write = true;
+                }
                 // A harness title made from the first input stops before a client context
                 // (prompt_context.rs), so a Cmd-I chat titles from the person's words.
                 if let Some(title) = update.get("title").and_then(Value::as_str) {
@@ -150,6 +160,10 @@ impl Hub {
             _ => {}
         }
         drop(m);
+        if goal_write {
+            // Goal state must survive a daemon restart even when the turn has not settled yet.
+            self.save_meta(session);
+        }
         if let Some(claude) = reported_tools {
             self.absorb_reported_tools(session, &claude);
         }
@@ -408,7 +422,7 @@ impl Hub {
     ) -> Value {
         // One harness-neutral copy of any questions, before rules and the
         // record see the request (questions.rs).
-        super::questions::normalize(&mut request);
+        super::questions::normalize(&mut request, Self::preview_format(session));
         let needs_person = super::questions::needs_person(&request);
         let (rx, prev, grouping, permission_id) = {
             let cfg = self.config.read().await;
@@ -535,16 +549,22 @@ impl Hub {
                 None
             };
             let decision_nonce = super::person::new_nonce();
+            let prev = session.status();
             state.pending.insert(
                 permission_id.clone(),
                 PendingPermission {
+                    // Who asked: acpmux itself (Grok's, Cursor's asks) or the agent.
+                    ancestor_may_answer: super::questions::ancestor_answerable(
+                        &request,
+                        agent_request_id.is_some(),
+                    ),
                     request: request.clone(),
                     reply: tx,
                     decision_nonce: decision_nonce.clone(),
+                    prev_status: prev,
                 },
             );
             self.append(session,"mux","permission_request",json!({"permissionId":permission_id,"decisionNonce":decision_nonce,"personInstance":self.person.instance(),"request":request,"groupId":grouping.as_ref().map(|(id,_)|id),"turnId":turn_id,"agentRequestId":agent_request_id,"remoteFloor":floored}));
-            let prev = session.status();
             self.set_status(session, SessionStatus::Waiting);
             (rx, prev, grouping, permission_id)
         };
@@ -557,20 +577,7 @@ impl Hub {
         // Who answered for the person (`hub/person.rs` answered_by): audit
         // only, never sent to the agent.
         let answered_by = outcome.as_object_mut().and_then(|o| o.remove(ANSWERED_BY_SLOT));
-        let mut decision = json!({"permissionId":permission_id,"outcome":outcome});
-        if let Some(by) = answered_by {
-            decision["answeredBy"] = by;
-        }
-        self.append(session, "mux", "permission_decision", decision);
-        {
-            let state = session.permissions.lock().unwrap();
-            if state.pending.is_empty()
-                && session.status() == SessionStatus::Waiting
-                && !self.secrets.waiting_in(&session.id)
-            {
-                self.set_status(session, status_after_ask(session, prev));
-            }
-        }
+        self.settle_permission(session, &permission_id, outcome.clone(), answered_by, prev);
         let mut out = json!({"outcome": outcome});
         if let Some(m) = out["outcome"].get("_meta").cloned() {
             out["_meta"] = m;
@@ -579,6 +586,32 @@ impl Hub {
             }
         }
         out
+    }
+
+    /// Logs the answer `outcome` to the prompt `permission_id` (the record the chat drops its
+    /// card on) and, once the session asks nothing else, takes back its Waiting status
+    /// (`status_after_ask` from `prev`, the status before the prompt). Every prompt this process
+    /// raised ends here, also a trust card withdrawn without its task (`trust_wait.rs`).
+    pub(super) fn settle_permission(
+        &self,
+        session: &Session,
+        permission_id: &str,
+        outcome: Value,
+        answered_by: Option<Value>,
+        prev: SessionStatus,
+    ) {
+        let mut decision = json!({"permissionId": permission_id, "outcome": outcome});
+        if let Some(by) = answered_by {
+            decision["answeredBy"] = by;
+        }
+        self.append(session, "mux", "permission_decision", decision);
+        let state = session.permissions.lock().unwrap();
+        if state.pending.is_empty()
+            && session.status() == SessionStatus::Waiting
+            && !self.secrets.waiting_in(&session.id)
+        {
+            self.set_status(session, status_after_ask(session, prev));
+        }
     }
 
     /// Answer a pending permission. `option_id = None` cancels. `answers`
@@ -623,6 +656,17 @@ impl Hub {
                     return Err(super::web_control::lasting_grant_refused(kind.unwrap_or("?")));
                 }
                 let is_reject = matches!(kind, Some("reject_once" | "reject_always"));
+                // A remote browser cannot trust a folder on this machine
+                // (`acp.trust.set` is refused for it too, `remote_guard.rs`).
+                if control == Control::Web
+                    && !is_reject
+                    && super::questions::trust_cwd(&p.request).is_some()
+                {
+                    return Err(RpcError::invalid_params(
+                        "trust.web_cannot_answer: trust the folder in the app or the CLI",
+                    )
+                    .with_data(json!({"reason": "trust.web_cannot_answer"})));
+                }
                 let denied = self.policy_for(session, cfg.permission_policy)
                     == PermissionPolicy::DenyAll
                     || session
@@ -653,7 +697,22 @@ impl Hub {
                     })
                 });
                 let allows = option_id.is_some() && !rejects;
-                if allows || answered_by.is_some() {
+                // An ancestor session's answer to a question
+                // (`subsession_answer.rs`): answers to a prompt recorded as a
+                // question when it was asked (`questions::ancestor_answerable`,
+                // never from its input's shape), with its one-time allow and
+                // the hub's own `answeredBy`; never a permission prompt, a
+                // lasting grant or a plan.
+                let ancestor_answers = answerer.ancestor.is_some()
+                    && answered_by.is_some()
+                    && answers.is_some()
+                    && p.ancestor_may_answer
+                    && super::questions::trust_cwd(&p.request).is_none()
+                    && option_id.as_deref().is_some_and(|o| {
+                        option_kind(p.request["options"].as_array().map_or(&[], Vec::as_slice), o)
+                            == Some("allow_once")
+                    });
+                if (allows || answered_by.is_some()) && !ancestor_answers {
                     let proved = match (&option_id, answerer.decision) {
                         (Some(o), Some((nonce, proof))) => {
                             answers.is_none()

@@ -31,13 +31,23 @@ pub(crate) struct PromptId {
     /// The id came from `--prompt-id`: the daemon also looks for it in the
     /// session's log, which outlives a daemon restart.
     pub resend: bool,
+    /// `--from`: the prompt is this agent's message (`_meta.acpmux.fromAgent`, `hub/digest.rs`).
+    pub from_agent: Option<String>,
+    /// `--supersede`: the same sender's prompt still queued under this key is replaced
+    /// (`_meta.acpmux.supersede`, `hub/supersede.rs`).
+    pub supersede: Option<String>,
 }
 
 impl PromptId {
     pub(crate) fn new(given: Option<String>) -> Self {
         match given {
-            Some(id) => Self { id, resend: true },
-            None => Self { id: uuid::Uuid::now_v7().to_string(), resend: false },
+            Some(id) => Self { id, resend: true, from_agent: None, supersede: None },
+            None => Self {
+                id: uuid::Uuid::now_v7().to_string(),
+                resend: false,
+                from_agent: None,
+                supersede: None,
+            },
         }
     }
 
@@ -53,6 +63,12 @@ impl PromptId {
         let mut mux = json!({"steer": steer, "promptId": self.id, "resend": self.resend});
         if let Some(p) = provenance {
             mux["provenance"] = p.clone();
+        }
+        if let Some(name) = &self.from_agent {
+            mux["fromAgent"] = json!(name);
+        }
+        if let Some(key) = &self.supersede {
+            mux["supersede"] = json!(key);
         }
         json!({"sessionId": session, "prompt": [{"type": "text", "text": text}], "_meta": {"acpmux": mux}})
     }
@@ -120,6 +136,22 @@ pub(crate) async fn queue_prompt(
             }
         }
     }
+}
+
+/// What `acpmux send --no-wait` prints for its acceptance.
+/// With `--supersede`, a second line says how many of the sender's queued prompts it replaced.
+pub(crate) fn sent_lines(accepted: &Value, supersede: bool) -> Vec<String> {
+    let steered = accepted.get("steer") == Some(&json!(true));
+    let mut lines = vec![if steered { "steered" } else { "queued" }.to_owned()];
+    if supersede {
+        // An older daemon (or a peer running one) ignores the key and says nothing.
+        lines.push(match accepted.get("replaced").and_then(Value::as_u64) {
+            Some(n) => format!("replaced {n} queued"),
+            None => "replaced ? queued (the daemon did not report it; it may predate --supersede)"
+                .to_owned(),
+        });
+    }
+    lines
 }
 
 pub(crate) fn print_json(v: &Value) {
@@ -698,12 +730,78 @@ async fn collect_once(
     Ok(CollectResult { reply, stop_reason, permissions_asked: asked, permissions_denied: denied })
 }
 
+/// The most JSON a page of the daemon's log may hold (`_acpmux/attach` `maxBytes`; it
+/// defaults to 1 MiB). A reply is read from the newest transcript records, a page at a time;
+/// raw harness lines are left out so they cannot crowd the turn out of it.
+const TRANSCRIPT_PAGE_BYTES: usize = 4 << 20;
+
 /// The assistant reply of one turn, read from the session's log: the last
 /// assistant item between that turn's start and its result.
 async fn turn_reply(client: &Arc<Client>, id: &str, turn: &str) -> Result<String> {
-    let v = client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 5000})).await?;
-    let events = v.get("events").and_then(Value::as_array).cloned().unwrap_or_default();
+    // Transcript records only, in the largest page the daemon gives (`TRANSCRIPT_PAGE_BYTES`).
+    let page = json!({
+        "sessionId": id, "limit": 5000, "kinds": ["transcript"], "maxBytes": TRANSCRIPT_PAGE_BYTES
+    });
+    let events = with_older(client, page).await?;
     Ok(reply_of_turn(&events, turn))
+}
+
+fn page_events(page: &Value) -> (Vec<Value>, bool) {
+    let events = page.get("events").and_then(Value::as_array).cloned().unwrap_or_default();
+    (events, page.get("hasMore").and_then(Value::as_bool).unwrap_or(false))
+}
+
+/// The newest `limit` events of a chat, oldest first: the attach `query` names (`sessionId`,
+/// `limit`, and any `kinds` or `maxBytes`), then the older pages before it with the same filter,
+/// since one reply holds at most `hub::MAX_PAGE_BYTES`.
+pub(crate) async fn with_older(client: &Arc<Client>, query: Value) -> Result<Vec<Value>> {
+    let limit = query.get("limit").and_then(Value::as_u64).unwrap_or(0) as usize;
+    let (mut events, mut more) =
+        page_events(&client.request(method::MUX_ATTACH, query.clone()).await?);
+    while more && events.len() < limit {
+        let Some(first) = events.first().and_then(|e| e.get("seq")).and_then(Value::as_u64) else {
+            break;
+        };
+        let mut older = query.clone();
+        older["beforeSeq"] = json!(first);
+        older["limit"] = json!(limit - events.len());
+        let (older, has_more) = page_events(&client.request(method::MUX_EVENTS, older).await?);
+        if older.is_empty() {
+            break;
+        }
+        more = has_more;
+        events.splice(0..0, older);
+    }
+    Ok(events)
+}
+
+/// Up to `limit` events of a chat after seq `after`, oldest first, a page of at most 100000 at a
+/// time.
+pub(crate) async fn events_after(
+    client: &Arc<Client>,
+    id: &str,
+    mut after: u64,
+    limit: usize,
+) -> Result<Vec<Value>> {
+    let mut events = Vec::new();
+    while events.len() < limit {
+        let v = client
+            .request(
+                method::MUX_EVENTS,
+                json!({"sessionId": id, "afterSeq": after, "limit": (limit - events.len()).min(100_000)}),
+            )
+            .await?;
+        let (page, more) = page_events(&v);
+        let Some(last) = page.last().and_then(|e| e.get("seq")).and_then(Value::as_u64) else {
+            break;
+        };
+        after = last;
+        events.extend(page);
+        if !more {
+            break;
+        }
+    }
+    Ok(events)
 }
 
 fn reply_of_turn(events: &[Value], turn: &str) -> String {
@@ -737,9 +835,12 @@ pub(crate) async fn last_replies(
     id: &str,
     count: usize,
 ) -> Result<Vec<String>> {
-    let v = client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 5000})).await?;
+    // Transcript records only, in the largest page the daemon gives (`TRANSCRIPT_PAGE_BYTES`).
+    let page = json!({
+        "sessionId": id, "limit": 5000, "kinds": ["transcript"], "maxBytes": TRANSCRIPT_PAGE_BYTES
+    });
     let mut t = Transcript::default();
-    for e in v.get("events").and_then(Value::as_array).cloned().unwrap_or_default() {
+    for e in with_older(client, page).await? {
         t.apply_event(&e);
     }
     let mut out: Vec<String> = t
@@ -804,6 +905,66 @@ mod prompt_tests {
         (hub, client, dir)
     }
 
+    /// `acpmux send --supersede KEY`: the same sender's queued prompt under KEY is replaced, and
+    /// the sender is told how many.
+    #[tokio::test]
+    async fn a_send_with_supersede_replaces_the_senders_queued_prompt_under_that_key() {
+        let (hub, client, dir) = daemon().await;
+        let s = client
+            .request(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": []}))
+            .await
+            .unwrap();
+        let id = s["sessionId"].as_str().unwrap().to_owned();
+        let keyed = |key: &str| {
+            let mut p = PromptId::new(None);
+            p.from_agent = Some("lane-a".into());
+            p.supersede = Some(key.into());
+            p
+        };
+        // "slow" streams for about a second, so the two after it queue.
+        queue_prompt(client.clone(), &id, "slow", false, None, &PromptId::new(None)).await.unwrap();
+        let old = keyed("cause-1b");
+        let first = queue_prompt(client.clone(), &id, "order", false, None, &old).await.unwrap();
+        assert_eq!(first["queued"], true, "{first}");
+        assert_eq!(sent_lines(&first, true), ["queued", "replaced 0 queued"]);
+        let new = keyed("cause-1b");
+        let second =
+            queue_prompt(client.clone(), &id, "correction", false, None, &new).await.unwrap();
+        assert_eq!(second["replaced"], 1, "{second}");
+        assert_eq!(second["replacedPromptIds"], json!([old.id]), "{second}");
+        assert_eq!(sent_lines(&second, true), ["queued", "replaced 1 queued"]);
+        // Without --supersede the output is as before.
+        assert_eq!(sent_lines(&second, false), ["queued"]);
+        let removed = hub
+            .events(&id, 0, 1000)
+            .unwrap()
+            .into_iter()
+            .filter(|e| e.kind == "queue_removed")
+            .map(|e| e.msg)
+            .collect::<Vec<_>>();
+        assert_eq!(removed.len(), 1, "{removed:?}");
+        assert_eq!(removed[0]["promptId"], old.id.as_str());
+        assert_eq!(removed[0]["reason"], "superseded");
+        drop(dir);
+    }
+
+    /// A daemon that predates the key says nothing about it: the count is unknown, not 0.
+    #[test]
+    fn an_unreported_count_is_unknown() {
+        let lines = sent_lines(&json!({"queued": true}), true);
+        assert_eq!(lines[0], "queued");
+        assert!(lines[1].starts_with("replaced ? queued"), "{lines:?}");
+    }
+
+    #[test]
+    fn a_supersede_key_goes_in_the_prompts_meta() {
+        let mut p = PromptId::new(None);
+        assert!(p.params("s", "t", false, None).pointer("/_meta/acpmux/supersede").is_none());
+        p.supersede = Some("k".into());
+        let params = p.params("s", "t", false, None);
+        assert_eq!(params.pointer("/_meta/acpmux/supersede"), Some(&json!("k")));
+    }
+
     #[tokio::test]
     async fn queue_prompt_returns_on_acceptance_while_the_turn_runs() {
         let (hub, client, dir) = daemon().await;
@@ -820,12 +981,48 @@ mod prompt_tests {
         let session = hub.resolve(&id).unwrap();
         assert!(session.turn().is_some(), "the turn should still be running");
         // The same id again is answered by the first run, not a second turn.
-        let again = PromptId { id: prompt.id.clone(), resend: true };
+        let again = PromptId { resend: true, ..prompt.clone() };
         let dup = queue_prompt(client.clone(), &id, "slow", false, None, &again).await.unwrap();
         assert_eq!(dup["duplicate"], true);
         let user_messages =
             hub.events(&id, 0, 1000).unwrap().iter().filter(|e| e.kind == "user_message").count();
         assert_eq!(user_messages, 1);
+        drop(dir);
+    }
+
+    /// A reply holds at most `hub::MAX_PAGE_BYTES` of a chat's history: the CLI reads on through
+    /// the older pages for the replies it asked for, past 12 MB of tool output.
+    #[tokio::test]
+    async fn the_last_reply_is_found_behind_more_than_a_page_of_output() {
+        let (hub, client, dir) = daemon().await;
+        let s = client
+            .request(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": []}))
+            .await
+            .unwrap();
+        let id = s["sessionId"].as_str().unwrap().to_owned();
+        let session = hub.resolve(&id).unwrap();
+        let update = |update: Value| json!({"jsonrpc": "2.0", "method": method::SESSION_UPDATE, "params": {"sessionId": "agent-1", "update": update}});
+        let text = |text: String| json!({"type": "text", "text": text});
+        hub.append(
+            &session,
+            "in",
+            "agent_message_chunk",
+            update(json!({"sessionUpdate": "agent_message_chunk", "content": text("the reply".into())})),
+        );
+        for n in 0..12 {
+            hub.append(
+                &session,
+                "in",
+                "tool_call_update",
+                update(json!({"sessionUpdate": "tool_call_update", "toolCallId": format!("call-{n}"),
+                    "status": "completed", "content": [{"type": "content", "content": text("x".repeat(1 << 20))}]})),
+            );
+        }
+        assert_eq!(last_replies(&client, &id, 1).await.unwrap(), vec!["the reply".to_owned()]);
+        // `session tail --since`: every event after the cursor, through the newest.
+        let after = events_after(&client, &id, 0, 100000).await.unwrap();
+        assert_eq!(after.last().unwrap()["seq"], session.meta().last_seq);
+        assert!(after.len() > 13, "{} events", after.len());
         drop(dir);
     }
 

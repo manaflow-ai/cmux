@@ -13,6 +13,7 @@
 //! Nothing outside this file knows the Claude wire format.
 
 use crate::config::HarnessProfile;
+use crate::no_panic::JsonExt;
 use crate::rpc::{Id, Message, RpcError, method};
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
@@ -31,21 +32,23 @@ pub fn steers_by_info(info: Option<&Value>) -> bool {
     info.and_then(|i| i.get("name")).and_then(Value::as_str) == Some(AGENT_NAME)
 }
 
-/// Claude mode ids, offered as ACP session modes.
-/// Claude's own modes. acceptEdits is not offered: acpmux's policy answers
-/// permission prompts itself, so `perms approve-edits` covers it for every
-/// harness. Plan and auto change what Claude does, so they stay.
-/// bypassPermissions ("Full access") is the mode a new chat starts in
+/// Claude Code's own permission modes, offered as ACP session modes: id
+/// (Claude Code's `--permission-mode` value), label and one-line description,
+/// in the order Claude Code's mode menu lists them. acpmux names none of its
+/// own: the menu reads these as they come. Auto is the one Claude Code
+/// recommends.
+/// bypassPermissions is the mode a new chat starts in
 /// (`hub/start_mode.rs`, cx-wx93i): Claude Code itself skips every
 /// permission check, so nothing asks. Claude Code accepts it only from a
 /// process launched with `--allow-dangerously-skip-permissions`
 /// (`spawn_plan`, `bypass_allowed`); elsewhere the switch is refused and
 /// the chat keeps its mode.
-pub(crate) const MODES: [(&str, &str); 4] = [
-    ("default", "Normal"),
-    ("plan", "Plan"),
-    ("auto", "Auto"),
-    ("bypassPermissions", "Full access"),
+pub(crate) const MODES: [(&str, &str, &str); 5] = [
+    ("auto", "Auto", "Claude handles permission decisions"),
+    ("default", "Manual", "Always ask before making changes"),
+    ("acceptEdits", "Accept edits", "Automatically accept all file edits"),
+    ("plan", "Plan", "Create a plan before making changes"),
+    ("bypassPermissions", "Bypass permissions", "Accepts all permissions"),
 ];
 
 /// The launch flag that lets a running Claude Code switch to
@@ -191,6 +194,7 @@ mod inbound;
 mod outbound;
 #[cfg(test)]
 mod steer_now_tests;
+mod subagent_route;
 #[cfg(test)]
 mod subagent_tests;
 #[cfg(test)]
@@ -204,6 +208,14 @@ mod workflows;
 /// `stop_task` control request. The answer is `{}` once Claude Code took it;
 /// the task's end arrives as its own event.
 pub const STOP_TASK: &str = "_acpmux/claude/stop_task";
+
+/// The internal ACP request that moves Claude Code's running work to the
+/// background (Ctrl-B, `hub/processes.rs`), `{sessionId, toolCallId?}`:
+/// Claude Code's `background_tasks` control request, for the task the tool
+/// call started or, without one, every foreground task. Answers
+/// `{backgrounded}`; the shells it moved arrive as their own events, with
+/// origin `user_backgrounded`.
+pub const BACKGROUND_TASKS: &str = "_acpmux/claude/background_tasks";
 
 /// The refusal of a steered prompt when no turn is running (the turn ended
 /// between the hub's check and the adapter).
@@ -276,7 +288,7 @@ pub fn spawn_plan(
         args.push("--model".into());
         args.push(m.into());
     }
-    // Lets the chat switch to bypassPermissions ("Full access") later; a
+    // Lets the chat switch to bypassPermissions ("Bypass permissions") later; a
     // process that cannot take it is never given bypassPermissions at spawn.
     let bypass = bypass_allowed(profile);
     if bypass {
@@ -374,6 +386,11 @@ pub struct Translator {
     /// Agent tool call of a subagent's stream ("" for the chat's): its text
     /// chunks' `messageId`, so a steer's answer starts its own row (cx-f51kv).
     message_ids: Mutex<HashMap<String, String>>,
+    /// The subagents (by Agent tool call) whose text or thinking came as
+    /// stream events. Claude Code sends a subagent's output as whole
+    /// `assistant` lines only, so for every other subagent those lines carry
+    /// its text and thinking; one that streams is not sent them twice.
+    streamed_subagents: Mutex<HashSet<String>>,
     /// Running file edits: tool_use id -> their ACP diff content, which their
     /// completion carries again so the diff outlives the tool's text result.
     edits: Mutex<HashMap<String, Value>>,
@@ -397,6 +414,9 @@ struct BackgroundShell {
     background: bool,
     /// Started in the background (`run_in_background`), not moved there.
     launched: bool,
+    /// The person asked for it to go to the background (`BACKGROUND_TASKS`):
+    /// once it moves, its origin is `user_backgrounded`.
+    asked: bool,
     /// Its `running` update went out (`inbound.rs` `running`).
     announced: bool,
     /// The file Claude Code writes its output to (`output_file`), once a
@@ -413,6 +433,11 @@ enum Pending {
     Control(Setting, String),
     /// A `stop_task` (`STOP_TASK`), answered when claude takes it.
     StopTask,
+    /// A `background_tasks` (`BACKGROUND_TASKS`), with the shells it marked
+    /// `asked` and when the hub stops waiting for it (its `timeoutMs`):
+    /// `end_background_asks` unmarks them when nothing moved, at that
+    /// deadline, or when the turn ends.
+    Background(Vec<String>, Option<std::time::Instant>),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -457,6 +482,7 @@ impl Translator {
             awaiting_summary: AtomicBool::new(false),
             loop_model: Mutex::new(String::new()),
             message_ids: Mutex::new(HashMap::new()),
+            streamed_subagents: Mutex::new(HashSet::new()),
             edits: Mutex::new(HashMap::new()),
             announced: Mutex::new(HashMap::new()),
         })
@@ -494,6 +520,45 @@ impl Translator {
             .collect()
     }
 
+    /// Ends the `background_tasks` requests `ended` picks by ACP id and
+    /// deadline (Ctrl-B). When Claude Code `moved` their work, their shells
+    /// stay the person's: no other request's end unmarks them. Otherwise
+    /// each loses its `asked` mark, unless it is in the background already
+    /// (it moved while asked) or a request still waiting names it.
+    async fn end_background_asks(
+        &self,
+        moved: bool,
+        ended: impl Fn(&str, Option<std::time::Instant>) -> bool,
+    ) {
+        let mut pending = self.pending.lock().await;
+        let mut shells = Vec::new();
+        pending.retain(|id, p| match p {
+            Pending::Background(asked, deadline) if ended(id.as_str(), *deadline) => {
+                shells.append(asked);
+                false
+            }
+            _ => true,
+        });
+        let waiting = pending.values_mut().filter_map(|p| match p {
+            Pending::Background(asked, _) => Some(asked),
+            _ => None,
+        });
+        if moved {
+            for asked in waiting {
+                asked.retain(|tool| !shells.contains(tool));
+            }
+            return;
+        }
+        let waiting: HashSet<String> = waiting.flat_map(|asked| asked.iter().cloned()).collect();
+        drop(pending);
+        let mut all = self.background_shells.lock().await;
+        for tool in shells.iter().filter(|tool| !waiting.contains(*tool)) {
+            if let Some(shell) = all.get_mut(tool).filter(|s| !s.background) {
+                shell.asked = false;
+            }
+        }
+    }
+
     pub async fn take_stdin_replies(&self) -> Vec<Value> {
         std::mem::take(&mut *self.stdin_replies.lock().await)
     }
@@ -516,7 +581,7 @@ impl Translator {
                 if !name.is_empty()
                     && skills.iter().any(|s| s.strip_prefix('/').unwrap_or(s.as_str()) == name)
                 {
-                    entry["_meta"] = json!({"kind": "skill"});
+                    entry.set("_meta", json!({"kind": "skill"}));
                 }
                 entry
             })
@@ -536,7 +601,7 @@ impl Translator {
     pub async fn modes_value(&self) -> Value {
         json!({
             "currentModeId": *self.mode.lock().await,
-            "availableModes": MODES.iter().map(|(id, name)| json!({"id": id, "name": name})).collect::<Vec<_>>(),
+            "availableModes": MODES.iter().map(|(id, name, description)| json!({"id": id, "name": name, "description": description})).collect::<Vec<_>>(),
         })
     }
 
@@ -546,7 +611,7 @@ impl Translator {
             {"id": "model", "name": "Model", "type": "select", "category": "model", "currentValue": *self.model.lock().await,
              "options": models().iter().map(|(v, n)| json!({"value": v, "name": n})).collect::<Vec<_>>()},
             {"id": "mode", "name": "Permission mode", "type": "select", "category": "mode", "currentValue": *self.mode.lock().await,
-             "options": MODES.iter().map(|(v, n)| json!({"value": v, "name": n})).collect::<Vec<_>>()},
+             "options": MODES.iter().map(|(v, n, d)| json!({"value": v, "name": n, "description": d})).collect::<Vec<_>>()},
             {"id": "effort", "name": "Reasoning", "type": "select", "category": "thought_level", "currentValue": shown_level(&effort),
              "options": EFFORTS.iter().map(|(v, n)| json!({"value": v, "name": n})).collect::<Vec<_>>()},
             {"id": ULTRACODE_OPTION, "name": "Ultracode", "type": "select", "category": "model_config",
@@ -582,9 +647,9 @@ pub(crate) fn tool_call_fields(name: &str, input: &Value) -> Value {
 /// Adds a file edit's diff and location to its ACP tool call.
 fn with_edit(call: &mut Value, name: &str, input: &Value) {
     if let Some(diffs) = edit_diffs(name, input) {
-        call["content"] = diffs;
+        call.set("content", diffs);
         if let Some(locations) = tool_locations(input) {
-            call["locations"] = locations;
+            call.set("locations", locations);
         }
     }
 }
@@ -603,7 +668,10 @@ fn tool_kind(name: &str) -> &'static str {
 
 /// A file edit's ACP `diff` content: one diff per Edit or MultiEdit
 /// replacement, and Write as the whole file (no old text). None for any other
-/// tool, or input without a path.
+/// tool, or input without a path. A Write is marked a fragment until its result
+/// says what it did (`settle_write`): a diff with no old text reads as a file the
+/// turn created, which Undo moves to the Trash, and a Write over a file that was
+/// there, or one whose result never arrives, must not read that way.
 fn edit_diffs(name: &str, input: &Value) -> Option<Value> {
     let path = input.get("file_path").and_then(Value::as_str)?;
     let diff = |old: Option<&Value>, new: Option<&Value>| json!({"type": "diff", "path": path, "oldText": old.cloned().unwrap_or(Value::Null), "newText": new.cloned().unwrap_or_else(|| json!(""))});
@@ -615,10 +683,55 @@ fn edit_diffs(name: &str, input: &Value) -> Option<Value> {
             .iter()
             .map(|e| diff(e.get("old_string"), e.get("new_string")))
             .collect(),
-        "Write" => vec![diff(None, input.get("content"))],
+        "Write" => {
+            let mut write = diff(None, input.get("content"));
+            write.set("_meta", json!({"acpmux": {"fragment": true}}));
+            vec![write]
+        }
         _ => return None,
     };
     Some(Value::Array(diffs))
+}
+
+/// The most of a Write's old text a settled diff carries: a bigger file stays a
+/// fragment rather than doubling a multi-megabyte update (as adopt's limit).
+const MAX_WRITE_OLD_TEXT: usize = 64_000;
+
+/// A finished Write's diff, sent as a fragment with no old text (`edit_diffs`)
+/// before Claude Code said whether the file was there. `result` is Claude Code's
+/// structured result (`tool_use_result` live, `toolUseResult` in a transcript),
+/// `text` the tool_result's text. A Write that created its file loses the
+/// fragment mark: it reads as new, and Undo may trash it. An overwrite whose
+/// result names this file and holds its old text (`originalFile`, within the
+/// limit) takes that text and loses the mark. Anything else stays a fragment, so
+/// nothing is written back from it.
+pub(crate) fn settle_write(mut diffs: Value, text: &str, result: Option<&Value>) -> Value {
+    let field = |key: &str| result.and_then(|r| r.get(key)).and_then(Value::as_str);
+    let Some(items) = diffs.as_array_mut() else { return diffs };
+    let held = |d: &Value| {
+        d.get("oldText").is_some_and(Value::is_null)
+            && d.pointer("/_meta/acpmux/fragment") == Some(&json!(true))
+    };
+    for diff in items.iter_mut().filter(|d| held(d)) {
+        let ours = field("filePath").is_some()
+            && field("filePath") == diff.get("path").and_then(Value::as_str);
+        let created = if ours && field("type").is_some() {
+            field("type") == Some("create")
+        } else {
+            text.trim_start().starts_with("File created successfully")
+        };
+        let original = field("originalFile").filter(|o| ours && o.len() <= MAX_WRITE_OLD_TEXT);
+        if !created && original.is_none() {
+            continue;
+        }
+        if let Some(original) = original.filter(|_| !created) {
+            diff.set("oldText", json!(original));
+        }
+        if let Some(fields) = diff.as_object_mut() {
+            fields.remove("_meta");
+        }
+    }
+    diffs
 }
 
 /// The file a tool reads or writes, as ACP `locations`.
@@ -668,7 +781,7 @@ pub(super) fn session_rules(suggestions: &Value) -> Option<Value> {
         })
         .map(|s| {
             let mut s = s.clone();
-            s["destination"] = json!("session");
+            s.set("destination", json!("session"));
             s
         })
         .collect();

@@ -291,7 +291,9 @@ jobs:
           printf '%s' "$IOS_DISTRIBUTION_CERTIFICATE_BASE64" | base64 --decode > "$cert"
           security delete-keychain "$keychain" >/dev/null 2>&1 || true
           security create-keychain -p "$password" "$keychain"
-          security set-keychain-settings -lut 21600 "$keychain"
+          # Idle lock within the job timeout (75 min); signing ends long before it
+          # (tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py).
+          security set-keychain-settings -lut 3600 "$keychain"
           security unlock-keychain -p "$password" "$keychain"
           security import "$cert" -k "$keychain" -P "$IOS_DISTRIBUTION_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
           rm -f "$cert"

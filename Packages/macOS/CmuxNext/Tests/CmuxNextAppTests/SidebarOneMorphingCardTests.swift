@@ -63,8 +63,14 @@ import Testing
         var card: SidebarUpdateCardView { sidebar.updateCardView }
         var cards: HoverCardCoordinator { sidebar.hoverCards }
 
-        /// The card windows on screen beside the sidebar.
-        var shownCards: [NSWindow] { (window.childWindows ?? []).filter { $0.isVisible && $0.alphaValue > 0.01 } }
+        /// The card windows on screen beside the sidebar. A hover card being shown counts even at
+        /// alpha 0, the first frame of its fade-in on a host where the fade runs; any other window
+        /// (a card fading out among them) counts until it is clear.
+        var shownCards: [NSWindow] {
+            (window.childWindows ?? []).filter {
+                $0.isVisible && ($0.alphaValue > 0.01 || ($0 as? HoverCardPanel)?.isShowingCard == true)
+            }
+        }
 
         func tearDown() {
             card.hideNotes()
@@ -149,6 +155,21 @@ import Testing
         #expect(h.cards.isShowing(Row.id), "the workspace card did not come back")
         #expect(!h.card.notesAreShown, "the update highlights stay open behind the workspace card")
         #expect(h.shownCards.count == 1, "the workspace card opened a second card beside the update card")
+    }
+
+    /// A card's first show fades in from clear (`HoverCardMotion.enter`). Where the fade runs (a
+    /// fleet worker with a screen attached, a person's Mac), a card read in the same turn as its
+    /// show is still at alpha 0, and the suite saw no card at all: about one run in five on the
+    /// fleet failed every case here with `shownCards.count → 0` right after `isShowing` passed.
+    /// A card fading in is on screen; one fading out still counts until it is clear.
+    @Test func aCardStillFadingInCountsAsOnScreen() async throws {
+        let h = try await make()
+        defer { h.tearDown() }
+        h.cards.pin(h.row.target, from: h.row)
+        try #require(h.cards.isShowing(Row.id), "the workspace card did not show")
+        let panel = try #require(h.cards.panel)
+        panel.alphaValue = 0 // the fade's first frame on a host where it animates
+        #expect(h.shownCards.count == 1, "a card fading in reads as no card")
     }
 
     @Test func goingFromAWorkspaceCardToTheUpdateCardMorphsTheOneCard() async throws {

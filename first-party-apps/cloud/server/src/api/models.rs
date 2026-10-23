@@ -262,6 +262,18 @@ impl From<Revision> for String {
     }
 }
 
+impl Ord for Revision {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.0.len().cmp(&other.0.len()).then_with(|| self.0.cmp(&other.0))
+    }
+}
+
+impl PartialOrd for Revision {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{ConnectInfo, DaemonInfo, MachineStatus, Peer, Revision};
@@ -303,7 +315,10 @@ mod tests {
             r#"{"id":"vm-1","revision":"2","platform":{"os":"linux","arch":"x86_64"},"capabilities":["terminal","agent_session"]}"#,
         )
         .expect("machine metadata decodes");
-        assert_eq!(machine.platform.as_ref().and_then(|platform| platform.os.as_deref()), Some("linux"));
+        assert_eq!(
+            machine.platform.as_ref().and_then(|platform| platform.os.as_deref()),
+            Some("linux")
+        );
         assert!(machine.has_capability("agent_session"));
         assert!(!machine.has_capability("provider_secret"));
 
@@ -311,17 +326,5 @@ mod tests {
             .expect("older machine decodes");
         assert!(older.platform.is_none());
         assert!(older.capabilities.is_empty());
-    }
-}
-
-impl Ord for Revision {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.0.len().cmp(&other.0.len()).then_with(|| self.0.cmp(&other.0))
-    }
-}
-
-impl PartialOrd for Revision {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
     }
 }

@@ -1301,6 +1301,137 @@
         }
       }
     },
+    "rooms.refusal.defaultsRequired" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "a cwd or env argument is required; pass both empty to clear the defaults"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "مطلوب وسيط cwd أو env؛ مرّر كليهما فارغين لمسح الإعدادات الافتراضية"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "potreban je argument cwd ili env; proslijedite oba prazna da obrišete zadane postavke"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "et cwd- eller env-argument er påkrævet; angiv begge tomme for at rydde standarderne"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ein cwd- oder env-Argument ist erforderlich; übergib beide leer, um die Standardwerte zu löschen"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "se requiere un argumento cwd o env; pasa ambos vacíos para borrar los valores predeterminados"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "un argument cwd ou env est requis ; passez-les tous deux vides pour effacer les valeurs par défaut"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "è richiesto un argomento cwd o env; passali entrambi vuoti per cancellare i valori predefiniti"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cwd または env 引数が必要です。既定値を消去するには両方を空で渡してください"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ត្រូវការអាគុយម៉ង់ cwd ឬ env; ផ្ញើទាំងពីរទទេ ដើម្បីសម្អាតលំនាំដើម"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cwd 또는 env 인수가 필요합니다. 기본값을 지우려면 둘 다 비워서 전달하세요"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "et cwd- eller env-argument kreves; send begge tomme for å fjerne standardene"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "wymagany jest argument cwd lub env; przekaż oba puste, aby wyczyścić wartości domyślne"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "é necessário um argumento cwd ou env; passe ambos vazios para limpar os padrões"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "требуется аргумент cwd или env; передайте оба пустыми, чтобы сбросить значения по умолчанию"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ต้องระบุอาร์กิวเมนต์ cwd หรือ env; ส่งทั้งสองค่าว่างเพื่อล้างค่าเริ่มต้น"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cwd veya env bağımsız değişkeni gerekli; varsayılanları temizlemek için ikisini de boş geçin"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "потрібен аргумент cwd або env; передайте обидва порожніми, щоб очистити типові значення"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cần đối số cwd hoặc env; truyền cả hai rỗng để xóa giá trị mặc định"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "需要 cwd 或 env 参数；两者都传空值即可清除默认值"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "需要 cwd 或 env 參數；兩者都傳空值即可清除預設值"
+          }
+        }
+      }
+    },
     "rooms.refusal.envMustBeObject" : {
       "extractionState" : "manual",
       "localizations" : {

@@ -24,10 +24,30 @@ enum HibernationHandlers {
             case _?: context.refuse(RefusalStrings.hibernateVisibleTab)
             }
         })
+        registry.bind("neverHibernateSite", invoke: { invocation in
+            guard let (_, id) = context.tab(invocation), let hibernation = context.services.cache.hibernation else { return }
+            guard let host = hibernation.host(of: id.rawValue) else { return context.refuse(RefusalStrings.neverHibernateNoSite) }
+            neverHibernate(host: host, context)
+        })
         registry.bind("wakeTab", invoke: { invocation in
             guard let (_, id) = context.tab(invocation), let hibernation = context.services.cache.hibernation else { return }
             if !hibernation.wake(id.rawValue) { context.refuseQuietly(RefusalStrings.wakeNotHibernated) }
         })
+    }
+
+    /// Adds `host` to `browser.hibernationExclusions`: applies at once (a hibernated page of it
+    /// stays as it is until shown), then writes cmux.json.
+    private static func neverHibernate(host: String, _ context: AppActionContext) {
+        let services = context.services
+        if let hibernation = services.cache.hibernation {
+            hibernation.apply(hibernation.setting.addingExclusion(host: host))
+        }
+        guard let settings = services.settings else { return }
+        Task {
+            do { try await settings.addBrowserHibernationExclusion(host: host) } catch {
+                logger.error("add browser.hibernationExclusions failed: \(String(describing: error), privacy: .public)")
+            }
+        }
     }
 
     /// `browser.keepNeighborTabsAwake`: applies at once, then writes cmux.json.

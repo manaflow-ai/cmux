@@ -27,6 +27,22 @@ Before `NIGHTLY_NEXT_TRAIN=on`:
    changes workflow files against nightly-next, and `GITHUB_TOKEN` cannot push
    those; the release App (contents and workflows write) pushes the
    `nightly-train/*` refs.
+
+   The environment, its branch policy and the two secrets, in one paste (the
+   App ID and the App's private key file come from the release App's settings):
+
+   ```bash
+   gh api -X PUT repos/manaflow-ai/cmux/environments/nightly-next-train \
+     -F 'deployment_branch_policy[protected_branches]=false' \
+     -F 'deployment_branch_policy[custom_branch_policies]=true'
+   gh api -X POST repos/manaflow-ai/cmux/environments/nightly-next-train/deployment-branch-policies \
+     -f name=feat-cmux-next
+   gh secret set CMUX_RELEASE_APP_ID -R manaflow-ai/cmux --env nightly-next-train --body "$CMUX_RELEASE_APP_ID"
+   gh secret set CMUX_RELEASE_APP_KEY -R manaflow-ai/cmux --env nightly-next-train < release-app.private-key.pem
+   ```
+
+   No required reviewers: the canary verdict and the train's Release compile
+   (G2') are the gate.
 2. Land the main mirror: main's `nightly.yml` promote job, the promote guard,
    `scripts/ci/nightly_next_train.py` (the guard runs its `verify`), the tick,
    the canary, and the dispatch stubs of `nightly-next-train.yml` and

@@ -14,6 +14,9 @@ public nonisolated struct BrowserMediaState: Hashable, Sendable {
     /// Muted, or at volume 0.
     public var isMuted: Bool
     public var isVideo: Bool
+    /// The page's video floats in Picture in Picture (Chromium's PiP window,
+    /// WebKit's presentation mode); it plays on while the tab is hidden.
+    public var isPictureInPicture: Bool
     /// The reporting frame keeps the tab muted (`BrowserAudioMuting`).
     public var isTabMuted: Bool
     /// The `mediaSession` actions the page handles (`nexttrack`, ...).
@@ -29,8 +32,9 @@ public nonisolated struct BrowserMediaState: Hashable, Sendable {
     public var positionDate: Date
 
     public init(title: String, artist: String = "", album: String = "", artworkURL: URL? = nil, isPlaying: Bool,
-                isMuted: Bool = false, isVideo: Bool = false, isTabMuted: Bool = false, actions: Set<BrowserMediaAction> = [],
-                position: TimeInterval? = nil, duration: TimeInterval? = nil, rate: Double = 1, positionDate: Date = Date()) {
+                isMuted: Bool = false, isVideo: Bool = false, isPictureInPicture: Bool = false, isTabMuted: Bool = false,
+                actions: Set<BrowserMediaAction> = [], position: TimeInterval? = nil, duration: TimeInterval? = nil, rate: Double = 1,
+                positionDate: Date = Date()) {
         self.title = title
         self.artist = artist
         self.album = album
@@ -38,6 +42,7 @@ public nonisolated struct BrowserMediaState: Hashable, Sendable {
         self.isPlaying = isPlaying
         self.isMuted = isMuted
         self.isVideo = isVideo
+        self.isPictureInPicture = isPictureInPicture
         self.isTabMuted = isTabMuted
         self.actions = actions
         self.position = position
@@ -92,7 +97,8 @@ public nonisolated struct BrowserMediaState: Hashable, Sendable {
         return .some(BrowserMediaState(
             title: text("title"), artist: text("artist"), album: text("album"), artworkURL: artwork,
             isPlaying: object["playing"] as? Bool ?? false, isMuted: object["muted"] as? Bool ?? false,
-            isVideo: object["video"] as? Bool ?? false, isTabMuted: object["tabMuted"] as? Bool ?? false, actions: Set(actions),
+            isVideo: object["video"] as? Bool ?? false, isPictureInPicture: object["pip"] as? Bool ?? false,
+            isTabMuted: object["tabMuted"] as? Bool ?? false, actions: Set(actions),
             position: seconds("position"), duration: seconds("duration").flatMap { $0 > 0 ? $0 : nil },
             rate: seconds("rate").flatMap { $0 > 0 ? $0 : nil } ?? 1))
     }
@@ -129,6 +135,21 @@ public nonisolated enum BrowserMediaCommand: Hashable, Sendable {
     /// Mutes (true) or unmutes every media element of the page and its
     /// frames, now and as they play (the tab's mute).
     case muteTab(Bool)
+    /// Floats the page's video in Picture in Picture, or brings it back
+    /// into the tab when one floats (``BrowserPictureInPicture``).
+    case pictureInPicture
+}
+
+/// What ``BrowserMediaCommand/pictureInPicture`` did in the page.
+public nonisolated enum BrowserPictureInPicture: String, Sendable {
+    /// A video started to float.
+    case entered
+    /// The floating video went back into its tab.
+    case exited
+    /// The page has no video to float.
+    case noVideo
+    /// The page's video may not float (`disablePictureInPicture`, an engine without it).
+    case unsupported
 }
 
 /// A page whose tab can be muted (cx-d0d.24): Mute Tab keeps the media of

@@ -1,10 +1,12 @@
+public import CmuxNextCompat
 public import CmuxNextDesign
 public import Foundation
 
 /// Everything under `notifications` in cmux.json that the app applies.
 public nonisolated struct NotificationPreferences: Hashable, Sendable {
-    /// `focus` (Lawrence, 2026-10-19): classic's rule, a focus, click or key in the pane reads it.
-    public var dismissal: NotificationDismissal = .focus
+    /// `click` (Austin, 2026-10-20): the ring stays until the person clicks into its pane or types
+    /// in it. `focus` (2026-10-19) also read a pane that merely took focus.
+    public var dismissal: NotificationDismissal = .click
     public var timeoutSeconds: Double = 30
     public var desktop: DesktopNotificationMode = .unlessFocused
     /// `"default"`, a sound in /System/Library/Sounds (for example `"Glass"`), or `"none"`.
@@ -16,6 +18,8 @@ public nonisolated struct NotificationPreferences: Hashable, Sendable {
     public var dockBadge = true
     /// `notifications.dockBounce`: the Dock icon bounces when an alert arrives while cmux is inactive.
     public var dockBounce: DockBounceMode = .once
+    /// `notifications.showPreviews`: when a banner shows the agent's last message.
+    public var showPreviews: NotificationPreviews = .whenUnlocked
     /// Workspace ids whose notifications post no banner, sound or ring.
     public var mutedWorkspaces: Set<String> = []
     public var sources: [NotificationSource: NotificationSourceOverrides] = [:]

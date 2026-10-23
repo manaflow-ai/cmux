@@ -37,50 +37,45 @@
 //!   makes a new key for each daemon it starts or enrolls, so a key from a
 //!   daemon that went away proves nothing to the next one.
 //!
-//! - A relayed allow (cx-0q7o, #13742 D16): a prompt can be answered from
-//!   another machine's app through a connection that is never the person (a
-//!   peer daemon, the remote cmux-tui server). Each pending prompt has a new
-//!   random `decisionNonce` and each daemon run a random `personInstance`;
-//!   both are in `_acpmux/permission_pending`. `permission_respond` with an
-//!   allow then counts only with `_meta.acpmux.decisionNonce` and
-//!   `personDecision` = lowercase hex HMAC-SHA256(key,
-//!   "acpmux-person-decision-v1" 0 instance 0 session 0 permission 0 option
-//!   0 nonce) ([`decision_proof`]), for the prompt that is pending with that
-//!   nonce. A nonce counts once: the answer that counts spends it under
-//!   the prompt's lock, together with taking the prompt (so a refused answer
-//!   spends nothing, and of two racing answers one counts), and a bounded
-//!   store of spent nonces ([`SPENT_LIMIT`] entries, [`SPENT_TTL`]) refuses
-//!   it again. A prompt the next daemon adopts gets a new nonce under the
-//!   new run (`permission_reissued`, also a `permission_pending`). A restarted daemon has a new instance, so an old proof proves
-//!   nothing. A proof never covers question answers, a group's allow, a
-//!   policy, a rule or a mode: those widen and stay the person's own.
-//!   A keyed daemon is not dumpable (`daemon.rs`), so an agent it starts
-//!   cannot read the key from its memory.
-//! - Through a peer (slice 2a, 2b): a daemon that only mirrors a peer's
-//!   session cannot check a proof made with the peer's key, so it forwards
-//!   every answer for that session (allow, deny, cancel) and the peer
-//!   decides; a forwarded answer counts hops (`server/peer_forward.rs`). `answeredBy` from a
-//!   connection that is not the person counts only together with a proof
-//!   that counts. `initialize` and `_acpmux/status` name the run
-//!   (`personInstance`); status says whether it holds a key (`personKey`).
-//!   `_acpmux/person_holds {nonce}` (slice 2c, unix socket only, 8 per
-//!   connection) answers HMAC(key, "acpmux-person-holds-v1" 0 instance 0
-//!   nonce), so the app can check that a daemon it started holds ITS key: a
-//!   `person_prove` reply alone proves nothing (whatever answers on the
-//!   socket path can say `person: true`).
+//! - A relayed allow (cx-0q7o, #13742 D16): a prompt can be answered from another machine's app
+//!   through a connection that is never the person (a peer daemon, the remote cmux-tui server).
+//!   Each pending prompt has a new random `decisionNonce` and each daemon run a random
+//!   `personInstance`; both are in `_acpmux/permission_pending`. `permission_respond` with an allow
+//!   then counts only with `_meta.acpmux.decisionNonce` and `personDecision` = lowercase hex
+//!   HMAC-SHA256(key, "acpmux-person-decision-v1" 0 instance 0 session 0 permission 0 option 0
+//!   nonce) ([`decision_proof`]), for the prompt that is pending with that nonce. A nonce counts
+//!   once: the answer that counts spends it under the prompt's lock, together with taking the
+//!   prompt (so a refused answer spends nothing, and of two racing answers one counts), and a
+//!   bounded store of spent nonces ([`SPENT_LIMIT`] entries, [`SPENT_TTL`]) refuses it again. A
+//!   prompt the next daemon adopts gets a new nonce under the new run (`permission_reissued`, also
+//!   a `permission_pending`). A restarted daemon has a new instance, so an old proof proves
+//!   nothing. A proof never covers question answers, a group's allow, a policy, a rule or a mode:
+//!   those widen and stay the person's own. A keyed daemon is not dumpable (`daemon.rs`), so an
+//!   agent it starts cannot read the key from its memory.
+//! - Through a peer (slice 2a, 2b): a daemon that only mirrors a peer's session cannot check a
+//!   proof made with the peer's key, so it forwards every answer for that session (allow, deny,
+//!   cancel) and the peer decides; a forwarded answer counts hops (`server/peer_forward.rs`).
+//!   `answeredBy` from a connection that is not the person counts only together with a proof that
+//!   counts. `initialize` and `_acpmux/status` name the run (`personInstance`); status says whether
+//!   it holds a key (`personKey`). `_acpmux/person_holds {nonce}` (slice 2c, unix socket only, 8
+//!   per connection) answers HMAC(key, "acpmux-person-holds-v1" 0 instance 0 nonce), so the app can
+//!   check that a daemon it started holds ITS key: a `person_prove` reply alone proves nothing
+//!   (whatever answers on the socket path can say `person: true`).
 //!   The key reaches a daemon that `acpmux daemon start --person-key-fd 0`
 //!   launches over a socket pair, only after the daemon said it is not
 //!   dumpable (`daemon.rs`).
 //!
-//! [`Hub::person_check`] is the one check, run for every request before it
-//! is handled or forwarded. Without the person, a client may read prompts and
-//! deny or cancel them, and may narrow (ask, deny-all, deny rules, asking
-//! modes). It may never allow (a permission answer, a question's answer, a
-//! group's allow) and never widen what runs without asking (a policy other
-//! than ask or deny-all for a session, the daemon default, a family default
-//! or a preset; a rule that could auto-approve; a mode the reviewed asking
-//! table does not list; a spawn env). Such a request gets
-//! [`REASON`] and changes nothing: a prompt stays pending.
+//! [`Hub::person_check`] is the one check, run for every request before it is handled or forwarded.
+//! Without the person, a client may read prompts and deny or cancel them, and may narrow (ask,
+//! deny-all, deny rules, asking modes). It may never allow (a permission answer, a question's
+//! answer, a group's allow) and never widen what runs without asking (a policy other than ask or
+//! deny-all for a session, the daemon default, a family default or a preset; a rule that could
+//! auto-approve; a mode the reviewed asking table does not list; a spawn env). Such a request gets
+//! [`REASON`] and changes nothing: a prompt stays pending. One exception, off by default
+//! (`agents.subsessions.answerQuestions`): a proven caller session (a) may answer a question a
+//! session under it asked, never a permission prompt, a plan approval or a lasting allow. The hub
+//! checks it under the prompt's lock ([`Answerer`] `ancestor`) and names the caller in
+//! `answeredBy`; the threat model is in `hub/subsession_answer.rs`.
 //!
 //! Starting in a mode that does not ask (a `session/new` with
 //! `_meta.acpmux.mode`, or a preset's `mode`), without the person, needs
@@ -326,6 +321,8 @@ pub struct Answerer<'a> {
     pub decision: Option<(&'a str, &'a str)>,
     /// A phone's signed decision (`approvers.rs`), with its `decisionNonce`.
     pub approver: Option<(&'a str, &'a Value)>,
+    /// A caller session answering its descendant's question: set by the hub, never by a request.
+    pub(crate) ancestor: Option<&'a str>,
 }
 
 impl<'a> Answerer<'a> {
@@ -344,7 +341,7 @@ impl<'a> Answerer<'a> {
             (Some(nonce), Some(signed)) => Some((nonce, signed)),
             _ => None,
         };
-        Self { person, decision, approver }
+        Self { person, decision, approver, ancestor: None }
     }
 }
 

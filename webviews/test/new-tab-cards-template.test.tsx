@@ -1,7 +1,7 @@
 // The Cards New Tab template (u2851, a scrawl of Aside's New Tab page: "make our new tab page look
-// like this. Have an option for this version of it"). One rounded field, the Search | Ask switch and
-// its "Tab to switch" hint just above its right end (Lawrence 2026-10-20); under the field, one row with the project, the agent's chips
-// and the mic (no Send disc: Return sends); the row steps aside while Search is on; then "Chats"
+// like this. Have an option for this version of it"). One rounded field (no Search | Ask switch,
+// Leo 2026-10-20: the field picks the action); under the field, one row with the project, the agent's
+// chips and the mic (no Send disc: Return sends); then "Chats"
 // with "All Chats >" and three chat cards. It is the page an unset `tabs.newTabTemplate`
 // shows; Default and the others stay one pick away.
 import { afterAll, beforeAll, expect, test } from "bun:test";
@@ -73,9 +73,9 @@ afterAll(() => {
 
 const noop = () => {};
 
-test("Cards is a template and a style, and the page an unset template shows", () => {
+test("Cards is a template and a style", () => {
   expect(NEW_TAB_TEMPLATES).toContain("cards");
-  expect(PAGE_STYLES[0]).toBe("cards");
+  expect(PAGE_STYLES).toContain("cards");
   expect(parseNewTabTemplate("cards")).toBe("cards");
   expect(screenTemplate("cards")).toBe("cards");
   expect(screenSections("cards")).toEqual({
@@ -86,13 +86,13 @@ test("Cards is a template and a style, and the page an unset template shows", ()
     closed: false,
     stage: false,
   });
-  // Unset: Cards. Debug Settings design "a" still shows Classic; a saved pick always wins.
-  expect(shownTemplate({ layout: "b" })).toBe("cards");
+  // Unset: Minimal (Leo 2026-10-20). Debug Settings design "a" still shows Classic; a saved pick always wins.
+  expect(shownTemplate({ layout: "b" })).toBe("minimal");
   expect(shownTemplate({ layout: "a" })).toBe("classic");
   expect(shownTemplate({ layout: "b", template: "default" })).toBe("default");
 });
 
-test("the Cards page: one field with Search | Ask, a chip row under it, three chat cards", async () => {
+test("the Cards page: one field, a chip row under it, three chat cards", async () => {
   const { createRoot } = await import("react-dom/client");
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
   const root: Root = createRoot(host);
@@ -119,10 +119,9 @@ test("the Cards page: one field with Search | Ask, a chip row under it, three ch
     const box = host.querySelector<HTMLElement>(".nt-box")!;
     const toolbar = host.querySelector<HTMLElement>(".nt-toolbar");
     expect(screen.dataset.template).toBe("cards");
-    // The field is the pill, its switch just above it; the project, chips and mic are a row under it.
+    // The field is the pill, with no switch; the project, chips and mic are a row under it.
     expect(box.querySelector(".nt-field")).not.toBeNull();
-    expect(box.querySelector(".nt-mode")).toBeNull();
-    expect(host.querySelector(".nt-above .nt-mode")).not.toBeNull();
+    expect(host.querySelector(".nt-mode")).toBeNull();
     expect(toolbar).not.toBeNull();
     expect(box.contains(toolbar)).toBe(false);
     expect(toolbar!.querySelector(".nt-location")).not.toBeNull();
@@ -135,13 +134,6 @@ test("the Cards page: one field with Search | Ask, a chip row under it, three ch
     expect(host.querySelectorAll(".nt-cards[data-variant=cards] .nt-card").length).toBe(3);
     await act(async () => host.querySelector<HTMLButtonElement>(".nt-chats-all")!.click());
     expect(showAll).toBe(1);
-
-    // Search hides the chip row (the suggestions take its place), Ask brings it back.
-    expect(screen.dataset.mode).toBe("ask");
-    await act(async () => host.querySelector<HTMLButtonElement>('.nt-mode button[data-mode="search"]')!.click());
-    expect(screen.dataset.mode).toBe("search");
-    await act(async () => host.querySelector<HTMLButtonElement>('.nt-mode button[data-mode="ask"]')!.click());
-    expect(screen.dataset.mode).toBe("ask");
   } finally {
     await act(async () => root.unmount());
   }
@@ -178,9 +170,9 @@ test("the other templates keep their composer card and Send disc", async () => {
 // Claude Code's split on Cards (Leo 2026-10-19: "put the claude code style composer on the first
 // dot in the new tab page and put the existing composer on the second one"). With the agent's chips
 // and the plain footer (on by default), Cards draws the chat composer's box: the prompt, the mic and
-// Send inside it, the mode, model and effort in the quiet row under it. Nothing hides the mic, in
-// Ask or in Search (the mic never leaves the New Tab composer).
-test("Cards with the agent's chips draws the split, and the mic stays in the box in Search", async () => {
+// Send inside it, the mode, model and effort in the quiet row under it. Nothing hides the mic
+// (it never leaves the New Tab composer).
+test("Cards with the agent's chips draws the split, and the mic stays in the box", async () => {
   const { createRoot } = await import("react-dom/client");
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
   const root: Root = createRoot(host);
@@ -225,9 +217,6 @@ test("Cards with the agent's chips draws the split, and the mic stays in the box
     expect(strip!.compareDocumentPosition(box) & window.Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // Cards draws no create row with the split either (u2851): the app always passes the chips.
     expect(host.querySelector(".nt-create")).toBeNull();
-    // Search keeps the mic where it is: nothing that Search hides holds it.
-    await act(async () => host.querySelector<HTMLButtonElement>('.nt-mode button[data-mode="search"]')!.click());
-    expect(screen.dataset.mode).toBe("search");
     const mic = box.querySelector<HTMLElement>(".acpmux-mic");
     expect(mic).not.toBeNull();
     expect(mic!.closest(".nt-toolbar")).toBeNull();

@@ -46,6 +46,10 @@ mod session_scope;
 #[path = "turn_usage.rs"]
 mod turn_usage;
 
+// A fork of a chat whose turn runs, which shares these helpers too.
+#[path = "fork_running.rs"]
+mod fork_running;
+
 const FORK_OP: &str = "acp.session.fork";
 
 #[tokio::test]
@@ -233,6 +237,59 @@ async fn a_claude_chat_forks_through_an_earlier_turn_holding_only_the_history_be
     assert_eq!(fork["sessions"].as_array().map(Vec::len), Some(1), "one conversation id: {fork}");
     assert_ne!(fork["sessions"], source["sessions"], "the fork is its own conversation");
     assert_eq!(source["prompts"], json!(["first", "second"]), "{source}");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A Claude chat with no turn has no conversation for `--resume --fork-session`
+/// to copy: its fork is refused with a reason, and no chat is made (the
+/// fork matrix found the fork made, then failing with "No conversation found").
+#[tokio::test]
+async fn a_fork_of_a_claude_chat_with_no_turn_is_refused_and_makes_no_chat() {
+    let root = std::env::temp_dir().join(format!("acpmux-fork-empty-{}", uuid::Uuid::now_v7()));
+    let claude = root.join("claude");
+    std::fs::create_dir_all(&claude).unwrap();
+    let (hub, mut c) = claude_setup(&claude, &[]).await;
+    let s = c
+        .request(
+            method::SESSION_NEW,
+            json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"name": "empty"}}}),
+        )
+        .await
+        .unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let before = c.request(method::SESSION_LIST, json!({})).await.unwrap()["sessions"]
+        .as_array()
+        .map(Vec::len);
+    let err = c
+        .request(method::SESSION_FORK, json!({"sessionId": id, "cwd": cwd()}))
+        .await
+        .expect_err("an empty chat has nothing to fork");
+    assert!(err.contains("no turn"), "{err}");
+    let after = c.request(method::SESSION_LIST, json!({})).await.unwrap()["sessions"]
+        .as_array()
+        .map(Vec::len);
+    assert_eq!(before, after, "a refused fork makes no chat");
+    // After a turn the same chat forks, and the fork answers.
+    c.request(
+        method::SESSION_PROMPT,
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "first"}]}),
+    )
+    .await
+    .unwrap();
+    let f = c.request(method::SESSION_FORK, json!({"sessionId": id, "cwd": cwd()})).await.unwrap();
+    let fid = f["sessionId"].as_str().unwrap().to_owned();
+    // A whole-chat Claude fork that starts without its new conversation id
+    // learns it from a first turn acpmux sends (`hub/lifecycle.rs`); whether
+    // that turn runs depends on when Claude Code reports its id, so it is
+    // left out here. The fork holds the chat's own turn.
+    let history = claude_history(&hub, &mut c, &fid).await;
+    let prompts: Vec<&Value> = history["prompts"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{history}"))
+        .iter()
+        .filter(|p| *p != "This session was just forked. Reply with exactly: ready")
+        .collect();
+    assert_eq!(prompts, [&json!("first")], "{history}");
     let _ = std::fs::remove_dir_all(&root);
 }
 

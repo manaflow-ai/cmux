@@ -92,8 +92,10 @@ public struct WorkspacesList: View {
         self.open = open
     }
 
-    private var macs: [MacDevice] { store.activeTeam?.macs ?? [] }
-    private var scope: MacScope { filter.scope(in: store.activeTeam) }
+    /// The listed Macs: one per computer, whatever builds run on it (`MacRoster`).
+    private var macs: [MacDevice] { macText.roster(store.activeTeam?.macs ?? []).visible }
+    /// A remembered Mac that is no longer listed reads as All Macs.
+    private var scope: MacScope { MacFilter.resolve(filter.scope(in: store.activeTeam), macs: macs) }
     private var scopedMac: MacDevice? { scope.macID.flatMap { id in macs.first { $0.id == id } } }
     private var target: MacDevice? {
         scope.newWorkspaceMac(available: creator.availableMacs, fallback: creator.targetMac)
@@ -103,7 +105,7 @@ public struct WorkspacesList: View {
 
     /// Every Mac on the account (all teams): the scope of the same-name tags,
     /// as in Settings → Devices.
-    private var accountMacs: [MacDevice] { MacNameDisambiguation.scope(store.teams) }
+    private var accountMacs: [MacDevice] { MacRoster.accountMacs(store.teams) }
 
     /// Tags for the account's Macs that share a name, so every place that
     /// names a Mac says which one ("Aziz's MacBook Pro 3F2A").
@@ -492,9 +494,14 @@ public struct WorkspacesList: View {
             withAnimation(theme.motion.smooth.animation) { creator.setGroupCollapsed(group, on: section.macID, !group.isCollapsed) }
         } label: {
             GroupHeaderLabel(group: group, count: section.workspaces.count)
+                // The row's spacing is part of the target (it was the text's
+                // line only, about 17 pt): same layout, a 32 pt tap target.
+                .padding(.top, 10)
+                .padding(.bottom, 4)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .listRowInsets(EdgeInsets(top: 14, leading: 20, bottom: 4, trailing: 20))
+        .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 0, trailing: 20))
         .listRowSeparator(.hidden)
         .listRowBackground(Color.clear)
         .contextMenu {
