@@ -19,6 +19,9 @@ ran between a switch and its commit. Checks (exit 1 when one fails, --no-gate to
   record_saves_before_commit  0 per switch (a save builds every window's records on the main actor)
   space_switch_in_turn        a space switch shows its workspace in the key's own turn (workspace_shown 1)
 
+Fleet (an owned console mini; the step builds the app):
+  cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/split-spring.sh \\
+    --ref SHA --artifact artifacts/split-spring/report.json --arg=--suite=switch-bench [--arg=--sample=ROW]
 Usage (a GUI fleet host, never a laptop):
   nx-remote --needs gui --app-from-fleet cmux --tag T --ref SHA -- \\
     python3 scripts/cmux-next/switch-bench.py --app "$NX_APP" --out "$NX_ARTIFACTS" [--sessions light,stress]
@@ -45,10 +48,11 @@ parser.add_argument("--switches", type=int, default=24)
 parser.add_argument("--interval", type=float, default=0.25)
 parser.add_argument("--budget-ms", type=float, default=10.0)
 parser.add_argument("--no-gate", action="store_true")
+parser.add_argument("--json", help="also write the report here (the fleet measure step's artifact)")
 parser.add_argument("--sample", default="", help="ROW[,...]: `sample` the app (1 ms) while it runs ROW (OUT/sample-<session>-<row>.txt); "
                     "the profiler's cost lands in that row's numbers, so use a separate run for timings")
 parser.add_argument("--sample", default="", help="ROW[,...]: also `sample` the app's main thread during those rows (OUT/sample-<session>-<row>.txt)")
-opts = parser.parse_args()
+opts, _unknown = parser.parse_known_args()  # the fleet entry also passes --tag
 os.makedirs(opts.out, exist_ok=True)
 activation = load("activation_perf", "activation-perf.py")
 stress_mod = load("perf_stress_session", "perf-stress-session.py")
@@ -252,8 +256,9 @@ def main():
         for name, row in rows.items():
             print(f"| {name} | {row.get('input_to_commit_p50')} | {row.get('input_to_commit_p95')} | late {row.get('late_switches')} "
                   f"| refresh {row.get('refresh_ms')} | {row.get('error') or ''} |")
-    with open(os.path.join(opts.out, "switch-bench.json"), "w") as f:
-        json.dump(REPORT, f, indent=1)
+    for path in [os.path.join(opts.out, "switch-bench.json")] + ([opts.json] if opts.json else []):
+        with open(path, "w") as f:
+            json.dump(REPORT, f, indent=1)
     failed = [c for c in REPORT["checks"] if not c["ok"]]
     print(f"\nSWITCH-BENCH checks {len(REPORT['checks']) - len(failed)}/{len(REPORT['checks'])} pass")
     sys.exit(1 if failed and not opts.no_gate else 0)
