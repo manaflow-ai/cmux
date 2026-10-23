@@ -68,6 +68,7 @@ import { PageDots } from "./newtab/PageDots";
 import { editedPageWidgets, editNewTabWidgets, shownPageWidgets } from "./newtab/pageWidgets";
 import { screenTemplate, shownTemplate } from "./newtab/templates";
 import { newTabPageSubmit } from "./newtab/pageSubmit";
+import { holdNewTabAttachments } from "./newtab/remoteAttachmentDraft";
 import { isAgentHome, projectLabel, recentLocalFolders, sessionTitle, type AcpmuxSessionEntry } from "./sessionList";
 import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
 import { PromptMarksSession } from "./threadMinimap/promptMarks";
@@ -323,6 +324,7 @@ import { registerChatDisplayHost, useChatDisplay } from "./chatDisplay";
 import { ChatDisplaySettings } from "./ChatDisplaySettings";
 import { configureCodexToolRuns, useCodexToolRuns } from "./codexToolRuns";
 import { configureLiveLineBelow, useLiveLineBelow } from "./liveLineBelow";
+import { configureToolRunLook } from "./toolRunLook";
 import { configureNativeSidebarPreviewVariant, configureSidebarPreviewVariant } from "./sidebarPreview";
 import { configureTurnActionsPlacement } from "./turnActionsPlacement";
 import { archiveRow, markUnreadRow } from "./header/archiveRow";
@@ -5731,6 +5733,7 @@ function AcpmuxPane() {
         configureChatWidth(theme.chatWidth);
         configureCodexToolRuns(theme.codexToolRuns);
         configureLiveLineBelow(theme.liveLineBelow);
+        configureToolRunLook(theme.toolRunLook);
         configureTurnActionsPlacement(theme.turnActionsPlacement);
         configureSubagentTray(theme.subagentTray);
       },
@@ -7063,18 +7066,22 @@ function AcpmuxPane() {
     }
   }, []);
   /// The classic page's chat: a terminal or browser tab opens through `newTabPageSubmit`.
-  const chatFromNewTab = (text: string, cwd?: string) => {
+  const chatFromNewTab = (text: string, cwd?: string, attachments: ComposerAttachment[] = []) => {
     const inherited = newTab?.cwd;
     setNewTab(undefined);
     const start = (folder?: string) =>
       void (async () => {
         // A chat on another machine starts only with a send (cx-k21v): with no text, the folder
         // waits for the first send.
-        if (folder && !text && directClient.current?.startsOnSend) return setProjectDraft(folder);
+        if (folder && !text && directClient.current?.startsOnSend) {
+          heldBack.current = holdNewTabAttachments(heldBack.current, attachments);
+          return setProjectDraft(folder);
+        }
         const started = folder ? await callNative("chat.new", { cwd: folder }) : undefined;
         // A chat the person started here with a prompt makes its project the default.
         if (started && text && !directClient.current?.startsOnSend) rememberStartedProject(folder, callNative);
-        if (text) await callNative("chat.send", { text });
+        if (text || attachments.length)
+          await callNative("chat.send", { text, ...(attachments.length ? { attachments } : {}) });
       })().catch(() => undefined);
     // The page's own folder is inherited (`~` in a fresh workspace): the chat starts in its start
     // folder. Another project the user picked there goes through the host first.
