@@ -942,6 +942,96 @@ class WarningTests(Fixture):
         self.assertEqual(len(calls), 3, calls)
 
 
+class SharedRuleTests(Fixture):
+    """A rule another check owns is judged by that check's own definition, never by a second copy here."""
+
+    def load_ratchet(self):
+        spec = importlib.util.spec_from_file_location("crash_ratchet_for_test", SOURCE / "scripts/cmux-next/crash_ratchet.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_unchecked_sendable_is_refused_exactly_when_the_crash_ratchet_counts_it(self):
+        # CI's crash ratchet (crash_ratchet.py, class `unchecked`) takes `// crash-allow:` on the line or the line
+        # directly above; a push this rule passes must not turn that ratchet red after it lands.
+        ratchet = self.load_ratchet()
+        body = "final class Box: @unchecked Sendable {\n    let x = 0\n}\n"
+        for text in ("// crash-allow: x is written once in init, then only read\n" + body,
+                     body.replace("Sendable {", "Sendable { // crash-allow: x is written once in init"),
+                     "// crash-allow: x is written once in init, then only read\n// and never after\n" + body,
+                     "// crash-allow: x is written once in init, then only read\n@available(macOS 14, *)\n" + body):
+            with self.subTest(text=text):
+                lines = text.split("\n")
+                counted = any("unchecked" in ratchet.swift_line_hits(lines, i) and not ratchet.allowed(lines, i)
+                              for i in range(len(lines)) if not lines[i].lstrip().startswith("//"))
+                self.git("reset", "--quiet", "--hard", self.base)
+                self.write(f"{KIT}/Added.swift", text)
+                self.commit("an unchecked box")
+                self.assertEqual("unchecked-sendable" in [rule for rule, _ in self.refused()], counted)
+
+    def test_the_new_app_file_limit_is_check_no_godfiles_budget(self):
+        # One budget: a copy of the checks whose check-no-godfiles.sh says 300 refuses a new 350-line App file.
+        checks = self.root / "checks"
+        source = SOURCE / "scripts/cmux-next"
+        checks.mkdir()
+        for path in source.iterdir():
+            if path.is_file():
+                shutil.copy2(path, checks / path.name)
+        godfiles = checks / "check-no-godfiles.sh"
+        text = godfiles.read_text()
+        self.assertIn("\nswift_file_limit=400\n", text)
+        godfiles.write_text(text.replace("\nswift_file_limit=400\n", "\nswift_file_limit=300\n"))
+        spec = importlib.util.spec_from_file_location("cmux_next_guardrails_300", checks / "guardrails.py")
+        copy = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = copy
+        self.addCleanup(sys.modules.pop, spec.name, None)
+        spec.loader.exec_module(copy)
+        self.write(f"{APP}/Feature.swift", "".join(f"let value{n} = {n}\n" for n in range(350)))
+        self.commit("a new 350-line App file")
+        self.assertIn("app-big-file", [rule.id for rule, _ in self.check(copy.check)[0]])
+
+
+class SleepRuleTests(unittest.TestCase):
+    """check-concurrency.sh's wakeup rule is the one sleep rule (the guardrails no longer copy it): every sleep
+    primitive counts, the injected sleeper CLAUDE.md prescribes too (`try await sleep(delay)`)."""
+
+    MANIFEST = ("// swift-tools-version: 6.2\nimport PackageDescription\n"
+                "let package = Package(name: \"Fixture\", targets: [\n"
+                "    .target(name: \"FixtureUI\", swiftSettings: uiSwiftSettings),\n])\n")
+
+    def scan(self, text):
+        with tempfile.TemporaryDirectory(prefix="cmux-sleep-rule-") as temporary:
+            root = Path(temporary) / "Package"
+            (root / "Sources/FixtureUI").mkdir(parents=True)
+            (root / "Package.swift").write_text(self.MANIFEST)
+            (root / "Sources/FixtureUI/Wait.swift").write_text(text)
+            return subprocess.run(["bash", str(SOURCE / "scripts/cmux-next/check-concurrency.sh"), str(root)],
+                                  text=True, capture_output=True, timeout=60)
+
+    def test_an_injected_sleeper_is_a_sleep(self):
+        for call in ("try await sleep(.milliseconds(50))", "try await self.sleep(delay)", "try? await clockSleep.sleep(delay)",
+                     "do { try await sleep(delay) } catch { return }"):
+            with self.subTest(call=call):
+                result = self.scan(f"func wait(sleep: Sleep) async throws {{\n    while !ready() {{\n        {call}\n    }}\n}}\n")
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn("Wait.swift:3: sleep", result.stdout)
+
+    def test_a_reviewed_wakeup_allow_passes_and_a_thread_sleep_stays_refused(self):
+        allowed = self.scan("func hold(sleep: Sleep) async {\n    // wakeup-allow: one 450 ms press-and-hold delay, cancelled on release\n"
+                            "    do { try await sleep(.milliseconds(450)) } catch { return }\n}\n")
+        self.assertEqual(allowed.returncode, 0, allowed.stdout + allowed.stderr)
+        blocking = self.scan("func spin() {\n    while !done() {\n        Thread.sleep(forTimeInterval: 0.01)\n    }\n}\n")
+        self.assertEqual(blocking.returncode, 1, blocking.stdout + blocking.stderr)
+        self.assertIn("Wait.swift:3: Thread.sleep", blocking.stdout)
+
+    def test_an_injected_sleeper_in_a_task_group_is_a_raced_deadline(self):
+        result = self.scan("func first(sleep: Sleep) async throws {\n    try await withThrowingTaskGroup(of: Void.self) { group in\n"
+                           "        // wakeup-allow: the deadline under test\n"
+                           "        group.addTask { try await sleep(.seconds(1)) }\n        try await group.next()\n    }\n}\n")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("Wait.swift:2: deadline raced in a task group", result.stdout)
+
+
 class BlobReadTests(Fixture):
     """The file texts come from one `git cat-file --batch`; a failed read must stop the check, not judge lines alone."""
 
@@ -1108,6 +1198,34 @@ class HookTests(Fixture):
         self.assertNotEqual(link.resolve(), before, "each install writes a new copy")
         self.assertTrue((link / "guardrails.py").is_file())
         self.assertTrue((before / "guardrails.py").is_file(), "the replaced copy stays for a push already running")
+
+    def test_a_sleep_poll_and_an_assume_isolated_are_refused_once_by_the_check_that_owns_them(self):
+        # check-concurrency.sh's wakeup rule owns sleeps (escape `// wakeup-allow:`), crash_ratchet.py owns
+        # assumeIsolated (banned; escape `// main-proof:`). A second refusal here with other advice (`poll-allow:`)
+        # sent agents to an escape the owning check does not honor.
+        self.git("reset", "--quiet", "--hard", "HEAD~1")
+        self.write(f"{PKG}/Package.swift", "// swift-tools-version: 6.2\nimport PackageDescription\n"
+                   "let uiSwiftSettings: [SwiftSetting] = [.defaultIsolation(MainActor.self)]\n"
+                   "let package = Package(name: \"CmuxNext\", targets: [\n"
+                   "    .target(name: \"CmuxNextApp\", swiftSettings: uiSwiftSettings),\n"
+                   "    .target(name: \"CmuxNextKit\", swiftSettings: uiSwiftSettings),\n])\n")
+        self.write(f"{APP}/CmuxNextApp.swift", "import Foundation\nfunc start() { ChildSignalDefaults.installAppSignalPolicy() }\n")
+        self.commit("package")
+        base = self.git("rev-parse", "HEAD").stdout.strip()
+        self.write(f"{KIT}/Poll.swift", "func wait() async throws {\n    while !ready() {\n"
+                   "        try await Task.sleep(for: .milliseconds(5))\n    }\n}\n"
+                   "func hop() {\n    MainActor.assumeIsolated { print(1) }\n}\n")
+        self.commit("a poll and an unproven hop")
+        gate = self.repo / "scripts/cmux-next/prepush-gate.py"
+        result = subprocess.run([sys.executable, "-I", str(gate), "--base", base, "--head", "HEAD"],
+                                cwd=self.repo, env=self.env, text=True, capture_output=True)
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertIn("Main-thread concurrency", output)
+        self.assertIn("Crash safety", output)
+        self.assertNotIn("[sleep-poll]", output)
+        self.assertNotIn("[assume-isolated]", output)
+        self.assertNotIn("poll-allow", output)
 
     def test_ci_runs_never_apply_the_guardrails(self):
         gate = self.repo / "scripts/cmux-next/prepush-gate.py"
