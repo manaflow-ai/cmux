@@ -50,6 +50,10 @@ if "--suite=launch-check" in sys.argv:
 # build in split-spring.sh has run by then). launch-check above reports it itself, in `check`'s own --json shape.
 if "--suite=pane-bench" not in sys.argv:
     require_gui_session("split-spring")
+# `--suite=open-panel`: click to file picker, light and STRESS (scripts/cmux-next/open-panel-bench.py).
+if "--suite=open-panel" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "open-panel-bench.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=open-panel"])
 # `--suite=pane-perf` (through the allowlisted fleet entry scripts/measure/split-spring.sh): the whole pane
 # motion suite instead, scripts/cmux-next/pane-perf-terminal.py, with the same --tag/--app/--out/--json.
 # `--suite=budgets`: every perf budget row, scripts/cmux-next/perf-budgets.py (one table, one gate).
