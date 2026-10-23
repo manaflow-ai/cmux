@@ -12,12 +12,14 @@
 import type { AcpmuxAgentPair, AcpmuxPermission, AcpmuxRow } from "../model";
 import { questionSummary, type AgentQuestion } from "../question/model";
 import type { AcpmuxSessionEntry } from "../sessionList";
+import type { AttentionTab } from "./attentionTabs";
 
 /// What the ask wants: an allow or deny of a tool (`approval`), a pick among choices
 /// (`decision`), a check of the agent's work (`verify`), messages acpmux holds between two agents
 /// (`held`), or a chat that waits on the person with no ask the page can read (`input`: a chat on
-/// another computer, whose prompts reach this pane only as its session's indicator).
-export type NeedsYouKind = "approval" | "decision" | "verify" | "held" | "input";
+/// another computer, whose prompts reach this pane only as its session's indicator), or a tab an
+/// agent marked for the person to act in (`tab`: log in, confirm, pick; attentionTabs.ts).
+export type NeedsYouKind = "approval" | "decision" | "verify" | "held" | "input" | "tab";
 
 /// A one-click answer: an allow, a deny, one of a question's choices, or a held pair's Resume.
 export type NeedsYouAnswer = { id: string; label: string; tone: "allow" | "deny" | "choice" };
@@ -27,9 +29,10 @@ export type NeedsYouWho = { name: string; harness?: string; chief: boolean; via?
 
 export type NeedsYouItem = {
   /// Stable while the ask is open: `acpmux:<permissionId>` (the Feed's key for the same prompt),
-  /// `held:<sessionId>:<peer>` or `chat:<sessionId>`.
+  /// `held:<sessionId>:<peer>`, `chat:<sessionId>` or `tab:<tabId>`.
   id: string;
   kind: NeedsYouKind;
+  /// The asking chat; empty for a `tab` item, which names no chat.
   sessionId: string;
   /// The ask on one line.
   ask: string;
@@ -50,6 +53,9 @@ export type NeedsYouItem = {
   peer?: string;
   held?: number;
   question?: AgentQuestion;
+  /// A `tab` item's tab (its daemon id, only for Go to; never shown); `who.name` is its workspace
+  /// and `detail` the tab's title.
+  tabId?: string;
 };
 
 /// A permission request acpmux reports pending (asks.ts), with when the page first saw it.
@@ -60,7 +66,24 @@ export type NeedsYouInput = {
   asks: readonly WatchedAsk[];
   /// The open chat and its rows: its agent pair holds are read from them.
   open?: { sessionId?: string; rows: readonly AcpmuxRow[] };
+  /// The tabs agents marked as needing the person (attentionTabs.ts).
+  tabs?: readonly AttentionTab[];
 };
+
+/// A marked tab as a Needs you item: the agent's reason is the ask, the workspace says where.
+export function tabItem(tab: AttentionTab): NeedsYouItem {
+  return {
+    id: `tab:${tab.tabId}`,
+    kind: "tab",
+    sessionId: "",
+    ask: tab.reason,
+    ...(tab.tabTitle ? { detail: tab.tabTitle } : {}),
+    who: { name: tab.workspaceTitle, chief: false },
+    ...(tab.atMs > 0 ? { at: tab.atMs } : {}),
+    answers: [],
+    tabId: tab.tabId,
+  };
+}
 
 /// The Feed's key for a prompt (CmuxNextApp AcpmuxPermissionFeedBridge `dedupe_key`).
 export const askItemId = (permissionId: string) => `acpmux:${permissionId}`;
@@ -117,6 +140,7 @@ export function needsYouItems(input: NeedsYouInput): NeedsYouItem[] {
       answers: [],
     });
   }
+  for (const tab of input.tabs ?? []) items.push(tabItem(tab));
   // Newest first, as every list of chats in the pane; an ask without a time last.
   return items.sort((a, b) => (b.at ?? 0) - (a.at ?? 0));
 }
