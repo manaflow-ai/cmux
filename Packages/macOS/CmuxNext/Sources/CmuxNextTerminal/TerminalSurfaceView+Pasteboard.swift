@@ -11,16 +11,18 @@ extension TerminalSurfaceView: NSMenuItemValidation {
 
     /// Copies the selection. With nothing selected, Copy is Cmd-C for the
     /// program, so a TUI (Kitty keyboard protocol: Claude Code, Codex) copies
-    /// its own selection, as in Ghostty and the shipping cmux. The PTY owner
-    /// encodes it with the program's keyboard modes (`TerminalKeyEquivalent.sendToProgram`);
-    /// without one the key goes to Ghostty, whose `performable:` copy keybind
+    /// its own selection, as in Ghostty and the shipping cmux. For a program
+    /// that reads the mouse (it draws that selection) the PTY owner encodes it
+    /// with the program's keyboard modes (`TerminalKeyEquivalent.sendToProgram`);
+    /// otherwise the key goes to Ghostty, whose `performable:` copy keybind
     /// passes it on. Legacy encoding sends nothing for a Command key on macOS,
     /// so a shell sees nothing.
     @objc public func copy(_ sender: Any?) {
         guard hasSelection else {
-            let local = { [weak self] in self?.sendCommandKeyToProgram("c", keyCode: UInt16(kVK_ANSI_C)) }
-            if let session, TerminalKeyEquivalent.sendToProgram?(session, "super+c", { local() }) == true { return }
-            return local()
+            let local: @MainActor () -> Void = { [weak self] in self?.sendCommandKeyToProgram("c", keyCode: UInt16(kVK_ANSI_C)) }
+            if programCapturesMouse, let session, TerminalKeyEquivalent.sendToProgram?(session, "super+c", local) == true { return }
+            local()
+            return
         }
         clipboardRequests.asUserClipboardWrite { performBindingAction("copy_to_clipboard") }
     }

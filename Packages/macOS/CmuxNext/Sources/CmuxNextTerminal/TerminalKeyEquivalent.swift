@@ -30,7 +30,8 @@ public struct TerminalKeyEquivalent {
     /// Sends a Command chord (`super+z`) to the terminal's program, encoded by the PTY owner
     /// with the program's own keyboard modes (the daemon's `send-key`, as the shipping cmux
     /// sends `super+c` by name). Returns false when the session has no daemon terminal; `fallback`
-    /// runs on the main actor when the daemon refused the key (an older machine daemon).
+    /// runs on the main actor when the daemon refused the key unsent (an older machine daemon).
+    /// The chord travels as a daemon command, not on the attach link that carries typing.
     public static var sendToProgram: ((TerminalSession, String, _ fallback: @escaping @MainActor () -> Void) -> Bool)?
 
     public init(view: TerminalSurfaceView) {
@@ -42,9 +43,10 @@ public struct TerminalKeyEquivalent {
 
         // A TUI that reads the mouse (Claude Code fullscreen, OpenCode, Codex) owns its editing
         // chords: Cmd-Z / Cmd-Shift-Z undo and redo its input and Cmd-A selects it, so they go to
-        // the program instead of Edit > Undo, Redo and Select All (a shell keeps those).
-        if let chord = Self.programChord(event), view.programCapturesMouse, let session = view.session,
-           Self.sendToProgram?(session, chord, {}) == true {
+        // the program instead of Edit > Undo, Redo and Select All (a shell keeps those). The
+        // user's own Ghostty keybind on the chord still wins.
+        if let chord = Self.programChord(event), view.programCapturesMouse, !(Self.userKeybindOwns?(event) ?? false),
+           let session = view.session, Self.sendToProgram?(session, chord, {}) == true {
             Self.trace?("terminal: \(chord) to the program")
             return true
         }

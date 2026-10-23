@@ -11,12 +11,13 @@ struct TerminalHooks {
         GhosttyRuntime.shared.appActionHandler = { [weak services] in services?.terminalDelegate.performAppAction($0) ?? false }
         TerminalKeyEquivalent.menuMayClaim = { [weak services] in services?.keyRouter.menuMayClaim($0) ?? true }
         // A TUI's Command chord (Cmd-C with nothing selected, Cmd-Z, Cmd-A): the tab's daemon
-        // encodes it with the program's keyboard modes, ordered with that terminal's other commands.
+        // encodes it with the program's keyboard modes. A refused key falls back; one that may have
+        // arrived (a timeout) does not, so it never reaches the program twice.
         TerminalKeyEquivalent.sendToProgram = { [weak services] session, chord, fallback in
             guard let services, let key = services.cache.tabKey(for: session),
                   let (tab, pane) = services.locateTab(key), tab.kind == .pty else { return false }
             let surface = tab.surface
-            services.daemon(for: pane).send("send-key", onFailure: { _ in fallback() }) { try await $0.sendKeys(surface, [chord]) }
+            services.daemon(for: pane).send("send-key", onFailure: { failure in if !failure.mayHaveApplied { fallback() } }) { try await $0.sendKeys(surface, [chord]) }
             return true
         }
         // A key the dispatcher delivered for the user's own Ghostty keybind.

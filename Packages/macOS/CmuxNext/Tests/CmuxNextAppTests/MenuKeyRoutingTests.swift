@@ -110,7 +110,7 @@ import CmuxNextFocusUI
         let registry = harness.services.registry
         let previousMenu = NSApp.mainMenu, previousDispatching = registry.isDispatchingKeyDown
         let previousClaim = TerminalKeyEquivalent.menuMayClaim, previousAppAction = GhosttyRuntime.shared.appActionHandler
-        let previousOwns = TerminalKeyEquivalent.userKeybindOwns
+        let previousOwns = TerminalKeyEquivalent.userKeybindOwns, previousSend = TerminalKeyEquivalent.sendToProgram
         NSApp.mainMenu = menu
         registry.isDispatchingKeyDown = { true }
         TerminalHooks(services: harness.services).install()
@@ -119,6 +119,7 @@ import CmuxNextFocusUI
             registry.isDispatchingKeyDown = previousDispatching
             TerminalKeyEquivalent.menuMayClaim = previousClaim
             TerminalKeyEquivalent.userKeybindOwns = previousOwns
+            TerminalKeyEquivalent.sendToProgram = previousSend
             GhosttyRuntime.shared.appActionHandler = previousAppAction
         }
         try body()
@@ -253,6 +254,7 @@ import CmuxNextFocusUI
         #expect(sent == ["super+z", "super+shift+z", "super+a"], "the program got \(sent)")
 
         sent = []
+        TerminalKeyEquivalent.sendToProgram = { _, chord, _ in sent.append(chord); return true }
         harness.session.surfaceView.copy(nil)
         #expect(sent == ["super+c"], "Cmd-C with nothing selected did not go to the program: \(sent)")
     }
@@ -265,9 +267,11 @@ import CmuxNextFocusUI
         let previousSend = TerminalKeyEquivalent.sendToProgram
         TerminalKeyEquivalent.sendToProgram = nil
         defer { TerminalKeyEquivalent.sendToProgram = previousSend }
-        // Claude Code's keyboard setup: Kitty flags 5 and modifyOtherKeys 2.
-        harness.io.send(.output(Data("\u{1b}[>5u\u{1b}[>4;2m".utf8)))
-        try? await Task.sleep(for: .milliseconds(200))
+        // Claude Code's keyboard setup (Kitty flags 5, modifyOtherKeys 2) in the chunk that turns on
+        // mouse reports, so the mode is applied once the surface reads the mouse.
+        harness.io.send(.output(Data("\u{1b}[>5u\u{1b}[>4;2m\u{1b}[?1000h".utf8)))
+        await Self.wait(within: .seconds(5)) { harness.session.surfaceView.programCapturesMouse }
+        try #require(harness.session.surfaceView.programCapturesMouse, "the program never captured the mouse")
         harness.session.surfaceView.copy(nil)
         await Self.wait(within: .seconds(5)) { harness.written.contains("\u{1b}[99;9u") }
         #expect(harness.written.contains("\u{1b}[99;9u"), "the program got \(harness.written.debugDescription)")
