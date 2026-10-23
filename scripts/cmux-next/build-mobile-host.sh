@@ -50,6 +50,10 @@ for input in "${inputs[@]}"; do
 done
 key_material+="$(git -C "$repo_root" diff HEAD -- "${inputs[@]}" 2>/dev/null || true)"
 key_material+="$(git -C "$repo_root" ls-files --others --exclude-standard -- "${inputs[@]}" 2>/dev/null || true)"
+# The bundled host's release profile (below) is part of the key, so a cached
+# binary built with another profile is not reused.
+mobile_host_profile=(CARGO_PROFILE_RELEASE_LTO=fat CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1)
+key_material+="profile:${mobile_host_profile[*]}"$'\n'
 source_key="$(printf '%s' "$key_material" | shasum -a 256 | cut -c1-16)"
 
 normalize_archs() {
@@ -109,7 +113,10 @@ mkdir -p "$build_root" "$cache_dir"
 slices=()
 for target in "${rust_targets[@]}"; do
   echo "==> building cmux-mobile-host ($source_key, $target)"
-  (cd "$rust_root" && CARGO_TARGET_DIR="$build_root" cargo build --locked --release --package cmux-mobile-host --bin cmux-mobile-host --target "$target")
+  # Fat LTO with one codegen unit for this one binary, as bin/cmux has
+  # (cmux-tui/Cargo.toml): the workspace profile keeps LTO off for the iOS
+  # FFI static library, which Xcode links again.
+  (cd "$rust_root" && env "${mobile_host_profile[@]}" CARGO_TARGET_DIR="$build_root" cargo build --locked --release --package cmux-mobile-host --bin cmux-mobile-host --target "$target")
   slice="$build_root/$target/release/cmux-mobile-host"
   [[ -x "$slice" ]] || { echo "error: cargo did not produce $slice" >&2; exit 1; }
   slices+=("$slice")
