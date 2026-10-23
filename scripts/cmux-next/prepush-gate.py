@@ -31,7 +31,9 @@ Also on every push: "Sidebar look owner" (plans/cmux-next/sidebar-owner.md): a c
 sidebar's drawing code (CmuxNextSidebar/Views/) carries a `Sidebar-Look: <the user's words, or "no visual
 change">` trailer, and a visual change also edits plans/cmux-next/sidebar-owner.md in the same commit.
 233 sidebar commits in four days with no owner undid each other (Lawrence 2026-10-23: "why were there so
-many changes to sidebar?"). CMUX_NEXT_CHECKS_SKIP_REASON does not skip it.
+many changes to sidebar?"). CMUX_NEXT_CHECKS_SKIP_REASON does not skip it. A commit the owner logged in
+that note (its 11-character sha) passes. CI also sweeps every commit since the check landed
+(`--only sidebar --commits`), so a push from an old hook copy or a cancelled CI run is still caught.
 Also on every push, in any file: "Merge conflict markers": a file the push adds both a `<<<<<<< ` and
 a `>>>>>>> ` line to (c779988d57d, 2026-10-22, broke CmuxNextAppTests). Nothing skips it.
 
@@ -511,23 +513,32 @@ def conflict_markers(repo: Path, base: str, head: str) -> list[str]:
             for n, text in marks]
 
 
-def sidebar_owner(repo: Path, base: str, head: str) -> list[str]:
+def sidebar_owner(repo: Path, base: str, head: str, ack_rev: str | None = None) -> list[str]:
     """Each pushed commit that changes the sidebar's drawing code without the owner's record.
 
     A commit touching `SIDEBAR_VIEWS` needs a `Sidebar-Look:` trailer: the user's words that asked for the
     look (a visual change, which must also edit `SIDEBAR_NOTE` in that commit) or `no visual change` (a
     behavior or performance change; the sidebar look contract tests hold the look). Checked per commit, so a
     later commit cannot launder an earlier one.
+
+    A commit the owner has logged passes too: its 11-character sha in `SIDEBAR_NOTE` at `ack_rev` (default
+    `head`). That is how a commit that reached the branch without a trailer (an old hook, a cancelled CI
+    run; dcd4316ef5c, 2026-10-23) is reviewed once instead of failing every later sweep.
     """
-    commits = git(repo, "rev-list", "--no-merges", f"{base}..{head}", check=False).decode().split()
     found: list[str] = []
-    for sha in reversed(commits):
-        files = git(repo, "diff-tree", "--no-commit-id", "--name-only", "-r", "--root", sha, check=False).decode().split("\n")
+    note = subprocess.run(["git", "-C", str(repo), "show", f"{ack_rev or head}:{SIDEBAR_NOTE}"], capture_output=True)
+    logged = note.stdout.decode(errors="replace") if note.returncode == 0 else ""
+    # One `git log` for the whole range (a CI sweep reads every commit since the check landed): per commit a
+    # record separator, the sha, the message, then the files it changes.
+    out = git(repo, "log", "--reverse", "--no-merges", "--name-only", "--format=%x1e%H%x1f%B%x1f",
+              f"{base}..{head}", "--", check=False).decode(errors="replace")
+    for record in out.split("\x1e")[1:]:
+        sha, message, names = (record.split("\x1f") + ["", ""])[:3]
+        files = [f for f in names.split("\n") if f]
         views = sorted(f for f in files if f.startswith(SIDEBAR_VIEWS))
-        if not views:
+        if not views or sha[:11] in logged:
             continue
-        message = git(repo, "log", "-1", "--format=%B", sha, check=False).decode(errors="replace")
-        subject = message.splitlines()[0] if message else ""
+        subject = message.strip().splitlines()[0] if message.strip() else ""
         trailer = SIDEBAR_TRAILER.search(message)
         where = f"{sha[:11]} {subject[:70]} ({views[0]}{f' and {len(views) - 1} more' if len(views) > 1 else ''})"
         if trailer is None:
@@ -540,7 +551,7 @@ def sidebar_owner(repo: Path, base: str, head: str) -> list[str]:
 
 
 def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
-         trusted_scripts: Path | None = None) -> list[tuple[str, list[str]]]:
+         trusted_scripts: Path | None = None, ack_rev: str | None = None) -> list[tuple[str, list[str]]]:
     """[(check, new findings)] that head adds over base."""
     reserved: list[tuple[str, list[str]]] = []
     if only is None or "reserved" in only:
@@ -551,9 +562,12 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         if markers:
             reserved.append((CONFLICT_CHECK, markers))
     if only is None or "sidebar" in only:
-        owner = sidebar_owner(repo, base, head)
+        owner = sidebar_owner(repo, base, head, ack_rev)
         if owner:
             reserved.append((SIDEBAR_CHECK, owner))
+    # The git-only checks above need no trees: a run of only those (CI's sidebar sweep) stops here.
+    if only is not None and not only & {"scanners", "ast-grep", "swiftformat", "swiftlint"}:
+        return reserved
     changed = changed_files(repo, base, head)
     if not changed:
         return reserved
@@ -690,7 +704,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--pre-push", action="store_true", help="read pre-push stdin (the hook)")
     parser.add_argument("--trusted-scripts-dir", help="installed reviewed checker snapshot (required with --pre-push)")
     parser.add_argument("--commits", help="CI: check each non-merge commit of RANGE against its first parent")
-    parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,swiftlint,reserved")
+    parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,swiftlint,reserved,conflicts,sidebar")
     parser.add_argument("--timings", action="store_true")
     parser.add_argument("--no-guardrails", action="store_true", help="skip guardrails.py (it never runs on CI)")
     args = parser.parse_args(argv)
@@ -701,6 +715,18 @@ def main(argv: list[str] | None = None) -> int:
     if args.pre_push and (trusted_scripts is None or not trusted_scripts.is_dir()):
         raise SystemExit("prepush-gate: --pre-push requires the installed --trusted-scripts-dir snapshot")
 
+    if args.commits and only == {"sidebar"}:
+        # The sidebar sweep: one pass over the range (per commit already: each commit is judged on its own).
+        tip = git(repo, "rev-parse", args.commits.split("..")[-1] or "HEAD").decode().strip()
+        base = args.commits.split("..")[0]
+        fresh = sidebar_owner(repo, base, tip)
+        if fresh:
+            print_findings([(SIDEBAR_CHECK, fresh)], "prepush-gate: sidebar commits without the owner's record:")
+            print(f"::error title=Sidebar look owner::{len(fresh)} commit(s) change the sidebar's drawing code without "
+                  "a Sidebar-Look: trailer or an entry in plans/cmux-next/sidebar-owner.md")
+        print(f"prepush-gate: sidebar sweep {base[:11]}..{tip[:11]}, {len(fresh)} finding(s) ({time.monotonic() - started:.1f}s)")
+        return 1 if fresh else 0
+
     if args.commits:
         commits = git(repo, "rev-list", "--reverse", "--no-merges", args.commits).decode().split()
         bad = 0
@@ -708,7 +734,8 @@ def main(argv: list[str] | None = None) -> int:
             parent = f"{sha}^"
             if not rev_ok(repo, parent):
                 continue
-            found = gate(repo, parent, sha, only, args.timings, trusted_scripts)
+            # The owner's log is read at the tip of the range: a later commit may log an earlier one.
+            found = gate(repo, parent, sha, only, args.timings, trusted_scripts, ack_rev=commits[-1])
             if found:
                 bad += 1
                 subject = git(repo, "log", "-1", "--format=%h %an: %s", sha).decode().strip()

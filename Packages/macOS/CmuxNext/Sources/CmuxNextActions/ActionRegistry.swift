@@ -339,7 +339,7 @@ public final class ActionRegistry {
             return true
         }
         if needsConfirmation(id, invocation) { return gateDestructive(id, invocation) }
-        runScoped(action, id, invocation)
+        signposted(id, invocation) { runScoped(action, id, invocation) }
         return true
     }
 

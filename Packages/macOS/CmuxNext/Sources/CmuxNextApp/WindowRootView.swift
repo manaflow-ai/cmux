@@ -223,6 +223,8 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     var showsTitlebarBadge = false {
         didSet { if oldValue != showsTitlebarBadge { needsLayout = true } }
     }
+    /// The host pressure indicator after the band and the badge (`layoutTitlebarAccessories`).
+    var hostPressureIndicator: NSView? { didSet { oldValue?.removeFromSuperview(); hostPressureIndicator.map { addSubview($0, positioned: .above, relativeTo: nil) }; needsLayout = true } }
 
     var onHintGeometryChange: (() -> Void)?
     /// Called from layout when the band's presence changed, so strips under
@@ -284,12 +286,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         if presenceChanged { onToolbarBandPresenceChange?() }
         layoutTitlebarReveal(rowHeight: rowHeight, fullBandMaxX: fullBandMaxX)
         layoutRightPanel(rowHeight: rowHeight)
-        guard let badge = titlebarBadge else { return }
-        badge.isHidden = !showsTitlebarBadge
-        guard showsTitlebarBadge else { return }
-        let size = badge.fittingSize
-        badge.frame = CGRect(x: toolbarBand.frame.maxX + Metrics.space2, y: (midY - size.height / 2).rounded(),
-                             width: size.width, height: size.height)
+        layoutTitlebarAccessories(midY: midY)
     }
 
     /// Called after `show(_:)` swaps the content (a top page or a workspace).

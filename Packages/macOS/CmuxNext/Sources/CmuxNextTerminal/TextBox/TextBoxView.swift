@@ -1,28 +1,28 @@
-import AppKit
-import CmuxNextActions
-import CmuxNextDesign
-import CmuxNextIcons
-import Observation
+package import AppKit
+package import CmuxNextActions
+package import CmuxNextDesign
+package import CmuxNextIcons
+package import Observation
 
 /// The TextBox strip under a terminal: the submit action button (click or Shift-Tab changes it),
 /// the multi-line editor with its placeholder, and Add Files. It grows with its lines up to
 /// ``maxLines``, then scrolls. Shows what its ``TextBoxModel`` holds.
-final class TextBoxView: NSView, NSTextViewDelegate {
-    static let maxLines = 10
+package final class TextBoxView: NSView, NSTextViewDelegate {
+    package static let maxLines = 10
     private static let inset: CGFloat = 8
     private static let buttonSide: CGFloat = 24
 
-    let model: TextBoxModel
-    let textView = TextBoxTextView(frame: NSRect(x: 0, y: 0, width: 400, height: 20))
+    package let model: TextBoxModel
+    package let textView = TextBoxTextView(frame: NSRect(x: 0, y: 0, width: 400, height: 20))
     private let scroll = NSScrollView()
     private let placeholder = NSTextField(labelWithString: TextBoxStrings.placeholder)
     private let actionButton = NSButton()
     private let attachButton = NSButton()
     private let separator = NSBox()
     /// Runs an action of the registry (the cycle and attach buttons).
-    var perform: @MainActor (ActionID) -> Void = { _ in }
+    package var perform: @MainActor (ActionID) -> Void = { _ in }
 
-    init(model: TextBoxModel) {
+    package init(model: TextBoxModel) {
         self.model = model
         super.init(frame: NSRect(x: 0, y: 0, width: 400, height: 36))
         wantsLayer = true
@@ -72,7 +72,7 @@ final class TextBoxView: NSView, NSTextViewDelegate {
     }
 
     @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+    package required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     /// Shows the model's text, action and visibility now and on every change.
     private func follow() {
@@ -90,11 +90,11 @@ final class TextBoxView: NSView, NSTextViewDelegate {
     }
 
     /// Takes the editor's text into the model (the editor is what the user typed in).
-    func commitText() {
+    package func commitText() {
         if model.text != textView.string { model.text = textView.string }
     }
 
-    func textDidChange(_ notification: Notification) {
+    package func textDidChange(_ notification: Notification) {
         commitText()
         refreshHeight()
     }
@@ -120,11 +120,11 @@ final class TextBoxView: NSView, NSTextViewDelegate {
         return min(max(lineHeight, ceil(used)), lineHeight * CGFloat(Self.maxLines))
     }
 
-    override var fittingSize: NSSize {
+    package override var fittingSize: NSSize {
         NSSize(width: frame.width, height: editorHeight + Self.inset * 2)
     }
 
-    override func layout() {
+    package override func layout() {
         super.layout()
         let side = Self.buttonSide, inset = Self.inset
         separator.frame = CGRect(x: 0, y: bounds.height - 1, width: bounds.width, height: 1)
@@ -139,11 +139,11 @@ final class TextBoxView: NSView, NSTextViewDelegate {
         placeholder.frame = CGRect(x: editor.minX, y: editor.maxY - lineHeight, width: editor.width, height: lineHeight)
     }
 
-    override func updateLayer() {
-        layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.85).cgColor
+    package override func updateLayer() {
+        layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.85).cgColor  // glass-opaque-allow: an editable text box's field fill (85%)
     }
 
-    override var wantsUpdateLayer: Bool { true }
+    package override var wantsUpdateLayer: Bool { true }
 
     @objc private func cycle(_ sender: Any?) { perform("cycleTextBoxSubmitAction") }
 

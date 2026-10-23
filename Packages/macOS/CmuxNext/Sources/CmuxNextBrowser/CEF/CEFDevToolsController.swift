@@ -189,6 +189,8 @@ final class CEFDevToolsController {
         tab.devTools = BrowserDevToolsState(isOpen: true, dock: docked ? layout.dock : .window)
         if docked, !layout.dock.isDocked { undockViews() }
         tab.container.layoutContent()
+        // A docked DevTools draws in the window's layers too while layer hosting is on (fork API 26).
+        if docked { views?.host.updateLayerHosting(browser: browser, shim: tab.runtime.shim, forkAPIVersion: tab.runtime.forkAPIVersion) }
         tab.devToolsObserver?.browserTab(tab, devToolsDidChange: tab.devTools, focused: true)
     }
 
