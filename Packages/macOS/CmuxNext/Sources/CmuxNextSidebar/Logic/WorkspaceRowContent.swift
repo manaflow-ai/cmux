@@ -9,7 +9,7 @@ public import Foundation
 /// The working-indicator slot: `showsWorking` is true while some tab has
 /// agent work (an acpmux turn, a hook or OSC 7501 `working`:
 /// `SidebarWorkspace.agentWorking`) and the `working` element is on. The
-/// status glyph then draws the working dots (`StatusIndicatorState.working`);
+/// status glyph then draws the working spinner (`StatusIndicatorState.working`);
 /// a stronger state of the workspace (waiting, error) takes the one slot.
 public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     /// Draw the user's icon (nil when the user set none or turned icons off).
@@ -32,7 +32,8 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     /// The agent-working indicator slot (WORKING-AND-LOADING-INDICATORS).
     public var showsWorking: Bool
     /// The row badge draws each state apart (`sidebar.detailedStatusIcons`): working, waiting,
-    /// error, done. Off (the default), it draws Working or Ready only (`WorkspaceRowBadges`).
+    /// error, done. Off (the default), it draws the one spinner, yellow needs-you mark, red error
+    /// mark or blue Ready dot (`WorkspaceRowBadges`).
     public var detailedStatus = false
     /// An expanded row (`sidebar.density`): its trailing marks sit on the title's line.
     public var expanded = false

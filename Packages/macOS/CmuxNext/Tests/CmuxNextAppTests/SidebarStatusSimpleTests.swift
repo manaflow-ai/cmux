@@ -6,10 +6,9 @@ import Testing
 
 /// Lawrence 2026-10-18: "everything should either just be 'it is working' or 'it is blue and ready
 /// for me to look at it'", with finer icons as an opt-in (`sidebar.detailedStatusIcons`). By default
-/// a workspace row's badge is Working (the one spinner), Ready (the blue dot) or, Leo 2026-10-21
-/// ("why ISN'T THIS JUST A YELLOW DOT!?"), needs you: one yellow dot in the blue dot's place, never
-/// both. A question, a permission request and an auth wait are all needs you, so no chat bubble or
-/// shield draws; a finished run is Ready and an error is red.
+/// a workspace row's badge is Working (the one spinner), Ready (the blue dot), Needs you (the
+/// yellow dot) or Error (the red mark). A question, a permission request and an auth wait are all
+/// needs you, so no chat bubble or shield draws; a finished run is Ready.
 @MainActor @Suite(.serialized) struct SidebarStatusSimpleTests {
     nonisolated struct Case: Sendable, CustomTestStringConvertible {
         var activity: StatusIndicatorState
@@ -30,6 +29,7 @@ import Testing
         // Needs you replaces the blue unread dot: one yellow dot, never both.
         Case(activity: .waiting(kind: .question), unread: .count(2), simple: [.waiting]),
         Case(activity: .error, simple: [.error]),
+        Case(activity: .error, unread: .count(2), simple: [.error]),
         Case(activity: .success, simple: [.success]),
         Case(activity: .idle, unread: .count(3), simple: [.success]),
         // Something to look at outranks work still running in the same workspace.
@@ -37,7 +37,7 @@ import Testing
     ]
 
     @Test(arguments: cases)
-    func byDefaultARowIsWorkingReadyOrNeedsYou(_ c: Case) {
+    func byDefaultARowIsWorkingReadyNeedsYouOrErrors(_ c: Case) {
         let badges = WorkspaceRowBadges(unread: c.unread, activity: c.activity, detailed: false)
         #expect(badges.items == c.simple)
     }
@@ -68,6 +68,13 @@ import Testing
     @Test func errorIsTheRedStatusMark() {
         let plan = StatusIndicatorPlan.make(.error, style: .arc, animates: true, set: StatusIconSet.tunable.defaultValue)
         #expect(plan.tint == .danger)
+    }
+
+    /// Agent work remains the animated spinner and never becomes a status dot.
+    @Test func workingRemainsTheSpinner() {
+        let plan = StatusIndicatorPlan.make(.working, style: .arc, animates: true, set: StatusIconSet.tunable.defaultValue)
+        #expect(plan.glyph == .arc)
+        #expect(plan.animation == .spin)
     }
 
     private static let asking = WorkspaceID("ws-asking")
