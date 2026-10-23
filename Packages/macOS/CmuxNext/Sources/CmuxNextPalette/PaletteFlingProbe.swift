@@ -11,12 +11,13 @@ import CmuxNextWakeups
 @MainActor
 final class PaletteFlingProbe {
     private let content: PaletteContentView
-    private let frames: Int
+    private let duration: CFTimeInterval
     private let pointsPerFrame: CGFloat
     private let pointer: NSPoint
     private var client: FrameClient?
     private var continuation: CheckedContinuation<PaletteFlingReport, Never>?
     private var report: PaletteFlingReport
+    private var firstTimestamp: CFTimeInterval?
     private var lastTimestamp: CFTimeInterval?
     private var lastHover: String?
     private var direction: CGFloat = 1
@@ -24,12 +25,14 @@ final class PaletteFlingProbe {
     private var rendersAtStart = 0
 
     /// - Parameters:
-    ///   - frames: Frames to scroll (the caller bounds it inside its deadline).
+    ///   - duration: How long to scroll, in seconds from the first frame. The fling ends on time,
+    ///     not on a frame count, so a slow build (long frames) ends inside the caller's deadline
+    ///     instead of running past it; the report counts the frames that really ran.
     ///   - pointsPerFrame: Points the list moves each frame.
     ///   - pointerFraction: Where the pointer rests, as a fraction of the list's height.
-    init(content: PaletteContentView, frames: Int, pointsPerFrame: CGFloat, pointerFraction: CGFloat) {
+    init(content: PaletteContentView, duration: CFTimeInterval, pointsPerFrame: CGFloat, pointerFraction: CGFloat) {
         self.content = content
-        self.frames = frames
+        self.duration = duration
         self.pointsPerFrame = pointsPerFrame
         let list = content.list
         let fraction = min(max(pointerFraction, 0.05), 0.95)
@@ -67,6 +70,8 @@ final class PaletteFlingProbe {
         let start = ContinuousClock.now
         if let lastTimestamp { report.intervalsMs.append((tick.timestamp - lastTimestamp) * 1000) }
         lastTimestamp = tick.timestamp
+        let first = firstTimestamp ?? tick.timestamp
+        firstTimestamp = first
         if let refresh = tick.refreshInterval { report.refreshMs = refresh * 1000 }
         let list = content.list
         // The previous frame's scroll moved rows under the pointer; its hover hop has run by now.
@@ -78,7 +83,7 @@ final class PaletteFlingProbe {
             }
             if hovered != list.debugRowID(atWindowPoint: pointer) { report.hoverMisses += 1 }
         }
-        guard ticks < frames else {
+        guard tick.timestamp - first < duration else {
             finish()
             return false
         }

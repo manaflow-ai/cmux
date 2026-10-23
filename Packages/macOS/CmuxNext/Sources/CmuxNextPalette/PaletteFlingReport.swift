@@ -1,5 +1,5 @@
 #if DEBUG
-/// What one fling of the open palette's list cost (``PaletteController/debugFling(frames:pointsPerFrame:pointerFraction:)``,
+/// What one fling of the open palette's list cost (``PaletteController/debugFling(seconds:pointsPerFrame:pointerFraction:)``,
 /// the `debug.palette.fling` socket verb; perf-lead row 23 test plan step 5).
 ///
 /// The list scrolls a fixed distance on every display refresh under a pointer that rests over it,

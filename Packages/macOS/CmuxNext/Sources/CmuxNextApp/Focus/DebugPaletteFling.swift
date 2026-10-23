@@ -3,11 +3,12 @@ import AppKit
 import CmuxNextPalette
 import CmuxNextSettings
 
-/// `debug.palette.fling {frames?, px?, pointer?}` (DEBUG builds): flings the open palette's list
+/// `debug.palette.fling {seconds?, px?, pointer?}` (DEBUG builds): flings the open palette's list
 /// under a resting pointer from inside the app (`PaletteController.debugFling`), so a fleet host
 /// with no Post Event grant can measure what a fling costs (perf-lead row 23 test plan step 5;
-/// scripts/cmux-next/bench-palette-fling.py). `frames` (default 120, at most 180) display
-/// refreshes, `px` points per refresh (default 24, about one row), `pointer` the pointer's place
+/// scripts/cmux-next/bench-palette-fling.py). `seconds` (default 1, at most 1.5) how long to
+/// scroll from the first refresh (a time, so a slow build still answers inside the 2 s deadline;
+/// `frames` in the reply is how many intervals really ran), `px` points per refresh (default 24, about one row), `pointer` the pointer's place
 /// as a fraction of the list's height (default 0.5). Answers the main thread's frame intervals
 /// (`frames`, `p50_ms`, `p95_ms`, `max_ms`, `long_frames` over 1.5 refreshes, `refresh_ms`,
 /// `display_fps`, `intervals_ms`), the synchronous work per frame (`work_p95_ms`, `work_max_ms`),
@@ -17,7 +18,7 @@ struct DebugPaletteFling {
     let services: AppServices
 
     func run(_ params: [String: JSONValue]) async -> JSONValue {
-        guard let report = await services.palette.debugFling(frames: params["frames"]?.intValue ?? 120,
+        guard let report = await services.palette.debugFling(seconds: params["seconds"]?.doubleValue ?? 1,
                                                               pointsPerFrame: params["px"]?.doubleValue ?? 24,
                                                               pointerFraction: params["pointer"]?.doubleValue ?? 0.5)
         else { return ["error": "the palette is not open"] }

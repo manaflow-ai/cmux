@@ -263,7 +263,7 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugPaletteCapture.capture(call.params, services: services))
             },
-            // `debug.palette.fling {frames?, px?, pointer?}`: flings the open palette's list under a
+            // `debug.palette.fling {seconds?, px?, pointer?}`: flings the open palette's list under a
             // resting pointer, with no real input (DebugPaletteFling, bench-palette-fling.py).
             .async("debug.palette.fling") { [weak services] call in
                 guard let services else { return .null }
