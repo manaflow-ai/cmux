@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
+import CmuxNextBrowser
 import CmuxNextDaemon
 import Foundation
 import Testing
@@ -74,6 +75,19 @@ struct HomeDockOpensTests {
             try await Task.sleep(for: .milliseconds(500))
             #expect(screen.defaultPane == dock.pane.handle, "the daemon's focus left Home")
             #expect(window.focusedPane === dock, "the window's focus left Home")
+        }
+    }
+
+    /// A page the engine already made and the pane adopts (Duplicate Tab on a browser tab dragged into
+    /// Home, a popup) opens beside Home too.
+    @Test func anAdoptedPageInHomeOpensBesideIt() async throws {
+        try await PasswordManagerRouteTests.withApp { services, connection in
+            let (_, home, dock) = try await Self.openHome(services, connection)
+            let url = URL(string: "https://example.com/")
+            let page = WebKitEngine().makeWebKitTab(initialURL: url)
+            #expect(dock.newBrowserTab(url: url, inherited: BrowserEngineTag.webkit.rawValue, adopting: page))
+            let right = try await Self.untilBeside(home, dock.pane, "adopted page")
+            #expect(right.tabs.contains { $0.kind == .browser })
         }
     }
 
