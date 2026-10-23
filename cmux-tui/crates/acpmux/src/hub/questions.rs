@@ -315,6 +315,25 @@ pub(super) fn check_answers(request: &Value, answers: &Value) -> Result<(), RpcE
             return invalid("must not be empty");
         }
     }
+    // An item that takes no answer of the person's own (an MCP form's choice,
+    // `claude_stdio/elicitation.rs`) takes only its labels: one, or for a
+    // multi-select several, each once, joined by ", ".
+    for item in items.iter().filter(|i| !codex && i["allowsOther"] == false) {
+        let Some(answer) = item["prompt"].as_str().and_then(|k| answers.get(k)?.as_str()) else {
+            continue;
+        };
+        let labels: Vec<&str> =
+            item["options"].as_array().into_iter().flatten().filter_map(|o| o["label"].as_str()).collect();
+        let picked: Vec<&str> = if item["multiSelect"] == true {
+            answer.split(", ").map(str::trim).collect()
+        } else {
+            vec![answer.trim()]
+        };
+        let mut seen = std::collections::HashSet::new();
+        if !picked.iter().all(|p| labels.contains(p) && seen.insert(*p)) {
+            return invalid("must be the item's own options where it takes no other answer");
+        }
+    }
     Ok(())
 }
 
@@ -377,5 +396,26 @@ mod tests {
         normalize(&mut request, PreviewFormat::Html);
         normalize(&mut request, PreviewFormat::Monospace);
         assert_eq!(preview_of(&request)["format"], "html");
+    }
+
+    /// An item that takes no answer of the person's own (an MCP form's choice)
+    /// takes only its labels, each once.
+    #[test]
+    fn an_item_without_other_answers_takes_only_its_labels() {
+        let request = json!({"toolCall": {"_meta": {"acpmux": {"question": {"harness": "claude", "items": [
+            {"id": "q0", "prompt": "Region", "multiSelect": false, "allowsOther": false,
+             "options": [{"id": "EU", "label": "EU"}, {"id": "US", "label": "US"}]},
+            {"id": "q1", "prompt": "Tags", "multiSelect": true, "allowsOther": false,
+             "options": [{"id": "a", "label": "a"}, {"id": "b", "label": "b"}]},
+            {"id": "q2", "prompt": "Note", "multiSelect": false, "allowsOther": true, "options": []},
+        ]}}}}});
+        let check = |region: &str, tags: &str| {
+            check_answers(&request, &json!({"Region": region, "Tags": tags, "Note": "free text"}))
+        };
+        assert!(check("EU", "a, b").is_ok());
+        assert!(check("Mars", "a").is_err());
+        assert!(check("EU", "a, c").is_err());
+        assert!(check("EU", "a, a").is_err());
+        assert!(check("EU, US", "a").is_err());
     }
 }

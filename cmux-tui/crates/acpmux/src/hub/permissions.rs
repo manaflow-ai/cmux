@@ -16,6 +16,10 @@ impl Hub {
                 Inbound::Notification { method: m, params } => {
                     if m == method::SESSION_UPDATE {
                         self.on_update(&session, params.as_ref());
+                    } else if m == method::CANCEL_REQUEST
+                        && let Some(id) = params.as_ref().and_then(|p| p.get("requestId"))
+                    {
+                        self.withdraw_permission(&session, id);
                     }
                 }
                 Inbound::Request { id, method: m, params } => {
@@ -553,6 +557,7 @@ impl Hub {
                     reply: tx,
                     decision_nonce: decision_nonce.clone(),
                     prev_status: prev,
+                    agent_request: agent_request_id.cloned(),
                 },
             );
             self.append(session,"mux","permission_request",json!({"permissionId":permission_id,"decisionNonce":decision_nonce,"personInstance":self.person.instance(),"request":request,"groupId":grouping.as_ref().map(|(id,_)|id),"turnId":turn_id,"agentRequestId":agent_request_id,"remoteFloor":floored}));
@@ -769,6 +774,29 @@ impl Hub {
         }
         let _ = pending.reply.send(outcome);
         Ok(())
+    }
+
+    /// The agent withdrew its request `agent_request` (ACP `$/cancel_request`,
+    /// e.g. Claude Code's form whose tool call ended): its prompt, if still
+    /// pending, is cancelled as a Stop cancels it, so no card waits on an ask
+    /// that is gone. Only the agent's own requests match; nothing is allowed.
+    pub(super) fn withdraw_permission(&self, session: &Session, agent_request: &Value) {
+        let withdrawn = {
+            let mut state = session.permissions.lock().unwrap();
+            let id = state
+                .pending
+                .iter()
+                .find(|(_, p)| p.agent_request.as_ref() == Some(agent_request))
+                .map(|(id, _)| id.clone());
+            let Some(id) = id else { return };
+            if let Some(group) = state.finish_item(&session.id, &id, true) {
+                self.append(session, "mux", "permission_group", json!({"group":group}));
+            }
+            state.pending.remove(&id)
+        };
+        if let Some(p) = withdrawn {
+            let _ = p.reply.send(json!({"outcome": "cancelled"}));
+        }
     }
 
     pub(super) fn cancel_pending_permissions(&self, session: &Session) {

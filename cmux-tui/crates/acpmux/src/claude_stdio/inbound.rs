@@ -440,21 +440,17 @@ impl Translator {
                             }),
                         ));
                     }
-                    other => {
-                        // Anything else (hook_callback, mcp_message) is declined
-                        // with an error response, so claude does not wait on it.
-                        let other = other.unwrap_or("?");
-                        tracing::debug!("claude control_request {other} declined");
-                        self.stdin_replies.lock().await.push(json!({
-                            "type": "control_response",
-                            "response": {
-                                "subtype": "error",
-                                "request_id": rid,
-                                "error": format!("acpmux does not support control request {other}"),
-                            }
-                        }));
-                    }
+                    // An MCP server's form, asked as a question (elicitation.rs).
+                    Some("elicitation") => out.extend(self.elicit(&sid, &rid, &req).await),
+                    // Anything else (hook_callback, mcp_message) is declined
+                    // with an error response, so claude does not wait on it.
+                    other => self.decline_control(&rid, other.unwrap_or("?")).await,
                 }
+            }
+            // Claude Code no longer needs the answer to one of its requests.
+            "control_cancel_request" => {
+                let rid = line.get("request_id").and_then(Value::as_str).unwrap_or("");
+                out.extend(self.withdraw_control(rid).await);
             }
             "control_response" => {
                 let resp = line.get("response").cloned().unwrap_or(Value::Null);

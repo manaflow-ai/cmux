@@ -267,9 +267,29 @@ mod tests {
             decision_nonce: super::super::person::new_nonce(),
             ancestor_may_answer: may,
             prev_status: SessionStatus::Waiting,
+            agent_request: None,
         };
         session.permissions.lock().unwrap().pending.insert(id.clone(), entry);
         (id, rx)
+    }
+
+    /// An agent's `$/cancel_request` (`permissions.rs` withdraw_permission)
+    /// cancels only the prompt it raised under that request id.
+    #[tokio::test]
+    async fn an_agents_cancel_request_withdraws_only_its_own_prompt() {
+        let (hub, session, _conn) = hub_with_session().await;
+        let (mine, rx) = pending(&session, false);
+        let (other, _other_rx) = pending(&session, false);
+        {
+            let mut state = session.permissions.lock().unwrap();
+            state.pending.get_mut(&mine).unwrap().agent_request = Some(json!(1_000_007));
+            state.pending.get_mut(&other).unwrap().agent_request = Some(json!(1_000_008));
+        }
+        hub.withdraw_permission(&session, &json!(1_000_007));
+        assert_eq!(rx.await.unwrap(), json!({"outcome": "cancelled"}));
+        let state = session.permissions.lock().unwrap();
+        assert!(!state.pending.contains_key(&mine));
+        assert!(state.pending.contains_key(&other), "another prompt stays");
     }
 
     /// The rule under the prompt's lock, without the request check before it:
@@ -330,6 +350,7 @@ mod tests {
             decision_nonce: super::super::person::new_nonce(),
             ancestor_may_answer: true,
             prev_status: SessionStatus::Waiting,
+            agent_request: None,
         };
         session.permissions.lock().unwrap().pending.insert(id.clone(), entry);
         let prompt = "child wants to work in /tmp/untrusted. Do you trust this folder?";
