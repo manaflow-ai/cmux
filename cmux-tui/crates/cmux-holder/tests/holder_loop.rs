@@ -129,3 +129,53 @@ fn a_daemon_superseded_with_a_full_queue_still_hears_superseded_last() {
     kill(holder);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A SPAWN never stalls the loop that serves every other terminal: the
+/// holder neither searches `PATH` itself nor waits for the child to enter
+/// its directory and run its program (a directory on a dead network mount
+/// would stop every terminal's output). A PING written in the same write
+/// right behind a SPAWN that fails gets its PONG before that SPAWN's error:
+/// the holder answered it while the child was still starting.
+#[test]
+fn a_spawn_never_stalls_the_holder_loop() {
+    let dir = temp_dir();
+    let socket = dir.join("h.sock");
+    let holder = launch(holder_binary(), &socket, &TOKEN).unwrap();
+    let mut link = RawLink::connect(&socket);
+    let request = |chan: u32, cwd: &[u8], program: &[u8]| cmux_holder::SpawnRequest {
+        id: [chan as u8; 16],
+        cols: 80,
+        rows: 24,
+        cwd: cwd.to_vec(),
+        argv: vec![program.to_vec()],
+        env: vec![b"PATH=/nonexistent-cmux-holder-path:/usr/bin:/bin".to_vec()],
+        ..cmux_holder::SpawnRequest::default()
+    };
+    let spawns = [
+        (1, request(1, b"/nonexistent-cmux-holder-dir", b"/bin/sh"), "nonexistent-cmux-holder-dir"),
+        (2, request(2, b"/tmp", b"cmux-no-such-program"), "cmux-no-such-program"),
+    ];
+    for (chan, request, named) in spawns {
+        let mut bytes = wire::encode(Kind::Spawn, chan, &request.encode());
+        bytes.extend_from_slice(&ping(u64::from(chan)));
+        link.send(&bytes);
+        let first = link.frame().unwrap().expect("the holder closed the link");
+        assert_eq!(
+            Kind::from_u16(first.kind),
+            Some(Kind::Pong),
+            "spawn {chan}: the PING waited for the SPAWN (frame {} on channel {})",
+            first.kind,
+            first.chan
+        );
+        assert_eq!(In(&first.payload).u64().unwrap(), u64::from(chan));
+        let second = link.frame().unwrap().expect("the holder closed the link");
+        assert_eq!((Kind::from_u16(second.kind), second.chan), (Some(Kind::Error), chan));
+        let mut input = In(&second.payload);
+        assert_eq!(input.u16().unwrap(), Kind::Spawn as u16);
+        assert_eq!(input.u16().unwrap(), error_code::SPAWN_FAILED);
+        let message = String::from_utf8_lossy(input.rest()).into_owned();
+        assert!(message.contains(named), "spawn {chan}: {message}");
+    }
+    kill(holder);
+    let _ = std::fs::remove_dir_all(&dir);
+}
