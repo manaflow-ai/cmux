@@ -441,3 +441,114 @@ async fn a_restart_continuation_of_a_turn_a_web_steer_raised_is_web_and_gated() 
     assert_eq!(msg["control"], "web", "a Web-steered turn went on as a local one: {msg:#}");
     assert_eq!(msg["trustGate"], true, "a Web turn's continuation skips the trust gate: {msg:#}");
 }
+
+/// A Web turn that left the asking-mode table before a hard daemon restart must not be resumed
+/// from stale session metadata. The durable `remote_control_ended` marker is the only copy of the
+/// sticky Web-control state when its agent host did not survive to be adopted.
+#[tokio::test]
+async fn a_restart_does_not_resume_after_remote_control_ended() {
+    let mut daemon = Daemon::with_env("rrended", "approve-all", &[("ACPMUX_AGENT_HOSTS", "0")]);
+    let session = new_session(&daemon).await;
+    let gate = daemon.home.join("gate");
+    make_fifo(&gate);
+    let mut client = daemon.rpc().await;
+    client
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": format!("gate: {} <the cut task>", gate.display())}], "_meta": {"acpmux": {"promptId": "cut-1"}}}),
+        )
+        .await;
+    daemon.wait_event(&session, "before-gate chunk", |e| chunk(e, "before-gate"));
+    let started = daemon.wait_event(&session, "turn_started", |e| {
+        e["kind"] == "turn_started" && e["msg"]["promptId"] == "cut-1"
+    });
+    daemon.sigkill();
+    drop(client);
+
+    let events = daemon.home.join("sessions").join(&session).join("events");
+    let mut files: Vec<_> =
+        std::fs::read_dir(&events).unwrap().filter_map(|e| e.ok().map(|e| e.path())).collect();
+    files.sort();
+    let last = files.last().expect("an event log").clone();
+    let seq = daemon.events(&session).iter().filter_map(|e| e["seq"].as_u64()).max().unwrap();
+    let ended = json!({"seq": seq + 1, "at": 0, "dir": "mux", "kind": "remote_control_ended", "msg": {"mode": "ask"}});
+    let mut log = std::fs::OpenOptions::new().append(true).open(&last).unwrap();
+    std::io::Write::write_all(&mut log, format!("{ended}\n").as_bytes()).unwrap();
+    drop(log);
+
+    hold_startup(&daemon);
+    daemon.start();
+    let mut rpc = daemon.rpc().await;
+    let attached = rpc.call("_acpmux/attach", json!({"sessionId": session, "limit": 0})).await;
+    let queue = attached["session"]["queue"].as_array().expect("queue in the attach reply");
+    assert!(
+        queue.iter().all(|q| q["promptId"] != "cut-1~resume-1"),
+        "stale Web control allowed a restart continuation: {attached:#}"
+    );
+    let events = daemon.events(&session);
+    assert!(
+        events
+            .iter()
+            .any(|e| e["kind"] == "auto_resume_skipped"
+                && e["msg"]["skipped"] == "remote_control_ended"),
+        "the restart did not record why Web control blocked the continuation: {events:#?}"
+    );
+    assert!(
+        events
+            .iter()
+            .any(|e| e["kind"] == "turn_result" && e["msg"]["turnId"] == started["msg"]["turnId"]),
+        "the interrupted turn was not settled: {events:#?}"
+    );
+}
+
+/// A remote-floor cancellation is terminal for the cut Web turn even if its mode metadata still
+/// says asking. Restart recovery must carry that per-turn marker without an adopted host.
+#[tokio::test]
+async fn a_restart_does_not_resume_after_remote_floor_cancel() {
+    let mut daemon = Daemon::with_env("rrfloor", "approve-all", &[("ACPMUX_AGENT_HOSTS", "0")]);
+    let session = new_session(&daemon).await;
+    let gate = daemon.home.join("gate");
+    make_fifo(&gate);
+    let mut client = daemon.rpc().await;
+    client
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": format!("gate: {} <the cut task>", gate.display())}], "_meta": {"acpmux": {"promptId": "cut-1"}}}),
+        )
+        .await;
+    daemon.wait_event(&session, "before-gate chunk", |e| chunk(e, "before-gate"));
+    let started = daemon.wait_event(&session, "turn_started", |e| {
+        e["kind"] == "turn_started" && e["msg"]["promptId"] == "cut-1"
+    });
+    daemon.sigkill();
+    drop(client);
+
+    let events = daemon.home.join("sessions").join(&session).join("events");
+    let mut files: Vec<_> =
+        std::fs::read_dir(&events).unwrap().filter_map(|e| e.ok().map(|e| e.path())).collect();
+    files.sort();
+    let last = files.last().expect("an event log").clone();
+    let seq = daemon.events(&session).iter().filter_map(|e| e["seq"].as_u64()).max().unwrap();
+    let cancelled = json!({"seq": seq + 1, "at": 0, "dir": "mux", "kind": "remote_floor_cancel", "msg": {"reason": "remote.mode_not_asking", "turnId": started["msg"]["turnId"]}});
+    let mut log = std::fs::OpenOptions::new().append(true).open(&last).unwrap();
+    std::io::Write::write_all(&mut log, format!("{cancelled}\n").as_bytes()).unwrap();
+    drop(log);
+
+    hold_startup(&daemon);
+    daemon.start();
+    let mut rpc = daemon.rpc().await;
+    let attached = rpc.call("_acpmux/attach", json!({"sessionId": session, "limit": 0})).await;
+    let queue = attached["session"]["queue"].as_array().expect("queue in the attach reply");
+    assert!(
+        queue.iter().all(|q| q["promptId"] != "cut-1~resume-1"),
+        "a remote-floor cancellation allowed a restart continuation: {attached:#}"
+    );
+    let events = daemon.events(&session);
+    assert!(
+        events
+            .iter()
+            .any(|e| e["kind"] == "auto_resume_skipped"
+                && e["msg"]["skipped"] == "remote_floor_cancel"),
+        "the restart did not record why the remote floor blocked the continuation: {events:#?}"
+    );
+}

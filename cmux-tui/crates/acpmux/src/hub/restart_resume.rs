@@ -73,20 +73,37 @@ impl Hub {
         let mut images: Vec<Value> = Vec::new();
         // A Web steer made the turn a Web turn (`web_control.rs` `check_steer`).
         let mut raised_to_web = false;
-        let kinds = ["turn_started", "user_message", "turn_control"];
+        // These durable markers are normally applied to live sessions. A dead-host restart has
+        // no host replay, so carry their terminal control state into this decision too: a Web
+        // continuation must not cross a remote-floor cancellation or stale ended control.
+        let mut started = false;
+        let mut control_ended = false;
+        let mut floor_cancelled = false;
+        let kinds = [
+            "turn_started",
+            "user_message",
+            "turn_control",
+            "remote_control_ended",
+            "remote_control_restored",
+            "remote_floor_cancel",
+        ];
         let _ = self.store.scan_kinds(&session.id, &kinds, &mut |e: EventRecord| {
-            if e.msg.get("turnId").and_then(Value::as_str) != Some(turn_id) {
-                return true;
-            }
+            let is_turn = e.msg.get("turnId").and_then(Value::as_str) == Some(turn_id);
             let field = |k: &str| e.msg.get(k).and_then(Value::as_str).map(str::to_owned);
             match e.kind.as_str() {
-                "turn_started" => {
+                "turn_started" if is_turn => {
+                    started = true;
                     prompt_id = field("promptId");
                     control = field("control");
                     gate = e.msg.get("trustGate").and_then(Value::as_bool);
                 }
-                "turn_control" => raised_to_web |= field("control").as_deref() == Some("web"),
-                _ => {
+                "turn_control" if is_turn => {
+                    raised_to_web |= field("control").as_deref() == Some("web")
+                }
+                "remote_control_ended" if started => control_ended = true,
+                "remote_control_restored" if started => control_ended = false,
+                "remote_floor_cancel" if started && is_turn => floor_cancelled = true,
+                "user_message" if is_turn => {
                     let named = e.msg.get("images").and_then(Value::as_array);
                     let shown = named.map_or(0, Vec::len);
                     images.extend(named.into_iter().flatten().cloned());
@@ -104,6 +121,22 @@ impl Hub {
         if attempt > MAX_ATTEMPTS {
             let msg = json!({"promptId": root, "attempts": done, "turnId": turn_id, "reason": "daemon_restart"});
             self.append(session, "mux", "auto_resume_exhausted", msg);
+            return None;
+        }
+        let blocked = if floor_cancelled {
+            Some("remote_floor_cancel")
+        } else if control_ended {
+            Some("remote_control_ended")
+        } else {
+            None
+        };
+        if let Some(reason) = blocked {
+            self.append(
+                session,
+                "mux",
+                "auto_resume_skipped",
+                json!({"promptId": root, "attempt": attempt, "turnId": turn_id, "skipped": reason}),
+            );
             return None;
         }
         let id = format!("{root}{SUFFIX}{attempt}");
