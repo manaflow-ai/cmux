@@ -124,4 +124,36 @@ struct CloudMachineResourcePresentationTests {
         #expect(resources.disk.inlineDetail == "Unavailable")
     }
 
+    @Test func nearlyFullDiskWarnsWhileThereIsStillRoomToRecover() {
+        // 16 GiB disk: the 3 GiB floor applies, so 1 GiB free warns and 4 GiB does not.
+        let low = CloudMachineResourcePresentation(availability: .awake, diskUsedMb: 15_360, diskTotalMb: 16_384)
+        #expect(low.lowDiskFreeMb == 1024)
+        let warning = low.lowDiskWarning(machineID: "vm-1")
+        #expect(warning?.contains("vm-1") == true)
+
+        let roomy = CloudMachineResourcePresentation(availability: .awake, diskUsedMb: 12_288, diskTotalMb: 16_384)
+        #expect(roomy.lowDiskFreeMb == nil)
+        #expect(roomy.lowDiskWarning(machineID: "vm-1") == nil)
+
+        // 128 GiB disk: 10% of capacity is the larger threshold.
+        let large = CloudMachineResourcePresentation(availability: .awake, diskUsedMb: 120_000, diskTotalMb: 131_072)
+        #expect(large.lowDiskFreeMb == 11_072)
+    }
+
+    @Test func fullOrOvercountedDiskReportsZeroFree() {
+        let full = CloudMachineResourcePresentation(availability: .awake, diskUsedMb: 16_500, diskTotalMb: 16_384)
+        #expect(full.lowDiskFreeMb == 0)
+    }
+
+    @Test(arguments: [CloudMachineResourcePresentation.Availability.loading, .unavailable, .asleep, .stale])
+    func onlyALiveSampleWarnsAboutDiskSpace(availability: CloudMachineResourcePresentation.Availability) {
+        let resources = CloudMachineResourcePresentation(availability: availability, diskUsedMb: 16_384, diskTotalMb: 16_384)
+        #expect(resources.lowDiskFreeMb == nil)
+    }
+
+    @Test(arguments: [(nil, 16_384), (1024, nil), (1024, 0), (-1, 16_384)] as [(Int?, Int?)])
+    func missingOrInvalidDiskSamplesNeverWarn(counts: (Int?, Int?)) {
+        let resources = CloudMachineResourcePresentation(availability: .awake, diskUsedMb: counts.0, diskTotalMb: counts.1)
+        #expect(resources.lowDiskFreeMb == nil)
+    }
 }
