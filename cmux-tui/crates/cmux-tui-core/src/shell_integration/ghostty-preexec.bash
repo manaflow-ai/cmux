@@ -1,6 +1,6 @@
 
 # cmux: interim, delete with the ghostty-next bump that takes the root fix
-# (patch with PL-ghostty). Appended to Ghostty's ghostty.bash in every copy cmux
+# (ghostty-next 72578da; PL-ghostty bumps the gitlink). Appended to Ghostty's ghostty.bash in every copy cmux
 # ships: the daemon's (shell_integration.rs SCRIPTS) and the app bundle's
 # (scripts/cmux-next/bundle-ghostty-resources.sh), so every bash cmux-next
 # integrates gets it, with or without the app's cmux-cli-path layer.
