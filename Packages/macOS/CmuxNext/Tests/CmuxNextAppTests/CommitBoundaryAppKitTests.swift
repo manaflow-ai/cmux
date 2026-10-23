@@ -23,7 +23,11 @@ struct CommitBoundaryAppKitTests {
         view.needsDisplay = true
         view.layer?.opacity = 0.5
         let audit = CommitBoundaryAudit.mainRunLoop()
+        let macOS = ProcessInfo.processInfo.operatingSystemVersion.majorVersion
+        // The whole dump in the log, so each fleet major's real observers can be read (and the
+        // display-cycle expectation below updated from them).
+        print("COMMIT-BOUNDARY-DUMP macOS \(macOS): \(audit.observers.map(\.description).joined(separator: "\n"))")
         try #require(!audit.coreAnimation.isEmpty, "no Core Animation commit observer: \(audit.observers)")
-        #expect(audit.late.isEmpty, "display or commit observers after the boundary on \(ProcessInfo.processInfo.operatingSystemVersionString): \(audit.late)")
+        #expect(audit.late.isEmpty, "observers after the boundary on \(ProcessInfo.processInfo.operatingSystemVersionString): \(audit.late)")
     }
 }
