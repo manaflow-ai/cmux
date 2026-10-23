@@ -11,7 +11,9 @@ fn ask(request: Value) -> Value {
 /// The permission request the translator raised, and its ACP id.
 async fn asked(t: &Translator, line: &Value) -> Option<(Id, Value)> {
     t.inbound(line).await.into_iter().find_map(|m| match m {
-        Message::Request { id, method: m, params: Some(p) } if m == method::SESSION_REQUEST_PERMISSION => {
+        Message::Request { id, method: m, params: Some(p) }
+            if m == method::SESSION_REQUEST_PERMISSION =>
+        {
             Some((id, p))
         }
         _ => None,
@@ -67,18 +69,28 @@ async fn a_form_is_asked_as_a_question_only_a_person_answers() {
     let items = question["items"].as_array().expect("items");
     // In the server's own order, the message leading the first.
     let prompts: Vec<&str> = items.iter().filter_map(|i| i["prompt"].as_str()).collect();
-    assert_eq!(prompts, ["Where should this deploy go? — Region", "Replicas", "Canary", "Tags", "Note"]);
-    assert_eq!(items[0]["options"], json!([{"id": "US East", "label": "US East"}, {"id": "EU West", "label": "EU West"}]));
+    assert_eq!(
+        prompts,
+        ["Where should this deploy go? — Region", "Replicas", "Canary", "Tags", "Note"]
+    );
+    assert_eq!(
+        items[0]["options"],
+        json!([{"id": "US East", "label": "US East"}, {"id": "EU West", "label": "EU West"}])
+    );
     assert_eq!(items[0]["allowsOther"], false);
     assert_eq!(items[1]["options"], json!([]));
     assert_eq!(items[1]["allowsOther"], true);
     assert_eq!(items[2]["options"][0]["label"], "Yes");
     assert_eq!(items[3]["multiSelect"], true);
     // An optional field can be left out.
-    assert_eq!(items[3]["options"].as_array().and_then(|o| o.last()).map(|o| o["label"].clone()), Some(json!("No answer")));
+    assert_eq!(
+        items[3]["options"].as_array().and_then(|o| o.last()).map(|o| o["label"].clone()),
+        Some(json!("No answer"))
+    );
     // Not AskUserQuestion: no session above this one may answer it (`hub/questions.rs`).
     assert_ne!(p["toolCall"]["_meta"]["claude"]["tool"], "AskUserQuestion");
-    let kinds: Vec<&str> = p["options"].as_array().into_iter().flatten().filter_map(|o| o["kind"].as_str()).collect();
+    let kinds: Vec<&str> =
+        p["options"].as_array().into_iter().flatten().filter_map(|o| o["kind"].as_str()).collect();
     assert_eq!(kinds, ["allow_once", "reject_once"]);
 }
 
@@ -93,8 +105,12 @@ async fn submit_sends_the_answers_as_the_forms_content() {
         "Tags": "web, api, v2",
         "Note": "No answer",
     });
-    let line = answer(&t, id, json!({"outcome": "selected", "optionId": "allow_once",
-        "_meta": {"updatedInput": {"answers": answers}}}))
+    let line = answer(
+        &t,
+        id,
+        json!({"outcome": "selected", "optionId": "allow_once",
+        "_meta": {"updatedInput": {"answers": answers}}}),
+    )
     .await;
     assert_eq!(line["type"], "control_response");
     assert_eq!(line["response"]["request_id"], "e1");
@@ -144,8 +160,12 @@ async fn a_single_field_asks_the_message_under_the_servers_name() {
     assert_eq!(item["prompt"], "Which repository?");
     assert_eq!(item["header"], "github");
     let answers = json!({"Which repository?": "Beta"});
-    let line = answer(&t, id, json!({"outcome": "selected", "optionId": "allow_once",
-        "_meta": {"updatedInput": {"answers": answers}}}))
+    let line = answer(
+        &t,
+        id,
+        json!({"outcome": "selected", "optionId": "allow_once",
+        "_meta": {"updatedInput": {"answers": answers}}}),
+    )
     .await;
     assert_eq!(line["response"]["response"]["content"], json!({"repo": "b"}));
 }
@@ -153,7 +173,9 @@ async fn a_single_field_asks_the_message_under_the_servers_name() {
 #[tokio::test]
 async fn url_mode_and_nested_schemas_keep_the_unsupported_reply() {
     let t = Translator::new("acp-1".into(), "default", "haiku", "default");
-    let url = ask(json!({"mcp_server_name": "s", "message": "Sign in", "mode": "url", "url": "https://example.com"}));
+    let url = ask(
+        json!({"mcp_server_name": "s", "message": "Sign in", "mode": "url", "url": "https://example.com"}),
+    );
     let nested = ask(json!({"mcp_server_name": "s", "message": "m", "requested_schema": {
         "type": "object", "properties": {"x": {"type": "object", "properties": {}}}
     }}));

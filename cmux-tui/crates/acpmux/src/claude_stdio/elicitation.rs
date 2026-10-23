@@ -38,10 +38,15 @@ struct Field {
 
 enum Kind {
     /// `(label, value)` per choice; several may be chosen when `multi`.
-    Choice { choices: Vec<(String, Value)>, multi: bool },
+    Choice {
+        choices: Vec<(String, Value)>,
+        multi: bool,
+    },
     Bool,
     Text,
-    Number { integer: bool },
+    Number {
+        integer: bool,
+    },
 }
 
 impl Translator {
@@ -232,7 +237,9 @@ fn form(req: &Value) -> Option<(Form, Vec<Value>)> {
             Kind::Choice { choices, .. } => {
                 choices.iter().map(|(label, _)| json!({"id": label, "label": label})).collect()
             }
-            Kind::Bool => vec![json!({"id": "Yes", "label": "Yes"}), json!({"id": "No", "label": "No"})],
+            Kind::Bool => {
+                vec![json!({"id": "Yes", "label": "Yes"}), json!({"id": "No", "label": "No"})]
+            }
             Kind::Text | Kind::Number { .. } => Vec::new(),
         };
         if !is_required {
