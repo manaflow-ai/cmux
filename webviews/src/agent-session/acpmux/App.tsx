@@ -6594,7 +6594,8 @@ function AcpmuxPane() {
             const chat = client.selectedSession;
             const forked = await client.fork(Number(throughSeq), undefined, true);
             if (!forked || (await openOwnTab(forked)) || client.selectedSession !== chat) return forked;
-            return persistSession(await client.select(forked));
+            await persistSession(await client.select(forked));
+            return forked;
           },
           // Fork Conversation from the app (the palette's step, the chat's right-click menu, its
           // shortcut): a fork through the chat's latest finished turn, or of a working chat as it is
