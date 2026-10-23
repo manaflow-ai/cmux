@@ -511,7 +511,10 @@ def main():
             subprocess.run(["xcrun", "simctl", "bootstatus", rig, "-b"], check=True, capture_output=True)
             subprocess.run(["xcrun", "simctl", "openurl", rig, url], check=True)
             # The daemon's own call, as the Mac's phone.show makes the tab.
-            tab = daemon_rpc(mac, {"id": 1, "cmd": "new-conversation-tab", "workspace": ws["workspace_id"],
+            # The daemon names workspaces by number; the CLI's id is the public one.
+            listed = daemon_rpc(mac, {"id": 1, "cmd": "list-workspaces"}) or {}
+            numeric = next((w["id"] for w in (listed.get("data") or {}).get("workspaces", []) if w.get("name") == "bench"), None)
+            tab = daemon_rpc(mac, {"id": 2, "cmd": "new-conversation-tab", "workspace": numeric,
                                    "page": "phone", "route": f"sim:{rig}"})
             log(f"bench workspace {ws['workspace_id']}, phone tab {tab} of rig simulator {rig}")
         else:
