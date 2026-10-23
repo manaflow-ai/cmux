@@ -255,5 +255,5 @@ test("the running turn's line counts the started chats that run", () => {
       <WorkingFor row={status} now={() => 26_000} />
     </WorkingCountsContext.Provider>,
   );
-  expect(text(html)).toBe("Working for 26s · 2 commands · 3 sessions");
+  expect(text(html)).toBe("Working for 26s · 3 subagents · 2 commands");
 });

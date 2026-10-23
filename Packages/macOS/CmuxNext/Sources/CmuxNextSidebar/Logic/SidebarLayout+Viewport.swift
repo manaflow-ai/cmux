@@ -54,7 +54,7 @@ private extension SidebarRowKey {
     /// A row that only titles the rows below it.
     var isRevealHeader: Bool {
         switch self {
-        case .section, .group, .folder: true
+        case .section, .group, .folder, .status: true
         default: false
         }
     }

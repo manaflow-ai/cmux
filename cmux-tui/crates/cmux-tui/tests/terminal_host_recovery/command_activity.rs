@@ -504,3 +504,38 @@ fn a_finished_turn_banner_previews_the_last_message_in_memory_only() {
     let _ = fs::remove_dir_all(&payload_dir);
     assert!(leaked.is_empty(), "the last message reached disk: {leaked:?}");
 }
+
+fn now_ms() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis().try_into().unwrap()
+}
+
+#[test]
+fn a_shell_at_its_prompt_names_when_it_last_printed() {
+    let _exclusive = exclusive_process_test();
+    let before = now_ms();
+    let harness = RecoveryHarness::start("command-activity-last-output");
+    let (surface, _) = run_script(
+        &harness,
+        "command-activity-last-output",
+        concat!(
+            "printf '\\033]133;A\\007prompt\\r\\n'; read step; ",
+            "printf 'later\\r\\n'; sleep 600",
+        ),
+        "prompt",
+    );
+    let extra = terminal_extra(&harness);
+    assert!(extra.get("prompt").is_some(), "the shell sits at its prompt: {extra}");
+    let first = ms(&extra["last_output"]["at_ms"]);
+    assert!(first >= before && first <= now_ms(), "{first} outside {before}..now: {extra}");
+
+    // Quiet output keeps its time.
+    std::thread::sleep(Duration::from_millis(1_100));
+    assert_eq!(ms(&terminal_extra(&harness)["last_output"]["at_ms"]), first);
+
+    let stepped = now_ms();
+    step(&harness, surface);
+    assert!(wait_for_screen(&harness.socket, surface, "later").contains("later"));
+    let extra = terminal_extra(&harness);
+    let later = ms(&extra["last_output"]["at_ms"]);
+    assert!(later >= stepped && later <= now_ms(), "{later} outside {stepped}..now: {extra}");
+}

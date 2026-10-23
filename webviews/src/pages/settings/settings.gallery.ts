@@ -76,7 +76,16 @@ const accounts = (patch: Partial<AccountsRow> = {}, state: Partial<AccountsState
   ...state,
 });
 const host: Partial<HostLists> = {
-  machines: [{ id: "sample-build", title: "Research build machine", subtitle: "Online · local network", active: true }],
+  machines: [
+    {
+      id: "sample-build",
+      title: "Research build machine",
+      subtitle: "Online · local network",
+      active: true,
+      color: "#7F5FA8",
+      color_key: "research build machine",
+    },
+  ],
   settings_file: "/Users/sample/.config/cmux/cmux.json",
   // Most variants omit artwork; the backdrop variant supplies sample thumbnails.
   backdrops: [],
@@ -934,6 +943,9 @@ export default settingsPageEntry({
     "pages/settings/components/BackdropLink.tsx",
     "pages/settings/components/BackdropScope.tsx",
     "pages/settings/components/ChiefPetCard.tsx",
+    "pages/settings/components/ChannelsCard.tsx",
+    "pages/settings/components/ImportSuggestionsCard.tsx",
+    "pages/settings/components/VoiceInputCard.tsx",
     "pages/settings/components/FontPicker.tsx",
     "pages/settings/components/GhosttyDiagnostics.tsx",
     "pages/settings/components/GroupList.tsx",
@@ -948,6 +960,7 @@ export default settingsPageEntry({
     "pages/settings/components/SearchResults.tsx",
     "pages/settings/components/SectionActions.tsx",
     "pages/settings/components/SectionList.tsx",
+    "pages/settings/components/SectionRoute.tsx",
     "pages/settings/components/SectionView.tsx",
     "pages/settings/components/SettingRow.tsx",
     "pages/settings/components/SettingsApp.tsx",

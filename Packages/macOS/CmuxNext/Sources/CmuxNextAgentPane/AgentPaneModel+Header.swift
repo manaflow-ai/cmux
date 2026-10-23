@@ -177,6 +177,8 @@ extension AgentPaneModel {
             return AgentPaneReply.success()
         case .offerOpen(let session):
             return AgentPaneOfferOpen.respond(session, in: self)
+        case .asksOpen(let session):
+            return AgentPaneAskOpen.respond(session, in: self)
         case .newChatHere(let cwd):
             guard sessionId != nil, newTab == nil, let header, header.newChat(cwd) else {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.newHere")

@@ -23,8 +23,8 @@ final class WorkspaceHoverCardController: HoverCardSource {
     /// out." The card touches its row, so it needs no grace for the pointer to travel to it:
     /// leaving the row and the card fades it out at once, as a tab card does. A gap or header
     /// between rows (`hoverCardBridges`) holds it for the reshow window, so the next row slides
-    /// it over instead of hiding and reshowing it. Leo 2026-10-20: the card sits below an empty
-    /// escape slot beside the row (`HoverCardPlacement.besideRow`); moving there dismisses it.
+    /// it over instead of hiding and reshowing it. Leo 2026-10-21: the card's top lines up with
+    /// its row's top, one device pixel off the sidebar's edge (`HoverCardPlacement.besideRow`).
     var leave: HoverCardLeave { .hides(reshow: HoverCardTiming.reshowWindow) }
     weak var list: SidebarListView?
     /// The app's one coordinator; the App injects it.
@@ -91,13 +91,13 @@ final class WorkspaceHoverCardController: HoverCardSource {
     func hoverCardHit(at screenPoint: CGPoint) -> HoverCardHit? {
         guard let list, let window = list.window else { return nil }
         let point = list.convert(window.convertPoint(fromScreen: screenPoint), from: nil)
-        if let group = list.hoverCardGroup(at: point), let anchor = list.hoverCardAnchor(forGroup: group) {
+        if let group = list.hoverCardGroup(at: point), let anchor = list.hoverCardBand(forGroup: group) {
             // A group waits its own, longer delay: the person rests on it "for a while".
             return HoverCardHit(target: HoverTarget(id: Self.targetID(group), window: window.windowNumber,
                                                     delay: DesignSettings.shared.groupHoverCard.delay, leave: leave),
                                 anchor: anchor)
         }
-        guard let id = list.hoverCardWorkspace(at: point), let anchor = list.hoverCardAnchor(for: id),
+        guard let id = list.hoverCardWorkspace(at: point), let anchor = list.hoverCardBand(for: id),
               !Self.onPullRequestBadge((list.rowViews[.workspace(id)] as? WorkspaceRowView)?.pullRequests, window: window, screenPoint: screenPoint)
         else { return nil }
         return HoverCardHit(target: HoverTarget(id: Self.targetID(id), window: window.windowNumber, delay: delay, leave: leave),
@@ -115,6 +115,12 @@ final class WorkspaceHoverCardController: HoverCardSource {
     }
 
     func hoverCardAnchor(for id: HoverTargetID) -> CGRect? {
+        // The row's band across the sidebar: the card's top on the row's, one pixel off the edge.
+        if let group = groupID(id) { return list?.hoverCardBand(forGroup: group) }
+        return workspaceID(id).flatMap { list?.hoverCardBand(for: $0) }
+    }
+
+    func hoverCardTargetFrame(for id: HoverTargetID) -> CGRect? {
         if let group = groupID(id) { return list?.hoverCardAnchor(forGroup: group) }
         return workspaceID(id).flatMap { list?.hoverCardAnchor(for: $0) }
     }
@@ -156,7 +162,8 @@ final class WorkspaceHoverCardController: HoverCardSource {
         body.configure(Self.groupSummary(item, workspaces: list.subtreeWorkspaces(of: group),
                                          options: DesignSettings.shared.groupHoverCard, now: Date()))
         bodyID = id
-        return HoverCardBody(view: body, placement: .beside, themeAnchor: list) { [weak body] in body?.applyColors() }
+        // One rule for sidebar cards: beside the sidebar, its top on the header's, one pixel off the edge.
+        return HoverCardBody(view: body, placement: .besideRow, themeAnchor: list) { [weak body] in body?.applyColors() }
     }
 
     /// What `group`'s card says: `workspaces` (its own and its subgroups') as the shared group summary counts them.
@@ -268,7 +275,7 @@ final class WorkspaceHoverCardView: NSView {
 
     private let titleLabel = ChromeLabel(labelWithString: "")
     /// The kind or host icon, leading the name on the card's icon column.
-    private let kindIcon = LineIconView()
+    private let kindIcon = HoverCardIconView()
     /// The workspace's status in the shared indicator, on its own row under the name with its
     /// word beside it (Leo 2026-10-13: an unlabeled mark under the name read as a smudge).
     private let activity: StatusIndicatorView = { let view = StatusIndicatorView(); view.tracksWindowOcclusion = true; return view }()
@@ -340,12 +347,13 @@ final class WorkspaceHoverCardView: NSView {
         titleRow.setCustomSpacing(Metrics.space4, after: titleLabel)
         // The indicator's slot is a box that never hides, so a style that draws no glyph keeps the
         // word on the text column.
-        let activitySlot = NSView()
+        let activitySlot = HoverCardIconSlot(side: Self.iconSize, line: activityLabel)
         activity.translatesAutoresizingMaskIntoConstraints = false
         activitySlot.addSubview(activity)
         activityRow.setViews([activitySlot, activityLabel], in: .leading)
         activityRow.orientation = .horizontal
-        activityRow.alignment = .centerY
+        // The mark on the word's capitals, as every icon on the card (`HoverCardIconSlot`).
+        activityRow.alignment = .firstBaseline
         activityRow.spacing = Metrics.space2
         factsStack.orientation = .vertical
         factsStack.alignment = .leading
@@ -600,18 +608,5 @@ extension WorkspaceHoverCardView {
         // the shared overlay glass shows.
         for row in factViews { row.applyColors() }
         resourceRow.applyColors()
-    }
-}
-
-/// An icon on a first-baseline row whose center sits on the middle of `line`'s first line (midway
-/// between its ascender and descender), so it stays with the name's first line when the name wraps.
-private final class LineIconView: DecorativeImageView {
-    weak var line: ChromeLabel?
-    /// The icon's height (its constraint), not `bounds`, which is zero before the first layout.
-    var side: CGFloat = 0
-
-    override var firstBaselineOffsetFromTop: CGFloat {
-        guard let font = line?.font else { return super.firstBaselineOffsetFromTop }
-        return side / 2 + (font.ascender + font.descender) / 2
     }
 }

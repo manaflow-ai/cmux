@@ -60,8 +60,8 @@ import Testing
         for (lower, higher) in zip(shown, shown.dropFirst()) {
             #expect(higher >= lower - 0.0001, "shown opacities \(shown) for \(steps)")
         }
-        // 100% covers the picture as much as a picture allows (the art always shows a little).
-        #expect(shown[3] >= WindowBackdrop.maximumWorkspaceTint - 0.0001, "shown opacities \(shown)")
+        // 100% covers the picture fully: the window is opaque (2026-10-21, "all the way to 100%").
+        #expect(shown[3] == 1, "shown opacities \(shown)")
     }
 
     /// A surface's own opacity over a picture covers the picture that much: the window shows the

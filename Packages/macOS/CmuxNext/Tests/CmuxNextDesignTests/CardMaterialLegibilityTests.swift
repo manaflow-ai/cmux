@@ -33,8 +33,10 @@ import Testing
         window.isReleasedWhenClosed = false
         let root = try #require(window.contentView)
         scope.root(root)
+        // The card fill is opt-in since 2026-10-21 (overlays are the shared glass alone); this
+        // checks the fill itself, for a surface that opts in and for the web's --cmux-card-tint.
         let panel = Glass.makeOverlayPanel(content: NSTextField(labelWithString: "Workspace"),
-                                           cornerRadius: PopupStyle.standard.cornerRadius)
+                                           cornerRadius: PopupStyle.standard.cornerRadius, cardFill: true)
         panel.frame = NSRect(x: 10, y: 10, width: 240, height: 120)
         root.addSubview(panel)
         panel.materialOverride = material

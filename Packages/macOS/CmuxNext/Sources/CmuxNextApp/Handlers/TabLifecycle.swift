@@ -32,7 +32,7 @@ enum TabLifecycle {
             let daemon = ctx.services.daemon(for: focused)
             let selected = ctx.services.paneController(for: focused)?.selectedTab
             let start = cwd ?? NewTerminalStart.uninherited(.window, services: ctx.services, daemon: daemon, besides: selected)
-                ?? selected?.cwd ?? focused.tabs.first?.cwd
+                ?? NewTerminalStart.folder(of: selected, services: ctx.services) ?? selected?.cwd ?? focused.tabs.first?.cwd
             ctx.registry.track(Task {
                 _ = try? await windows.createWorkspace(WorkspaceSpawn(cwd: start, keep: keep == true), on: daemon, into: windowID)
                 return nil
@@ -51,13 +51,15 @@ enum TabLifecycle {
                                                           besides: ctx.services.paneController(for: pane)?.selectedTab)
         if let controller = ctx.services.paneController(for: pane) {
             // From the docked agent chat, a tab in the strip (ChatColumnPlacement). Its
-            // cwd is the explicit one or nil, for the daemon's resolver (NEW-TERMINAL-INHERITS-CWD).
+            // cwd is the explicit one, else the chat's, else nil for the daemon's resolver (NEW-TERMINAL-INHERITS-CWD).
+            // The chat's folder here, not the daemon's: its resolver skips chats (the strip, the dock's respawn).
+            let chatStart = tabCwd ?? NewTerminalStart.folder(of: controller.selectedTab, services: ctx.services)
             var target: PaneController? = controller
             if invocation.origin == .user {
-                let spawn = SpawnOptions(cwd: tabCwd, workspace: ctx.services.workspaceKey(of: pane), keep: keep)
+                let spawn = SpawnOptions(cwd: chatStart, workspace: ctx.services.workspaceKey(of: pane), keep: keep)
                 target = ChatColumnPlacement.route(from: controller, respawn: .terminal(spawn), services: ctx.services)
             }
-            target?.newTerminalTab(cwd: tabCwd, keep: keep, fromSelectedTab: true, daemonResolvesCwd: target !== controller,
+            target?.newTerminalTab(cwd: target === controller ? tabCwd : chatStart, keep: keep, fromSelectedTab: true, daemonResolvesCwd: target !== controller,
                                    then: NewTabSlot.placing(slot, services: ctx.services, then: nil))
             return
         }
@@ -356,6 +358,10 @@ enum TabLifecycle {
             // once: its pane may have no controller yet, and the old pane still has the focus): the
             // creation it focuses closes, never the old pane's tab (CancelledCreation).
             if let content = ctx.focusedContent, case .tab(let id)? = content.focus.state.expectation?.key, content.daemon.cancelCreation(tab: id) { return ctx.services.keyRouter.creationInputCoordinator.drop(tab: id, in: content.contentView.window) }
+            // A quick Cmd-W after one that emptied its pane closes nothing in the pane the focus
+            // landed in (TabCloseGuard.swallowsCmdW, Leo 2026-10-21).
+            let now = ProcessInfo.processInfo.systemUptime
+            if invocation.origin == .user, TabCloseGuard.swallowsCmdW(ctx.services, at: now) { return }
             guard let (pane, selected) = ctx.tab(invocation) else { return }
             // A Cmd-W while the last one's close still asks the daemon closes the next tab (TabCloseGuard).
             guard let id = invocation.origin == .user ? TabCloseGuard.cmdWTarget(selected, in: pane.stripModel) : selected else { return }
@@ -364,7 +370,10 @@ enum TabLifecycle {
             if invocation.origin == .user {
                 let closesPinned = ctx.services.settings?.snapshot.cmdWClosesPinnedTabs ?? CmdWClosesPinnedTabsSetting.fallback
                 // Several selected tabs close together (Chrome); a selected pinned tab stays, as above.
-                if let selected = pane.stripModel.keyboardCloseSelection(id, closesPinned: closesPinned) { return CloseUndoToasts.close(in: pane, selected) }
+                if let selected = pane.stripModel.keyboardCloseSelection(id, closesPinned: closesPinned) {
+                    if TabCloseGuard.empties(pane, closing: selected) { ctx.services.emptiedPaneCloseRun.emptied(at: now) }
+                    return CloseUndoToasts.close(in: pane, selected)
+                }
                 switch pane.stripModel.keyboardClose(id, closesPinned: closesPinned) {
                 case .close: break
                 case .select(let next): return pane.select(next)
@@ -373,8 +382,11 @@ enum TabLifecycle {
                 case .ignore: return
                 }
             }
-            // A link's tab outside the pane it was clicked in gives the focus back there (LinkOpener).
-            let back = ctx.services.linkOpener.returnPane(closing: id, in: pane)
+            let empties = TabCloseGuard.empties(pane, closing: [id])
+            if invocation.origin == .user, empties { ctx.services.emptiedPaneCloseRun.emptied(at: now) }
+            // A link's tab outside the pane it was clicked in gives the focus back there, only as
+            // its pane closes with it; while the pane has tabs, the focus stays (LinkOpener).
+            let back = ctx.services.linkOpener.returnPane(closing: id, in: pane, emptiesPane: empties)
             // A user's Cmd-W gets an undo toast (REOPEN-CLOSED); automation does not.
             CloseUndoToasts.close(in: pane, [id])
             if let back, let content = back.workspace { PaneHandlers.focus(back.layoutPaneID, in: content) }

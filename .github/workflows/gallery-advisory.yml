@@ -115,7 +115,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: "24.11.1"
+          node-version: "24.22.1"
 
       # This job checks out the pull request head, which has no copy of the action until it
       # merges a base that does; a missing cache must not cost the receipt.

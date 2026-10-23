@@ -606,6 +606,133 @@ async fn an_app_prompt_forwarded_by_a_peer_waits_for_the_owning_daemons_trust() 
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// A TCP relay in front of `port` that keeps every byte the server sends:
+/// a WebSocket server's frames are not masked, so B's replies to A read as
+/// text there.
+async fn recording_relay(port: u16) -> (u16, Arc<std::sync::Mutex<Vec<u8>>>) {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let relay_port = l.local_addr().unwrap().port();
+    let kept = seen.clone();
+    tokio::spawn(async move {
+        while let Ok((client, _)) = l.accept().await {
+            let Ok(server) = tokio::net::TcpStream::connect(("127.0.0.1", port)).await else {
+                continue;
+            };
+            let (mut cr, mut cw) = client.into_split();
+            let (mut sr, mut sw) = server.into_split();
+            let kept = kept.clone();
+            tokio::spawn(async move {
+                let mut buf = vec![0u8; 64 * 1024];
+                while let Ok(n) = sr.read(&mut buf).await {
+                    if n == 0 {
+                        break;
+                    }
+                    kept.lock().unwrap().extend_from_slice(&buf[..n]);
+                    if cw.write_all(&buf[..n]).await.is_err() {
+                        break;
+                    }
+                }
+            });
+            tokio::spawn(async move {
+                let _ = tokio::io::copy(&mut cr, &mut sw).await;
+            });
+        }
+    });
+    (relay_port, seen)
+}
+
+/// The pane's Trust for a chat on a peer (Leo, 2026-10-21: only `cmux setup
+/// trust` on the peer cleared it). The folder is the peer's, so A's app sends
+/// `acp.trust.set` for it and A forwards it without looking for the folder on
+/// its own disk: B checks the folder itself (one B lacks is refused by B) and
+/// records the answer, and the pane's prompt then goes. A's Web client still
+/// cannot answer, and a set for no peer's session is still checked on A.
+#[tokio::test]
+async fn an_app_trust_answer_for_a_peers_folder_is_checked_and_recorded_by_the_peer() {
+    let root = std::env::temp_dir().join(format!("api-tp-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("work")).unwrap();
+    std::fs::create_dir_all(root.join("home")).unwrap();
+    let root = std::fs::canonicalize(&root).unwrap();
+    let work = root.join("work");
+    let record = root.join("home").join("trust.json");
+    let b = hub(config(PermissionPolicy::ApproveAll)).await;
+    b.set_trust_gate(Some(acpmux::trust::Paths {
+        claude_json: root.join("home").join(".claude.json"),
+        codex_config: root.join("home").join("config.toml"),
+        record: record.clone(),
+        agent_home: None,
+        cmux_worktrees: None,
+    }));
+    let (port, peer_token) = listen_with_peer_token(b.clone(), "trust-set").await;
+    let (relay, from_b) = recording_relay(port).await;
+    let mut cb = client(b.clone()).await;
+    cb.call(
+        method::SESSION_NEW,
+        json!({"cwd": work, "mcpServers": [], "_meta": {"acpmux": {"name": "t2"}}}),
+    )
+    .await
+    .unwrap();
+    let a = hub(config(PermissionPolicy::ApproveAll)).await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{relay}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    let connect = |origin: acpmux::server::Origin| {
+        let (in_tx, in_rx) = mpsc::channel(64);
+        let (out_tx, out_rx) = mpsc::channel(4096);
+        tokio::spawn(acpmux::server::serve_connection_with(a.clone(), in_rx, out_tx, origin));
+        C { tx: in_tx, rx: out_rx, next: 0 }
+    };
+    let mut app = connect(acpmux::server::Origin::LocalApp);
+    let mut web = connect(acpmux::server::Origin::Web);
+    let set = |cwd: &std::path::Path, session: Option<&str>| {
+        let mut p = json!({"cwd": cwd, "level": "trusted"});
+        if let Some(s) = session {
+            p["sessionId"] = json!(s);
+        }
+        p
+    };
+    let refused_by_b =
+        || String::from_utf8_lossy(&from_b.lock().unwrap()).contains("cwd is refused");
+
+    // A folder that is not on this disk, for the chat on B: A passes it on, and B, which lacks
+    // it too, refuses it.
+    let elsewhere = root.join("only-on-the-peer");
+    let err = app.call("acp.trust.set", set(&elsewhere, Some("b/t2"))).await.unwrap_err();
+    assert!(err.starts_with("cwd is refused"), "{err}");
+    assert!(refused_by_b(), "A refused the peer's folder itself instead of forwarding it");
+    assert!(!record.exists(), "a folder B lacks was recorded");
+
+    // A Web client of A answers nothing, whatever the folder.
+    for cwd in [&work, &elsewhere] {
+        let err = web.call("acp.trust.set", set(cwd, Some("b/t2"))).await.unwrap_err();
+        assert!(err.starts_with("trust.remote"), "{err}");
+    }
+    assert!(!record.exists(), "a Web client's answer was recorded");
+
+    // With no peer's session named, A still checks the folder on its own disk.
+    for session in [None, Some("no-such-chat")] {
+        let err = app.call("acp.trust.set", set(&elsewhere, session)).await.unwrap_err();
+        assert!(err.starts_with("cwd is refused"), "{err}");
+    }
+
+    // B's folder: forwarded, recorded on B, and the pane's prompt goes.
+    let prompt =
+        |text: &str| json!({"sessionId": "b/t2", "prompt": [{"type": "text", "text": text}]});
+    let err = app.call(method::SESSION_PROMPT, prompt("before-trust")).await.unwrap_err();
+    assert!(err.starts_with("trust.pending"), "{err}");
+    let ok = app.call("acp.trust.set", set(&work, Some("b/t2"))).await.unwrap();
+    assert_eq!(ok["peer"], "b", "{ok}");
+    assert_eq!(ok["level"], "trusted", "{ok}");
+    let on_b = cb.call("acp.trust.get", json!({"cwd": work})).await.unwrap();
+    assert_eq!(on_b["level"], "trusted", "{on_b}");
+    let r = app.call(method::SESSION_PROMPT, prompt("after-trust")).await;
+    assert!(r.is_ok(), "{r:?}");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// A connection that never proves the person key: what an agent, the CLI or
 /// a relay reaches.
 async fn plain(h: Arc<Hub>) -> C {

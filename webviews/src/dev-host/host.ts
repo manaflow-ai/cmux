@@ -11,6 +11,12 @@ export type DevHostParams = {
   newTab?: boolean;
   cwd?: string;
   editorOrigin?: string;
+  /// `#must`: the tab's recorded session must exist (the app's `sessionMustExist`), so a session
+  /// the daemon lacks shows the pane's unavailable state instead of another chat.
+  sessionMustExist?: boolean;
+  /// `#machine=…`: the machine the app names the chat's (`machineName`), for the composer and the
+  /// unavailable state.
+  machineName?: string;
 };
 
 type Request = { id: string; method: string; params?: Record<string, unknown> };
@@ -50,6 +56,8 @@ export function devHostParams(hash: string): DevHostParams | undefined {
     newTab: params.has("newtab") || undefined,
     cwd: params.get("cwd") ?? undefined,
     editorOrigin,
+    sessionMustExist: params.has("must") || undefined,
+    machineName: params.get("machine") ?? undefined,
   };
 }
 
@@ -161,8 +169,16 @@ export function devHostReply(host: DevHostParams, request: Request): DevHostRepl
           ...(host.newTab ? { newTab: true } : {}),
           cwd: host.cwd,
           linkScheme: "cmux-dev",
+          ...(host.sessionMustExist ? { sessionMustExist: true } : {}),
+          ...(host.machineName ? { machineName: host.machineName } : {}),
         },
       };
+    case "pane.action": {
+      // The app's tab actions (close, split, …) have no tab here: kept for the page's tests.
+      const actions = ((globalThis as { cmuxDevPaneActions?: string[] }).cmuxDevPaneActions ??= []);
+      actions.push(String(request.params?.id ?? ""));
+      return { ok: true, value: null };
+    }
     case "pane.painted":
       // When the app would fade the page in over its loading state (frame tests read it).
       (window as { cmuxDevPaintedAt?: number }).cmuxDevPaintedAt ??= performance.now();
@@ -174,6 +190,7 @@ export function devHostReply(host: DevHostParams, request: Request): DevHostRepl
     case "pane.tabRowTools":
     case "newTab.remember":
     case "newTab.setTemplate":
+    case "newTab.editWidgets":
     case "nowPlaying.command":
     case "importCards.act":
     case "newTab.touched":

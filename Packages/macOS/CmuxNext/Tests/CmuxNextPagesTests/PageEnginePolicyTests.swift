@@ -52,6 +52,17 @@ struct PageEnginePolicyTests {
             == .webKit(.chromiumUnavailable))
     }
 
+    /// `web-dev.json` reaches only WebKit's scheme handler, so a live override keeps every page there,
+    /// after the person's choice and the page's own reason, which still name why.
+    @Test func aLiveWebOverrideKeepsPagesOnWebKit() {
+        let live = PageEnginePolicy(preference: .chromium, chromiumAvailable: true, liveWebOverride: true)
+        #expect(live.decide(for: Self.plain, options: .standard) == .webKit(.liveWebOverride))
+        #expect(live.decide(for: Self.dynamic, options: .standard) == .webKit(.liveWebOverride))
+        #expect(live.decide(for: Self.agent, options: .standard) == .webKit(.agentChat))
+        #expect(PageEnginePolicy(preference: .webkit, chromiumAvailable: true, liveWebOverride: true)
+            .decide(for: Self.plain, options: .standard) == .webKit(.personChoseWebKit))
+    }
+
     @Test func missingOrUnservedChromiumKeepsThePageOnWebKit() {
         #expect(PageEnginePolicy(preference: .chromium, chromiumAvailable: false).decide(for: Self.plain, options: .standard)
             == .webKit(.chromiumUnavailable))

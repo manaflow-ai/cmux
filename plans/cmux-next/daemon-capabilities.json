@@ -102,6 +102,7 @@
     "split-client-keys-v1",
     "split-client-split-id-v1",
     "stash-v1",
+    "stash-workspaces-v1",
     "state-resources-v1",
     "tab-column-respawn-v1",
     "tab-drag-v1",

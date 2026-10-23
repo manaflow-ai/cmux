@@ -52,9 +52,10 @@ extension SettingsSchema {
         "tabs.barPosition", "tabs.barOrder", "tabs.toolbarButtons", "browser.toolbarPosition",
         "navigation.historyScope", "navigation.history.scope",
         "sidebar.minimalMode", "sidebar.minimal", "sidebar.density", "sidebar.detailedStatusIcons", "sidebar.showTimestamps",
+        "sidebar.showLocalMachine",
         "sidebar.groupHeader.memberCount", "sidebar.groupHeader.unreadCount",
         "sidebar.numbering", "sidebar.cmd9", "sidebar.stepping", "sidebar.steppingWraps",
-        "sidebar.side",
+        "sidebar.side", "sidebar.style",
         "sidebar.spacesPosition", "sidebar.spacesVisibility",
         "tabs.newTabTemplate",
         "tabs.newTabPosition",
@@ -88,6 +89,7 @@ extension SettingsSchema {
         "appearance.appTheme",
         "appearance.accent",
         "appearance.themeEdits",
+        "appearance.machineColors", // the color of each machine's marks (looks only)
         "appearance.backdropArt",
         "appearance.backgroundOpacity",
         "appearance.backgroundBlur",
@@ -174,7 +176,7 @@ extension SettingsSchema {
         "sidebar.hoverCards.groups.delay", "sidebar.hoverCards.groups.order", "sidebar.hoverCards.groups.maxMembers",
         "sidebar.hoverCards.groups.sections.status", "sidebar.hoverCards.groups.sections.members",
         "sidebar.hoverCards.groups.sections.activity", "sidebar.hoverCards.groups.sections.git",
-        "sidebar.hoverCards.groups.sections.ports", "sidebar.nowPlaying.enabled", "tabs.newTabNowPlaying", "tabs.newTabWidgets.greeting", "tabs.newTabWidgets.projects", "tabs.newTabWidgets.actions", "tabs.newTabWidgets.chats", "tabs.newTabWidgets.styleDots", "sidebar.showProjects", "sidebar.showSpaces", "sidebar.showProfileControl", "sidebar.showSearchButton", "sidebar.groupBy",
+        "sidebar.hoverCards.groups.sections.ports", "sidebar.nowPlaying.enabled", "tabs.newTabNowPlaying", "tabs.newTabWidgets.greeting", "tabs.newTabWidgets.projects", "tabs.newTabWidgets.actions", "tabs.newTabWidgets.chats", "tabs.newTabWidgets.styleDots", "tabs.newTabWidgets.order", "sidebar.showProjects", "sidebar.showSpaces", "sidebar.showProfileControl", "sidebar.showSearchButton", "sidebar.groupBy",
         "sidebar.priorityView.enabled", "sidebar.priorityView.shown",
         "browser.defaultEngine",
         "browser.siteEngines",
@@ -219,6 +221,8 @@ extension SettingsSchema {
         // box types only what the person writes.
         "home.chiefPetEnabled",
         "home.chiefPetMascot",
+        // Needs you in the agent chat header (an App Store item): a display the person can hide again.
+        "agentPane.needsYou.enabled",
         "updates.notify",
         "updates.showWhatsNew",
         "announcements.enabled",
@@ -269,10 +273,16 @@ extension SettingsSchema {
         "browser.openTerminalLinksInCmuxBrowser": .privacy,
         // The app that opens your files from a menu: an agent must not pick what runs them.
         "files.textEditor": .userOnly,
+        // Where a terminal program's URLs open, and a command that may run for each: an agent must
+        // not pick what runs or move a sign-in page into a browser it drives.
+        "terminal.linkOpener.default": .userOnly,
+        "terminal.linkOpener.rules": .userOnly,
         // Which of the person's editor settings files cmux reads (VS Code, Zed...).
         "editor.importFrom": .userOnly,
         "browser.hostsToOpenInEmbeddedBrowser": .privacy,
         "browser.urlsToAlwaysOpenExternally": .privacy,
+        // On, the sidebar and New Tab show what other apps play: an agent must not turn on reading them.
+        "sidebar.nowPlaying.otherApps": .privacy,
         // Whether attached photos and videos send their location.
         "home.attachments.keepLocation": .privacy,
         // Where the person's direct messages and group chats go: an agent must not move them to another server.

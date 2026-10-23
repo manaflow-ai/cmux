@@ -83,10 +83,10 @@ extension ScreenContentView {
     /// moves (view coordinates, inset 2 pt so neighbors read apart); nil when the layout cannot be
     /// predicted here, and the caller falls back to the half.
     private func finalLayoutPreview(splitting pane: PaneID, zone: PaneDropZone, removing: PaneID?) -> (newPane: CGRect, resized: [CGRect])? {
-        // A tab drop splits the target at 0.5 and then applies `layout.splitSizing`, as a keyboard split
-        // does (TabMoves.toNewSplit, #22287), so the preview shows exactly that.
+        // The drop sends this prediction's ratios once its move landed (`LayoutModel.dropSizingChanges`,
+        // TabMoves.toNewSplit), so the preview shows exactly the layout that lands.
         guard let predicted = DropPreviewLayout(splitting: pane, zone: zone, in: layout, removing: removing,
-                                                evenSizing: context.model.splitSizing == .even) else { return nil }
+                                                evenSizing: context.model.splitSizing == .even, equalizesClose: !zoomed) else { return nil }
         // A drop that closes a column moves the strip's camera after it; show the half rather than guess.
         if case let .columns(before) = layout, case let .columns(after) = predicted.layout, before.map(\.id) != after.map(\.id) {
             return nil

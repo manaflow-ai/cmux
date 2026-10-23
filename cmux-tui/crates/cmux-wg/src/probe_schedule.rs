@@ -98,6 +98,10 @@ impl ProbeConfig {
             return None;
         }
         probe.outstanding = None;
-        Some(u64::try_from((now - sent).as_micros()).unwrap_or(u64::MAX).max(1))
+        Some(
+            u64::try_from(now.saturating_duration_since(sent).as_micros())
+                .unwrap_or(u64::MAX)
+                .max(1),
+        )
     }
 }

@@ -63,7 +63,11 @@ final class WindowShortcutHints {
         // One source of truth: the digit Cmd-digit selects (SidebarItemOrder.pick's inverse), for every
         // sidebar destination drawn (Home, the App Store, collapsed groups, workspace rows).
         let order = controller.sidebar.model.itemOrder, navigation = SidebarNavigation.settings(controller.services)
-        for (item, rect) in sidebar.shortcutHintItemFrames.sorted(by: { $0.value.minY < $1.value.minY }) {
+        // The thin rail (`sidebar.style` = rail) draws each chip beside its tick.
+        let container = controller.sidebar.container, rail = container.railView
+        let frames: [SidebarItem: CGRect] = container.isRailShown
+            ? rail.shortcutHintItemFrames.mapValues { sidebar.convert($0, from: rail) } : sidebar.shortcutHintItemFrames
+        for (item, rect) in frames.sorted(by: { $0.value.minY < $1.value.minY }) {
             guard let digit = order.number(for: item, navigation), let text = label("selectWorkspaceByNumber", digit: digit) else { continue }
             hints.append(.init(text: text, rect: root.convert(rect, from: sidebar), target: Self.target(item)))
         }

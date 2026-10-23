@@ -344,14 +344,16 @@ fi
 archived_app="$archive/Products/Applications/CmuxMobileApp.app"
 if [[ -z "$from_archive" && -n "${CMUX_MOBILE_SIMULATOR_APP:-}" ]]; then
   # A simulator app of the same commit and configuration, for the fleet
-  # simulator check (scripts/verify-remote.sh ios --client-app). Unsigned:
-  # a simulator app keeps the linker's ad hoc signature.
+  # simulator check (scripts/verify-remote.sh ios --client-app). Signed ad hoc
+  # with the configuration's entitlements (Xcode's simulated entitlements, no
+  # team): an unsigned app has no keychain group, so its Keychain writes fail
+  # (-34018) and it can neither keep a session nor make pairing keys.
   log "xcodebuild build (iphonesimulator) -> $CMUX_MOBILE_SIMULATOR_APP"
   sim_args=(-project CmuxMobileApp.xcodeproj -scheme CmuxMobileApp -configuration "$config"
             -destination 'generic/platform=iOS Simulator' -derivedDataPath "$work/dd-sim"
             -clonedSourcePackagesDirPath "$cache/spm"
             MARKETING_VERSION="$marketing" CURRENT_PROJECT_VERSION="$build_number" CMUX_MOBILE_SOURCE_COMMIT="$sha"
-            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= DEVELOPMENT_TEAM=$team)
+            CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= PROVISIONING_PROFILE_SPECIFIER=)
   [[ $config != TestFlight ]] || sim_args+=(CMUX_MOBILE_PROD_API_BASE="$api_base")
   xcodebuild build "${sim_args[@]}" > "$out/logs/simulator.log" 2>&1 \
     || { grep -E "error:" "$out/logs/simulator.log" | sort -u | head -20; die "simulator build failed (logs/simulator.log)"; }

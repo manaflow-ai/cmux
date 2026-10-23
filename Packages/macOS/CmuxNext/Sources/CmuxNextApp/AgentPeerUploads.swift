@@ -43,7 +43,7 @@ struct AgentPeerUploads {
     /// The acpmux peer that runs `session`, nil for a chat of this Mac's acpmux (or one it does
     /// not list).
     static func peer(of session: String, lanes: AgentLaneStore) -> String? {
-        lanes.lanes[session]?.peer.flatMap { $0.isEmpty ? nil : $0 }
+        lanes.links(session)?.peer.flatMap { $0.isEmpty ? nil : $0 }
     }
 
     /// The reply to the page's upload: each file put in turn with `put`, which answers its path on

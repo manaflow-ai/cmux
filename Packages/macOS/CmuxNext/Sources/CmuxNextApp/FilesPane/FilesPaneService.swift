@@ -35,10 +35,11 @@ final class FilesPaneService: InternalPageProvider {
     private var pendingFolder: URL?
     /// The item the next new tab selects (``reveal(_:focus:)``).
     private var pendingSelection: URL?
-    /// The shared file menu's Open With and Share rows for the pane's context menu.
+    /// The shared file menu's Open as Text, Open With and Share rows for the pane's context menu.
     private lazy var fileMenu = FileActionsMenu(actions: .init(
         openInCmux: { [weak self] url in self?.services?.linkOpener.openFile(url, from: self?.services?.windows.active?.focusedPane) },
-        revealInFiles: { [weak self] url in try? self?.reveal(url, focus: true) }))
+        revealInFiles: { [weak self] url in try? self?.reveal(url, focus: true) },
+        openAsText: { [weak self] url in self?.services?.linkOpener.openFile(url, from: self?.services?.windows.active?.focusedPane, asText: true) }))
 
     init(services: AppServices) {
         self.services = services

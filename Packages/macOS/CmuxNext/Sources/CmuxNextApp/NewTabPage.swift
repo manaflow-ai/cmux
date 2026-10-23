@@ -9,7 +9,6 @@ import CmuxNextPalette
 import CmuxNextSettings
 import CmuxNextTabs
 import Foundation
-import os
 
 /// What a new tab page does with the user's choice. The page is an agent
 /// tab (it shows recent acpmux sessions and becomes a chat in place); a
@@ -24,8 +23,9 @@ struct NewTabPageHandler {
     var typeAhead: (String, String) -> Void = { _, _ in }
     /// The agent the screen picked, and the model picked on it, remembered on this Mac.
     var remember: (AgentPaneRememberedPick) -> Void = { _ in }
-    /// The page's style switch picked a template, saved as `tabs.newTabTemplate`.
-    var setTemplate: (String) -> Void = { _ in }
+    /// The page's style switch picked a template (`tabs.newTabTemplate`), or its edit mode removed or
+    /// moved a widget (`tabs.newTabWidgets.*`) or asked to add one.
+    var edit: (AgentPaneNewTabEdit) -> Void = { _ in }
     /// The location bar picked an open tab or workspace.
     var jump: (AgentPaneJumpTarget, String) -> Void
     var editShortcut: (AgentPaneTabKind) -> Void
@@ -222,10 +222,7 @@ enum NewTabPage {
             open: open,
             typeAhead: { [weak services] key, text in services?.newTabTypeAhead.update(key, text: text) },
             remember: { [weak services] pick in services?.newTabChoices.remember(pick) },
-            setTemplate: { [weak services] template in
-                guard let settings = services?.settings else { return }
-                Task { await saveTemplate(template, settings: settings) }
-            },
+            edit: { [weak services] edit in if let services { self.edit(edit, services: services) } },
             jump: { [weak services] target, id in if let services { jump(target, id: id, services: services) } },
             editShortcut: { [weak services] kind in if let services { editShortcut(kind, services: services) } },
             browseProject: { [weak services] in
@@ -260,14 +257,16 @@ enum NewTabPage {
         }
     }
 
-    /// The style switch's pick, through the schema as the Settings window writes it. Terminal and
-    /// unknown values are ignored: New Tab never opens a terminal by itself.
-    static func saveTemplate(_ value: String, settings: SettingsController) async {
-        guard let template = NewTabTemplate(rawValue: value), template != .terminal,
-              let descriptor = SettingsSchema.descriptor(for: NewTabTemplate.configPath) else { return }
-        do { try await settings.setSetting(descriptor, to: .string(template.rawValue), by: .caller("page")) } catch {
-            Logger(subsystem: "com.cmuxterm.app.next", category: "newtab")
-                .error("new tab template write failed: \(String(describing: error), privacy: .public)")
+    /// The style switch's pick and the edit mode's ✕ and drag, written as Settings would (a refusal is
+    /// logged; the next New Tab shows what the file says); + opens Settings on the widget rows
+    /// (the widgets are settings, not store items: extensibility-DESIGN.md).
+    static func edit(_ edit: AgentPaneNewTabEdit, services: AppServices) {
+        guard let settings = services.settings else { return }
+        switch edit {
+        case .template(let template): Task { await settings.saveNewTabTemplate(template) }
+        case .remove(let widget): Task { await settings.logged("new tab widget") { try await settings.removeNewTabWidget(widget) } }
+        case .order(let order): Task { await settings.logged("new tab widget order") { try await settings.setNewTabWidgetOrder(order) } }
+        case .add: try? services.settingsWindow.show(section: nil, setting: "tabs.newTabWidgets.greeting", focus: true)
         }
     }
 

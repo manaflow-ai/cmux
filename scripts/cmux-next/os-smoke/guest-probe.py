@@ -518,6 +518,35 @@ try:
                   "exit": None if alive() else app.returncode, "crash": crash})
             if alive():
                 rpc("settings.open", {"focus": True})
+        if alive() and debug_router():
+            # Pane layout on this macOS (Lawrence 2026-10-20: New Column buggy on older macOS): a fresh
+            # workspace split right, a New Column, zoom and unzoom, then both closes, each with the
+            # display frames it took (debug.frames; a VM's frames are not the hardware's, so they are
+            # reported, not gated) and the pane count after it (debug.focus topology).
+            def pane_count():
+                windows = (rpc("debug.focus") or {}).get("windows") or []
+                window = next((w for w in windows if w.get("is_key")), windows[0] if windows else {})
+                return len(window.get("topology") or [])
+
+            rpc("action.run", {"action": "workspace.newAtBottom", "focus": True})
+            wait(lambda: pane_count() == 1, 10, alive)
+            pane_rounds = []
+            for verb, want, shot in (("splitRight", 2, "pane-split.png"), ("newColumn", 3, "pane-column.png"),
+                                     ("toggleSplitZoom", 1, "pane-zoom.png"), ("toggleSplitZoom", 3, None),
+                                     ("closePane", 2, None), ("closePane", 1, "pane-closed.png")):
+                rpc("debug.frames", {"action": "start"})
+                reply = rpc("action.run", {"action": verb, "focus": True, "origin": "script"})
+                count = wait(lambda: (lambda n: n if n == want else None)(pane_count()), 5, alive) or pane_count()
+                time.sleep(0.8)  # the spring lands before its frames are read
+                frames = rpc("debug.frames", {"action": "stop"}) or {}
+                if shot:
+                    snap("pane-" + verb, shot)
+                pane_rounds.append({"verb": verb, "want": want, "panes": count,
+                                    "error": reply.get("error") if isinstance(reply, dict) else str(reply),
+                                    "missed": frames.get("missed"), "p95_ms": frames.get("p95_ms"), "max_ms": frames.get("max_ms")})
+            for r in pane_rounds:  # one line each: the step line keeps 400 characters
+                print("pane      %s" % json.dumps(r), flush=True)
+            step("panes", alive() and all(r["panes"] == r["want"] and not r["error"] for r in pane_rounds), {"rounds": pane_rounds})
         sidebar = rpc("action.run", {"action": "toggleSidebar"})
         snap("sidebar", "sidebar.png")
         rpc("action.run", {"action": "toggleSidebar"})
