@@ -192,6 +192,47 @@ import Testing
         ) == nil)
     }
 
+    @Test(arguments: [
+        // A key under a table header is not top-level.
+        ("[profiles.work]\nmodel_provider = \"subrouter\"\n", SubrouterCodexProviderEvidence.absent),
+        ("model_provider = \"subrouter\"\n[profiles.work]\nmodel_provider = \"openai\"\n", .provider("subrouter")),
+        ("[[mcp_servers]]\nmodel_provider = \"subrouter\"\n", .absent),
+        // Only the exact key counts; a dotted model_providers.* key is unrelated.
+        ("model_provider = \"subrouter\"\nmodel_providers.subrouter.base_url = \"http://x\"\n", .provider("subrouter")),
+        // Text inside a multi-line string is opaque.
+        ("notes = \"\"\"\nmodel_provider = \"subrouter\"\n\"\"\"\n", .absent),
+        ("notes = \'\'\'\nmodel_provider = \"subrouter\"\n\'\'\'\n", .absent),
+        // Not valid TOML for this key, so never proof.
+        ("model_provider = subrouter\n", .ambiguous),
+        ("\"model_provider\" = \"subrouter\"\n", .ambiguous),
+        // A selected profile can override the top-level provider.
+        ("model_provider = \"subrouter\"\nprofile = \"work\"\n", .ambiguous),
+    ])
+    func codexConfigEvidenceReadsOnlyTopLevelKeys(config: String, expected: SubrouterCodexProviderEvidence) {
+        #expect(SubrouterCodexResumeRouting().providerEvidence(inConfigToml: config) == expected)
+    }
+
+    @Test(arguments: [
+        ["codex", "--profile", "work"],
+        ["codex", "-p", "work"],
+        ["codex", "--profile=work"],
+        ["codex", "-c", "profile=work"],
+    ])
+    func aSelectedCodexProfileMakesConfigEvidenceAmbiguous(arguments: [String]) throws {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-profile-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        try "model_provider = \"subrouter\"\n".write(
+            to: home.appendingPathComponent("config.toml"), atomically: true, encoding: .utf8
+        )
+        #expect(SubrouterCodexResumeRouting().providerEvidenceWithCapturedConfig(
+            in: arguments,
+            launcher: "codex",
+            environment: ["CODEX_HOME": home.path]
+        ) == .ambiguous)
+    }
+
     @Test func malformedOrConflictingCodexConfigDoesNotRoute() {
         let routing = SubrouterCodexResumeRouting()
         #expect(
