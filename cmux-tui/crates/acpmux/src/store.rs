@@ -259,16 +259,13 @@ pub struct SessionMeta {
     /// The tools the chat has (`hub/tools.rs`).
     #[serde(default, skip_serializing_if = "ToolInventory::is_empty")]
     pub tools: ToolInventory,
-    /// The branch checked out in `cwd` when the session started (session/new,
-    /// or a fork at fork time; `git_state.rs`). `None` on a detached HEAD or
-    /// outside a repository. Never updated after: it joins the session to the
-    /// pull request it produced (hq#1920).
+    /// Initial branch (session/new or fork; git_state.rs), never updated: it joins the
+    /// session to its PR (hq#1920). None outside a repository or on detached HEAD.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub git_branch: Option<String>,
-    /// The full HEAD commit of `cwd` when the session started, as `git_branch`.
+    /// Initial git commit and linked-worktree recovery record.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub git_head: Option<String>,
-    /// The linked worktree `cwd` is in: a start adds it back if gone (`worktree_care/revive.rs`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub worktree: Option<crate::git_state::WorktreeOrigin>,
     /// The sum of what this session's turns reported (`hub/turn_usage.rs`).
@@ -348,6 +345,29 @@ pub struct TurnUsage {
     pub cache_read_tokens: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cache_write_tokens: Option<u64>,
+}
+
+impl TurnUsage {
+    pub fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
+
+    /// Adds `turn` in, field by field; a field neither reported stays absent.
+    pub fn add(&mut self, turn: &TurnUsage) {
+        fn sum(a: Option<u64>, b: Option<u64>) -> Option<u64> {
+            a.zip(b).map(|(a, b)| a.saturating_add(b)).or(a).or(b)
+        }
+        self.cost_usd = self
+            .cost_usd
+            .zip(turn.cost_usd)
+            .map(|(a, b)| a + b)
+            .or(self.cost_usd)
+            .or(turn.cost_usd);
+        self.input_tokens = sum(self.input_tokens, turn.input_tokens);
+        self.output_tokens = sum(self.output_tokens, turn.output_tokens);
+        self.cache_read_tokens = sum(self.cache_read_tokens, turn.cache_read_tokens);
+        self.cache_write_tokens = sum(self.cache_write_tokens, turn.cache_write_tokens);
+    }
 }
 
 /// The tools a chat has (`hub/tools.rs`): cmux's own, recorded at each

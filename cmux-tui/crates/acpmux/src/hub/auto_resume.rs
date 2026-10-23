@@ -2,13 +2,7 @@
 //! relay host went dark for 24 minutes and every Codex turn streaming through it failed with
 //! "stream disconnected"; each chat then sat idle until a person typed "continue".
 //!
-//! So does a turn whose agent process died ("agent process closed"): on 2026-10-20 a lane's
-//! agent died mid-turn and the chat sat `disconnected` for hours, two prompts held behind it.
-//! Its continuation starts the agent again on the same conversation (`session/load`, Claude
-//! `--resume`) in the same folder. An agent that exits between turns: `revive.rs`.
-//!
-//! When a turn fails with a transport error or its agent's death
-//! ([`super::turn_errors::resume_cause`]; each event names it as `cause`), the hub waits, then sends
+//! When a turn fails with a transport error ([`super::turn_errors::is_transport_error`]), the hub waits, then sends
 //! the same chat one prompt that tells the agent its last turn was cut off and to check what
 //! finished before it goes on. The prompt runs through the ordinary prompt path, so the agent is
 //! started or resumed as for any prompt (Claude `--resume`, Codex `thread/resume`, else the
@@ -37,10 +31,6 @@
 //! - Usage limits and sign-in failures are not transport errors: the fallback profile handles
 //!   those (`turns.rs`). A daemon restart mid-turn stays `outcome_unknown` (`mod.rs`).
 //! - A wait in progress is not persisted: a daemon restart during it drops the attempt.
-//! - A person's prompt that comes during the wait fires the continuation at once and runs
-//!   after it (`revive.rs` `hurry_auto_resume`).
-
-mod revive;
 
 use super::{Control, Hub, PromptOptions, Session, SessionStatus, TurnInfo};
 use crate::rpc::RpcError;
@@ -49,7 +39,6 @@ use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tokio::sync::Notify;
 
 /// Waits before attempts 1, 2, 3 and 4, in milliseconds.
 pub const DEFAULT_DELAYS_MS: [u64; 4] = [10_000, 60_000, 300_000, 1_200_000];
@@ -78,24 +67,20 @@ fn split_attempt(prompt_id: &str) -> (&str, usize) {
     (prompt_id, 0)
 }
 
-/// The text the agent gets, for the cut's `cause`.
-fn continue_text(cause: &str, error: &str) -> String {
+/// The text the agent gets.
+fn continue_text(error: &str) -> String {
     let error: String = error.chars().take(MAX_ERROR_CHARS).collect();
-    let what = match cause {
-        CAUSE_EXITED => format!(
-            "Your agent process stopped ({error}) and acpmux restarted it on this conversation, \
-             in the same folder."
-        ),
-        _ => format!("Your previous turn was cut off by a connection error ({error})."),
+    let cause = if error.starts_with("agent process closed") {
+        "an agent process exit"
+    } else {
+        "a connection error"
     };
     format!(
-        "{what} Check what already finished (files, commands, messages), then continue from \
-         where it stopped. Do not redo work that completed."
+        "Your previous turn was cut off by {cause} ({error}). Check what already \
+         finished (files, commands, messages), then continue from where it stopped. Do not \
+         redo work that completed."
     )
 }
-
-/// The `cause` of a continuation whose agent process died.
-pub(super) const CAUSE_EXITED: &str = "agent_exited";
 
 /// What a failed turn needs to be continued.
 pub(super) struct CutTurn<'a> {
@@ -104,33 +89,12 @@ pub(super) struct CutTurn<'a> {
     pub control: Control,
     pub trust_gate: bool,
     pub error: &'a str,
-    /// `transport` or `agent_exited` ([`super::turn_errors::resume_cause`]).
-    pub cause: &'static str,
-}
-
-impl<'a> CutTurn<'a> {
-    /// The cut a failed turn's error makes, when it is continued
-    /// ([`super::turn_errors::resume_cause`]): `raw` is the agent's own error, `e` the turn's as
-    /// recorded. The caller sets the turn's rules (`control`, `trust_gate`).
-    pub(super) fn of(
-        prompt_id: &'a str,
-        turn_id: &'a str,
-        raw: Option<&'a str>,
-        e: &'a RpcError,
-    ) -> Option<Self> {
-        let raw = raw.unwrap_or(&e.message);
-        let cause = super::turn_errors::resume_cause(raw, &e.message)?;
-        // A dead process's recorded error names its last stderr line (`finish_turn`).
-        let error = if cause == CAUSE_EXITED { e.message.as_str() } else { raw };
-        let (control, trust_gate) = (Control::Local, false);
-        Some(CutTurn { prompt_id, turn_id, control, trust_gate, error, cause })
-    }
 }
 
 /// What a chat's continuation state is.
 enum Mark {
-    /// A continuation waits to answer for this cut turn; the `Notify` ends its wait early.
-    Waiting(String, Arc<Notify>),
+    /// A continuation waits to answer for this cut turn.
+    Waiting(String),
     /// The continuation of this cut turn fired and has not started its turn yet; Stop or
     /// close now still counts for it.
     Firing(String),
@@ -141,32 +105,14 @@ enum Mark {
     Stopped(String),
 }
 
-/// Each chat's [`Mark`], and a signal that one stopped waiting or firing.
+/// Each chat's [`Mark`].
 #[derive(Default)]
-pub(crate) struct Pending(Mutex<HashMap<String, Mark>>, Notify);
+pub(crate) struct Pending(Mutex<HashMap<String, Mark>>);
 
 impl Pending {
     fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, Mark>> {
         self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
-
-    /// Wakes the prompts waiting on a continuation (`hurry_auto_resume`).
-    fn moved(&self) {
-        self.1.notify_waiters();
-    }
-}
-
-/// A continuation's wait: what it answers for and how it is sent.
-struct Wait {
-    root: String,
-    turn_id: String,
-    error: String,
-    control: Control,
-    trust_gate: bool,
-    cause: &'static str,
-    /// Attempts made before this one.
-    done: usize,
-    wake: Arc<Notify>,
 }
 
 /// Whether the chat still ends on `cut_turn`: no turn runs, nothing waits that the cut turn did
@@ -281,9 +227,9 @@ impl Hub {
         turn
     }
 
-    /// Settles whether the ended turn `turn_id` is continued: it is when there is a `cut` (a
-    /// transport error or the agent's death, `turns.rs`) and no Stop or close came since it
-    /// began. Nothing for any other failure, or once the configured attempts are used.
+    /// Settles whether the ended turn `turn_id` is continued: it is when `cut` is a transport
+    /// error or agent death and no Stop or close came since it began. Nothing for any other failure, or once
+    /// the configured attempts are used.
     pub(super) fn schedule_auto_resume(
         self: &Arc<Self>,
         session: &Arc<Session>,
@@ -296,74 +242,43 @@ impl Hub {
             Some(Mark::Stopped(t)) if t == turn_id => Some(false),
             _ => None,
         };
-        let Some(cut) = cut.filter(|_| ending == Some(true)) else {
+        let Some(cut) = cut.filter(|c| {
+            ending == Some(true) && super::turn_errors::resume_cause(c.error, c.error).is_some()
+        }) else {
             if ending.is_some() {
                 pending.remove(&session.id);
-                self.auto_resumes.moved();
             }
             return;
         };
-        let wake = Arc::new(Notify::new());
-        pending.insert(session.id.clone(), Mark::Waiting(turn_id.to_owned(), wake.clone()));
+        pending.insert(session.id.clone(), Mark::Waiting(turn_id.to_owned()));
         drop(pending);
-        self.auto_resumes.moved();
-        self.wait_to_resume(session, cut, wake);
-    }
-
-    /// Waits out the next attempt's delay, or until a prompt hurries it (`wake`), then sends
-    /// it. The chat's mark is already `Waiting` on `cut.turn_id`.
-    fn wait_to_resume(
-        self: &Arc<Self>,
-        session: &Arc<Session>,
-        cut: CutTurn<'_>,
-        wake: Arc<Notify>,
-    ) {
         let (root, done) = split_attempt(cut.prompt_id);
-        let w = Wait {
-            root: root.to_owned(),
-            turn_id: cut.turn_id.to_owned(),
-            error: cut.error.to_owned(),
-            control: cut.control,
-            trust_gate: cut.trust_gate,
-            cause: cut.cause,
-            done,
-            wake,
-        };
+        let (root, turn_id, error) =
+            (root.to_owned(), cut.turn_id.to_owned(), cut.error.to_owned());
+        let (control, trust_gate) = (cut.control, cut.trust_gate);
         let (hub, session) = (self.clone(), session.clone());
         // Off the turn's path: the turn lock is still held here.
         tokio::spawn(async move {
-            let (root, turn_id, cause) = (&w.root, &w.turn_id, w.cause);
             let delays = {
                 let cfg = hub.config.read().await;
                 cfg.auto_resume_delays_ms.clone().unwrap_or_else(|| DEFAULT_DELAYS_MS.to_vec())
             };
-            let Some(&delay) = delays.get(w.done) else {
-                hub.take_pending(&session, turn_id);
-                if w.done > 0 {
-                    let msg = json!({"promptId": root, "attempts": w.done, "turnId": turn_id, "cause": cause});
+            let Some(&delay) = delays.get(done) else {
+                hub.take_pending(&session, &turn_id);
+                if done > 0 {
+                    let msg = json!({"promptId": root, "attempts": done, "turnId": turn_id});
                     hub.append(&session, "mux", "auto_resume_exhausted", msg);
                 }
                 return;
             };
-            let attempt = w.done + 1;
+            let attempt = done + 1;
             let delay = staggered(delay, &session.id);
-            let msg = json!({"promptId": root, "attempt": attempt, "turnId": turn_id, "delayMs": delay, "cause": cause});
+            let msg =
+                json!({"promptId": root, "attempt": attempt, "turnId": turn_id, "delayMs": delay});
             hub.append(&session, "mux", "auto_resume_scheduled", msg);
-            tokio::select! {
-                () = tokio::time::sleep(Duration::from_millis(delay)) => {}
-                () = w.wake.notified() => {
-                    let msg = json!({"promptId": root, "attempt": attempt, "turnId": turn_id, "cause": cause});
-                    hub.append(&session, "mux", "auto_resume_hurried", msg);
-                }
-            }
-            let cut = CutTurn {
-                prompt_id: root,
-                turn_id,
-                control: w.control,
-                trust_gate: w.trust_gate,
-                error: &w.error,
-                cause,
-            };
+            tokio::time::sleep(Duration::from_millis(delay)).await;
+            let cut =
+                CutTurn { prompt_id: &root, turn_id: &turn_id, control, trust_gate, error: &error };
             hub.auto_resume(&session, cut, attempt).await;
         });
     }
@@ -373,7 +288,7 @@ impl Hub {
     pub(super) fn continuation_pending(&self, session: &Session) -> bool {
         matches!(
             self.auto_resumes.lock().get(&session.id),
-            Some(Mark::Waiting(..) | Mark::Firing(_) | Mark::Ending(_))
+            Some(Mark::Waiting(_) | Mark::Firing(_) | Mark::Ending(_))
         )
     }
 
@@ -389,7 +304,6 @@ impl Hub {
             Some(t) => pending.insert(session.id.clone(), Mark::Stopped(t)),
             None => pending.remove(&session.id),
         };
-        self.auto_resumes.moved();
     }
 
     /// Starts the chat's turn (`run_prompt`). A continuation (`after` its cut turn) that Stop
@@ -409,7 +323,6 @@ impl Hub {
             };
             if mark.is_some() {
                 pending.remove(&session.id);
-                self.auto_resumes.moved();
             }
             if mark == Some(false) {
                 return Err(stopped());
@@ -423,7 +336,7 @@ impl Hub {
     /// stays, as firing, until its turn starts.
     fn fire_pending(&self, session: &Session, cut_turn: &str) -> bool {
         let mut pending = self.auto_resumes.lock();
-        let ours = matches!(pending.get(&session.id), Some(Mark::Waiting(t, _)) if t == cut_turn);
+        let ours = matches!(pending.get(&session.id), Some(Mark::Waiting(t)) if t == cut_turn);
         if ours {
             pending.insert(session.id.clone(), Mark::Firing(cut_turn.to_owned()));
         }
@@ -436,17 +349,15 @@ impl Hub {
         if matches!(pending.get(&session.id), Some(Mark::Firing(t) | Mark::Stopped(t)) if t == cut_turn)
         {
             pending.remove(&session.id);
-            self.auto_resumes.moved();
         }
     }
 
     /// Takes the chat's waiting continuation when it still answers for `cut_turn`.
     fn take_pending(&self, session: &Session, cut_turn: &str) -> bool {
         let mut pending = self.auto_resumes.lock();
-        let ours = matches!(pending.get(&session.id), Some(Mark::Waiting(t, _)) if t == cut_turn);
+        let ours = matches!(pending.get(&session.id), Some(Mark::Waiting(t)) if t == cut_turn);
         if ours {
             pending.remove(&session.id);
-            self.auto_resumes.moved();
         }
         ours
     }
@@ -459,8 +370,8 @@ impl Hub {
         cut: CutTurn<'_>,
         attempt: usize,
     ) {
-        let (root, cut_turn, cause) = (cut.prompt_id, cut.turn_id, cut.cause);
-        let skipped = |why: &str| json!({"promptId": root, "attempt": attempt, "turnId": cut_turn, "skipped": why, "cause": cause});
+        let (root, cut_turn) = (cut.prompt_id, cut.turn_id);
+        let skipped = |why: &str| json!({"promptId": root, "attempt": attempt, "turnId": cut_turn, "skipped": why});
         if !self.fire_pending(session, cut_turn) {
             // Stop or close took it, or a newer turn replaced it.
             let why = if still_cut(session, cut_turn) { "stopped" } else { "superseded" };
@@ -488,7 +399,7 @@ impl Hub {
             after_turn: Some(cut_turn.to_owned()),
             ..PromptOptions::default()
         };
-        let blocks = vec![json!({"type": "text", "text": continue_text(cause, cut.error)})];
+        let blocks = vec![json!({"type": "text", "text": continue_text(cut.error)})];
         let result = self.prompt_with(session, blocks, "acpmux", false, opts).await;
         self.clear_fired(session, cut_turn);
         match result {
@@ -501,7 +412,7 @@ impl Hub {
                     let why = why.trim_start_matches("auto_resume.");
                     self.append(session, "mux", "auto_resume_skipped", skipped(why));
                 }
-                // A failure that is itself a transport error or a death scheduled the next one.
+                // A failure that is itself a transport error scheduled the next attempt.
                 _ => tracing::warn!(session = %session.id, attempt, "auto resume: {}", e.message),
             },
         }

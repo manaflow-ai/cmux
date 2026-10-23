@@ -81,9 +81,8 @@ impl Hub {
                             json!({"code": code}),
                         );
                     }
-                    // Idle when nothing was lost, else disconnected (`auto_resume/revive.rs`).
                     if !intentional {
-                        self.agent_gone(&session, code);
+                        self.set_status(&session, SessionStatus::Disconnected);
                     }
                 }
             }

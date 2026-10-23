@@ -894,12 +894,6 @@ def handle_prompt(rid, params):
     for k in range(int(os.environ.get("FAKE_TOOL_CALLS", "0") or 0)):
         update(sid, {"sessionUpdate": "tool_call", "toolCallId": f"run-{k}", "kind": "execute",
                      "status": "completed", "title": f"echo probe {k}"})
-    # "[hold]" anywhere: the reply comes 1.5 s later, so a prompt sent meanwhile queues.
-    if "[hold]" in text:
-        time.sleep(1.5)
-    # "cwd-probe" anywhere in the prompt: the reply names the folder the agent runs in.
-    if "cwd-probe" in text:
-        text = "cwd: " + os.getcwd() + " | " + text
     # FAKE_SHORT_ECHO=1: echo only the prompt's last line (a Chief envelope is 100+ KB).
     if os.environ.get("FAKE_SHORT_ECHO") == "1" and text.strip():
         text = text.strip().splitlines()[-1]

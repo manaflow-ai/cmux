@@ -167,7 +167,9 @@ pub(crate) fn add_without_config(
     let filled = check_out_without_config(&objects, &format, root, commit, Some(by))
         .and_then(|()| git_by(root, &["read-tree", commit], by).map(drop));
     if filled.is_err() {
-        let _ = git(&["worktree", "remove", "--force", &root.to_string_lossy()]);
+        let cleanup_by = Instant::now() + std::time::Duration::from_secs(5);
+        let _ =
+            git_by(common, &["worktree", "remove", "--force", &root.to_string_lossy()], cleanup_by);
     }
     filled
 }
@@ -594,6 +596,17 @@ fn listed_worktree(folder: &Path, root: &Path) -> Option<Option<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn git_output_deadline_covers_a_descendant_holding_the_pipe() {
+        let mut command = Command::new("sh");
+        command.args(["-c", "sleep 10 & exit 0"]);
+        let by = Instant::now() + std::time::Duration::from_millis(200);
+        let result = output_by(command, None, Some(by));
+        assert!(result.is_err(), "a still-open output must time out: {result:?}");
+        assert!(by.elapsed() < std::time::Duration::from_secs(5));
+    }
 
     #[test]
     fn slug_matches_the_worktree_names() {

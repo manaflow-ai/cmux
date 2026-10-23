@@ -67,6 +67,14 @@ pub fn is_transport_error(message: &str) -> bool {
             && (m.contains("handshake") || m.contains("closed") || m.contains("disconnect")))
 }
 
+/// A process exit needs its stderr-enriched explanation; transport errors keep their raw cause.
+pub(super) fn continuation_error<'a>(raw: Option<&'a str>, shown: &'a str) -> &'a str {
+    match raw {
+        Some(raw) if !raw.starts_with("agent process closed") => raw,
+        _ => shown,
+    }
+}
+
 /// Why a failed turn is continued by itself, if it is: `transport` (the connection dropped) or
 /// `agent_exited` (its agent process died mid-turn: "agent process closed"). `raw` is the
 /// agent's own error, `shown` the turn's error as recorded (with the dead process's last stderr

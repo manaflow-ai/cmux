@@ -3,8 +3,6 @@
 //! "stream disconnected", and each chat stayed idle until a person typed "continue".
 use super::*;
 
-// A dead agent's chat, which these continuations also serve (hub_integration.rs is at its size
-// budget).
 #[path = "agent_revive.rs"]
 mod agent_revive;
 
@@ -98,31 +96,26 @@ async fn automatic_continuations_stop_after_the_configured_attempts() {
     assert_eq!(user_messages(&hub, &id).len(), 3);
 }
 
-/// A prompt sent while the continuation waits fires it now, and runs after it
-/// (`hub/auto_resume/revive.rs`): the agent finishes the cut work before the next message.
 #[tokio::test]
-async fn a_prompt_sent_meanwhile_runs_after_the_continuation_it_hurries() {
+async fn a_prompt_sent_meanwhile_supersedes_the_continuation() {
     let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
-    hub.config.write().await.auto_resume_delays_ms = Some(vec![600_000]);
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![500]);
     let id = new_session(&mut c, "meanwhile").await;
     let _ = c
         .request(
             method::SESSION_PROMPT,
-            json!({"sessionId": id, "prompt": [{"type": "text", "text": "net-fail-once: x"}], "_meta": {"acpmux": {"promptId": "p-cut"}}}),
+            json!({"sessionId": id, "prompt": [{"type": "text", "text": "net-fail-once: x"}]}),
         )
         .await;
     c.request(
         method::SESSION_PROMPT,
-        json!({"sessionId": id, "prompt": [{"type": "text", "text": "never mind, do y"}], "_meta": {"acpmux": {"promptId": "p-y"}}}),
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "never mind, do y"}]}),
     )
     .await
     .unwrap();
-    let k = kinds(&hub, &id);
-    assert!(k.iter().any(|k| k == "auto_resume_hurried"), "{k:?}");
-    assert!(!k.iter().any(|k| k == "auto_resume_skipped"), "{k:?}");
-    let ids: Vec<Value> =
-        user_messages(&hub, &id).into_iter().map(|m| m["promptId"].clone()).collect();
-    assert_eq!(ids, [json!("p-cut"), json!("p-cut~resume-1"), json!("p-y")], "{k:?}");
+    let k = until(&hub, &id, |k| k.iter().any(|k| k == "auto_resume_skipped")).await;
+    assert!(k.iter().any(|k| k == "auto_resume_skipped"), "{k:?}");
+    assert_eq!(user_messages(&hub, &id).len(), 2, "only the person's two prompts ran");
 }
 
 #[tokio::test]

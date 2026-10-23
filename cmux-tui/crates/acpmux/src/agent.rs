@@ -127,8 +127,7 @@ const LEADER_CHECK: std::time::Duration = std::time::Duration::from_millis(500);
 /// How long the reader keeps draining stdout after the agent process exits.
 const LEADER_DRAIN: std::time::Duration = std::time::Duration::from_secs(2);
 
-/// How long, once stdout closed, the reader waits for stderr to close before it fails the
-/// agent's requests (a descendant that holds stderr open does not hold them longer).
+/// Bounded stderr drain after stdout closes, before failing pending requests.
 const STDERR_DRAIN: std::time::Duration = std::time::Duration::from_secs(1);
 
 struct Pending {
@@ -270,7 +269,6 @@ impl ChildAgent {
             job,
         });
 
-        // Writer task.
         tokio::spawn(async move {
             let mut stdin = stdin;
             while let Some(line) = stdin_rx.recv().await {
@@ -289,7 +287,6 @@ impl ChildAgent {
             agent.codex_lines(first.server).await;
         }
 
-        // Stderr task.
         let stderr_done = {
             let inbound = inbound.clone();
             tokio::spawn(async move {
@@ -300,7 +297,6 @@ impl ChildAgent {
             })
         };
 
-        // Reader task.
         {
             let inbound = inbound.clone();
             let pending = pending.clone();
@@ -460,17 +456,13 @@ impl ChildAgent {
                         }
                     }
                 }
-                // The app-server is gone: the translator answers what waits on
-                // it and refuses what comes later.
+                // Settle the app-server translator's requests too.
                 if let Some(cx) = &agent_for_exit.codex {
                     let closed = crate::codex_app_server::split(cx.tr.server_closed("it exited"));
                     agent_for_exit.codex_to_hub(cx, closed.hub).await;
                 }
-                // A dead process's last stderr lines go in before its requests fail, so the
-                // turn's error reads them (a limit or a sign-in is never continued:
-                // `turn_errors.rs` `resume_cause`). Bounded: a descendant may keep stderr open.
+                // Queue stderr first so limit/sign-in deaths are not continued.
                 let _ = tokio::time::timeout(STDERR_DRAIN, stderr_done).await;
-                // Fail every pending request, then report exit.
                 let mut p = pending.lock().await;
                 for (_, tx) in p.map.drain() {
                     let _ = tx.send(Err(RpcError::internal("agent process closed")));

@@ -23,7 +23,7 @@ pub(super) async fn turn_git(session: &Session) -> Map<String, Value> {
     let cwd = session.meta.lock().unwrap_or_else(|e| e.into_inner()).cwd.clone();
     let read = tokio::task::spawn_blocking(move || {
         let git = GitState::read(&cwd);
-        let worktree = super::worktree_care::revive::origin_of(&cwd, &git).record();
+        let worktree = super::worktree_care::revive::origin_of(&cwd, &git);
         (git, worktree)
     });
     let (git, worktree) = match tokio::time::timeout(GIT_READ_LIMIT, read).await {

@@ -265,36 +265,16 @@ impl Hub {
 
     /// Before a session's harness starts: its folder back, when cleanup
     /// reclaimed the worktree it is in. Logged as `worktree_restored`, or
-    /// `worktree_restore_failed` (the start goes on). A folder still gone is
-    /// added back from its branch, or the session moves above it (`revive.rs`).
-    pub(super) async fn ready_to_start(&self, session: &Arc<Session>) -> Result<(), RpcError> {
-        self.ready_folder(session, true).await?;
+    /// `worktree_restore_failed` (the start goes on and reports the
+    /// missing folder as before).
+    pub(super) async fn ready_to_start(&self, session: &Arc<Session>) {
+        self.care_restore_for(session).await;
+        self.revive_folder(session, &CARE.restoring).await;
         // A stopped session reopens on demand. Only a purge is final.
         if session.status() == SessionStatus::Closed {
             self.append(session, "mux", "reopened", json!({}));
             self.set_status(session, SessionStatus::Idle);
         }
-        Ok(())
-    }
-
-    /// The session's folder there before its agent or a turn starts (`run_prompt`): restored
-    /// from cleanup's archive, else added back or moved from (`revive.rs`).
-    pub(super) async fn ready_folder(
-        &self,
-        session: &Arc<Session>,
-        starting: bool,
-    ) -> Result<(), RpcError> {
-        let cwd = session.meta().cwd.clone();
-        let gone = !tokio::fs::try_exists(&cwd).await.unwrap_or(true);
-        self.care_restore_for(session).await;
-        self.revive_folder(session, &CARE.restoring, starting, true).await?;
-        // At a turn's start, a live agent still runs in the folder that went, even once it is
-        // back (restored, added back, or by another start meanwhile): it starts again where
-        // the session is now, the turn kept. A cold start replaces the agent anyway.
-        if gone && !starting {
-            self.stop_agent_keeping_turn(session).await;
-        }
-        Ok(())
     }
 
     /// Before a prompt for a session with no running agent is recorded (`turns.rs`): its folder
@@ -316,8 +296,7 @@ impl Hub {
     /// file or directory`.
     async fn folder_ready(&self, session: &Arc<Session>) -> Result<(), RpcError> {
         self.care_restore_for(session).await;
-        // A worktree acpmux recorded is added back (`revive.rs`); nothing moves here.
-        self.revive_folder(session, &CARE.restoring, false, false).await?;
+        self.revive_folder(session, &CARE.restoring).await;
         let meta = session.meta();
         // A folder that cannot be read (its permissions) fails at the start as before.
         match tokio::fs::metadata(&meta.cwd).await {
