@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextControl
 import CmuxNextCrashReporting
+import CmuxNextDaemon
 import CmuxNextHangReports
 
 /// Where the main-thread watchdog's findings go (moved out of `AppDelegate`): each hang still
@@ -15,7 +16,7 @@ enum WatchdogReporting {
         let hangReports = HangReportsController.forThisLaunch(
             policy: reporter.policy, folder: SidebarSnapshotFile.buildDirectory(launch: services.environment.launch)
                 .appending(path: "HangReports", directoryHint: .isDirectory),
-            counts: { [weak services] in await MainActor.run { services.map(Self.counts) ?? .unknown } })
+            counts: { @MainActor [weak services] in services.map(WatchdogReporting.counts) ?? .unknown })
         let collector = hangReports.collector
         watchdog.onHang = { hang in
             reporter.reportHang(duration: hang.duration, addresses: hang.addresses, otherThreads: hang.otherThreads.map { ($0.name, $0.addresses) })
