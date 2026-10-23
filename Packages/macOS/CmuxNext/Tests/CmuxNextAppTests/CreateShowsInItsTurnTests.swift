@@ -14,16 +14,23 @@ import Testing
 /// already swaps in its own turn (`WindowManager.show(workspaceID:in:from:)`); a create must too.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct CreateShowsInItsTurnTests {
-    /// What the window selected and what it drew at the end of each turn the store reported a
-    /// changed workspace list in.
+    /// What the window selected, what it drew, and whether the selected workspace was still the
+    /// intent's provisional stand-in, at the end of each turn the store reported a changed
+    /// workspace list in.
     @MainActor private final class Turns {
-        var seen: [(selected: String?, shown: String?)] = []
+        var seen: [(selected: String?, shown: String?, provisional: Bool)] = []
     }
 
     @Test func aNewWorkspaceShowsInTheTurnItsWindowSelectsIt() async throws {
         let launched = try await RapidWorkspaceCreateTests.launch()
         let services = launched.services
         let store = services.daemon.store
+        // This Mac hosts the New Tab page, so Cmd-N takes the instant path: the stand-in is listed
+        // and selected inside the intent's turn, through `store.onWorkspaceListChanged`. Without a
+        // page the create goes through FirstTabHold, whose release reconciles directly and never
+        // reaches the wrapped hook, so the test would not measure the fix.
+        services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-in-turn")
+        try #require(services.agentTabs.canHostChat, "this build has no New Tab page")
         let window = try #require(services.windows.active?.state.id)
         let controller = try #require(services.windows.controller(for: window))
         let before = controller.state.workspaceID
@@ -32,7 +39,9 @@ struct CreateShowsInItsTurnTests {
         let reconcile = store.onWorkspaceListChanged
         store.onWorkspaceListChanged = {
             reconcile?()
-            turns.seen.append((controller.state.workspaceID, controller.content?.workspace.id))
+            let selected = controller.state.workspaceID
+            let provisional = store.workspaces.first { $0.id == selected }?.isProvisional == true
+            turns.seen.append((selected, controller.content?.workspace.id, provisional))
         }
 
         // A person's Cmd-N in the window (shown there, `focus` defaults to true).
@@ -48,6 +57,9 @@ struct CreateShowsInItsTurnTests {
         #expect(created != before, "the new workspace was never selected")
         let selecting = seen.filter { $0.selected == created }
         #expect(!selecting.isEmpty, "no store turn selected the new workspace: \(seen)")
+        // The first selecting turn is the intent's own: the workspace is still the stand-in there.
+        #expect(selecting.first?.provisional == true,
+                "the first turn that selected the new workspace was not the intent's (not provisional): \(seen)")
         #expect(selecting.allSatisfy { $0.shown == created },
                 "the window selected the new workspace but drew \(selecting.map { $0.shown ?? "nothing" }) at the end of that turn")
     }
