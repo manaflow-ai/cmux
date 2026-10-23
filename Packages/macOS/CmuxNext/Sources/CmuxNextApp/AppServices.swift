@@ -329,8 +329,9 @@ final class AppServices {
     /// Which machines run browser tabs there, and their runtimes (cx-2cob slice 2).
     private(set) lazy var machineBrowserHosts = MachineBrowserHosts(machines: machines, localhost: remoteLocalhost)
     var chromiumLikelyObservations: [Task<Void, Never>] = []
-    /// Repaints on `appearance.borders` changes (`observeBorders`).
-    var borderObservation: Task<Void, Never>?
+    /// Repaints every window on borders, calm mode, terminal face and agent page setting changes
+    /// (`observeWindowRepaints`).
+    var windowRepaintObservation: Task<Void, Never>?
     /// Repaints when the glass mode pages draw changes (`observeGlass`).
     var glassWatch: GlassModeWatch?
     /// Posts this launch's installed-update Feed card once (`UpdateFeedPosting.follow`).
