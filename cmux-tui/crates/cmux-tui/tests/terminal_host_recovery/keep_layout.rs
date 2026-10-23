@@ -268,6 +268,86 @@ fn shutdown_daemon_keep_layout_keeps_the_dead_tab_name_and_title_across_restart(
     assert_eq!(titled["title"], "kept title", "the restored dead tab lost its title: {titled}");
 }
 
+/// A kept tab nobody started survives a second End Sessions, Keep Layout
+/// with its record as it was. Frontends start a kept tab only when its
+/// workspace is shown (#17587), so a hidden workspace's kept tab is still
+/// dead at the next keep: it must stay (not be closed as a terminal without
+/// a kept tab) and keep the directory and title its shell last had (not be
+/// rewritten with none, since no shell is left to ask).
+#[test]
+fn shutdown_daemon_keep_layout_twice_keeps_an_unstarted_kept_tab_and_its_record() {
+    let mut harness = RecoveryHarness::start("shutdown-keep-layout-twice");
+    request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 1, "cmd": "run", "new_workspace": true, "name": "hidden",
+            "argv": ["/bin/sh", "-c", "printf '\\033]2;hidden title\\007'; exec cat"],
+        }),
+    );
+    let hidden_tab = |tree: &serde_json::Value| {
+        tree["workspaces"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|workspace| workspace["name"] == "hidden")
+            .and_then(first_tab)
+            .cloned()
+            .unwrap_or_else(|| panic!("the hidden workspace has no tab: {tree}"))
+    };
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    loop {
+        let tree = request(&harness.socket, serde_json::json!({"id": 2, "cmd": "list-workspaces"}));
+        if hidden_tab(&tree)["title"] == "hidden title" {
+            break;
+        }
+        assert!(Instant::now() < deadline, "the live tab never showed its title: {tree}");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let keep_and_restart = |harness: &mut RecoveryHarness, id: u64| {
+        let identify = request(&harness.socket, serde_json::json!({"id": id, "cmd": "identify"}));
+        let accepted = request(
+            &harness.socket,
+            serde_json::json!({
+                "id": id + 1,
+                "cmd": "shutdown-daemon",
+                "pid": identify["pid"],
+                "generation": identify["generation"],
+                "end_terminals": true,
+                "keep_layout": true,
+            }),
+        );
+        assert_eq!(accepted["accepted"], true, "{accepted}");
+        let mut daemon = harness.child.take().unwrap();
+        let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+        while daemon.try_wait().unwrap().is_none() {
+            assert!(Instant::now() < deadline, "daemon did not exit after shutdown");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        wait_for_no_host_records(&harness.host_root());
+        harness.restart();
+        hidden_tab(&request(
+            &harness.socket,
+            serde_json::json!({"id": id + 2, "cmd": "list-workspaces"}),
+        ))
+    };
+    let first = keep_and_restart(&mut harness, 10);
+    assert_eq!(first["dead"], true, "a kept tab came back live: {first}");
+    assert!(first["relaunch"]["cwd"].is_string(), "the first keep recorded no directory: {first}");
+
+    // The tab is never started: the second keep finds it dead and already kept.
+    let second = keep_and_restart(&mut harness, 20);
+    assert_eq!(
+        second["tab_resource_id"], first["tab_resource_id"],
+        "the second keep closed the unstarted kept tab: {second}"
+    );
+    assert_eq!(second["dead"], true, "{second}");
+    assert_eq!(
+        second["relaunch"], first["relaunch"],
+        "the second keep rewrote the unstarted tab's record: {second}"
+    );
+    assert_eq!(second["title"], "hidden title", "the second keep lost the tab's title: {second}");
+}
+
 /// A rename of a kept tab needs no live process: after the handoff the tab
 /// has no surface, and `rename-surface` sets the tab resource's name, which
 /// the next `list-workspaces` reports at once (a clear restores null).
