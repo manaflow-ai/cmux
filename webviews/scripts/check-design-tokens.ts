@@ -9,12 +9,7 @@
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  fillKind,
-  glassContextRules,
-  targetsRequiredGlass,
-  type Block,
-} from "./check-glass-never-opaque";
+import { fillKind, glassContextRules, targetsRequiredGlass, type Block } from "./check-glass-never-opaque";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = join(ROOT, "src");
@@ -24,8 +19,7 @@ const CONTROL_HEIGHT = new Set([0, 20, 24, 28, 32]);
 const CSS_ROOTS = ["."];
 const ROOT_FILES: string[] = [];
 const NAMED_GLASS = /\.(?:nt-box|acpmux-env-panel|acpmux-composer-strip|acpmux-composer)\b/;
-const SPACING_PROPERTY =
-  /^(?:padding(?:-(?:block|inline|top|right|bottom|left))?|gap|row-gap|column-gap)$/;
+const SPACING_PROPERTY = /^(?:padding(?:-(?:block|inline|top|right|bottom|left))?|gap|row-gap|column-gap)$/;
 const HEIGHT_PROPERTY = /^(?:height|min-height)$/;
 const REDUCE_MEDIA = /(?<!not\s*)\(\s*prefers-reduced-transparency\s*:\s*reduce\s*\)/;
 const REDUCE_ATTR = /(?<!:not\(\s*)\[data-reduce-transparency\]/;
@@ -42,16 +36,12 @@ export interface Finding {
 function cssFiles(): string[] {
   const walk = (dir: string): string[] =>
     readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
-      if (entry.isDirectory() && (entry.name === "node_modules" || entry.name === "generated"))
-        return [];
+      if (entry.isDirectory() && (entry.name === "node_modules" || entry.name === "generated")) return [];
       const path = join(dir, entry.name);
       if (entry.isDirectory()) return walk(path);
       return entry.name.endsWith(".css") ? [path] : [];
     });
-  return [
-    ...CSS_ROOTS.map((name) => walk(join(SRC, name))),
-    ...ROOT_FILES.map((name) => join(SRC, name)),
-  ].flat();
+  return [...CSS_ROOTS.map((name) => walk(join(SRC, name))), ...ROOT_FILES.map((name) => join(SRC, name))].flat();
 }
 
 interface ParsedBlock {
@@ -138,9 +128,7 @@ function isOutsideScale(property: string, value: string): boolean {
 }
 
 function inReduce(block: ParsedBlock): boolean {
-  return [...block.context, block.selector].some(
-    (part) => REDUCE_MEDIA.test(part) || REDUCE_ATTR.test(part),
-  );
+  return [...block.context, block.selector].some((part) => REDUCE_MEDIA.test(part) || REDUCE_ATTR.test(part));
 }
 
 function key(finding: Omit<Finding, "line">): string {
@@ -158,10 +146,7 @@ function findingsForFile(file: string): Finding[] {
     if (block.selector.startsWith("@") || inReduce(block)) continue;
     for (const declaration of block.declarations) {
       if (declaration.property.startsWith("--")) continue;
-      if (
-        SPACING_PROPERTY.test(declaration.property) &&
-        isOutsideScale(declaration.property, declaration.value)
-      ) {
+      if (SPACING_PROPERTY.test(declaration.property) && isOutsideScale(declaration.property, declaration.value)) {
         findings.push({
           file: rel,
           kind: "spacing",
@@ -198,7 +183,7 @@ function glassFindings(): Finding[] {
       named ||
       targetsRequiredGlass(block.selector) ||
       /\.[\w-]*glass[\w-]*/i.test(block.selector) ||
-      block.decls.some((decl) => /backdrop-filter$/.test(decl.prop));
+      block.decls.some((decl) => decl.prop.endsWith("backdrop-filter"));
     if (!glass) continue;
     for (const declaration of block.decls) {
       if (declaration.allowed) continue;
@@ -242,8 +227,7 @@ function loadBaseline(): Map<string, number> {
       throw new Error(`bad baseline row: ${raw}`);
     }
     for (const [value, count] of Object.entries(row.values)) {
-      if (!Number.isInteger(count) || count < 0 || !value)
-        throw new Error(`bad baseline row: ${raw}`);
+      if (!Number.isInteger(count) || count < 0 || !value) throw new Error(`bad baseline row: ${raw}`);
       baseline.set([row.file, row.kind, row.property, value].join("\t"), count);
     }
   }
@@ -271,29 +255,19 @@ function writeBaseline(current: Map<string, number>, previous: Map<string, numbe
     { file: string; kind: Finding["kind"]; property: string; values: Record<string, number> }
   >();
   for (const [id, count] of current) {
-    const [file, kind, property, value] = id.split("\t") as [
-      string,
-      Finding["kind"],
-      string,
-      string,
-    ];
+    const [file, kind, property, value] = id.split("\t") as [string, Finding["kind"], string, string];
     const groupKey = [file, kind, property].join("\t");
     const row = grouped.get(groupKey) ?? { file, kind, property, values: {} };
     row.values[value] = count;
     grouped.set(groupKey, row);
   }
   const rows = [...grouped.values()]
-    .sort((a, b) =>
-      `${a.file}\t${a.kind}\t${a.property}`.localeCompare(`${b.file}\t${b.kind}\t${b.property}`),
-    )
+    .sort((a, b) => `${a.file}\t${a.kind}\t${a.property}`.localeCompare(`${b.file}\t${b.kind}\t${b.property}`))
     .map((row) => JSON.stringify(row));
   writeFileSync(BASELINE, `${rows.join("\n")}\n`);
 }
 
-export function ratchetErrors(
-  current: Map<string, number>,
-  baseline: Map<string, number>,
-): string[] {
+export function ratchetErrors(current: Map<string, number>, baseline: Map<string, number>): string[] {
   const errors: string[] = [];
   for (const [id, count] of current) {
     const allowed = baseline.get(id) ?? 0;
@@ -301,8 +275,7 @@ export function ratchetErrors(
   }
   for (const [id, allowed] of baseline) {
     const count = current.get(id) ?? 0;
-    if (count < allowed)
-      errors.push(`baseline can shrink (${count} < ${allowed}); run --update-baseline: ${id}`);
+    if (count < allowed) errors.push(`baseline can shrink (${count} < ${allowed}); run --update-baseline: ${id}`);
   }
   return errors;
 }
@@ -332,8 +305,7 @@ if (import.meta.main) {
     process.exitCode = 1;
   } else {
     const errors = report(current, baseline);
-    if (!errors)
-      console.log(`Design token ratchet passed: ${currentFindings.length} recorded violations.`);
+    if (!errors) console.log(`Design token ratchet passed: ${currentFindings.length} recorded violations.`);
     process.exitCode = errors ? 1 : 0;
   }
 }
