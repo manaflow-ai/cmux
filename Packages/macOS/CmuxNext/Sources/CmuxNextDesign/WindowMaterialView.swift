@@ -31,7 +31,7 @@ public final class WindowMaterialView: NSView {
     private var inactiveTintTarget: CGFloat = 0
     /// The theme tint at full alpha, the inactive wash's color; nil while opaque.
     private var washColor: CGColor?
-    /// The tint's alpha (the backdrop's opacity), from which the wash over inactive glass is derived.
+    /// The backdrop's opacity, retained for tint updates.
     private var tintAlpha: CGFloat = 1
     /// Bumped by each wash fade: only the latest fade-out's completion hides the view (a
     /// replaced animation completes too).
@@ -137,28 +137,15 @@ public final class WindowMaterialView: NSView {
     var glassTintColor: CGColor? { (materialView as? GlassPanelView)?.tintColor?.cgColor }
     var shownGlassBlendLayer: CALayer? { glassTint.overlay.isHidden ? nil : glassTint.overlay.layer }
 
-    /// The theme tint laid over the window while it is not key, at full alpha. Liquid Glass drops
-    /// its `tintColor` then and draws the system's grey, so the tint comes back over it at the
-    /// strength that makes the inactive window look like the key one (dogfood 2026-10-08, C3), plus
-    /// `appearance.inactiveWindowDim`. Its resting alpha: where its fade ends.
+    /// The explicitly configured inactive-window dim, where its fade ends. Losing focus alone
+    /// adds no second tint over the backdrop.
     var inactiveTintAlpha: CGFloat { inactiveTintTarget }
 
-    /// How strongly the theme tint at full alpha covers glass that is not key so the window
-    /// composites as it did while key: the tint Liquid Glass dropped, at its own alpha (the
-    /// Opacity), over the material it covered. Not measured against the render server yet: CI and
-    /// fleet test hosts have no window server to capture glass with.
-    static func matchedGlassWash(tintAlpha: CGFloat) -> CGFloat {
-        min(max(tintAlpha, 0), 1)
-    }
-
-    /// The wash over a window that is not key: none while it is key or opaque; over glass the
-    /// match for the key look (``matchedGlassWash(tintAlpha:)``); then `dim` of what still shows
-    /// through (`appearance.inactiveWindowDim`, 0 by default: the same look in front and behind).
-    static func inactiveTintAlpha(material: WindowMaterial, isKeyWindow: Bool, tintAlpha: CGFloat, dim: CGFloat) -> CGFloat {
+    /// Only an explicit inactive-window dim adds a wash. Losing focus must not place another
+    /// copy of the theme tint over glass, which obscures its background even when dimming is off.
+    static func inactiveTintAlpha(material: WindowMaterial, isKeyWindow: Bool, tintAlpha _: CGFloat, dim: CGFloat) -> CGFloat {
         guard material != .opaque, !isKeyWindow else { return 0 }
-        let matched: CGFloat = if case .glass = material { matchedGlassWash(tintAlpha: tintAlpha) } else { 0 }
-        let dim = min(max(dim, 0), 1)
-        return matched + dim * (1 - matched)
+        return min(max(dim, 0), 1)
     }
 
     override public func viewDidChangeEffectiveAppearance() {

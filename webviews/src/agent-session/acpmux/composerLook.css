@@ -116,14 +116,13 @@
 /* The New Tab page's dots (newtab/PageDots.tsx): the looks, then the page's styles, one row under
    the page where the style switch sat (newtab/screen.css .nt-style). */
 .nt-page-dots {
-  position: absolute;
-  bottom: 2px;
-  left: 50%;
   display: flex;
+  justify-content: center;
   gap: 12px;
-  max-width: calc(100% - 32px);
-  transform: translateX(-50%);
+  min-height: 24px;
+  max-width: 100%;
 }
+.nt-composer-bottom { flex: none; min-height: 24px; }
 .nt-page-dots > .nt-style {
   position: relative;
   bottom: auto;
@@ -171,21 +170,20 @@
 }
 .acpmux-composer-under {
   position: relative;
-  height: 16px;
+  height: 24px;
 }
 .acpmux-composer-under:not([data-beside-foot]) .acpmux-look-slot {
-  height: 16px;
+  height: 24px;
 }
 .acpmux-composer-under:not([data-beside-foot]) :is(.nt-style-option, .nt-style-mark) {
-  height: 16px;
+  height: 24px;
 }
-/* Claude's look: no height of its own after the quiet row; the 24px dots ride up over the row's
-   middle (the row is 28px with a 10px bottom margin, composerLocation.css .acpmux-composer-foot). */
+/* Both looks reserve the same band below their footer, so switching looks never overlaps controls. */
 .acpmux-composer-under[data-beside-foot] {
-  height: 0;
+  height: 24px;
 }
 .acpmux-composer-under[data-beside-foot] .acpmux-look-slot {
-  bottom: 12px;
+  bottom: 0;
 }
 @media (prefers-reduced-motion: reduce) {
   .nt-style.acpmux-look-dots {

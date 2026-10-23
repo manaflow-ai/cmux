@@ -183,6 +183,9 @@ pub struct SessionMeta {
     /// where an agent lists them once (perf100).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub available_commands: Option<Value>,
+    /// Last goal reported by the harness. Codex owns its persistence and continuation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub goal: Option<Value>,
     /// Per-session permission rules layered above the policy (see hub/rules.rs).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub permission_rules: Option<Value>,
