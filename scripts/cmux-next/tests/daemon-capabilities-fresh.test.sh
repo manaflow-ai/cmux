@@ -90,6 +90,13 @@ write_swift "workspaceGroups,
 if out="$(run)"; then fail "a constant in no list passed: $out"; fi
 [[ "$out" == *"orphanThing"* ]] || fail "the failure does not name the unlisted constant: $out"
 
+# The same with a type annotation (cc7a964ef61's source regex skipped `let name: String = "..."`, so
+# a typed constant in no list passed while the Mirror test it replaced failed on it).
+write_swift "workspaceGroups,
+                                       sidebarLayout" "remoteTerminalTabs" '    public static let orphanTyped: String = "orphan-typed-v1"'
+if out="$(run)"; then fail "a typed constant in no list passed: $out"; fi
+[[ "$out" == *"orphanTyped"* ]] || fail "the failure does not name the typed constant: $out"
+
 # An identifier the parser cannot resolve fails loudly instead of being skipped.
 write_swift "workspaceGroups, sidebarLayout, someComputedThing" "remoteTerminalTabs"
 if out="$(run)"; then fail "an unresolved identifier passed: $out"; fi
