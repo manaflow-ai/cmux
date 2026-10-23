@@ -24,12 +24,15 @@ import os
 /// part when it moves (``Parts/trail``).
 ///
 /// Key and activation changes (not observable) move only the window facts
-/// (which window is key, the focus): they republish those, O(windows). When
-/// a model publish is held by ``modelChangeInterval`` at that moment, the key
-/// change flushes it on the same frame, so the focus a reader without a write
-/// barrier gets (`identify`, the current-* queries) always resolves in the
-/// workspaces published with it. Readers never touch main-actor state: they
-/// get the last published value.
+/// (which window is key, the focus): they republish those, O(windows). Each
+/// model part held by ``modelChangeInterval`` keeps its own wait: neither a
+/// key change nor a trail move (each switch) publishes a held topology. The
+/// one exception keeps a reader without a write barrier (`identify`, the
+/// current-* queries) consistent: when a topology is held and the focus names
+/// a workspace that is not among the workspaces published last
+/// (`publishedWorkspaceIDs`, an O(1) check), the topology goes with the
+/// window facts. Readers never touch main-actor state: they get the last
+/// published value.
 ///
 /// Open (perf-lead.md row 8): a topology change still maps every workspace
 /// through ``ControlWorkspaceInfoCache``, held to one publish per
@@ -68,12 +71,17 @@ final class ControlSnapshotPublisher {
     /// moves its own instant, so a held part goes when the test says, with no real waiting).
     private let now: @MainActor () -> ContinuousClock.Instant
     private var isScheduled = false
-    /// What the scheduled frame publishes.
+    /// What the next frame publishes.
     private var pending: Parts = []
-    /// A model-change publish waits until then (`modelChanged`); nil publishes on the next frame.
-    private var notBefore: ContinuousClock.Instant?
+    /// Model parts held by ``modelChangeInterval``, each until its own instant (by raw value): a
+    /// part published sooner (a plain invalidate, ``publishNow()``) leaves the others' waits alone.
+    private var held: [UInt8: ContinuousClock.Instant] = [:]
     /// When each model part last published (by raw value): a held part waits from its own publish.
     private var lastPublish: [UInt8: ContinuousClock.Instant] = [:]
+    /// Every id a workspace of the last published topology answers to (its key, handle and
+    /// public id, as ``ControlTopology/workspace(id:)`` matches): a window-facts publish with a
+    /// held topology checks the focus against it.
+    private var publishedWorkspaceIDs: Set<String> = []
     /// Model changes (agent status ticks reach hundreds a second) publish at most this often:
     /// a topology publish maps every workspace. A read waiting on a write barrier still publishes at once.
     static let modelChangeInterval: Duration = .milliseconds(100)
@@ -114,15 +122,15 @@ final class ControlSnapshotPublisher {
             let window = notice.object as? NSWindow
             MainActor.assumeIsolated { // main-proof: observer on queue: .main
                 guard let self else { return }
-                self.invalidate(self.isManaged(window) ? .model : .windows, notBefore: nil)
+                self.invalidate(self.isManaged(window) ? .model : .windows)
             }
         })
         // The trail moves on a switch or a settled focus: Search Tabs' recency alone, O(trail).
-        trailObserver = services.locationTrail.addObserver { [weak self] in self?.invalidate(.trail, notBefore: nil) }
+        trailObserver = services.locationTrail.addObserver { [weak self] in self?.invalidate(.trail) }
         for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
                      NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification] {
             observers.append(notices.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.invalidate(.windows, notBefore: nil) } // main-proof: observer on queue: .main
+                MainActor.assumeIsolated { self?.invalidate(.windows) } // main-proof: observer on queue: .main
             })
         }
         publishNow()
@@ -143,30 +151,42 @@ final class ControlSnapshotPublisher {
         trailObserver = nil
     }
 
-    /// Schedules `parts` on the next frame (coalesced with what is pending); a model part with
-    /// `notBefore` waits for the first frame from then on, unless a plain invalidate or a key
-    /// change comes first.
-    private func invalidate(_ parts: Parts, notBefore new: ContinuousClock.Instant?) {
-        if !parts.isDisjoint(with: .model) {
-            let modelScheduled = isScheduled && !pending.isDisjoint(with: .model)
-            notBefore = new.flatMap { new in modelScheduled ? notBefore.map { min($0, new) } : new }
-        }
-        pending.formUnion(parts)
-        guard !isScheduled, !isStopped else { return }
-        isScheduled = true
-        frames.scheduleFrame { [weak self] in
-            guard let self else { return }
-            self.isScheduled = false
-            let parts = self.pending
-            // A held model publish waits, unless a key change is pending: then both go now, so
-            // the published focus resolves in the published workspaces.
-            if !parts.contains(.windows), !parts.isDisjoint(with: .model), let wait = self.notBefore,
-               self.now() < wait, !self.router.snapshots.hasWaiters {
-                self.pending = []
-                return self.invalidate(parts, notBefore: wait)
+    /// Schedules `parts` on the next frame (coalesced with what is pending). With `wait`, each
+    /// model part of `parts` is held until then instead (the earlier wait wins), unless it is
+    /// already going on the next frame. Without it, the parts go on the next frame and their own
+    /// holds end; any other part's hold stays as it was.
+    private func invalidate(_ parts: Parts, notBefore wait: ContinuousClock.Instant? = nil) {
+        if let wait {
+            for part in Parts.modelParts where parts.contains(part) && !pending.contains(part) {
+                held[part.rawValue] = min(held[part.rawValue] ?? wait, wait)
             }
-            self.publish(parts)
+            pending.formUnion(parts.subtracting(.model))
+        } else {
+            pending.formUnion(parts)
+            for part in Parts.modelParts where parts.contains(part) { held[part.rawValue] = nil }
         }
+        scheduleIfNeeded()
+    }
+
+    /// Asks for a frame while anything is pending or held (a held part looks again each frame).
+    private func scheduleIfNeeded() {
+        guard !isScheduled, !isStopped, !pending.isEmpty || !held.isEmpty else { return }
+        isScheduled = true
+        frames.scheduleFrame { [weak self] in self?.frame() }
+    }
+
+    /// One display frame: publishes what is pending and every held part whose wait is over (all
+    /// of them while a compat read waits on the write barrier).
+    private func frame() {
+        isScheduled = false
+        var parts = pending
+        pending = []
+        let time = now(), waiting = router.snapshots.hasWaiters
+        for part in Parts.modelParts {
+            if let wait = held[part.rawValue], waiting || wait <= time { parts.insert(part) }
+        }
+        publish(parts)
+        scheduleIfNeeded()
     }
 
     /// A tracked read of `part` changed. A compat read waiting on the write barrier gets every
@@ -185,7 +205,8 @@ final class ControlSnapshotPublisher {
 
     /// Builds `parts` (each inside its own tracking, whose change republishes that part) and
     /// publishes them in one generation. `windows` alone republishes the window facts, unless a
-    /// window came or went since the last topology publish (then the whole topology).
+    /// window came or went since the last topology publish, or a topology is held and the focus
+    /// names a workspace not published yet: then the whole topology (the held one goes now).
     private func publish(_ requested: Parts) { // perf-hot: 1ms cmd-tab (every key, activation or window switch publishes the window facts here)
         guard !isStopped else { return }
         var parts = requested
@@ -195,8 +216,12 @@ final class ControlSnapshotPublisher {
         var windowFacts: (windows: [ControlWindowInfo], focus: ControlFocus)?
         if parts.contains(.windows) {
             let windows = Self.windowInfos(services, cache: workspaceInfos)
-            if windows.map(\.id) == current.windows.map(\.id) {
-                windowFacts = (windows, Self.focus(services))
+            let focus = Self.focus(services)
+            // O(1): the focus names a workspace the held topology has not published yet.
+            let unresolved = held[Parts.topology.rawValue] != nil
+                && focus.workspaceID.map { !publishedWorkspaceIDs.contains($0) } == true
+            if windows.map(\.id) == current.windows.map(\.id), !unresolved {
+                windowFacts = (windows, focus)
             } else {
                 parts.remove(.windows)
                 parts.insert(.topology)
@@ -206,10 +231,9 @@ final class ControlSnapshotPublisher {
         pending.subtract(parts.contains(.topology) ? parts.union(.windows) : parts)
         guard !parts.isEmpty else { return }
         let started = ContinuousClock.now, publishedAt = now()
-        if !parts.isDisjoint(with: .model) {
-            for part in Parts.modelParts where parts.contains(part) { lastPublish[part.rawValue] = publishedAt }
-            // A model part still pending keeps its wait.
-            if pending.isDisjoint(with: .model) { notBefore = nil }
+        for part in Parts.modelParts where parts.contains(part) {
+            lastPublish[part.rawValue] = publishedAt
+            held[part.rawValue] = nil
         }
         var topology: ControlTopology?
         if parts.contains(.topology) { topology = track(.topology) { Self.topology(services, cache: workspaceInfos) } }
@@ -233,6 +257,9 @@ final class ControlSnapshotPublisher {
             }
         }
         guard let topology else { return }
+        publishedWorkspaceIDs = Set(topology.workspaces.flatMap { workspace in
+            [workspace.id, workspace.handle] + [workspace.resourceID].compactMap { $0 }
+        })
         let elapsed = ContinuousClock.now - started
         // One entry per topology publish (`debug.timings` `control_publishes`). The tab count
         // walks every tab: only when a timing slot or the debug log wants it.
