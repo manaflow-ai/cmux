@@ -8,6 +8,7 @@ import { CommentsSidebarSection } from "../comments/CommentsSection";
 import { type DiffCommentLabels } from "../comments/labels";
 import { type DiffItem, type FileTreeSource } from "../diff-stream";
 import { treeFileRowPath } from "../file-activation";
+import { nativeMenu, pickedId } from "../ui/nativeMenu";
 import { defaultDiffFileFilter, isDiffFileFilterActive, type DiffFileFilter } from "../file-filter";
 import { planPierreFileTreeRefresh, selectPierreFileTreePath } from "../file-tree-refresh";
 import {
@@ -344,7 +345,31 @@ function PierreFileTree({
     // A file row click acts on the file like its header bar (file-activation.ts).
     // The capture phase sees the row before the tree's own click handler
     // selects it, so the action reads the state the user clicked on.
-    <div className="file-tree-activation" ref={treeActivationRef}>
+    <div
+      className="file-tree-activation"
+      ref={treeActivationRef}
+      // In the app a file row's right-click opens the app's standard macOS menu (ui/nativeMenu.ts)
+      // before the tree draws its own.
+      onContextMenuCapture={(event) => {
+        const native = nativeMenu();
+        const path = native && treeFileRowPath({ composedPath: () => event.nativeEvent.composedPath() });
+        if (!native || !path) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const viewed = viewedStateByPath.get(path) === "viewed";
+        const row = {
+          id: "toggleViewed",
+          label: viewed ? label("markNotViewed") : label("markViewed"),
+          symbol: viewed ? "eye" : "checkmark",
+        };
+        native({ items: [row], point: { x: event.clientX, y: event.clientY } }).then(
+          (reply) => {
+            if (pickedId(reply) === row.id) onToggleViewedPath(path);
+          },
+          () => undefined,
+        );
+      }}
+    >
       <FileTree
         model={model}
         style={{ height: "100%" }}
