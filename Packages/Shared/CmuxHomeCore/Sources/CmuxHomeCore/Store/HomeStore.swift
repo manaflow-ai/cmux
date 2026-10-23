@@ -181,7 +181,7 @@ public final class HomeStore {
         self.clock = clock
         self.cache = cache
         self.viewCache = HomeClientViewCache(cache: cache, writeDelay: cacheWriteDelay, clock: clock)
-        viewCache.ownerSnapshot = { [weak self] in self?.ownerCacheSnapshot() ?? HomeCacheSnapshot() }
+        viewCache.ownerState = { [weak self] in self?.ownerCacheState() ?? HomeCacheState() }
     }
 
     /// Starts consuming owner events. Idempotent.
