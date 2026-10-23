@@ -158,6 +158,7 @@ class FileChange:
     base_lines: list[str] = field(default_factory=list)
     is_new: bool = False
     has_perf_hot: bool = False
+    layer_base: LayerBase | None = None  # layer-import's map and base edges, shared by every file of the push
 
     @property
     def head(self) -> Version:
@@ -747,6 +748,119 @@ def app_size(changes: list[FileChange], moved: collections.Counter) -> list[Adde
     return hits
 
 
+# An import of a ui or app target from a core, service or domain target whose `<target> -> <module>` edge the
+# push's base does not have yet: the hard layer edge scripts/cmux-next/arch-layers.py counts, caught where the code
+# takes it. An edge the base has (in the target's Package.swift `dependencies:`, or imported by a base file of the
+# target, through a transitive dependency) is old debt that arch-layers.py already counts, so a new file or a
+# one-type-per-file split that imports it again passes. A new edge in Package.swift itself is
+# scripts/cmux-next/arch_rules/layer_gate.py's refusal; this rule reads the manifest only to know the base edges.
+IMPORT = re.compile(r"^\s*(?:@\w+(?:\([^)]*\))?\s+)*(?:(?:public|package|internal|private|fileprivate)\s+)?import\s+"
+                    r"(?:(?:struct|class|enum|protocol|typealias|func|var|let|actor)\s+)?(?P<module>\w+)")
+LAYER_ALLOW = re.compile(r"//\s*layer-allow:\s*\S")
+LAYERS = "plans/cmux-next/architecture-layers.json"
+MANIFEST = "Packages/macOS/CmuxNext/Package.swift"
+# git grep -E (POSIX ERE, no \s or \b): IMPORT for one module, `{module}` filled in escaped.
+BASE_IMPORT = (r"^[[:space:]]*(@[[:alnum:]_]+(\([^)]*\))?[[:space:]]+)*"
+               r"((public|package|internal|private|fileprivate)[[:space:]]+)?import[[:space:]]+"
+               r"((struct|class|enum|protocol|typealias|func|var|let|actor)[[:space:]]+)?{module}([^[:alnum:]_]|$)")
+
+
+def arch_counts():
+    """scripts/cmux-next/arch_counts.py from next to this file: the layer map reader, edge classes and Package.swift
+    reader that arch-layers.py and layer_gate.py use, so this rule and the count agree on what an edge is. Loaded on
+    first use (about 35 ms): most pushes add no import."""
+    name = "cmux_next_arch_counts"  # layer_gate.py's module name: one copy when both run in a process
+    if name not in sys.modules:
+        spec = importlib.util.spec_from_file_location(name, Path(__file__).with_name("arch_counts.py"))
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[name] = module  # its dataclasses resolve their module through sys.modules
+        try:
+            spec.loader.exec_module(module)
+        except BaseException:
+            del sys.modules[name]
+            raise
+    return sys.modules[name]
+
+
+def source_target(path: str) -> str:
+    """The target a file under Sources/ belongs to ("" outside Sources)."""
+    return path[len(SOURCES):].split("/", 1)[0] if path.startswith(SOURCES) else ""
+
+
+@dataclass
+class LayerBase:
+    """The push's layer map and base edges for layer-import, shared by every changed file.
+
+    LAYERS is the base map over the head one: a push that relabels a target (service -> ui) does not turn the rule
+    off for its own imports, and a target the base does not place yet takes its head layer. The base edges are read
+    on first use, only for an upward import the push adds.
+    """
+    repo: Path
+    base: str
+    layers: object  # arch_counts.LayerMap
+    declared: set | None = None  # (target, dependency) in the base Package.swift
+    source_dirs: dict = field(default_factory=dict)  # target -> its base sources directory
+    imported: dict = field(default_factory=dict)  # (target, module) -> a base file of the target imports it
+    warnings: list = field(default_factory=list)
+
+    @classmethod
+    def read(cls, repo: Path, base: str, base_map: str | None, head_map: str | None) -> LayerBase | None:
+        """The layers from the two architecture-layers.json texts; None when neither side places anything."""
+        counts = arch_counts()
+        maps = [m for m in (counts.LayerMap.parse(head_map), counts.LayerMap.parse(base_map)) if m.order and not m.error]
+        if not maps:
+            return None
+        layers = counts.LayerMap(order=maps[-1].order, layers={k: v for m in maps for k, v in m.layers.items()},
+                                 exceptions={}, relayered=[])
+        return cls(repo, base, layers)
+
+    def upward(self, target: str, module: str) -> bool:
+        """TARGET -> MODULE is a hard edge: a core, service or domain target importing a ui or app target."""
+        return self.layers.classify(target, module) == "hard"
+
+    def has_edge(self, target: str, module: str) -> bool:
+        """The base already has TARGET -> MODULE: in its Package.swift `dependencies:` or in an import of a base file
+        of TARGET. A git call that fails counts as having it (fail open, with a warning)."""
+        if self.declared is None:
+            text = blobs(self.repo, [(self.base, MANIFEST)]).get((self.base, MANIFEST))
+            manifest = arch_counts().parse_manifest(text) if text is not None else None
+            self.declared = manifest.edges() if manifest else set()
+            self.source_dirs = {name: manifest.source_dir(name) for name in manifest.targets} if manifest else {}
+        if (target, module) in self.declared:
+            return True
+        if (target, module) not in self.imported:
+            directory = self.source_dirs.get(target, SOURCES + target)
+            env = {k: v for k, v in os.environ.items() if k not in ("GIT_INDEX_FILE", "GIT_WORK_TREE")}
+            found = subprocess.run(["git", "-C", str(self.repo), "grep", "-q", "-E", "-e",
+                                    BASE_IMPORT.format(module=re.escape(module)), self.base, "--",
+                                    f"{directory.rstrip('/')}/*.swift"],
+                                   capture_output=True, env=env)
+            if found.returncode not in (0, 1):
+                self.warnings.append(f"could not read the base imports of {target} ({found.stderr.decode().strip()}), "
+                                     f"so layer-import let {target} -> {module} through (fail open)")
+            self.imported[(target, module)] = found.returncode != 1
+        return self.imported[(target, module)]
+
+
+def upward_import(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
+    """Added imports of a ui or app target from a lower target whose edge the base does not have (no
+    `layer-allow:` escape on the line or above it)."""
+    hits = []
+    for change in changes:
+        layer_base, target = change.layer_base, source_target(change.path)
+        if layer_base is None or not target:
+            continue
+        for line in change.added:
+            match = IMPORT.match(code_of(line.text))
+            if not match or not layer_base.upward(target, match.group("module")):
+                continue
+            if escaped(change.head_lines, line.number - 1, LAYER_ALLOW):
+                continue
+            if not layer_base.has_edge(target, match.group("module")):
+                hits.append(line)
+    return hits
+
+
 # A generic class whose deinit is implicit. In a main-actor target (the default of every UI and test
 # target, `.defaultIsolation(MainActor.self)`) that deinit is isolated, and swift-frontend 6.3.3 (Xcode 26.6)
 # crashes on it in -O: signal 11 in EarlyPerfInliner, isCallerAndCalleeLayoutConstraintsCompatible, on the
@@ -854,6 +968,14 @@ RULES = (
          None,
          line_rule(r"CMUX_BENCH_HOOKS|--config[= ]bench\b", None),
          scope=SHIPPED_BUILD + (".xcconfig", "project.pbxproj")),
+    Rule("layer-import", "A new import edge from a core, service or domain target to a ui or app target",
+         "a lower layer that imports a view package couples to it (a hard layer violation, arch-layers.py; "
+         "plans/cmux-next/architecture-refactor-DESIGN.md): every view change rebuilds it and the DAG can cycle",
+         "move the type the import is for down (a model or value into its domain or core target, a process "
+         "host into a service), or invert it with a protocol the lower target declares and the higher one "
+         "implements; layers are in plans/cmux-next/architecture-layers.json",
+         "// layer-allow: <the written, dated exception>",
+         upward_import),
     Rule("app-size", f"CmuxNextApp's composition root grows (in source lines: the root's wiring +{ROOT_BUDGET} per "
          f"push, moves into the root included, plus one Host file; new App files only as moves; growth of the App "
          f"and of its feature files warns)",
@@ -1079,13 +1201,23 @@ def check(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Added
                          "Performance Lead (PL-guardrails) with the output of: git diff -U0 " + f"{base} {head} | head"))
     paths = sorted(changes)
     texts = blobs(repo, [(head, p) for p in paths] + [(base, p) for p in paths]
-                  + [(head, BENCHES), (head, OWNERS)])
+                  + [(head, BENCHES), (head, OWNERS), (head, LAYERS), (base, LAYERS)])
+    layer_base = None
+    if any(IMPORT.match(code_of(a.text)) for p in paths if p.startswith(SOURCES) for a in changes[p].added):
+        try:
+            layer_base = LayerBase.read(repo, base, texts.get((base, LAYERS)), texts.get((head, LAYERS)))
+        except Exception as error:  # fail open for this rule only
+            warnings.append(("guardrails", check_failure("layer-import", error)))
+        else:
+            if layer_base is None and ((head, LAYERS) in texts or (base, LAYERS) in texts):
+                warnings.append(("guardrails", f"could not read {LAYERS}, so layer-import did not run (fail open)"))
     for path in paths:
         change = changes[path]
         text = texts.get((head, path), "")
         change.head_lines = text.split("\n")
         change.base_lines = texts.get((base, path), "").split("\n")
         change.has_perf_hot = "perf-hot:" in text
+        change.layer_base = layer_base
     files = [changes[p] for p in paths]
     moved = collections.Counter(r.text.strip() for c in files for r in c.removed if r.text.strip())
     refusals = []
@@ -1100,6 +1232,8 @@ def check(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Added
         hits = [h for h in hits if not getattr(h, "warn", False)]
         if hits:
             refusals.append((rule, hits))
+    if layer_base is not None:
+        warnings += [("guardrails", w) for w in layer_base.warnings]
     try:
         benches = json.loads(texts[(head, BENCHES)]) if (head, BENCHES) in texts else {}
     except json.JSONDecodeError:
