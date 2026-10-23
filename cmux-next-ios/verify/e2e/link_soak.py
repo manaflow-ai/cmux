@@ -244,7 +244,8 @@ def main():
         # The password sign-in of a non-DEBUG simulator build reads these once (never logged).
         env.update(CMUX_MOBILE_STACK_EMAIL=pairs["EMAIL"], CMUX_MOBILE_STACK_PASSWORD=pairs["PASSWORD"])
         launch()
-        onboard(sim, log)
+        if not a.reuse:
+            onboard(sim, log)
     else:
         if not a.reuse:
             j.s_fresh_install()
