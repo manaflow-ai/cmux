@@ -175,7 +175,7 @@ public final class PageInputReadiness {
           document.addEventListener('focusin', () => {
             epoch += 1;
             window.__cmuxInputFocusEpoch = epoch;
-            try { window.webkit.messageHandlers.\(handlerName).postMessage({ ready: sent || editable(document.activeElement), epoch }); } catch (_) {}
+            try { window.webkit.messageHandlers.\(handlerName).postMessage({ epoch }); } catch (_) {}
             report();
           }, true);
           document.addEventListener('focusout', () => setTimeout(report, 0), true);
