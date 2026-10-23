@@ -129,3 +129,21 @@ async fn a_steer_answered_meanwhile_is_not_reported_withdrawn() {
     assert_eq!(result_of(&msgs, 9).unwrap().unwrap()["withdrawn"], false, "{msgs:?}");
     assert!(result_of(&msgs, 2).is_none(), "the steer answered twice: {msgs:?}");
 }
+
+#[tokio::test]
+async fn a_read_steer_leaves_nothing_to_withdraw_by() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let steer = waiting_steer(&t).await;
+    t.inbound(&echo(&steer)).await;
+    // Read: its line is no longer kept, so a long chat keeps none of its old steers.
+    assert!(t.steer_lines.lock().await.is_empty());
+}
+
+#[tokio::test]
+async fn failed_steers_leave_nothing_to_withdraw_by() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    waiting_steer(&t).await;
+    let failed = t.fail_pending("too big").await;
+    assert!(!failed.is_empty());
+    assert!(t.steer_lines.lock().await.is_empty());
+}

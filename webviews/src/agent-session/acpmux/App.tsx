@@ -4792,6 +4792,7 @@ function AcpmuxPane() {
             takeBackSteer(row, {
               withdraw: (promptId) => editQueued(promptId, { op: "withdraw" }),
               attachments: (rowId) => directClient.current?.promptAttachments(rowId) ?? Promise.resolve([]),
+              complete: (rowId) => directClient.current?.sentSteerHere(rowId) ?? false,
               restore: (text, attachments) => composerHandle.current?.restore(text, attachments),
             }),
         }),

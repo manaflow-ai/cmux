@@ -506,6 +506,7 @@ impl Translator {
     pub async fn fail_pending(&self, message: &str) -> Vec<Message> {
         let mut ids: Vec<String> = self.pending.lock().await.drain().map(|(id, _)| id).collect();
         ids.extend(self.steers.lock().await.drain(..).map(|(_, id)| id));
+        self.steer_lines.lock().await.clear();
         ids.into_iter()
             .map(|id| {
                 let id: Id = serde_json::from_str(&id).unwrap_or(Value::String(id));
@@ -517,10 +518,10 @@ impl Translator {
     /// Error answers for the steered prompts Claude Code never echoed: the
     /// turn ended without reading them (no echo support).
     async fn fail_steers(&self) -> Vec<Message> {
-        self.steers
-            .lock()
-            .await
-            .drain(..)
+        let failed: Vec<_> = self.steers.lock().await.drain(..).collect();
+        self.steer_lines.lock().await.clear();
+        failed
+            .into_iter()
             .map(|(_, id)| {
                 let id: Id = serde_json::from_str(&id).unwrap_or(Value::String(id));
                 Message::err(

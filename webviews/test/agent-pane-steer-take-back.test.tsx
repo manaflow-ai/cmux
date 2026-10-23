@@ -181,3 +181,36 @@ test("a steer with an image acpmux could not give back stays", async () => {
   });
   expect([took, withdrawn]).toEqual([false, []]);
 });
+
+test("a steer whose attachments the page does not hold stays: acpmux keeps only its images", async () => {
+  const row = {
+    id: "user-2",
+    version: 1,
+    kind: "user",
+    text: "Read the attached spec",
+    steer: "waiting",
+    steerPromptId: "p-steer",
+  } as const;
+  const withdrawn: string[] = [];
+  const restored: string[] = [];
+  const took = await takeBackSteer(row as never, {
+    withdraw: async (promptId) => (withdrawn.push(promptId), true),
+    attachments: async () => [],
+    restore: (text) => restored.push(text),
+    complete: () => false,
+  });
+  expect([took, withdrawn, restored]).toEqual([false, [], []]);
+});
+
+test("a steer only read from acpmux's log was not sent here", async () => {
+  const daemon = fakeDaemon(
+    record([
+      ["mux", "user_message", { promptId: "p-turn", text: "Add retries" }],
+      ["mux", "user_message", { promptId: "p-steer", text: "Also keep the old flag working", steer: true }],
+    ]),
+  );
+  const { client, rows } = await connect(daemon);
+  const steer = rows().find((row) => row.steer === "waiting");
+  expect(steer).toBeDefined();
+  expect(client.sentSteerHere(steer!.id)).toBe(false);
+});
