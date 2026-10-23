@@ -33,20 +33,7 @@ const CONNECTION_LOCK_NAME: &str = "registry.connection";
 /// thread is checked (a re-entry cannot deadlock).
 pub(crate) struct RegistryConnectionGuard<'a> {
     guard: ReentrantMutexGuard<'a, Connection>,
-    /// The connection's syncer: a commit made under this guard is counted
-    /// when the guard is released (its frames are in the WAL by then).
-    durability: Option<&'a super::wal_durability::WalDurability>,
     _rank: HeldRank,
-}
-
-impl Drop for RegistryConnectionGuard<'_> {
-    fn drop(&mut self) {
-        if COMMITTED_UNDER_GUARD.with(|flag| flag.replace(false))
-            && let Some(durability) = self.durability
-        {
-            durability.note_commit();
-        }
-    }
 }
 
 impl std::ops::Deref for RegistryConnectionGuard<'_> {
@@ -95,10 +82,6 @@ pub(crate) struct RegistryConnection {
 }
 
 thread_local! {
-    /// The registry connection's commit hook ran on this thread: a commit
-    /// is in the WAL once its transaction returns, and the guard release
-    /// that follows counts it for the syncer.
-    static COMMITTED_UNDER_GUARD: Cell<bool> = const { Cell::new(false) };
     static IN_JOURNAL_WRITER_COMMIT: Cell<bool> = const { Cell::new(false) };
     static STATE_HOLDS: Cell<usize> = const { Cell::new(0) };
 }
@@ -107,7 +90,7 @@ thread_local! {
 /// every flush of the registry WAL to disk takes N ms longer, as on a busy
 /// disk, so a test can see that no reply and no first output waits for one
 /// (new-terminal-100x, PL-daemon).
-pub(super) fn slow_durable_commit_delay() -> Option<std::time::Duration> {
+pub(crate) fn slow_durable_commit_delay() -> Option<std::time::Duration> {
     static DELAY: std::sync::OnceLock<Option<std::time::Duration>> = std::sync::OnceLock::new();
     *DELAY.get_or_init(|| {
         std::env::var("CMUX_TUI_DEBUG_SLOW_DURABLE_COMMIT_MS")
@@ -180,12 +163,11 @@ impl RegistryConnection {
         database_path: Option<&std::path::Path>,
     ) -> Arc<Self> {
         let durability = database_path.map(|path| {
-            let _ = connection.commit_hook(Some(|| {
-                crate::debug_spans::mark("sqlite.commit");
-                COMMITTED_UNDER_GUARD.with(|flag| flag.set(true));
-                false
-            }));
-            super::wal_durability::WalDurability::start(path, slow_durable_commit_delay())
+            super::wal_durability::WalDurability::attach(
+                &connection,
+                path,
+                slow_durable_commit_delay(),
+            )
         });
         Arc::new(Self {
             connection: Arc::new(ReentrantMutex::new(connection)),
@@ -210,11 +192,7 @@ impl RegistryConnection {
     pub(crate) fn get(&self) -> RegistryConnectionGuard<'_> {
         self.debug_assert_lock_order();
         self.check_rank();
-        RegistryConnectionGuard {
-            guard: self.connection.lock(),
-            durability: self.durability.as_ref(),
-            _rank: record_rank(),
-        }
+        RegistryConnectionGuard { guard: self.connection.lock(), _rank: record_rank() }
     }
 
     /// Hold the connection lock for a request flow before it takes the
@@ -272,21 +250,13 @@ impl RegistryConnection {
     pub(crate) fn get_until(&self, deadline: Instant) -> Option<RegistryConnectionGuard<'_>> {
         self.check_rank();
         let guard = self.connection.try_lock_until(deadline)?;
-        Some(RegistryConnectionGuard {
-            guard,
-            durability: self.durability.as_ref(),
-            _rank: record_rank(),
-        })
+        Some(RegistryConnectionGuard { guard, _rank: record_rank() })
     }
 
     #[cfg(test)]
     pub(crate) fn try_get(&self) -> Option<RegistryConnectionGuard<'_>> {
         let guard = self.connection.try_lock()?;
-        Some(RegistryConnectionGuard {
-            guard,
-            durability: self.durability.as_ref(),
-            _rank: record_rank(),
-        })
+        Some(RegistryConnectionGuard { guard, _rank: record_rank() })
     }
 }
 

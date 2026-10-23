@@ -406,6 +406,8 @@ pub fn acknowledge_terminal_host_exit_record(
     Ok(true)
 }
 
+/// Tests write host records directly; the daemon queues them (`record_mirror`).
+#[cfg(test)]
 pub(crate) fn write_record(path: &Path, record: &TerminalHostRecord) -> anyhow::Result<()> {
     write_json_record(path, record)
 }
