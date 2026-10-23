@@ -61,7 +61,7 @@ final class AgentTabStore {
     var turns: AgentTurnStateStore = .shared
     var chiefHost: String?, chiefPaneHost: (any AgentPaneHostProviding)?, localSessionHost: (any AgentPaneHostProviding)? // ChiefHomeAcpmux
     /// Whether `daemon` holds agent session tabs (`agent-session-tabs-v1`).
-    var holdsTabs: @MainActor (DaemonService) -> Bool = { $0.supports(DaemonCapabilities.agentSessionTabs) }
+    var holdsTabs: @MainActor (DaemonService) -> Bool = { $0.supports(DaemonCapability.agentSessionTabs.rawValue) }
     /// Sets tab `surface`'s session (and harness) by compare-and-swap from `expected` (AppServices: `bind-conversation-tab-session`
     /// on the tab's daemon): the store's answer and, when it took it, the daemon event sequence read after the reply (nil: connection ended).
     var bind: @MainActor (_ key: String, _ surface: SurfaceID, _ expected: String?, _ session: String, _ harness: String?) async
