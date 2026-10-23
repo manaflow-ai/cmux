@@ -127,7 +127,8 @@ ghostty-next (PR 46, then one GhosttyNextKit pin bump), each with a red test com
 - Bash integration: no fork per command on 5.3, none at start for PROMPT_COMMAND (PR 47, for
   PL-shell-integration).
 
-cmux: G4 (output off the main actor, `TerminalOutputOffMainTests`), `bench-terminal-resize.py`,
+cmux: G4 for live output only (output for a surface that already has content goes from the
+off-main events loop straight to its lane, `TerminalOutputOffMainTests`), `bench-terminal-resize.py`,
 `debug.terminal_display`.
 
 Open after this batch:
@@ -139,6 +140,12 @@ Open after this batch:
   (same futex wait, called from the size change, not from a display pass).
 - bash 5.3 `${ }` captures through 2 anonymous temp files in $TMPDIR per command (PS0 hook and the
   history read): cheaper than a fork, not zero (PL-shell-integration, perf-lead.md row 20).
+- G4 rest: `.resize` (set_grid), snapshot restores (a local-history READY at every owner grid
+  step), `.status` and `.sizedFor` still hop to the main actor, and the events loop waits for each
+  hop; a READY also waits for `lane.drained()` inside that main-actor call. During a divider drag
+  (main busy with motion) every output chunk behind a grid step waits for main. Target: queue grid
+  locks and restores on the lane from the off-main loop (lane-side grid-lock generation) and send
+  only model/UI updates (status, sizedFor, frame hold, counters) to main without waiting.
 - G6 rest (one IO thread fewer per manual surface, shared atlas textures) and G7 per-process idle
   owner: not started.
 
