@@ -20,6 +20,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/cmux-next-dev-daily-dispatch.yml"
+PUBLISH_WORKFLOW = ROOT / ".github/workflows/cmux-next-dev-daily.yml"
 TIP = "f" * 40
 
 failures = []
@@ -47,6 +48,11 @@ check("run.head_sha === sha" in text and "activeOrSucceeded" in text,
       "the exact-SHA dedupe guard must remain in the dispatcher")
 check("run.conclusion === 'success'" in text and "run.status" in text,
       "a skipped or failed publisher run must not suppress a retry")
+publish_text = PUBLISH_WORKFLOW.read_text()
+check("workflow_run:" not in publish_text,
+      "the publisher must be dispatch-only; unrelated cmux-next completions are not DEV artifacts")
+check("SOURCE_RUN_ID: ${{ inputs.source_run_id }}" in publish_text,
+      "the publisher must resolve the exact dispatched source run")
 
 
 def script_body():

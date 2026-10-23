@@ -1,16 +1,10 @@
 name: cmux NEXT DEV daily
 
 on:
-  # This workflow runs from the default branch, so the signing job evaluates
-  # trusted publisher code while consuming only the exact artifact from the
-  # completed scheduled feat-cmux-next workflow_dispatch run.
-  workflow_run:
-    workflows: [cmux-next]
-    types: [completed]
-  # GitHub starts no workflow_run for a run that GITHUB_TOKEN dispatched, and
-  # the dev daily source runs are dispatched by cmux-next-dev-daily-dispatch.yml
-  # with GITHUB_TOKEN. That dispatcher hands each finished source run to this
-  # workflow by id instead.
+  # The source workflow dispatches this publisher after its exact app artifact
+  # is complete. The five-minute dispatcher is the retry/backstop and also
+  # hands over completed source runs. Keeping this publisher dispatch-only
+  # avoids a skipped publisher run for every unrelated cmux-next completion.
   workflow_dispatch:
     inputs:
       source_run_id:
@@ -23,24 +17,16 @@ run-name: >-
 permissions: {}
 
 env:
-  # workflow_run matches a display name; pin the source file so renaming it
-  # fails the workflow-source guard instead of silently stopping publication.
+  # Keep the source workflow pinned in the receipt and resolver checks.
   SOURCE_WORKFLOW_PATHS: .github/workflows/cmux-next.yml
 
 jobs:
   sign:
-    # The source run is checked again by id in the first step, for both events.
-    if: >-
-      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
-      (github.event.workflow_run.event == 'workflow_dispatch' &&
-       startsWith(github.event.workflow_run.display_title, 'cmux NEXT DEV daily · ') &&
-       github.event.workflow_run.head_repository.full_name == github.repository &&
-       github.event.workflow_run.head_branch == 'feat-cmux-next' &&
-       github.event.workflow_run.path == '.github/workflows/cmux-next.yml')
+    # The source run is checked again by id in the first step.
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     name: Sign cmux NEXT DEV
-    # On the job, not the workflow: every cmux-next completion starts a run
-    # here, and a skipped one in a workflow group would cancel a pending
-    # publish.
+    # A source handoff may wait for signing, but a newer handoff never cancels
+    # one that has started.
     concurrency:
       group: cmux-next-dev-daily-sign
       cancel-in-progress: false
@@ -56,7 +42,7 @@ jobs:
       signed: ${{ steps.package.outputs.signed }}
       source_sha: ${{ steps.package.outputs.source_sha }}
     env:
-      SOURCE_RUN_ID: ${{ github.event.workflow_run.id || inputs.source_run_id }}
+      SOURCE_RUN_ID: ${{ inputs.source_run_id }}
       RELEASE_TAG: cmux-next-dev
       APP_NAME: cmux NEXT DEV
       BUNDLE_ID: com.cmuxterm.app.debug.next
