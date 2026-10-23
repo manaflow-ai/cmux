@@ -4,6 +4,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextTabs
 import CmuxNextWakeups
+import CmuxNextCompat
 
 /// One drag, every destination (plans/cmux-next/REWRITE.md "Tab drag").
 ///
@@ -25,7 +26,7 @@ final class TabDragSession: NSObject {
     var drag: Drag?
     /// Ghost of the previous drag still flying home or into its slot.
     var landing: Drag?
-    var resignObserver: (any NSObjectProtocol)?
+    var resignObserver: MainActorObservation?
 
     init(services: AppServices) {
         self.services = services
@@ -99,9 +100,8 @@ final class TabDragSession: NSObject {
         drag.monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDragged, .leftMouseUp, .leftMouseDown, .keyDown]) { [weak self] event in
             self?.handle(event) ?? event
         }
-        resignObserver = NotificationCenter.default.addObserver(forName: NSApplication.didResignActiveNotification, object: nil,
-                                                                queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.finish(commit: false) } // main-proof: observer on queue: .main
+        resignObserver = MainActorObservation(NSApplication.didResignActiveNotification) { [weak self] in
+            self?.finish(commit: false)
         }
         self.drag = drag
         focusDragBegan(item, from: pane)

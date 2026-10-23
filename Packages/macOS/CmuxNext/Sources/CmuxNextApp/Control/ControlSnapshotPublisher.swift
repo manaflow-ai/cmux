@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextControl
+import CmuxNextCompat
 import CmuxNextDaemon
 import Observation
 import os
@@ -26,7 +27,7 @@ final class ControlSnapshotPublisher {
     /// each publish maps every workspace. A read waiting on a write barrier still publishes at once.
     static let modelChangeInterval: Duration = .milliseconds(100)
     private var isStopped = false
-    private var observers: [any NSObjectProtocol] = []
+    private var observers: [MainActorObservation] = []
     /// Per-workspace control values kept between publishes (cx-9c8m).
     private let workspaceInfos = ControlWorkspaceInfoCache()
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "control.snapshot")
@@ -45,8 +46,8 @@ final class ControlSnapshotPublisher {
         let center = NotificationCenter.default
         for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification, NSWindow.willCloseNotification,
                      NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification] {
-            observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.invalidate() } // main-proof: observer on queue: .main
+            observers.append(MainActorObservation(name, center: center) { [weak self] in
+                self?.invalidate()
             })
         }
         publishNow()
@@ -55,7 +56,7 @@ final class ControlSnapshotPublisher {
     func stop() {
         isStopped = true
         router.workQueue.setAfterFrame(nil)
-        observers.forEach(NotificationCenter.default.removeObserver)
+        observers.removeAll()
         observers.removeAll()
     }
 

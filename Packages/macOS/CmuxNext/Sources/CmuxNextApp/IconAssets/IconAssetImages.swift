@@ -6,6 +6,7 @@ import CmuxNextTabs
 import Foundation
 import ImageIO
 import Observation
+import CmuxNextIcons
 
 /// Stored icon assets (`image:` / `svg:sha256-<hex>`) as images to draw. Each asset is read from
 /// its owner once (`get-blob`), decoded off the main actor and kept; a reader observing

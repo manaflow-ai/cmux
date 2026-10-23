@@ -114,11 +114,12 @@ struct HomeSplitKeysTests {
         }
     }
 
-    /// Leo 2026-10-21: "JUST MAKE THE TAB THING SHOW UP ON THE MAIN PANE TOO". Home's pinned dock, as
-    /// the app makes it, takes tabs (`allow_tabs`): its pane shows its tab strip by default with Home's
-    /// tab first and kept, Hide Tab Bar is offered there, and a tab dragged in joins it and drags out
-    /// again. Only a drag: a new tab opens beside Home (HomeDockOpensTests).
-    @Test func homesDockShowsItsTabStripAndTakesTabs() async throws {
+    /// Home's pinned dock, as the app makes it, takes tabs (`allow_tabs`, Leo 2026-10-21) but shows no
+    /// tab strip while it holds only Home (Lawrence 2026-10-23: "home chief should have no tabbar"), and
+    /// Show Tab Bar is refused there. A tab dragged in joins it after Home's tab, the strip shows while it
+    /// is there so it stays reachable, and it drags out again. Only a drag: a new tab opens beside Home
+    /// (HomeDockOpensTests).
+    @Test func homesDockShowsNoTabStripAndTakesTabs() async throws {
         try await PasswordManagerRouteTests.withApp { services, connection in
             let (_, home) = try await Self.showHome(services, connection)
             let dock = try #require(Self.panes(home).first)
@@ -130,8 +131,8 @@ struct HomeSplitKeysTests {
             })
             #expect(dockFlag()?.isPinned == true, "the dock stays pinned")
             let controller = try #require(services.paneController(for: dock))
-            try await PasswordManagerRouteTests.until({ !controller.view.hidesStrip }, report: { "Home's pane hides its tab strip" })
-            #expect(PaneTabBarHandlers.noToggleReason(controller) == nil, "Hide Tab Bar is refused in Home")
+            try await PasswordManagerRouteTests.until({ controller.view.hidesStrip }, report: { "Home's pane shows a tab strip" })
+            #expect(PaneTabBarHandlers.noToggleReason(controller) != nil, "Show Tab Bar is offered in Home")
             let page = try #require(dock.tabs.first)
             #expect(page.page == HomeDock.page)
             // A terminal beside Home (the chat header's Terminal), plus a second tab there so its
@@ -155,11 +156,13 @@ struct HomeSplitKeysTests {
                 "drag in: Home's dock holds \(dock.tabs.map(\.surface))"
             })
             #expect(dock.tabs.first?.surface == page.surface, "Home's tab stays first")
+            try await PasswordManagerRouteTests.until({ !controller.view.hidesStrip }, report: { "a tab dragged into Home has no strip to reach it" })
             let moved = try #require(dock.tabs.first { $0.surface == surface })
             TabMoves.move(moved, to: right, index: 0, services: services)
             try await PasswordManagerRouteTests.until({ !dock.tabs.contains { $0.surface == surface } && right.tabs.contains { $0.surface == surface } },
                                                        report: { "drag out: Home's dock holds \(dock.tabs.map(\.surface))" })
             #expect(dock.tabs.first?.surface == page.surface, "Home's tab stays first")
+            try await PasswordManagerRouteTests.until({ controller.view.hidesStrip }, report: { "Home alone again shows a tab strip" })
         }
     }
 

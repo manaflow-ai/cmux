@@ -24212,6 +24212,34 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "cloud list-machines",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloudListMachines",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "List Cloud Machines",
+      "title_key" : "action.cloudListMachines",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "cloud new-terminal-on-machine",
       "context_menu" : "offered",
       "context_menus" : [
@@ -37477,7 +37505,7 @@
         },
         {
           "enabled_when" : "can_perform",
-          "id" : "browserProfile.newTab",
+          "id" : "palette.newAgentChat",
           "kind" : "action",
           "order" : 2,
           "visible_when" : {
@@ -37489,10 +37517,14 @@
           }
         },
         {
+          "kind" : "separator",
+          "order" : 3
+        },
+        {
           "enabled_when" : "can_perform",
-          "id" : "palette.newAgentChat",
+          "id" : "browserProfile.newTab",
           "kind" : "action",
-          "order" : 3,
+          "order" : 4,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -37505,7 +37537,7 @@
           "enabled_when" : "can_perform",
           "id" : "newTab.page",
           "kind" : "action",
-          "order" : 4,
+          "order" : 5,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -40514,22 +40546,9 @@
         },
         {
           "enabled_when" : "can_perform",
-          "id" : "sidebar.section.remove",
-          "kind" : "action",
-          "order" : 14,
-          "visible_when" : {
-            "debug_only" : false,
-            "feature" : null,
-            "requires" : [
-
-            ]
-          }
-        },
-        {
-          "enabled_when" : "can_perform",
           "id" : "sidebar.section.closeWorkspaces",
           "kind" : "action",
-          "order" : 15,
+          "order" : 14,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -40543,7 +40562,24 @@
           "id" : "sidebar.item.hideApp",
           "kind" : "action",
           "label" : "Hide App",
-          "order" : 16,
+          "order" : 15,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "kind" : "separator",
+          "order" : 16
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "sidebar.section.remove",
+          "kind" : "action",
+          "order" : 17,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -43659,7 +43695,7 @@
         },
         {
           "enabled_when" : "can_perform",
-          "id" : "workspaceGroup.delete",
+          "id" : "workspaceGroup.closeOthers",
           "kind" : "action",
           "order" : 14,
           "visible_when" : {
@@ -43671,10 +43707,14 @@
           }
         },
         {
+          "kind" : "separator",
+          "order" : 15
+        },
+        {
           "enabled_when" : "can_perform",
-          "id" : "workspaceGroup.closeOthers",
+          "id" : "workspaceGroup.delete",
           "kind" : "action",
-          "order" : 15,
+          "order" : 16,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,

@@ -37,8 +37,10 @@ extension ActionRegistry {
             refuse(Self.confirmationRequiredReason(for: canonical))
             return false
         }
-        confirmationPresenter(canonical, invocation) { [weak self] in
-            self?.perform(canonical, invocation: invocation.confirmed())
+        signposted(id, invocation) {
+            confirmationPresenter(canonical, invocation) { [weak self] in
+                self?.perform(canonical, invocation: invocation.confirmed())
+            }
         }
         return true
     }

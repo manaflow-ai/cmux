@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextLayout
 
 /// Screen name, color, icon, and pin actions.
 enum ScreenAppearanceHandlers {

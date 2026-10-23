@@ -2,6 +2,7 @@ import Darwin
 import Foundation
 import Testing
 @testable import CmuxNextApp
+import CmuxNextCompat
 
 /// The app's own SIGPIPE policy, and what children inherit from it.
 @Suite(.serialized)

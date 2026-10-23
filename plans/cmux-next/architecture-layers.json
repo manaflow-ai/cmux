@@ -103,6 +103,7 @@
     "CmuxNextPagesTestSupport": {"layer": "ui"},
     "CmuxNextAppPermissions": {"layer": "ui"},
     "CmuxNextTestExitTrace": {"layer": "core"},
+    "CmuxNextSignposts": {"layer": "core"},
 
     "CmuxNextApp": {"layer": "app", "mixes": ["core", "service", "domain", "ui"], "plan": "composition root only (section 4)"}
   }
