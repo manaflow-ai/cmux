@@ -67,6 +67,49 @@ extension LayoutModel {
         }
     }
 
+    /// Shows `request`'s width changes from this turn until the daemon's layout has them, with
+    /// nothing sent (an optimistic New Column, its key's frame): each holds on whichever column
+    /// holds its pane, so it stays over every daemon snapshot, also across the handoff where the
+    /// daemon's column (a split-tree screen's lone column at full width) replaces the shown one
+    /// under a new id. Without it the lone column sprang back to full width for a frame between
+    /// the column's settle and its width intent (review 1 of PL-motion-core).
+    ///
+    /// - Parameter request: ``prepareNewColumn(nextTo:removing:)``, computed before the column.
+    /// - Returns: The pending sizing, for ``commitNewColumnSizing(_:)`` or ``cancelNewColumnSizing(_:)``.
+    public func showNewColumnSizing(_ request: NewColumnRequest) -> PendingColumnSizing {
+        let sizing = PendingColumnSizing(request: request, transaction: .make())
+        for resize in request.resizes {
+            guard let pane = resize.panes.first else { continue }
+            let width = min(max(resize.width, ColumnWidthPreset.widthRange.lowerBound), ColumnWidthPreset.widthRange.upperBound)
+            columnWidthHolds[pane] = Override(value: width, transaction: sizing.transaction, ended: false)
+        }
+        return sizing
+    }
+
+    /// The new column exists: sends each held width change (one intent each, under the sizing's
+    /// transaction), which keeps showing until the daemon's layout reports it. A column a later
+    /// gesture took over (a drag of its edge) keeps that gesture's width.
+    public func commitNewColumnSizing(_ sizing: PendingColumnSizing) {
+        for resize in sizing.request.resizes {
+            guard let pane = resize.panes.first, let hold = columnWidthHolds[pane], hold.transaction == sizing.transaction else { continue }
+            let column = screen(containing: pane)?.layout.column(containing: pane)
+            if let column, let other = widthOverrides[column.id], other.transaction != sizing.transaction {
+                columnWidthHolds[pane] = nil
+                continue
+            }
+            columnWidthHolds[pane]?.ended = true
+            // The daemon addresses a width by any pane of the column; a column the mirror has not
+            // seen yet (still a split tree) gets its id with the daemon's next layout.
+            intentHandler?(.setColumnWidth(column?.id ?? ColumnID(Self.unscrolledColumn), anyPane: pane, width: hold.value,
+                                           transaction: sizing.transaction, phase: .ended))
+        }
+    }
+
+    /// The new column was refused: its width changes go, and the columns show the daemon's widths.
+    public func cancelNewColumnSizing(_ sizing: PendingColumnSizing) {
+        rejectTransaction(sizing.transaction)
+    }
+
     /// Stands for the one column of a screen whose root is still a split tree.
     static let unscrolledColumn = "unscrolled"
 

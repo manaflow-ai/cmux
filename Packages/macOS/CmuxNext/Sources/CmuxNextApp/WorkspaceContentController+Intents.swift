@@ -100,13 +100,19 @@ extension WorkspaceContentController {
     /// as Cmd-D's split): a provisional pane in a provisional column at the planned width, with the
     /// width changes it brings, laid out and mounted before the key's frame; the daemon's pane
     /// takes it over under the same public id. Otherwise it waits for the reply.
+    ///
+    /// The width changes it brings hold in the layout from the key's frame on
+    /// (``LayoutModel/showNewColumnSizing(_:)``), across the handoff to the daemon's column and until
+    /// the daemon's layout has them, so no frame shows a column springing back to its old width.
     func newColumn(after: LayoutPaneID, options: SpawnOptions) {
         guard let handle = handles.panes[after] else { return }
         let request = layoutModel.prepareNewColumn(nextTo: after)
         let command = NewColumnCommand(pane: handle, width: request.width, options: options)
-        let commit: @MainActor () -> Void = { [layoutModel] in layoutModel.commitNewColumnResize(request) }
+        let sizing = layoutModel.showNewColumnSizing(request)
+        let commit: @MainActor () -> Void = { [layoutModel] in layoutModel.commitNewColumnSizing(sizing) }
+        let cancel: @MainActor () -> Void = { [layoutModel] in layoutModel.cancelNewColumnSizing(sizing) }
         guard command.isOptimistic(on: daemon) else {
-            spawnPane("new-pane-right", then: commit, send: { [daemon] in try await command.send(on: daemon) })
+            spawnPane("new-pane-right", then: commit, failed: cancel, send: { [daemon] in try await command.send(on: daemon) })
             return
         }
         var widths: [DaemonColumnID: Double] = [:]
@@ -121,7 +127,7 @@ extension WorkspaceContentController {
             }
         }
         let provisional = ProvisionalPane(columnWidth: request.width, widths: widths, treeWidth: treeWidth)
-        createInKeysTurn("newColumn", provisional: provisional, then: commit) {
+        createInKeysTurn("newColumn", provisional: provisional, then: commit, failed: cancel) {
             command.intendNow(on: self.daemon, provisional: provisional)
         }
     }
