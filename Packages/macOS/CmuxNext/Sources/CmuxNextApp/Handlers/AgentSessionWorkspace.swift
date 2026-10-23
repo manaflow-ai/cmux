@@ -70,11 +70,23 @@ enum AgentSessionWorkspace {
         NewWorkspacePlacements.expect(key.rawValue, in: nil, byDefault: nil, then: join, windows: services.windows)
         return Task { @MainActor in
             do {
-                let (tab, adopted) = try await WorkspaceCreation.createWithFirstTab(key, name: name, on: connection, repair: repair) { result in
+                let tab = try await WorkspaceCreation.createWithFirstTab(key, name: name, on: connection, repair: repair) { result in
                     try await connection.createTerminal(in: result.key, cwd: cwd)
-                    let tab = try await connection.request(NewConversationTabRequest(agentSession: AgentSessionRef(host: host, hostName: machine), workspace: result.workspace,
-                                                                                     origin: AgentTabStore.createOrigin, mutationID: "adopt-" + key.rawValue))
-                    return (tab, try await AgentSessionAttachClient.adopt(session: session, surface: tab.surface.rawValue, endpoint: endpoint))
+                    return try await connection.request(NewConversationTabRequest(agentSession: AgentSessionRef(host: host, hostName: machine), workspace: result.workspace,
+                                                                                  origin: AgentTabStore.createOrigin, mutationID: "adopt-" + key.rawValue))
+                }
+                let adopted: AgentSessionAttachClient.Adopted
+                do {
+                    adopted = try await AgentSessionAttachClient.adopt(session: session, surface: tab.surface.rawValue, endpoint: endpoint)
+                } catch let refusal as AgentSessionAttachError {
+                    // Refused, so nothing is bound: the workspace made for the chat (its terminal and
+                    // unbound tab) closes again. The half-created close above only closes an empty one.
+                    do {
+                        try await WorkspaceClose.close(key, terminals: [], on: connection, reason: .sessionEnd)
+                    } catch {
+                        daemon.logger.error("agent.openSessionWorkspace: closing a refused adopt's workspace failed: \(String(describing: error), privacy: .public)")
+                    }
+                    throw refusal
                 }
                 AgentBypassSessions.shared.set(session, bypass: !adopted.asking)
                 if let pane = await daemon.store.firstPane(mirroring: key) {
