@@ -36,6 +36,12 @@ public final class PaletteModel {
     public internal(set) var hoveredRowID: String? {
         didSet { if hoveredRowID != oldValue { reportHighlight() } }
     }
+    /// An arrow, page or first/last key moved the selection since the
+    /// pointer last moved: the selection leads the live preview, not the
+    /// row under a resting pointer (or one a keyboard scroll slid under it).
+    /// Set with no report of its own: the move that sets it reports once
+    /// with the new selection, so the preview never flashes the old one.
+    var keyboardLeads = false
     public internal(set) var actionsMenu: PaletteActionsMenuState?
     /// The inline shortcut recorder (Cmd-K on an action), when open.
     public internal(set) var shortcutRecorder: PaletteShortcutRecorderState?
