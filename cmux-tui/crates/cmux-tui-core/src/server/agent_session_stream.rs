@@ -173,13 +173,13 @@ pub(crate) fn bound_page(mut page: Value, newest_first: bool) -> Value {
 /// The records of the agent changing the chat's mode ([`mode_update`]).
 const MODE_KINDS: [&str; 2] = ["current_mode_update", "config_option_update"];
 
-/// The mode record kinds an attach with `mode_events` subscribes to although
-/// the client's `kinds` leave them out (none for a client that takes every
-/// record): the daemon needs them to push `agent-session-mode` when the agent
-/// changes the mode by itself, and they never reach that client
-/// ([`strip_kinds`], [`deliver`]). `transcript` and `wire` leave both out.
-pub(super) fn hidden_mode_kinds(kinds: Option<&[String]>, mode_events: bool) -> Vec<&'static str> {
-    let Some(kinds) = kinds.filter(|_| mode_events) else { return Vec::new() };
+/// The mode record kinds the client's `kinds` leave out (none for a client
+/// that takes every record; `transcript` and `wire` leave both out). They never
+/// reach that client ([`strip_kinds`], [`deliver`]), and an attach with
+/// `mode_events` subscribes to them anyway: the daemon needs them to push
+/// `agent-session-mode` when the agent changes the mode by itself.
+pub(super) fn hidden_mode_kinds(kinds: Option<&[String]>) -> Vec<&'static str> {
+    let Some(kinds) = kinds else { return Vec::new() };
     if kinds.iter().any(|kind| kind == "all") {
         return Vec::new();
     }
@@ -317,8 +317,11 @@ fn reread_mode(attachment: &Arc<Attachment>) {
                     if !worker.tab_current() {
                         return worker.end(Some("detached"));
                     }
+                    // Only while the newest attach still asks for the pushes.
                     let event = json!({"event": "agent-session-mode", "surface": worker.surface, "mode": facts});
-                    if worker.writer.send_stream(&event, &worker.outbound).is_err() {
+                    if worker.view().mode_events
+                        && worker.writer.send_stream(&event, &worker.outbound).is_err()
+                    {
                         return worker.end(None);
                     }
                 }

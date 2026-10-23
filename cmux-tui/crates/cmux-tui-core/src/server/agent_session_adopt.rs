@@ -92,6 +92,7 @@ pub(super) fn mode(
     };
     let worker_writer = writer.clone();
     let worker_id = id.clone();
+    let worker_mux = Arc::downgrade(mux);
     let spawned = std::thread::Builder::new()
         .name("mux-agent-mode".into())
         .stack_size(THREAD_STACK_BYTES)
@@ -104,6 +105,17 @@ pub(super) fn mode(
                     link.close();
                     read
                 });
+            // The tab may have closed or been bound to another chat during the
+            // read: its answer is then not the tab's.
+            let current =
+                worker_mux.upgrade().and_then(|mux| super::tab_session(&mux, params.surface));
+            let read = read.and_then(|facts| {
+                if current.as_deref() == Some(session.as_str()) {
+                    Ok(facts)
+                } else {
+                    Err(Refusal::UnknownTab)
+                }
+            });
             match read {
                 Ok(mut facts) => {
                     facts["surface"] = json!(params.surface);

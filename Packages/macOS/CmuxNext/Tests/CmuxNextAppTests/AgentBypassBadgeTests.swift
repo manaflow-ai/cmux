@@ -44,6 +44,18 @@ struct AgentBypassBadgeTests {
                 "a row without the agent status element hides the bypass warning")
         let expanded = WorkspaceRowContent(expanded: row, now: Date())
         #expect(expanded.meta?.contains(text) == true, "the expanded row hides the bypass warning")
+        // The list's own layouts too: minimal mode and workspaces as tabs draw no other status.
+        for (layout, set) in [("minimal", \SidebarLayoutOptions.minimal), ("workspaces as tabs", \SidebarLayoutOptions.workspacesAsTabs)] {
+            var options = SidebarLayoutOptions()
+            options[keyPath: set] = true
+            let content = options.rowContent(row, machine: nil)
+            #expect(content.status?.entries.map(\.key) == [SidebarWorkspaceStatus.Entry.bypassKey], "\(layout) hides the bypass warning")
+        }
+        var plain = SidebarLayoutOptions()
+        plain.minimal = true
+        var quiet = SidebarWorkspace(id: CmuxNextSidebar.WorkspaceID("q"), machineID: CmuxNextSidebar.MachineID("huge-blue"), title: "quiet")
+        quiet.reported = SidebarWorkspaceStatus(entries: [SidebarWorkspaceStatus.Entry(key: "build", text: "ok")])
+        #expect(plain.rowContent(quiet, machine: nil).status == nil, "minimal mode shows a reporter's status")
 
         // The same session id of another machine is another chat: no warning there.
         let elsewhere = try Self.workspace(session: "bypass-1", host: "registry:cmux16")

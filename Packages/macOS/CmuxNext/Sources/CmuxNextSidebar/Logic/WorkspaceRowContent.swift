@@ -190,6 +190,13 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
         return block.isEmpty ? nil : block
     }
 
+    /// Only the bypass warning of `status`, for a row that draws no status block otherwise
+    /// (minimal, workspaces as tabs): nothing hides that a chat acts unasked. Nil when it has none.
+    static func bypassOnly(_ status: SidebarWorkspaceStatus?) -> SidebarWorkspaceStatus? {
+        let warning = status?.entries.filter { $0.key == SidebarWorkspaceStatus.Entry.bypassKey } ?? []
+        return warning.isEmpty ? nil : SidebarWorkspaceStatus(entries: warning)
+    }
+
     static func activity(_ state: StatusIndicatorState, working: Bool, progress: Bool) -> StatusIndicatorState {
         switch state {
         case .idle, .waiting, .error, .success: state
