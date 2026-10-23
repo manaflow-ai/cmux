@@ -33,7 +33,9 @@ def fake_bundle(folder: str, tag: str) -> str:
     app = os.path.join(os.path.realpath(folder), f"cmux DEV {tag}.app")
     macos = os.path.join(app, "Contents/MacOS")
     os.makedirs(macos)
-    shutil.copy2("/bin/sleep", os.path.join(macos, "cmux DEV"))
+    # copy, not copy2: copy2 also copies /bin/sleep's system flags, and chflags fails with EPERM for a normal
+    # account (Python 3.9 of Xcode 26.6 on aws-m4pro-3, macOS 27.0.1).
+    shutil.copy("/bin/sleep", os.path.join(macos, "cmux DEV"))
     return app
 
 
