@@ -12,7 +12,7 @@ use crate::prompt::{
     CONTROL_DESCRIPTION, DATE_DESCRIPTION, ESCALATE_AUTH_DESCRIPTION, PEER_TELL_DESCRIPTION,
     PEERS_DESCRIPTION, REACT_DESCRIPTION, REPLY_DESCRIPTION, SEND_DESCRIPTION, SLEEP_DESCRIPTION,
     SPAWN_CWD_DESCRIPTION, SPAWN_DESCRIPTION, STOP_DESCRIPTION, TELL_DESCRIPTION,
-    VERSION_DESCRIPTION, ZOOM_AGENT_DESCRIPTION, ZOOM_DESCRIPTION,
+    TRANSCRIPT_DESCRIPTION, VERSION_DESCRIPTION, ZOOM_AGENT_DESCRIPTION, ZOOM_DESCRIPTION,
 };
 use crate::tools::{self, Call};
 
@@ -100,6 +100,11 @@ pub fn tools_granted(subagent: bool, grant: &crate::chief_profile::Grant) -> Val
             "text": {"type": "string", "description": "The message, in Markdown."},
             "attachments": {"type": "array", "items": text, "maxItems": crate::tools::MAX_SEND_ATTACHMENTS, "description": "Files to attach: local paths (/abs, ~/rel, file://; images and videos show inline, any other file as a file, up to 50 MB each) or http(s) URLs (a link card)."},
             "reply_to": {"type": "integer", "minimum": 0, "description": "A user message's line id: the message goes into its thread. Without it: the top level."}},
+          "additionalProperties": false}}));
+        list.push(json!({"name": "transcript", "description": TRANSCRIPT_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {
+            "n": {"type": "integer", "minimum": 1, "maximum": crate::brain::TRANSCRIPT_MAX, "description": "How many messages, newest last (default 20)."},
+            "before": {"type": "integer", "minimum": 1, "description": "A message's #seq: only messages older than it (to page back)."}},
           "additionalProperties": false}}));
         list.push(json!({"name": "stop", "description": STOP_DESCRIPTION,
          "inputSchema": {"type": "object", "properties": {}, "additionalProperties": false}}));
@@ -209,6 +214,7 @@ pub fn handle(message: &Value, backend: &dyn Backend) -> Option<Value> {
                     | Call::React { .. }
                     | Call::Reply { .. }
                     | Call::Send(_)
+                    | Call::Transcript { .. }
                     | Call::Stop
                     | Call::Sleep(_)
                     | Call::Control(_)

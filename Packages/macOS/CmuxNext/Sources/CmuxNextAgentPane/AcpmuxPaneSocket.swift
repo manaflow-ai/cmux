@@ -50,6 +50,8 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
     private let sessions: AcpmuxPaneSessions
     private let decisions: AcpmuxDecisionContexts
     private let ids: AcpmuxRequestIds
+    /// Sends a reply in place on (``AgentPaneAgentReply``); nil refuses every one.
+    private let agentReplies: AgentPaneAgentReply.Send?
     private let signal: @Sendable () -> Void
     private let state = Mutex(State())
     /// Checks the daemon's frames in passes, in order, while the receive loop goes on.
@@ -57,7 +59,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
 
     init(request: URLRequest, wire: (any AcpmuxPaneWire)? = nil, limits: AgentPaneTransport.Limits,
          options: AcpmuxPermissionOptions, sessions: AcpmuxPaneSessions, decisions: AcpmuxDecisionContexts = AcpmuxDecisionContexts(),
-         ids: AcpmuxRequestIds, signal: @escaping @Sendable () -> Void) {
+         ids: AcpmuxRequestIds, agentReplies: AgentPaneAgentReply.Send? = nil, signal: @escaping @Sendable () -> Void) {
         self.request = request
         self.wire = wire
         self.limits = limits
@@ -65,6 +67,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         self.sessions = sessions
         self.decisions = decisions
         self.ids = ids
+        self.agentReplies = agentReplies
         self.signal = signal
     }
 
@@ -167,13 +170,31 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
                     options.observe(object, replyTo: method)
                     sessions.observe(object)
                     sessions.observeFolder(object, replyTo: method)
+                    if wire != nil { sessions.observeTabSession(object, replyTo: method) }
                     decisions.observe(object, replyTo: method)
                     if Self.pageWaits(on: object) { awaited += 1 }
                     page.append(fresh)
+                case .complete(let object, let pageID, let subject):
+                    switch AgentPaneAgentReply.step(object, pageID: pageID, subject: subject, sessions: sessions,
+                                                    canSend: agentReplies != nil) {
+                    case .answer(let frame): if let frame { page.append(frame) }
+                    case .send(let reply): sendReply(reply, pageID: pageID)
+                    }
                 }
             }
             enqueue(page, awaited: awaited)
             batch = takeRaw()
+        }
+    }
+
+    /// Sends a reply in place on as its chat; the page gets the answer once the daemon took it or
+    /// refused it, after the frames already queued.
+    private func sendReply(_ reply: AgentPaneAgentReply, pageID: String) {
+        guard let agentReplies else { return }
+        // task-owner: one reply's send; its answer joins the page queue, which a closed socket drops
+        Task { [weak self] in
+            let answer = await AgentPaneAgentReply.sent(reply, pageID: pageID, send: agentReplies)
+            if let answer { self?.inject(answer) }
         }
     }
 
