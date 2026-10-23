@@ -480,11 +480,14 @@ public struct AgentResumeArgv: Sendable, Equatable {
     }
 
     private func capturedCodexExecutableMatches(arguments: [String], executablePath: String?) -> Bool {
-        guard let first = arguments.first,
-              let executablePath,
-              !executablePath.isEmpty else { return false }
-        return URL(fileURLWithPath: first).lastPathComponent
-            == URL(fileURLWithPath: executablePath).lastPathComponent
+        guard let first = arguments.first else { return false }
+        let argvExecutable = URL(fileURLWithPath: first).lastPathComponent
+        // Older captures record no executable path; argv[0] is then the only
+        // identity evidence, and it has to name Codex itself.
+        guard let executablePath, !executablePath.isEmpty else {
+            return argvExecutable == "codex"
+        }
+        return argvExecutable == URL(fileURLWithPath: executablePath).lastPathComponent
     }
 
     /// Builds the resume argv for a built-in agent kind, or `nil` if the kind is unknown or its launch
