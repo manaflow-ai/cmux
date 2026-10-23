@@ -1776,7 +1776,7 @@ export default agentPaneEntry({
       },
     },
     "reasoning-codex": {
-      note: "Play: Codex keeps its bolt directly beside the model name in the picker button; the model button's menu has no Fast mode row; a click on the bolt sends Fast.",
+      note: "Play: Codex keeps its bolt directly beside the model name in the model picker; the model button's menu has no Fast mode row; a click on the bolt sends Fast.",
       snapshot: withSummary(chat(finished, { harness: "codex", model: "gpt-6-astra", title: "Codex reasoning" }), {
         configOptions: [
           {
@@ -1800,8 +1800,7 @@ export default agentPaneEntry({
         const bolt = { selector: ".acpmux-model .acpmux-fast" };
         await ctx.waitFor(() => ctx.document.querySelector(bolt.selector));
         if (ctx.find(bolt).getAttribute("aria-pressed") !== "false") throw new Error("the bolt must start off");
-        if (!ctx.find(bolt).closest(".acpmux-picker-button, .acpmux-quick-menu"))
-          throw new Error("the bolt must sit in the model picker button");
+        if (!ctx.find(bolt).closest(".acpmux-model")) throw new Error("the bolt must sit beside the model picker");
         await openModelMenu(ctx);
         if (ctx.document.querySelector(".acpmux-quick-menu .acpmux-quick-fast"))
           throw new Error("Codex's Fast mode is the bolt, not a menu row as well");
