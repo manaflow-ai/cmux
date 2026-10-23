@@ -792,7 +792,6 @@
         "CmuxNextCompat",
         "CmuxNextControl",
         "CmuxNextDaemon",
-        "CmuxNextLayout",
         "CmuxNextWakeups"
       ],
       "packages": [
