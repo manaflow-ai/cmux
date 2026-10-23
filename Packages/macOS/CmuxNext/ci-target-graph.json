@@ -268,6 +268,7 @@
         "CmuxNextFloating",
         "CmuxNextFocus",
         "CmuxNextFocusUI",
+        "CmuxNextHangReports",
         "CmuxNextHistory",
         "CmuxNextHome",
         "CmuxNextHomeEngine",
@@ -941,6 +942,24 @@
       ],
       "packages": []
     },
+    "CmuxNextHangReports": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextHangReports",
+      "targets": [
+        "CmuxNextCompat"
+      ],
+      "packages": []
+    },
+    "CmuxNextHangReportsTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextHangReportsTests",
+      "targets": [
+        "CmuxNextCompat",
+        "CmuxNextHangReports"
+      ],
+      "packages": [],
+      "reads": []
+    },
     "CmuxNextHistory": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextHistory",
@@ -1501,7 +1520,9 @@
     "CmuxNextSignposts": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextSignposts",
-      "targets": [],
+      "targets": [
+        "CmuxNextCompat"
+      ],
       "packages": []
     },
     "CmuxNextSignpostsTests": {

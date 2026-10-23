@@ -43,7 +43,9 @@ refuses NEW singletons, unproven MainActor.assumeIsolated, unjustified @unchecke
 nonisolated(unsafe), sleeps in loops, DispatchQueue.main.async, new Notification.Name broadcasts,
 ObservableObject/@Published, store references in list rows and big new CmuxNextApp files, in lines the
 push adds; warns on `// perf-hot:` functions, OWNERS.md areas and App growth. Skip one push with
-CMUX_GUARDRAILS_SKIP_REASON="<rule>: <why>"; --no-guardrails turns it off for a manual run.
+CMUX_GUARDRAILS_SKIP_REASON="<rule>[,<rule>]: <why>" (it skips only the named rules); lines a push only
+brings in from origin/feat-cmux-next (a merge or rebase onto it) never count; --no-guardrails turns it off
+for a manual run.
 
 Not here (they stay on CI and the fleet): generated-file freshness (gen-*.py --check), god files,
 the app size cap, script tests, Swift and Rust builds and tests.
@@ -494,7 +496,9 @@ def conflict_markers(repo: Path, base: str, head: str) -> list[str]:
     stopped compiling; no scanner reads a test file. A file counts only when the push adds both an
     opening and a closing marker to it, so a fixture that mentions one marker never matches.
     """
-    diff = git(repo, "diff", "-U0", "--no-color", "--no-renames", "--no-ext-diff", base, head).decode("utf-8", "replace")
+    # Fixed prefixes: with a user's diff.noprefix the `+++ b/` headers this parse reads would be missing.
+    diff = git(repo, "diff", "-U0", "--no-color", "--no-renames", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/",
+               base, head).decode("utf-8", "replace")
     found: dict[str, list[tuple[int, str]]] = collections.defaultdict(list)
     name, number = "", 0
     for line in diff.splitlines():
@@ -646,20 +650,32 @@ def load_guardrails(repo: Path, trusted_scripts: Path | None):
 
 
 def guardrails(repo: Path, ranges: list[tuple[str, str]], trusted_scripts: Path | None) -> bool:
-    """Print the guardrail warnings and refusals for RANGES; True when they refuse the push."""
-    module = load_guardrails(repo, trusted_scripts)
-    if module is None:
-        if trusted_scripts:
-            log("prepush-gate: guardrails.py is not installed; rerun scripts/install-git-hooks.sh")
+    """Print the guardrail warnings and refusals for RANGES; True when they refuse the push.
+
+    The rules are advisory debt checks in every agent's hook: a bug in them (a parse edge, a failed git
+    call) prints a warning and lets the push through instead of blocking every push with a traceback.
+    check_push leaves out what a range only brings in from origin/feat-cmux-next (a merge of it into a branch,
+    or a rebase onto it and a force push): CI never runs these rules, so that base can carry debt.
+    """
+    try:
+        module = load_guardrails(repo, trusted_scripts)
+        if module is None:
+            if trusted_scripts:
+                log("prepush-gate: guardrails.py is not installed; rerun scripts/install-git-hooks.sh")
+            return False
+        refused = False
+        check = getattr(module, "check_push", module.check)
+        for base, head in ranges:
+            refusals, warnings = check(repo, base, head)
+            text, refuse = module.format_report(refusals, warnings)
+            if text:
+                print(text)
+            refused = refused or refuse
+        return refused
+    except (Exception, SystemExit) as error:  # SystemExit: guardrails.git() exits on a failed git call
+        log(f"prepush-gate: WARNING: guardrails.py failed ({type(error).__name__}: {error}); not applied to "
+            "this push. Tell the Performance Lead (PL-guardrails) with this line.")
         return False
-    refused = False
-    for base, head in ranges:
-        refusals, warnings = module.check(repo, base, head)
-        text, refuse = module.format_report(refusals, warnings)
-        if text:
-            print(text)
-        refused = refused or refuse
-    return refused
 
 
 def stale_hook_warning(repo: Path, trusted_scripts: Path) -> None:

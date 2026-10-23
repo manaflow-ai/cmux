@@ -1310,6 +1310,16 @@
               "key" : "settings.pageGroup.network",
               "text" : "Network Requests"
             }
+          },
+          {
+            "key" : "settings.group.hangReports",
+            "rows" : [
+              "diagnostics.hangReports"
+            ],
+            "title" : {
+              "key" : "settings.group.hangReports",
+              "text" : "Hang Reports"
+            }
           }
         ],
         "id" : "privacy",
@@ -35071,6 +35081,61 @@
       "title" : {
         "key" : "settings.agents.defaultPermissionMode",
         "text" : "Permission Mode for New Chats"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.hangReports",
+        "text" : "Hang Reports"
+      },
+      "help" : {
+        "key" : "settings.diagnostics.hangReports.help",
+        "text" : "Nightly builds send a daily report of hangs and slow frames: call stacks of cmux and macOS code, timings, your app and macOS versions, your Mac's chip and memory size, and rounded counts of open windows and tabs. It never includes file names, web addresses, terminal text, names or anything you type. View Hang Report shows exactly what is sent."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "diagnostics.hangReports",
+      "keywords" : [
+        "hang",
+        "lag",
+        "slow",
+        "performance",
+        "diagnostics",
+        "telemetry",
+        "privacy",
+        "metrickit",
+        "report"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "diagnostics",
+        "hangReports"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "home",
+      "summary" : {
+        "key" : "settings.diagnostics.hangReports.summary",
+        "text" : "Nightly only. No file names, text or addresses."
+      },
+      "title" : {
+        "key" : "settings.diagnostics.hangReports",
+        "text" : "Send Hang Reports"
       },
       "validation" : "portable"
     },

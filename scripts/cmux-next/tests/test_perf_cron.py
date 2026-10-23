@@ -734,6 +734,7 @@ class PlanReportTests(unittest.TestCase):
                 mock.patch.object(cron, "commit_on_branch", lambda repo, t: cron.is_sha), \
                 mock.patch.object(cron, "tree_published", lambda sha: True), \
                 mock.patch.object(cron, "github_busy", lambda *a: None), \
+                mock.patch.object(cron, "frame_pacing_runs", lambda repo: []), \
                 mock.patch.object(cron, "is_ancestor", lambda a, b: False), \
                 mock.patch.object(cron, "supported_parts_at", lambda sha: ["motion"]):
             cron.cmd_plan(argparse.Namespace(repo="o/r", dir=d, tip="HEAD", yield_mode="queued", no_mac=False, output=out))
@@ -1001,6 +1002,18 @@ class RefreshRebaseTests(unittest.TestCase):
         self.assertEqual([r["name"] for r in self.state["regressions"]], ["panes.x.frame"])
         self.assertEqual(self.state["last_good"]["rows"]["panes.x.frame"]["p95"], 8.4)
         self.assertEqual(self.measured("d" * 40, 8.4, 8.33, 3), "recovered")
+
+
+class FramePacingTests(unittest.TestCase):
+    def test_it_starts_only_on_an_idle_fleet_once_a_day(self):
+        old = {"id": 1, "status": "completed", "created_at": cron.iso(at(-30))}
+        self.assertTrue(cron.frame_pacing_due([old], T0, None)[0])
+        self.assertTrue(cron.frame_pacing_due([], T0, None)[0])
+        self.assertFalse(cron.frame_pacing_due([old], T0, "nightly.yml waits for a Mac")[0])
+        recent = {"id": 2, "status": "completed", "created_at": cron.iso(at(-3))}
+        self.assertFalse(cron.frame_pacing_due([recent, old], T0, None)[0])
+        running = {"id": 3, "status": "in_progress", "created_at": cron.iso(at(-30))}
+        self.assertFalse(cron.frame_pacing_due([running], T0, None)[0])
 
 
 if __name__ == "__main__":

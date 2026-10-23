@@ -318,6 +318,8 @@ extension SettingsSchema {
         "updates.idleInstallMaxWaitSeconds": .userOnly,
         "updates.idleInstallQuietSeconds": .userOnly,
         "announcements.fetch": .network,
+        // Whether this Mac sends hang reports (stacks and timings) to cmux: the person's choice only.
+        "diagnostics.hangReports": .privacy,
         // On, cmux starts a helper that sees and controls other apps; only the person turns it on.
         // What a new chat may do without asking: an agent must not widen its own approvals.
         "agents.defaultPermissionMode": .userOnly,

@@ -1652,6 +1652,12 @@
       "title" : "Computer Use",
       "type" : "boolean"
     },
+    "diagnostics.hangReports" : {
+      "default" : false,
+      "description" : "Nightly builds send a daily report of hangs and slow frames: call stacks of cmux and macOS code, timings, your app and macOS versions, your Mac's chip and memory size, and rounded counts of open windows and tabs. It never includes file names, web addresses, terminal text, names or anything you type. View Hang Report shows exactly what is sent.",
+      "title" : "Send Hang Reports",
+      "type" : "boolean"
+    },
     "diff.colors" : {
       "default" : "theme",
       "description" : "diff.colors",

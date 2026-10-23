@@ -72,6 +72,8 @@ import argparse, csv, signal, threading, glob, importlib.util, json, os, platfor
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
+sys.path.insert(0, HERE)
+from tag_teardown import TagTeardown  # noqa: E402
 
 if len(sys.argv) > 2 and sys.argv[1] == "--merge":
     MERGE = (sys.argv[2], sys.argv[3:])
@@ -225,6 +227,14 @@ class App:
         time.sleep(3)  # test script: launch work (restore, first pages) ends before the first measure
 
     def stop(self):
+        try:
+            self.quit()
+        finally:
+            # The tag's headless cmux-tui session and acpmux outlive a quit (keep-on-quit): end them, so the next
+            # session starts empty (a relaunch otherwise restores every workspace the last session left).
+            TagTeardown(opts.app, log=note).end()
+
+    def quit(self):
         if not self.process or self.process.poll() is not None:
             return
         rpc("action.run", {"action": "quitEndSessions"}, timeout=10)  # ends the tag's terminal sessions too
@@ -402,6 +412,13 @@ class Sweep:
 
     def build(self):
         self.builder = self.stress_module.Stress(rpc, log=note, settle=3.0)
+        # A session starts from one workspace: anything a restore brought back is closed first.
+        leftover = [w["id"] for w in topology().get("workspaces") or [] if w.get("id")][1:]
+        for workspace in leftover:
+            rpc("action.run", {"action": "closeWorkspace", "target": f"workspace:{workspace}", "origin": "script"}, timeout=30)
+        if leftover:
+            note(f"every-action: {self.session}: closed {len(leftover)} restored workspaces; "
+                 f"{len(topology().get('workspaces') or [])} left")
         if self.session == "stress":
             summary = self.builder.build()
             note("STRESS-SESSION " + json.dumps(summary))
