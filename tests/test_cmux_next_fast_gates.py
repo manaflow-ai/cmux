@@ -721,19 +721,28 @@ class WebviewsChecksGate(unittest.TestCase):
                                   "/w/merge", "/w/base")
         self.assertEqual(added, [])
 
-    def test_replay_of_23990_the_formatters_summary_is_not_a_finding(self):
-        # #23990's fast gates: the base and the merge failed `vp fmt --check` on the same file, and the merge, which
-        # adds webview files, formatted more of them, so the run's summary read as a finding the merge added.
-        def fmt(files: int, issues: int, ms: int) -> str:
-            return ("Checking formatting...\n\nsrc/pages/HostSections.tsx (12ms)\n\n"
-                    f"Format issues found in above {issues} files. Run without `--check` to fix.\n"
-                    f"Finished in {ms}ms on {files} files using 4 threads.\n")
-        self.assertEqual(self.module.added(fmt(2482, 1, 712), fmt(2479, 1, 690)), [])
-        self.assertEqual(self.module.added(fmt(2482, 1, 712), fmt(2482, 2, 712)), [])  # a fixed issue adds nothing
-        new = self.module.added(fmt(2482, 2, 712).replace("HostSections.tsx (12ms)\n",
-                                                          "HostSections.tsx (12ms)\nsrc/Row.tsx (3ms)\n"),
-                                fmt(2482, 1, 712))
-        self.assertEqual(new, ["src/Row.tsx (3ms)"])  # the file the merge misformats is still its own
+    def test_replay_of_24274_the_format_check_file_count_is_not_a_finding(self):
+        # #24274's fast gates: the base's `vp fmt --check` was red on the same files as the merge, and the merge
+        # (with the pull request's new test files) closed on 2481 files where the base closed on 2479. That closing
+        # line read as the one finding the merge added.
+        red = "src/a.ts (2ms)\nFormat issues found in above 1 files. Run without `--check` to fix.\n"
+        self.assertEqual(self.module.added(red + "Finished in 528ms on 2481 files using 4 threads.\n",
+                                           red + "Finished in 2057ms on 2479 files using 4 threads.\n"), [])
+        self.assertEqual(self.module.added("src/b.ts (1ms)\n" + red + "Finished in 5ms on 2481 files using 4 threads.\n",
+                                           red + "Finished in 9ms on 2479 files using 4 threads.\n"), ["src/b.ts (1ms)"])
+        # Only the whole closing line is noise: a file whose name starts like it is still a finding.
+        self.assertEqual(self.module.added("Finished in 1ms on 2 files.ts (1ms)\n" + red, red),
+                         ["Finished in 1ms on 2 files.ts (1ms)"])
+
+    def test_a_format_issue_the_change_fixes_adds_no_finding(self):
+        # The merge fixes one of the base's two misformatted files, so its count line reads "1 files" where the
+        # base's reads "2 files"; that line is the run's, not a finding the merge adds.
+        def fmt(*files: str) -> str:
+            return "".join(f"{name} (2ms)\n" for name in files) + (
+                f"Format issues found in above {len(files)} files. Run without `--check` to fix.\n"
+                "Finished in 5ms on 2481 files using 4 threads.\n")
+        self.assertEqual(self.module.added(fmt("src/a.ts"), fmt("src/a.ts", "src/b.ts")), [])
+        self.assertEqual(self.module.added(fmt("src/a.ts", "src/c.ts"), fmt("src/a.ts", "src/b.ts")), ["src/c.ts (2ms)"])
 
     def test_replay_of_24252_unicode_frames_in_another_order_add_nothing(self):
         # #24252's fast gates: Oxlint printed its Unicode frame (`╭─[`, `│`, `·`, `╰`), and with 4 threads the

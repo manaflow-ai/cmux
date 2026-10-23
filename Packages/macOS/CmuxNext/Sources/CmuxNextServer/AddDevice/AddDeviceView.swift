@@ -162,6 +162,7 @@ public final class AddDeviceView: NSView {
         stack.addArrangedSubview(label(AddDeviceStrings.newDeviceHelp, font: Typography.body, color: Palette.textSecondary, width: width))
         let field = NSTextField(wrappingLabelWithString: line)
         field.isSelectable = true
+        field.focusRingType = .none
         field.font = Typography.system(.monospaced, size: TypeScale.detail)
         field.textColor = Palette.textPrimary
         field.preferredMaxLayoutWidth = width - 2 * Metrics.space3
