@@ -5,6 +5,7 @@ import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";
 import { createStrings } from "../shared/i18n";
 import { holdFirstPaint } from "../shared/paintGate";
+import { languageDirection, UiProvider } from "../../ui/UiProvider";
 import table from "./generated/strings.json";
 import { ChangelogPage } from "./ChangelogPage";
 import { routeChipHost } from "./ChangePullRequest";
@@ -25,7 +26,12 @@ export function mountChangelogPage(root: HTMLElement, client: PageClient | null 
   document.title = strings.t("changelog.page.title");
   const react = createRoot(root);
   const render = () =>
-    react.render(<ChangelogPage store={store} strings={strings} design={parseDesign(location.hash)} />);
+    react.render(
+      // The pull request card's Open in menu follows the page's language direction (arrow keys, placement).
+      <UiProvider container={root} dir={languageDirection(strings.language)}>
+        <ChangelogPage store={store} strings={strings} design={parseDesign(location.hash)} />
+      </UiProvider>,
+    );
   render();
   void store.start(parseSpan(location.hash));
   // The first frame shown is the final first screen, not "Loading…" (perceived speed).
