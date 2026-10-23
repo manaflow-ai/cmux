@@ -2,9 +2,12 @@ public import os
 
 /// Always-on signpost intervals for one ``SignpostCategory``, the same in Debug and Release.
 ///
-/// An interval costs one enabled check when nothing records and a few hundred nanoseconds when a
-/// recorder (`log stream --signpost`, Instruments) is attached. Place intervals per user event or
-/// per frame, never per pane per frame. Nothing leaves the Mac.
+/// Signposts of a custom subsystem are enabled by default, so ``isEnabled`` is true in every
+/// build and every interval is handed to the log system whether or not a recorder (`log stream
+/// --signpost`, Instruments) is attached: about a microsecond per begin or end, and the message
+/// text the caller builds. Prefer the typed messages (``ActionSignpostMessage``), whose fields the
+/// log system formats only when something reads them, over a `String` built per call. Place
+/// intervals per user event or per frame, never per pane per frame. Nothing leaves the Mac.
 ///
 /// ```swift
 /// let state = Signposter.action.begin(.actionPerform, "id=\(id)")
@@ -40,7 +43,9 @@ public nonisolated struct Signposter: Sendable {
     /// ``SignpostCategory/stall``.
     public static let stall = Signposter(category: .stall)
 
-    /// Whether a recorder may receive this category's signposts (skip work that only feeds them).
+    /// Whether the log system takes this category's signposts (true unless a logging profile
+    /// turns the subsystem off; it does not mean a recorder is attached). Skip work that only
+    /// feeds signposts when it is false.
     public var isEnabled: Bool { signposter.isEnabled }
 
     /// Begins an interval named `name` with a public message.
@@ -52,18 +57,55 @@ public nonisolated struct Signposter: Sendable {
     public func begin(_ name: SignpostName, _ message: String = "") -> SignpostInterval {
         assert(name.category == category, "\(name) is not in category \(category)")
         let id = signposter.makeSignpostID()
-        return SignpostInterval(state: signposter.beginInterval(name.staticName, id: id, "\(message, privacy: .public)"))
+        return SignpostInterval(state: signposter.beginInterval(name.staticName, id: id, "\(message, privacy: .public)"),
+                                metricKitID: SignpostMetricKitMirror.shared.begin(name))
+    }
+
+    /// Begins an interval named `name` with an action's fields, formatted by the log system only
+    /// when something reads them (`id=<id> origin=<origin> input_age_ms=<age, 2 decimals>`).
+    ///
+    /// - Parameters:
+    ///   - name: A catalog name of this signposter's category.
+    ///   - message: The action's id, origin and input age.
+    /// - Returns: The state to pass to ``end(_:_:)``.
+    public func begin(_ name: SignpostName, _ message: ActionSignpostMessage) -> SignpostInterval {
+        assert(name.category == category, "\(name) is not in category \(category)")
+        let id = signposter.makeSignpostID()
+        let state = signposter.beginInterval(
+            name.staticName, id: id,
+            "id=\(message.id, privacy: .public) origin=\(message.origin, privacy: .public) input_age_ms=\(message.inputAgeMilliseconds, format: .fixed(precision: 2), privacy: .public)"
+        )
+        return SignpostInterval(state: state)
     }
 
     /// Ends an interval begun with ``begin(_:_:)`` under the same name.
     public func end(_ name: SignpostName, _ interval: SignpostInterval) {
         signposter.endInterval(name.staticName, interval.state)
+        if let id = interval.metricKitID { SignpostMetricKitMirror.shared.end(name, id: id) }
+    }
+
+    /// Ends an interval that ``CommitBoundary`` closed: a ``CommitBoundary/Outcome/missed`` end
+    /// carries the message `commit=missed`, so readers drop it instead of counting idle time.
+    public func end(_ name: SignpostName, _ interval: SignpostInterval, _ outcome: CommitBoundary.Outcome) {
+        switch outcome {
+        case .committed: signposter.endInterval(name.staticName, interval.state)
+        case .missed: signposter.endInterval(name.staticName, interval.state, "commit=missed")
+        }
     }
 
     /// Runs `body` inside an interval named `name`.
     ///
     /// - Returns: What `body` returns.
     public func interval<T>(_ name: SignpostName, _ message: String = "", _ body: () throws -> T) rethrows -> T {
+        let interval = begin(name, message)
+        defer { end(name, interval) }
+        return try body()
+    }
+
+    /// Runs `body` inside an interval named `name` with an action's fields.
+    ///
+    /// - Returns: What `body` returns.
+    public func interval<T>(_ name: SignpostName, _ message: ActionSignpostMessage, _ body: () throws -> T) rethrows -> T {
         let interval = begin(name, message)
         defer { end(name, interval) }
         return try body()

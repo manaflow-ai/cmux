@@ -52,8 +52,7 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextActionsTests",
       "targets": [
-        "CmuxNextActions",
-        "CmuxNextSignposts"
+        "CmuxNextActions"
       ],
       "packages": [],
       "reads": [
@@ -269,6 +268,7 @@
         "CmuxNextFloating",
         "CmuxNextFocus",
         "CmuxNextFocusUI",
+        "CmuxNextHangReports",
         "CmuxNextHistory",
         "CmuxNextHome",
         "CmuxNextHomeEngine",
@@ -303,6 +303,7 @@
         "CmuxNextSettings",
         "CmuxNextSettingsWindow",
         "CmuxNextSidebar",
+        "CmuxNextSignposts",
         "CmuxNextStash",
         "CmuxNextTabs",
         "CmuxNextTasks",
@@ -379,6 +380,7 @@
         "CmuxNextRemote",
         "CmuxNextRemoteLocalhostService",
         "CmuxNextScreenshots",
+        "CmuxNextSignposts",
         "CmuxNextStash",
         "CmuxNextTabs",
         "CmuxNextTasks",
@@ -670,6 +672,15 @@
       "targets": [],
       "packages": []
     },
+    "CmuxNextCompatTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextCompatTests",
+      "targets": [
+        "CmuxNextCompat"
+      ],
+      "packages": [],
+      "reads": []
+    },
     "CmuxNextComputerUse": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextComputerUse",
@@ -930,6 +941,24 @@
         "CmuxNextDesign"
       ],
       "packages": []
+    },
+    "CmuxNextHangReports": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextHangReports",
+      "targets": [
+        "CmuxNextCompat"
+      ],
+      "packages": []
+    },
+    "CmuxNextHangReportsTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextHangReportsTests",
+      "targets": [
+        "CmuxNextCompat",
+        "CmuxNextHangReports"
+      ],
+      "packages": [],
+      "reads": []
     },
     "CmuxNextHistory": {
       "kind": "regular",
@@ -1491,8 +1520,19 @@
     "CmuxNextSignposts": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextSignposts",
-      "targets": [],
+      "targets": [
+        "CmuxNextCompat"
+      ],
       "packages": []
+    },
+    "CmuxNextSignpostsTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextSignpostsTests",
+      "targets": [
+        "CmuxNextSignposts"
+      ],
+      "packages": [],
+      "reads": []
     },
     "CmuxNextStash": {
       "kind": "regular",
@@ -1536,7 +1576,6 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextTerminal",
       "targets": [
-        "CmuxNextActions",
         "CmuxNextCompat",
         "CmuxNextCopyMode",
         "CmuxNextDesign",
@@ -1561,6 +1600,15 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextTerminalGeometry",
       "targets": [],
       "packages": []
+    },
+    "CmuxNextTerminalTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextTerminalTests",
+      "targets": [
+        "CmuxNextTerminal"
+      ],
+      "packages": [],
+      "reads": []
     },
     "CmuxNextTestExitTrace": {
       "kind": "regular",

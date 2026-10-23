@@ -2,11 +2,17 @@
 // (Schema/SettingsSchema+NewTabWidgets.generated.swift); this file only parses.
 
 /// `tabs.newTabWidgets.*` in cmux.json (Leo 2026-10-20: "only do the composer for the default"):
-/// the New Tab page is a greeting and the composer, and each other part of it is a widget the user
-/// turns on. The page gets the ones on as ``ids`` (webviews newtab/pageWidgets.ts).
+/// the New Tab page is the composer, and each other part of it is a widget the user turns on. The page gets the ones on as ``ids`` (webviews newtab/pageWidgets.ts).
 public nonisolated struct NewTabWidgetSettings: Sendable, Equatable {
-    /// A short greeting by the time of day over the composer.
+    /// The headline over the composer that asks "What should we work on in <project>?", the project
+    /// an inline picker; off by default (Leo 2026-10-22: "new tab page let's have no greeting text by
+    /// default... maybe as toggle but as useful toggle"). The key keeps its old name, so a saved
+    /// `true` from the time-of-day greeting turns the headline on.
     public var greeting = NewTabWidgetSettings.greetingDefault
+    /// true: cmux.json says `"greeting": false`, not the default. Before the headline was off by
+    /// default that turned the greeting off, and the composer sat at the page's top padding; the
+    /// page keeps it there for them (no room kept for the headline, newtab/screen.css).
+    public var greetingTurnedOff = false
     /// The Default template's card of this Mac and its recent projects.
     public var projects = NewTabWidgetSettings.projectsDefault
     /// The chats that need the user, New Terminal, New Browser Tab and New Chat.
@@ -21,7 +27,7 @@ public nonisolated struct NewTabWidgetSettings: Sendable, Equatable {
 
     public init() {}
 
-    /// The widgets on, by the page's names, in the order the page shows them: the greeting, the
+    /// The widgets on, by the page's names, in the order the page shows them: the headline, the
     /// movable widgets in ``order``, then the template dots.
     public var ids: [String] {
         let on = ["greeting": greeting, "projects": projects, "actions": actions, "chats": chats, "styleDots": styleDots]
@@ -31,7 +37,10 @@ public nonisolated struct NewTabWidgetSettings: Sendable, Equatable {
     static func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> Self {
         var settings = Self()
         guard var reader = ConfigFieldReader(root, at: ["tabs", "newTabWidgets"], diagnostics: &diagnostics) else { return settings }
-        if let value = reader.bool("greeting") { settings.greeting = value }
+        if let value = reader.bool("greeting") {
+            settings.greeting = value
+            settings.greetingTurnedOff = !value
+        }
         if let value = reader.bool("projects") { settings.projects = value }
         if let value = reader.bool("actions") { settings.actions = value }
         if let value = reader.bool("chats") { settings.chats = value }

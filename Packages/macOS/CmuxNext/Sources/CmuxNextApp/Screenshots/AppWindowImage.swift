@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextBrowser
 import CmuxNextDesign
 import CmuxNextPages
+import CmuxNextScreenshots
 
 /// One of this app's main windows as on screen, for `cmux window|pane|tab
 /// screenshot`: the window server's image of the window and its Chromium

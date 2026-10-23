@@ -66,6 +66,11 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     @objc(isHandlingSendEvent)
     func isHandlingSendEvent() -> Bool { handlingSendEvent }
 
+    /// The event `sendEvent` is dispatching now, or nil between dispatches. `currentEvent` alone
+    /// keeps the last event after its dispatch ended, so a socket action run later would read a
+    /// stale key press (`ActionRegistry.dispatchingInputEvent`, the action signposts' input age).
+    var dispatchingEvent: NSEvent? { handlingSendEvent ? currentEvent : nil }
+
     @objc(setHandlingSendEvent:)
     func setHandlingSendEvent(_ value: Bool) { handlingSendEvent = value }
 

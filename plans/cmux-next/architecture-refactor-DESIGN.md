@@ -199,16 +199,32 @@ unoptimized build. Plan:
   Debug benches, the Release benches and PL-telemetry's opt-in nightly hang reports use the same
   strings. The `OSSignposter` values are immutable handles (like `Logger`): `static let`
   declarations, no runtime state of ours, no singleton.
-- **Always on.** An interval costs one `os_signpost` enabled check when nothing records, a few
-  hundred nanoseconds when recording; placed per user event or per frame, never per pane per frame.
-  No in-process ring, no socket method, nothing leaves the Mac (no user telemetry; PL-telemetry's
-  reports are opt-in and its own design).
-- **Committed frame.** `CommitBoundary` ends an interval at the end of the Core Animation commit
-  that carries it: a one-shot main run-loop observer ordered after Core Animation's commit
-  observer, installed only while an interval is open (a real signal, no sleep). The first user:
-  `ActionRegistry.performNow` (the one path every keyboard, menu, palette and CLI action takes)
-  opens `action.perform` with the action id and ends it at the commit: input to committed frame
-  for every action, in Release.
+- **Always on.** Signposts of a custom subsystem are enabled by default, so every interval goes to
+  the log system in every build, recorder attached or not (about a microsecond per begin or end).
+  Messages pass their fields to the `OSLogMessage` interpolation (`ActionSignpostMessage`), so the
+  log system formats them only when something reads them. Placed per user event or per frame,
+  never per pane per frame. No in-process ring, no socket method, nothing leaves the Mac (no user
+  telemetry; PL-telemetry's reports are opt-in and its own design).
+- **Synchronous perform to the next commit.** `CommitBoundary` ends an interval at the end of the
+  next Core Animation commit: a one-shot main run-loop observer at order 2,000,001, after Core
+  Animation's commit observer (2,000,000), installed only while an interval is open (a real
+  signal, no sleep). `CommitBoundaryAudit` reads the main run loop's display, layout and commit
+  observers (Core Animation's and AppKit's) and flags any after the boundary: `SignpostsTests` in
+  a bare process, `CommitBoundaryAppKitTests` with `NSApplication` and a window, and
+  `debug.commit_boundary` in the running app, on each macOS major. A boundary asked for inside the
+  turn's commit pass sees the wake first and ends with `commit=missed`; readers drop those.
+  `ActionRegistry` wraps every run that does work (handler, key window route, a preview revert it
+  needs) in `action.perform` (the handler's synchronous time) and `action.commit` (to that
+  commit), with `input_age_ms` of the OS event being dispatched for a `user` run, -1 otherwise.
+  A gate (confirmation presenter, the palette asking for an argument) is `action.gate`, never the
+  action's own interval and never enclosing the run it lets through; it stamps the press's
+  timestamp into the invocation (`inputTimestamp`), so a run confirmed in a later turn still
+  reports that press's age. The registry gets its timing at the composition root
+  (`AppServices` passes `SignpostActionRunTiming`); a test's registry records nothing. This is NOT input to the frame that
+  shows the result: work a handler defers (daemon replies, Chromium `CreateBrowser`, later
+  SwiftUI updates, a frame client's next frame) commits later. Input-to-result numbers and the
+  10 ms budget come from each action's own end signal (`create.*`, `switch.*`, reserved in the
+  catalog until their lanes emit them).
 - **Paths owned by other lanes** get a one-line hook they add themselves (API in the package,
   message to the owner): motion frame (PL-motion-core, DisplayLinkDriver), key to frame
   (PL-typing), switch (PL-switch, `SwitchFrameTimer` gains the signpost so DEBUG numbers and
@@ -238,8 +254,8 @@ Ordered by perf impact, then risk, then collisions (unowned areas first).
 |---|---|---|---|---|---|
 | A1 | This doc, `architecture-layers.json`, `arch-layers.py` | - | none | - | landed 415ee799b49 |
 | A2 | `CmuxNextSignposts` + `CommitBoundary` + `action.perform` in ActionRegistry + `perf-signposts.py`; existing signposters onto the catalog | high: Release numbers for every action | low | none (Actions unowned); hooks for owners by message | action.perform/commit landed; owner hooks and old signposters open |
-| A3 | `MainActorObservation` (Compat) and migration of unowned observer sites | medium (code health, -assumeIsolated) | low | skip owned files | 24 files done; rest open |
-| A4 | `WindowEvents` per-window fan-out; migrate unowned class-B sites (StatusIndicatorView, Design, Pages, AgentPane); hand TerminalSurfaceView and Sidebar sites to PL-ghostty and a590 | medium (row 8 Cmd-Tab O(views)) | medium | Terminal, Sidebar by message | |
+| A3 | `MainActorObservation` (Compat) and migration of unowned observer sites | medium (code health, -assumeIsolated) | low | skip owned files | 42 files done; left: queue:nil observers and the no-activate guard (moving them to queue:.main changes when they run), owned files |
+| A4 | (WindowKeyFamily landed: one key tracker per window for the inactive wash) `WindowEvents` per-window fan-out; migrate unowned class-B sites (StatusIndicatorView, Design, Pages, AgentPane); hand TerminalSurfaceView and Sidebar sites to PL-ghostty and a590 | medium (row 8 Cmd-Tab O(views)) | medium | Terminal, Sidebar by message | |
 | A5 | Class C: reduceMotion / accessibility / speed / inactive-dim as Appearance observables, hidden views off the path | medium (F3/F8 hidden cost) | medium | none for Design/Pages/AgentPane leaf files | |
 | B1 | CmuxNextApp leaf directories (zero-outside rows of section 4) | - (lines) | low | none | TextBox, Router, Refusals, Process done (SleepyMode stays: its raw font sizes are baselined at the App path) |
 | B2 | `CmuxNextDesignTokens` split of Design (re-exported) | - (unblocks 4 hard edges) | medium (43 importers, but re-export keeps sources) | WindowOverlayHost stays in Design | |
@@ -258,3 +274,9 @@ violations), sha ranges on feat-cmux-next:
 | Date | Batch | sha range | App lines | shared | assumeIsolated | observers | hard / soft |
 |---|---|---|---|---|---|---|---|
 | 2026-10-23 | baseline | 184fa32532c | 141,651 | 148 | 290 | 163 | 32 / 12 |
+| 2026-10-23 | 1: A2 signposts, B1 4 dirs, A3 24 files | 1549981b654..5846e103ece | 141,393 | 148 | 253 | 130 | 32 / 12 |
+| 2026-10-23 | 2: review-1 fixes, A3 18 files, B1 53 leaf files, A4 WindowKeyFamily | this push | 139,814 | 148 | 228 | 108 | 32 / 12 |
+
+App lines are measured at each tip, so other lanes' additions count too (the base grew about 1,000
+lines during batch 2; batch 2 moved 2,399 lines out). The hard/soft edges are unchanged so far:
+the moves only used existing edges by design (B2, the DesignTokens split, removes the first four).

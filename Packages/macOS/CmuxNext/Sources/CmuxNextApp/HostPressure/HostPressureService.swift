@@ -33,6 +33,11 @@ final class HostPressureService {
     /// The numbers behind it (the popover's), nil until the first read.
     var verdict: HostBudgetVerdict? { forced.flatMap { $0.level.map(Self.sample) } ?? monitoredVerdict }
 
+    /// Counts the times the shown level entered critical (a forced level included). A window that
+    /// closed its banner keeps it closed while this stays the same: until the level falls below
+    /// critical, the monitor stops (its level resets to normal) or a force changes the shown level.
+    private(set) var criticalSpell = 0
+    @ObservationIgnored private var lastLevel = HostPressureLevel.normal
     private var monitored = HostPressureLevel.normal
     private var monitoredVerdict: HostBudgetVerdict?
     private var forced: HostPressureForce?
@@ -67,7 +72,9 @@ final class HostPressureService {
         // task-owner: the service (cancelled in stop()); event-driven (Observation of the tunable store)
         forceObservation = Task { [weak self] in
             for await force in ObservationStream({ HostPressureTunables.force.value(in: store) }) {
-                self?.forced = force == .off ? nil : force
+                guard let self else { return }
+                forced = force == .off ? nil : force
+                noteLevel()
             }
         }
         // task-owner: the service (cancelled in stop()); event-driven (the app's quit notification)
@@ -114,6 +121,7 @@ final class HostPressureService {
                 await monitor.start(while: { wanted.withLock { $0 } == generation }) { [weak self] level, verdict in
                     self?.monitored = level
                     self?.monitoredVerdict = verdict
+                    self?.noteLevel()
                 }
             }
         } else if subscribers == 0, running {
@@ -138,12 +146,19 @@ final class HostPressureService {
         wanted.withLock { $0 = generation }
         monitored = .normal
         monitoredVerdict = nil
+        noteLevel()
         let (monitor, previous) = (monitor, lifecycle)
         // task-owner: one hop to stop the monitor, after the previous hop; it ends when its source and timer are cancelled
         lifecycle = Task {
             await previous?.value
             await monitor.stop()
         }
+    }
+
+    /// Starts a new critical spell when the shown level enters critical.
+    private func noteLevel() {
+        if level == .critical, lastLevel != .critical { criticalSpell += 1 }
+        lastLevel = level
     }
 
     /// Stops one acpmux session's agent (resumable); false when acpmux refused or did not answer.

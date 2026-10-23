@@ -1133,6 +1133,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-holder"
+version = "0.1.0"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "cmux-host"
 version = "0.1.0"
 dependencies = [
@@ -1532,6 +1539,7 @@ dependencies = [
  "cmux-agent-pane-policy",
  "cmux-build-identity",
  "cmux-config",
+ "cmux-holder",
  "cmux-host",
  "cmux-link",
  "cmux-panic-log",
@@ -1620,6 +1628,7 @@ dependencies = [
  "cmux-feed-core",
  "cmux-git",
  "cmux-history",
+ "cmux-holder",
  "cmux-layout-reducer",
  "cmux-link",
  "cmux-local-auth",

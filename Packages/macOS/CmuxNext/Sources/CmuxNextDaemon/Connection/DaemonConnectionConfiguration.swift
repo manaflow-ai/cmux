@@ -58,8 +58,8 @@ public struct DaemonConnectionConfiguration: Sendable {
 
     public init(
         clientName: String = "cmux-next",
-        requiredCapabilities: [String] = DaemonCapabilities.shared.required,
-        advertisedCapabilities: [String] = DaemonCapabilities.shared.advertised,
+        requiredCapabilities: [String] = DaemonCapabilities.required,
+        advertisedCapabilities: [String] = DaemonCapabilities.advertised,
         treeEvents: TreeEventMode = .deltas,
         retry: RetryPolicy = .reconnect,
         healthyAfter: Duration = .seconds(10),
@@ -107,7 +107,7 @@ public struct ClientHelloIdentity: Sendable {
 extension DaemonConnectionConfiguration {
     /// What the connection echoes in `set-client-info`.
     var handshakeCapabilities: [String] {
-        DaemonCapabilities.shared.handshakeCapabilities(advertisedCapabilities,
+        DaemonCapabilities.handshakeCapabilities(advertisedCapabilities,
                                                         resolvesShellIntegration: resolvesShellIntegration)
     }
 }

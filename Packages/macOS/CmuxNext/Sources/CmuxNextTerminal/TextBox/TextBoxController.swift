@@ -1,5 +1,4 @@
 package import AppKit
-package import CmuxNextActions
 
 /// One terminal's TextBox: its model and view, installed under the terminal
 /// (``TerminalHostView/bottomAccessory``) the first time it shows. A submit sends the draft
@@ -14,14 +13,14 @@ package final class TextBoxController {
     /// - Parameters:
     ///   - session: The terminal the box sits under.
     ///   - sink: Where a submit goes; nil sends it into `session`'s input.
-    ///   - perform: Runs a registry action (`cycleTextBoxSubmitAction`, `attachTextBoxFile`).
-    package init(session: TerminalSession, sink: (any TextBoxSink)? = nil, perform: @escaping @MainActor (ActionID) -> Void) {
+    ///   - perform: Runs the registry action of a ``TextBoxCommand`` (the App maps it to its `ActionID`).
+    package init(session: TerminalSession, sink: (any TextBoxSink)? = nil, perform: @escaping @MainActor (TextBoxCommand) -> Void) {
         self.session = session
         self.sink = sink ?? TerminalSessionTextBoxSink(session: session)
         self.perform = perform
     }
 
-    private let perform: @MainActor (ActionID) -> Void
+    private let perform: @MainActor (TextBoxCommand) -> Void
 
     /// The strip under the terminal, made the first time it is asked for.
     package var view: TextBoxView {
@@ -30,7 +29,7 @@ package final class TextBoxController {
         view.perform = perform
         view.textView.onSubmit = { [weak self] in _ = self?.submit() }
         view.textView.onEscape = { [weak self] in self?.focusTerminal() }
-        view.textView.onCycle = { [weak self] in self?.perform("cycleTextBoxSubmitAction") }
+        view.textView.onCycle = { [weak self] in self?.perform(.cycleSubmitAction) }
         installed = view
         session?.view.bottomAccessory = view
         return view
