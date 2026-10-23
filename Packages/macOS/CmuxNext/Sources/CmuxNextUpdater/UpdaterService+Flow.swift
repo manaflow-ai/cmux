@@ -63,6 +63,7 @@ extension UpdaterService {
     private func perform(_ effect: UpdateFlowEffect) {
         switch effect {
         case .install:
+            stagedRefresh.installStarted()
             log.append("gate: installing the staged update")
             #if DEBUG
             UpdateHarness.mark("install_started")
@@ -178,6 +179,7 @@ extension UpdaterService {
         guard self.ring != ring else { return }
         self.ring = ring
         controller?.ring = ring
+        stagedRefresh.ringMoved()
         log.append("update ring \(ring.rawValue)")
         guard picked else { return }
         log.append("update ring picked: checking \(ring.rawValue) now")

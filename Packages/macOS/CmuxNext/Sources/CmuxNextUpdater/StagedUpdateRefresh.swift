@@ -21,7 +21,8 @@ import Foundation
 /// restarts when the session ends), which stages the newest build again.
 ///
 /// Never during an install: only the Update Ready phase arms or runs it, and a click to install
-/// ends it. Stop condition and cleanup: the one-shot ``timer`` is armed only in Update Ready with
+/// ends it (``installStarted()``) until the phase leaves Update Ready. Stop condition and cleanup:
+/// the one-shot ``timer`` is armed only in Update Ready with
 /// `updates.checkAutomatically` on, and is cancelled when the phase leaves it (install, relaunch,
 /// swap, cancel) or the schedule changes; one probe runs at a time, and the next waits a whole
 /// interval. The timer cancels its sleep when this object goes; a probe in flight ends with its
@@ -38,9 +39,13 @@ final class StagedUpdateRefresh {
     var deltaWindow: TimeInterval?
     /// `updates.checkAutomatically` and `updates.checkIntervalSeconds` (``reschedule(automatic:interval:updater:)``).
     private(set) var schedule: (automatic: Bool, interval: TimeInterval) = (true, 3600)
-    /// The probe in flight, if any, the ring it reads and whether the person asked for it.
+    /// The probe in flight, if any, the ring pick it reads (``ringMoved()``) and whether the person asked for it.
     private(set) var task: Task<Void, Never>?
-    private var probing: (ring: UpdateRing, asked: Bool)?
+    private var probing: (pick: Int, asked: Bool)?
+    /// Counts the person's ring picks, so a probe that began before one (even away and back) is read again.
+    private var ringPicks = 0
+    /// A click on Install took the staged update: nothing probes or cancels until Update Ready ends.
+    private var installing = false
     let timer: DemandTimer
 
     init(clock: any Clock<Duration>) {
@@ -49,8 +54,23 @@ final class StagedUpdateRefresh {
 
     /// Follows the flow's phase: an update waiting arms the next probe; anything else ends it.
     func follow(_ phase: UpdateIndicatorPhase, updater: UpdaterService) {
-        guard case .ready = phase else { return timer.cancel() }
+        guard case .ready = phase else {
+            installing = false
+            return timer.cancel()
+        }
         arm(updater)
+    }
+
+    /// The followed ring moved: a probe in flight read the ring before it.
+    func ringMoved() {
+        ringPicks += 1
+    }
+
+    /// The person clicked Install on the staged update: the pending probe ends, none is armed, and
+    /// a probe in flight cancels nothing.
+    func installStarted() {
+        installing = true
+        timer.cancel()
     }
 
     /// A changed schedule replaces the pending deadline: off ends it, a new interval counts from now.
@@ -63,7 +83,7 @@ final class StagedUpdateRefresh {
 
     /// Schedules the next probe one interval from now, unless one is pending or running.
     private func arm(_ updater: UpdaterService) {
-        guard schedule.automatic, schedule.interval > 0, task == nil, !timer.isScheduled,
+        guard schedule.automatic, schedule.interval > 0, task == nil, !timer.isScheduled, !installing,
               case .ready = updater.flow.phase else { return }
         timer.schedule(after: .seconds(schedule.interval)) { @MainActor [weak self, weak updater] in
             guard let self, let updater, self.run(reason: "scheduled check", updater: updater) == nil else { return }
@@ -81,11 +101,11 @@ final class StagedUpdateRefresh {
             if asked { probing?.asked = true }
             return task
         }
-        guard case .ready = updater.flow.phase, !updater.flow.installRequested, updater.disabledReason == nil,
+        guard case .ready = updater.flow.phase, !installing, !updater.flow.installRequested, updater.disabledReason == nil,
               isReplaceable(updater), let staged = updater.stagedBuild(), !staged.isEmpty else { return nil }
         timer.cancel()
         updater.log.append("\(reason) while build \(staged) waits: looking for a newer \(updater.ring.rawValue) build")
-        probing = (updater.ring, asked)
+        probing = (ringPicks, asked)
         let probe = updater.probe()
         let task = Task { [weak self, weak updater] in
             let failure = await probe.value
@@ -106,8 +126,8 @@ final class StagedUpdateRefresh {
         let probed = probing
         task = nil
         probing = nil
-        if let probed, probed.ring != updater.ring {
-            // The person picked another ring while this probe read the old one: read the new one.
+        if let probed, probed.pick != ringPicks, !installing {
+            // The person picked a ring while this probe read the one before: read the ring now.
             if run(reason: "\(updater.ring.rawValue) ring picked", updater: updater) == nil { arm(updater) }
             return
         }
@@ -136,7 +156,7 @@ final class StagedUpdateRefresh {
     private func newerBuild(than staged: String, failure: String?, asked: Bool, updater: UpdaterService) -> String? {
         guard failure == nil else { return nil }
         // The person installed, or another build was staged, while the probe ran.
-        guard case .ready = updater.flow.phase, !updater.flow.installRequested,
+        guard case .ready = updater.flow.phase, !installing, !updater.flow.installRequested,
               updater.stagedBuild() == staged, isReplaceable(updater) else { return nil }
         guard case .updateAvailable(let item)? = updater.lastProbe?.outcome,
               AppcastSelector.isOlder(staged, than: item.version) else {
