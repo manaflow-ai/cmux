@@ -176,3 +176,9 @@
 .acpmux-summary-empty{margin:0;padding:10px 8px 6px;color:var(--agent-muted);font-size:var(--text-detail);line-height:16px}
 .acpmux-summary-attach{margin-top:2px;color:var(--agent-muted)}
 .acpmux-summary-attach:hover{color:var(--agent-text)}
+/* Sources' Use tools (SourcesAddMenu.tsx): a check row per tool, its name then its source muted; a change's note (when it applies, or why not) takes the source's place, the warning colour for a refusal. */
+.acpmux-tools-row>.ui-menu-check{flex:none}
+.acpmux-tools-name{flex:0 1 auto;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.acpmux-tools-source,.acpmux-tools-note{flex:0 1 auto;min-width:0;margin-inline-start:auto;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--agent-muted);font-size:var(--text-detail)}
+.acpmux-tools-note[data-kind=error]{color:var(--acpmux-warning)}
+.acpmux-tools-empty{padding:4px var(--ui-row-padding-inline);color:var(--agent-muted)}

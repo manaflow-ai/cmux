@@ -65,7 +65,7 @@ test("neighbouring chips on the right keep their labels 8 px apart, as with the 
 
 test("the context ring keeps its place past the model's text", () => {
   const ring = rules(".acpmux-composer-foot .acpmux-context-ring").join(";");
-  expect(ring).toMatch(
-    /margin-inline\s*:\s*calc\(12px - var\(--acpmux-pill-pad\)\)\s+calc\(var\(--acpmux-pill-pad\) - 4px\)/,
-  );
+  // 8 px past the model's text and on the row's end (#23785, #24216: the row adds no inset).
+  expect(ring).toMatch(/margin-inline-start\s*:\s*8px/);
+  expect(ring).toMatch(/--acpmux-pill-icon\s*:\s*24px/);
 });

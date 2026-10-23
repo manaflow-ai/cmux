@@ -187,6 +187,12 @@ nonisolated enum WorkspaceGroupActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette], targets: [.workspaceGroup], cliName: "workspace-group move-to-new-window"
             ),
             ActionDescriptor(
+                id: "workspaceGroup.clearColor",
+                title: String(localized: "action.workspaceGroup.clearColor", defaultValue: "Remove Workspace Group Color", bundle: .module),
+                keywords: ["group", "color", "clear", "reset", "none"], category: .workspace, symbol: "circle.slash",
+                surfaces: [.palette, .contextMenu], targets: [.workspaceGroup], cliName: "workspace-group clear-color"
+            ),
+            ActionDescriptor(
                 id: "workspaceGroup.color.grey",
                 title: String(localized: "action.workspaceGroup.color.grey", defaultValue: "Workspace Group Color: Grey", bundle: .module),
                 keywords: ["group", "color", "grey"], category: .workspace, symbol: "circle.fill", surfaces: [.palette],
