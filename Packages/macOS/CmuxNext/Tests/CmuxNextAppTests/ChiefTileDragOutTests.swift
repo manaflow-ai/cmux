@@ -127,4 +127,27 @@ struct ChiefTileDragOutTests {
         #expect(h.removed == [Self.chief.rawValue], "a release beside the sidebar kept the Chief (\(document ? "document list" : "top band"))")
         #expect(!h.dragging)
     }
+
+    /// Dragged out and released over another cmux window or the desktop: that window gets the release, never the
+    /// tile, and the list ends the drag once its dispatch is over (`pointerEventSeen`). The release point still
+    /// decides: beside the sidebar the Chief comes off, back over it the Chief stays.
+    @Test(arguments: [true, false])
+    func aReleaseSentToAnotherWindowStillDecides(beside: Bool) async throws {
+        defer { Motion.reduceMotionOverride = nil }
+        let h = Harness(document: true)
+        defer { h.window.orderOut(nil) }
+        let (_, inside) = try h.dragChiefOut()
+        let other = NSWindow(contentRect: NSRect(x: 900, y: 200, width: 200, height: 200), styleMask: [.borderless],
+                             backing: .buffered, defer: false)
+        other.isReleasedWhenClosed = false
+        defer { other.close() }
+        h.list.leftButtonIsDown = { false }
+        let release = beside ? NSPoint(x: h.sidebar.convert(h.sidebar.bounds, to: nil).maxX + 80, y: inside.y) : inside
+        #expect(!h.list.pointerEventSeen(.leftMouseUp, in: other, at: h.window.convertPoint(toScreen: release)))
+        await withCheckedContinuation { done in DispatchQueue.main.async { done.resume() } }
+        h.finish()
+        #expect(h.removed == (beside ? [Self.chief.rawValue] : []),
+                beside ? "a release beside the sidebar, sent to another window, kept the Chief" : "a release over the sidebar removed the Chief")
+        #expect(!h.dragging)
+    }
 }

@@ -45,9 +45,9 @@ extension SidebarListViewComponents {
     ///   another tracking loop took it). It ends now, wherever the new press lands; a press on the list ends it too.
     /// - A release sent to another window: a panel over this window may still forward it here (`WindowOverlayHost`),
     ///   so the gesture ends after that dispatch, if it did not end there and no new press began.
-    /// Returns true when the gesture ended now.
+    /// Returns true when the gesture ended now. `screenPoint`: where the event happened, on screen.
     @discardableResult
-    func pointerEventSeen(_ type: NSEvent.EventType, in eventWindow: NSWindow?) -> Bool {
+    func pointerEventSeen(_ type: NSEvent.EventType, in eventWindow: NSWindow?, at screenPoint: NSPoint? = nil) -> Bool {
         guard holdsPointerGesture else { return false }
         switch type {
         case .leftMouseDown:

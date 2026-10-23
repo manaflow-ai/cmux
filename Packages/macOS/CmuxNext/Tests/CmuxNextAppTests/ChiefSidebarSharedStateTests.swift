@@ -12,15 +12,17 @@ import Testing
 /// from one window's rows or a status set by hand.
 @MainActor @Suite(.serialized)
 struct ChiefSidebarSharedStateTests {
-    /// The sidebar document: This Mac's list holds the Work group, and the Chief sits in that group.
-    static let document = Data("""
-    {"revision": "1",
-     "sections": [{"id": "sec_m_s1", "kind": {"type": "machine", "session_id": "s1"}}],
-     "items": [
-       {"id": "g_work", "section": "sec_m_s1", "order": "a", "body": {"type": "group", "name": "Work"}},
-       {"id": "itm_chief", "section": "sec_m_s1", "parent": "g_work", "order": "a", "body": {"type": "builtin", "id": "chief"}}
-     ]}
-    """.utf8)
+    /// The sidebar document: This Mac's list holds the Work group, and (with `chief`) the Chief sits in that group.
+    static func document(chief: Bool = true) -> Data {
+        let item = #"{"id": "itm_chief", "section": "sec_m_s1", "parent": "g_work", "order": "a", "body": {"type": "builtin", "id": "chief"}}"#
+        return Data("""
+        {"revision": "1",
+         "sections": [{"id": "sec_m_s1", "kind": {"type": "machine", "session_id": "s1"}}],
+         "items": [
+           {"id": "g_work", "section": "sec_m_s1", "order": "a", "body": {"type": "group", "name": "Work"}}\(chief ? ", " + item : "")
+         ]}
+        """.utf8)
+    }
 
     /// A window's sidebar: with `listsChief` its rows hold the Work group's Chief; without, its workspace
     /// membership leaves that group out, so it draws no Chief at all.
@@ -33,8 +35,8 @@ struct ChiefSidebarSharedStateTests {
         return model
     }
 
-    static func loadedDocument() async throws -> SidebarDocStore {
-        let store = SidebarDocStore(remote: SidebarGroupDragRailTests.Remote(document: document))
+    static func loadedDocument(chief: Bool = true) async throws -> SidebarDocStore {
+        let store = SidebarDocStore(remote: SidebarGroupDragRailTests.Remote(document: document(chief: chief)))
         store.refresh()
         await RapidWorkspaceCreateTests.wait(within: .seconds(10)) { store.isActive }
         try #require(store.isActive, "the store did not load the document")
@@ -69,22 +71,44 @@ struct ChiefSidebarSharedStateTests {
         #expect(chief.isPlaced, "the Chief the document places counts as not placed")
     }
 
-    /// Home's list: the Chief's conversation, read unless `unread` messages wait, muted with `muted`.
-    static func home(unread: Int = 0, muted: Bool = false) -> HomeSidebarSource {
-        let suite = "cmux.tests.chiefSidebarUnread.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defaults.removePersistentDomain(forName: suite)
-        let rows = [HomeUnreadIndicatorTests.row("chief", unread: unread, muted: muted)]
-        return HomeSidebarSource(store: HomePinStore(defaults: defaults), account: { "acct" }, rows: { rows },
-                                 me: { HomeUnreadIndicatorTests.me }, contacts: { [] })
+    /// A drag in, then a drag out, before the daemon answers either (#23933 review): the Chief's placement is the
+    /// sidebar as it draws (the document with its pending changes), not the confirmed document the daemon has not
+    /// changed yet. Else the App Store card offers the wrong action and a quick drag in adds a second Chief.
+    @Test func placementFollowsAChangeBeforeTheDaemonAnswers() async throws {
+        let store = try await Self.loadedDocument(chief: false)
+        let chief = ChiefSidebar(lanes: AgentLaneStore())
+        let window = Self.window(listsChief: false)
+        let follow = window.followTopItems(chief: chief, document: { store })
+        defer { follow.cancel(); withExtendedLifetime(window) {} } // the feed holds its window weakly
+        await RapidWorkspaceCreateTests.wait(within: .milliseconds(300)) { chief.isPlaced }
+        try #require(!chief.isPlaced, "a document with no Chief counts one placed")
+
+        // The test daemon never answers: no batch confirms either change.
+        try store.sendChecked(ops: [["op": "item.add", "item": ["id": "itm_chief", "body": ["type": "builtin", "id": "chief"]],
+                                     "to": ["section": "sec_m_s1"]]], title: "Add", undoable: false)
+        #expect(store.placesItem(with: .builtIn(.chief)), "a Chief added and not yet confirmed counts as not placed")
+        await RapidWorkspaceCreateTests.wait(within: .seconds(5)) { chief.isPlaced }
+        #expect(chief.isPlaced, "the feed missed the Chief added before the daemon answered")
+
+        try store.sendChecked(ops: [["op": "item.remove", "id": "itm_chief"]], title: "Remove", undoable: false)
+        #expect(!store.placesItem(with: .builtIn(.chief)), "a Chief removed and not yet confirmed still counts as placed")
+        await RapidWorkspaceCreateTests.wait(within: .seconds(5)) { !chief.isPlaced }
+        #expect(!chief.isPlaced, "the feed kept the Chief removed before the daemon answered")
     }
 
-    /// The Chief item following `home` through the App's binding.
-    static func follow(_ home: HomeSidebarSource) -> ChiefSidebar {
+    /// The App's services with Home listing the Chief's conversation: read unless `unread` messages wait, muted
+    /// with `muted`, and not marked.
+    static func services(unread: Int = 0, muted: Bool = false) -> AppServices {
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        services.home.groupMuting.debugRows = [HomeUnreadIndicatorTests.row("chief", unread: unread, muted: muted)]
+        services.home.groupMuting.setMarkedUnread(false, ConversationID("chief"))
+        return services
+    }
+
+    /// The Chief item following the App's own host (`ChiefSidebar.Host.app`), its conversation the one listed.
+    static func follow(_ services: AppServices) -> ChiefSidebar {
         let chief = ChiefSidebar(lanes: AgentLaneStore())
-        chief.follow(ChiefSidebar.Host(conversation: { "chief" }, chiefHost: { nil }, tab: { _, _ in nil }, reveal: { _ in false },
-                                       openWorkspace: { _, _ in throw CancellationError() },
-                                       unread: { ChiefSidebar.Host.unread(chief: "chief", in: home) }))
+        chief.follow(.app(services, conversation: { "chief" }))
         return chief
     }
 
@@ -92,9 +116,9 @@ struct ChiefSidebarSharedStateTests {
     /// Unmuted, the same messages dot both.
     @Test(arguments: [false, true])
     func theChiefItemDotsExactlyWhenHomeDoes(muted: Bool) async throws {
-        let home = Self.home(unread: 2, muted: muted)
-        try #require(home.unreadConversations.isEmpty == muted, "Home's own dot is not what this case expects")
-        let chief = Self.follow(home)
+        let services = Self.services(unread: 2, muted: muted)
+        try #require(services.home.unreadConversations.isEmpty == muted, "Home's own dot is not what this case expects")
+        let chief = Self.follow(services)
         await RapidWorkspaceCreateTests.wait(within: muted ? .milliseconds(300) : .seconds(5)) { chief.status.unread }
         #expect(chief.status.unread == !muted, muted ? "a muted Chief conversation dots the item though Home shows none"
                                                      : "an unread Chief conversation shows no dot on the item")
@@ -103,8 +127,9 @@ struct ChiefSidebarSharedStateTests {
     /// Mark as Unread on the read Chief conversation: Home dots it, so the Chief item's status (the App's
     /// binding, followed by the item's own observer) shows it unread; Mark as Read takes it back.
     @Test func markAsUnreadInHomeShowsOnTheChiefItem() async throws {
-        let home = Self.home()
-        let chief = Self.follow(home)
+        let services = Self.services()
+        let home = services.home.groupMuting
+        let chief = Self.follow(services)
         await RapidWorkspaceCreateTests.wait(within: .milliseconds(300)) { chief.status.unread }
         #expect(!chief.status.unread, "a read Chief conversation shows unread")
 
