@@ -19,19 +19,19 @@ struct CloudHubLoopbackTests {
 
         init(reply: UInt8) throws {
             unlink(path)
-            listener = socket(AF_UNIX, SOCK_STREAM, 0)
+            let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+            listener = fd
             var address = sockaddr_un()
             address.sun_family = sa_family_t(AF_UNIX)
             withUnsafeMutableBytes(of: &address.sun_path) { buffer in
                 for (index, byte) in path.utf8.enumerated() { buffer[index] = byte }
             }
             let bound = withUnsafePointer(to: &address) {
-                $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(listener, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
+                $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
             }
-            guard bound == 0, listen(listener, 1) == 0 else { throw POSIXError(.EADDRINUSE) }
-            let listener = listener
+            guard bound == 0, listen(fd, 1) == 0 else { throw POSIXError(.EADDRINUSE) }
             Thread.detachNewThread { [self] in
-                let client = accept(listener, nil, nil)
+                let client = accept(fd, nil, nil)
                 guard client >= 0 else { return }
                 defer { close(client) }
                 guard Self.read(client, 3) == Data([0x05, 0x01, 0x00]) else { return }
