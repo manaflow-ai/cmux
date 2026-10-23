@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesignTokens
 
 /// The groups the background picker shows bundled art in, in picker order.
 public nonisolated enum BackdropArtCollection: String, CaseIterable, Equatable, Sendable {

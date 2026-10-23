@@ -26,7 +26,12 @@ const PASSES =
   ".ui-positioner, .ui-popup, [aria-haspopup], .acpmux-composer-queue button, .acpmux-queue-foldbar button";
 const SWALLOWED = ["pointerdown", "mousedown", "pointerup", "mouseup", "click"] as const;
 
-let installed: { doc: Document; count: number; remove(): void } | null = null;
+let installed: { doc: Document; count: number; remove(): void; swallowing(): boolean } | null = null;
+
+/** Whether the press now under way only closes a composer menu (another handler should ignore it). */
+export function swallowsPress(doc: Document): boolean {
+  return installed?.doc === doc && installed.swallowing();
+}
 
 /** Installs the guard on the page for as long as a composer is mounted. */
 export function useMenuPressGuard() {
@@ -39,7 +44,7 @@ export function installMenuPressGuard(doc: Document): () => void {
     installed.count += 1;
   } else {
     installed?.remove();
-    installed = { doc, count: 1, remove: install(doc) };
+    installed = { doc, count: 1, ...install(doc) };
   }
   let released = false;
   return () => {
@@ -52,9 +57,9 @@ export function installMenuPressGuard(doc: Document): () => void {
   };
 }
 
-function install(doc: Document): () => void {
+function install(doc: Document): { remove(): void; swallowing(): boolean } {
   const view = doc.defaultView;
-  if (!view) return () => {};
+  if (!view) return { remove: () => {}, swallowing: () => false };
   let swallowing: number | null = null;
   // Decided first, on the window, while the menu is still open: the menus close on this press.
   const decide = (event: PointerEvent) => {
@@ -88,10 +93,13 @@ function install(doc: Document): () => void {
   view.addEventListener("pointercancel", cancel, true);
   view.addEventListener("blur", blur);
   for (const type of SWALLOWED) doc.body.addEventListener(type, swallow, true);
-  return () => {
-    view.removeEventListener("pointerdown", decide, true);
-    view.removeEventListener("pointercancel", cancel, true);
-    view.removeEventListener("blur", blur);
-    for (const type of SWALLOWED) doc.body.removeEventListener(type, swallow, true);
+  return {
+    remove: () => {
+      view.removeEventListener("pointerdown", decide, true);
+      view.removeEventListener("pointercancel", cancel, true);
+      view.removeEventListener("blur", blur);
+      for (const type of SWALLOWED) doc.body.removeEventListener(type, swallow, true);
+    },
+    swallowing: () => swallowing !== null,
   };
 }

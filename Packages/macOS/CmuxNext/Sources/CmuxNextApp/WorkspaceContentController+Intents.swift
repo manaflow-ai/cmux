@@ -28,12 +28,12 @@ extension WorkspaceContentController {
             }
         case .setColumnDock(_, let anyPane, let dock, let transaction):
             // Hidden until the daemon serves it; a stale intent rolls back.
-            guard daemon.supports(DaemonCapabilities.shared.dockColumns), let handle = handles.panes[anyPane] else {
+            guard daemon.supports(DaemonCapabilities.dockColumns), let handle = handles.panes[anyPane] else {
                 return layoutModel.rejectTransaction(transaction)
             }
             // A top or bottom dock needs edge-docks-v1; a daemon without it
             // would refuse the edge, so the intent rolls back here.
-            if dock?.edge.isBand == true, !daemon.supports(DaemonCapabilities.shared.edgeDocks) {
+            if dock?.edge.isBand == true, !daemon.supports(DaemonCapabilities.edgeDocks) {
                 return layoutModel.rejectTransaction(transaction)
             }
             let daemonTransaction = nextDaemonTransaction()
@@ -44,8 +44,8 @@ extension WorkspaceContentController {
         case .setRowHeights(let column, let heights, let fit):
             setRowHeights(column, heights: heights, fit: fit)
         case .newRow(let below, let height):
-            guard daemon.supports(DaemonCapabilities.shared.rows), let handle = handles.panes[below] else {
-                return services.registry.refuse(daemon.missingCapabilityMessage(DaemonCapabilities.shared.rows))
+            guard daemon.supports(DaemonCapabilities.rows), let handle = handles.panes[below] else {
+                return services.registry.refuse(daemon.missingCapabilityMessage(DaemonCapabilities.rows))
             }
             let cwd = panes[below]?.selectedTab?.cwd
             let key = workspace.key
@@ -126,7 +126,7 @@ extension WorkspaceContentController {
     /// over the mirror until the daemon settles or refuses it (rows.md Z1;
     /// the layout model keeps no copy).
     private func setRowHeights(_ column: LayoutColumnID, heights: [RowHeight], fit: Bool) {
-        guard daemon.supports(DaemonCapabilities.shared.rows), let handle = handles.columns[column] else { return }
+        guard daemon.supports(DaemonCapabilities.rows), let handle = handles.columns[column] else { return }
         var mapped: [RowHeightValue] = []
         for height in heights {
             guard let row = handles.rows[height.row] else { return }

@@ -140,6 +140,11 @@ public final class UpdaterService {
     public var preferences = UpdatePreferences.defaults
     /// Sparkle's staged install and its cancel (replaced by tests).
     @ObservationIgnored var installStaged: () -> Void = {}
+    /// The install click replaced a stale staged build (``StagedUpdateRefresh/beforeInstall(updater:install:)``):
+    /// the click carries over to the newer build's check and download (``carryInstallClick(_:)``).
+    @ObservationIgnored var installAfterSwap = false
+    /// Replaces the install click's disk preflight (``installPreflightFailure()``) in tests.
+    @ObservationIgnored var preflightOverride: (() -> UpdateInstallPreflight.Failure?)?
     /// The cancel returns whether an installer was held and is now cancelled.
     @ObservationIgnored var cancelStaged: () -> Bool = { false }
     @ObservationIgnored var acceptAvailable: () -> Void = {}

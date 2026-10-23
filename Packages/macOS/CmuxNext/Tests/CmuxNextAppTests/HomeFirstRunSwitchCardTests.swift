@@ -4,6 +4,7 @@ import CmuxNextActions
 @testable import CmuxNextHome
 import Foundation
 import Testing
+import CmuxNextHomeEngine
 
 /// Home's first-run Switching card (Lawrence 2026-10-19: make Ctrl-1…9 for
 /// tabs explicit at first run): its keys follow the live binding table, it

@@ -1,6 +1,21 @@
 import { preferenceStorage } from "../browser-storage";
-import { useEffect } from "react";
-import type { CommandGroup, Provider, SessionOption } from "../session";
+import { useEffect, useRef } from "react";
+import type { CommandGroup, CwdCheck, CwdHarnessRequest, Provider, SessionOption, SessionState } from "../session";
+
+/** Check restored sessions once per cwd on each connection, independently of composer edits. */
+export function useSessionCwdCheck({ ready, connectionEpoch, phase, session, checkCwd }: Pick<SessionState,
+  "ready" | "connectionEpoch" | "phase" | "session" | "checkCwd"
+>) {
+  const requested = useRef({ epoch: connectionEpoch, cwds: new Set<string>() });
+  const cwd = session?.cwd;
+  useEffect(() => {
+    if (requested.current.epoch !== connectionEpoch) {
+      requested.current = { epoch: connectionEpoch, cwds: new Set() };
+    }
+    if (!ready || phase !== "chat" || !cwd || requested.current.cwds.has(cwd)) return;
+    if (checkCwd(cwd)) requested.current.cwds.add(cwd);
+  }, [checkCwd, connectionEpoch, cwd, phase, ready]);
+}
 
 export function useDefaultCwd(
   defaultCwd: string,
@@ -84,23 +99,33 @@ export function loadingProviderOptionIds(
 export function useCwdValidation(
   ready: boolean,
   connectionEpoch: number,
-  cwd: string,
+  committedCwd: string,
+  draftCwd: string,
   defaultCwd: string,
-  cwdChecks: Record<string, { ok: boolean; message?: string }>,
-  checkCwd: (cwd: string) => void,
+  cwdChecks: Record<string, CwdCheck>,
+  checkCwd: (cwd: string) => CwdHarnessRequest | null,
   setCwd: (cwd: string) => void,
   setCommittedCwd: (cwd: string) => void,
 ) {
+  const pendingRequest = useRef<CwdHarnessRequest | null>(null);
   useEffect(() => {
-    if (ready && cwd) checkCwd(cwd);
-  }, [checkCwd, connectionEpoch, cwd, ready]);
+    pendingRequest.current = ready && committedCwd ? checkCwd(committedCwd) : null;
+  }, [checkCwd, committedCwd, connectionEpoch, ready]);
   useEffect(() => {
-    const checked = cwdChecks[cwd];
-    if (!checked || checked.ok || !defaultCwd) return;
+    const checked = cwdChecks[committedCwd];
+    const request = pendingRequest.current;
+    if (
+      !checked
+      || !request
+      || checked.requestId !== request.requestId
+      || checked.connectionEpoch !== request.connectionEpoch
+    ) return;
+    pendingRequest.current = null;
+    if (checked.ok || !defaultCwd || draftCwd !== committedCwd) return;
     setCwd(defaultCwd);
     setCommittedCwd(defaultCwd);
     preferenceStorage.setItem("agentui.cwd", defaultCwd);
-  }, [cwd, cwdChecks, defaultCwd, setCommittedCwd, setCwd]);
+  }, [committedCwd, cwdChecks, defaultCwd, draftCwd, setCommittedCwd, setCwd]);
 }
 
 export function useCwdErrorFallback(
