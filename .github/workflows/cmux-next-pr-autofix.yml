@@ -452,6 +452,7 @@ jobs:
           GRAPH: ${{ steps.areas.outputs.graph }}
           STRINGS: ${{ steps.areas.outputs.strings }}
           SDK: ${{ steps.areas.outputs.sdk }}
+          CAPABILITIES: ${{ steps.areas.outputs.capabilities }}
           SHORTCUTS: ${{ steps.areas.outputs.shortcuts }}
           APPHOST: ${{ steps.areas.outputs.apphost }}
           ACTIONS: ${{ steps.areas.outputs.actions || needs.action-areas.outputs.actions }}
@@ -477,6 +478,8 @@ jobs:
           [[ "$GRAPH" == true ]] && args+=(--package-dump "$RUNNER_TEMP/package-dump.json")
           [[ "$STRINGS" == true ]] && args+=(--strings)
           [[ "$SDK" == true ]] && args+=(--sdk)
+          # The source parser regenerates the daemon capability export without a Swift build.
+          [[ "$CAPABILITIES" == true ]] && grep -q -- '--capabilities)' "$AUTOFIX/base-autofix.sh" && args+=(--capabilities)
           [[ "$SHORTCUTS" == true ]] && args+=(--docs-shortcuts)
           # The base's script takes --app-host once this repair has landed there.
           [[ "$APPHOST" == true ]] && grep -q -- '--app-host)' "$AUTOFIX/base-autofix.sh" && args+=(--app-host)
