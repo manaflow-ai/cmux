@@ -30,6 +30,7 @@ import argparse, glob, importlib.util, json, os, plistlib, signal, socket, subpr
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from tag_teardown import TagTeardown  # noqa: E402
+from bench_launch import LaunchError, launch_app  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", default=os.environ.get("NX_APP"))
@@ -51,7 +52,7 @@ with open(os.path.join(APP, "Contents/Info.plist"), "rb") as f:
     info = plistlib.load(f)
 BINARY = os.path.join(APP, "Contents/MacOS", info["CFBundleExecutable"])
 TAG = opts.tag or os.environ.get("NX_APP_TAG") or os.path.basename(APP).removesuffix(".app").split(" ")[-1]
-SOCKET = os.environ.get("NX_APP_SOCKET") or f"/tmp/cmux-debug-{TAG}.sock"
+SOCKET = os.environ.get("NX_APP_SOCKET") or f"/tmp/cmux-debug-{TAG}.sock"  # replaced by launch_app's socket
 CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
 
 
@@ -245,34 +246,38 @@ def stress():
     return result
 
 
-if os.path.exists(SOCKET):
-    os.unlink(SOCKET)
 scratch = tempfile.mkdtemp(prefix=f"bench-terminal-resize-{TAG}-")
 config = os.path.join(scratch, "cmux.json")
 with open(config, "w") as f:
     f.write("{}\n")
 ghostty = os.path.join(scratch, "ghostty")
 open(ghostty, "w").close()
-env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
-       "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_CONFIG_FILE": config,
-       "CMUX_NEXT_GHOSTTY_CONFIG": ghostty, "CMUX_NEXT_TEST_WINDOW_FRAME": "80,80,1600,1000"}
-# The measure entry (split-spring.sh) runs on an exclusive worker: same environment as its own bench.
+# The bench defaults (bench_launch.BenchApp) apply under this env: the scratch config, an empty Ghostty config.
+env = {"CMUX_NEXT_CONFIG_FILE": config, "CMUX_NEXT_GHOSTTY_CONFIG": ghostty,
+       "CMUX_NEXT_TEST_WINDOW_FRAME": "80,80,1600,1000"}
 teardown = TagTeardown(APP)
 teardown.install()
-log = open(os.path.join(opts.out, "app.log"), "a")
-app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
-report = {"pid": app.pid, "app": APP, "layouts": []}
+app = None
+report = {"app": APP, "layouts": []}
+
+
+def started(process):
+    global app
+    app = process
+    report["pid"] = process.pid
+
+
 try:
-    if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.windows") or {}).get("windows"), 120):
-        log.flush()
-        tail = open(os.path.join(opts.out, "app.log"), errors="replace").read()[-3000:]
-        sys.exit(f"app did not come up: socket {SOCKET} exists={os.path.exists(SOCKET)}; app log tail:\n{tail}")
+    try:
+        _, SOCKET = launch_app(APP, env, os.path.join(opts.out, "app.log"), timeout=120, on_start=started)
+    except LaunchError as error:
+        sys.exit(f"app did not come up: {error}")
     for name in [n for n in opts.layouts.split(",") if n]:
         result = {"idle-cursor": idle_cursor, "light": light, "stress": stress}[name]()
         report["layouts"].append(result)
         print(f"TERMINAL-RESIZE {json.dumps(result)}", flush=True)
 finally:
-    if app.poll() is None:
+    if app is not None and app.poll() is None:
         app.send_signal(signal.SIGTERM)
         try:
             app.wait(20)

@@ -46,6 +46,8 @@ BENCHES = [
     bench("sidebar-stress", "sidebar-stress-bench.py", "--sizes", "20", "--stop", "--tickers", "2", "--scenarios", "ticks", "--no-trace", json_flag=False),
     bench("agent-engine", "agent-engine-bench.py", "--modes", "own", "--chats", "1", "--flings", "1"),
     bench("instant-new-surfaces", "instant-new-surfaces-bench.py", "--runs", "1"),
+    bench("terminal-resize", "bench-terminal-resize.py", "--layouts", "light", "--steps", "10", "--rounds", "1",
+          "--scrollback", "2000"),
 ]
 
 
