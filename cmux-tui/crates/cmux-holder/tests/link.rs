@@ -21,6 +21,7 @@ struct Collect {
     exit: Mutex<Option<ExitStatus>>,
     /// Each ADOPTED answer's ring end, with the bytes received before it.
     adopted: Mutex<Vec<(u64, usize)>>,
+    refused: Mutex<Option<String>>,
 }
 
 impl TerminalSink for Collect {
@@ -38,6 +39,9 @@ impl TerminalSink for Collect {
     fn adopted(&self, end: u64) {
         let received = self.bytes.lock().unwrap().len();
         self.adopted.lock().unwrap().push((end, received));
+    }
+    fn refused(&self, message: &str) {
+        *self.refused.lock().unwrap() = Some(message.to_string());
     }
 }
 
@@ -283,5 +287,41 @@ fn a_spawn_that_times_out_leaves_no_terminal_on_the_holder() {
     let stream = stand_in.join().expect("the stand-in holder saw every frame it waits for");
     drop(stream);
     drop(link);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Holder-core review: an ATTACH or ADOPT the holder refuses ends the sink
+/// that waits for it. The link had registered the sink and returned Ok, so
+/// without a word that terminal's reader and wait would block for ever (a
+/// frozen tab instead of one that reports its host lost).
+#[test]
+fn an_attach_or_adopt_the_holder_refuses_ends_its_sink() {
+    let dir = support::unique_dir("cmhr");
+    let socket = dir.join("h.sock");
+    let mut holder = cmux_holder::client::launch(
+        std::path::Path::new(env!("CARGO_BIN_EXE_cmux-holder")),
+        &socket,
+        &TOKEN,
+    )
+    .unwrap();
+    let (link, _) = HolderLink::connect(&socket, &TOKEN, Box::new(|_| {})).unwrap();
+
+    // The holder runs no terminal 77.
+    let unknown = Arc::new(Collect::default());
+    link.attach(77, 0, unknown.clone()).unwrap();
+    wait_for("the refused ATTACH", || unknown.refused.lock().unwrap().is_some());
+
+    // Channel 1 is in use: an ADOPT of it is refused.
+    let running = Arc::new(Collect::default());
+    let spawned = link.spawn(1, &request(1, "exec cat"), running).unwrap();
+    let adopter = Arc::new(Collect::default());
+    let _answer = link
+        .adopt(1, &[9; 16], (spawned.pid, 0, 0), (&spawned.master, None), (adopter.clone(), b""))
+        .unwrap();
+    wait_for("the refused ADOPT", || adopter.refused.lock().unwrap().is_some());
+
+    link.close(1, 200).unwrap();
+    let _ = holder.kill();
+    let _ = holder.wait();
     let _ = std::fs::remove_dir_all(&dir);
 }
