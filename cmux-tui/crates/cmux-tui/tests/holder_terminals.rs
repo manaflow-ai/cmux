@@ -325,6 +325,29 @@ fn a_holder_shell_that_exits_ends_its_terminal_with_its_status() {
     assert_eq!(resolved["exit"]["outcome"], json!({"kind": "exit", "code": 3}), "{resolved}");
 }
 
+/// A standalone holder that runs but never says `ready` (a startup error,
+/// a crash in serve, a macOS major it fails on) must not cost every holder
+/// terminal: the daemon starts the holder built into its host executable
+/// instead, and keeps using that one.
+#[test]
+fn a_standalone_holder_that_never_starts_falls_back_to_the_built_in_holder() {
+    let mut daemon =
+        Daemon::start_with_env(&[("CMUX_TUI_HOLDER_EXE", Path::new("/usr/bin/false"))]);
+    for index in 0..2 {
+        let created = request(
+            &daemon.socket,
+            json!({"cmd": "run", "argv": ["/bin/cat"], "new_workspace": true,
+                "name": format!("fallback-{index}"), "cols": 80, "rows": 24}),
+        );
+        let surface = created["surface"].as_u64().unwrap();
+        daemon.track(surface);
+        send(&daemon.socket, surface, &format!("built-in-{index}"));
+        screen_contains(&daemon.socket, surface, &format!("built-in-{index}"));
+        let holder = parent_of(shell_pid(&daemon.socket, surface));
+        assert_ne!(exe_name(holder), "false", "the shell runs on a holder");
+    }
+}
+
 /// Review 2: closing a tab right after the holder died must not connect,
 /// start a holder or re-adopt under the surface's runtime lock (a lock rank
 /// panic in a debug daemon, a deadlock against a resize in release). The
