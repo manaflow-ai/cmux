@@ -717,6 +717,8 @@
     "setting.tasks.layout": "inbox",
     "setting.terminal.fontFamily": null,
     "setting.terminal.fontSize": null,
+    "setting.terminal.linkOpener.default": "cmux",
+    "setting.terminal.linkOpener.rules": [],
     "setting.ui.animationSpeed": "fast",
     "setting.ui.animations.bounce": "none",
     "setting.ui.animations.cursor": true,
