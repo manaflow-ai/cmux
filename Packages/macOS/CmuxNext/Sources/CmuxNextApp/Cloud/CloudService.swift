@@ -295,25 +295,39 @@ final class CloudService {
 
     // MARK: Machine list
 
+    /// Bumped by each ``refresh()`` and by ``dropAllMachines()``: a list that
+    /// comes back after a newer refresh started, or after the account's
+    /// machines were dropped (sign-out, another account), is stale.
+    @ObservationIgnored private var listGeneration = 0
+
     /// Fetches `/api/vm` and reconciles sessions: new live machines connect,
-    /// gone machines disconnect, records update in place.
+    /// gone machines disconnect, records update in place. A stale list (see
+    /// `listGeneration`) changes nothing, so it can neither bring back a
+    /// signed-out account's machines nor mark the store loaded with an
+    /// older answer than the latest refresh's.
     func refresh() async {
         guard auth.isSignedIn, unavailableReason == nil else { return }
         lastRefresh = .now
+        listGeneration += 1
+        let generation = listGeneration
         do {
             let list: [CloudMachine]
+            let limits: CloudMachineLimits?
             if configuration.linkSource == .appServer {
                 list = try await appServerMachines()
-                machines.cloudLimits = nil
+                limits = nil
             } else {
                 let listed = try await api.listMachinesAndLimits()
                 list = listed.machines
-                machines.cloudLimits = listed.limits
+                limits = listed.limits
             }
+            guard listGeneration == generation, auth.isSignedIn else { return }
+            machines.cloudLimits = limits
             lastError = nil
             reconcile(list)
             hasLoadedMachines = true
         } catch {
+            guard listGeneration == generation, auth.isSignedIn else { return }
             lastError = String(describing: error)
             logger.error("machine list failed: \(String(describing: error), privacy: .public)")
         }
@@ -379,6 +393,8 @@ final class CloudService {
     }
 
     private func dropAllMachines() {
+        // A list in flight belongs to the machines dropped here.
+        listGeneration += 1
         for creation in creations.all { creations.remove(creation) }
         for session in machines.cloud { machines.remove(session.machineID)?.disconnect() }
         machines.cloudLimits = nil
