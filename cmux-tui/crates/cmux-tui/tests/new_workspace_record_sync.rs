@@ -9,6 +9,8 @@
 //! data and a directory sync on the request path (the deprecated recovery
 //! mirror): three slow syncs before the reply. Now the host's first record
 //! names the workspace, so at most the record's own data barrier is left.
+//! A tab moved to another workspace rewrote its host's record (two syncs) on
+//! the request path too; now the rewrite is queued off it.
 
 #![cfg(unix)]
 
@@ -46,6 +48,23 @@ impl Client {
             }
         }
     }
+}
+
+/// The id of the workspace whose pane holds `surface`.
+fn workspace_of(client: &mut Client, surface: &Value) -> Value {
+    let tree = client.call(json!({"cmd": "list-workspaces"}));
+    for workspace in tree["workspaces"].as_array().into_iter().flatten() {
+        for screen in workspace["screens"].as_array().into_iter().flatten() {
+            for pane in screen["panes"].as_array().into_iter().flatten() {
+                for tab in pane["tabs"].as_array().into_iter().flatten() {
+                    if tab == surface || &tab["id"] == surface || &tab["surface"] == surface {
+                        return workspace["id"].clone();
+                    }
+                }
+            }
+        }
+    }
+    panic!("no pane holds {surface}: {tree}");
 }
 
 #[test]
@@ -86,13 +105,22 @@ fn a_new_workspace_answers_after_at_most_one_discovery_file_sync() {
     // The first workspace starts the spare host the next one adopts.
     client.call(json!({"cmd": "new-workspace", "name": "base", "cols": 80, "rows": 24}));
     let mut slowest = 0;
+    let mut created = Vec::new();
     for round in 0..3 {
         let sent = Instant::now();
-        client.call(
+        created.push(client.call(
             json!({"cmd": "new-workspace", "name": format!("w{round}"), "cols": 80, "rows": 24}),
-        );
+        ));
         slowest = slowest.max(sent.elapsed().as_millis() as u64);
     }
+    // A tab moved to another workspace renames its host's recovery mirror;
+    // the move does not wait for that write.
+    let target = workspace_of(&mut client, &created[2]["surface"]);
+    let sent = Instant::now();
+    client.call(json!({"cmd": "move-tab-to-workspace", "surface": created[0]["surface"],
+        "workspace": target}));
+    let move_ms = sent.elapsed().as_millis() as u64;
+    assert_eq!(workspace_of(&mut client, &created[0]["surface"]), target, "the tab did not move");
     // End every terminal host this test made: a durable host outlives a
     // killed daemon (cx-leo45).
     let identity = client.call(json!({"cmd": "identify"}));
@@ -100,6 +128,10 @@ fn a_new_workspace_answers_after_at_most_one_discovery_file_sync() {
         "generation": identity["generation"], "force": true, "end_terminals": true}));
     let _ = daemon.wait();
     let _ = fs::remove_dir_all(&dir);
+    assert!(
+        move_ms < SLOW_SYNC_MS,
+        "a tab move answered after {move_ms} ms: it waited for its host record's rewrite ({SLOW_SYNC_MS} ms per sync)"
+    );
     assert!(
         slowest < 2 * SLOW_SYNC_MS,
         "a new workspace answered after {slowest} ms: it waited for more than one discovery-file sync ({SLOW_SYNC_MS} ms each)"
