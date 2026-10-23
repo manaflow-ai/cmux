@@ -35,6 +35,8 @@ mod code_mode;
 mod coderouter;
 mod codex_app_server;
 mod command;
+#[cfg(unix)]
+mod dev;
 mod docs;
 mod extra_help;
 mod federation;
@@ -280,6 +282,10 @@ fn chief_write_refusal(_plan: &CommandPlan) -> Option<serde_json::Value> {
 
 pub fn run(args: &[String], startup_usage: &str) -> i32 {
     let surface = Surface::current();
+    #[cfg(unix)]
+    if let Some(code) = dev::run_if_requested(args, surface) {
+        return code;
+    }
     let lifecycle_args;
     let args = match machine_server::run_if_requested(args, surface) {
         Some(machine_server::Mount::Exit(code)) => return code,
