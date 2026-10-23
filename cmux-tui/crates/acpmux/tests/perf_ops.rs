@@ -39,8 +39,14 @@ const IDLE_WINDOWS: usize = 3;
 const IDLE_SWITCHES: u64 = 3;
 
 fn now_ns() -> u64 {
-    // SAFETY: no preconditions; the stand-in agent stamps its tokens on the same clock.
-    unsafe { libc::clock_gettime_nsec_np(libc::CLOCK_UPTIME_RAW) }
+    unsafe extern "C" {
+        fn clock_gettime_nsec_np(clock: u32) -> u64;
+    }
+    /// Darwin's `CLOCK_UPTIME_RAW` (`<time.h>`): the clock the stand-in agent stamps its
+    /// tokens on (Python's `time.CLOCK_UPTIME_RAW`).
+    const CLOCK_UPTIME_RAW: u32 = 8;
+    // SAFETY: no preconditions.
+    unsafe { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }
 }
 
 // ------------------------------------------------------------------ daemon
