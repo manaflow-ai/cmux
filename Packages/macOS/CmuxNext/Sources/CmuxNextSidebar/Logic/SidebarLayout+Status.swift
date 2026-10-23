@@ -62,7 +62,7 @@ nonisolated extension SidebarLayout {
                     y += m.tabRowHeight + m.rowSpacing
                 }
             }
-            y += m.groupBottomPadding
+            // The next status group follows the last member by the row spacing alone (Leo 2026-10-21: no padding after groups).
         }
         return rows
     }

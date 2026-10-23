@@ -192,7 +192,7 @@ extension SidebarListViewComponents {
         if drag.groupHeadHeight != nil, drag.blockTarget == nil, let gapY = displayed.gapY, !drag.groupBlocks.isEmpty {
             var reorder = SidebarGroupReorder(blocks: drag.groupBlocks, shift: displayed.gapShift)
             let current = reorder.index(ofGapAt: gapY)
-            // The blocks below the gap as drawn: the gap plus the spacing between groups (6 pt more than `gapShift`).
+            // The blocks below the gap as drawn, measured: a section's gap can lie between two groups.
             let shown = SidebarGroupReorder.blocks(of: displayed.rows.filter { !drag.hiddenKeys.contains($0.key) })
             if current < min(shown.count, drag.groupBlocks.count) { reorder.shift = shown[current].lowerBound - drag.groupBlocks[current].lowerBound }
             let card = drag.lift.frame
