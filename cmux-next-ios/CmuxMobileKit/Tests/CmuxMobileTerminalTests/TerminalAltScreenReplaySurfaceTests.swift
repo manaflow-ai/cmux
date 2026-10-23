@@ -42,8 +42,8 @@ import UIKit
             }
         }
 
-        /// Every row of the active area, padded to the grid (Ghostty's text
-        /// read drops blank rows at its ends).
+        /// Every row of the active area, padded to the grid (the text read
+        /// ends at the last row with text).
         var allRows: [String] {
             let text = surface.activeAreaText() ?? ""
             let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map { String($0).trimmingCharacters(in: .whitespaces) }
@@ -77,7 +77,8 @@ import UIKit
         // The attach: the session's reset, the replay, then live output.
         await rig.feed("\u{1B}c")
         await rig.feed(Self.replay)
-        // Row 0 marked (Ghostty's text read drops leading blank rows).
+        // Row 0 marked, so the rows are counted from the screen's top whatever
+        // the text read does with a blank first row.
         await rig.feed("\u{1B}7\u{1B}[1;1HTOP\u{1B}8")
         let rows = rig.tuiRows
         #expect(rows[0] == "TOP", "\(rows)")
