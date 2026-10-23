@@ -17,6 +17,8 @@ import Testing
         let window: NSWindow
         let left = CEFHostView(frame: CGRect(x: 0, y: 0, width: 400, height: 500))
         let right = CEFHostView(frame: CGRect(x: 400, y: 0, width: 400, height: 500))
+        /// Both pages' common ancestor below the content view (the layout root's place).
+        let stage = NSView()
 
         init() {
             _ = NSApplication.shared
@@ -25,8 +27,10 @@ import Testing
             window.isReleasedWhenClosed = false
             window.contentView = content
             _ = WindowOverlayHost.host(for: window)
-            content.addSubview(left)
-            content.addSubview(right)
+            stage.frame = content.bounds
+            content.addSubview(stage)
+            stage.addSubview(left)
+            stage.addSubview(right)
         }
 
         /// What the fork's tracker does on a geometry update: it reads both.
@@ -67,12 +71,13 @@ import Testing
         #expect(posted == 1, "only the moved page posts: \(posted) posts")
     }
 
-    @Test func aParentWindowMoveStillReachesEveryPage() {
+    /// A move of both pages on screen (an ancestor moved, as a window move or a sidebar slide moves
+    /// them) reaches each page. An ancestor, not the window: a test window's frame is the window
+    /// server's on a host with a display, and the screen rect is what changes either way.
+    @Test func aMoveOfBothPagesReachesEveryPage() {
         let pages = TwoPages()
         pages.forkReads()
-        var frame = pages.window.frame
-        frame.origin.x += 40
-        pages.window.setFrame(frame, display: false)
+        pages.stage.setFrameOrigin(CGPoint(x: 40, y: 0))
         let posted = pages.posts { pages.requestPageUpdate() }
         #expect(posted == 2, "both pages moved on screen: \(posted) posts")
     }
