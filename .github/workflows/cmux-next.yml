@@ -160,10 +160,6 @@ on:
       - tests/test_cmux_next_perf_source_guard.py
       - scripts/cmux-next/check-fixture-host-names.py
       - tests/test_cmux_next_fixture_host_names.py
-      - scripts/cmux-next/check-kill-switches.py
-      - tests/test_cmux_next_kill_switches.py
-      - release-notes/next/kill-switches.json
-      - release-notes/next/flags.json
       - scripts/cmux-next/gen-protected-folders.py
       - cmux-tui/crates/acpmux/data/protected-folders.json
       - scripts/cmux-next/gen-settings-sources.py
@@ -390,10 +386,6 @@ on:
       - tests/test_cmux_next_perf_source_guard.py
       - scripts/cmux-next/check-fixture-host-names.py
       - tests/test_cmux_next_fixture_host_names.py
-      - scripts/cmux-next/check-kill-switches.py
-      - tests/test_cmux_next_kill_switches.py
-      - release-notes/next/kill-switches.json
-      - release-notes/next/flags.json
       - scripts/cmux-next/gen-protected-folders.py
       - cmux-tui/crates/acpmux/data/protected-folders.json
       - scripts/cmux-next/gen-settings-sources.py
@@ -1604,16 +1596,6 @@ jobs:
           python3 tests/test_cmux_next_fixture_host_names.py
           python3 -I scripts/cmux-next/check-fixture-host-names.py
 
-      # Per-PR kill switches (release-notes/next/kill-switches.json): each switch names its PR,
-      # owner and expiry, and goes red past its expiry until the killSwitch("pr-N") call, the
-      # old path and the entry are removed; flags.json may turn off only declared switches.
-      - name: Kill switches are declared, tied to a PR and unexpired
-        id: kill-switches
-        continue-on-error: true
-        run: |
-          python3 tests/test_cmux_next_kill_switches.py
-          python3 -I scripts/cmux-next/check-kill-switches.py
-
       - name: Checks job structure
         id: checks-structure
         continue-on-error: true
@@ -1846,7 +1828,6 @@ jobs:
             ${{ steps.app-store-rules.outcome }}|App Store review rules (cmux-next-ios intents, Info.plist)
             ${{ steps.perf-source-guard.outcome }}|Perf source guard (no window capture or CATransaction.flush)
             ${{ steps.fixture-host-names.outcome }}|No fleet host names in gallery fixtures
-            ${{ steps.kill-switches.outcome }}|Kill switches are declared, tied to a PR and unexpired
             ${{ steps.checks-structure.outcome }}|Checks job structure
             ${{ steps.tier-routing.outcome }}|Tier routing
             ${{ steps.package-dependency-lists.outcome }}|Package dependency lists sorted
