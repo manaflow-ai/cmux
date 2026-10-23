@@ -40,6 +40,36 @@ public final class MainActorObservation {
         }
     }
 
+    /// Observes `name` and hands the main-actor handler a `Sendable` value read from each
+    /// notification where it is delivered (a `Notification` itself is not `Sendable`).
+    ///
+    /// ```swift
+    /// MainActorObservation(NSWindow.didMoveNotification, read: { ($0.object as? NSWindow)?.windowNumber }) { number in
+    ///     self.windowMoved(number)
+    /// }
+    /// ```
+    ///
+    /// - Parameters:
+    ///   - name: The notification to observe.
+    ///   - object: Only notifications this object posts; nil for every sender.
+    ///   - center: The center to observe.
+    ///   - read: Reads what the handler needs from the notification, on the main queue.
+    ///   - handler: Main-actor work with the value `read` returned.
+    public init<Value: Sendable>(
+        _ name: Notification.Name,
+        object: AnyObject? = nil,
+        center: NotificationCenter = .default,
+        read: @escaping @Sendable (Notification) -> Value,
+        _ handler: @escaping @MainActor (Value) -> Void
+    ) {
+        self.center = center
+        token = center.addObserver(forName: name, object: object, queue: .main) { note in
+            let value = read(note)
+            // main-proof: the observer is registered on the main queue (queue: .main).
+            MainActor.assumeIsolated { handler(value) }
+        }
+    }
+
     /// Stops observing now (also happens when the token is released).
     public func cancel() {
         center.removeObserver(token)

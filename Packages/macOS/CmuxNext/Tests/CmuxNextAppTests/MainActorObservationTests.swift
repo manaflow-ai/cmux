@@ -33,3 +33,17 @@ import Testing
         #expect(token == nil)
     }
 }
+
+@MainActor
+@Suite struct MainActorObservationReadTests {
+    @Test func handsTheHandlerTheValueReadFromEachNotification() {
+        let center = NotificationCenter()
+        let name = Notification.Name("MainActorObservationReadTests.value")
+        var seen: [Int] = []
+        let token = MainActorObservation(name, center: center, read: { $0.userInfo?["n"] as? Int ?? -1 }) { seen.append($0) }
+        center.post(name: name, object: nil, userInfo: ["n": 3])
+        center.post(name: name, object: nil)
+        #expect(seen == [3, -1])
+        withExtendedLifetime(token) {}
+    }
+}
