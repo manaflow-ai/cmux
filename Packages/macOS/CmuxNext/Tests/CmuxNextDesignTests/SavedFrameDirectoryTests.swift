@@ -66,11 +66,54 @@ import Testing
         #expect(marks.all.isEmpty)
     }
 
+    /// A listed frame whose background decode failed is not read again by its taker (on the main
+    /// thread, unmarked): the failure is recorded, so a later good file in its place is not looked at.
+    @Test func aListedFrameThatFailedToDecodeIsNotReadAgain() async throws {
+        let file = SavedFrameDirectory.fileName("tab_a", scale: 2, ext: "png")
+        let url = Self.saved([file: Data("not an image".utf8)])
+        defer { try? FileManager.default.removeItem(at: url) }
+        let marks = Marks()
+        let frames = SavedFrameDirectory(url: url, maximumBytes: 1 << 20, name: "test_frames", readOnMain: marks.record)
+        await frames.backgroundReadFinished()
+        try Self.png().write(to: url.appending(path: file))
+        #expect(frames.take("tab_a") == nil, "the taker did not read the file again")
+        #expect(marks.all.isEmpty)
+    }
+
+    /// Taking one pane's frame leaves the others: the frames stay until ``SavedFrameDirectory/release()``,
+    /// which the launch calls once every restored pane presented (not at the first pane).
+    @Test func aSecondPaneStillTakesItsFrameAfterTheFirst() async throws {
+        let png = try Self.png()
+        let url = Self.saved([SavedFrameDirectory.fileName("tab_a", scale: 2, ext: "png"): png,
+                              SavedFrameDirectory.fileName("tab_b", scale: 2, ext: "png"): png])
+        defer { try? FileManager.default.removeItem(at: url) }
+        let marks = Marks()
+        let frames = SavedFrameDirectory(url: url, maximumBytes: 1 << 20, name: "test_frames", readOnMain: marks.record)
+        await frames.backgroundReadFinished()
+        #expect(frames.take("tab_a") != nil)
+        #expect(frames.take("tab_b") != nil)
+        #expect(marks.all.isEmpty)
+    }
+
+    /// A pane build that takes its frame before the background task decoded it gets the frame: it
+    /// waits for the decode running, or decodes it itself; a later take finds it handed out.
+    @Test func aFrameTakenBeforeTheBackgroundDecodeFinishedIsStillTheFrame() async throws {
+        let url = Self.saved([SavedFrameDirectory.fileName("tab_a", scale: 2, ext: "png"): try Self.png()])
+        defer { try? FileManager.default.removeItem(at: url) }
+        let marks = Marks()
+        let frames = SavedFrameDirectory(url: url, maximumBytes: 1 << 20, name: "test_frames", readOnMain: marks.record)
+        let frame = try #require(frames.take("tab_a"))
+        #expect(frame.size == NSSize(width: 4, height: 3))
+        await frames.backgroundReadFinished()
+        #expect(frames.take("tab_a") == nil, "handed out once; the background task did not decode it a second time for nobody")
+        #expect(marks.all.count <= 1, "at most one mark: the take on the main thread waited or decoded once")
+    }
+
     @Test func aLargerFileIsNotRead() async throws {
         let png = try Self.png()
         let url = Self.saved([SavedFrameDirectory.fileName("tab_a", scale: 2, ext: "png"): png])
         defer { try? FileManager.default.removeItem(at: url) }
-        let frames = SavedFrameDirectory(url: url, maximumBytes: png.count - 1)
+        let frames = SavedFrameDirectory(url: url, maximumBytes: png.count - 1, name: "test_frames", readOnMain: { _ in })
         await frames.backgroundReadFinished()
         #expect(frames.take("tab_a") == nil)
     }
@@ -80,7 +123,7 @@ import Testing
         let url = Self.saved([SavedFrameDirectory.fileName("tab_a", scale: 2, ext: "png"): png])
         defer { try? FileManager.default.removeItem(at: url) }
         SavedFrameDirectory.write([SavedFrameDirectory.fileName("tab_b", scale: 2, ext: "png"): png], to: url)
-        let frames = SavedFrameDirectory(url: url, maximumBytes: 1 << 20)
+        let frames = SavedFrameDirectory(url: url, maximumBytes: 1 << 20, name: "test_frames", readOnMain: { _ in })
         await frames.backgroundReadFinished()
         #expect(frames.take("tab_a") == nil)
         #expect(frames.take("tab_b") != nil)

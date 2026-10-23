@@ -9,11 +9,12 @@ import Foundation
 /// background tasks before AppKit starts, so none is read on the main thread while the first window
 /// is built (#17587: the sidebar's JSON decode alone held the main thread for up to 100 ms, and
 /// each shown pane decoded its JPEG there). A read that has not finished when the window takes it
-/// is read on the main thread, never waited for, and marks `launch_read_on_main.<file>`
+/// is waited for (the rest of it) or read on the main thread, never read twice, and marks
+/// `launch_read_on_main.<file>`
 /// (`scripts/cmux-next/bench-startup.py --launch-guard`).
 nonisolated struct LaunchFiles: Sendable {
-    /// The saved sidebars (`SidebarSnapshotStore`); nil when none was saved or it is unreadable.
-    let sidebar: LaunchRead<SidebarSnapshotDocument?>
+    /// The saved sidebars' store, made (its file read and decoded) off the main thread.
+    let sidebar: LaunchRead<SidebarSnapshotStore>
     /// The terminals' last frames (`TerminalLaunchFrames`).
     let terminalFrames: SavedFrameDirectory
     /// The agent pages' last images (`AgentPaneLaunchImages`).
@@ -24,7 +25,7 @@ nonisolated struct LaunchFiles: Sendable {
     init(sidebarFile: SidebarSnapshotFile) {
         let mark: @Sendable (String) -> Void = { DebugTimings.markLaunch($0) }
         let state = sidebarFile.url.deletingLastPathComponent()
-        sidebar = LaunchRead("sidebar_snapshot", readOnMain: mark) { sidebarFile.read() }
+        sidebar = LaunchRead("sidebar_snapshot", readOnMain: mark) { SidebarSnapshotStore(file: sidebarFile) }
         terminalFrames = SavedFrameDirectory(url: TerminalLaunchFrames.directory(beside: state),
                                              maximumBytes: TerminalLaunchFrames.maximumBytes,
                                              name: "terminal_frames", readOnMain: mark)
@@ -33,7 +34,8 @@ nonisolated struct LaunchFiles: Sendable {
                                               name: "agent_page_images", readOnMain: mark)
     }
 
-    /// Drops the decoded frames and images no pane took: the launch settled (`LaunchSettle`).
+    /// Drops the decoded frames and images no pane took: the saved windows are restored and every
+    /// pane they show presented its selection (`ContentPresentationScheduler.whenIdle`).
     func release() {
         terminalFrames.release()
         agentPageImages.release()

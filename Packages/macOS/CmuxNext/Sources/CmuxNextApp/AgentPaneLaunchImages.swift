@@ -24,9 +24,10 @@ final class AgentPaneLaunchImages {
         self.frames = frames
     }
 
-    /// The images in `directory` (read from now on); nil keeps none.
+    /// The images in `directory` (read from now on); nil keeps none. Tests and the no-launch
+    /// fallback only: its reads report to no launch guard. The launch reads through ``init(frames:)``.
     convenience init(directory: URL?) {
-        self.init(frames: SavedFrameDirectory(url: directory, maximumBytes: Self.maximumBytes))
+        self.init(frames: SavedFrameDirectory(url: directory, maximumBytes: Self.maximumBytes, name: "agent_page_images", readOnMain: { _ in }))
     }
 
     /// The images' directory in `state`, the app's state directory (beside its sidebar snapshot).

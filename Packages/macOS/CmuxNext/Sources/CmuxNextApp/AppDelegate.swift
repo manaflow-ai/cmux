@@ -177,8 +177,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // recorded ones; the record is read and the files deleted off the
         // main actor). Downloads of this run are never touched.
         launchCleanup.schedule(on: launchSettle)
-        // The launch drew its panes' last frames: decoded ones no pane took are dropped (LaunchFiles).
-        launchSettle.whenSettled { [launchFiles = environment.launchFiles] in launchFiles?.release() }
+        // The panes' last frames no pane took are dropped (LaunchFiles) once the saved windows are restored
+        // from the live tree and every pane they show presented its selection: not at the launch settle,
+        // which comes on the first pane, while the scheduler still makes one new surface per frame and a
+        // second window is restored only when the daemon's tree lands.
+        services.windows.onRestored = { [presentation = services.presentation, launchFiles = environment.launchFiles] in
+            presentation.whenIdle { launchFiles?.release() }
+        }
         services.palette.onPresented = { DebugTimings.palettePresented($0) }
         // The key-down that opens the palette (a synthesized one under `debug.key`), for its input stage.
         services.palette.openingEventTimestamp = { [weak router = services.keyRouter] in

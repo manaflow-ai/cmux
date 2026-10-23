@@ -20,9 +20,10 @@ public final class TerminalLaunchFrames {
         self.frames = frames
     }
 
-    /// The frames in `directory` (read from now on); nil keeps none.
-    public convenience init(directory: URL?) {
-        self.init(frames: SavedFrameDirectory(url: directory, maximumBytes: Self.maximumBytes))
+    /// The frames in `directory` (read from now on); nil keeps none. Tests and the app's no-launch
+    /// fallback only: its reads report to no launch guard. The launch reads through ``init(frames:)``.
+    package convenience init(directory: URL?) {
+        self.init(frames: SavedFrameDirectory(url: directory, maximumBytes: Self.maximumBytes, name: "terminal_frames", readOnMain: { _ in }))
     }
 
     /// The frames' directory in `state`, the app's state directory (beside its sidebar snapshot).

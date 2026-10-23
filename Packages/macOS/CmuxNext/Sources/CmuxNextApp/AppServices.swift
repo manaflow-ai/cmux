@@ -36,11 +36,11 @@ import CmuxNextFocusUI
 /// here: the daemon owns it, windows own their local state.
 final class AppServices {
     let environment: AppEnvironment; let agentPaneEnvironment: [String: String]?
-    /// Each window's last sidebar, drawn before the daemon answers. Made when the first window
-    /// draws its sidebar, so the read `main` began off the main thread (`LaunchFiles`) has the
-    /// longest time to finish.
-    private(set) lazy var sidebarSnapshots = SidebarSnapshotStore(file: environment.sidebarSnapshotFile,
-                                                                  launchDocument: environment.launchFiles.flatMap { $0.sidebar.take() })
+    /// Each window's last sidebar, drawn before the daemon answers. Made off the main thread from
+    /// the top of `main` (`LaunchFiles.sidebar`) and taken when the first window draws its sidebar,
+    /// so its read has the longest time to finish; made here when nothing started it (tests).
+    private(set) lazy var sidebarSnapshots: SidebarSnapshotStore = environment.launchFiles?.sidebar.take()
+        ?? SidebarSnapshotStore(file: environment.sidebarSnapshotFile)
     /// The terminals' last frames, drawn over each terminal at launch until its live content draws.
     private(set) lazy var terminalLaunchFrames: TerminalLaunchFrames = environment.launchFiles.map { TerminalLaunchFrames(frames: $0.terminalFrames) }
         ?? TerminalLaunchFrames(directory: nil)

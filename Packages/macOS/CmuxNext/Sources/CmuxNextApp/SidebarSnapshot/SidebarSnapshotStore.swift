@@ -2,8 +2,8 @@ import CmuxNextWakeups
 import Foundation
 
 /// Repository of the saved sidebars (`SidebarSnapshotDocument`) behind one
-/// `SidebarSnapshotFile`. The document the last run saved comes in at init
-/// (read off the main thread since `main`, `LaunchFiles`), and is kept as
+/// `SidebarSnapshotFile`. The document is read once, synchronously, when
+/// the store is made (before the first window), and kept as
 /// ``launchDocument`` for the windows a launch opens. Changes are written
 /// 500 ms after the last one and at once by ``flush()`` (quit). Without a
 /// file (tests, previews) it keeps the document in memory only.
@@ -21,13 +21,9 @@ actor SidebarSnapshotStore {
     /// a window back (records travel in separate tasks).
     private var sequences: [String: UInt64] = [:]
 
-    /// - Parameters:
-    ///   - file: Where changes are written; nil keeps them in memory.
-    ///   - launchDocument: What the last run saved (`LaunchFiles.sidebar`); nil for none.
-    init(file: SidebarSnapshotFile?, launchDocument: SidebarSnapshotDocument?,
-         clock: any Clock<Duration> = ContinuousClock(), debounce: Duration = .milliseconds(500)) {
-        let loaded = launchDocument ?? SidebarSnapshotDocument()
-        self.launchDocument = loaded
+    init(file: SidebarSnapshotFile?, clock: any Clock<Duration> = ContinuousClock(), debounce: Duration = .milliseconds(500)) {
+        let loaded = file?.read() ?? SidebarSnapshotDocument()
+        launchDocument = loaded
         document = loaded
         self.file = file
         self.debounce = debounce
