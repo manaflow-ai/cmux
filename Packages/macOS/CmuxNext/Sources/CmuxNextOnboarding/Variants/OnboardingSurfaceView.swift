@@ -41,7 +41,7 @@ final class OnboardingSurfaceView: NSView {
             content.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -inset),
         ])
         loop = RenderLoop { [weak self] in
-            _ = ThemeStore.shared.input
+            _ = ThemeScope.app.store.input
             self?.applyColors()
         }
     }

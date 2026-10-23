@@ -1,5 +1,6 @@
 import type { AcpmuxRow } from "../model";
 import { childRows, type ChildEntry } from "./childRows";
+import { hiddenCall, isPlumbingName } from "../hiddenTools";
 
 /// The transcript row of a batch of subagents (SubagentGroup.tsx).
 export const SUBAGENTS = "subagents";
@@ -84,6 +85,12 @@ export class SubagentFold {
   /// What stops the running turn now, when the pane knows (direct.ts `turnStopCause`): a stop
   /// it ends its foreground subagents with is theirs too.
   cause: SubagentStopReason | undefined;
+  /// The chat's own agent session (its harness thread, the summary's `agentSessionId`), when the
+  /// pane knows it. It is never one of its subagents (``isChat``). Learned only after records that
+  /// made it one were folded, the pane folds them again (direct.ts ``learnChatThread``).
+  chat: string | undefined;
+  /// Every id a record named as a subagent, a parent or an owner (``names``).
+  private readonly named = new Set<string>();
 
   constructor(private readonly stops: SubagentStops = subagentStops()) {}
   /// The subagents whose end the harness reported (not one ``stopRunning`` guessed): a progress
@@ -93,6 +100,8 @@ export class SubagentFold {
   /// take its action back.
   private readonly latestCall = new Map<string, string>();
   private readonly calls = new Set<string>();
+  /// Plumbing calls each subagent made (hiddenTools.ts): they and their results set no action.
+  private readonly hiddenCalls = new Set<string>();
   /// The subagents a tool call started (Claude's Agent call, which its turn waits on): only these
   /// end with a completed turn. Codex's native children have none and outlive their turn.
   private readonly called = new Set<string>();
@@ -101,17 +110,22 @@ export class SubagentFold {
   reduce(event: Event, update: any): boolean {
     const mux = event.msg?.params?._meta?.acpmux;
     const events: any[] = Array.isArray(mux?.subagents) ? mux.subagents : [];
+    const tag = typeof mux?.subagent === "string" ? mux.subagent : undefined;
+    if (tag !== undefined) this.named.add(tag);
     // Met first through its progress, its spawn is older than what this fold read: not this turn's.
     const spawn = update?.sessionUpdate !== "subagent_progress";
     for (const change of events) this.apply(change, event, spawn);
-    const owner = typeof mux?.subagent === "string" ? this.agents.get(mux.subagent) : undefined;
+    // An update acpmux tagged with the chat's own session is the chat's (``isChat``).
+    const owner = tag !== undefined && !this.isChat(tag) ? this.agents.get(tag) : undefined;
     if (owner) {
       // What it does now is its newest call: a later update of an older call (its end) keeps it.
       const call = typeof update?.toolCallId === "string" ? update.toolCallId : undefined;
+      // Plumbing (Claude Code's ToolSearch, hiddenTools.ts) is never what it does, nor its result.
+      const hidden = call !== undefined && hiddenCall(this.hiddenCalls, `${owner.id}\u0000${call}`, update);
       // A nested subagent's Agent call says its agentId and worktree too.
       if (call && this.spawnCalls.has(call)) this.readSpawnCall(call, update);
       // A call met first through its update (a harness that sends no tool_call) is new too.
-      const tool = update?.sessionUpdate === "tool_call" || update?.sessionUpdate === "tool_call_update";
+      const tool = !hidden && (update?.sessionUpdate === "tool_call" || update?.sessionUpdate === "tool_call_update");
       if (tool && call && (update.sessionUpdate === "tool_call" || !this.calls.has(`${owner.id}\u0000${call}`))) {
         this.calls.add(`${owner.id}\u0000${call}`);
         this.latestCall.set(owner.id, call);
@@ -218,15 +232,31 @@ export class SubagentFold {
     this.versions.set(id, (this.versions.get(id) ?? 0) + 1);
   }
 
+  /// Whether `id` is the chat's own session. A Codex child reports its parent thread's state
+  /// under its own session, and acpmux used to record that as a spawn: the chat became its
+  /// own subagent, nested under that child, and every later subagent nested under the chat (Leo's
+  /// staircase, 2026-10-22). Records written then still say so, so the fold reads them by lineage.
+  private isChat(id: string): boolean {
+    return id === this.chat;
+  }
+
+  /// Whether a folded record named `id` as a subagent, a subagent's parent or an update's owner.
+  names(id: string): boolean {
+    return this.named.has(id);
+  }
+
   private apply(change: any, event: Event, spawn = true): void {
     if (typeof change?.id !== "string") return;
+    this.named.add(change.id);
+    if (typeof change.parent === "string") this.named.add(change.parent);
+    if (this.isChat(change.id)) return;
     if (typeof change.toolCallId === "string") {
       this.spawnCalls.add(change.toolCallId);
       this.spawnedBy.set(change.toolCallId, change.id);
     }
     let agent = this.agents.get(change.id);
     if (!agent) {
-      const parent = typeof change.parent === "string" ? change.parent : null;
+      const parent = typeof change.parent === "string" && !this.isChat(change.parent) ? change.parent : null;
       const name = text(change.name) ?? text(change.task) ?? change.id;
       agent = {
         id: change.id,
@@ -252,7 +282,9 @@ export class SubagentFold {
       agent.kind = text(change.kind) ?? agent.kind;
       agent.prompt = text(change.prompt) ?? agent.prompt;
     }
-    agent.action = text(change.action) ?? agent.action;
+    // Claude's progress names its last tool when it has no summary: plumbing is never what it does.
+    const action = text(change.action);
+    if (action && !isPlumbingName(action)) agent.action = action;
     agent.tokens = count(change.tokens) ?? agent.tokens;
     agent.toolUses = count(change.toolUses) ?? agent.toolUses;
     if (change.background === true) agent.background = true;
@@ -346,7 +378,8 @@ export function agentIdIn(text: string): string | undefined {
 /// something (`worktreePath: /repo/.claude/worktrees/x` and `worktreeBranch: worktree-x`, a line
 /// each), or undefined.
 export function worktreeIn(text: string): { path: string; branch?: string } | undefined {
-  const path = /^worktreePath:[ \t]*(\/\S*)/m.exec(text)?.[1];
+  // The rest of the line: a worktree path may hold a space.
+  const path = /^worktreePath:[ \t]*(\/[^\r\n]*?)[ \t]*$/m.exec(text)?.[1];
   if (!path) return undefined;
   const branch = /^worktreeBranch:[ \t]*(\S+)/m.exec(text)?.[1];
   return branch ? { path, branch } : { path };

@@ -20,7 +20,7 @@ use serde_json::{Value, json};
 
 use crate::remote_host::{audit, config as host_config, self_exe};
 use model::{Device, Listing, Role, Sources, State};
-use network::{Choice, DeviceNetwork as _, TailscaleNetwork, WeftNetwork};
+use network::{Choice, TailscaleNetwork, WeftNetwork};
 
 const USAGE: &str = "usage: cmux device list [--json] [--network auto|tailscale|weft]
        cmux device add HOST --yes [--name NAME] [--json]

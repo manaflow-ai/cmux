@@ -12,6 +12,7 @@
     "check:type-scale": "python3 ../scripts/cmux-next/gen-type-scale.py --check && python3 ../scripts/cmux-next/check-type-scale.py",
     "check:motion-scale": "python3 ../scripts/cmux-next/gen-motion-scale.py --check",
     "check:status-glyphs": "python3 ../scripts/cmux-next/gen-status-glyphs.py --check",
+    "check:ui-rulings": "bun scripts/check-ui-rulings.ts",
     "check:system-blue": "python3 ../scripts/cmux-next/check-system-blue.py",
     "check:text-focus": "python3 ../scripts/cmux-next/check-text-focus-rings.py",
     "check:dialog-keys": "python3 -I ../scripts/cmux-next/check-dialog-key-hints.py ..",

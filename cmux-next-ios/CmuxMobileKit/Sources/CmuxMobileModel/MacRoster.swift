@@ -1,46 +1,82 @@
 import Foundation
 
-/// Which of the account's Macs the Mac filter, Workspaces and Home list.
+/// Which of the account's Macs the Mac filter, Workspaces, Home and the links
+/// list: one per computer.
 ///
-/// Every cmux install registers its own device id, so one computer can be on
-/// the account twice: an earlier build (a test app since deleted) or a
-/// reinstall leaves a record that stays offline for good beside the live one
-/// ("Abdulaziz's MacBook Pro (2) 3EB7" online and "… 39C6" offline). A record
-/// is retired from those lists when:
-/// - it is offline and another Mac with the same name and the same owner is
-///   online or was seen later (the same computer's newer install; a
-///   teammate's same-named Mac is another computer), or
-/// - it was last seen more than `staleAfter` ago and another Mac stays listed.
+/// Every cmux build registers its own device (its own id, identity key and
+/// paired phones), so one computer running a nightly and a dev build, or one
+/// that kept a deleted build's record, is on the account more than once. Each
+/// Mac says which computer it runs on (`MacDevice.machineID`, PROTOCOL.md
+/// "Devices"); the records of one owner with one machine id are one computer,
+/// listed once by its most recently active build. The others are that Mac's
+/// other builds (`otherBuilds`), still listed in Settings → Devices.
 ///
-/// Retired Macs stay in Settings → Devices, where Remove deletes them, and a
-/// retired Mac that comes online is listed again.
+/// A name is never an identity: several Macs can share one (they stay apart,
+/// with the `MacNameDisambiguation` tag), and a Mac that sent no machine id is
+/// never folded into another.
 public struct MacRoster: Equatable, Sendable {
-    /// How long an offline Mac stays listed with no sign of life.
-    public static let staleAfter: TimeInterval = 30 * 24 * 3600
-
-    /// Listed, in the given order.
+    /// Listed: one build per computer, in the given order.
     public let visible: [MacDevice]
-    /// Not listed, in the given order.
-    public let retired: [MacDevice]
+    /// The other builds on a listed Mac's computer, by the listed Mac's id,
+    /// most recently active first.
+    public let otherBuilds: [String: [MacDevice]]
 
-    public init(_ macs: [MacDevice], now: Date = Date()) {
-        func key(_ name: String) -> String { name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
-        func replaced(_ mac: MacDevice) -> Bool {
-            guard !mac.isOnline else { return false }
-            let seen = mac.lastSeenAt ?? .distantPast
-            return macs.contains { other in
-                other.id != mac.id && key(other.name) == key(mac.name) && other.ownerUserID == mac.ownerUserID
-                    && (other.isOnline || (other.lastSeenAt ?? .distantPast) > seen)
-            }
+    public init(_ macs: [MacDevice]) {
+        var groups: [String: [MacDevice]] = [:]
+        var order: [String] = []
+        for mac in macs {
+            let key = Self.computer(of: mac)
+            if groups[key] == nil { order.append(key) }
+            groups[key, default: []].append(mac)
         }
-        var retiredIDs = Set(macs.filter(replaced).map(\.id))
-        let stale = macs.filter { mac in
-            guard !mac.isOnline, !retiredIDs.contains(mac.id), let seen = mac.lastSeenAt else { return false }
-            return now.timeIntervalSince(seen) > Self.staleAfter
+        var listed = Set<String>()
+        var others: [String: [MacDevice]] = [:]
+        for key in order {
+            let ranked = (groups[key] ?? []).sorted(by: Self.moreActive)
+            guard let first = ranked.first else { continue }
+            listed.insert(first.id)
+            var seen: Set<String> = [first.id]
+            let rest = ranked.filter { seen.insert($0.id).inserted }
+            if !rest.isEmpty { others[first.id] = rest }
         }
-        // Never empty the lists on their own: one Mac always stays.
-        if macs.count - retiredIDs.count > stale.count { retiredIDs.formUnion(stale.map(\.id)) }
-        visible = macs.filter { !retiredIDs.contains($0.id) }
-        retired = macs.filter { retiredIDs.contains($0.id) }
+        visible = macs.filter { listed.contains($0.id) }
+        otherBuilds = others
     }
+
+    /// Every Mac that is another build of a listed one.
+    public var hiddenIDs: Set<String> { Set(otherBuilds.values.flatMap { $0.map(\.id) }) }
+
+    /// The account's listed Macs (the same-name tags' scope): each team's
+    /// listed Macs, as that team's screens list them.
+    public static func accountMacs(_ teams: [Team]) -> [MacDevice] {
+        MacNameDisambiguation.scope(teams.map { team in
+            var listed = team
+            listed.macs = MacRoster(team.macs).visible
+            return listed
+        })
+    }
+
+    /// The computer a Mac record belongs to: its owner and machine id, or the
+    /// record alone when it never said which computer it is.
+    static func computer(of mac: MacDevice) -> String {
+        guard let machine = mac.machineID, !machine.isEmpty else { return "device\u{0}\(mac.id)" }
+        return "machine\u{0}\(mac.ownerUserID ?? "")\u{0}\(machine)"
+    }
+
+    /// Online first; then the one seen last; then the id, so two online builds
+    /// keep one order however their sockets reconnect.
+    static func moreActive(_ a: MacDevice, _ b: MacDevice) -> Bool {
+        if a.isOnline != b.isOnline { return a.isOnline }
+        if !a.isOnline {
+            let seenA = a.lastSeenAt ?? .distantPast
+            let seenB = b.lastSeenAt ?? .distantPast
+            if seenA != seenB { return seenA > seenB }
+        }
+        return a.id < b.id
+    }
+}
+
+extension Team {
+    /// The team's Macs one per computer (``MacRoster``): what its lists, counts and pickers show.
+    public var listedMacs: [MacDevice] { MacRoster(macs).visible }
 }

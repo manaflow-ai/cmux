@@ -96,6 +96,8 @@ final class InputVerificationService {
             if key != notified {
                 notified = key
                 services?.notifications.focusDidSettle(state, in: controller)
+                // What new terminals and chats copy (NEW-WORK-INHERITS-CONTEXT).
+                services?.noteWorkFocus(state, in: controller)
             }
             let trail = TrailSettleKey(focus: key, active: services?.windows.active === controller,
                                        topPage: controller.shownTopPage != nil, workspace: controller.state.workspaceID)

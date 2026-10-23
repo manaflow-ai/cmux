@@ -76,7 +76,7 @@ cat "$ROOT/webviews/src/ui/ghost.css" >> "$WORK/styles.css"
 cat "$ROOT/webviews/src/ui/findPill.css" >> "$WORK/styles.css"
 # The import suggestion cards in New Tab's notice slot (ui/ImportCards.tsx).
 cat "$ROOT/webviews/src/ui/importCards.css" >> "$WORK/styles.css"
-cat "$ROOT/webviews/src/theme/messages.css" "$SRC/acpmux/styles.css" "$SRC/acpmux/conversation/conversation.css" "$SRC/acpmux/chips/chips.css" "$SRC/acpmux/previewCard/previewCard.css" "$SRC/acpmux/contextCard.css" >> "$WORK/styles.css"
+cat "$ROOT/webviews/src/theme/messages.css" "$SRC/acpmux/styles.css" "$SRC/acpmux/conversation/conversation.css" "$SRC/acpmux/chips/chips.css" "$SRC/acpmux/chips/linkCard.css" "$SRC/acpmux/previewCard/previewCard.css" "$SRC/acpmux/contextCard.css" >> "$WORK/styles.css"
 # changes.css @imports git.css; an @import never loads here (mid-sheet, and the CSP loads no
 # style file), so inline it where the import stood.
 cat "$SRC/acpmux/changes/git.css" >> "$WORK/styles.css"

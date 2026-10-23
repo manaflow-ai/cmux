@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 import Testing
+import CmuxNextDesignTokens
 
 /// Leo, 2026-10-20: "it's so weird when the app is in focus and out of focus; the opacity shifts
 /// in weird hardcoded ways." A window that is not key looks like the key one: the wash over
@@ -56,5 +57,15 @@ import Testing
         #expect(WindowMaterialView.inactiveTintAlpha(material: .glass(.regular), isKeyWindow: false, tintAlpha: 0.55, dim: 1) == 1)
         #expect(WindowMaterialView.inactiveTintAlpha(material: .glass(.regular), isKeyWindow: false, tintAlpha: 0.55, dim: 7) == 1)
         #expect(WindowMaterialView.inactiveTintAlpha(material: .glass(.regular), isKeyWindow: false, tintAlpha: 0.55, dim: -1) == matched)
+    }
+
+    /// Leo, 2026-10-23: an inactive window may shield the desktop that native glass reveals, but
+    /// its wash must stay below the person's in-app background. The focus transition therefore
+    /// keeps the same art layer visible instead of dimming it with the inactive tint.
+    @Test func theInactiveWashStaysBehindInAppArt() {
+        let view = WindowMaterialView(frame: NSRect(x: 0, y: 0, width: 320, height: 200))
+        let wash = view.subviews.firstIndex(of: view.inactiveTintView)
+        let art = view.subviews.firstIndex(of: view.artView)
+        #expect(wash != nil && art != nil && wash! < art!, "the desktop shield must be below the in-app background")
     }
 }

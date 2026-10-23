@@ -1471,5 +1471,36 @@
   },
   "mode_fields": null,
   "breaks": true
+ },
+ {
+  "name": "set_tools known params pass",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/set_tools",
+   "params": {
+    "sessionId": "a",
+    "id": "mcp:github",
+    "enabled": false
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "set_tools unknown param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/set_tools",
+   "params": {
+    "sessionId": "a",
+    "id": "mcp:github",
+    "enabled": false,
+    "harness": "x"
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
  }
 ]

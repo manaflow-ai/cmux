@@ -107,7 +107,8 @@ impl TailscaleNetwork {
         Self { status }
     }
 
-    /// A network from a status already read (tests, a caller that has one).
+    /// A network from a status already read (tests).
+    #[cfg(test)]
     pub(crate) fn from_status(status: Result<Status, String>) -> Self {
         Self { status }
     }

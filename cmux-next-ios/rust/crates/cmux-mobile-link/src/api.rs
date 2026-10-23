@@ -28,6 +28,13 @@ pub struct DeviceRegistration {
     pub team_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub wg_public_key: Option<String>,
+    /// A Mac's machine id (PROTOCOL.md "Devices"): the same for every cmux
+    /// build on one computer, never the raw hardware id.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub machine_id: Option<String>,
+    /// Device ids other cmux builds on this Mac registered (at most 16).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub sibling_device_ids: Vec<String>,
 }
 
 /// The body of `POST /v1/devices/:deviceId/notify`: labels only, never agent output.

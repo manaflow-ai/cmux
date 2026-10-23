@@ -22,6 +22,10 @@
 #   skip = "why"           nothing checks it, for the reason given.
 
 [[workspace]]
+root = "cmux-screen"
+skip = "standalone screen host on LiveKit's prebuilt libwebrtc; not linked into the app, which streams with CmuxScreenKit"
+
+[[workspace]]
 root = "cmux-tui"
 covered_by = ".github/workflows/cmux-tui-spec.yml"
 
@@ -48,6 +52,10 @@ covered_by = ".github/workflows/cmux-tui-sdks.yml"
 [[workspace]]
 root = "cmux-tui/bindings/examples/rust-sidebar-monitor"
 covered_by = ".github/workflows/cmux-tui-sdks.yml"
+
+[[workspace]]
+root = "Native/OptChat/chief-turn"
+run = true
 
 [[workspace]]
 root = "Native/OptChat/optchat-chief"

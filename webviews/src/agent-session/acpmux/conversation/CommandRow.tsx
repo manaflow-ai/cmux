@@ -13,10 +13,12 @@ import { menuPartRef } from "./menuParts";
 import { ShellBlock } from "./ShellBlock";
 import { BackgroundMark } from "./BackgroundMark";
 import { Check, ChevronRight, Spinner, TerminalSquare } from "./icons";
-import { isFailed, isRunning, toolDuration } from "./toolGroups";
+import { isRunning, toolDuration } from "./toolGroups";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { ROW_WIDTH, shortCommand } from "./shortCommand";
-import { useFold } from "./fold";
+import { useAnchoredCollapse } from "./useAnchoredCollapse";
+import { rowFailed, toolFailure } from "./toolFailure";
+import { failureWord, InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
 
 export function CommandRow({ item }: { item: AcpmuxActivity }) {
   const t = useT();
@@ -31,18 +33,23 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
       setReveal((count) => count + 1);
     },
   );
-  const fold = useFold(open);
+  const fold = useAnchoredCollapse({ open, onOpenChange: setOpen });
+  const menuPart = menuPartRef({ command: tool.command, output: tool.output?.replace(/\n$/, "") });
   const detailsId = useId();
   // Running in the foreground; a call that went on in the background shows BackgroundMark instead.
   const foreground = isRunning(tool);
   const running = foreground || tool.background?.state === "running";
-  const failed = isFailed(tool);
+  // Failed by its status or a nonzero exit; in the background, by its status (toolFailure.ts rowFailed).
+  const failed = rowFailed(tool);
+  // Why it failed, in a word at the row's edge and one line under it (toolFailure.ts).
+  const failure = useMemo(() => (failed ? toolFailure(tool) : undefined), [failed, tool]);
+  // Claude Code says its exit code only in the output ("Exit code 1"): the Shell block says it once.
+  const output = (failure?.output ?? tool.output)?.replace(/\n$/, "");
   const duration = toolDuration(t, tool);
   // Find counts the line without its leading cd (chatFind.ts), so a line shortened past that is
   // skipped; opened, the Shell block draws it.
   const short = shortCommand(tool.command ?? "", ROW_WIDTH);
   const whole = short === commandFolder(tool.command ?? "").rest.trim();
-  const exited = tool.exitCode !== undefined && tool.exitCode !== 0;
   // "Ran {command}" in the reader's language, the command drawn as code where the string puts it;
   // "Running {command}" until it is done. Its ⌃B hint is the live line's (WorkingFor.tsx, Thinking.tsx).
   const [before = "", after = ""] = t(foreground ? "tools.runningCommand" : "tools.ranCommand", {
@@ -55,8 +62,11 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
         className={`cv-tool cv-command is-toggle${running ? " is-live" : " is-strong"}`}
         aria-expanded={open}
         aria-controls={open ? detailsId : undefined}
-        ref={menuPartRef({ command: tool.command, output: tool.output?.replace(/\n$/, "") })}
-        onClick={() => setOpen((value) => !value)}
+        ref={(node) => {
+          fold.headerRef(node);
+          menuPart(node);
+        }}
+        onClick={fold.toggle}
       >
         <span className="cv-tool__icon">
           <TerminalSquare />
@@ -76,15 +86,16 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
               {after && <span data-find-skip>{after}</span>}
             </>
           )}
+          {!tool.background && <InlineFailureCause failure={failure} />}
         </span>
         <span className="cv-command__meta">
           {foreground ? (
             <Spinner size={12} />
           ) : tool.background ? (
             <BackgroundMark background={tool.background} />
-          ) : failed ? (
-            <span className="cv-command__failed">
-              {exited ? t("tools.exit", { code: tool.exitCode! }) : t("tools.failed")}
+          ) : failure ? (
+            <span className="cv-command__failed" data-find-skip>
+              {failureWord(t, failure)}
             </span>
           ) : (
             <Check size={14} className="cv-command__ok" />
@@ -97,14 +108,17 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
           className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
         />
       </button>
+      {/* A call that went on in the background says how it stands there, not why it failed. */}
+      {!tool.background && <ToolFailureCause failure={failure} />}
       {fold.present && (
-        <div ref={fold.ref} className="cv-fold">
+        <div {...fold.bodyProps}>
           <ShellBlock
             id={detailsId}
             command={tool.command}
-            output={tool.output?.replace(/\n$/, "")}
-            exitCode={tool.exitCode}
+            output={output}
+            exitCode={failure?.exitCode ?? tool.exitCode}
             reveal={reveal}
+            live={running}
           />
         </div>
       )}

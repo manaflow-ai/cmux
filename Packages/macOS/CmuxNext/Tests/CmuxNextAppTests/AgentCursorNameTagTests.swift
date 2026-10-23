@@ -77,9 +77,11 @@ struct AgentCursorNameTagTests {
         #expect(abs(arrowTurn - (last.heading - AgentCursorOverlayModel.restingHeading)) < 1e-6, "the arrow points along travel")
     }
 
+    /// Movement pinned on: under the system's Reduce Motion (on in Blacksmith's macOS VMs) the
+    /// cursor rightly appears at the drop with no glide.
     @Test func aDragGlidesToTheGrabThenEndsAtTheDrop() throws {
         let host = Recording()
-        let model = AgentCursorOverlayModel(resolver: Visible(), host: host)
+        let model = AgentCursorOverlayModel(resolver: Visible(), host: host, animatesMovement: { true })
         model.render(AutomationInputEvent(sessionID: "s", targetID: "T", seq: 0, kind: .click, space: .viewport,
                                           point: .init(x: 10, y: 10), tMs: 0))
         model.render(AutomationInputEvent(sessionID: "s", targetID: "T", seq: 1, kind: .drag, space: .viewport,

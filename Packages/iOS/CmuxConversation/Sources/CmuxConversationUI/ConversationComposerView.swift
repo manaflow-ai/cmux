@@ -2,6 +2,7 @@
 import CmuxConversationCore
 import CmuxConversationGeometry
 import UIKit
+import UniformTypeIdentifiers
 
 /// A picked image (or, with `file`, a document) waiting in the composer.
 struct ComposerAttachment {
@@ -24,6 +25,37 @@ struct ComposerAttachment {
         self.data = file.data
         self.mimeType = file.info.mimeType
         self.file = file
+    }
+}
+
+/// A queued attachment's bytes as a local file Quick Look can open before
+/// it is sent: a document keeps its name, a photo is "Photo.<ext>".
+struct ComposerAttachmentFile: Sendable {
+    let id: UUID
+    let data: Data
+    let name: String
+
+    init(_ attachment: ComposerAttachment) {
+        id = attachment.id
+        data = attachment.data
+        let ext = UTType(mimeType: attachment.mimeType)?.preferredFilenameExtension ?? "jpg"
+        let safe = (attachment.file?.info.name ?? "Photo.\(ext)").replacingOccurrences(of: "/", with: "-")
+        name = safe.isEmpty || safe == "." || safe == ".." ? "Attachment" : safe
+    }
+
+    func write() -> URL? {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ConversationComposerAttachments", isDirectory: true)
+            .appendingPathComponent(id.uuidString, isDirectory: true)
+        let target = folder.appendingPathComponent(name)
+        if FileManager.default.fileExists(atPath: target.path) { return target }
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try data.write(to: target, options: .atomic)
+            return target
+        } catch {
+            return nil
+        }
     }
 }
 
@@ -72,6 +104,8 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
     private(set) var attachments: [ComposerAttachment] = []
     /// A preview's remove button was tapped (after the attachment is dropped).
     var onRemoveAttachment: ((UUID) -> Void)?
+    /// A queued attachment was tapped: preview it (the view it zooms from).
+    var onOpenAttachment: ((UUID, UIView) -> Void)?
     /// Mention ranges, the gray candidate and suggestions for the draft.
     private(set) lazy var mentionController = ComposerMentionController(textView: textView)
     /// Pending rich link card for a URL that opens or ends the draft.
@@ -212,6 +246,7 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
             self?.removeAttachment(id: id)
             self?.onRemoveAttachment?(id)
         }
+        attachmentShelf.onOpen = { [weak self] id, view in self?.onOpenAttachment?(id, view) }
 
         textView.font = ConversationTheme.bodyFont
         textView.baseTypingAttributes = [
@@ -227,7 +262,13 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         textView.textContainer.lineFragmentPadding = 0
         textView.isScrollEnabled = false
         textView.delegate = self
+        // The keyboard's Return starts a new line (as in Messages); a hardware
+        // keyboard's Return sends and Shift- or Option-Return starts a new line.
         textView.returnKeyType = .default
+        textView.onHardwareReturn = { [weak self] in
+            guard let self, self.hasContent, !self.holdsDraft else { return }
+            self.delegate?.composerDidTapSend(self)
+        }
         textView.accessibilityIdentifier = "conversation.composer.text"
         // Messages: a text field labeled "Message" whose value is the placeholder while empty.
         textView.accessibilityLabel = String(localized: "conversation.ax.composerField", defaultValue: "Message", bundle: .module)
@@ -726,17 +767,39 @@ final class ComposerTextView: UITextView {
     var decorateStorage: ((NSTextStorage) -> Void)?
     let effectLayer = ConversationTextEffectLayer()
 
+    /// A hardware keyboard's Return (no modifier): send. Shift- and Option-Return
+    /// insert a line break; while text is being composed (marked text) Return
+    /// belongs to the input method.
+    var onHardwareReturn: (() -> Void)?
+
     override var keyCommands: [UIKeyCommand]? {
-        let format: [UIKeyCommand] = [
+        var commands: [UIKeyCommand] = [
             UIKeyCommand(input: "b", modifierFlags: .command, action: #selector(toggleBoldface(_:))),
             UIKeyCommand(input: "i", modifierFlags: .command, action: #selector(toggleItalics(_:))),
             UIKeyCommand(input: "u", modifierFlags: .command, action: #selector(toggleUnderline(_:))),
         ]
-        format.forEach { $0.wantsPriorityOverSystemBehavior = true }
-        return (super.keyCommands ?? []) + format
+        if onHardwareReturn != nil {
+            commands += [
+                UIKeyCommand(input: "\r", modifierFlags: [], action: #selector(hardwareReturn)),
+                UIKeyCommand(input: "\r", modifierFlags: .shift, action: #selector(hardwareLineBreak)),
+                UIKeyCommand(input: "\r", modifierFlags: .alternate, action: #selector(hardwareLineBreak)),
+            ]
+        }
+        commands.forEach { $0.wantsPriorityOverSystemBehavior = true }
+        return (super.keyCommands ?? []) + commands
+    }
+
+    @objc private func hardwareReturn() { onHardwareReturn?() }
+
+    @objc private func hardwareLineBreak() {
+        insertText("\n")
+        scrollRangeToVisible(selectedRange)
     }
 
     override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+        if action == #selector(hardwareReturn) || action == #selector(hardwareLineBreak) {
+            return isEditable && markedTextRange == nil
+        }
         if action == #selector(toggleBoldface(_:)) || action == #selector(toggleItalics(_:)) || action == #selector(toggleUnderline(_:)) {
             return isEditable
         }

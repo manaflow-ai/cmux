@@ -74,11 +74,16 @@ export function subagentSummary(
     ...(chat.peer !== undefined ? { peer: chat.peer } : {}),
     ...(chat.hostKind !== undefined ? { hostKind: chat.hostKind } : {}),
   };
-  const worktree = agent.worktree?.path ?? worktreeOfRows(rows);
+  // A worktree its calls work in is its own only when the chat is not in that worktree already.
+  const seen = worktreeOfRows(rows);
+  const chatTree = chat.worktree ?? chat.cwd;
+  const shared = seen !== undefined && chatTree !== undefined && (chatTree === seen || chatTree.startsWith(`${seen}/`));
+  const worktree = agent.worktree?.path ?? (shared ? undefined : seen);
   if (worktree)
     return {
       ...base,
-      cwd: agent.cwd ?? worktree,
+      // The folder it was given, when that is inside its worktree; else the worktree.
+      cwd: agent.cwd && (agent.cwd === worktree || agent.cwd.startsWith(`${worktree}/`)) ? agent.cwd : worktree,
       worktree,
       ...(agent.worktree?.branch ? { branch: agent.worktree.branch } : {}),
     };

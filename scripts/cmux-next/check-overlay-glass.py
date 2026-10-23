@@ -20,6 +20,13 @@ Rules (Packages/macOS/CmuxNext/Sources, Swift; comment lines are ignored):
   card-fill        makeOverlayPanel(cardFill: true): the mostly opaque CardMaterial fill on glass.
   swiftui-solid    a SwiftUI .background(...) of white, black or a solid palette surface, or
                    .opacity(1).
+  tooltip-material NSVisualEffectView's `.toolTip` material: AppKit's own near-opaque tooltip
+                   bubble, not the shared glass.
+  hover-window     a tooltip, hover card or hover preview window (a class named *Tooltip*,
+                   *HoverCard*, *HoverPreview*, *Preview* or *Peek* that subclasses NSPanel or
+                   NSWindow) whose file never makes the shared glass (`Glass.makeOverlayPanel`).
+                   Leo 2026-10-21: "WHERE IS THE GLASS EVERYWHERE, all these hover tooltips and
+                   hover previews."
 
 Hover cards (a file that hands a body to the app's one hover card window, `HoverCardBody(...)`, or
 reports a card's lines, `HoverCardTextReporting`: the tab, link chip, sidebar workspace, group, pull
@@ -63,7 +70,14 @@ RULES: dict[str, re.Pattern[str]] = {
         r"\.background\(\s*(Color\.(white|black)|\.(white|black)|Color\(nsColor:\s*Palette\.(popupSurface|elevatedBackground|windowBackground)\))"
         r"|\.opacity\(1(\.0)?\)"
     ),
+    "tooltip-material": re.compile(r"\.material\s*=\s*\.toolTip\b|\bMaterial\.toolTip\b"),
 }
+
+# A file-level rule: a tooltip or hover window must make the shared glass somewhere in its file.
+HOVER_WINDOW = re.compile(
+    r"\bclass\s+\w*(Tooltip|ToolTip|HoverCard|HoverPreview|Preview|Peek)\w*\s*:\s*(NSPanel|NSWindow)\b"
+)
+SHARED_GLASS = re.compile(r"\bGlass\.makeOverlayPanel\(")
 
 # Hover card bodies (see the docstring), and the files that host them rather than draw one.
 HOVER_BODY = re.compile(r"\bHoverCardBody\(|\bHoverCardTextReporting\b")
@@ -121,7 +135,6 @@ ALLOWED: dict[str, dict[str, str]] = {
     P + "CmuxNextDesign/OverlaySurface.swift": {
         "popup-surface": "the .opaque material (Reduce Transparency), and fillWithPopupSurface's definition",
     },
-    P + "CmuxNextDesign/Tooltip/TooltipPanel.swift": {"popup-surface": "Reduce Transparency's tooltip surface"},
     P + "CmuxNextDesign/ShortcutHintChipView.swift": {"popup-surface": "the chip's .opaque material path (Reduce Transparency)"},
     P + "CmuxNextDesign/CardSurfaceView.swift": {"elevated-fill": "Reduce Transparency's sidebar card"},
     # Not a floating surface: content and in-pane chrome that sits on its own page.
@@ -135,7 +148,7 @@ ALLOWED: dict[str, dict[str, str]] = {
         "elevated-fill": "the drop target's label chip over the moving pane outline",
     },
     P + "CmuxNextSidebar/Views/DragLiftView.swift": {"elevated-fill": "the dragged row's lifted copy (85%), not a resting surface"},
-    P + "CmuxNextApp/TextBox/TextBoxView.swift": {"system-solid": "an editable text box's field fill (85%)"},
+    P + "CmuxNextTerminal/TextBox/TextBoxView.swift": {"system-solid": "an editable text box's field fill (85%)"},
 }
 
 
@@ -153,8 +166,14 @@ def scan(root: str) -> list[str]:
             with open(path, encoding="utf-8", errors="replace") as handle:
                 lines = handle.read().split("\n")
             allowed = ALLOWED.get(rel, {})
+            makes_glass = any(SHARED_GLASS.search(line.split("//", 1)[0]) for line in lines if not COMMENT.match(line))
             hover = rel not in HOVER_HOSTS and any(HOVER_BODY.search(text) for text in lines)
             for index, line in enumerate(lines):
+                if not COMMENT.match(line) and HOVER_WINDOW.search(line.split("//", 1)[0]) and not makes_glass:
+                    if "hover-window" in allowed:
+                        used.add((rel, "hover-window"))
+                    elif not escaped(lines, index):
+                        findings.append(f"{rel}:{index + 1}: [hover-window] {line.strip()}")
                 if COMMENT.match(line):
                     continue
                 code = line.split("//", 1)[0]
@@ -202,7 +221,7 @@ def main() -> int:
     if findings:
         print("check-overlay-glass: a floating surface is solid instead of the shared glass (Leo 2026-10-21:")
         print('  "STOP DOING SOLID. WE HAVE GLASS, SO JUST USE GLASS."). Use Glass.makeOverlayPanel, the')
-        print("  tooltip frost or CardSurfaceView, or say why it stays solid: `// glass-opaque-allow: <reason>`.")
+        print("  tooltip glass or CardSurfaceView, or say why it stays solid: `// glass-opaque-allow: <reason>`.")
         for finding in findings:
             print(finding)
         return 1
