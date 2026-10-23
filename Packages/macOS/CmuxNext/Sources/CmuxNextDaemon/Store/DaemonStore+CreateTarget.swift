@@ -83,6 +83,11 @@ extension DaemonStore {
                 kept.insert(provisional.handle)
             case .createTab(let pane, _):
                 kept.insert(pane)
+            case .setRowHeights(let column, let heights):
+                // A row edge dragged on a stand-in column or row shows through its create's pane.
+                for raw in [column.rawValue] + heights.map(\.row.rawValue) {
+                    if let created = standInCreate(ofDerived: raw) { kept.insert(created) }
+                }
             default:
                 break
             }

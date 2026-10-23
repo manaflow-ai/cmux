@@ -39,6 +39,18 @@ extension DaemonService {
         return { try? await send().get() }
     }
 
+    /// ``intendNow(_:_:transaction:_:)`` whose command needs ids resolved at send time: `intent`
+    /// shows at once, `prepare` runs right before the send (a stand-in's daemon ids, waiting for
+    /// them while its create is in flight) and `body` sends with its result. A `prepare` that
+    /// throws refuses the intent, which leaves exactly; nothing is sent.
+    public func intendNow<P: Sendable, T: Sendable>(_ label: String, _ intent: Intent, transaction: ClientTransactionID,
+                                                     prepare: @escaping @MainActor () async throws -> P,
+                                                     _ body: @escaping @Sendable (isolated DaemonConnection, P) async throws -> T)
+        -> @MainActor () async -> T? {
+        let send = intendNowReporting(label, intent, transaction: transaction, prepare: prepare, body)
+        return { try? await send().get() }
+    }
+
     /// ``intendNow(_:_:transaction:_:)`` whose work returns the failure too (``intentEffect(_:_:_:)``).
     func intendNowReporting<T: Sendable>(_ label: String, _ intent: Intent, transaction: ClientTransactionID,
                                          _ body: @escaping @Sendable (isolated DaemonConnection) async throws -> T)
