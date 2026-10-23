@@ -36,8 +36,11 @@ WIDTH = re.compile(r"^(?:width|min-width|inline-size|min-inline-size)$")
 LAYOUT_WIDTH = re.compile(r"^(?:auto|0|0px|100%|max-content|min-content|fit-content|inherit|initial|unset)$")
 JSX_CONTROLS = set(CONTROLS) - {"acpmux-pill"}
 # A transcript row is `<article className="acpmux-row acpmux-plan">` (App.tsx): a plain element, not
-# the Plan control. Only an intrinsic element that is not a button (and has no button role) is exempt.
+# the Plan control. Only a lowercase (intrinsic) tag other than button is exempt, and only when its
+# role is absent or a literal other than button (see transcript_row).
 ROW_HOSTS_NOT_CONTROLS = re.compile(r"^[a-z][\w-]*$")
+# A literal role: role="x", role='x', role={"x"}, role={'x'} or role={`x`}, with any spacing.
+LITERAL_ROLE = re.compile(r"""^\s*=\s*(?:"([^"]*)"|'([^']*)'|\{\s*(?:"([^"]*)"|'([^']*)'|`([^`$]*)`)\s*\})""")
 
 
 def rules(css):
@@ -233,12 +236,38 @@ def class_attributes(text):
 
 
 def owning_tag(text, offset):
-    """The JSX element a className at `offset` belongs to, and its attributes before the className:
-    the last `<Name` opened before it."""
+    """The JSX element a className at `offset` belongs to, and all of its attributes: from the last
+    `<Name` opened before it to the `>` that closes the tag (strings and braces skipped)."""
     opened = None
     for match in re.finditer(r"<([A-Za-z][\w.-]*)", text[:offset]):
         opened = match
-    return (opened.group(1), text[opened.end():offset]) if opened else ("", "")
+    if not opened:
+        return "", ""
+    index = opened.end()
+    while index < len(text) and text[index] != ">":
+        if text[index] in "'\"`":
+            index = skip_string(text, index)
+        elif text[index] == "{":
+            index = skip_group(text, index)
+        else:
+            index += 1
+    return opened.group(1), text[opened.end():index]
+
+
+def plain_role(attributes):
+    """True when the element's attributes leave it a plain element: no spread props, and no role or
+    only literal roles other than button. A dynamic role, a spread or any spelling of button is a
+    control."""
+    if re.search(r"\{\s*\.\.\.", attributes):
+        return False
+    for match in re.finditer(r"(?<![\w-])role(?![\w-])", attributes):
+        literal = LITERAL_ROLE.match(attributes[match.end():])
+        if not literal:
+            return False
+        value = next(group for group in literal.groups() if group is not None)
+        if value.strip().lower() == "button" or not value.strip():
+            return False
+    return True
 
 
 def transcript_row(names, tag, attributes):
@@ -249,7 +278,7 @@ def transcript_row(names, tag, attributes):
         and names & JSX_CONTROLS == {"acpmux-plan"}
         and ROW_HOSTS_NOT_CONTROLS.match(tag) is not None
         and tag != "button"
-        and not re.search(r"\brole=[\"'{]*button", attributes)
+        and plain_role(attributes)
     )
 
 

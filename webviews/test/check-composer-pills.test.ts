@@ -37,6 +37,10 @@ describe("check-composer-pills: a control's className, branch by branch", () => 
     'className={`acpmux-mic acpmux-pill ${ok ? "is-on" : ""}`}',
     'className={cx("acpmux-plan acpmux-pill", ok && "is-on")}',
     '<article className="acpmux-row acpmux-plan" />',
+    // A literal role other than button leaves the row a plain element.
+    '<article role="listitem" className="acpmux-row acpmux-plan" />',
+    "<article className=\"acpmux-row acpmux-plan\" role={'article'} />",
+    '<article data-role="button" className="acpmux-row acpmux-plan" />',
     '<span className="acpmux-picker-button acpmux-pill acpmux-access-trigger" />',
   ];
   const failing = [
@@ -48,7 +52,22 @@ describe("check-composer-pills: a control's className, branch by branch", () => 
     // A Plan button is the control, whatever other classes it carries.
     'className="acpmux-plan"',
     'className="acpmux-row acpmux-plan"',
+    // A button role in any spelling, a role decided at run time, or spread props (which may carry
+    // one) make the row a control.
     '<div role="button" className="acpmux-row acpmux-plan" />',
+    '<div role = "button" className="acpmux-row acpmux-plan" />',
+    "<div role='button' className=\"acpmux-row acpmux-plan\" />",
+    "<div role={'button'} className=\"acpmux-row acpmux-plan\" />",
+    '<div role={"button"} className="acpmux-row acpmux-plan" />',
+    '<div role={ "button" } className="acpmux-row acpmux-plan" />',
+    '<div role={`button`} className="acpmux-row acpmux-plan" />',
+    '<div role="Button" className="acpmux-row acpmux-plan" />',
+    '<div className="acpmux-row acpmux-plan" role="button" />',
+    '<div role={role} className="acpmux-row acpmux-plan" />',
+    '<div role={ok ? "button" : "listitem"} className="acpmux-row acpmux-plan" />',
+    '<div role="" className="acpmux-row acpmux-plan" />',
+    '<div {...props} className="acpmux-row acpmux-plan" />',
+    '<div className="acpmux-row acpmux-plan" {...rest} />',
     '<PlanButton className="acpmux-row acpmux-plan" />',
     // The permission mode's trigger is a control too, as a button or as the span that draws it.
     'className="acpmux-access-trigger"',

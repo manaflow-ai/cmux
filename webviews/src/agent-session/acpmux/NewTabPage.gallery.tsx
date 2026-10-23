@@ -222,7 +222,15 @@ export default componentEntry<Props>({
   widths: { narrow: 420, normal: 680, wide: 880 },
   anchors: [{ selector: ".newtab-page-gallery" }],
   covers: ["agent-session/acpmux/NewTabPage.tsx#NewTabPage", "agent-session/acpmux/NewTabPage.tsx#KindIcon"],
-  styles: () => import("./styles.css"),
+  // The pane's sheets in the order build-agent-pane-web.sh ships them: Send is the composer pill
+  // (composerLocation.css .acpmux-pill-icon), not a browser-default button.
+  styles: () =>
+    Promise.all([
+      import("./styles.css"),
+      import("./composerControls.css"),
+      import("./composerStates.css"),
+      import("./composerLocation.css"),
+    ]),
   checks: {
     anchorMovePx: {
       value: 0,
