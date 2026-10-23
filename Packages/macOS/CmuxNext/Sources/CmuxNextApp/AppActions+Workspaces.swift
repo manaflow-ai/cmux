@@ -124,7 +124,7 @@ extension AppActions {
         // agent chat's exact folder, unless `window-inherit-working-directory = false`.
         if invocation.origin == .user, invocation["machine"] == nil, NewTerminalStart.inherits(.window),
            let focused = services.windows.active?.focusedPane, focused.daemon === services.daemon {
-            spawn.inheritedCwd = NewTerminalStart.folder(of: focused.selectedTab, services: services)
+            spawn.inheritedCwd = NewTerminalStart.inherited(besides: focused.selectedTab, in: focused.pane, services: services)
         }
 
         let windows = services.windows

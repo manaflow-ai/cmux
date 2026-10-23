@@ -119,6 +119,13 @@ const trayLines = (count: number) => async (ctx: PlayContext) => {
     throw new Error("the tray is the agents chip; no pill beside it");
 };
 
+/** A finished turn folds its work, each subagent's line with it (turns.ts `foldSegments`): open the
+ * turn's Worked for, then wait for what the state shows. */
+const openFold = async (ctx: PlayContext) => {
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-worked"));
+  await ctx.click({ selector: ".cv-worked" });
+};
+
 export default agentPaneEntry({
   id: "agent-pane.subagent-tray",
   title: "Running subagents tray",
@@ -289,8 +296,9 @@ export default agentPaneEntry({
       ),
     },
     "finished-line": {
-      note: "A finished turn: each subagent left one quiet line where it ended, with its name and how long it ran; no tray.",
+      note: "A finished turn, its Worked for opened: each subagent left one quiet line where it ended, with its name and how long it ran; no tray.",
       play: async (ctx) => {
+        await openFold(ctx);
         await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-subagent-done").length === 2);
         if (ctx.document.querySelector(".acpmux-running-tray")) throw new Error("nothing runs: no tray");
       },
@@ -310,6 +318,7 @@ export default agentPaneEntry({
     "failed-line": {
       note: "A subagent that failed says so in the danger color. A stopped one says why when the pane knows: the person stopped it (Stop), or a Send now interrupted its turn; one stopped for a reason the pane cannot know (another client's cancel, Claude's own TaskStop) says none rather than guess. One that did not finish offers Restart on hover.",
       play: async (ctx) => {
+        await openFold(ctx);
         await ctx.waitFor(() => ctx.document.querySelector('.cv-subagent-done[data-state="failed"]'));
         const texts = [...ctx.document.querySelectorAll(".cv-subagent-done")].map((line) => line.textContent ?? "");
         if (!texts.some((text) => text.includes("stopped by you")))
@@ -344,6 +353,7 @@ export default agentPaneEntry({
     "restart-on-hover": {
       note: "Restart on a stopped subagent's line, shown on hover or keyboard focus (focused here): the hover row's compact button, its name and what it does on hover. It asks the chat to run the subagent again with its prompt.",
       play: async (ctx) => {
+        await openFold(ctx);
         await ctx.waitFor(() => ctx.document.querySelector(".cv-subagent-restart"));
         (ctx.document.querySelector(".cv-subagent-restart") as HTMLButtonElement).focus();
       },
