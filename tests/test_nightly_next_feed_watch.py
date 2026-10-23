@@ -259,6 +259,8 @@ class StarvationGuardTests(unittest.TestCase):
         self.assertFalse(watch.is_active_delivery_run("nightly.yml", "main", cache_seed))
         publish = {**cache_seed, "created_at": "2026-10-23T09:55:00Z", "display_title": "Nightly macOS build · 47 8 * * *"}
         self.assertTrue(watch.is_active_delivery_run("nightly.yml", "main", publish))
+        legacy = {**cache_seed, "created_at": "2026-10-23T09:55:00Z", "display_title": "Nightly macOS build"}
+        self.assertTrue(watch.is_active_delivery_run("nightly.yml", "main", legacy))
 
 
 class FakeGitHub:

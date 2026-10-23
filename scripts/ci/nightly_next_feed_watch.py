@@ -180,14 +180,10 @@ def is_active_delivery_run(workflow: str, branch: str | None, run: dict) -> bool
             return False
         if "47 8" in title:
             return True
-        try:
-            created = parse_time(run["created_at"])
-        except (KeyError, TypeError, ValueError):
-            return False
-        # Older runs predate the explicit schedule in run-name. Their 08:47
-        # catch-up may start late, so accept the catch-up window through 10:59;
-        # the six-hour seed hours are 05, 11, 17 and 23 UTC.
-        return created.hour in {8, 9, 10}
+        # An older run without the schedule marker is conservatively treated
+        # as active publication. This avoids ever dispatching a duplicate
+        # while the marker rolls out; the next run carries an explicit name.
+        return True
     return True
 
 
