@@ -112,6 +112,7 @@ impl Hub {
                         (shown > 0).then(|| format!("({shown} image(s), attached again below)"))
                     }));
                 }
+                _ => {}
             }
             true
         });
