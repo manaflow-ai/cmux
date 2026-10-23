@@ -155,12 +155,9 @@ extension CMUXCLI {
         let appliedWorkingDirectory = try applyRestoreWorkingDirectory(
             requestedWorkingDirectory
         )
-        let effectiveWorkingDirectory: String? =
-            if requestedWorkingDirectory?.isEmpty == false {
-                appliedWorkingDirectory ?? FileManager.default.currentDirectoryPath
-            } else {
-                nil
-            }
+        // A requested directory is either entered or refused, so there is no
+        // fallback to the invocation directory.
+        let effectiveWorkingDirectory = appliedWorkingDirectory
         let legacyOnly = record.launchCommand == nil && record.preparedArguments == nil && record.legacyCommand != nil
         let invocation: AgentRestoreInvocation?
         if legacyOnly {
@@ -193,8 +190,7 @@ extension CMUXCLI {
             let planner = AgentRestorePlanner(
                 executableFileResolver: AgentRestoreExecutableFileResolver(),
                 // Resolved from the session's own directory, never from wherever `cmux restore` was
-                // invoked: when the saved directory is gone the restore falls back to the invocation
-                // directory, and resolving there would pick up an unrelated project's `agents.launchers`
+                // invoked: resolving there would pick up an unrelated project's `agents.launchers`
                 // and apply its prefix to this session's captured id.
                 externalLaunchers: externalAgentLaunchers(
                     workingDirectory: record.launchCommand?.workingDirectory ?? record.workingDirectory

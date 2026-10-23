@@ -184,12 +184,9 @@ extension CMUXCLI {
 
         let requestedWorkingDirectory = requestedRestoreWorkingDirectory(for: record)
         let appliedWorkingDirectory = try applyForkWorkingDirectory(requestedWorkingDirectory)
-        let effectiveWorkingDirectory: String? =
-            if requestedWorkingDirectory?.isEmpty == false {
-                appliedWorkingDirectory ?? FileManager.default.currentDirectoryPath
-            } else {
-                nil
-            }
+        // A requested directory is either entered or refused, so there is no
+        // fallback to the invocation directory.
+        let effectiveWorkingDirectory = appliedWorkingDirectory
         let transcriptTargetWorkingDirectory = normalizedRestoreWorkingDirectory(
             record.forkArgumentsWorkingDirectory
         ) ?? effectiveWorkingDirectory
