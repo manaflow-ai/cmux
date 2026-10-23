@@ -172,6 +172,10 @@ extension SidebarListViewComponents {
         let reopened = animate ? Set(layout.rows.filter { openingRows[$0.key] != nil && old.row(for: $0.key)?.y != $0.y }.map(\.key)) : []
         for row in layout.rows where animate && (old.row(for: row.key) == nil || reopened.contains(row.key)) { openingRows[row.key] = now } // only animated applies open rows (hq-1d)
         let insertRuns = SidebarRowTransition.runTops(of: layout, missingFrom: old, reopened: reopened)
+        // How the rows make room for the new workspace row (`sidebar.insertMotion`, Leo 2026-10-21: "when you create a
+        // workspace at the top it's a huge cascade"); other changes keep `.move` over the whole distance.
+        let insertMotion = animate && insertsWorkspace ? SidebarInsertMotion.tunable.value : nil
+        let nudge = SidebarInsertMotion.nudgeDistance.value
         // Without motion the rows that leave park first (as they would after the loop), so the rows that
         // come take their views: a space switch reuses the old space's views, it makes none (space-switch-fast).
         if !animate, !adopting {
@@ -200,7 +204,8 @@ extension SidebarListViewComponents {
                 Motion.withoutAnimation {
                     if opens {
                         // An inserted row grows from its run's top; an expanded one comes out from under its header.
-                        view.frame = SidebarRowTransition.insertFrame(row, target: target, runTop: insertRuns[row.key], from: old, to: layout)
+                        let opening = SidebarRowTransition.insertFrame(row, target: target, runTop: insertRuns[row.key], from: old, to: layout)
+                        view.frame = insertMotion?.openFrame(opening, target: target, nudge: nudge) ?? opening
                         view.alphaValue = 0
                         view.clipsToBounds = true
                         view.opens += 1
@@ -273,7 +278,7 @@ extension SidebarListViewComponents {
             SidebarDragSpring.move(history + lines.springs, in: self)
             return adoptRows(targets: targets, leaving: leaving, lines: lines)
         }
-        RowMotion(targets: targets, appearing: appearing, leaving: leaving, lines: lines, companions: history)
+        RowMotion(targets: targets, appearing: appearing, leaving: leaving, lines: lines, companions: history, insert: insertMotion)
             .run(in: self, from: old, to: layout, animated: animate)
     }
     func configure(_ view: SidebarRowView, row: SidebarRow, animated: Bool) {
