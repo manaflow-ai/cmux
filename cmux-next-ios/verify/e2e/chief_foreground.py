@@ -68,6 +68,9 @@ def main():
     ap.add_argument("--away", default="10,60,300")
     ap.add_argument("--out", required=True)
     ap.add_argument("--send", action="store_true")
+    ap.add_argument("--freeze", action="store_true",
+                    help="while away, stop the app's process (SIGSTOP), as iOS suspends it on a device; "
+                         "the simulator otherwise keeps a background app running")
     ap.add_argument("--phone-log", default="info,cmux_mobile_link=debug")
     a = ap.parse_args()
     os.makedirs(os.path.join(a.out, "shots"), exist_ok=True)
@@ -100,8 +103,17 @@ def main():
     log(f"Chief usable after opening: {first}")
     for n, away in enumerate(int(x) for x in a.away.split(",")):
         sim.home()
-        log(f"background for {away} s")
+        log(f"background for {away} s{' (process stopped)' if a.freeze else ''}")
+        pid = None
+        if a.freeze:
+            time.sleep(1)
+            r = subprocess.run(["pgrep", "-f", f"{udid}/.*/CmuxMobileApp.app/CmuxMobileApp"], capture_output=True, text=True)
+            pid = (r.stdout.split() or [None])[0]
+            if pid:
+                os.kill(int(pid), 19)  # SIGSTOP
         time.sleep(away)
+        if pid:
+            os.kill(int(pid), 18)  # SIGCONT
         t_fg = time.time()
         subprocess.run(["xcrun", "simctl", "launch", udid, a.bundle], capture_output=True)
         took, seen = wait_usable(sim, 300, log)
