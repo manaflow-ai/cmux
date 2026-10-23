@@ -756,7 +756,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextKeepAwakeTests",
-            dependencies: ["CmuxNextKeepAwake", "CmuxNextSettings"],
+            dependencies: ["CmuxNextDaemon", "CmuxNextKeepAwake", "CmuxNextSettings"],
             swiftSettings: uiSwiftSettings
         ),
         // Host pressure (cmuxterm-hq#2995): the shared host budget's verdict (acpmux's
