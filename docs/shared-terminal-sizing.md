@@ -136,6 +136,10 @@ choice. Commands: `get-host-size-policy` and `set-host-size-policy`
 (cmux-tui/spec/commands.md); the phone's side is cmux-next-ios/PROTOCOL.md
 "Terminal sizing policy".
 
+A cmux-next daemon that reads the settings file defaults to `smallest` (Fit
+the smallest viewer) for every terminal without an override or workspace
+default; the engine default `latest` applies only before the file is read.
+
 ## Creation size
 
 A new terminal's PTY starts at the grid of the view that asked for it, so its
