@@ -78,6 +78,10 @@ export type AgentSessionTheme = {
   /// `agentPane.debug.subagentTray`, acpmux subagents/runningTray.ts). Absent or true is the tray;
   /// false keeps the transcript's group cards and the agents pill.
   subagentTray?: boolean;
+  /// The transcript's scrollbar fades out at rest (Debug Settings `agentPane.debug.scrollerFade`):
+  /// sets `data-cmux-scroller-fade` on the root (scrollers.ts). Absent or false keeps it shown while
+  /// the chat overflows.
+  scrollerFade?: boolean;
 };
 
 export type AppContext = {
