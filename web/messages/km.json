@@ -2181,6 +2181,7 @@
           "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
+          "equalizeSplitsOnDividerDoubleClick": "នៅពេលបើក ការចុចពីរដងលើបន្ទាត់បែងចែកធ្វើឱ្យផ្ទាំងនៅក្នុងជួរដេក ឬជួរឈររបស់វាមានទំហំស្មើគ្នា។ ជួរដេក និងជួរឈរផ្សេងទៀតរក្សាទំហំដដែល។",
           "confirmQuit": "កំណត់ពេលដែល cmux ស្នើសុំការបញ្ជាក់មុនពេលចាកចេញ។ កំណែ DEV តែងតែចាកចេញភ្លាមៗ ដោយមិនគិតពីការកំណត់នេះទេ។ app.warnBeforeQuit ចាស់នៅតែត្រូវបានទទួលយកជាជម្រើសបម្រុង boolean។",
           "windowTitleTemplate": "គំរូចំណងជើង NSWindow ជាជម្រើស។ ទុកទទេ ដើម្បីរក្សាឥរិយាបថចំណងជើងលំនាំដើមដែលមានស្រាប់របស់ cmux រួមទាំង fallback ទៅថតបច្ចុប្បន្ន។ Placeholder ដែលគាំទ្រ៖ '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'។",
           "devWindowDisplay": "ឈ្មោះអេក្រង់ដែលប្រើតែក្នុង build DEBUG ពេលបើកបង្អួចថ្មី។ តម្លៃទទេប្រើលំនាំដើមរបស់ប្រព័ន្ធ។",

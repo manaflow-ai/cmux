@@ -8,6 +8,23 @@ extension Workspace {
         splitTabBar(bonsplitController, didChangeGeometry: bonsplitController.layoutSnapshot())
     }
 
+    func splitTabBar(_ controller: BonsplitController, didDoubleClickDivider splitId: UUID) -> Bool {
+        guard controller === bonsplitController,
+              layoutMode != .canvas,
+              !isRemoteTmuxMirror,
+              UserDefaultsSettingsClient(defaults: .standard).value(
+                for: SettingCatalog().app.equalizeSplitsOnDividerDoubleClick
+              ) else { return false }
+        let result = PaneLayoutService().equalizeSplitRun(
+            containingSplitId: splitId,
+            in: controller.treeSnapshot(),
+            controller: controller
+        )
+        guard result.foundSplit else { return false }
+        didProgrammaticallyChangeSplitGeometry()
+        return true
+    }
+
     func applyInitialSplitDividerPosition(
         _ position: CGFloat?,
         sourcePaneId: PaneID,

@@ -819,6 +819,12 @@
           "default": false,
           "description": "When true, creating a split resizes the panes in that split's row or column to equal sizes. When false, a new split halves the pane it was created from."
         },
+        "equalizeSplitsOnDividerDoubleClick": {
+          "type": "boolean",
+          "default": true,
+          "description": "When true, double-clicking a split divider makes the panes in its row or column equal in size. Other rows and columns keep their sizes.",
+          "descriptionKey": "schemaDescriptions.app.equalizeSplitsOnDividerDoubleClick"
+        },
         "preferredEditor": {
           "type": "string",
           "default": "",

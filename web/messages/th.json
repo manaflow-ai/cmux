@@ -2182,6 +2182,7 @@
           "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
+          "equalizeSplitsOnDividerDoubleClick": "เมื่อเปิดใช้งาน การดับเบิลคลิกเส้นแบ่งจะทำให้บานหน้าต่างในแถวหรือคอลัมน์นั้นมีขนาดเท่ากัน แถวและคอลัมน์อื่นจะคงขนาดเดิมไว้",
           "confirmQuit": "ควบคุมว่า cmux จะขอการยืนยันก่อนออกเมื่อใด บิลด์ DEV จะออกทันทีเสมอไม่ว่าค่านี้จะเป็นอย่างไร ค่า app.warnBeforeQuit แบบเดิมยังคงใช้เป็นตัวเลือกสำรองแบบบูลีนได้",
           "windowTitleTemplate": "เทมเพลตชื่อหน้าต่าง NSWindow แบบไม่บังคับ เว้นว่างไว้เพื่อคงพฤติกรรมชื่อเริ่มต้นเดิมของ cmux รวมถึงการถอยกลับไปใช้ไดเรกทอรีปัจจุบัน ตัวยึดตำแหน่งที่รองรับ: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'",
           "devWindowDisplay": "ชื่อจอแสดงผลที่ใช้เฉพาะในบิลด์ DEBUG เมื่อเปิดหน้าต่างใหม่ ค่าว่างจะใช้ค่าเริ่มต้นของระบบ",

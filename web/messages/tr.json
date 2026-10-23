@@ -2181,6 +2181,7 @@
           "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
+          "equalizeSplitsOnDividerDoubleClick": "Etkinleştirildiğinde, bir bölme ayırıcısına çift tıklamak o satır veya sütundaki bölmeleri eşit boyuta getirir. Diğer satır ve sütunların boyutları korunur.",
           "confirmQuit": "cmux'un çıkmadan önce ne zaman onay isteyeceğini denetler. DEV derlemeleri bu ayardan bağımsız olarak her zaman hemen çıkar. Eski app.warnBeforeQuit boolean yedeği olarak kabul edilmeye devam eder.",
           "windowTitleTemplate": "İsteğe bağlı NSWindow başlık şablonu. Boş bırakılırsa geçerli dizin yedeği dahil cmux'un mevcut varsayılan başlık davranışı korunur. Desteklenen yer tutucular: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "devWindowDisplay": "Yeni pencereler açılırken yalnızca DEBUG derlemelerinde kullanılan ekran adı. Boş değer sistem varsayılanını kullanır.",
