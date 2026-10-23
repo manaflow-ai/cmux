@@ -31,12 +31,6 @@ public enum MetricKey: String, Sendable, CaseIterable, Codable {
 public final class DesignSettings {
     public static let shared = DesignSettings()
 
-    /// Repaints every window (the app theme store's `repaintAll`), for a change that moves no
-    /// theme color but every window draws (calm mode, the terminal face pages follow). The
-    /// composition root installs it with the store it owns; until then (and in a test without
-    /// windows) it does nothing.
-    @ObservationIgnored public var repaintAll: @MainActor () -> Void = {}
-
     /// Intentional Command/Control hold hints (`shortcuts.showModifierHoldHints`).
     public var showModifierHoldHints = true
     /// `appearance.density`: the active density's token set (plans/cmux-next/density-DESIGN.md).
@@ -147,7 +141,8 @@ public final class DesignSettings {
     }
     /// `ui.calm` (``CalmMode``): Reduce Motion behavior, no hover cards and no hover fills, and
     /// with `still` no animation at all. A change posts the motion, Reduce Motion and hover-card
-    /// notifications, so cached motion values re-read and a shown card goes at once.
+    /// notifications, so cached motion values re-read and a shown card goes at once; the
+    /// composition root observes it and repaints every window (`AppServices.observeWindowRepaints`).
     public var calmMode: CalmMode = .off {
         didSet {
             guard calmMode != oldValue else { return }
@@ -155,7 +150,6 @@ public final class DesignSettings {
             center.post(name: Motion.speedDidChange, object: nil)
             center.post(name: Motion.reduceMotionDidChange, object: nil)
             center.post(name: Self.hoverCardsDidChange, object: nil)
-            repaintAll()
         }
     }
     /// Hover cards open on hover: `sidebar.hoverCards.enabled` and not calm mode.
@@ -208,22 +202,15 @@ public final class DesignSettings {
     /// so chrome that imitates the terminal (the braille status indicator)
     /// draws in it. Nil (no override) uses the system monospaced font there;
     /// pages use `effectiveTerminalFontFamily`, which also reads the Ghostty config.
-    public var terminalFontFamily: String? {
-        didSet { repaintIfTerminalFaceChanged(from: oldValue ?? terminalConfigFontFamily) }
-    }
+    public var terminalFontFamily: String?
     /// The Ghostty config files' own `font-family` (`GhosttyConfigFontFamily`), the terminal's
     /// face when cmux.json sets none.
-    public var terminalConfigFontFamily: String? {
-        didSet { repaintIfTerminalFaceChanged(from: terminalFontFamily ?? oldValue) }
-    }
+    public var terminalConfigFontFamily: String?
     /// The family the terminal draws in: cmux.json's, else the Ghostty config's; nil when
-    /// neither names one (Ghostty's built-in face). Pages that show code follow it (`WebTheme`).
+    /// neither names one (Ghostty's built-in face). Pages that show code follow it (`WebTheme`):
+    /// the composition root observes it and repaints every window on a change, so every page
+    /// resends its theme (`AppServices.observeWindowRepaints`).
     public var effectiveTerminalFontFamily: String? { terminalFontFamily ?? terminalConfigFontFamily }
-    /// Pages that show code draw in the terminal's face (`WebTheme.Terminal`): a change of it
-    /// repaints, so every page resends its theme.
-    private func repaintIfTerminalFaceChanged(from before: String?) {
-        if effectiveTerminalFontFamily != before { repaintAll() }
-    }
     /// `status.*`: inferred command busy and run notifications.
     public var statusBehavior = StatusBehaviorSettings()
     /// `appearance.borders`: default, or none (no border, hairline or
