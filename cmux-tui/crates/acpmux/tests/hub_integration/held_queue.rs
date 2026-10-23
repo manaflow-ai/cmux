@@ -32,6 +32,11 @@ fn hub_env(env: Value) -> Arc<Hub> {
     Hub::new(cfg, store)
 }
 
+fn agent_prompt(session: &str, prompt_id: &str, text: &str) -> Value {
+    json!({"sessionId": session, "prompt": [{"type": "text", "text": text}],
+           "_meta": {"acpmux": {"promptId": prompt_id, "fromAgent": "lane"}}})
+}
+
 fn prompt(session: &str, prompt_id: &str, text: &str) -> Value {
     json!({"sessionId": session, "prompt": [{"type": "text", "text": text}],
            "_meta": {"acpmux": {"promptId": prompt_id}}})
@@ -167,4 +172,44 @@ async fn a_send_whose_agent_cannot_start_fails_alone() {
     assert!(answered.is_ok(), "the prompt behind the failed send was held");
     assert!(c.records(&session, "queue_paused").await.is_empty(), "a failed send held the queue");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Agent messages that joined a turn whose agent cannot start are not held either: they go back
+/// unheld and each gets its own try, not the `autoResumeDelaysMs` wait (10 s at first).
+#[tokio::test]
+async fn agent_messages_joined_to_a_send_whose_agent_cannot_start_are_not_held() {
+    let hub = hub();
+    let mut c = Client::open(&hub);
+    let session = c.new_session().await;
+    c.call("session/prompt", prompt(&session, "p-exit", "answer-then-exit")).await;
+    let s = hub.resolve(&session).unwrap();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    while s.meta().status != SessionStatus::Disconnected {
+        assert!(tokio::time::Instant::now() < deadline, "the agent never exited");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    // From now on the agent cannot start at all.
+    let mut config = hub.config.write().await;
+    let fake = config.harnesses.get_mut("fake").unwrap();
+    fake.env.insert("FAKE_DIE_AT_START".to_owned(), "cannot start".to_owned());
+    fake.env.insert("FAKE_INIT_DELAY_MS".to_owned(), "500".to_owned());
+    drop(config);
+
+    // `a-1` starts the agent and fails; `a-2` and `a-3` wait behind it, so `a-3` joins `a-2`'s
+    // turn, whose agent cannot start either.
+    let first = c.send("session/prompt", agent_prompt(&session, "a-1", "one")).await;
+    c.until(|v| v["method"] == "_acpmux/prompt_accepted" && v["params"]["promptId"] == "a-1").await;
+    c.queue(agent_prompt(&session, "a-2", "two")).await;
+    let third = c.send("session/prompt", agent_prompt(&session, "a-3", "three")).await;
+    c.until(|v| v["method"] == "_acpmux/prompt_accepted" && v["params"]["promptId"] == "a-3").await;
+    assert!(c.reply_to(first).await.get("error").is_some(), "the agent started");
+    // Its own try fails too, at once: held, it would wait out the 10 s retry.
+    let answered = tokio::time::timeout(Duration::from_secs(6), c.reply_to(third)).await;
+    let joined = c.records(&session, "dequeued").await;
+    assert!(
+        joined.iter().any(|m| m["promptId"] == "a-3" && m["joinedPromptId"] == "a-2"),
+        "a-3 never joined a-2's turn: {joined:?}"
+    );
+    assert!(answered.is_ok(), "the agent message that joined the failed send was held");
+    assert!(c.records(&session, "queue_paused").await.is_empty(), "a failed start held the queue");
 }
