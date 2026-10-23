@@ -5,7 +5,7 @@
 //   line where it ended, with its name and how long it ran, a failure in the danger color.
 // - The tray lists each running subagent (nested ones under their parent), background command and
 //   chat the agent started: name, what it does now, its state and its time. Several get a header;
-//   more than three fold.
+//   more than three keep a bounded set of status cards with View all.
 // - It is the one place running background work shows: no "Running in background" row in the
 //   transcript. Between turns a command shows only when acpmux's process registry says it runs; one
 //   only the transcript knows (a peer's chat, whose end never arrived) does not pin the tray.
@@ -603,7 +603,7 @@ describe("the tray tells the truth", () => {
   const names = (lines: HTMLElement[]) =>
     lines.map((line) => line.querySelector(".acpmux-summary-agent__name")?.textContent);
 
-  test("the head counts only what runs or waits, and equals the rows; the finished sit behind one line", async () => {
+  test("the head counts only what runs or waits, and finished work keeps bounded status cards", async () => {
     const now = Date.now();
     const agents = [
       agent("Reviewer", { startedAt: now - 9000 }),
@@ -645,11 +645,15 @@ describe("the tray tells the truth", () => {
       // A chat says what it does now; one waiting on the person says so.
       expect(lines[3]!.querySelector(".acpmux-summary-agent__kind")?.textContent).toBe("Run the tests");
       expect(lines[4]!.querySelector(".acpmux-summary-agent__state")?.textContent).toBe("Waiting");
-      // The finished are one folded line, never in the count.
+      // Finished work is visible as cards without changing the running count.
       const more = root.querySelector<HTMLButtonElement>(".acpmux-running-tray__finished")!;
-      expect(more.textContent).toContain("4 subagents done");
+      expect(more.textContent).toContain("View all 4");
       expect(more.getAttribute("aria-expanded")).toBe("false");
-      expect(root.querySelectorAll("li[data-finished] .acpmux-agent-line").length).toBe(0);
+      expect(names([...root.querySelectorAll<HTMLElement>("li[data-finished] .acpmux-agent-line")])).toEqual([
+        "Linter",
+        "Fuzzer",
+        "Fix the dock",
+      ]);
       await act(async () => more.click());
       const ended = [...root.querySelectorAll<HTMLElement>("li[data-finished] .acpmux-agent-line")];
       expect(names(ended)).toEqual(["Linter", "Fuzzer", "Fix the dock", "Retry the upload"]);
@@ -659,6 +663,8 @@ describe("the tray tells the truth", () => {
         "Done",
         "Failed",
       ]);
+      expect(more.textContent).toContain("Show fewer");
+      expect(more.getAttribute("aria-expanded")).toBe("true");
       expect(liveLines(root).length).toBe(5);
     } finally {
       await done();

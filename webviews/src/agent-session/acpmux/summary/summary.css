@@ -155,11 +155,17 @@
 .acpmux-recap__button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
 .acpmux-recap__dismiss{position:absolute;top:6px;right:6px}
 .acpmux-recap__error{margin:6px 0 0;color:var(--agent-muted);font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
-/* The summary card's Background tasks (SummaryTasks.tsx): a command's row opens its terminal, Stop sits beside it; the finished ones fold into one row. */
-.acpmux-summary-task{display:flex;align-items:center;gap:2px}
+/* The summary card's Background tasks (SummaryTasks.tsx): every command is a compact card so its
+   description and state stay visible; long lists use the View all row instead of hiding completed
+   work behind an aggregate count. */
+.acpmux-summary-task{display:flex;align-items:center;gap:2px;margin:2px 0;border:var(--cmux-hairline,.5px) solid var(--agent-border);border-radius:8px;background:color-mix(in srgb,var(--agent-text) 3%,transparent)}
 .acpmux-summary-task>.acpmux-summary-row{flex:1 1 auto;min-width:0}
 .acpmux-summary-task>.acpmux-chat-inspector-stop{margin-right:4px}
 .acpmux-summary-task[data-state=failed]>.acpmux-summary-row>svg{color:var(--agent-danger)}
+.acpmux-summary-task[data-state=stopped]>.acpmux-summary-row>svg,.acpmux-summary-task[data-state=lost]>.acpmux-summary-row>svg{color:var(--agent-muted)}
+.acpmux-summary-task__body{display:flex;min-width:0;flex-direction:column;align-items:flex-start;line-height:16px}
+.acpmux-summary-task__description,.acpmux-summary-task__command{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.acpmux-summary-task__command{color:var(--agent-muted);font-family:var(--cv-font-mono,ui-monospace,monospace);font-size:var(--text-detail)}
 .acpmux-summary-finished{display:flex;align-items:center;gap:6px}
 /* A card with nothing to list: one quiet line, and Attach files or folders when Sources has none (SummaryBody.tsx). */
 .acpmux-summary-empty{margin:0;padding:10px 8px 6px;color:var(--agent-muted);font-size:var(--text-detail);line-height:16px}

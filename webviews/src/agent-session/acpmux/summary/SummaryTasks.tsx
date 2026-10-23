@@ -1,10 +1,12 @@
 // The summary card's Background tasks (SummaryBody.tsx), with the Inspector off (Debug Settings
 // `agent.inspector`; on, the Inspector's TasksSection.tsx lists them): the chat's background
 // commands (inspector/processes.ts `backgroundCommands`), running ones first and newest first, each
-// with how long it has run and a Stop button (inspector/TasksSection.tsx `StopButton`). The finished
-// ones fold into one "N finished" row that opens them in place. A row opens the command's terminal
-// beside the chat (processTerminal.ts). A command that starts while the card is drawn drops in at the
-// top (ui/presence.ts `useArrivals`); the ones the card is drawn with are simply there.
+// with its description, state, elapsed time and a Stop button (inspector/TasksSection.tsx
+// `StopButton`). Finished work stays visible as compact cards so a completed or failed task does
+// not disappear behind an aggregate count; long lists keep the same bounded View all affordance.
+// A row opens the command's terminal beside the chat (processTerminal.ts). A command that starts
+// while the card is drawn drops in at the top (ui/presence.ts `useArrivals`); the ones the card is
+// drawn with are simply there.
 import { useMemo, useState } from "react";
 import { useArrivals } from "../../../ui/presence";
 import { formatDuration } from "../conversation/turns";
@@ -37,10 +39,8 @@ export function SummaryTasks({
   const { running, finished } = useMemo(() => splitCommands(commands), [commands]);
   const now = useNow(running.length > 0);
   const shown = all ? running : running.slice(0, FOLDED);
-  const { arrived, played } = useArrivals(
-    commands.map(arrivalKey),
-    (finishedOpen ? [...shown, ...finished] : shown).map(arrivalKey),
-  );
+  const shownFinished = finishedOpen ? finished : finished.slice(0, FOLDED);
+  const { arrived, played } = useArrivals(commands.map(arrivalKey), [...shown, ...shownFinished].map(arrivalKey));
   if (commands.length === 0) return null;
   const title = t("summary.backgroundTasks");
   const row = (command: BackgroundCommand) => {
@@ -48,6 +48,7 @@ export function SummaryTasks({
     const toolCallId = command.toolCallId;
     const key = arrivalKey(command);
     const enters = live && arrived.has(key);
+    const detail = command.description && command.description !== command.command ? command.description : undefined;
     return (
       // Keyed as it arrives, by the call that started it, so the registry listing it keeps the row.
       <li
@@ -68,7 +69,10 @@ export function SummaryTasks({
           }}
         >
           <Icon name="terminal" size={ROW_ICON} row />
-          <span className="acpmux-summary-text">{command.command}</span>
+          <span className="acpmux-summary-text acpmux-summary-task__body">
+            <span className="acpmux-summary-task__description">{detail ?? command.command}</span>
+            {detail && <span className="acpmux-summary-task__command">{command.command}</span>}
+          </span>
           <span className="acpmux-summary-meta">
             {live && command.startedAt !== undefined
               ? formatDuration(Math.max(0, now - command.startedAt))
@@ -93,7 +97,7 @@ export function SummaryTasks({
             </button>
           </li>
         )}
-        {finished.length > 0 && (
+        {finished.length > 0 && finished.length > FOLDED && (
           <li>
             <button
               type="button"
@@ -102,11 +106,11 @@ export function SummaryTasks({
               onClick={() => setFinishedOpen(!finishedOpen)}
             >
               <Icon name={finishedOpen ? "disclosure.expanded" : "disclosure.collapsed"} size={10} />
-              {t("rail.finished", { count: finished.length })}
+              {finishedOpen ? t("summary.showFewer") : t("summary.viewAll", { n: finished.length })}
             </button>
           </li>
         )}
-        {finishedOpen && finished.map(row)}
+        {shownFinished.map(row)}
       </ul>
     </section>
   );

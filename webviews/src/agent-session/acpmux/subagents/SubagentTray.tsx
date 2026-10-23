@@ -14,10 +14,11 @@
 // and a chevron; between turns it says "Running in background · 2 subagents · 1 command". The
 // header counts exactly the lines under it: what runs or waits on the person. The chat's subagents
 // and the chats its agent started are all "subagents" (Leo 2026-10-21: "SHOULDN'T THIS SAY
-// SUBAGENTS?"). What ended is one folded "3 subagents done" line after them, never counted. A
-// command is named by what its call says it does (inspector/processes.ts `commandLabel`), a chat by
-// its title and what its turn does now. Up to three lines show under it; more start folded to the header so the tray never takes the
-// transcript's room, and the chevron opens them (a list past five lines scrolls in place). Its
+// SUBAGENTS?"). What ended stays as compact status cards after them, never counted. A command is
+// named by what its call says it does (inspector/processes.ts `commandLabel`), a chat by its title
+// and what its turn does now. Up to three lines show under it; more start folded to the header so
+// the tray never takes the transcript's room, and the chevron opens them (a list past five lines
+// scrolls in place). Its
 // glass is the user bubble's: the theme's text at a low strength over the backdrop, with the
 // composer's hairline rim.
 //
@@ -58,7 +59,7 @@ export const SubagentTray = memo(function SubagentTray({
 }: {
   /// What runs or waits on the person (runningTray.ts `trayItems`): the lines the header counts.
   items: readonly TrayItem[];
-  /// What ended (runningTray.ts `finishedTrayItems`), behind one folded line after them.
+  /// What ended (runningTray.ts `finishedTrayItems`), shown as bounded status cards after them.
   finished?: readonly TrayItem[];
   /// A turn runs: the header counts what runs; between turns it says it runs in the background.
   working: boolean;
@@ -122,7 +123,12 @@ export const SubagentTray = memo(function SubagentTray({
           {items.map((item) => (
             <li key={`${item.kind}:${item.id}`}>{line(item)}</li>
           ))}
-          {finished.length > 0 && (
+          {finished.slice(0, showFinished ? finished.length : TRAY_OPEN_MAX).map((item) => (
+            <li key={`${item.kind}:${item.id}`} data-finished="">
+              {line(item)}
+            </li>
+          ))}
+          {finished.length > TRAY_OPEN_MAX && (
             <li>
               <button
                 type="button"
@@ -130,17 +136,13 @@ export const SubagentTray = memo(function SubagentTray({
                 aria-expanded={showFinished}
                 onClick={() => setShowFinished(!showFinished)}
               >
-                <span className="acpmux-summary-text">{t("subagents.allDone", { n: finished.length })}</span>
+                <span className="acpmux-summary-text">
+                  {showFinished ? t("summary.showFewer") : t("summary.viewAll", { n: finished.length })}
+                </span>
                 <Icon name={showFinished ? "disclosure.expanded" : "disclosure.collapsed"} size={12} />
               </button>
             </li>
           )}
-          {showFinished &&
-            finished.map((item) => (
-              <li key={`${item.kind}:${item.id}`} data-finished="">
-                {line(item)}
-              </li>
-            ))}
         </ul>
       )}
     </section>
