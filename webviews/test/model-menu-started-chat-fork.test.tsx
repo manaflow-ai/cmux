@@ -405,3 +405,87 @@ test("familyProfiles lists every global profile of the running profile's family"
   ]);
   expect(familyProfiles(catalog, "gemini")).toEqual([]);
 });
+
+// Codex review of #24355 (BLOCK at 443c6a9): the composer's Fork to read its own readiness, not
+// Continue In…'s, so it stayed on while the chat's handoff review was open or no harness could take
+// the chat, and sent chat.handoff.prepare anyway. The pane's own chips, from the snapshot alone.
+async function mountChat(snapshot: Snapshot) {
+  const { createRoot } = await import("react-dom/client");
+  const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
+  const { ChatComposerChips } = await import("../src/agent-session/acpmux/App");
+  const calls: { method: string; params: unknown }[] = [];
+  (dom.window as unknown as { cmuxAcpmuxActions: unknown }).cmuxAcpmuxActions = new Proxy(
+    {},
+    { get: (_target, method) => async (params: unknown) => void calls.push({ method: String(method), params }) },
+  );
+  root = createRoot(host);
+  await act(async () =>
+    root!.render(
+      <QueryClientProvider client={new QueryClient()}>
+        <ChatComposerChips snapshot={snapshot} />
+      </QueryClientProvider>,
+    ),
+  );
+  await settle();
+  return calls;
+}
+
+async function forkToCodexDisabled(calls: { method: string }[]) {
+  await open();
+  await showTab("Codex");
+  const fork = itemsOf(menu()!).find((item) => labelOf(item) === "Fork to Codex");
+  expect(fork, `Fork to Codex in ${itemsOf(menu()!).map(labelOf).join(", ")}`).toBeDefined();
+  expect(fork!.hasAttribute("data-disabled")).toBe(true);
+  await act(async () => fork!.click());
+  await settle();
+  expect(calls.filter((call) => call.method.startsWith("chat."))).toEqual([]);
+}
+
+test("while the chat's handoff review is open, the composer's Fork to is disabled and sends nothing", async () => {
+  const snapshot = chat(await acpmuxCatalog(), 1, {
+    sessionId: "s1",
+    canHandoff: true,
+    handoff: { ready: true, record: { target: { sessionId: "s1" }, state: "draft" } },
+  } as unknown as Partial<Snapshot>);
+  await forkToCodexDisabled(await mountChat(snapshot));
+});
+
+test("when no other harness can take the chat, the composer's Fork to is disabled and sends nothing", async () => {
+  // A harness whose probe failed stays in the picker's rail (ComposerPickers) but is no Continue In…
+  // target (continueTargets): here every harness but the chat's own.
+  const catalog = (await acpmuxCatalog()).map((harness) =>
+    harness.id === "claude" ? harness : { ...harness, unavailable: "probe failed", probeFailed: true },
+  ) as Snapshot["catalog"];
+  const snapshot = chat(catalog, 1, { canHandoff: true, handoff: { ready: true } } as Partial<Snapshot>);
+  await forkToCodexDisabled(await mountChat(snapshot));
+});
+
+test("canContinueIn is Continue In…'s whole check", async () => {
+  const { canContinueIn } = await import("../src/agent-session/acpmux/handoff/continueIn");
+  const catalog = await acpmuxCatalog();
+  const ready = { canHandoff: true, handoff: { ready: true } } as Partial<Snapshot>;
+  expect(canContinueIn(chat(catalog, 1, ready))).toBe(true);
+  expect(canContinueIn(chat(catalog, 1, { ...ready, isWorking: true }))).toBe(false);
+  expect(canContinueIn(chat(catalog, 1, { ...ready, queue: [{ id: "q", prompt: "p" }] } as Partial<Snapshot>))).toBe(
+    false,
+  );
+  expect(canContinueIn(chat(catalog, 1, { ...ready, handoff: { ready: true, busy: "preparing" } }))).toBe(false);
+  expect(
+    canContinueIn(
+      chat(catalog, 1, {
+        ...ready,
+        sessionId: "s1",
+        handoff: { ready: true, record: { target: { sessionId: "s1" }, state: "starting" } },
+      } as unknown as Partial<Snapshot>),
+    ),
+  ).toBe(false);
+  expect(
+    canContinueIn(
+      chat(
+        catalog.filter((harness) => harness.id === "claude"),
+        1,
+        ready,
+      ),
+    ),
+  ).toBe(false);
+});

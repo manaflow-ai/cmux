@@ -379,6 +379,7 @@ import { HandoffReviewMessage } from "./handoff/ReviewMessage";
 import { handoffStrings } from "./handoff/strings";
 import type { HandoffReviewInput } from "./handoff/review";
 import { continueTargets, mergedCommands, resolveHarnessTarget, type CmuxCommand } from "./cmuxCommands";
+import { canContinueIn, reviewingHandoff } from "./handoff/continueIn";
 import { importedPrompt, parseImportedSession } from "./importSession";
 import { useCheckpoints } from "./checkpoints/controller";
 import { PermissionPanel } from "./permissions/Panel";
@@ -3616,11 +3617,8 @@ function DefaultComposerChips({
         ? {
             fork: {
               to: (harness: string) => void callNative("chat.handoff.prepare", { harness }).catch(() => undefined),
-              ready:
-                !!snapshot.handoff?.ready &&
-                !snapshot.handoff.busy &&
-                !snapshot.isWorking &&
-                snapshot.queue.length === 0,
+              // Continue In…'s own check: no fork while a review is open or no harness can take it.
+              ready: canContinueIn(snapshot),
             },
           }
         : {})}
@@ -4066,11 +4064,7 @@ function AcpmuxPane() {
   const loginCommand = chatLoginCommand(catalog, snapshot.summary?.harness, harnessHealth);
   // A new chat centers its composer under the hero.
   const handoff = snapshot.handoff?.record;
-  const reviewing =
-    !!handoff &&
-    handoff.target.sessionId === snapshot.sessionId &&
-    ["draft", "starting"].includes(handoff.state) &&
-    !snapshot.handoff?.receipt;
+  const reviewing = reviewingHandoff(snapshot);
   // Until the chat's handoff is read the pane draws no review (reviews are rare): the composer and
   // a new chat's hero stay, and a review that arrives takes their place (Leo 2026-10-19: the
   // composer left for the read on every open, switch and reconnect).
@@ -4083,14 +4077,8 @@ function AcpmuxPane() {
   startFolderRef.current = startFolder;
   /// The folder question, while the chat it was asked for is still the one shown.
   const pendingFolder = folderAsk && folderAsk.sessionId === snapshot.sessionId ? folderAsk : undefined;
-  const continueAvailable =
-    !!snapshot.canHandoff &&
-    !!snapshot.handoff?.ready &&
-    !snapshot.isWorking &&
-    !snapshot.queue.length &&
-    !snapshot.handoff?.busy &&
-    !reviewing &&
-    continueTargets(catalog, snapshot.summary?.harness).length > 0;
+  // `snapshot.catalog` is `catalog` (the snapshot above carries the fetched one).
+  const continueAvailable = canContinueIn(snapshot);
   /// Takes acpmux's trust refusal of a prompt (useFolderTrustAsk.ts): the question shows for the
   /// folder it named, and `again` sends the held prompt after Trust.
   const trustRefused = useRef<((error: unknown, again?: () => void) => boolean) | undefined>(undefined);
@@ -6731,14 +6719,7 @@ function AcpmuxPane() {
     />
   );
   const handoffTargets = continueTargets(composerSnapshot.catalog, snapshot.summary?.harness);
-  const canContinue =
-    !!snapshot.canHandoff &&
-    !!snapshot.handoff?.ready &&
-    !snapshot.isWorking &&
-    !snapshot.queue.length &&
-    !snapshot.handoff?.busy &&
-    !reviewing &&
-    handoffTargets.length > 0;
+  const canContinue = continueAvailable;
   const ignoreFailure = (result: Promise<unknown>) => void result.catch(() => undefined);
   // The header's tools and "..." menu run app actions on this chat's tab.
   // A quick action names its mode; the App toggles the split it opened (header/quickActions.ts).
