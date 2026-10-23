@@ -14,8 +14,9 @@ import WebKit
 // showed), the one in the key window first, else the newest. `action`:
 // - `list`: every live page of the id: instance, parked, window number, claim outcome;
 // - `state` (default): page id, URL fragment, language, visible text, control count, computed
-//   html/body backgrounds (the one-backdrop check), `render_rate` (`full`, `near60`, `chromium`)
-//   and `display_fps`, `painted` (the document's first frame, with
+//   html/body backgrounds (the one-backdrop check), `render_rate` (WebKit's live preference:
+//   `full`, `near60`, or `unknown` when this WebKit has no such feature, the case where pages stay
+//   near 60; `chromium` names the engine only, its rate is not read) and `display_fps`, `painted` (the document's first frame, with
 //   `painted_uptime` in host systemUptime seconds and `painted_ms` on the page clock), `instance`,
 //   `parked`, `window_number` and `claim` (how a pooled host took its last claim: `path`
 //   acknowledged / refused / timedOut / loaded, `ms`) and `in_flight` (the page's calls still
@@ -124,8 +125,9 @@ enum DebugPages {
         }
     }
 
-    /// How fast the page renders: `chromium` (the display's rate), `full` or `near60` (WebKit's
-    /// PreferPageRenderingUpdatesNear60FPSEnabled), `unknown` (a WebKit without that feature).
+    /// How fast the page renders: `full` or `near60` (WebKit's live
+    /// PreferPageRenderingUpdatesNear60FPSEnabled), `unknown` (a WebKit without that feature), or
+    /// `chromium` (a Chromium page; this names the engine and reads no rate).
     @MainActor
     private static func renderRate(_ page: PageWebView) -> String {
         if page.showsChromium { return "chromium" }

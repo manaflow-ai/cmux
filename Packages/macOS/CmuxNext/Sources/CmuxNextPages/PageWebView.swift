@@ -155,6 +155,10 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public var chromiumMenuWait: (@MainActor () async -> Void)?
     /// The crash clock (tests set it).
     var now: () -> Date = { Date() }
+    /// The Low Power Mode observation of a ``PageRenderRate/display`` page (PageWebView+RenderRate.swift).
+    var renderRateObservation: LowPowerModeObservation?
+    /// The re-show that applies a changed render rate to the page on screen.
+    var renderRateReshow: Task<Void, Never>?
     var crashReloads = PageCrashReloads()
     let claimState = PageClaimState()
 
@@ -309,6 +313,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         addSubview(webView)
         applyUIScale()
         observeUIScale()
+        followLowPowerMode()
         PageRegistry.add(self)
         let scripts = scripts
         router.send = { envelope in scripts.send(envelope) }
