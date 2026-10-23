@@ -11,6 +11,11 @@ final class WindowMainObserver {
     /// The window's become-main and resign-main observations; each stops when released.
     private var observations: [MainActorObservation] = []
 
+    // cx-t7hu: nonisolated, so a release (inside an action's task-local scope, or off the main
+    // thread) runs no runtime hop; an implicit deinit is isolated in this target. The observations
+    // (MainActorObservation) are removed on the releasing thread.
+    nonisolated deinit {}
+
     /// Starts following `window` (nil stops) and reports its current status.
     func observe(_ window: NSWindow?, onChange: @escaping (Bool) -> Void) {
         observations = []
