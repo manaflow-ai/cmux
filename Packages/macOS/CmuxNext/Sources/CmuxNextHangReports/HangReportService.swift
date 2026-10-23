@@ -157,10 +157,12 @@ public actor HangReportService {
         guard !isSending else { sendAgain = true; return }
         isSending = true
         defer { isSending = false }
-        repeat {
+        // At most one more pass per trigger that arrived during a send (each pass drains the inputs).
+        for _ in 0..<2 {
             sendAgain = false
             await sendOnce()
-        } while sendAgain && isEnabled
+            guard sendAgain, isEnabled else { break }
+        }
     }
 
     private func sendOnce() async {
