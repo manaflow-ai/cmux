@@ -169,8 +169,8 @@ impl HolderService {
         let chan = self.next_chan.fetch_add(1, Ordering::AcqRel);
         let sink = HolderSink::new(0);
         sink.prepend(seed);
-        let (pid, custody) = link.spawn(chan, request, sink.clone() as Arc<dyn TerminalSink>)?;
-        Ok(self.track(chan, request.id, pid, custody, sink))
+        let spawned = link.spawn(chan, request, sink.clone() as Arc<dyn TerminalSink>)?;
+        Ok(self.track(chan, request.id, spawned.pid, (spawned.master, spawned.ring), sink))
     }
 
     /// The terminal `id` a previous daemon left running on the holder, now
@@ -193,7 +193,7 @@ impl HolderService {
             sink.prepend(&[super::sink::CANCEL]);
         }
         link.attach(entry.chan, entry.oldest, sink.clone() as Arc<dyn TerminalSink>)?;
-        Ok(Some(self.track(entry.chan, *id, entry.pid, custody, sink)))
+        Ok(Some(self.track(entry.chan, *id, entry.pid, (custody, entry.ring), sink)))
     }
 
     /// Whether the holder ran terminal `id` (running or ended) when this
@@ -284,7 +284,7 @@ impl HolderService {
         chan: u32,
         id: [u8; 16],
         pid: i32,
-        custody: OwnedFd,
+        (custody, ring): (OwnedFd, Option<OwnedFd>),
         sink: Arc<HolderSink>,
     ) -> Arc<HolderTerminal> {
         let service = Arc::downgrade(self);
@@ -298,6 +298,7 @@ impl HolderService {
             id,
             pid,
             custody,
+            ring: Mutex::new(ring),
             sink,
             service: self.clone(),
             replay: Mutex::new(None),
@@ -318,9 +319,11 @@ impl HolderService {
     /// After the link was lost: a terminal the holder `link` still runs
     /// (`still_held`, by channel: the same holder) resumes from the last
     /// byte this daemon received; every other live terminal goes to the new
-    /// holder with its custody master, pid, and the offset its output
-    /// continues from. Output the shells wrote meanwhile waited in their
-    /// PTYs.
+    /// holder with its custody master, pid, ring segment and a prologue
+    /// built at the exact offset the parser confirmed
+    /// ([`HolderTerminal::adoption`]). Output the shells wrote meanwhile
+    /// waited in their PTYs; output the dead holder read but never sent is
+    /// in the ring segment.
     fn readopt(&self, link: &HolderLink, still_held: &HashMap<u32, [u8; 16]>) {
         let live: Vec<_> =
             self.live.lock().recover_poison().values().filter_map(Weak::upgrade).collect();
@@ -332,19 +335,15 @@ impl HolderService {
                 }
                 continue;
             }
-            // The old holder is gone, so nothing more arrives: once the
-            // reader parsed what it had, the daemon's screen is the screen
-            // at `base`, the new holder's prologue for a later restart.
-            terminal.sink.wait_drained(std::time::Duration::from_secs(1));
-            let base = terminal.sink.received();
-            let prologue = terminal.prologue(super::terminal::ADOPT_PROLOGUE_MAX_BYTES);
+            let adoption =
+                terminal.adoption(link.has_rings(), super::terminal::ADOPT_PROLOGUE_MAX_BYTES);
             let sink = terminal.sink.clone() as Arc<dyn TerminalSink>;
             if let Err(error) = link.adopt(
                 terminal.chan,
                 &terminal.id,
-                (terminal.pid, base),
-                &terminal.custody,
-                (sink, &prologue),
+                (terminal.pid, adoption.base, adoption.resume),
+                (&terminal.custody, adoption.ring.as_ref()),
+                (sink, &adoption.prologue),
             ) {
                 eprintln!("cmux-tui: hand terminal {} to the new holder: {error}", terminal.chan);
             }

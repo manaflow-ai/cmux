@@ -89,6 +89,9 @@ pub struct Listed {
     pub exited: bool,
     /// The custody dup of the master (`None` from the holder's own encode).
     pub master: Option<std::os::fd::OwnedFd>,
+    /// The custody dup of its output ring segment (wire version 4; `None`
+    /// from an older holder or a ring in private memory).
+    pub ring: Option<std::os::fd::OwnedFd>,
 }
 
 impl Listed {
@@ -102,14 +105,18 @@ impl Listed {
             .0
     }
 
+    /// Decode a LISTED payload; `fds` are the master, then the ring
+    /// segment when the frame had [`wire::FLAG_RING`].
     pub(crate) fn decode(
         chan: u32,
         payload: &[u8],
-        master: Option<std::os::fd::OwnedFd>,
+        fds: Vec<std::os::fd::OwnedFd>,
     ) -> io::Result<Self> {
         let mut input = wire::In(payload);
+        let mut fds = fds.into_iter();
         Ok(Self {
-            master,
+            master: fds.next(),
+            ring: fds.next(),
             chan,
             pid: input.i32()?,
             oldest: input.u64()?,
