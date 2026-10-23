@@ -58,7 +58,7 @@ enum BrowserHandlers {
         // an agent chat. The toolbar shows the mode (BrowserPageModes); a new document starts with it off.
         registry.bind("toggleBrowserDesignMode", unavailable: {
             let alreadyOn = context.services.cache.browsers.values.contains { $0.chrome.toolbarButtons.modes.designMode }
-            BrowserPageTunables.uiPointer.value || alreadyOn ? nil :
+            return BrowserPageTunables.uiPointer.value || alreadyOn ? nil :
                 "UI pointer picker is off. Turn it on in Debug Settings > Browser Page Loading."
         }, run: { invocation in
             let entry = try context.page(invocation)
