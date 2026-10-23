@@ -118,6 +118,8 @@ function codexLineage(): Subagent[] {
   const review = "01a16655-c696-7982-9c38-9ededd986f9b";
   const priorArt = "01a16656-bb2d-7513-b459-4a893451d37a";
   const fold = new SubagentFold();
+  // The chat's own thread, as its summary names it.
+  fold.chat = chatId;
   let seq = 0;
   const feed = (minutes: number, sessionId: string, update: any, acpmux: Record<string, unknown>) => {
     seq += 1;

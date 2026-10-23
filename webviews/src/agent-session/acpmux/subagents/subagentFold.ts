@@ -85,10 +85,9 @@ export class SubagentFold {
   /// it ends its foreground subagents with is theirs too.
   cause: SubagentStopReason | undefined;
   /// The chat's own agent session (its harness thread, the summary's `agentSessionId`), when the
-  /// pane knows it. It is never one of its subagents (``isChat``).
+  /// pane knows it. It is never one of its subagents (``isChat``). Learned only after records that
+  /// made it one were folded, the pane folds them again (direct.ts ``learnChatThread``).
   chat: string | undefined;
-  /// The session the first update that names no subagent came under: the chat's own.
-  private root: string | undefined;
 
   constructor(private readonly stops: SubagentStops = subagentStops()) {}
   /// The subagents whose end the harness reported (not one ``stopRunning`` guessed): a progress
@@ -107,8 +106,6 @@ export class SubagentFold {
     const mux = event.msg?.params?._meta?.acpmux;
     const events: any[] = Array.isArray(mux?.subagents) ? mux.subagents : [];
     const tag = typeof mux?.subagent === "string" ? mux.subagent : undefined;
-    const session = event.msg?.params?.sessionId;
-    if (tag === undefined && typeof session === "string") this.root ??= session;
     // Met first through its progress, its spawn is older than what this fold read: not this turn's.
     const spawn = update?.sessionUpdate !== "subagent_progress";
     for (const change of events) this.apply(change, event, spawn);
@@ -232,7 +229,12 @@ export class SubagentFold {
   /// own subagent, nested under that child, and every later subagent nested under the chat (Leo's
   /// staircase, 2026-10-22). Records written then still say so, so the fold reads them by lineage.
   private isChat(id: string): boolean {
-    return id === this.chat || id === this.root;
+    return id === this.chat;
+  }
+
+  /// Whether `id` was folded as a subagent.
+  holds(id: string): boolean {
+    return this.agents.has(id);
   }
 
   private apply(change: any, event: Event, spawn = true): void {

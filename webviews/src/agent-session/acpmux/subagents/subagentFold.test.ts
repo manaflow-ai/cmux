@@ -257,6 +257,7 @@ describe("lineage from a Codex chat's records", () => {
 
   test("the chat is never its own subagent, and its children sit side by side", () => {
     const fold = new SubagentFold();
+    fold.chat = chat;
     const own = records(fold);
     expect(lineage(fold)).toEqual([
       ["needs_you_review", null],
@@ -268,6 +269,12 @@ describe("lineage from a Codex chat's records", () => {
       "needs_you_review",
       "needs_you_prior_art",
     ]);
+  });
+
+  test("without the chat's thread the fold holds it, so the pane knows to fold again", () => {
+    const fold = new SubagentFold();
+    records(fold);
+    expect(fold.holds(chat)).toBe(true);
   });
 
   test("a page that starts after the bad record reads the chat from the summary", () => {

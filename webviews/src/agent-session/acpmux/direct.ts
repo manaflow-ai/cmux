@@ -1630,6 +1630,7 @@ export class AcpmuxDirectClient {
     this.rebuild();
     // After the replay, not before: a `session_changed` the tail holds would take the live state back.
     this.summary = { ...kept.summary, ...listed };
+    this.learnChatThread();
     // A paused queue's failed turn no longer runs, whatever status acpmux last listed (`staleRun`).
     this.turnOpen = listed?.status === "running" && !this.staleRun(listed);
     // Only acpmux says what is pending (attach's `session.pending`): a replayed ask is history
@@ -2424,6 +2425,7 @@ export class AcpmuxDirectClient {
     if (this.readAheadAt.has(session.sessionId)) this.scheduleReadAhead(READ_AHEAD_DELAY_MS);
     if (session.sessionId === this.selectedSessionId) {
       this.summary = { ...this.summary, ...session };
+      this.learnChatThread();
       // A change that doesn't carry the queue keeps the one already mapped.
       if (session.queue) this.queue = mergeQueue(this.queue, session.queue);
     }
@@ -2556,6 +2558,23 @@ export class AcpmuxDirectClient {
         ? queuedEntry(entry.id, entry.prompt, entry.next === true, entry.sending === true, entry.images, message)
         : entry;
     });
+  }
+
+  /// The selected chat's own agent session (its harness thread), from its summary or its listing:
+  /// never one of its subagents (subagents/subagentFold.ts ``isChat``).
+  private chatThread(): string | undefined {
+    const listed = this.sessions.find((session) => session.sessionId === this.selectedSessionId);
+    const thread = this.summary?.agentSessionId ?? listed?.agentSessionId;
+    return typeof thread === "string" && thread ? thread : undefined;
+  }
+
+  /// The chat's thread became known after its records were folded: when an older acpmux recorded
+  /// that thread as one of its own subagents (a Codex child reporting its parent thread), they are
+  /// folded again by lineage, so the chat's own rows come back and its subagents stop nesting.
+  private learnChatThread(): void {
+    const thread = this.chatThread();
+    if (!thread || this.subagents.chat === thread || !this.subagents.holds(thread)) return;
+    this.rebuildKeepingLiveState();
   }
 
   private rebuild(): void {
@@ -3143,8 +3162,7 @@ export class AcpmuxDirectClient {
     }
     if (!update) return;
     this.subagents.cause = this.turnStopCause(event);
-    const chat = this.summary?.agentSessionId;
-    this.subagents.chat = typeof chat === "string" && chat ? chat : undefined;
+    this.subagents.chat = this.chatThread();
     if (this.subagents.reduce(event, update)) {
       this.takeSubagentRows();
       return;
