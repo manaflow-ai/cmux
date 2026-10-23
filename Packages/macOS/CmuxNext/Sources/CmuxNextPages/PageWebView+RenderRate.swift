@@ -9,7 +9,7 @@ extension PageWebView {
     /// `lowPowerMode`.
     static func rendersAtFullRate(_ rate: PageRenderRate, lowPowerMode: Bool) -> Bool {
         switch rate {
-        case .display: WebKitRenderRate.prefersFullRate(lowPowerMode: lowPowerMode)
+        case .display: false // test-only: the base behavior (WebKit's near-60 default) for the before bench
         case .full: true
         case .capped: false
         }
