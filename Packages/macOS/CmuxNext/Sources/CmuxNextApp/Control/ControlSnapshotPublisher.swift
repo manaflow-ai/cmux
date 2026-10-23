@@ -43,9 +43,7 @@ final class ControlSnapshotPublisher {
         // or selection is in the snapshot before the next request is read.
         router.workQueue.setAfterFrame { [weak self] in self?.publishNow() }
         // A read that starts waiting for the topology does not wait out a model change's delay.
-        router.snapshots.onWaiterAdded { [weak self] in
-            MainRunLoopHop().perform { [weak self] in self?.readerWaits() }
-        }
+        pacer.follow(waiters: router.snapshots.waiterAdditions())
         let center = NotificationCenter.default
         for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification, NSWindow.willCloseNotification,
                      NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification] {
@@ -59,7 +57,6 @@ final class ControlSnapshotPublisher {
     func stop() {
         isStopped = true
         pacer.stop()
-        router.snapshots.onWaiterAdded(nil)
         router.workQueue.setAfterFrame(nil)
         observers.removeAll()
     }
@@ -68,12 +65,6 @@ final class ControlSnapshotPublisher {
     func invalidate() {
         guard !isStopped else { return }
         pacer.requestFrame()
-    }
-
-    /// A reader waits for a newer topology: a publish held for a model change's delay goes now.
-    private func readerWaits() {
-        guard !isStopped, pacer.isWaiting else { return }
-        publishNow()
     }
 
     /// A compat read waiting on the write barrier publishes on this turn

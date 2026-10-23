@@ -15,6 +15,8 @@ final class ControlPublishPacer {
     /// A frame is asked for and has not published yet.
     private var frameRequested = false
     private var isStopped = false
+    /// Iterates ``ControlSnapshotStore/waiterAdditions()`` (``follow(waiters:)``).
+    private var waiterTask: Task<Void, Never>?
     /// Runs one publish.
     var publish: @MainActor () -> Void = {}
 
@@ -48,8 +50,25 @@ final class ControlPublishPacer {
         deadline.schedule(after: delay) { @MainActor [weak self] in self?.requestFrame() }
     }
 
-    /// Whether a delayed publish is waiting.
-    var isWaiting: Bool { deadline.isScheduled }
+    /// A reader started waiting for a newer snapshot: a publish held for a delay goes now.
+    func readerWaits() {
+        guard !isStopped, deadline.isScheduled else { return }
+        cancel()
+        publish()
+    }
+
+    /// Calls ``readerWaits()`` for each element of `waiters` (a store's
+    /// ``ControlSnapshotStore/waiterAdditions()``) until ``stop()``.
+    func follow(waiters: AsyncStream<Void>) {
+        waiterTask?.cancel()
+        // task-owner: the waiter stream's reader; cancelled by stop()
+        waiterTask = Task { @MainActor [weak self] in
+            for await _ in waiters {
+                guard let self else { return }
+                self.readerWaits()
+            }
+        }
+    }
 
     /// Drops a pending publish (one just ran).
     func cancel() {
@@ -60,6 +79,8 @@ final class ControlPublishPacer {
     /// Publishes nothing more.
     func stop() {
         isStopped = true
+        waiterTask?.cancel()
+        waiterTask = nil
         cancel()
     }
 }
