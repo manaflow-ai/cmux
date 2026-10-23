@@ -95,6 +95,21 @@ test("a browser that launches but does not close is closed again, and never make
   }
 });
 
+test("the probe uses a bounded launch and closes the browser", async () => {
+  const options: unknown[] = [];
+  const { result, reports, skips } = await probe(
+    { CI: "true", CMUX_BROWSER_TESTS: "1" },
+    async (launchOptions?: unknown) => {
+      options.push(launchOptions);
+      return { close: async () => {} };
+    },
+  );
+  expect(await result).toBe(true);
+  expect(options).toEqual([{ headless: true, timeout: 30_000 }]);
+  expect(skips).toEqual([]);
+  expect(reports).toEqual([]);
+});
+
 /// What keeps `file` (its source `text`) from failing where the lane is required: no call of
 /// probeEngineOrSkip, or a skip of its own (a describe, test or it `.skip`), which would report the
 /// file's tests as passing on GitHub Actions with none run.
