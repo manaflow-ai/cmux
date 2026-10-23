@@ -36,6 +36,10 @@ final class SidebarPriorityPanelView: NSView {
     /// While a drag is live: the app resigning active or the window losing key with the button up
     /// cancels it, since its release may never come here. Removed when the drag ends.
     private var dragObservers: [any NSObjectProtocol] = []
+    /// While a drag is live, the app's left presses and releases before their window gets them
+    /// (as the main list's `observePointerEnds`): a new press, or a release sent to another window,
+    /// means this drag's release never comes. Removed when the drag ends.
+    private var dragMonitor: Any?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -62,6 +66,7 @@ final class SidebarPriorityPanelView: NSView {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
             for observer in dragObservers { NotificationCenter.default.removeObserver(observer) }
+            if let dragMonitor { NSEvent.removeMonitor(dragMonitor) }
         }
     }
 
@@ -243,6 +248,29 @@ final class SidebarPriorityPanelView: NSView {
                 MainActor.assumeIsolated { if NSEvent.pressedMouseButtons & 1 == 0 { self?.cancelDrag() } } // main-proof: observer on queue: .main
             })
         }
+        dragMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseUp]) { [weak self] event in
+            self?.pointerEventSeen(event.type, in: event.window)
+            return event
+        }
+    }
+
+    /// A left press or release anywhere in the app during the drag (`dragMonitor`). A press: the
+    /// drag's release never came (a menu or another tracking loop took it), so it ends now. A
+    /// release sent to another window: the drag ends after that dispatch unless the release reached
+    /// the row by then (a panel over this window may forward it) or the button is down again.
+    func pointerEventSeen(_ type: NSEvent.EventType, in eventWindow: NSWindow?) {
+        guard draggingID != nil else { return }
+        switch type {
+        case .leftMouseDown:
+            cancelDrag()
+        case .leftMouseUp where eventWindow !== window:
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.draggingID != nil, NSEvent.pressedMouseButtons & 1 == 0 else { return }
+                self.cancelDrag()
+            }
+        default:
+            break
+        }
     }
 
     /// Ends the live drag, if any, without placing anything: its row takes no more of this press
@@ -252,6 +280,8 @@ final class SidebarPriorityPanelView: NSView {
         draggingID = nil
         for observer in dragObservers { NotificationCenter.default.removeObserver(observer) }
         dragObservers = []
+        if let dragMonitor { NSEvent.removeMonitor(dragMonitor) }
+        dragMonitor = nil
         if let row = rows[id] {
             row.endPress()
             row.layer?.zPosition = 0
