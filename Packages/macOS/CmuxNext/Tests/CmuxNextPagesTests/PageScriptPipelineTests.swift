@@ -1,4 +1,5 @@
 import Foundation
+import CmuxNextSettings
 import Testing
 @testable import CmuxNextPages
 
@@ -42,5 +43,16 @@ struct PageScriptPipelineTests {
         pipeline.reset()
         #expect(drops == ["first", "second"])
         await gate.release()
+    }
+
+    @Test func resetOpensAnInFlightGate() async {
+        let pipeline = PageScriptPipeline(evaluate: { _ in })
+        pipeline.send(JSONValue.string(String(repeating: "x", count: 20_000)))
+        let gate = pipeline.gate(always: true)
+        let reached = await Task { await gate?.reached(); return true }.value
+        #expect(reached)
+        let opened = Task { await gate?.opened(); return true }
+        pipeline.reset()
+        #expect(await opened.value)
     }
 }

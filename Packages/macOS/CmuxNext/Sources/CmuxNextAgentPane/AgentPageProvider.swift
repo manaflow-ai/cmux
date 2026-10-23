@@ -172,6 +172,13 @@ public final class AgentPageProvider: PageProvider {
     /// Sends `event` to every subscribed page.
     @discardableResult
     public func publish(_ event: AgentPageEvent) -> Bool {
+        // A saturated bridge still must receive the terminal transport close that causes its
+        // JavaScript socket to reconnect. It is a control envelope, not another replay payload;
+        // deliver it directly to current listeners and keep the overflow latch for all data.
+        if deliveryOverflowed, event.kind == "transport", event.value["closed"] != nil {
+            for id in listeners.keys.sorted() { listeners[id]?(event.data) }
+            return true
+        }
         guard !deliveryOverflowed else { return false }
         guard !listeners.isEmpty else {
             guard bufferedEvents.count < Self.maximumBufferedEvents else {

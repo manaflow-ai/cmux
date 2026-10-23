@@ -81,6 +81,9 @@ final class PageScriptPipeline {
     /// The queue head is advanced before an off-actor render awaits. Keep its drop action here so
     /// reset reports it before later queued envelopes, even though it is no longer in `queue[head...]`.
     private var inFlightDrop: Drop?
+    /// The queue head may be a gate waiting for its reply-side release. Reset opens it even though
+    /// `head` has already advanced past the item.
+    private var inFlightGate: Gate?
     /// Bumped by ``reset()``: a script rendered for an older generation is not evaluated.
     private var generation: UInt64 = 0
 
@@ -119,6 +122,8 @@ final class PageScriptPipeline {
         generation &+= 1
         inFlightDrop?.call()
         inFlightDrop = nil
+        inFlightGate?.open()
+        inFlightGate = nil
         let pending = queue[head...]
         queue.removeAll()
         head = 0
@@ -158,8 +163,10 @@ final class PageScriptPipeline {
                 evaluate(script)
                 if inFlightDrop === onDrop { inFlightDrop = nil }
             case .gate(let gate):
+                inFlightGate = gate
                 gate.markReached()
                 await gate.opened()
+                if inFlightGate === gate { inFlightGate = nil }
                 guard generation == self.generation else { return }
             }
             if head == queue.count {
