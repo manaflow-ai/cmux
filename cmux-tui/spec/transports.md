@@ -79,8 +79,10 @@ unique session or socket to isolate ownership. If no daemon accepts the
 connection, those flags apply to the newly created owner.
 
 One process holds an exclusive cross-platform writer lease for each session
-database. SQLite uses WAL, foreign keys, `synchronous=FULL`, and macOS
-`fullfsync`. A second daemon for the same state/session fails startup instead
+database. SQLite uses WAL, foreign keys and `synchronous=NORMAL`: an
+acknowledged change survives a crash of the daemon at once, and a power loss
+once the daemon's WAL syncer has flushed it (one macOS F_FULLFSYNC, off the
+request path, right after the commit). A second daemon for the same state/session fails startup instead
 of racing. Corruption or an unsupported schema also fails closed; the daemon
 never silently falls back to ephemeral state.
 

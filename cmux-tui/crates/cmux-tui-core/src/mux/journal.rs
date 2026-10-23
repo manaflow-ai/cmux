@@ -243,7 +243,10 @@ impl Mux {
     }
 
     pub fn write_path_stats(&self) -> crate::diagnostics::WritePathSnapshot {
-        self.registry_connection.write_path_stats().snapshot()
+        let mut snapshot = self.registry_connection.write_path_stats().snapshot();
+        (snapshot.wal_commits, snapshot.wal_synced_commits) =
+            self.registry_connection.durability_counts();
+        snapshot
     }
 
     pub(crate) fn connection_stats(&self) -> &Arc<crate::diagnostics::ConnectionStats> {
