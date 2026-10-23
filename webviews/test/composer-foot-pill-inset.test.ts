@@ -55,13 +55,18 @@ test("the row's padding is counted from the inset, so only the pill grows, not t
 test("neighbouring chips on the right keep their labels 8 px apart, as with the old 4 px inset", () => {
   // The model, Plan and a harness's Options sit side by side with no gap. Each one after the first
   // tucks its leading padding under the one before it: two insets of 8 px less the 8 px the labels
-  // were apart. Without it the model's label moves 8 px per neighbour.
-  const neighbour = rules(".acpmux-composer-foot .acpmux-chips > :not(.acpmux-access) ~ :not(.acpmux-access)").join(
-    ";",
-  );
+  // were apart. Without it the model's label moves 8 px per neighbour. The harness is drawn at the
+  // row's left, so it is no neighbour on the right: in New Tab's one row (Leo 2026-10-23: "the claw
+  // thing should be one single row"), with no free space, the model's tuck after it drew the model
+  // over the mode (narrow-layouts.test.ts).
+  const neighbour = rules(
+    ".acpmux-composer-foot .acpmux-chips > :not(.acpmux-access, .acpmux-foot-harness) ~ :not(.acpmux-access)",
+  ).join(";");
   expect(neighbour).toMatch(/margin-inline-start\s*:\s*calc\(8px - 2 \* var\(--acpmux-row-inset\)\)/);
   // The effort chip kept 1 px more (its own margin) and still does.
-  const effort = rules(".acpmux-composer-foot .acpmux-chips > :not(.acpmux-access) ~ .acpmux-effort").join(";");
+  const effort = rules(
+    ".acpmux-composer-foot .acpmux-chips > :not(.acpmux-access, .acpmux-foot-harness) ~ .acpmux-effort",
+  ).join(";");
   expect(effort).toMatch(/margin-inline-start\s*:\s*calc\(9px - 2 \* var\(--acpmux-row-inset\)\)/);
   expect(px(rules(".acpmux-composer-foot .acpmux-effort").join(";"), "margin-inline-start")).toBe(1);
 });

@@ -1210,11 +1210,14 @@
 /* Neighbouring chips on the right (the model, Plan, a harness's Options, the effort) keep their
    labels 8 px apart, as with the old 4 px inset: each one after the first tucks its leading pill
    padding under the one before it, so the wider pill moves no label. The later chip takes the
-   pointer over the shared 8 px. */
-.acpmux-composer-foot .acpmux-chips > :not(.acpmux-access) ~ :not(.acpmux-access) {
+   pointer over the shared 8 px. The harness comes first in the chips but is drawn at the row's
+   left (order -2, above), so it is no neighbour on the right: a model after it keeps its margin.
+   Else, in a row with no free space (New Tab's one row, its folder and computer first), the mode's
+   auto margin is zero and the model's tuck drew it over the mode (test/narrow-layouts.test.ts). */
+.acpmux-composer-foot .acpmux-chips > :not(.acpmux-access, .acpmux-foot-harness) ~ :not(.acpmux-access) {
   margin-inline-start: calc(8px - 2 * var(--acpmux-row-inset));
 }
-.acpmux-composer-foot .acpmux-chips > :not(.acpmux-access) ~ .acpmux-effort {
+.acpmux-composer-foot .acpmux-chips > :not(.acpmux-access, .acpmux-foot-harness) ~ .acpmux-effort {
   margin-inline-start: calc(9px - 2 * var(--acpmux-row-inset));
 }
 /* The box with the chips gone, as the Claude desktop composer lays it (Leo 2026-10-20): no row of
