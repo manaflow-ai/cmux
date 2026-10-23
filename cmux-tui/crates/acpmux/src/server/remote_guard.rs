@@ -764,9 +764,11 @@ fn folder_refused(field: &str) -> RpcError {
     ))
 }
 
-/// The folder a proven peer's `session/new` with no `cwd` runs in: `scratch/<name>`
-/// under acpmux's home, one per session name (a lane's `-n`), else one per request.
-/// Made owner-only if missing; never the home folder, never a path of the caller's.
+/// The folder a proven peer's `session/new` with no `cwd` runs in:
+/// `<temp dir>/acpmux-scratch/<name>`, one per session name (a lane's `-n`), else one
+/// per request. Made owner-only if missing; never the home folder, never a path of the
+/// caller's. Not under `~/.acpmux`: a remote Claude chain refuses any folder inside a
+/// top-level dot folder of home (`hub/remote_sandbox.rs` `refused_folder`).
 async fn peer_scratch(params: &Value) -> Result<String, RpcError> {
     let name = params
         .pointer("/_meta/acpmux/name")
@@ -775,7 +777,7 @@ async fn peer_scratch(params: &Value) -> Result<String, RpcError> {
         .map(scratch_name)
         .filter(|n| !n.is_empty())
         .unwrap_or_else(|| format!("session-{}", uuid::Uuid::now_v7().simple()));
-    let dir = crate::config::home().join("scratch").join(name);
+    let dir = std::env::temp_dir().join("acpmux-scratch").join(name);
     let made = {
         let dir = dir.clone();
         tokio::task::spawn_blocking(move || {
