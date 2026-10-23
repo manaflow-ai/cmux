@@ -108,16 +108,45 @@ extension SessionPersistencePolicy {
         return (pruned, removedAny)
     }
 
+    /// The snapshot a live restore opens: crash-diagnostic windows pruned,
+    /// scrollback recovered (when given), then crash-duplicate windows
+    /// merged. Every live restore uses it: the automatic startup restore and
+    /// its history fallback, the manual reopen, and `restore-session` import.
+    /// Nil when nothing restorable is left.
+    static func snapshotForLiveRestore(
+        _ snapshot: AppSessionSnapshot,
+        recoveringScrollback: (AppSessionSnapshot) -> AppSessionSnapshot = { $0 }
+    ) -> AppSessionSnapshot? {
+        guard let pruned = pruningCmuxCrashDiagnosticWindows(from: snapshot).snapshot else {
+            return nil
+        }
+        return mergingCrashDuplicateWindows(in: recoveringScrollback(pruned)).snapshot
+    }
+
     /// Merges the windows a crash wrote twice, before restore opens them.
     ///
     /// A crash can leave the same window in the snapshot twice, sometimes
     /// under a new window ID; restoring both opens every workspace twice.
-    /// `CrashDuplicateWindowMatcher` decides which windows are the same, and
-    /// the richer copy of each workspace wins.
+    /// `CrashDuplicateWindowMatcher` decides which windows are the same, using
+    /// agent checkpoints only (see `workspaceCheckpointIDs`). For each pair:
+    /// - The window with the higher restore-fidelity score keeps its window
+    ///   ID, frame, display and sidebar.
+    /// - Workspaces are matched whole, by stable ID, workspace ID, agent
+    ///   checkpoints (one copy's set contains the other's), or a unique title
+    ///   in the same directory; never by position. A workspace found in only
+    ///   one copy is appended.
+    /// - Of two matched workspaces one is kept whole and the other dropped,
+    ///   with its unique panels (plain terminals, browsers, splits): the copy
+    ///   whose agent checkpoints strictly contain the other's, otherwise the
+    ///   one with the higher fidelity score.
+    /// - Three or more copies of a window collapse into one, pair by pair.
     ///
-    /// Only the live restore calls this. The snapshot on disk, its
-    /// `-previous` copy and the rotated history keep every window, so a
-    /// wrong merge never destroys the only copy of a window.
+    /// Only the live restore merges; pruning and the manual-restore sync
+    /// don't, so the launch's `-previous` copy and rotated history keep every
+    /// window. The restored layout is saved afterwards like any other: the
+    /// overwrite guard holds poorer saves for up to its 5-minute maturity
+    /// window, then autosave writes the merged layout, and the next launch
+    /// copies it into `-previous`.
     static func mergingCrashDuplicateWindows(
         in snapshot: AppSessionSnapshot
     ) -> (snapshot: AppSessionSnapshot, mergedWindowCount: Int) {
@@ -184,8 +213,7 @@ extension SessionPersistencePolicy {
                 in: mergedWorkspaces,
                 checkpoints: supplementalCheckpoints
             ) {
-                if sessionWorkspaceRestoreFidelityScore(workspace) >
-                    sessionWorkspaceRestoreFidelityScore(mergedWorkspaces[matchingIndex]) {
+                if prefersCrashWorkspaceCopy(workspace, over: mergedWorkspaces[matchingIndex]) {
                     mergedWorkspaces[matchingIndex] = workspace
                 }
             } else {
@@ -203,6 +231,23 @@ extension SessionPersistencePolicy {
         }
         merged.tabManager.workspaceGroups = mergedGroups.isEmpty ? nil : mergedGroups
         return merged
+    }
+
+    /// The copy whose agent checkpoints strictly contain the other's wins, so
+    /// an agent pane found in only one copy is never dropped; otherwise the
+    /// higher fidelity score wins.
+    private static func prefersCrashWorkspaceCopy(
+        _ candidate: SessionWorkspaceSnapshot,
+        over existing: SessionWorkspaceSnapshot
+    ) -> Bool {
+        let candidateAgents = workspaceCheckpointIDs(candidate)
+        let existingAgents = workspaceCheckpointIDs(existing)
+        if candidateAgents != existingAgents {
+            if existingAgents.isStrictSubset(of: candidateAgents) { return true }
+            if candidateAgents.isStrictSubset(of: existingAgents) { return false }
+        }
+        return sessionWorkspaceRestoreFidelityScore(candidate) >
+            sessionWorkspaceRestoreFidelityScore(existing)
     }
 
     private static func duplicateWorkspaceMatchIndex(
@@ -276,14 +321,24 @@ extension SessionPersistencePolicy {
         Set(window.tabManager.workspaces.flatMap(workspaceCheckpointIDs))
     }
 
+    /// Agent sessions only: the restorable agent's session ID, an agent-hook
+    /// resume binding, or the managed-agent binding. One agent session runs
+    /// in one place, which is what makes a shared checkpoint evidence of a
+    /// duplicate. Process-detected bindings (tmux and herdr session names)
+    /// are excluded: two real windows can attach the same tmux session.
+    /// A panel whose agent left no checkpoint contributes nothing, so partial
+    /// metadata can only make a merge less likely.
     private static func workspaceCheckpointIDs(
         _ workspace: SessionWorkspaceSnapshot
     ) -> Set<String> {
         Set(workspace.panels.compactMap { panel in
             guard let terminal = panel.terminal else { return nil }
-            return terminal.agent?.sessionId
-                ?? terminal.resumeBinding?.checkpointId
-                ?? terminal.managedAgentResumeBinding?.checkpointId
+            if let sessionId = terminal.agent?.sessionId { return sessionId }
+            if let binding = terminal.resumeBinding, binding.isAgentHookBinding,
+               let checkpoint = binding.checkpointId {
+                return checkpoint
+            }
+            return terminal.managedAgentResumeBinding?.checkpointId
         })
     }
 

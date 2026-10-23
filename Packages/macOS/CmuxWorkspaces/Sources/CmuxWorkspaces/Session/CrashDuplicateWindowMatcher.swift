@@ -9,7 +9,9 @@ public enum CrashDuplicateWindowMatcher {
         public var workspaceCount: Int
         /// Every workspace's ID, in order, or nil when any workspace has none.
         public var workspaceIDs: [UUID]?
-        /// Agent session IDs and resume checkpoint IDs of the window's panels.
+        /// Agent session checkpoints of the window's panels. Shared multiplexer
+        /// sessions (tmux, herdr) must not be included: two real windows can
+        /// attach the same one.
         public var checkpointIDs: Set<String>
         /// Non-blank custom workspace titles, trimmed.
         public var workspaceTitles: [String]
@@ -53,15 +55,17 @@ public enum CrashDuplicateWindowMatcher {
         if lhs.checkpointIDs == rhs.checkpointIDs, lhs.workspaceCount == rhs.workspaceCount {
             return true
         }
-        guard lhs.workspaceCount == rhs.workspaceCount, lhs.workspaceCount > 1 else { return false }
-        guard hasSameTitleMultiset(lhs, rhs) else { return false }
+        // The title rule needs at least three titled workspaces, so a
+        // one- or two-workspace window never merges on overlap alone.
+        guard lhs.workspaceCount == rhs.workspaceCount,
+              hasSameTitleMultiset(lhs, rhs) else { return false }
         let overlap = lhs.checkpointIDs.intersection(rhs.checkpointIDs).count
         let smaller = min(lhs.checkpointIDs.count, rhs.checkpointIDs.count)
         return Double(overlap) / Double(smaller) >= 0.75
     }
 
     private static func isReplayWithNewWindowID(_ lhs: WindowSignature, _ rhs: WindowSignature) -> Bool {
-        guard lhs.workspaceCount == rhs.workspaceCount, lhs.workspaceCount > 1,
+        guard lhs.workspaceCount == rhs.workspaceCount,
               hasSameTitleMultiset(lhs, rhs) else {
             return false
         }

@@ -114,6 +114,41 @@ struct CrashDuplicateWindowMatcherTests {
         #expect(!CrashDuplicateWindowMatcher.isDuplicate(lhs, rhs))
     }
 
+    @Test("Titles may be missing from at most two workspaces")
+    func titleThresholdAllowsTwoUntitledWorkspaces() {
+        let six = ["a", "b", "c", "d"]
+        // 6 workspaces, 4 titled: count - 2 titles, enough.
+        let lhs = signature(windowId: UUID(), workspaces: 6, checkpoints: ["x", "y"], titles: six)
+        let rhs = signature(windowId: UUID(), workspaces: 6, checkpoints: ["x", "y", "z"], titles: six)
+        #expect(CrashDuplicateWindowMatcher.isDuplicate(lhs, rhs))
+        // 6 workspaces, 3 titled: count - 3 titles, not enough.
+        let fewer = Array(six.prefix(3))
+        let lhsFew = signature(windowId: UUID(), workspaces: 6, checkpoints: ["x", "y"], titles: fewer)
+        let rhsFew = signature(windowId: UUID(), workspaces: 6, checkpoints: ["x", "y", "z"], titles: fewer)
+        #expect(!CrashDuplicateWindowMatcher.isDuplicate(lhsFew, rhsFew))
+    }
+
+    @Test("A small window needs three titles, not two")
+    func smallWindowNeedsThreeTitles() {
+        let three = signature(windowId: UUID(), workspaces: 3, checkpoints: ["x", "y"], titles: ["a", "b", "c"])
+        let threeReplay = signature(windowId: UUID(), workspaces: 3, checkpoints: ["x", "y", "z"], titles: ["c", "b", "a"])
+        #expect(CrashDuplicateWindowMatcher.isDuplicate(three, threeReplay))
+        let two = signature(windowId: UUID(), workspaces: 2, checkpoints: ["x", "y"], titles: ["a", "b"])
+        let twoReplay = signature(windowId: UUID(), workspaces: 2, checkpoints: ["x", "y", "z"], titles: ["b", "a"])
+        #expect(!CrashDuplicateWindowMatcher.isDuplicate(two, twoReplay))
+    }
+
+    @Test("Exactly 75 percent overlap of the smaller window merges; just under does not")
+    func fuzzyOverlapBoundary() {
+        let id = UUID()
+        let atBoundary = signature(windowId: id, workspaces: 4, checkpoints: ["a", "b", "c", "d"], titles: titles)
+        let threeOfFour = signature(windowId: id, workspaces: 4, checkpoints: ["a", "b", "c", "x"], titles: titles)
+        #expect(CrashDuplicateWindowMatcher.isDuplicate(atBoundary, threeOfFour))
+        let twoOfThree = signature(windowId: id, workspaces: 4, checkpoints: ["a", "b", "x"], titles: titles)
+        let three = signature(windowId: id, workspaces: 4, checkpoints: ["a", "b", "c"], titles: titles)
+        #expect(!CrashDuplicateWindowMatcher.isDuplicate(twoOfThree, three))
+    }
+
     @Test("The same window ID with the same workspace IDs is one window, checkpoints or not")
     func sameWorkspaceIDsWithoutCheckpoints() {
         let id = UUID()

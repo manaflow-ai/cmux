@@ -1221,6 +1221,55 @@ struct CrashDiagnosticSessionPolicyTests {
         #expect(merged.snapshot.windows.first?.tabManager.workspaces.count == 4)
     }
 
+    /// Every live restore (startup, its history fallback, manual reopen and
+    /// import) goes through `snapshotForLiveRestore`: it merges duplicates,
+    /// and scrollback recovery runs before the merge so the winning copy
+    /// keeps the recovered scrollback.
+    @Test
+    func liveRestoreSnapshotMergesAfterRecoveringScrollback() {
+        let pair = replayedWindowPair()
+        let snapshot = AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion,
+            createdAt: 10,
+            windows: [pair.original, pair.replay]
+        )
+        var recoveredWindowCount: Int?
+        let restored = SessionPersistencePolicy.snapshotForLiveRestore(snapshot) { pruned in
+            recoveredWindowCount = pruned.windows.count
+            var recovered = pruned
+            for windowIndex in recovered.windows.indices {
+                for workspaceIndex in recovered.windows[windowIndex].tabManager.workspaces.indices {
+                    for panelIndex in recovered.windows[windowIndex].tabManager.workspaces[workspaceIndex].panels.indices {
+                        recovered.windows[windowIndex].tabManager.workspaces[workspaceIndex]
+                            .panels[panelIndex].terminal?.scrollback = "recovered"
+                    }
+                }
+            }
+            return recovered
+        }
+
+        #expect(recoveredWindowCount == 2)
+        #expect(restored?.windows.count == 1)
+        let panels = restored?.windows.first?.tabManager.workspaces.flatMap(\.panels) ?? []
+        #expect(!panels.isEmpty)
+        #expect(panels.allSatisfy { $0.terminal == nil || $0.terminal?.scrollback == "recovered" })
+    }
+
+    @Test
+    func liveRestoreSnapshotCollapsesThreeCopiesOfAWindow() {
+        let pair = replayedWindowPair()
+        var third = pair.replay
+        third.windowId = UUID()
+        let restored = SessionPersistencePolicy.snapshotForLiveRestore(AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion,
+            createdAt: 10,
+            windows: [pair.original, pair.replay, third]
+        ))
+
+        #expect(restored?.windows.count == 1)
+        #expect(restored?.windows.first?.tabManager.workspaces.count == 4)
+    }
+
     @Test
     func sessionSnapshotMergesACrashReplayedWindowWithANewWindowID() {
         let pair = replayedWindowPair()
