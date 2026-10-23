@@ -19,7 +19,7 @@ public final class ChiefPaneTools: NSView, PaneMoreMenuContributing {
                                              "chief.openMemoryInspector", "chief.openUsage", "home.newChief"]
     private let chief: ChiefSidebar
     private weak var registry: ActionRegistry?
-    private var watch: Task<Void, Never>?
+    private var watch: OwnedTask?
     private var shownInRow = ChromeTunables.tabRowTools.value
     /// The Chief has a subagent now (the Subagents row is enabled).
     public private(set) var hasSubagents = false
@@ -31,25 +31,19 @@ public final class ChiefPaneTools: NSView, PaneMoreMenuContributing {
         setAccessibilityIdentifier("cmux.chief.paneTools")
         indicator.tracksWindowOcclusion = true
         addSubview(indicator)
-        // task-owner: this view (cancelled in deinit); event-driven (Observation).
-        watch = Task { [weak self, chief] in
+        // task-owner: this view (released with it, which cancels it); event-driven (Observation).
+        watch = OwnedTask(Task { [weak self, chief] in
             for await (status, subagents, inRow) in ObservationStream({ (chief.status, chief.allSubagents().count, ChromeTunables.tabRowTools.value) }) {
                 guard let self else { return }
                 show(status, subagents: subagents)
                 // The setting decides whether the dock reports these tools (HomeDockSwitchView+TabRow).
                 if inRow != shownInRow { shownInRow = inRow; superview?.needsLayout = true }
             }
-        }
+        })
     }
 
     @available(*, unavailable)
     public required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
-
-    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated { watch?.cancel() }
-    }
 
     override public var isFlipped: Bool { true }
     override public var mouseDownCanMoveWindow: Bool { false }
