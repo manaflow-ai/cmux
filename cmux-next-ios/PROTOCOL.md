@@ -1052,3 +1052,104 @@ label ...`, questions joined by `\u{0}`). It is pushed once per tab in 30 s,
 though Claude Code fires two hooks for it in either order (PermissionRequest
 carries no `tool_use_id`). The phone answers a notification only while that
 very question is pending on its tab; any other push is answered from the Feed card.
+
+## Terminal sizing policy (`host-size-policy-v1`; added 2026-10-23)
+
+A shared terminal has one PTY grid. When several devices show it (this Mac,
+one or more phones, another Mac), the **sizing policy** of the Mac decides
+which device's size the grid takes. It is one setting per Mac, stored by that
+Mac and applied by its cmux-tui daemon. The phone and the Mac's
+Settings > Mobile both edit the same value; the phone only sends a
+preference. The classic app's equivalent is the terminal size sheet of
+docs/shared-terminal-sizing.md (PR #18866); cmux-next keeps its modes and
+priority order but makes the policy per Mac instead of per terminal.
+
+### Modes
+
+| Setting value | Shown as | Engine policy the daemon applies |
+| --- | --- | --- |
+| `smallest` (default) | Fit the smallest viewer | `smallest`: every viewer sees the whole grid |
+| `mac` | Prefer this Mac | `priority` with this Mac's own views first; when no view of this Mac counts (its pane hidden), the most recently active other viewer |
+| `latest` | Prefer the active device | `latest`: the viewer that typed, pasted or focused last |
+| `priority` | Priority order | `priority` over `order`, highest first; a viewer not in the list counts only when no listed viewer does (then the most recently active) |
+
+Only viewers that **claim** a size count ("Terminal size claims" above): a
+phone claims while its terminal page is on screen, so the policy only ever
+chooses among the devices that are showing the terminal right now. A phone
+that stops showing it releases its claim and the grid follows the remaining
+claims under the same policy.
+
+A per-terminal or per-workspace override (`set-size-policy {surface}` or
+`{workspace}`, for example the Mac pane's Take Over) still wins over the
+Mac's policy for that terminal, as before.
+
+### Storage (the Mac)
+
+Two keys of the Mac's settings file (`~/.config/cmux/cmux-next.json`,
+owned by the daemon):
+
+- `mobile.terminalSizing`: `"smallest"` | `"mac"` | `"latest"` | `"priority"`.
+  Shown in Settings > Mobile as "Terminal Size When Shared".
+- `mobile.terminalSizingOrder`: the priority order, a list of **device
+  tokens**, highest first (at most 32): `"mac"` is this Mac's own views (its
+  panes and its cmux-tui frontend); `"device:<id>"` is the viewer whose
+  device id is `<id>` (1 to 128 of `[A-Za-z0-9_.:-]`). Hidden on the Mac's
+  page; edited from the phone.
+
+The daemon re-reads both on `settings-changed`, re-resolves every live
+terminal without an override, and publishes `size-state` when a terminal's
+policy changes. An unknown mode reads as the default.
+
+### Who is "this Mac"
+
+A participant is one of this Mac's views when its device kind is a desktop
+kind (`mac`, `tui`, `linux`, `windows`) and its connection is not relayed for
+a remote device. cmux-mobile-host marks every phone connection it splices:
+it rewrites the phone's `set-client-info` to carry `remote: true` and the
+link's own device id as `device_id` (a phone cannot choose either, so it can
+neither pose as this Mac nor as another phone in the order). The daemon
+keeps `remote` with the connection's sizing identity and never publishes it
+in `size-state`.
+
+### Commands (cmux-tui daemon, `host-size-policy-v1` in `identify`)
+
+- `get-host-size-policy {surface?}` →
+  `{policy: {mode, order}, mac_participants: [participant id]}`.
+  `mac_participants` lists the size-state participant ids of `surface` that
+  are this Mac's views (empty without `surface`).
+- `set-host-size-policy {policy: {mode, order?}}` → `{policy}`. Writes both
+  settings keys (an omitted `order` keeps the stored one), then applies as
+  above. Refused with `bad_request` for an unknown mode or a bad token.
+- `get-size-state {surface}` → `{state, self_participant}` (existing).
+- `note-size-activity {surface}` (existing) on the attach connection: the
+  phone sends it when the person types, pastes or taps the terminal, at most
+  once a second and only while it is not already an owner, so `latest` can
+  pick the phone. Keystrokes travel on the input lane, a different
+  connection, so they cannot count as the attach view's activity by
+  themselves.
+
+cmux-mobile-host (and the Mac app's Swift `DaemonLanePolicy` mirror) allow
+these four from a phone. `set-size-policy` and `set-size-counts` stay closed
+to a phone: it changes the Mac-wide preference only.
+
+### Phone
+
+- `set-client-info` `capabilities` add `shared-sizing-v1` (the attach stream
+  then carries `size-state` events) and `host-grid-view-v1` (this phone
+  renders a host grid larger than its own; see below). A daemon that caps a
+  handheld's applied grid at its viewport stops doing so for a connection
+  that lists `host-grid-view-v1`.
+- **Settings > Terminal > Terminal Size When Shared** lists the phone's
+  Macs; each Mac's page edits that Mac's mode and, in Priority order, a
+  reorderable list of its devices (This Mac, this iPhone, other phones and
+  Macs seen on it). The terminal's title menu opens **Connected Devices**
+  for the terminal on screen: the grid, why it has that size, every
+  connected viewer with the size it asks for (its claimed viewport, or "Not
+  showing it" when it has released its claim) and which viewer sets the
+  grid, and the same policy controls for that terminal's Mac.
+- **A grid larger than the phone.** The phone renders the host's grid
+  exactly at its own font size: wider than the phone, the terminal pans
+  horizontally (it follows the cursor while typing); shorter than the
+  phone, the grid is pinned to the top and the rest is letterboxed with the
+  terminal background and a one-line note (`120×40 · set by <device>`).
+  It never reflows the host's output to its own width.

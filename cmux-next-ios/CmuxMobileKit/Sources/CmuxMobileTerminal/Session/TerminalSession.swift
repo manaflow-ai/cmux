@@ -130,6 +130,10 @@ public protocol TerminalSession: AnyObject {
     func stop()
     /// Rows of the remote screen this session mirrors (nil: a local session).
     var remoteRows: Int? { get }
+    /// Columns of the remote screen (the Mac's PTY grid; nil: a local
+    /// session, or not known yet). When they are not the phone's own, the
+    /// screen renders them exactly and pans (`TerminalHostGridLayout`).
+    var remoteColumns: Int? { get }
     /// Whether the session shows the Mac's terminal now. Read once when the
     /// screen is built; changes arrive as ``TerminalSessionEvent/connection(_:)``.
     var connectionState: TerminalConnectionState { get }
@@ -142,6 +146,13 @@ public protocol TerminalSession: AnyObject {
     /// Mac releases its size when told false and claims it again on true).
     /// Driven by ``TerminalSizeClaimer``. Sessions without a Mac ignore it.
     func setClaimsSize(_ claims: Bool)
+    /// The person tapped or typed in the terminal: on a Mac terminal this
+    /// view becomes the active device for the Mac's sizing policy (sessions
+    /// rate-limit it themselves). Sessions without a Mac ignore it.
+    func noteInteraction()
+    /// The name of the device whose size the Mac's grid has now, when that
+    /// is not this phone (the letterbox note). Nil when unknown.
+    var hostGridOwnerName: String? { get }
 }
 
 extension TerminalSession {
@@ -150,12 +161,18 @@ extension TerminalSession {
     /// screen onto the bottom of its taller surface (``TerminalRowShift``).
     public var remoteRows: Int? { nil }
 
+    public var remoteColumns: Int? { nil }
+
     /// Sessions that do not report a connection are always attached.
     public var connectionState: TerminalConnectionState { .attached }
 
     public func setOutputPaused(_ paused: Bool) {}
 
     public func setClaimsSize(_ claims: Bool) {}
+
+    public func noteInteraction() {}
+
+    public var hostGridOwnerName: String? { nil }
 }
 
 /// Follows DEC private modes 47, 1047 and 1049 in a byte stream, across chunk

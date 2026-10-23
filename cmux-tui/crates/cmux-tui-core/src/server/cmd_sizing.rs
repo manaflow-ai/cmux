@@ -17,6 +17,7 @@ use crate::MuxEvent;
 use crate::SurfaceId;
 use crate::WorkspaceId;
 use crate::mux::clamp_terminal_size;
+use crate::mux::host_policy::HostSizeMode;
 use crate::sizing_policy::TerminalSizingPolicy;
 use serde_json::Value;
 use serde_json::json;
@@ -167,6 +168,34 @@ pub(super) fn get_size_state(
         "state": size_state_for_client(mux, client, &state),
         "self_participant": self_participant,
     }))
+}
+
+/// `get-host-size-policy {surface?}`.
+pub(super) fn get_host_size_policy(
+    mux: &Arc<Mux>,
+    surface: Option<SurfaceId>,
+) -> anyhow::Result<Value> {
+    let mac_participants = match surface {
+        Some(surface) => {
+            get_surface(mux, surface)?;
+            mux.host_mac_participants(surface)
+        }
+        None => Vec::new(),
+    };
+    Ok(json!({"policy": mux.host_size_policy(), "mac_participants": mac_participants}))
+}
+
+/// `set-host-size-policy {policy: {mode, order?}}`.
+pub(super) fn set_host_size_policy(
+    mux: &Arc<Mux>,
+    mode: String,
+    order: Option<Vec<String>>,
+) -> anyhow::Result<Value> {
+    let Some(mode) = HostSizeMode::parse(&mode) else {
+        anyhow::bail!("bad request: unknown mode {mode:?}; use smallest, mac, latest or priority");
+    };
+    let policy = mux.set_host_size_policy(mode, order)?;
+    Ok(json!({"policy": policy}))
 }
 
 pub(super) fn get_cell_pixels(mux: &Arc<Mux>) -> anyhow::Result<Value> {

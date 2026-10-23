@@ -295,6 +295,12 @@ back down. A relay that forwards a leaf's input sends it with `send`/`send-key`
 and then `note-size-activity {surface, view}`, so the activity belongs to the
 leaf and not to the relay.
 
+A connection that sends `set-client-info remote:true` (cmux-mobile-host does
+for every phone it splices, with the link's own `device_id`) is a remote
+device's lane: it is never one of this host's own views for the host sizing
+policy (`get-host-size-policy`). The mark is sticky for the connection and is
+never published in `size-state`.
+
 Identity trust: `user_id` in `set-client-info` and in a sub-view `identity` is
 asserted by the connection. This daemon has no Stack session and cannot verify
 it; relay tickets carry no user identity. It only selects the same-user
@@ -4704,6 +4710,62 @@ the caller's own participant id when it has one.
 Params: required `surface:Id`.
 
 Result: `object{state,self_participant:string|null}`.
+
+### get-host-size-policy
+
+| Field | Value |
+| --- | --- |
+| name | `get-host-size-policy` |
+| status | implemented |
+| since | protocol 12 with `host-size-policy-v1` |
+
+Returns the host sizing policy: how this host's terminals are sized when
+several devices show them (cmux-next-ios/PROTOCOL.md "Terminal sizing
+policy"). It applies to every terminal without a `set-size-policy` override
+or workspace default. With `surface`, also the size-state participant ids of
+that terminal that are this host's own views: a desktop device kind on a
+connection that did not send `set-client-info remote:true`.
+
+Params: optional `surface:Id`.
+
+Result: `object{policy:object{mode,order},mac_participants:[string]}`.
+`mode` is `smallest` (the default), `mac`, `latest` or `priority`; `order` is
+a list of device tokens, highest first: `mac` (this host's own views) or
+`device:<id>` (the views whose `device_id` is `<id>`).
+
+```json
+{"id":3,"cmd":"get-host-size-policy","surface":4}
+{"id":3,"ok":true,"data":{"policy":{"mode":"mac","order":[]},"mac_participants":["c2"]}}
+```
+
+### set-host-size-policy
+
+| Field | Value |
+| --- | --- |
+| name | `set-host-size-policy` |
+| status | implemented |
+| since | protocol 12 with `host-size-policy-v1` |
+
+Stores the host sizing policy in the host's settings file
+(`mobile.terminalSizing`, and `mobile.terminalSizingOrder` when `order` is
+given) and applies it to every live terminal that follows it. A hand edit of
+either key, or a settings write, applies the same way. Each terminal expands
+the policy into an engine policy whenever its participants change:
+`smallest` and `latest` as themselves, `mac` as `priority` over this host's
+own views, `priority` as `priority` over the views each token names, in
+order. Every participant of a terminal whose policy changed receives
+`size-state`.
+
+Params: required `policy:object{mode,order?}`. `order`: at most 32 tokens,
+each `mac` or `device:` followed by 1 to 128 of `[A-Za-z0-9_.:-]`; omitted
+keeps the stored order. A bad mode or token is refused with `bad request`.
+
+Result: `object{policy:object{mode,order}}`.
+
+```json
+{"id":4,"cmd":"set-host-size-policy","policy":{"mode":"priority","order":["device:A1B2","mac"]}}
+{"id":4,"ok":true,"data":{"policy":{"mode":"priority","order":["device:A1B2","mac"]}}}
+```
 
 ### set-terminal-idle-policy
 
