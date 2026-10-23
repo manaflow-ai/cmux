@@ -89,21 +89,6 @@ def pane_of(conn, surface):
     raise RuntimeError(f"surface {surface} is in no pane")
 
 
-def print_sample_tops(label, path):
-    """The sample's heaviest frames by self time ("Sort by top of stack")."""
-    try:
-        lines = open(path, errors="replace").read().splitlines()
-    except OSError:
-        return
-    try:
-        start = next(i for i, line in enumerate(lines) if line.startswith("Sort by top of stack"))
-    except StopIteration:
-        return
-    for line in lines[start + 1:start + 41]:
-        if line.strip():
-            print(f"LIFECYCLE-SAMPLE {label} {line.strip()}", flush=True)
-
-
 def daemon_threads(pid):
     """Threads of the bench's own daemon (ps -M lists one line per thread)."""
     out = subprocess.run(["ps", "-M", "-p", str(pid)], capture_output=True, text=True).stdout
@@ -192,16 +177,8 @@ def main():
             if counted:
                 samples.setdefault(name, []).append(ms)
 
-        sampler = None
-        sample_path = os.path.join(root, "daemon.sample.txt")
         for i in range(args.warmup + args.rounds):
             counted = i >= args.warmup
-            if args.spans and i == args.warmup and shutil.which("sample"):
-                # Where the daemon spends the measured rounds: macOS sample of
-                # this bench's own daemon (its pid, no process scan).
-                sampler = subprocess.Popen(
-                    ["sample", str(daemon.pid), "8", "-mayDie", "-file", sample_path],
-                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             data, ms = timed(c, "new-tab", pane=base_pane, **sized)
             rec("new-tab terminal", ms, counted)
             _, ms = timed(c, "close-surface", surface=data["surface"])
@@ -229,9 +206,6 @@ def main():
             _, ms = timed(c, "close-workspace", workspace=ws, end_terminals=True)
             rec("close-workspace", ms, counted)
 
-        if sampler is not None:
-            sampler.wait(timeout=60)
-            print_sample_tops(args.label, sample_path)
         for name, s in samples.items():
             result["ops"][name] = {"summary": summary(s), "samples_ms": [round(x, 3) for x in s]}
             sm = summary(s)
