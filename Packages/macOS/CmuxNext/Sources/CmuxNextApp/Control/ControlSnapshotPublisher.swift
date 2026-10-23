@@ -140,7 +140,7 @@ final class ControlSnapshotPublisher {
     /// Builds `parts` (each inside its own tracking, whose change republishes that part) and
     /// publishes them in one generation. `windows` alone republishes the window facts, unless a
     /// window came or went since the last topology publish (then the whole topology).
-    private func publish(_ requested: Parts) {
+    private func publish(_ requested: Parts) { // perf-hot: 1ms cmd-tab (every key, activation or window switch publishes the window facts here)
         guard !isStopped else { return }
         var parts = requested
         // The topology carries the window facts.
