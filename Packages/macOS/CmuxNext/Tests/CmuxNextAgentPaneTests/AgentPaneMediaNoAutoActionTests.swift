@@ -275,6 +275,77 @@ struct AgentPaneMediaNoAutoActionTests {
         #expect(pane.effects.seen.count == 3)
     }
 
+    @Test func aCSSReferenceSpelledWithAnEscapeOrSplitByTheParserIsDroppedToo() throws {
+        let svg = #"""
+            <svg xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="g"/></defs>
+            <rect style="fill:u\72l(https://a.example/s.svg#p)" mask="u\rl(https://a.example/m.svg#m)"/>
+            <rect fill="-webkit-image-set('https://a.example/i.png' 1x)"/>
+            <style>rect{fill:\75 rl(https://a.example/t.svg#p)}</style>
+            <style>rect{fill:&#117;rl(https://a.example/e.svg#p)}</style>
+            <style>@im\70 ort 'https://a.example/i.css';</style>
+            <style><b/>rect{fill:url(https://a.example/c.svg#p)}</style>
+            <circle r="1" fill="url(#g)"/></svg>
+            """#
+        let text = String(decoding: try #require(AgentPaneSVGSanitizer.sanitize(Data(svg.utf8))), as: UTF8.self)
+        #expect(!text.contains("a.example") && !text.contains("\\"), "\(text)")
+        #expect(text.contains("<circle") && text.contains("url(#g)"), "\(text)")
+    }
+
+    /// Whether `path` is a rebuilt copy in the pane's copies folder, with none of the SVG's links.
+    private static func isRebuiltCopy(_ path: String, in pane: Pane) -> Bool {
+        let folder = pane.model.replyLinks.imageFolder.resolvingSymlinksInPath().path
+        guard URL(fileURLWithPath: path).resolvingSymlinksInPath().path.hasPrefix(folder + "/"),
+              let data = FileManager.default.contents(atPath: path) else { return false }
+        let text = String(decoding: data, as: UTF8.self)
+        return text.contains("<rect") && !["cmux", "evil.example", "onload", "<script"].contains { text.contains($0) }
+    }
+
+    @Test(.timeLimit(.minutes(1))) func anSVGFileInTheProjectLeavesThePaneOnlyAsItsRebuiltCopy() async throws {
+        let pane = try Self.pane()
+        let svg = pane.project.appendingPathComponent("drawing.svg"), broken = pane.project.appendingPathComponent("broken.svg")
+        let shot = pane.project.appendingPathComponent("shot.png"), page = pane.project.appendingPathComponent("index.html")
+        try Data(Self.hostileSVG.utf8).write(to: svg)
+        try Data("<svg><a href='cmux://x'>".utf8).write(to: broken)
+        try Self.png.write(to: shot)
+        try Data("<html></html>".utf8).write(to: page)
+        let svgSource = "data:image/svg+xml;base64," + Data(Self.hostileSVG.utf8).base64EncodedString()
+
+        // Show in Finder from the viewer: an SVG's copy, never the file the agent wrote; a PNG is still its own file.
+        for (file, src) in [(svg, svgSource), (shot, "data:image/png;base64," + Self.png.base64EncodedString())] {
+            let reply = await Self.ask(pane, "image.reveal", ["src": src, "name": file.lastPathComponent, "path": file.path], click: true)
+            #expect(Self.errorCode(reply) == nil, "\(reply)")
+        }
+        // A path chip dragged out: the same; a broken SVG is refused.
+        pane.model.replyLinks.mouseHeld = { true }
+        for file in [svg, shot] { _ = await Self.ask(pane, "file.drag", ["path": file.path]) }
+        let refused = await Self.ask(pane, "file.drag", ["path": broken.path])
+        #expect(Self.errorCode(refused) != nil, "\(refused)")
+        // A path chip's Save As…: the same file as the drag.
+        let view = try #require(AgentPaneView(model: pane.model, source: .bundled(page)))
+        for file in [svg, shot] {
+            let save = try #require(view.pathMenuItems(file.path)?.first { $0.title == AgentPaneMenuStrings.saveAs })
+            let saved = await withCheckedContinuation { (done: CheckedContinuation<URL, Never>) in
+                pane.model.replyLinks.saveFile = { file, _ in done.resume(returning: file) }
+                _ = (save.target as? NSObject)?.perform(save.action, with: save)
+            }
+            pane.effects.seen.append("save \(saved.path)")
+        }
+
+        #expect(pane.effects.seen.count == 6, "\(pane.effects.seen)")
+        for effect in pane.effects.seen {
+            let path = String(effect.split(separator: " ", maxSplits: 1).last ?? "")
+            if path.hasSuffix(".png") {
+                #expect(URL(fileURLWithPath: path).resolvingSymlinksInPath() == shot.resolvingSymlinksInPath(), "\(effect)")
+            } else {
+                #expect(Self.isRebuiltCopy(path, in: pane), "\(effect) is not the rebuilt copy")
+            }
+        }
+        // The rebuild never hands out an SVG it cannot read.
+        let copy = AgentPaneImageCopies.handedOut(broken, in: pane.model.replyLinks.imageFolder)
+        #expect(copy != broken)
+        #expect(await AgentPaneImageCopies.rebuild(broken, to: copy) == false)
+    }
+
     @Test func nothingInAReplyNavigatesThePaneOrReachesTheAppByItself() {
         let source = AgentPaneSource.bundled(URL(string: "cmux-agent://pane/index.html")!)
         let hostile = [
