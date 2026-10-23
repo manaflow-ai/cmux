@@ -2,10 +2,13 @@
 // not connected" from "its machine is still connecting", so a chat that is only loading never reads
 // as gone (Leo 2026-10-21: "second pic is weird has "this chat isn't available"").
 //
-// acpmux keeps listing a peer's chats while that peer is down (stale, from the list it last had or
-// saved, hub/peer_cache.rs), so a chat it does not list is deleted, unless it is on a machine whose
-// list acpmux does not hold: one it has never reached (no `lastSeen`), or the chat's own machine
-// when the pane knows it. `_acpmux/status` says each peer's `state`, `lastSeen` and failed
+// A chat is called deleted only on evidence: its own machine (when the pane knows it) has listed its
+// chats without it, or the pane saw it listed and it left the list while every machine was
+// connected. While any machine is not connected the chat may be on it: acpmux sets a peer's
+// `lastSeen` when its socket opens, before it has read that machine's chats, so neither `lastSeen`
+// nor an open socket says acpmux holds its list. A chat never listed here while every machine is
+// connected is not found: it may be deleted, or in an acpmux this tab is not routed to (a Chief
+// home's own), so the pane does not say it was deleted. `_acpmux/status` says each peer's `state`, `lastSeen` and failed
 // `attempts` (acpmux peer.rs `Peer::summary`); the app's relay passes those through
 // (AcpmuxPaneMethods+ReplyShapes).
 
@@ -22,7 +25,10 @@ export type PeerStatus = {
 
 /// What the pane shows in place of a chat the daemon does not list.
 export type ChatUnavailable =
-  | { reason: "deleted" }
+  /// Gone from the machine that listed it; `machine` when the pane knows which one.
+  | { reason: "deleted"; machine?: string }
+  /// Not listed here and never seen here, with every machine connected.
+  | { reason: "notFound" }
   /// The chat's machine is still connecting: the chat may be there once it does (loading).
   | { reason: "connecting"; machine?: string }
   /// The chat's machine is not connected; `machine` when the pane knows which one.
@@ -68,20 +74,23 @@ function stillConnecting(status: PeerStatus): boolean {
 /**
  * Why the chat is not listed. `peer` is the machine the chat was last seen on (its summary's
  * peer), when the pane knows it. `waitedMs` is how long the pane has been without the chat:
- * a machine still connecting past `CONNECTING_GRACE_MS` is offline.
+ * a machine still connecting past `CONNECTING_GRACE_MS` is offline. `seenListed`: the pane saw the
+ * chat listed and it left the list (`leftListWhileShown`), so with every machine connected it was
+ * deleted; one never seen here is only not found.
  */
 export function chatUnavailable(input: {
   peer?: string;
   peers: Record<string, PeerStatus>;
   waitedMs: number;
+  seenListed?: boolean;
 }): ChatUnavailable {
-  const { peer, peers, waitedMs } = input;
+  const { peer, peers, waitedMs, seenListed = false } = input;
   const grace = waitedMs < CONNECTING_GRACE_MS;
   if (peer !== undefined) {
     // The chat's own machine: once acpmux has its chats, the chat is gone from it; one acpmux no
     // longer lists, or that is down, is not connected.
     const status = peers[peer];
-    if (status && settled(status)) return { reason: "deleted" };
+    if (status && settled(status)) return { reason: "deleted", machine: peer };
     if (status && grace && stillConnecting(status)) return { reason: "connecting", machine: peer };
     return {
       reason: "offline",
@@ -90,13 +99,15 @@ export function chatUnavailable(input: {
     };
   }
   // The chat's machine is not known. A machine still connecting may list it once acpmux has its
-  // chats (loading); past that, only a machine acpmux has never reached could hold it unlisted.
+  // chats (loading); past that, any machine not connected may hold it.
   const connecting = Object.entries(peers).filter(([, status]) => stillConnecting(status));
   if (grace && connecting.length > 0)
     return connecting.length === 1 ? { reason: "connecting", machine: connecting[0]![0] } : { reason: "connecting" };
-  const unreached = Object.entries(peers).filter(
-    ([, status]) => !settled(status) && status.connected !== true && status.lastSeen === undefined,
-  );
-  if (unreached.length === 0) return { reason: "deleted" };
-  return unreached.length === 1 ? { reason: "offline", machine: unreached[0]![0] } : { reason: "offline" };
+  const down = Object.entries(peers).filter(([, status]) => !settled(status));
+  if (down.length === 1) {
+    const [machine, status] = down[0]!;
+    return { reason: "offline", machine, ...(status.lastSeen !== undefined ? { lastSeen: status.lastSeen } : {}) };
+  }
+  if (down.length > 1) return { reason: "offline" };
+  return seenListed ? { reason: "deleted" } : { reason: "notFound" };
 }

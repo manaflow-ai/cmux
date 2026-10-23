@@ -1,6 +1,8 @@
 //! Request and notification handlers for one client connection.
 
 use super::*;
+use crate::no_panic::JsonExt;
+use crate::no_panic::LockExt;
 
 mod composer;
 mod events;
@@ -169,7 +171,7 @@ async fn dispatch_request(
     match m {
         method::INITIALIZE => {
             if let Some(name) = params.pointer("/clientInfo/name").and_then(Value::as_str) {
-                *conn.name.lock().unwrap() = name.to_owned();
+                *conn.name.lock_or_recover() = name.to_owned();
             }
             Ok(json!({
                 "protocolVersion": 1,
@@ -453,7 +455,7 @@ async fn dispatch_request(
             let meta = s.meta();
             let mut summary = hub.session_summary(&s);
             if let Some(w) = worktree {
-                summary["worktree"] = w;
+                summary.set("worktree", w);
             }
             Ok(json!({
                 "sessionId": s.id,
@@ -481,7 +483,7 @@ async fn dispatch_request(
                     && rec.msg.get("method").and_then(Value::as_str) == Some(method::SESSION_UPDATE)
                 {
                     let mut p = rec.msg.get("params").cloned().unwrap_or(json!({}));
-                    p["sessionId"] = Value::String(s.id.clone());
+                    p.set("sessionId", Value::String(s.id.clone()));
                     crate::hub::merge_mux_meta(
                         &mut p,
                         json!({"seq": rec.seq, "at": rec.at, "kind": rec.kind, "replay": true}),
@@ -532,9 +534,7 @@ async fn dispatch_request(
             let web = super::remote_guard::control_of(conn.origin, conn.auth, &params)
                 == crate::hub::Control::Web;
             crate::prompt_context::apply(mux_meta(&params), web, &mut blocks)?;
-            // The app pane signs a reply only as a chat it shows (`Hub::app_reply_fits`).
-            let shows = |id: &str| conn.sub_opts(id).is_some_and(|o| !o.hidden);
-            let provenance = hub.prompt_provenance(&params, conn.origin, &s.id, &shows)?;
+            let provenance = crate::hub::Hub::prompt_provenance(&params, conn.origin)?;
             // Sent from inside another session (its proven caller token) with none of its own:
             // that session's message, so the receiver's transcript does not show it as the person's.
             let provenance = match (provenance, conn.caller()) {
@@ -796,8 +796,11 @@ async fn dispatch_request(
                         .map_err(|e| RpcError::invalid_params(format!("defaults: {e}")))?;
                     let entry = cfg.defaults.entry(family.clone()).or_default();
                     let mut merged = entry.clone();
+                    let Some(fields) = set.as_object() else {
+                        return Err(RpcError::invalid_params("defaults: set must be an object"));
+                    };
                     // A JSON null clears one field.
-                    for (k, v) in set.as_object().unwrap() {
+                    for (k, v) in fields {
                         if v.is_null() {
                             match k.as_str() {
                                 "model" => merged.model = None,
@@ -1016,6 +1019,7 @@ async fn dispatch_request(
         }
         method::MUX_VIEW => view::view(hub, conn, &params),
         method::MUX_MARK_UNREAD => view::mark_unread(hub, &params),
+        method::MUX_APP_REPLY => super::app_reply::check(hub, conn, &params),
         method::MUX_HARNESS_INVENTORY_WATCH => super::inventory_watch::handle(hub, conn, &params),
         method::MUX_WATCH => {
             let on = params.get("enabled").and_then(Value::as_bool).unwrap_or(true);

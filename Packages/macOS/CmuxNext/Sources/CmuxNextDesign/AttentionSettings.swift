@@ -19,8 +19,22 @@ public nonisolated struct AttentionSettings: Hashable, Sendable {
     /// plays when the person goes into the pane and the ring goes away
     /// (`MotionGate.attentionDismissAnimation`).
     public var style: AttentionStyle = .steady
-    /// nil takes the notification blue (`Palette.notificationBlue`, the unread dot's color).
+    /// nil takes the theme accent (`AttentionHighlightLook.defaultColor`): never a fixed blue
+    /// (Leo, 2026-10-21: "if we have any kind of blinky, it should be themed/customizable").
     public var color: ThemeRGB?
+    /// How a terminal (or any pane but an agent chat) rings (`notifications.attention.terminals`):
+    /// `glow`, a stroke with a soft glow as classic's (default); `ring`, the stroke alone; `none`,
+    /// no ring (the tab and the sidebar row still show the unread mark).
+    public var terminalRing: FocusRingStyle = .glow
+    /// How an agent chat's pane rings when its turn ends (`notifications.attention.agentChats`).
+    /// `none` by default (Leo, 2026-10-21: no blinky on turn end for the GUI; cmuxterm-hq#2959):
+    /// a turn that ends in a shown chat is read at once. On, `ring` is the recommended look.
+    public var agentChatRing: FocusRingStyle = .none
+    /// The agent chat ring's flashes as it goes (`notifications.attention.agentChatBlinkCount`):
+    /// one (cmuxterm-hq#2959); `blinkCount` is the terminal's.
+    public var agentChatBlinkCount = 1
+    /// The look of the pane being drawn, which `surface(agentChat:)` sets from the two above.
+    public var ringStyle: FocusRingStyle = .glow
     public var width: CGFloat = 2
     public var blinkCount = 2
     /// Seconds the pulse runs before the ring holds steady.
@@ -45,6 +59,20 @@ public nonisolated struct AttentionSettings: Hashable, Sendable {
 
     public init() {}
 
+    /// Whether the pane being drawn shows a ring: its look and the arrival style are not none.
+    public var drawsRing: Bool { style != .none && ringStyle != .none }
+
+    /// The settings one pane draws with: an agent chat's look and flash count, or a terminal's.
+    public func surface(agentChat: Bool) -> AttentionSettings {
+        var settings = self
+        settings.ringStyle = agentChat ? agentChatRing : terminalRing
+        if agentChat { settings.blinkCount = agentChatBlinkCount }
+        return settings
+    }
+
+    /// Whether a pane showing an agent chat (`agentChat`) or anything else rings.
+    public func rings(agentChat: Bool) -> Bool { surface(agentChat: agentChat).drawsRing }
+
     public static let widthRange: ClosedRange<CGFloat> = 0.5...8
     public static let blinkRange: ClosedRange<Int> = 1...10
     public static let durationRange: ClosedRange<Double> = 0.3...30
@@ -56,13 +84,15 @@ public nonisolated struct AttentionMark: Hashable, Sendable {
     public var color: ThemeRGB?
     /// Changes with every new notification, so the animation restarts.
     public var generation: UInt64
-    /// A one-pixel ring in the pane border color, with no glow, instead of the notification
-    /// blue: an agent chat's own turn-end ring (`AgentTurnRing`), which is opt-in.
-    public var hairline: Bool
+    /// The pane shows an agent chat: it draws with `AttentionSettings.surface(agentChat: true)`.
+    public var agentChat: Bool
+    /// The ring arrives at rest with no pulse: one of a burst of turn ends (cmuxterm-hq#2959).
+    public var quiet: Bool
 
-    public init(color: ThemeRGB? = nil, generation: UInt64, hairline: Bool = false) {
+    public init(color: ThemeRGB? = nil, generation: UInt64, agentChat: Bool = false, quiet: Bool = false) {
         self.color = color
         self.generation = generation
-        self.hairline = hairline
+        self.agentChat = agentChat
+        self.quiet = quiet
     }
 }

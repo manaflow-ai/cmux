@@ -8,6 +8,8 @@ use super::*;
 /// for a peer's session.
 const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::INITIALIZE,
+    // The app pane's reply in place is checked against this daemon's chats (`app_reply.rs`).
+    method::MUX_APP_REPLY,
     method::AUTHENTICATE,
     method::SESSION_NEW,
     method::SESSION_LIST,
