@@ -19,7 +19,8 @@ extension HostPressureIndicatorView {
         let frame = indicator.convert(indicator.bounds, to: nil)
         return ["level": .string(String(describing: indicator.level)), "hidden": .bool(indicator.isHidden),
                 "popover": .bool(indicator.isPopoverShown),
-                "frame": ["x": .number(frame.minX), "y": .number(frame.minY), "w": .number(frame.width), "h": .number(frame.height)]]
+                "frame": ["x": .number(Double(frame.minX)), "y": .number(Double(frame.minY)),
+                          "w": .number(Double(frame.width)), "h": .number(Double(frame.height))]]
     }
 }
 #endif

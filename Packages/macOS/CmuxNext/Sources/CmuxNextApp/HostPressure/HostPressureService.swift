@@ -128,8 +128,9 @@ final class HostPressureService {
     }
 
     /// Stops one acpmux session's agent (resumable); false when acpmux refused or did not answer.
+    /// A forced level's sessions are samples, so their Stop asks acpmux nothing.
     func stopSession(_ session: HostBudgetSession) async -> Bool {
-        guard let acpmux else { return false }
+        guard forced == nil, let acpmux else { return false }
         do {
             try await acpmux.stopSession(id: session.sessionId)
             if var verdict = monitoredVerdict {

@@ -12,11 +12,11 @@ import CmuxNextHostPressure
 /// Off by default (cmux#22662): it subscribes to the app's `HostPressureService`
 /// only while `HostPressureSampling.samples` holds (the Debug Settings toggle
 /// `hostPressure.enabled` is on and its window can be seen). Stop condition: the
-/// toggle going off, or the window hiding, minimizing, being fully occluded or
+/// toggle going off, or the window (or the whole app) hiding, minimizing, being fully occluded or
 /// closing, unsubscribes it, and the service stops the monitor and its one 15 s
 /// timer when no window is subscribed. Cleanup: leaving the window, and deinit,
-/// remove the window observers, cancel the toggle and level observations and
-/// unsubscribe. While the toggle is off it never creates the service at all.
+/// remove the window and app observers, cancel the toggle and level observations and
+/// unsubscribe (`HostPressureSubscription` also ends itself if it is released without that). While the toggle is off it never creates the service at all.
 final class HostPressureIndicatorView: NSView {
     static let identifier = "cmux.titlebar.hostPressure"
     let button = TitlebarBandButton(symbol: HostPressureIndicatorView.symbol(.warning))
@@ -25,7 +25,8 @@ final class HostPressureIndicatorView: NSView {
     private let windowVisible: @MainActor (NSWindow?) -> Bool
     private let makeService: @MainActor () -> HostPressureService
     private let onVisibilityChange: () -> Void
-    private var service: HostPressureService?
+    private var subscription: HostPressureSubscription?
+    private var service: HostPressureService? { subscription?.service }
     private var observation: Task<Void, Never>?
     private var toggleObservation: Task<Void, Never>?
     private var windowObservers: [NSObjectProtocol] = []
@@ -94,7 +95,12 @@ final class HostPressureIndicatorView: NSView {
         toggleObservation?.cancel()
         toggleObservation = nil
         guard let window else { return }
-        windowObservers = HostPressureSampling.windowChanges.map { name in
+        windowObservers = HostPressureSampling.appChanges.map { name in
+            NotificationCenter.default.addObserver(forName: name, object: NSApp, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.reconcile() } // main-proof: observer on queue: .main
+            }
+        }
+        windowObservers += HostPressureSampling.windowChanges.map { name in
             NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] note in
                 let closing = note.name == NSWindow.willCloseNotification
                 MainActor.assumeIsolated { // main-proof: observer on queue: .main
@@ -112,10 +118,9 @@ final class HostPressureIndicatorView: NSView {
     }
 
     private func join() {
-        guard service == nil else { return }
+        guard subscription == nil else { return }
         let service = makeService()
-        self.service = service
-        service.subscribe()
+        subscription = HostPressureSubscription(service)
         // task-owner: the indicator (cancelled when it stops sampling); event-driven (Observation)
         observation = Task { [weak self] in
             for await (level, verdict) in ObservationStream({ (service.level, service.verdict) }) {
@@ -125,11 +130,11 @@ final class HostPressureIndicatorView: NSView {
     }
 
     private func leave() {
-        guard let service else { return }
+        guard let subscription else { return }
         observation?.cancel()
         observation = nil
-        service.unsubscribe()
-        self.service = nil
+        subscription.cancel()
+        self.subscription = nil
         show(level: .normal, verdict: nil)
     }
 
@@ -196,13 +201,15 @@ final class HostPressureIndicatorView: NSView {
         }
     }
 
+    /// Off the main thread it leaves the cleanup to its parts: the subscription ends itself on
+    /// the main actor when released, and the observers and tasks hold the indicator weakly.
     nonisolated deinit {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
             windowObservers.forEach { NotificationCenter.default.removeObserver($0) }
             toggleObservation?.cancel()
             observation?.cancel()
-            service?.unsubscribe()
+            subscription?.cancel()
         }
     }
 }

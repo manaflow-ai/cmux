@@ -71,6 +71,18 @@ import Testing
         service?.stop()
     }
 
+    @Test func aSubscriptionReleasedWithoutCancelStillUnsubscribes() async {
+        let service = HostPressureService(acpmux: nil, store: Self.store(forcing: nil, enabled: true))
+        var subscription: HostPressureSubscription? = HostPressureSubscription(service)
+        #expect(service.subscriberCount == 1)
+        #expect(subscription != nil)
+        subscription = nil
+        for _ in 0 ..< 50 where service.subscriberCount != 0 { await Task.yield() }
+        #expect(service.subscriberCount == 0)
+        #expect(!service.isMonitoring)
+        service.stop()
+    }
+
     @Test func theGateIsTheToggleAndTheWindow() {
         #expect(HostPressureSampling(enabled: true, windowVisible: true).samples)
         #expect(!HostPressureSampling(enabled: true, windowVisible: false).samples)
