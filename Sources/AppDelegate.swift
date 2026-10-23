@@ -4260,9 +4260,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ snapshot: AppSessionSnapshot,
         shouldActivate: Bool = true
     ) -> Bool {
-        guard let snapshot = SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(from: snapshot).snapshot else {
+        guard let pruned = SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(from: snapshot).snapshot else {
             return false
         }
+        // A crash can write a window twice; opening both copies shows every
+        // workspace twice. Only this restore merges them: the files on disk
+        // keep every window.
+        let snapshot = SessionPersistencePolicy.mergingCrashDuplicateWindows(in: pruned).snapshot
         let snapshotWindows = Array(
             snapshot.windows.prefix(SessionPersistencePolicy.maxWindowsPerSnapshot)
         )
