@@ -85,6 +85,9 @@ test("a streaming goal leaves the prompt editor and caret out of the render loop
       values.push(value);
     };
     const onChange = useCallback((value: string, _caret: number) => onChangeRef.current(value), []);
+    const setHandle = useCallback((value: MarkdownFieldHandle | null) => {
+      handle.current = value;
+    }, []);
     return (
       <div data-stream-tick={tick}>
         <Profiler
@@ -94,14 +97,7 @@ test("a streaming goal leaves the prompt editor and caret out of the render loop
             renderWork += actualDuration;
           }}
         >
-          <MarkdownField
-            ref={(value) => {
-              handle.current = value;
-            }}
-            value={draft}
-            selectionKey="codex-goal"
-            onChange={onChange}
-          />
+          <MarkdownField ref={setHandle} value={draft} selectionKey="codex-goal" onChange={onChange} />
         </Profiler>
       </div>
     );
