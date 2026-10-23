@@ -39,6 +39,10 @@ final class PaletteContentView: NSView {
 
     /// How many times the whole palette re-rendered from the model (tests).
     private(set) var renderCount = 0
+    /// A model change scheduled a whole-palette render (set as the change happens; tests).
+    private(set) var renderScheduled = false
+    /// A hover change waits for ``applyScheduledHover()`` (set as the change happens).
+    private(set) var hoverScheduled = false
     private var appliedResults = -1
     private var appliedScroll = -1
     private var appliedPage = -1
@@ -115,9 +119,12 @@ final class PaletteContentView: NSView {
     // MARK: Rendering
 
     private func observe() {
+        renderScheduled = false
         withObservationTracking {
             render()
         } onChange: { [weak self] in
+            // main-proof: the model is main-actor state; Observation calls onChange in its willSet
+            MainActor.assumeIsolated { self?.renderScheduled = true }
             Task { @MainActor [weak self] in self?.observe() }
         }
     }
@@ -126,12 +133,21 @@ final class PaletteContentView: NSView {
     /// pointer and `PaletteListView` re-hit-tests on every scroll tick, so the hovered row changes
     /// about once per row of travel, nearly every frame of a fling. A hover change touches the two
     /// row views it moves between; it never re-renders the search bar, footer, menus or layout.
-    private func observeHover() {
+    private func observeHover() { // perf-hot: 0.2ms (one hover change per row of scroll travel; touches two row views only)
+        hoverScheduled = false
         withObservationTracking {
             list.setHover(model.hoveredRowID)
         } onChange: { [weak self] in
-            Task { @MainActor [weak self] in self?.observeHover() }
+            // main-proof: the model is main-actor state; Observation calls onChange in its willSet
+            MainActor.assumeIsolated { self?.hoverScheduled = true }
+            Task { @MainActor [weak self] in self?.applyScheduledHover() }
         }
+    }
+
+    /// Applies a hover change that waits (the observation hop runs it; tests call it at once).
+    func applyScheduledHover() {
+        guard hoverScheduled else { return }
+        observeHover()
     }
 
     /// Everything but hover (`observeHover()`), from the model.
