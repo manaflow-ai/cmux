@@ -9,7 +9,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { webkit, type Browser, type Page } from "playwright";
 import { installPaintedFrames } from "./support/paintedFrames";
-import { requireBrowserLane } from "./support/requireBrowserLane";
+import { engineUnavailable, requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("thread-minimap-motion.test.ts", async () => {
@@ -17,14 +17,12 @@ await requireBrowserLane("thread-minimap-motion.test.ts", async () => {
   // The probe gets 30 s, not Playwright's 180 s default, which is longer than the runner's 120 s per-file
   // limit (run-webviews-tests.sh). On the fleet's aws Macs, where steps run over SSH as ec2-user, WebKit
   // never answers its launch (Chromium starts there in 300 ms). The default made the runner kill the
-  // file before the skip below could run (TIMEOUT on aws-m4pro-3 and -6, 2026-10-22). On GitHub Actions
-  // requireBrowserLane has already failed the file if WebKit cannot launch, so CI still runs it.
+  // file before the skip below could run (TIMEOUT on aws-m4pro-3 and -6, 2026-10-22). Where the lane is
+  // required (GitHub Actions), a WebKit that does not launch fails the file instead (engineUnavailable).
   try {
     await (await webkit.launch({ headless: true, timeout: 30_000 })).close();
   } catch (error) {
-    console.warn(
-      `thread-minimap-motion: skipping, WebKit did not launch here (${String(error).split("\n")[0]}); run \`bunx playwright install webkit\` if it is missing`,
-    );
+    engineUnavailable("thread-minimap-motion", "webkit", error);
     describe.skip("thread minimap motion", () => test("webkit", () => {}));
     return;
   }

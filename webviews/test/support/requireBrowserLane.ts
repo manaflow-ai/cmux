@@ -26,6 +26,34 @@ async function unlaunchableEngines(): Promise<string[]> {
 }
 
 /**
+ * Whether this run must run the browser lane: an engine that cannot launch fails the file here
+ * rather than skipping it. Only GitHub Actions installs every engine for the lane on every run; a
+ * fleet step, a Freestyle VM or a laptop may not have one, and its files skip it.
+ */
+export function browserLaneRequired(env: Record<string, string | undefined> = process.env): boolean {
+  return env.GITHUB_ACTIONS === "true";
+}
+
+/**
+ * For a file's own engine probe that failed with `error`: where the lane is required
+ * (browserLaneRequired), throws, naming the launch error, so the file fails rather than reporting
+ * tests that never ran; elsewhere reports why the file skips, and the caller skips.
+ */
+export function engineUnavailable(
+  name: string,
+  engine: string,
+  error: unknown,
+  {
+    env = process.env,
+    report = console.warn,
+  }: { env?: Record<string, string | undefined>; report?: (message: string) => void } = {},
+): void {
+  const reason = String(error).split("\n")[0];
+  if (browserLaneRequired(env)) throw new Error(`${name}: ${engine} did not launch (${reason}), and the browser lane is required here`);
+  report(`${name}: skipping, ${engine} did not launch here (${reason}); run \`bunx playwright install ${engine}\` if it is missing`);
+}
+
+/**
  * Keep module-level engine probes and hooks inside the callback as well as tests.
  *
  * On GitHub Actions an engine that cannot launch fails the file before it registers anything. The
@@ -56,7 +84,7 @@ export async function requireBrowserLane(
     skip(name);
     return;
   }
-  if (env.GITHUB_ACTIONS === "true") {
+  if (browserLaneRequired(env)) {
     const missing = await unlaunchable();
     if (missing.length > 0)
       throw new Error(
