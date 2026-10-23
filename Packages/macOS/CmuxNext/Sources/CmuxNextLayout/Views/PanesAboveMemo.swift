@@ -24,7 +24,6 @@ struct PanesAboveMemo {
     /// overlap it, back to front; hosts nothing overlaps are absent.
     mutating func covers(frontToBack hosts: [PaneHostView]) -> [ObjectIdentifier: [CGRect]] {
         let entries = hosts.map { Entry(host: ObjectIdentifier($0), frame: $0.frame, covers: !$0.isHidden && $0.alphaValue > 0.99) }
-        if entries == self.entries { return result }
         self.entries = entries
         walks += 1
         var covers: [ObjectIdentifier: [CGRect]] = [:]
