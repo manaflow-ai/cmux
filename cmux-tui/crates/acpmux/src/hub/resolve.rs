@@ -348,5 +348,6 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         git_head: None,
         subsession: None,
         subsession_limits: Default::default(),
+        lineage: None,
     }
 }
