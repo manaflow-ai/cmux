@@ -18,6 +18,7 @@ pub(super) const CMUX_SCOPES: &[&str] = &[
     "terminal",
     "browser",
     "notification",
+    "attention",
     "agent",
     "room",
     "closed",
