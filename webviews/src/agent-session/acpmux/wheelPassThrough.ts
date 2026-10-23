@@ -41,6 +41,11 @@ export function forwardWheel(scroller: HTMLElement, event: WheelEvent): void {
     deltaMode: event.deltaMode,
     bubbles: false,
     cancelable: true,
+    // The same modifiers as the wheel itself, so the copy is read as that wheel would be over the
+    // transcript (a modified wheel never glides).
+    metaKey: event.metaKey,
+    shiftKey: event.shiftKey,
+    altKey: event.altKey,
     wheelDeltaY: (event as WheelEvent & { wheelDeltaY?: number }).wheelDeltaY,
   } as WheelEventInit);
   if (!scroller.dispatchEvent(copy)) return;

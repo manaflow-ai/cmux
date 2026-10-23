@@ -2567,6 +2567,8 @@ export function VirtualTranscript({
       // scroll anchor from the old session before the placement pass chooses the new session's
       // openAt position or latest row.
       previousSession.current = sessionId;
+      // The old chat's wheel glide has its distance left to run: it never moves the new one.
+      wheelGlide.current?.stop();
       didOpenAtLatest.current = false;
       // Another chat's count (the subagent view takes none) is not a send in this one.
       seenSends.current = sends;

@@ -63,8 +63,10 @@ const ease = (t: number) => 1 - (1 - t) ** 3;
 /// trackpad's, one over a row that scrolls on its own, one with the view already at that end) and
 /// Reduce Motion or the Debug toggle off leave the event to the engine.
 ///
-/// Stop conditions: the glide's frame loop ends when it has covered its distance, at a trackpad's
-/// wheel event, at the reader's press, touch or key anywhere in the page, and on `stop()`. Cleanup:
+/// Stop conditions: the glide's frame loop ends when it has covered its distance or reached an end,
+/// at a trackpad's (or modified, sideways or nested scroller's) wheel event, at the reader's press,
+/// touch or key anywhere in the page, when the scroller is hidden, and on `stop()` (Jump to latest,
+/// a switch to another chat). Cleanup:
 /// the returned remover ends a glide in flight and removes the wheel and scroll listeners (the page
 /// listeners live only while a glide runs).
 export function installWheelGlide(scroller: HTMLElement): { stop: () => void; remove: () => void } {
@@ -89,6 +91,11 @@ export function installWheelGlide(scroller: HTMLElement): { stop: () => void; re
     for (const name of READER_INPUTS) page.removeEventListener(name, stop, true);
   };
   const step = (now: number) => {
+    // A pane hidden mid-glide has no height: the glide ends where it is.
+    if (scroller.clientHeight === 0) {
+      stop();
+      return;
+    }
     if (start < 0) start = now - FRAME_MS;
     const progress = Math.min(1, Math.max(0, (now - start) / WHEEL_GLIDE_MS));
     // Rows that landed or measured moved the view: the glide carries on from where they put it.
@@ -114,16 +121,31 @@ export function installWheelGlide(scroller: HTMLElement): { stop: () => void; re
     else frame = requestAnimationFrame(step);
   };
   const onWheel = (event: WheelEvent) => {
-    if (event.defaultPrevented || event.ctrlKey || event.metaKey) return;
-    if (Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
+    // A pinch, a modified or sideways wheel, or one a listener already took is not a notch to glide;
+    // any of them ends a glide in flight where it is.
+    if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) {
+      stop();
+      return;
+    }
+    if (Math.abs(event.deltaX) > Math.abs(event.deltaY)) {
+      stop();
+      return;
+    }
     if (!isWheelNotch(event as WheelEvent & { wheelDeltaY?: number })) {
       // A trackpad (or momentum) scroll takes over from a glide where it is.
       stop();
       return;
     }
-    if (!event.cancelable || !wheelGlideOn() || isAgentMotionOff() || reducedMotion()) return;
-    // A row that scrolls on its own (a long tool output) takes the wheel first, as it does today.
-    if (wheelTarget(event) !== scroller) return;
+    if (!event.cancelable || !wheelGlideOn() || isAgentMotionOff() || reducedMotion()) {
+      stop();
+      return;
+    }
+    // A row that scrolls on its own (a long tool output, a code view) takes the wheel first, as it
+    // does today, and a glide in flight ends where it is: the wheel belongs to that row now.
+    if (wheelTarget(event) !== scroller) {
+      stop();
+      return;
+    }
     const max = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
     const gliding = frame !== 0;
     const from = gliding ? position + scroller.scrollTop - wrote : scroller.scrollTop;
