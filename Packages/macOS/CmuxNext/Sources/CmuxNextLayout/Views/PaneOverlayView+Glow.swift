@@ -31,16 +31,18 @@ extension PaneOverlayView {
         return Glow(opacity: opacity.floatValue, radius: CGFloat(radius.doubleValue))
     }
 
-    /// Sets the resting glow on the ring layer; the color follows the ring's (`applyColors`).
+    /// Sets the resting glow on the ring layer under the `glow` ring style, none under `ring`;
+    /// the color follows the ring's (`applyColors`).
     func applyRingGlow() {
+        let glows = ringGlows
         attentionLayer.shadowOffset = .zero
-        attentionLayer.shadowOpacity = Glow.ring.opacity
-        attentionLayer.shadowRadius = Glow.ring.radius
+        attentionLayer.shadowOpacity = glows ? Glow.ring.opacity : 0
+        attentionLayer.shadowRadius = glows ? Glow.ring.radius : 0
     }
 
-    /// Holds the flash glow while `flash` (the dismiss flash) runs.
+    /// Holds the flash glow while `flash` (the dismiss flash) runs, under the `glow` ring style.
     func addFlashGlow(for flash: CAAnimation) {
-        guard let hold = Motion.indicators.attentionGlowHold(opacity: Glow.flash.opacity, radius: Glow.flash.radius,
+        guard ringGlows, let hold = Motion.indicators.attentionGlowHold(opacity: Glow.flash.opacity, radius: Glow.flash.radius,
                                                              duration: flash.duration) else { return }
         attentionLayer.add(hold, forKey: "attention-dismiss-glow")
     }
