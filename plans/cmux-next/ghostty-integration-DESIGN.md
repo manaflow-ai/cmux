@@ -135,9 +135,14 @@ Open after this batch:
 - G1 evidence: the before run (light drag, d4a404a02ae, mac26 60 Hz) recorded 0 calls of
   `-[IOSurfaceLayer display]` on main, so in this path Core Animation may not run the layer's display
   pass and the stale-text frame comes from `contentsGravity` top-left over a held drawable, not from
-  a main-thread draw. The after run's `host_display_passes` / `host_fresh_presents` say which; if
-  passes stay 0, the fresh frame must be presented from `TerminalSurfaceView.setFrameSize` instead
-  (same futex wait, called from the size change, not from a display pass).
+  a main-thread draw. Decision: the present runs outside any display pass, from one main run-loop
+  observer at order 1,999,999 (just before Core Animation's commit at 2,000,000) that the app
+  installs only in a turn with a resized terminal (`TerminalHostFramePresenter`, through
+  `ghostty_surface_present_host_frame`, ghostty-next PR 48). `setFrameSize` never waits: every
+  surface sets its size during layout, so their renderers build in parallel, and each deadline is
+  4 ms absolute from its own `set_size`, so a turn waits once, not N times.
+  `TerminalResizeFrameTests` is the behavior test (the commit of a new size carries the frame at
+  that size, and a reveal after a hidden resize does too).
 - bash 5.3 `${ }` captures through 2 anonymous temp files in $TMPDIR per command (PS0 hook and the
   history read): cheaper than a fork, not zero (PL-shell-integration, perf-lead.md row 20).
 - G4 rest: `.resize` (set_grid), snapshot restores (a local-history READY at every owner grid
@@ -148,6 +153,30 @@ Open after this batch:
   only model/UI updates (status, sizedFor, frame hold, counters) to main without waiting.
 - G6 rest (one IO thread fewer per manual surface, shared atlas textures) and G7 per-process idle
   owner: not started.
+
+## 4c. Review dispositions (batch 1, reviewers of both lead sessions)
+
+Reviewers #1 and #2 (PR 46/47 at 7d5fa1573 and the cmux side), finding by finding:
+
+| Finding | Disposition |
+|---|---|
+| `visible_hint` set only on the renderer thread: a reveal that resizes in the same turn presents nothing | Fixed: stored on main in `Surface.occlusionCallback` (ghostty-next 2c55ffb); cmux applies occlusion before size on a reveal (488e3b0b03c, red test in `TerminalResizeFrameTests`) |
+| Busy terminal draws an early frame plus the tick frame each interval (2x GPU, 2x setSurface) | Fixed: an early draw only after a quiet interval (`last_tick_drew`, 2c55ffb); the interval state resets while the link is stopped (1f98b11) |
+| `presentHostSized` blocks main up to 4 ms per pass; serial waits if moved to `setFrameSize` | Kept bounded and shared: one pre-commit present per turn, absolute deadlines from each `set_size` (PR 48); `setFrameSize` never waits. A hold or hide during the wait now wakes it (1f98b11) |
+| `frames_held` read once before the futex loop; no wake on hold or hide | Fixed: re-read every wake; `setFramesHeld(true)` and a hide wake the waiter (1f98b11) |
+| G1 unverified: the display pass ran 0 times | Accepted; present moved to the pre-commit observer (above), behavior test added; G1 counts as done only with the after bench (`host_present_calls` > 0, `host_fresh_presents` > 0) |
+| Predicate-only tests (`drawsNow`, `blinkTickDraws`) | Accepted: `TerminalIdleCursorFrameTests` (render counters, visible-cursor control first) and `TerminalResizeFrameTests` test behavior through the app; the early-draw behavior through the thread is still open |
+| Restore at the bottom: a scroll between the swaps shows the short READY history | Fixed: a scroll between the swaps holds frames until the result (2c55ffb, red bbe5965 fails in run 39969482574) |
+| Restore at the bottom: the scrollbar thumb jumps to the short READY history at each grid step | Open: checked in the after bench; fix is to keep the old scrollbar total while the READY terminal draws |
+| A -> B -> A: a late frame of the first A is presented for the second | Fixed: a size generation is checked at publish (1f98b11) |
+| `publishFresh` locks, retains and wakes on every frame at rest; hidden keeps a frame | Fixed: publishes only while armed; a hide drops it (8ffdf01) |
+| `drawn_since_tick` not reset when the link restarts | Fixed (1f98b11) |
+| Mirror `pending_size` stale when the drag's last resize hits a busy lock and the terminal goes idle | Open, minor: a locked mirror's `Termio.size` feeds no drawn state (the renderer gets its size by mailbox); only a cell-size change during a parse with no later output stays stale |
+| Events loop held the session strongly off main (leaked surface) | Fixed: main-actor weak box and dispatch (a8ed1285a70, red c399631f7f0) |
+| Release test polls with sleep/yield | Fixed: `TerminalOutputLane.queued(atLeast:)` and `ScriptedTerminalIO.streamEnded()` signals (a999f0d2ccd, 00ffc8fe13e) |
+| bash funsub/`@a` change has no test or NEXT.md row | NEXT.md row added (8ffdf01); behavior test is PL-shell-integration's `fork_count_tests.rs` |
+| ghostty-next red runs on PR heads, not main commits | Open: rerun on the main commits after PR 49 merges |
+| ghostty-next CI test filter added | Removed (8ffdf01); tests run on the fleet by the agent (Lawrence 2026-10-23) |
 
 ## 5. Measurements
 
