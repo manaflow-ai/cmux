@@ -70,6 +70,36 @@ struct StoreIndexDuplicateRecordTests {
         #expect(left, "a pane that left changed nothing")
     }
 
+    /// A pane moved into a new screen keeps its handle, so both records of its tab hash alike:
+    /// folded per record they cancelled, and a tab closed while both were indexed (both records
+    /// gone in one batch) left the digest as it was, so no owner of per-tab state heard it go.
+    @Test func twoRecordsOfOneTabMoveTheDigestWhenBothGoInOneBatch() throws {
+        var index = StoreIndex()
+        let tab = TabSnapshot(surface: SurfaceID(rawValue: 9), title: "~")
+        let old = Self.pane(tabs: [tab]), moved = Self.pane(tabs: [tab])
+        index.insert(old, in: Self.screen(1))
+        index.insert(moved, in: Self.screen(2))
+        _ = index.takeTabListChange()
+        let oldTab = try #require(old.tabs.first), movedTab = try #require(moved.tabs.first)
+        index.remove(oldTab)
+        index.remove(movedTab)
+        let bothLeft = index.takeTabListChange()
+        #expect(bothLeft, "a tab that left with both its records changed nothing")
+    }
+
+    /// The same tab in one pane with two records: one going leaves the tab listed, in the same pane.
+    @Test func oneOfTwoRecordsOfATabGoingInTheSamePaneLeavesTheDigest() throws {
+        var index = StoreIndex()
+        let tab = TabSnapshot(surface: SurfaceID(rawValue: 9), title: "~")
+        let old = Self.pane(tabs: [tab]), moved = Self.pane(tabs: [tab])
+        index.insert(old, in: Self.screen(1))
+        index.insert(moved, in: Self.screen(2))
+        _ = index.takeTabListChange()
+        index.remove(try #require(old.tabs.first))
+        let oneLeft = index.takeTabListChange()
+        #expect(!oneLeft, "a tab still listed in a pane of the same handle changed the tab list")
+    }
+
     @Test func aPaneWithNoTabThatLeavesMovesTheDigest() {
         var index = StoreIndex()
         let pane = Self.pane()
