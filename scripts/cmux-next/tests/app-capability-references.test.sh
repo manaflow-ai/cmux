@@ -114,4 +114,19 @@ if out="$(run)"; then fail "an unlisted daemon capability passed: $out"; fi
 [[ "$out" == *"terminal-resources-v1"* ]] || fail "the failure does not name terminal-resources-v1: $out"
 [[ "$out" == *"optional"* ]] || fail "the failure does not say to list it in optional: $out"
 
+# A capability constant declared outside the catalog's own list (a static in an extension in another
+# file, which static members allow since cc7a964ef61) is in no list, so check-daemon-capabilities.sh
+# never checks it and DaemonCompatibility never reports it missing. Red even when no daemon crate
+# defines it yet.
+write_endpoint "tabDrag, attachIdentity, cloudConversations, terminalResources"
+write_app ""
+cat > "$sources/CmuxNextApp/DaemonCapabilities+Orphan.swift" <<'SWIFT'
+extension DaemonCapabilities {
+    static let orphanExtension = "orphan-extension-v1"
+}
+SWIFT
+if out="$(run)"; then fail "a capability constant in an extension passed: $out"; fi
+[[ "$out" == *"orphan-extension-v1"* ]] || fail "the failure does not name the extension constant: $out"
+rm "$sources/CmuxNextApp/DaemonCapabilities+Orphan.swift"
+
 echo "app-capability-references.test.sh: ok"
