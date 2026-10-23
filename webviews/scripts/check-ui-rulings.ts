@@ -40,7 +40,7 @@ type BoundaryAllowance = {
 const ALLOWLIST: Allowance[] = [
   {
     file: "agent-session/acpmux/conversation/conversation.css",
-    selector: "[data-working]",
+    selector: ".cv-spinner[data-working]",
     keyframe: "cmux-breathe",
     why: "pre-existing default working-look breathe loop (Leo, 2026-10-20); retained as an explicit follow-up while the spinner ruling is reconciled",
   },
