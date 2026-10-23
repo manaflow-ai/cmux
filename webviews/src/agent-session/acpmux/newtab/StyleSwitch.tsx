@@ -72,7 +72,6 @@ export function DotSwitch<Option extends string>({
   const group = useRef<HTMLDivElement>(null);
   const mark = useRef<HTMLSpanElement>(null);
   const label = useRef<HTMLSpanElement>(null);
-  const pointed = useRef(0);
   // The mark slides only after its first placement, so the page never opens with a slide.
   const [settled, setSettled] = useState(false);
   // The dot whose name shows: the one pointed at, else the one just picked.
@@ -122,13 +121,7 @@ export function DotSwitch<Option extends string>({
         </span>
         <span ref={mark} className="nt-style-mark" aria-hidden="true" />
         {options.map((style) => (
-          <label
-            key={style}
-            className="nt-style-option"
-            data-style={style}
-            onPointerOver={() => setHovered(style)}
-            onPointerDown={() => (pointed.current = performance.now())}
-          >
+          <label key={style} className="nt-style-option" data-style={style} onPointerOver={() => setHovered(style)}>
             <input
               className="nt-style-input"
               type="radio"
@@ -137,7 +130,11 @@ export function DotSwitch<Option extends string>({
               aria-label={name(style)}
               checked={style === current}
               onChange={(event) => {
-                const fromKeys = performance.now() - pointed.current > 500;
+                // From the event, never a clock: a pointer's click counts its presses (detail 1 or
+                // more); the arrow keys' pick is a click of detail 0, or a plain change event.
+                // (By type, not instanceof: the dots may sit in another window than this code's.)
+                const native = event.nativeEvent;
+                const fromKeys = native.type !== "click" || (native as MouseEvent).detail === 0;
                 const input = event.currentTarget;
                 onPick(style);
                 setPicked(style);

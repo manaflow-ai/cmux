@@ -246,10 +246,11 @@ await requireBrowserLane("composer-look-dots.test.ts", async () => {
     const focused = () =>
       page.evaluate(() => {
         const active = document.activeElement as HTMLInputElement | null;
-        return active?.matches(".acpmux-look-dots input[type=radio]") ? `dot:${active.value}` : (active?.tagName ?? "none");
+        return active?.matches(".acpmux-look-dots input[type=radio]")
+          ? `dot:${active.value}`
+          : (active?.tagName ?? "none");
       });
-    const look = () =>
-      page.$eval(form, (element) => (element as HTMLElement).dataset.composerLook ?? "claude");
+    const look = () => page.$eval(form, (element) => (element as HTMLElement).dataset.composerLook ?? "claude");
     const settle = () =>
       page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
 
