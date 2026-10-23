@@ -176,7 +176,7 @@ export class SubsessionStore {
     this.named = named;
     this.harnesses = harnesses;
     this.hosts = hosts;
-    this.places = places;
+    if (renamed) this.places = places;
     this.namedKey = namedKey;
     if (renamed) for (const listener of this.nameListeners) listener();
     for (const entry of sessions) {
