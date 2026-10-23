@@ -7,7 +7,10 @@ import Testing
 /// pane build read and decoded its JPEG or PNG on the main thread, before the first window frame.
 @MainActor @Suite struct SavedFrameDirectoryTests {
     /// Records the `launch_read_on_main.<name>` marks a directory reports (only ever on the main thread).
-    final class Marks {
+    /// `@MainActor` itself: a nested type does not take the suite's isolation, and this target has
+    /// no main-actor default (daemon settings), so only a global-actor class is `Sendable` for the
+    /// `@Sendable` closure below to capture.
+    @MainActor final class Marks {
         private(set) var all: [String] = []
         var record: @Sendable (String) -> Void {
             { name in MainActor.assumeIsolated { self.all.append(name) } } // main-proof: a directory reports only reads made on the main thread
