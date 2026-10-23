@@ -73,9 +73,24 @@ final class MacScreenHomeView: MacScreenThemedView {
 
     override func layout() {
         super.layout()
+        layoutPage()
+    }
+
+    /// The page follows its own size at once (a pane resize, a split), not only on a layout pass.
+    override func resizeSubviews(withOldSize oldSize: NSSize) {
+        super.resizeSubviews(withOldSize: oldSize)
+        layoutPage()
+    }
+
+    /// Frames the scroll view to the page, sets the column's width from it and frames the
+    /// document to the column's height (`.frame(maxWidth: 620).padding(32, 36)`, centered).
+    func layoutPage() {
+        if scroll.frame != bounds { scroll.frame = bounds }
         let width = scroll.contentSize.width
         let target = max(0, min(620, width - 64))
         if abs(columnWidth.constant - target) > 0.5 { columnWidth.constant = target }
+        // Twice: wrapping labels learn their width on the first pass and report their height on the second.
+        column.layoutSubtreeIfNeeded()
         column.layoutSubtreeIfNeeded()
         let height = max(scroll.contentSize.height, ceil(column.fittingSize.height) + 72)
         let size = NSSize(width: width, height: height)
@@ -145,6 +160,7 @@ final class MacScreenHomeView: MacScreenThemedView {
         column.arrangedSubviews.forEach { $0.removeFromSuperview() }
         builtWithBorders = colors.borders
         needsLayout = true
+        layoutPage()
         MacScreenStack.addFullWidth(header(), to: column)
         if let list = snapshot.devices { MacScreenStack.addFullWidth(yourDevices(list), to: column) }
         if let sharing = snapshot.sharing { MacScreenStack.addFullWidth(sharingSection(sharing), to: column) }
