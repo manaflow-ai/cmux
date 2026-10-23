@@ -148,8 +148,8 @@ nonisolated struct AgentPaneReplyImages {
 }
 
 /// Rebuilds an SVG file without what could run, load or link anything: `script`, `foreignObject`
-/// and embedded documents, every `on*` attribute, any attribute with a `url(` that is not a
-/// fragment (`url(#id)`), and any `href` that is not a fragment (`#id`). An `<a>` becomes a plain
+/// and embedded documents, every `on*` attribute, any attribute or `<style>` whose CSS could
+/// reach outside (``reachesOut(_:)``), and any `href` that is not a fragment (`#id`). An `<a>` becomes a plain
 /// `<g>`: its content still draws, but nothing in the image is a link (media-safety R7). No DTD,
 /// entity or processing instruction is read. The page draws the result only as an `<img>`, where
 /// WebKit runs no script and loads nothing either; this is the second wall.
@@ -160,8 +160,9 @@ nonisolated final class AgentPaneSVGSanitizer: NSObject, XMLParserDelegate {
 
     private var output = ""
     private var skipping = 0
-    /// Inside a `<style>` element: its text keeps no `@import` and no `url(` that is not `url(#`.
-    private var inStyle = false
+    /// The text of the `<style>` being read, kept or dropped whole at its end: a reference the
+    /// parser splits (around an entity) is judged as one. An element inside a style is dropped.
+    private var style: String?
     private var sawRoot = false
     private var failed = false
 
@@ -188,7 +189,7 @@ nonisolated final class AgentPaneSVGSanitizer: NSObject, XMLParserDelegate {
         if lower.hasPrefix("on") { return false }
         if lower == "href" || lower.hasSuffix(":href") { return !link && value.hasPrefix("#") }
         if link, linkAttributes.contains(lower) { return false }
-        return !linksOut(value)
+        return !reachesOut(value)
     }
 
     /// A link element's name as a group with the same prefix (`a` is `g`, `svg:a` is `svg:g`).
@@ -197,10 +198,23 @@ nonisolated final class AgentPaneSVGSanitizer: NSObject, XMLParserDelegate {
         return elementName[...colon] + "g"
     }
 
-    /// Whether `text` holds a `url(` that is not a fragment (`url(#id)`), quoted or not.
-    private static func linksOut(_ text: String) -> Bool {
-        let compact = text.lowercased().filter { !$0.isWhitespace && $0 != "\"" && $0 != "'" }
+    /// Whether CSS `text` could reach outside the image. Any backslash is refused, not decoded (a
+    /// CSS escape spells `url(` or `@import` as it likes: `u\72l(`); comments are dropped before
+    /// the check, so none splits a word. Then an `@import`, an `image-set(` or `src(` (each takes
+    /// a bare string), or a `url(` that is not a fragment (`url(#id)`), quoted or not.
+    private static func reachesOut(_ text: String) -> Bool {
+        if text.contains("\\") { return true }
+        let bare = text.replacingOccurrences(of: #"/\*[\s\S]*?(\*/|$)"#, with: "", options: .regularExpression)
+        let compact = bare.lowercased().filter { !$0.isWhitespace && $0 != "\"" && $0 != "'" }
+        if ["@import", "image-set(", "src("].contains(where: { compact.contains($0) }) { return true }
         return compact.components(separatedBy: "url(").dropFirst().contains { !$0.hasPrefix("#") }
+    }
+
+    /// Ends the `<style>` being read: its text, unless its CSS could reach outside.
+    private func endStyle() {
+        guard let text = style else { return }
+        style = nil
+        if !Self.reachesOut(text) { output += Self.escape(text) }
     }
 
     func parser(_ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?, qualifiedName: String?,
@@ -214,7 +228,7 @@ nonisolated final class AgentPaneSVGSanitizer: NSObject, XMLParserDelegate {
             }
             sawRoot = true
         }
-        if skipping > 0 || Self.droppedElements.contains(local) {
+        if skipping > 0 || style != nil || Self.droppedElements.contains(local) {
             skipping += 1
             return
         }
@@ -224,7 +238,7 @@ nonisolated final class AgentPaneSVGSanitizer: NSObject, XMLParserDelegate {
             output += " \(name)=\"\(Self.escape(value))\""
         }
         output += ">"
-        inStyle = local == "style"
+        if local == "style" { style = "" }
         if output.utf8.count > AgentPaneReplyImages.maximumBytes { failed = true; parser.abortParsing() }
     }
 
@@ -233,22 +247,21 @@ nonisolated final class AgentPaneSVGSanitizer: NSObject, XMLParserDelegate {
             skipping -= 1
             return
         }
-        inStyle = false
+        endStyle()
         let local = (elementName.split(separator: ":").last.map(String.init) ?? elementName).lowercased()
         output += "</\(local == "a" ? Self.group(elementName) : elementName)>"
     }
 
-    private func styleText(_ text: String) -> String {
-        guard inStyle else { return text }
-        let compact = text.lowercased().filter { !$0.isWhitespace }
-        return compact.contains("@import") || Self.linksOut(text) ? "" : text
+    private func text(_ text: String) {
+        guard skipping == 0 else { return }
+        if style != nil { style? += text } else { output += Self.escape(text) }
     }
 
     func parser(_ parser: XMLParser, foundCharacters string: String) {
-        if skipping == 0 { output += Self.escape(styleText(string)) }
+        text(string)
     }
 
     func parser(_ parser: XMLParser, foundCDATA CDATABlock: Data) {
-        if skipping == 0 { output += Self.escape(styleText(String(decoding: CDATABlock, as: UTF8.self))) }
+        text(String(decoding: CDATABlock, as: UTF8.self))
     }
 }
