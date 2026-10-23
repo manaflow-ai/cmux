@@ -19,6 +19,21 @@ import Testing
 
     static func order(_ model: SidebarModel) -> [String] { model.allWorkspaces.map(\.id.rawValue) }
 
+    @Test func singularActivationReplacesAStaleMultiSelection() {
+        let model = Self.loose(["a", "b", "c"])
+        model.activeWorkspaceID = WorkspaceID("a")
+        model.selection = [WorkspaceID("a"), WorkspaceID("b")]
+
+        model.apply(.select(WorkspaceID("a")))
+        #expect(model.activeWorkspaceID == WorkspaceID("a"))
+        #expect(model.selection == [WorkspaceID("a")])
+
+        model.selection = [WorkspaceID("a"), WorkspaceID("b")]
+        model.apply(.select(WorkspaceID("c")))
+        #expect(model.activeWorkspaceID == WorkspaceID("c"))
+        #expect(model.selection == [WorkspaceID("c")])
+    }
+
     @Test func aSelectedRowsVerbTargetsTheWholeSelectionInRowOrder() {
         let model = Self.loose(["a", "b", "c", "d"])
         model.selection = [WorkspaceID("c"), WorkspaceID("a")]
