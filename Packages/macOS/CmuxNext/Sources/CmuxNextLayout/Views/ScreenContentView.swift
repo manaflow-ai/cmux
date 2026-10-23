@@ -258,13 +258,11 @@ final class ScreenContentView: NSView {
         if context.model.acceptsRowOps {
             for edge in baseGeometry.rowEdges { targets[.rowEdge(edge.column, edge.upper)] = (edge.hitFrame, .vertical) }
         }
-        // A column or row edge whose column or row changed id at the same place (an optimistic New
-        // Column's or New Row's handed over to the daemon's, or a split-tree screen's synthetic
-        // column) keeps its spring: it does not jump to its rest in the middle of the motion.
-        var renamedEdges: [(kind: DividerHandleView.Kind, frame: AnimatedFrame)] = []
-        for (kind, frame) in dividerFrames where targets[kind] == nil {
-            if case .split = kind { continue }
-            renamedEdges.append((kind: kind, frame: frame))
+        // A column edge whose column changed id at the same place (an optimistic New Column's
+        // column handed over to the daemon's) keeps its spring: it does not jump to its rest.
+        var renamedEdges: [AnimatedFrame] = dividerFrames.compactMap { kind, frame in
+            if case .columnEdge = kind, targets[kind] == nil { return frame }
+            return nil
         }
         for (kind, target) in targets {
             let view: DividerHandleView
@@ -281,14 +279,17 @@ final class ScreenContentView: NSView {
             view.lineThickness = style.dividerThickness
             view.showsIdleLine = kind.usesRowSeparator ? style.showsRowSeparator : style.showsDividerLine
             view.showsActiveLine = style.showsDividerFeedback
-            var carriedFrame = dividerFrames[kind]
-            if carriedFrame == nil { carriedFrame = Self.takeRenamedEdge(for: kind, at: target.rect, from: &renamedEdges) }
-            if var frame = carriedFrame {
-                // A renamed edge is the same edge: the camera shift of this change carries it too.
+            if var frame = dividerFrames[kind] {
                 if scrolls(kind) {
                     if carried { carriedDividers[kind] = frame.x.value + before.viewShift(offset: offset) }
                     frame.x.value += drift
                 }
+                frame.setTarget(target.rect, alpha: 1)
+                if !animateFrames { frame.snap() }
+                dividerFrames[kind] = frame
+            } else if case .columnEdge = kind,
+                      let index = renamedEdges.firstIndex(where: { abs($0.targetRect.minX - target.rect.minX) < 0.5 && abs($0.targetRect.width - target.rect.width) < 0.5 }) {
+                var frame = renamedEdges.remove(at: index)
                 frame.setTarget(target.rect, alpha: 1)
                 if !animateFrames { frame.snap() }
                 dividerFrames[kind] = frame
@@ -340,30 +341,6 @@ final class ScreenContentView: NSView {
         if !moving { releaseCovered() }
         if !(moving && holdsGrids) { holdsGrids = false }
         return moving
-    }
-
-    /// The spring of an edge that went away under another id at `rect` (``reconcile(animated:structural:unzooming:zooming:)``):
-    /// a column edge at the same x and width, a row edge at the same rect. Nil for a split's divider
-    /// or when none matches.
-    static func takeRenamedEdge(for kind: DividerHandleView.Kind, at rect: CGRect,
-                                from renamed: inout [(kind: DividerHandleView.Kind, frame: AnimatedFrame)]) -> AnimatedFrame? {
-        let index: Int? = switch kind {
-        case .columnEdge:
-            renamed.firstIndex { entry in
-                guard case .columnEdge = entry.kind else { return false }
-                return abs(entry.frame.targetRect.minX - rect.minX) < 0.5 && abs(entry.frame.targetRect.width - rect.width) < 0.5
-            }
-        case .rowEdge:
-            renamed.firstIndex { entry in
-                guard case .rowEdge = entry.kind else { return false }
-                let shown = entry.frame.targetRect
-                return abs(shown.minX - rect.minX) < 0.5 && abs(shown.minY - rect.minY) < 0.5
-                    && abs(shown.width - rect.width) < 0.5 && abs(shown.height - rect.height) < 0.5
-            }
-        case .split:
-            nil
-        }
-        return index.map { renamed.remove(at: $0).frame }
     }
 
     /// Lets go of the panes a zoom covered once it landed (every one with `all`).
