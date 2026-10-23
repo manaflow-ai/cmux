@@ -74,7 +74,6 @@ enum DebugTimings {
             if surfaces.count < capacity { surfaces.append(ms) }
             markLaunch("first_terminal_surface_created")
         }
-        TerminalTimings.onLaunchReadOnMain = { markLaunch("launch_read_on_main.\($0)") }
     }
 
     /// Marks `reveal.<region>` when each launch region shows (its data

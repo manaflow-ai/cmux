@@ -12,11 +12,11 @@ extension DaemonService {
     /// Applies the daemon's launch snapshot as a provisional tree, so the
     /// first frame shows the last layout instead of the connecting state.
     /// `outcome` is the read the prestart began at the top of `main`, off the
-    /// main thread (`LaunchSnapshotPrefetch`), else a read made here. The path
+    /// main thread (`DaemonPrestart.launchSnapshot`), else a read made here. The path
     /// comes from the last handshake, else from the daemon's state directory
     /// (`stateDirectory`, a tagged build's), so cleared defaults do not lose
     /// the snapshot; a missing, stale or unreadable file shows nothing.
-    func showLaunchSnapshot(_ outcome: LaunchSnapshotPrefetch.Outcome) {
+    func showLaunchSnapshot(_ outcome: LaunchSnapshot.Found) {
         let snapshot: LaunchSnapshot
         switch outcome {
         case .none: return

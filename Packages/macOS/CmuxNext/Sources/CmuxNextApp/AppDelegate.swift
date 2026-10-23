@@ -177,6 +177,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // recorded ones; the record is read and the files deleted off the
         // main actor). Downloads of this run are never touched.
         launchCleanup.schedule(on: launchSettle)
+        // The launch drew its panes' last frames: decoded ones no pane took are dropped (LaunchFiles).
+        launchSettle.whenSettled { [launchFiles = environment.launchFiles] in launchFiles?.release() }
         services.palette.onPresented = { DebugTimings.palettePresented($0) }
         // The key-down that opens the palette (a synthesized one under `debug.key`), for its input stage.
         services.palette.openingEventTimestamp = { [weak router = services.keyRouter] in

@@ -6,27 +6,28 @@ public import CmuxNextDesign
 /// clear for launch until its first live frame (`LaunchSettle`): about 150 ms on a capture mini
 /// with the daemon running, seconds when it starts cold. One JPEG per tab, named with its scale, as
 /// the agent pages' last pages are (`AgentPaneLaunchImages`); each is handed out once per launch.
+/// The files are read and decoded off the main thread from the top of `main`
+/// (``SavedFrameDirectory``, #17587), so a pane build only takes its decoded frame.
 @MainActor
 public final class TerminalLaunchFrames {
     /// A larger file is not read.
-    static let maximumBytes = 16 * 1024 * 1024
-    private static var stores: [URL: TerminalLaunchFrames] = [:]
+    public nonisolated static let maximumBytes = 16 * 1024 * 1024
 
-    let directory: URL?
-    private var taken: Set<String> = []
+    private let frames: SavedFrameDirectory
 
-    init(directory: URL?) {
-        self.directory = directory
+    /// The frames of `frames`, the directory the launch began reading in `main`.
+    public init(frames: SavedFrameDirectory) {
+        self.frames = frames
     }
 
-    /// The frames kept in `state`, the app's state directory (beside its sidebar snapshot); one
-    /// store per directory, so a frame taken at launch is not handed out again.
-    public static func beside(_ state: URL?) -> TerminalLaunchFrames {
-        guard let state else { return TerminalLaunchFrames(directory: nil) }
-        if let store = stores[state] { return store }
-        let store = TerminalLaunchFrames(directory: state.appending(path: "terminal-launch-frames", directoryHint: .isDirectory))
-        stores[state] = store
-        return store
+    /// The frames in `directory` (read from now on); nil keeps none.
+    public convenience init(directory: URL?) {
+        self.init(frames: SavedFrameDirectory(url: directory, maximumBytes: Self.maximumBytes))
+    }
+
+    /// The frames' directory in `state`, the app's state directory (beside its sidebar snapshot).
+    public nonisolated static func directory(beside state: URL) -> URL {
+        state.appending(path: "terminal-launch-frames", directoryHint: .isDirectory)
     }
 
     /// Shows `key`'s frame from the last quit over `session` until its live content draws
@@ -70,58 +71,23 @@ public final class TerminalLaunchFrames {
 
     /// Replaces the saved frames with `images` (by tab key, at their point size).
     func save(images: [String: NSImage]) async {
-        guard let directory else { return }
+        guard let directory = self.frames.url else { return }
         // NSImage stays on the main actor; the JPEG encode and the writes run detached.
         var frames: [String: CGImage] = [:]
-        for (key, image) in images where Self.isFileSafe(key) && image.size.width > 0 {
+        for (key, image) in images where SavedFrameDirectory.isFileSafe(key) && image.size.width > 0 {
             guard let frame = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { continue }
-            frames["\(key)@\(max(1, min(3, Int((CGFloat(frame.width) / image.size.width).rounded()))))x.jpg"] = frame
+            let scale = max(1, min(3, Int((CGFloat(frame.width) / image.size.width).rounded())))
+            frames[SavedFrameDirectory.fileName(key, scale: scale, ext: "jpg")] = frame
         }
-        await Task.detached { Self.write(frames, to: directory) }.value
+        await Task.detached {
+            SavedFrameDirectory.write(frames.compactMapValues {
+                NSBitmapImageRep(cgImage: $0).representation(using: .jpeg, properties: [.compressionFactor: 0.9])
+            }, to: directory)
+        }.value
     }
 
     /// `key`'s saved frame at its point size, the first time it is asked for.
     func take(_ key: String) -> NSImage? {
-        guard let directory, Self.isFileSafe(key), taken.insert(key).inserted else { return nil }
-        for scale in [2, 1, 3] {
-            let url = directory.appending(path: "\(key)@\(scale)x.jpg")
-            guard let bytes = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, bytes <= Self.maximumBytes,
-                  // concurrency-allow: one capped read of a small local image before the terminal's first frame
-                  let data = try? Data(contentsOf: url), let rep = NSBitmapImageRep(data: data) else { continue }
-            // #17587's launch guard counts a read on the main thread.
-            TerminalTimings.onLaunchReadOnMain?("terminal_frames")
-            let image = NSImage(size: NSSize(width: CGFloat(rep.pixelsWide) / CGFloat(scale), height: CGFloat(rep.pixelsHigh) / CGFloat(scale)))
-            rep.size = image.size
-            image.addRepresentation(rep)
-            return image
-        }
-        return nil
-    }
-
-    private nonisolated static func write(_ frames: [String: CGImage], to directory: URL) {
-        let manager = FileManager.default
-        try? manager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        for old in (try? manager.contentsOfDirectory(atPath: directory.path)) ?? [] where frames[old] == nil {
-            try? manager.removeItem(at: directory.appending(path: old))
-        }
-        for (name, frame) in frames {
-            let url = directory.appending(path: name)
-            guard let data = NSBitmapImageRep(cgImage: frame).representation(using: .jpeg, properties: [.compressionFactor: 0.9]),
-                  (try? data.write(to: url, options: [.atomic])) != nil else { continue }
-            try? manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
-        }
-    }
-
-    /// Tab keys are `tab_<hex>`; anything else never becomes a path.
-    private nonisolated static func isFileSafe(_ key: String) -> Bool {
-        !key.isEmpty && key.count <= 128 && key.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "_" || $0 == "-") }
-    }
-}
-
-extension TerminalSession {
-    /// Shows `key`'s frame from the last quit, kept in `state` (``TerminalLaunchFrames/beside(_:)``),
-    /// over this terminal in `content`, the pane content held for launch; whether it showed one.
-    public func showLaunchFrame(_ key: String, beside state: URL?, in content: NSView) -> Bool {
-        TerminalLaunchFrames.beside(state).show(key, on: self, in: content)
+        frames.take(key)?.makeImage()
     }
 }

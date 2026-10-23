@@ -1,3 +1,4 @@
+public import CmuxNextCompat
 import CmuxNextWakeups
 import Foundation
 
@@ -26,16 +27,18 @@ public final class DaemonPrestart: Sendable {
     /// started its services was still going when the connection came back.
     public let bundledCommit: Task<String?, Never>
     /// The session's launch snapshot, read and decoded off the main thread meanwhile
-    /// (`LaunchSnapshotPrefetch`): the first window draws the last layout from it.
-    public let launchSnapshot: LaunchSnapshotPrefetch
+    /// (``LaunchRead``): the first window draws the last layout from it.
+    public let launchSnapshot: LaunchRead<LaunchSnapshot.Found>
 
     /// Starts the attempt now. `configuration.retryWake` is replaced by `wake`.
     public init(launcher: DaemonLauncher, configuration: DaemonConnection.Configuration,
                 wake: RetryWake = RetryWake(owner: "DaemonService.retry local")) {
         self.launcher = launcher
         self.wake = wake
-        launchSnapshot = LaunchSnapshotPrefetch(session: launcher.configuration.session,
-                                                stateDirectory: launcher.configuration.stateDirectory)
+        let (session, stateDirectory) = (launcher.configuration.session, launcher.configuration.stateDirectory)
+        launchSnapshot = LaunchRead("launch_snapshot", readOnMain: { DaemonLaunchTimings.shared.mark($0) }) {
+            LaunchSnapshot.find(session: session, stateDirectory: stateDirectory)
+        }
         var configuration = configuration
         configuration.retryWake = wake
         let fixed = configuration

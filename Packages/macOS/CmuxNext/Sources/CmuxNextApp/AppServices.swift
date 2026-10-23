@@ -36,8 +36,14 @@ import CmuxNextFocusUI
 /// here: the daemon owns it, windows own their local state.
 final class AppServices {
     let environment: AppEnvironment; let agentPaneEnvironment: [String: String]?
-    /// Each window's last sidebar, drawn before the daemon answers.
-    let sidebarSnapshots: SidebarSnapshotStore
+    /// Each window's last sidebar, drawn before the daemon answers. Made when the first window
+    /// draws its sidebar, so the read `main` began off the main thread (`LaunchFiles`) has the
+    /// longest time to finish.
+    private(set) lazy var sidebarSnapshots = SidebarSnapshotStore(file: environment.sidebarSnapshotFile,
+                                                                  launchDocument: environment.launchFiles.flatMap { $0.sidebar.take() })
+    /// The terminals' last frames, drawn over each terminal at launch until its live content draws.
+    private(set) lazy var terminalLaunchFrames: TerminalLaunchFrames = environment.launchFiles.map { TerminalLaunchFrames(frames: $0.terminalFrames) }
+        ?? TerminalLaunchFrames(directory: nil)
     /// Launch load-in by region; tests inject one with their own clock.
     let launchReveal: LaunchReveal
     /// Run marker, restart notice, crash reports (`debug.crashes`).
@@ -355,7 +361,6 @@ final class AppServices {
         // Before any connection: a build with the sidebar document orders rows from it only (placement-shift-v1).
         DaemonCapabilities.echoesPlacementShift = SidebarMirror.isLinked
         self.launchReveal = launchReveal
-        sidebarSnapshots = SidebarSnapshotStore(file: environment.sidebarSnapshotFile)
         let contextMenus = BrowserContextMenuBuilder.shared
         self.contextMenus = contextMenus
         popups = BrowserPopupWindows(contextMenus: contextMenus)

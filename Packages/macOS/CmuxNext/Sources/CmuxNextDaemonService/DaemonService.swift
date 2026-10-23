@@ -155,8 +155,8 @@ public final class DaemonService {
         updateHandOff = { await launcher.handOffForUpdate(identity: $1, using: $0) }
         launchSnapshotSession = launcher.configuration.session
         showLaunchSnapshot(prestart?.launchSnapshot.take()
-            ?? LaunchSnapshotPrefetch.read(session: launcher.configuration.session,
-                                           stateDirectory: launcher.configuration.stateDirectory, location: launchSnapshotLocation))
+            ?? LaunchSnapshot.find(session: launcher.configuration.session,
+                                   stateDirectory: launcher.configuration.stateDirectory, location: launchSnapshotLocation))
         let configuration = Self.localConfiguration(terminalEnvironment: terminalEnvironmentProvider,
                                                     resolvesShellIntegration: resolvesShellIntegration,
                                                     installKey: launcher.configuration.installKey, retryWake: retryWake)

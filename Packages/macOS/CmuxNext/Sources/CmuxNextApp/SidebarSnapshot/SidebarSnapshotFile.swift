@@ -4,9 +4,9 @@ import CmuxNextDaemon
 import Foundation
 
 /// Where one app's `SidebarSnapshotDocument` lives, and its synchronous
-/// read and atomic write. The read runs once per launch before the first
-/// window (the file is small and capped), so the sidebar's first frame
-/// never waits for the daemon.
+/// read and atomic write. The read runs once per launch, off the main thread
+/// from the top of `main` (`LaunchFiles`), so the sidebar's first frame never
+/// waits for the daemon and its decode never holds the first window.
 nonisolated struct SidebarSnapshotFile: Sendable {
     static let fileName = "sidebar-snapshot-v1.json"
     /// A larger file is not read (a sidebar of a few hundred rows is ~100 KB).
@@ -49,7 +49,7 @@ nonisolated struct SidebarSnapshotFile: Sendable {
     /// another schema.
     func read() -> SidebarSnapshotDocument? {
         guard let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, size <= Self.maximumBytes,
-              // concurrency-allow: one capped read of a small local file before the first window, replacing a wait for the daemon
+              // concurrency-allow: one capped read of a small local file per launch, off the main thread (LaunchFiles)
               let data = try? Data(contentsOf: url),
               let document = try? JSONDecoder().decode(SidebarSnapshotDocument.self, from: data),
               document.schemaVersion == SidebarSnapshotDocument.schemaVersion else { return nil }

@@ -35,7 +35,11 @@ public struct CmuxNextApp {
         DebugTimings.markLaunch("main.warmup_started")
         var environment = AppEnvironment.current()
         environment.marksRun = true
-        environment.sidebarSnapshotFile = SidebarSnapshotFile.standard(launch: environment.launch)
+        let sidebarSnapshotFile = SidebarSnapshotFile.standard(launch: environment.launch)
+        environment.sidebarSnapshotFile = sidebarSnapshotFile
+        // What the first window draws (saved sidebars, last terminal frames and agent page images)
+        // is read and decoded off the main thread while AppKit starts (#17587).
+        environment.launchFiles = LaunchFiles(sidebarFile: sidebarSnapshotFile)
         environment.layoutTemplatesFile = environment.sidebarSnapshotFile?.url.deletingLastPathComponent().appending(path: "layout-templates.json")
         // Where each agent chat rests, beside the snapshot, so a relaunch reopens it there (cx-6bgzj).
         AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: environment.sidebarSnapshotFile?.url.deletingLastPathComponent())

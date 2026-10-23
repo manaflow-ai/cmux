@@ -1,26 +1,37 @@
 import AppKit
 import CmuxNextAgentPane
+import CmuxNextDesign
 
 /// The agent panes' last pages, saved at quit and drawn under each pane at
 /// launch until its live page paints, so a relaunch never shows an empty
 /// agent pane (sweep 4a). One image per tab, named with its point scale; a
 /// save replaces the whole set. Each image is handed out once per launch.
-/// A JPEG or a PNG, as `CGImage.pageImageData` encodes it.
+/// A JPEG or a PNG, as `CGImage.pageImageData` encodes it. The files are read
+/// and decoded off the main thread from the top of `main`
+/// (`SavedFrameDirectory`, #17587), so a pane build only takes its decoded image.
 @MainActor
 final class AgentPaneLaunchImages {
+    /// A larger file is not read.
+    nonisolated static let maximumBytes = 8 << 20
 
-    let directory: URL?
-    private var taken: Set<String> = []
+    private let frames: SavedFrameDirectory
     /// Released pages' last frames (AgentPageHibernation), in memory as encoded images: a page built
     /// again draws its old frame until it paints, as at launch.
     private var held: [String: (data: Data, size: NSSize, appearance: NSAppearance.Name?)] = [:]
-    init(directory: URL?) {
-        self.directory = directory
+
+    /// The images of `frames`, the directory the launch began reading in `main`.
+    init(frames: SavedFrameDirectory) {
+        self.frames = frames
     }
 
-    /// The directory next to the launch snapshot of `file` (the tag's state).
-    convenience init(beside file: SidebarSnapshotFile?) {
-        self.init(directory: file?.url.deletingLastPathComponent().appending(path: "agent-pane-images", directoryHint: .isDirectory))
+    /// The images in `directory` (read from now on); nil keeps none.
+    convenience init(directory: URL?) {
+        self.init(frames: SavedFrameDirectory(url: directory, maximumBytes: Self.maximumBytes))
+    }
+
+    /// The images' directory in `state`, the app's state directory (beside its sidebar snapshot).
+    nonisolated static func directory(beside state: URL) -> URL {
+        state.appending(path: "agent-pane-images", directoryHint: .isDirectory)
     }
 
     /// `key`'s saved page at its point size, the first time it is asked for. A released page's
@@ -34,21 +45,7 @@ final class AgentPaneLaunchImages {
             image.addRepresentation(rep)
             return image
         }
-        guard let directory, Self.isFileSafe(key), taken.insert(key).inserted else { return nil }
-        // Either kind a save may have written (one at a time: a save replaces the set).
-        for (scale, ext) in [2, 1, 3].flatMap({ scale in ["png", "jpg"].map { (scale, $0) } }) {
-            let url = directory.appending(path: Self.fileName(key, scale: scale, ext: ext))
-            guard let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, size <= 8 << 20 /* a larger file is not read */,
-                  // concurrency-allow: one capped read of a small local image before the agent pane's first frame
-                  let data = try? Data(contentsOf: url), let rep = NSBitmapImageRep(data: data) else { continue }
-            // #17587's launch guard counts a read on the main thread.
-            DebugTimings.markLaunch("launch_read_on_main.agent_page_images")
-            let image = NSImage(size: NSSize(width: CGFloat(rep.pixelsWide) / CGFloat(scale), height: CGFloat(rep.pixelsHigh) / CGFloat(scale)))
-            rep.size = image.size
-            image.addRepresentation(rep)
-            return image
-        }
-        return nil
+        return frames.take(key)?.makeImage()
     }
 
     /// Holds `image` as tab `key`'s frame until ``take(_:)`` or ``drop(_:)``.
@@ -65,34 +62,14 @@ final class AgentPaneLaunchImages {
 
     /// Replaces the saved pages with `images` (by tab key).
     func save(_ images: [String: NSImage]) async {
-        guard let directory else { return }
+        guard let directory = frames.url else { return }
         // NSImage stays on the main actor; the encode and the writes run detached.
-        var frames: [String: CGImage] = [:]
-        for (key, image) in images where Self.isFileSafe(key) {
+        var encoded: [String: CGImage] = [:]
+        for (key, image) in images where SavedFrameDirectory.isFileSafe(key) {
             guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil), image.size.width > 0 else { continue }
             let scale = max(1, min(3, Int((CGFloat(cgImage.width) / image.size.width).rounded())))
-            frames[Self.fileName(key, scale: scale, ext: cgImage.pageImageExtension)] = cgImage
+            encoded[SavedFrameDirectory.fileName(key, scale: scale, ext: cgImage.pageImageExtension)] = cgImage
         }
-        await Task.detached { Self.write(frames.compactMapValues { $0.pageImageData() }, to: directory) }.value
-    }
-
-    private nonisolated static func write(_ files: [String: Data], to directory: URL) {
-        let manager = FileManager.default
-        try? manager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        for old in (try? manager.contentsOfDirectory(atPath: directory.path)) ?? [] where files[old] == nil {
-            try? manager.removeItem(at: directory.appending(path: old))
-        }
-        for (name, data) in files {
-            let url = directory.appending(path: name)
-            guard (try? data.write(to: url, options: [.atomic])) != nil else { continue }
-            try? manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
-        }
-    }
-
-    private nonisolated static func fileName(_ key: String, scale: Int, ext: String) -> String { "\(key)@\(scale)x.\(ext)" }
-
-    /// Tab keys are `tab_<hex>`; anything else never becomes a path.
-    private nonisolated static func isFileSafe(_ key: String) -> Bool {
-        !key.isEmpty && key.count <= 128 && key.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "_" || $0 == "-") }
+        await Task.detached { SavedFrameDirectory.write(encoded.compactMapValues { $0.pageImageData() }, to: directory) }.value
     }
 }
