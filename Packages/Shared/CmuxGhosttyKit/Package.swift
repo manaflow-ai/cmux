@@ -60,20 +60,6 @@ import PackageDescription
 // (redraw=1), so daemon terminals (libghostty-vt, redraw off by default)
 // clear the prompt on resize too; the app already did. 493a8871b adds the
 // unused C API option GHOSTTY_TERMINAL_OPT_SHELL_REDRAWS_PROMPT.
-// Since 72578da21 the bash integration forks nothing per command on bash 5.3
-// and nothing at start when .bashrc sets PROMPT_COMMAND (PR 47).
-// Since 7d5fa1573 a mirror's pixel-only resize leaves its terminal alone
-// (mode 2026 survives a drag) and never waits for the terminal lock; a
-// local-history restore holds frames only when it must; a hidden surface's
-// output and a hidden or steady cursor's blink wake nothing (PR 46). Its
-// display-pass present of a resize frame never ran in cmux (the layer gets
-// no display pass for a size change).
-// Since 1f98b11be the embedder presents the renderer thread's frame at a new
-// host size before the Core Animation commit that carries the size
-// (ghostty_surface_present_host_frame, PR 48; cmux TerminalHostFramePresenter);
-// a scroll during a restore holds frames, a hidden surface reads as hidden at
-// once, an early draw happens only after a quiet refresh interval, and a
-// fresh frame publishes only in its own size generation (PR 49).
 //
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
@@ -98,8 +84,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-1f98b11be08ba4402a3fb0cf6989ff052e5f26e5-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "1de26072c279cbba6d1c8888f1acfb3c0ac1cde13c7ca8ba20e27dcce9c004b5"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-5555f4220a862b9e2897cf54a5c85d2b273c8475-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "f0958acf6eb826f419d2ab8e16505f796dc2e30975b82ff92cbaf79c9f654289"
         ),
     ]
 )
