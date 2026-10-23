@@ -69,26 +69,37 @@ await requireBrowserLane("chat-inspector-push-motion.test.ts", async () => {
   };
 
   /// At each point of the panel's running slide (a fraction of its transitions), the gap between the
-  /// chat's right edge and the panel's left edge, in px; then lets the slide finish.
-  const gaps = (page: Page, points: number[]) =>
+  /// chat's right edge and the panel's left edge and the chat's width, in px; then lets the slide
+  /// finish. `moving` names the properties its transitions animate.
+  const slide = (page: Page, points: number[]) =>
     page.evaluate(async (fractions) => {
       const panel = document.querySelector<HTMLElement>("aside.acpmux-chat-inspector")!;
       const chat = document.querySelector<HTMLElement>(".acpmux-main")!;
       const slides = panel.getAnimations();
-      const out: number[] = [];
-      for (const slide of slides) slide.pause();
+      const gaps: number[] = [];
+      const widths: number[] = [];
+      for (const running of slides) running.pause();
       for (const fraction of fractions) {
-        for (const slide of slides) {
-          const end = Number(slide.effect?.getComputedTiming().endTime ?? 0);
-          slide.currentTime = fraction * end;
+        for (const running of slides) {
+          const end = Number(running.effect?.getComputedTiming().endTime ?? 0);
+          running.currentTime = fraction * end;
         }
         // Read after the seeked point has painted (support/paintedFrames.ts, which papercutPane installs).
         await window.cmuxPaintFrame();
-        out.push(Math.round(Math.abs(panel.getBoundingClientRect().left - chat.getBoundingClientRect().right)));
+        const box = chat.getBoundingClientRect();
+        gaps.push(Math.round(Math.abs(panel.getBoundingClientRect().left - box.right)));
+        widths.push(box.width);
       }
-      for (const slide of slides) slide.finish();
-      return { slides: slides.length, gaps: out };
+      for (const running of slides) running.finish();
+      const moving = slides
+        .map((running) => (running as Animation & { transitionProperty?: string }).transitionProperty ?? "")
+        .sort();
+      return { moving, gaps, widths };
     }, points);
+
+  /// The chat's width now.
+  const chatWidth = (page: Page) =>
+    page.evaluate(() => document.querySelector(".acpmux-main")!.getBoundingClientRect().width);
 
   const points = [0.03, 0.5, 0.85, 0.97];
 
@@ -103,26 +114,85 @@ await requireBrowserLane("chat-inspector-push-motion.test.ts", async () => {
 
         await toggle.click({ force: true });
         await page.locator('aside.acpmux-chat-inspector[data-placement="push"]').waitFor({ timeout: 10_000 });
-        const open = await gaps(page, points);
+        const open = await slide(page, points);
         await page.locator('aside.acpmux-chat-inspector[data-presence="shown"]').waitFor({ timeout: 10_000 });
+        // The room the open panel takes from the chat.
+        const room = shell - (await chatWidth(page));
 
         await toggle.click({ force: true });
         await page.locator('aside.acpmux-chat-inspector[data-presence="leaving"]').waitFor({ timeout: 10_000 });
-        const close = await gaps(page, points);
+        const close = await slide(page, points);
         await page.locator("aside.acpmux-chat-inspector").waitFor({ state: "detached", timeout: 15_000 });
-        const after = await page.evaluate(() => document.querySelector(".acpmux-main")!.getBoundingClientRect().width);
+        const after = await chatWidth(page);
 
+        /// The share of the room the panel takes at each point.
+        const taken = (widths: number[]) => widths.map((width) => (shell - width) / room);
+        const rising = (values: number[]) => values.every((value, index) => index === 0 || value > values[index - 1]!);
+        const opening = taken(open.widths);
+        const closing = taken(close.widths);
         expect({
-          sliding: open.slides > 0 && close.slides > 0,
-          open: open.gaps,
-          close: close.gaps,
+          room: room > 300,
+          // The room itself moves (inspector.css: the panel's right margin), not only the panel's paint.
+          marginMoves: open.moving.includes("margin-right") && close.moving.includes("margin-right"),
+          openGaps: open.gaps,
+          closeGaps: close.gaps,
+          // The chat gives up its room over the open and gets it back over the close, never at once.
+          openTakes: rising(opening),
+          closeGives: rising(closing.map((share) => -share)),
+          openStartsWide: opening[0]! < 0.5,
+          closeEndsWide: closing[closing.length - 1]! < 0.25,
           fullWidthAfter: Math.abs(after - shell) < 0.5,
         }).toEqual({
-          sliding: true,
-          open: points.map(() => 0),
-          close: points.map(() => 0),
+          room: true,
+          marginMoves: true,
+          openGaps: points.map(() => 0),
+          closeGaps: points.map(() => 0),
+          openTakes: true,
+          closeGives: true,
+          openStartsWide: true,
+          closeEndsWide: true,
           fullWidthAfter: true,
         });
+      } finally {
+        await page.close();
+      }
+    });
+
+  // Floating and pushing keep the same right margin (the inset), so a pane that grows or shrinks across
+  // the line between the two moves the panel to its new place at once, with no margin sliding after.
+  for (const name of browsers.keys())
+    test(`${name}: a switch between floating and pushing starts no slide`, async () => {
+      current = browsers.get(name)!;
+      const page = await pane!.open({ width: 900, height: 600 });
+      try {
+        const toggle = await ready(page);
+        await toggle.click({ force: true });
+        await page.locator('aside.acpmux-chat-inspector[data-presence="shown"]').waitFor({ timeout: 10_000 });
+        await page.evaluate(() =>
+          Promise.all(
+            document
+              .querySelector("aside.acpmux-chat-inspector")!
+              .getAnimations()
+              .map((running) => running.finished.catch(() => undefined)),
+          ),
+        );
+        const switched: string[] = [];
+        for (const [width, placement] of [
+          [1700, "overlay"],
+          [900, "push"],
+        ] as const) {
+          await page.setViewportSize({ width, height: 600 });
+          await page.locator(`aside.acpmux-chat-inspector[data-placement="${placement}"]`).waitFor({ timeout: 10_000 });
+          switched.push(
+            ...(await page.evaluate(() => {
+              const panel = document.querySelector("aside.acpmux-chat-inspector")!;
+              return panel
+                .getAnimations()
+                .map((running) => (running as Animation & { transitionProperty?: string }).transitionProperty ?? "");
+            })),
+          );
+        }
+        expect(switched).toEqual([]);
       } finally {
         await page.close();
       }

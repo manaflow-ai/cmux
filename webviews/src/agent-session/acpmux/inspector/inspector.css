@@ -45,12 +45,14 @@
   margin: var(--acpmux-inspector-top, 0px) var(--acpmux-inspector-inset) 0 0;
 }
 /* Floating: the same card over the gutter. With the side panel open beside the chat, its gutter ends at
-   that panel's edge (--acpmux-inspector-side, its width), never over the document. */
+   that panel's edge (--acpmux-inspector-side, its width), never over the document. The inset is its
+   right margin, as pushing, so a switch between the two places never changes (or animates) it. */
 .acpmux-chat-inspector[data-placement="overlay"] {
   position: absolute;
   z-index: var(--layer-overlay);
   top: var(--acpmux-inspector-top, 0px);
-  right: calc(var(--acpmux-inspector-side, 0px) + var(--acpmux-inspector-inset));
+  right: var(--acpmux-inspector-side, 0px);
+  margin-right: var(--acpmux-inspector-inset);
 }
 .acpmux-chat-inspector[data-placement] .acpmux-chat-inspector__body {
   /* The card is as tall as its sections; past its max-height, the body scrolls. */
@@ -75,7 +77,7 @@
 }
 @media (prefers-reduced-motion: no-preference) {
   .acpmux-chat-inspector[data-placement="push"]:is([data-presence="from"], [data-presence="leaving"]) {
-    margin-right: calc(-1 * min(var(--acpmux-inspector-width, 0px), 100% - 24px));
+    margin-right: calc(-1 * min(var(--acpmux-inspector-width, 0px), max(0px, 100% - 24px)));
   }
 }
 .acpmux-chat-inspector[data-placement="overlay"] {
