@@ -26,8 +26,9 @@ public struct MotionTrace {
     private static var open: [String: CFTimeInterval] = [:]
     public private(set) static var spans: [Span] = []
     /// Main-thread work per frame of each animation `measure` times, in ms; `ca.commit` is each
-    /// Core Animation commit of the main run loop while recording (``MotionCommitProbe``), which
-    /// includes Chromium's pre-commit wait for a page's frame at a new size.
+    /// Core Animation commit of the main run loop while a ``MotionCommitProbe`` records (the
+    /// `debug.motion` handler's), which includes Chromium's pre-commit wait for a page's frame at a
+    /// new size.
     public private(set) static var work: [String: [Double]] = [:]
     public private(set) static var samples: [Sample] = []
     /// What an animator decided at a time (`note`), for a bench that must tell why something moved.
@@ -36,11 +37,7 @@ public struct MotionTrace {
     public private(set) static var startedAt: CFTimeInterval = 0
     static let capacity = 1024
     static let sampleCapacity = 8192
-    /// Times the main run loop's Core Animation commits while recording (`work` `ca.commit`).
-    private static let commitProbe = MotionCommitProbe { MotionTrace.record(MotionCommitProbe.workName, milliseconds: $0) }
-
     public static func start() {
-        commitProbe.start()
         isEnabled = true
         open.removeAll()
         spans.removeAll()
@@ -51,7 +48,6 @@ public struct MotionTrace {
     }
 
     public static func stop() {
-        commitProbe.stop()
         isEnabled = false
         open.removeAll()
     }
