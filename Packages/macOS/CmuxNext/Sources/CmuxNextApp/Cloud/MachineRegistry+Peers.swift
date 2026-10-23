@@ -30,6 +30,21 @@ extension MachineRegistry {
         }
     }
 
+    /// The SSH machine whose route host or short display host is one of `names`. This intentionally
+    /// ignores a custom sidebar label: tailnet discovery must match the route, not a person's title.
+    func sshMachine(routeNames names: [String]) -> SSHMachineSession? {
+        let normalize = { (name: String) in
+            let name = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            return name.hasSuffix(".") ? String(name.dropLast()) : name
+        }
+        let wanted = Set(names.map(normalize).filter { !$0.isEmpty })
+        guard !wanted.isEmpty else { return nil }
+        return ssh.first { session in
+            [session.host.destination.host, session.host.destination.displayName]
+                .contains { wanted.contains(normalize($0)) }
+        }
+    }
+
     /// The other machines whose agent chats the sidebar's Priority view ranks: each reachable
     /// one's daemon tree under its sidebar name. A tree that runs on this Mac (``tabBadge(_:)``
     /// nil: a server reached at a Unix socket here) is named as this Mac is.
