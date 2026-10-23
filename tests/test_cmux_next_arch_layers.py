@@ -71,13 +71,16 @@ class ArchLayersTests(unittest.TestCase):
             sys.argv = saved
         return out.getvalue()
 
-    def test_a_core_target_that_depends_on_a_service_or_domain_target_is_a_hard_violation(self):
+    def test_a_core_target_that_depends_on_a_service_or_domain_target_is_an_upward_violation(self):
         dump = self.package(
             {"Naming": "core", "Daemon": "service", "Bridge": "domain", "Kit": "ui", "Values": "core"},
             {"Naming": ["Daemon", "Bridge", "Values"], "Daemon": ["Values"], "Bridge": ["Daemon"]},
             {"Naming/Naming.swift": "public struct Naming {}\n"})
+        # arch_counts.edge_class (shared with the arch ratchet and the pre-push layer gate) calls these
+        # `upward`: reported and counted, apart from the edges into ui/app.
         report = json.loads(self.report(dump, "--json"))
-        self.assertEqual(report["hard_violations"], 2)
+        self.assertEqual(report["upward_violations"], 2)
+        self.assertEqual(report["hard_violations"], 0)
         self.assertEqual(report["soft_violations"], 0)
         text = self.report(dump)
         self.assertIn("Naming (core) -> Daemon (service)", text)
