@@ -576,7 +576,7 @@ function RememberThisAccount({ user, returningFromOAuth }: { user: CurrentUser; 
     if (!isRestricted) void saveCurrentSession();
   }, [id, isRestricted]);
   useEffect(() => {
-    writeStored(ACCOUNT_HISTORY_KEY, JSON.stringify(rememberAccount(readHistory(), { id, email, displayName, profileImageUrl, hasPassword: user.hasPassword })));
+    writeStored(ACCOUNT_HISTORY_KEY, JSON.stringify(rememberAccount(readHistory(), { id, email, displayName, profileImageUrl, signInMethod: null, hasPassword: user.hasPassword })));
     writePendingOAuth(null);
     const usedProvider = returningFromOAuth ? readLastUsedProvider() : null;
     let cancelled = false;
