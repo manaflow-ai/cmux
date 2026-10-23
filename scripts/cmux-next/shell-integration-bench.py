@@ -6,7 +6,7 @@ usage:
   python3 -I scripts/cmux-next/shell-integration-bench.py            # this checkout (needs ghostty-next)
   options: --shells zsh,bash,fish  --bash /opt/homebrew/bin/bash  --require zsh,bash (default: the
            requested zsh and bash; --require= to allow skipping)
-           --layouts app,daemon  --reps 9  --cycles 20  --max-overhead-ms 15  --json out.json
+           --layouts app,daemon,daemon-bare  --reps 9  --cycles 20  --max-overhead-ms 15  --json out.json
 
 What it runs. Every shell starts the way a cmux-next terminal starts it: a login shell on a pty
 (`-zsh`, `-bash --posix`, `-fish`, as the daemon's login(1) start does) with the environment the
@@ -14,7 +14,10 @@ app writes (GhosttyShellIntegration.apply, then BundledCLIEnvironment.apply, plu
 CMUX_TUI_AGENT_SHIMS): Ghostty's integration from ghostty-next under the app's
 `<Resources>/cmux-cli-path` layer. Layout `app` is the app's own spawn (the bundle's
 `ghostty/shell-integration`); layout `daemon` is a shell the cmux-tui daemon integrates (the same
-Ghostty files with cmux-tui's agent shims appended, as shell_integration.rs writes them). Each
+Ghostty files with cmux-tui's agent shims appended, as shell_integration.rs writes them) under the
+same layer, as the daemon wraps it when it knows the app's bundled CLI; layout `daemon-bare` is that
+daemon-integrated shell with no layer and no bundled CLI (a daemon started outside the app, or one
+whose `<Resources>/cmux-cli-path` is missing: cli_path::wrap then leaves the injection alone). Each
 shell has an empty HOME whose only startup file sets a plain prompt, so the integration is the only
 code that differs from the control: the same shell, same flags, without the integration env.
 bash also runs with two more HOMEs whose .bashrc sets PROMPT_COMMAND the way prompt tools do, as a
@@ -95,8 +98,8 @@ class Layout:
     """Where one spawn path finds its scripts."""
     name: str
     integration: Path  # Ghostty's shell-integration dir as the shell sees it
-    cli_path: Path     # <Resources>/cmux-cli-path
-    cli: Path          # <Resources>/bin/cmux
+    cli_path: Path | None  # <Resources>/cmux-cli-path; None: no layer, no bundled CLI
+    cli: Path | None       # <Resources>/bin/cmux
     ghostty_resources: Path
 
 
@@ -275,7 +278,8 @@ def base_env(home: Path, shell: Shell) -> dict[str, str]:
 
 def integrated_env(base: dict[str, str], shell: Shell, layout: Layout, shims: Path) -> dict[str, str]:
     """GhosttyShellIntegration.apply, then BundledCLIEnvironment.apply (the daemon's
-    cli_path::wrap writes the same), plus the daemon's agent shim directory."""
+    cli_path::wrap writes the same; neither for a layout without a layer), plus the daemon's
+    agent shim directory."""
     env = dict(base)
     env["GHOSTTY_RESOURCES_DIR"] = str(layout.ghostty_resources)
     env["XDG_DATA_DIRS"] = f"{DEFAULT_XDG}:{layout.ghostty_resources}/.."
@@ -291,10 +295,12 @@ def integrated_env(base: dict[str, str], shell: Shell, layout: Layout, shims: Pa
     elif shell.name == "fish":
         env["GHOSTTY_SHELL_INTEGRATION_XDG_DIR"] = integration
         env["XDG_DATA_DIRS"] = integration + ":" + env["XDG_DATA_DIRS"]
-    bin_dir = str(layout.cli.parent)
-    env["PATH"] = f"{shims}:{bin_dir}:{SYSTEM_PATH}"
-    env["CMUX_BUNDLED_CLI_PATH"] = str(layout.cli)
     env["CMUX_TUI_AGENT_SHIMS"] = str(shims)
+    if layout.cli_path is None or layout.cli is None:
+        env["PATH"] = f"{shims}:{SYSTEM_PATH}"
+        return env
+    env["PATH"] = f"{shims}:{layout.cli.parent}:{SYSTEM_PATH}"
+    env["CMUX_BUNDLED_CLI_PATH"] = str(layout.cli)
     layer = str(layout.cli_path)
     if shell.name == "zsh":
         env["CMUX_CLI_ZSH_ZDOTDIR"] = env["ZDOTDIR"]
@@ -482,7 +488,7 @@ def main() -> int:
     parser.add_argument("--require", default=None,
                         help="shells that must run (default: zsh and bash when requested; --require= for none)")
     parser.add_argument("--bash", help="the bash to run (default: Homebrew's, else PATH's)")
-    parser.add_argument("--layouts", default="app,daemon")
+    parser.add_argument("--layouts", default="app,daemon,daemon-bare")
     parser.add_argument("--reps", type=int, default=9)
     parser.add_argument("--warmup", type=int, default=1)
     parser.add_argument("--cycles", type=int, default=20)
@@ -509,20 +515,31 @@ def main() -> int:
             if not needed.exists():
                 print(f"error: {needed} is missing", file=sys.stderr)
                 return 2
+        # The daemon embeds ghostty-next's files (shell_integration.rs SCRIPTS); with --app and
+        # no ghostty-next checkout, the bundle's copy of them.
+        ghostty_source = args.ghostty_integration or ROOT / "ghostty-next/src/shell-integration"
+        if not (ghostty_source / "bash/ghostty.bash").is_file():
+            ghostty_source = app_integration
+        ghostty_source = ghostty_source.resolve()
         layouts = []
+        daemon_scripts = None
         for name in args.layouts.split(","):
+            layer, cli = resources / "cmux-cli-path", resources / "bin/cmux"
             if name == "app":
                 integration = app_integration
-            elif name == "daemon":
+            elif name in ("daemon", "daemon-bare"):
                 if not (SHIMS_SRC / "agent-shims.bash").is_file():
-                    print(f"note: no cmux-tui agent shims at {SHIMS_SRC}; daemon layout skipped")
+                    print(f"note: no cmux-tui agent shims at {SHIMS_SRC}; {name} layout skipped")
                     continue
-                integration = daemon_integration(app_integration.resolve(), tmp / "daemon-integration")
+                if daemon_scripts is None:
+                    daemon_scripts = daemon_integration(ghostty_source, tmp / "daemon-integration")
+                integration = daemon_scripts
+                if name == "daemon-bare":
+                    layer = cli = None
             else:
                 print(f"error: unknown layout {name}", file=sys.stderr)
                 return 2
-            layouts.append(Layout(name, integration, resources / "cmux-cli-path", resources / "bin/cmux",
-                                  resources / "ghostty"))
+            layouts.append(Layout(name, integration, layer, cli, resources / "ghostty"))
         if args.app and (resources / "shell-integration").exists():
             print(f"note: {resources / 'shell-integration'} (the classic cmux integration) is in the bundle; "
                   "cmux-next injects only ghostty/shell-integration and cmux-cli-path")
