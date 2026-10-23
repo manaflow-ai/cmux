@@ -142,3 +142,28 @@ test("without a side panel (Quick Chat) the artifacts are not listed", async () 
   });
   expect(container.querySelector('ul[data-section="outputs"]')).toBeNull();
 });
+
+test("long Outputs lists show six rows and a View all row", async () => {
+  const container = installDom();
+  const files = Array.from({ length: 7 }, (_, index) => ({
+    path: `/src/file-${index}.ts`,
+    displayPath: `src/file-${index}.ts`,
+    edits: [],
+    additions: 1,
+    deletions: 0,
+    created: false,
+  }));
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <ChatInspector summary={chat([]).summary} made={{ outputs: files, pullRequests: [], scheduled: [] }} />,
+    );
+  });
+  const outputs = container.querySelector<HTMLElement>('ul[data-section="outputs"]')!;
+  expect(outputs.querySelectorAll("button.acpmux-chat-inspector-row")).toHaveLength(6);
+  const viewAll = outputs.querySelector<HTMLButtonElement>("button.acpmux-chat-inspector-fold")!;
+  expect(viewAll.textContent).toBe("View all 7");
+  await act(async () => viewAll.click());
+  expect(outputs.querySelectorAll("button.acpmux-chat-inspector-row")).toHaveLength(7);
+  expect(viewAll.textContent).toBe("Show fewer");
+});

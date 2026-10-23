@@ -3,7 +3,7 @@
    never opaque"), anchored under the chat header (--acpmux-inspector-top, the header's height), where its
    toggle is: the header's tools, its own toggle among them, stay above it. It is as tall as its sections,
    never a column to the pane's foot (Leo, 2026-10-22: "THIS BECAME A SIDEBAR FOR NO REASON, ALL THIS DEAD
-   SPACE"); past a ceiling (560px, and 80% of the room under the header) its body scrolls. Overlay (the
+   SPACE"); it grows to the window's bottom, then its body scrolls. Overlay (the
    default, when the pane's right gutter has room): it floats in the gutter beside the transcript's column,
    never over its text, and the chat does not move. Push (when the gutter has no room, and with Settings
    Push always): an item of the shell's flex row, so it reserves its width and the chat reflows narrower
@@ -26,17 +26,11 @@
   --glass-elevation: var(--elevation-2);
 }
 /* Either place, the card: inset from the pane's right edge (ChatInspector.tsx FLOAT_MARGIN), as tall
-   as its sections up to a ceiling. A busy chat's sections are taller than any pane: the card still stops
-   at the ceiling, never at the pane's foot (claude-sr2 for Leo, 2026-10-22: "again a full-height
-   column"). The ceiling is only a maximum: with little to show, the card ends right after its last
-   section, with no fixed or minimum height (Leo, 2026-10-22: "the card should just end when there's no
-   more content to show"; chat-inspector-overlay-toggle.test.ts). */
+   as its sections up to the window's bottom. A busy chat's body scrolls once it reaches that edge;
+   with little to show, the card ends right after its last section, with no fixed or minimum height
+   (Leo, 2026-10-22: "the card should just end when there's no more content to show"). */
 .acpmux-chat-inspector[data-placement] {
-  max-height: min(
-    var(--acpmux-inspector-max-height),
-    calc((100% - var(--acpmux-inspector-top, 0px)) * 0.8),
-    calc(100% - var(--acpmux-inspector-top, 0px) - var(--acpmux-inspector-inset))
-  );
+  max-height: calc(100% - var(--acpmux-inspector-top, 0px) - var(--acpmux-inspector-inset));
   border-radius: var(--acpmux-inspector-panel-radius);
 }
 /* Pushing: a flex item that keeps its own height at the top, its margins the floating card's place. */
@@ -205,7 +199,6 @@
   --acpmux-inspector-card-radius: 10px;
   --acpmux-inspector-panel-radius: 14px;
   --acpmux-inspector-inset: 8px;
-  --acpmux-inspector-max-height: 560px;
   --acpmux-inspector-card-pad: 4px;
   --acpmux-inspector-row-radius: max(4px, calc(var(--acpmux-inspector-card-radius) - var(--acpmux-inspector-card-pad)));
   --acpmux-inspector-row-hover: color-mix(in srgb, var(--agent-text) 7%, transparent);
@@ -308,11 +301,14 @@ button.acpmux-chat-inspector-port:hover,
   border-radius: 2px;
   background: var(--agent-accent);
 }
-/* A section's list scrolls past about eight rows instead of growing the panel without end. */
+/* The shipped long lists use a View all row. Gallery's `scroll` alternative keeps the old
+   per-section scroll treatment available for comparison. */
 .acpmux-chat-inspector-scroll {
+  overscroll-behavior: contain;
+}
+.acpmux-chat-inspector-scroll[data-list-mode="scroll"] {
   max-height: 260px;
   overflow-y: auto;
-  overscroll-behavior: contain;
 }
 .acpmux-chat-inspector-list {
   min-width: 0;
@@ -728,8 +724,8 @@ button.acpmux-chat-inspector-port:focus-visible {
   outline: 1.5px solid var(--agent-text);
   outline-offset: -1.5px;
 }
-/* Subagents (SubagentsSection.tsx): the running ones' lines, "Show more" under them, then the one
-   row of the ended ones, which opens into their lines. */
+/* Subagents (SubagentsSection.tsx): the running ones' lines, a View all row, then the one row of the
+   ended ones, which opens into their lines. */
 .acpmux-chat-inspector-subagents__more {
   margin-top: 2px;
 }

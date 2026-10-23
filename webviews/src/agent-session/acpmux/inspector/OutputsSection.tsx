@@ -4,6 +4,7 @@
 // the side panel beside the chat, ArtifactPanel.tsx), its gallery (the images and renders, which
 // open GalleryDialog.tsx), its files (each opens its diff), and the web links its replies gave, each
 // once (a pull request's link is under Changes instead).
+import { useState, type ReactNode } from "react";
 import { documentName, type Artifact } from "../conversation/artifactPreview";
 import { chatDocuments } from "../conversation/artifactVersions";
 import { renderPages } from "../conversation/renderCall";
@@ -21,6 +22,8 @@ const PULL_REQUEST = /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/;
 export type OutputLink = { readonly url: string; readonly label: string };
 /// A document the chat produced, by its title when it has one.
 export type OutputArtifact = { readonly key: string; readonly title?: string; readonly artifact: Artifact };
+export type InspectorListMode = "view-all" | "scroll" | "all";
+const OUTPUTS_SHOWN = 6;
 
 /// The chat's artifacts, oldest first: each render card's latest page (renderCall.ts `renderPages`;
 /// its title, else its page's), then each document its finished replies drew, each text once.
@@ -71,6 +74,7 @@ export function OutputsSection({
   onOpenFile,
   onOpenArtifacts,
   onOpenDocument,
+  listMode = "view-all",
 }: {
   files: readonly TurnFile[];
   links: readonly OutputLink[];
@@ -82,70 +86,94 @@ export function OutputsSection({
   onOpenArtifacts?: () => void;
   /// Opens a document in the side panel beside the chat.
   onOpenDocument?: (artifact: Artifact) => void;
+  /// Gallery-only alternatives for the long-list treatment.
+  listMode?: InspectorListMode;
 }) {
   const t = useT();
-  return (
-    <ul className="acpmux-chat-inspector-list acpmux-chat-inspector-scroll" data-section="outputs">
-      {onOpenDocument &&
-        documents.map((document) => (
-          <li key={document.key}>
-            <button
-              type="button"
-              className="acpmux-chat-inspector-row acpmux-chat-inspector-row--button"
-              onClick={() => onOpenDocument(document.artifact)}
-            >
-              <Icon name={document.artifact.kind === "markdown" ? "file.text" : "code"} size={ROW_ICON} row />
-              <span className="acpmux-chat-inspector-row__name">{document.title ?? t("render.untitled")}</span>
-              <span className="acpmux-chat-inspector-row__end">{t("chatInspector.outputs.artifact")}</span>
-            </button>
-          </li>
-        ))}
-      {artifacts > 0 && onOpenArtifacts && (
-        <li>
+  const [all, setAll] = useState(false);
+  const items: ReactNode[] = [];
+  if (onOpenDocument) {
+    for (const document of documents) {
+      items.push(
+        <li key={document.key}>
           <button
             type="button"
             className="acpmux-chat-inspector-row acpmux-chat-inspector-row--button"
-            onClick={onOpenArtifacts}
+            onClick={() => onOpenDocument(document.artifact)}
           >
-            <Icon name="view.grid" size={ROW_ICON} row />
-            <span className="acpmux-chat-inspector-row__name">{t("summary.gallery")}</span>
-            <span className="acpmux-chat-inspector-row__end">{artifacts}</span>
+            <Icon name={document.artifact.kind === "markdown" ? "file.text" : "code"} size={ROW_ICON} row />
+            <span className="acpmux-chat-inspector-row__name">{document.title ?? t("render.untitled")}</span>
+            <span className="acpmux-chat-inspector-row__end">{t("chatInspector.outputs.artifact")}</span>
+          </button>
+        </li>,
+      );
+    }
+  }
+  if (artifacts > 0 && onOpenArtifacts) {
+    items.push(
+      <li key="gallery">
+        <button
+          type="button"
+          className="acpmux-chat-inspector-row acpmux-chat-inspector-row--button"
+          onClick={onOpenArtifacts}
+        >
+          <Icon name="view.grid" size={ROW_ICON} row />
+          <span className="acpmux-chat-inspector-row__name">{t("summary.gallery")}</span>
+          <span className="acpmux-chat-inspector-row__end">{artifacts}</span>
+        </button>
+      </li>,
+    );
+  }
+  for (const file of files) {
+    const cut = file.displayPath.lastIndexOf("/");
+    const name = cut >= 0 ? file.displayPath.slice(cut + 1) : file.displayPath;
+    const folder = cut > 0 ? file.displayPath.slice(0, cut) : undefined;
+    items.push(
+      <li key={file.path}>
+        <button
+          type="button"
+          className="acpmux-chat-inspector-row acpmux-chat-inspector-row--button"
+          disabled={!onOpenFile}
+          onClick={() => onOpenFile?.(file.path)}
+        >
+          <Icon name={file.created ? "file.new" : "file.text"} size={ROW_ICON} row />
+          <span className="acpmux-chat-inspector-row__name">{name}</span>
+          {folder && <span className="acpmux-chat-inspector-row__detail">{folder}</span>}
+          {!file.binary && (
+            <span className="acpmux-chat-inspector-row__end">
+              <Counts additions={file.additions} deletions={file.deletions} />
+            </span>
+          )}
+        </button>
+      </li>,
+    );
+  }
+  for (const link of links) {
+    items.push(
+      <li key={link.url}>
+        <a className="acpmux-chat-inspector-row acpmux-chat-inspector-row--button" href={link.url}>
+          <Icon name="link.web" size={ROW_ICON} row />
+          <span className="acpmux-chat-inspector-row__name">{link.label}</span>
+          <span className="acpmux-chat-inspector-row__end">{t("chatInspector.outputs.link")}</span>
+        </a>
+      </li>,
+    );
+  }
+  const shown = listMode === "view-all" && !all ? items.slice(0, OUTPUTS_SHOWN) : items;
+  return (
+    <ul
+      className="acpmux-chat-inspector-list acpmux-chat-inspector-scroll"
+      data-section="outputs"
+      data-list-mode={listMode}
+    >
+      {shown}
+      {listMode === "view-all" && items.length > OUTPUTS_SHOWN && (
+        <li>
+          <button type="button" className="acpmux-chat-inspector-fold" onClick={() => setAll(!all)}>
+            {all ? t("summary.showFewer") : t("summary.viewAll", { n: items.length })}
           </button>
         </li>
       )}
-      {files.map((file) => {
-        const cut = file.displayPath.lastIndexOf("/");
-        const name = cut >= 0 ? file.displayPath.slice(cut + 1) : file.displayPath;
-        const folder = cut > 0 ? file.displayPath.slice(0, cut) : undefined;
-        return (
-          <li key={file.path}>
-            <button
-              type="button"
-              className="acpmux-chat-inspector-row acpmux-chat-inspector-row--button"
-              disabled={!onOpenFile}
-              onClick={() => onOpenFile?.(file.path)}
-            >
-              <Icon name={file.created ? "file.new" : "file.text"} size={ROW_ICON} row />
-              <span className="acpmux-chat-inspector-row__name">{name}</span>
-              {folder && <span className="acpmux-chat-inspector-row__detail">{folder}</span>}
-              {!file.binary && (
-                <span className="acpmux-chat-inspector-row__end">
-                  <Counts additions={file.additions} deletions={file.deletions} />
-                </span>
-              )}
-            </button>
-          </li>
-        );
-      })}
-      {links.map((link) => (
-        <li key={link.url}>
-          <a className="acpmux-chat-inspector-row acpmux-chat-inspector-row--button" href={link.url}>
-            <Icon name="link.web" size={ROW_ICON} row />
-            <span className="acpmux-chat-inspector-row__name">{link.label}</span>
-            <span className="acpmux-chat-inspector-row__end">{t("chatInspector.outputs.link")}</span>
-          </a>
-        </li>
-      ))}
     </ul>
   );
 }

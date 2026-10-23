@@ -510,3 +510,18 @@ test("a transcript task a running server stands for is listed once, as the serve
   expect(tasks.querySelectorAll(".acpmux-chat-inspector-server")).toHaveLength(1);
   expect(tasks.querySelectorAll(".acpmux-chat-inspector-task")).toHaveLength(0);
 });
+
+test("long Background tasks lists show six rows and a View all row", async () => {
+  const container = installDom();
+  const transcriptTasks = Array.from({ length: 7 }, (_, index) =>
+    task(`call-${index}`, `command-${index}`, "running", 1_000),
+  );
+  await renderInspector(container, { transcriptTasks });
+  const tasks = section(container, "tasks")!;
+  expect(taskRows(container)).toHaveLength(6);
+  const viewAll = tasks.querySelector<HTMLButtonElement>("button.acpmux-chat-inspector-fold")!;
+  expect(viewAll.textContent).toBe("View all 7");
+  await click(viewAll);
+  expect(taskRows(container)).toHaveLength(7);
+  expect(viewAll.textContent).toBe("Show fewer");
+});

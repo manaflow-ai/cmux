@@ -3,7 +3,7 @@
 // summary). Leo, 2026-10-20: take the facts Claude Code's panel shows and ChatGPT's subagents row.
 // Top to bottom, in three blocks with no box around a section (`RAIL_LAYOUT`):
 //
-// - Where it runs: the Environment's rows, the machine, the folder, the repository, the branch or
+// - Where it runs: the Environment's optional machine and folder rows, the repository, the branch or
 //   worktree (EnvironmentSection); then Context, how much of the context window the chat used, with a
 //   bar, open the token counts; then Connectors, the MCP servers its harness loaded, with how many
 //   need reconnecting. Context and Connectors are one row each until opened.
@@ -77,7 +77,14 @@ import {
   type InspectorSectionId,
   type InspectorSections,
 } from "./inspectorState";
-import { OutputsSection, outputArtifacts, outputLinks, type OutputArtifact, type OutputLink } from "./OutputsSection";
+import {
+  OutputsSection,
+  outputArtifacts,
+  outputLinks,
+  type InspectorListMode,
+  type OutputArtifact,
+  type OutputLink,
+} from "./OutputsSection";
 import { inspectorLists, type InspectorProcess, type ProcessRegistry } from "./processes";
 import { ServersSection } from "./ServersSection";
 import { SubagentsSection, subagentCounts } from "./SubagentsSection";
@@ -527,6 +534,7 @@ function InspectorPresence({
         onRevealed={onRevealed}
         onStopProcess={onStopProcess}
         sections={sections}
+        showMachineAndFolder={display.showMachineAndFolder}
         onSection={setInspectorSection}
         onOpenOutput={onOpenOutput}
         onOpenUrl={onOpenUrl}
@@ -674,6 +682,8 @@ export function ChatInspector({
   onRevealed,
   onStopProcess,
   sections,
+  showMachineAndFolder = false,
+  listMode = "view-all",
   onSection,
   onOpenOutput,
   onOpenUrl,
@@ -724,6 +734,10 @@ export function ChatInspector({
   onStopProcess?: (id: string) => Promise<unknown>;
   /// Which sections are open; uncontrolled without `onSection`.
   sections?: InspectorSections;
+  /// Session Info keeps machine and folder rows hidden unless enabled in Settings.
+  showMachineAndFolder?: boolean;
+  /// Gallery-only alternatives for long sections; the shipped mode uses a View all row.
+  listMode?: InspectorListMode;
   onSection?: (id: InspectorSectionId, open: boolean) => void;
   onOpenOutput?: (path: string) => void;
   onOpenUrl?: (url: string) => void;
@@ -797,9 +811,10 @@ export function ChatInspector({
   const progress = !known && agent ? subagentProgress(t, language, agent) : [];
   const value = (text: string) => <span className="acpmux-chat-inspector-section__value">{text}</span>;
   const glance = layout === "glance";
+  const hasEnvironment = showMachineAndFolder || Boolean(repository || summary?.branch || remoteControl);
   // In the top block (glance), Context and Connectors are rows like the Environment's: an icon first.
   const rowIcon = (name: string) => (glance ? name : undefined);
-  const environment = (
+  const environment = hasEnvironment && (
     <InspectorSection
       id="environment"
       title={t("rail.environment")}
@@ -812,6 +827,7 @@ export function ChatInspector({
         machineName={machineName}
         peerKinds={peerKinds}
         repository={repository}
+        showMachineAndFolder={showMachineAndFolder}
         rows={rows}
         remoteControl={remoteControl}
         onSave={onSaveEnvironment}
@@ -903,6 +919,7 @@ export function ChatInspector({
         onOpenDocument={onOpenDocument}
         onOpenFile={onOpenOutput}
         onOpenArtifacts={rows.length > 0 ? () => setGallery(true) : undefined}
+        listMode={listMode}
       />
     </InspectorSection>
   );
@@ -920,6 +937,7 @@ export function ChatInspector({
         onOpen={onOpenSubagent}
         sessions={sessions}
         onOpenSession={onOpenSession}
+        listMode={listMode}
       />
     </InspectorSection>
   );
@@ -934,7 +952,9 @@ export function ChatInspector({
       onOpenChange={fold("tasks")}
       meta={running > 0 ? value(t("rail.running", { count: running })) : undefined}
     >
-      {servers.length > 0 && <ServersSection servers={servers} onStop={onStopProcess} onOpenUrl={onOpenUrl} />}
+      {servers.length > 0 && (
+        <ServersSection servers={servers} onStop={onStopProcess} onOpenUrl={onOpenUrl} listMode={listMode} />
+      )}
       {commands.length + scheduled.length > 0 && (
         <TasksSection
           commands={commands}
@@ -943,6 +963,7 @@ export function ChatInspector({
           local={local}
           calls={calls}
           onShowCall={onShowCall}
+          listMode={listMode}
         />
       )}
     </InspectorSection>

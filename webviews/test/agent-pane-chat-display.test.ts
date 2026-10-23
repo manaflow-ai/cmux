@@ -20,6 +20,7 @@ describe("chat display resolution", () => {
   test("no keys: today's look, every variable left to the stylesheet", () => {
     const display = resolveChatDisplay({});
     expect(display).toEqual(DEFAULT_CHAT_DISPLAY);
+    expect(display.showMachineAndFolder).toBe(false);
     expect(Object.values(chatDisplayVariables(display)).every((value) => value === null)).toBe(true);
     const metrics = chatMetrics(display);
     expect(metrics.measureFont).toBe("14px system-ui");
@@ -57,6 +58,11 @@ describe("chat display resolution", () => {
     expect(display.font).toBe("mono");
     expect(display.codeFamily).toBe("Berkeley Mono");
     expect(display.codeScale).toBe(1);
+  });
+
+  test("machine and folder rows stay hidden until the Session Info setting is enabled", () => {
+    expect(resolveChatDisplay({}).showMachineAndFolder).toBe(false);
+    expect(resolveChatDisplay({ "agentPane.display.showMachineAndFolder": true }).showMachineAndFolder).toBe(true);
   });
 
   test("`markdown` as the chat's font follows the viewer", () => {

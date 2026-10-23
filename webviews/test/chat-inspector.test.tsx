@@ -8,7 +8,7 @@
 // default, stays open (or closed) across chat panes, floats in the chat's right gutter so it never
 // reflows the chat, pushes the chat aside when the gutter has no room (Settings Push always), so it
 // never lies over the transcript's text, hides a section with nothing in it, and shows five pull
-// requests under Changes and five running subagents, each then Show more (Claude Code desktop's).
+// requests under Changes and five running subagents, each then View all (Claude Code desktop's).
 import { afterEach, beforeEach, expect, setSystemTime, test } from "bun:test";
 import { act, useState, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -180,6 +180,7 @@ const click = (element: HTMLElement) => act(async () => element.click());
 
 test("the Inspector opens with a first chat: its environment, context use and outputs; the toggle closes it", async () => {
   const container = installDom(true);
+  setChatDisplay({ "agentPane.display.showMachineAndFolder": true });
   const opened = await render(container, localChat);
   expect(toggle(container)?.getAttribute("aria-pressed")).toBe("true");
   expect(panel(container)).not.toBeNull();
@@ -254,6 +255,7 @@ test("open, closed, folds and width hold in every chat pane, following another p
 
 test("a cloud session names its host; no usage and nothing produced have no sections", async () => {
   const container = installDom(true);
+  setChatDisplay({ "agentPane.display.showMachineAndFolder": true });
   const base = chat([]);
   await render(container, {
     ...base,
@@ -611,6 +613,8 @@ test("Subagents names each running one on its line, and folds the ended ones int
     ["Agent 42", "Done"],
     ["Agent 41", "Done"],
   ]);
+  expect(lines(list)).toHaveLength(6);
+  await click(list.querySelector<HTMLButtonElement>("button.acpmux-chat-inspector-fold")!);
   expect(lines(list)).toHaveLength(40);
   await click(list.querySelector<HTMLButtonElement>("button.acpmux-agent-line__button")!);
   expect(shown).toEqual(["agent-1", "agent-8"]);
@@ -634,7 +638,7 @@ test("a nested subagent waiting on the person stays under the one that spawned i
   ]);
 });
 
-test("past five running lines, Show more opens the rest and Show less folds them back", async () => {
+test("past five running lines, View all opens the rest and Show fewer folds them back", async () => {
   const container = installDom(true);
   const agents = Array.from({ length: 8 }, (_, index) => subagent(index, "running"));
   await act(async () => {
@@ -645,10 +649,10 @@ test("past five running lines, Show more opens the rest and Show less folds them
   expect(lines(subagents)).toHaveLength(5);
   expect(endedRow(subagents)).toBeNull();
   const more = subagents.querySelector<HTMLButtonElement>("button.acpmux-chat-inspector-subagents__more")!;
-  expect(more.textContent).toBe("Show 3 more");
+  expect(more.textContent).toBe("View all 8");
   await click(more);
   expect(lines(subagents)).toHaveLength(8);
-  expect(more.textContent).toBe("Show less");
+  expect(more.textContent).toBe("Show fewer");
   await click(more);
   expect(lines(subagents)).toHaveLength(5);
 });

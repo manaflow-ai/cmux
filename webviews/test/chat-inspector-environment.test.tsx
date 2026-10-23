@@ -136,6 +136,7 @@ test("every Environment row does something: folders open in Files, the repositor
   const props: ComponentProps<typeof ChatInspector> = {
     summary,
     machineName: "cosmic-gray",
+    showMachineAndFolder: true,
     repository: "manaflow-ai/cmux",
     rows: projectsRows,
     onOpenFolder: (path) => folders.push(path),
@@ -187,6 +188,7 @@ test("without the App's actions the rows are plain text, and no Remote Control r
         // A plain folder (no branch): each child project it touched is listed.
         summary={{ ...base.summary!, cwd: `${HOME}/Projects`, branch: undefined }}
         machineName="cosmic-gray"
+        showMachineAndFolder
         rows={projectsRows}
       />,
     );
@@ -196,4 +198,24 @@ test("without the App's actions the rows are plain text, and no Remote Control r
   expect(environment.querySelector("a")).toBeNull();
   expect(environment.textContent).toContain("glaeda");
   expect(environment.textContent).not.toContain("Remote Control");
+});
+
+test("machine and folder rows are hidden by default while repository and branch stay available", async () => {
+  const container = installDom();
+  const base = chat(projectsRows);
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <ChatInspector
+        summary={{ ...base.summary!, cwd: `${HOME}/Projects/cmux`, branch: "main" }}
+        repository="manaflow-ai/cmux"
+        rows={projectsRows}
+      />,
+    );
+  });
+  const environment = container.querySelector<HTMLElement>('ul[data-section="environment"]')!;
+  expect(environment.querySelector("[data-machine]")).toBeNull();
+  expect(environment.textContent).not.toContain("cmux~/Projects");
+  expect(environment.textContent).toContain("manaflow-ai/cmux");
+  expect(environment.textContent).toContain("main");
 });

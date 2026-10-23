@@ -115,6 +115,7 @@ export function EnvironmentSection({
   machineName,
   peerKinds,
   repository,
+  showMachineAndFolder = false,
   rows = NO_ROWS,
   remoteControl,
   onSave,
@@ -125,6 +126,8 @@ export function EnvironmentSection({
   peerKinds?: Readonly<Record<string, "ssh" | "cloud">>;
   /// The chat folder's GitHub repository, `owner/name`.
   repository?: string;
+  /// Session Info keeps the machine and folder rows out of the way unless enabled in Settings.
+  showMachineAndFolder?: boolean;
   /// The chat's rows, whose tool calls name the other folders it worked in.
   rows?: readonly AcpmuxRow[];
   /// Remote Control's state and switch, when the App offers it for this chat.
@@ -165,27 +168,31 @@ export function EnvironmentSection({
   };
   return (
     <ul className="acpmux-chat-inspector-list" data-section="environment">
-      <li className="acpmux-chat-inspector-row" data-machine={machine.kind}>
-        <Icon
-          name={machine.icon}
-          size={ROW_ICON}
-          row
-          color={machine.kind !== "local" && machine.name ? machineColor(machine.name) : undefined}
-        />
-        <span className="acpmux-chat-inspector-row__name">{machine.name ?? "—"}</span>
-        {save && (
-          <button
-            type="button"
-            className="acpmux-chat-inspector-link acpmux-chat-inspector-row__end"
-            disabled={saved}
-            onClick={save}
-          >
-            {t(saved ? "artifact.saved" : "chatInspector.environment.save")}
-          </button>
-        )}
-      </li>
-      {folders.map((path, index) =>
-        folderRow(path, index === 0 && path === summary?.worktree ? "git.worktree" : "folder", index === 0),
+      {showMachineAndFolder && (
+        <>
+          <li className="acpmux-chat-inspector-row" data-machine={machine.kind}>
+            <Icon
+              name={machine.icon}
+              size={ROW_ICON}
+              row
+              color={machine.kind !== "local" && machine.name ? machineColor(machine.name) : undefined}
+            />
+            <span className="acpmux-chat-inspector-row__name">{machine.name ?? "—"}</span>
+            {save && (
+              <button
+                type="button"
+                className="acpmux-chat-inspector-link acpmux-chat-inspector-row__end"
+                disabled={saved}
+                onClick={save}
+              >
+                {t(saved ? "artifact.saved" : "chatInspector.environment.save")}
+              </button>
+            )}
+          </li>
+          {folders.map((path, index) =>
+            folderRow(path, index === 0 && path === summary?.worktree ? "git.worktree" : "folder", index === 0),
+          )}
+        </>
       )}
       {repository && (
         <Row icon="brand.github" href={repositoryUrl}>
@@ -197,7 +204,7 @@ export function EnvironmentSection({
           <span className="acpmux-chat-inspector-row__name">{branch}</span>
         </Row>
       )}
-      {worktree && !folders.includes(worktree) && folderRow(worktree, "git.worktree", true)}
+      {showMachineAndFolder && worktree && !folders.includes(worktree) && folderRow(worktree, "git.worktree", true)}
       {remoteControl && (
         <li className="acpmux-chat-inspector-row">
           <Icon name="device.phone" size={ROW_ICON} row />

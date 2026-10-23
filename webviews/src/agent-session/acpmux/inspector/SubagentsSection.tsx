@@ -2,7 +2,7 @@
 // one row each, and what ended is one row. The harness's own subagents and the chats its agent
 // started (ChildSessionRows.tsx; a Cloud VM's or another machine's included) share the list. Each
 // running one is a line of its own (subagents/AgentLine.tsx, the tray's): its name, what it does
-// now, how long it has run and its state, Waiting ones first; past five, "Show more" opens the
+// now, how long it has run and its state, Waiting ones first; past five, "View all" opens the
 // rest. The ones that ended are one row, "94 done · 1 failed", that opens into their lines, failed
 // first. Every line opens what it names: a subagent's pane or view (App.tsx `showSubagent`), a chat
 // beside this one (`chat.offer.open`); its hover card names it and says its state and its task. The
@@ -21,10 +21,12 @@ import { elapsed, running, useNow } from "../subagents/SubagentGroup";
 import type { Subagent } from "../subagents/subagentFold";
 import { subagentStatus, subagentStatusLabel, type SubagentStatus } from "../summary/SubagentStatusList";
 import { orderedSessions, sessionStatus, sessionStateLabel } from "./ChildSessionRows";
+import type { InspectorListMode } from "./OutputsSection";
 
-/// Running lines shown before "Show more", as Claude Code desktop's panel caps its list.
+/// Running lines shown before "View all", as Claude Code desktop's panel caps its list.
 export const SUBAGENTS_SHOWN = 5;
 const NO_SESSIONS: readonly StartedSession[] = [];
+const ENDED_SHOWN = 6;
 
 /// "1 waiting · 3 running · 40 done" for the section's head, the started chats counted with the
 /// subagents, or nothing for neither.
@@ -88,6 +90,7 @@ export function SubagentsSection({
   onOpen,
   sessions = NO_SESSIONS,
   onOpenSession,
+  listMode = "view-all",
 }: {
   agents: readonly Subagent[];
   waiting: ReadonlySet<string>;
@@ -96,11 +99,14 @@ export function SubagentsSection({
   /// The chats the agent started, and how one opens.
   sessions?: readonly StartedSession[];
   onOpenSession?: (sessionId: string) => void;
+  /// Gallery-only alternatives for the long-list treatment.
+  listMode?: InspectorListMode;
 }) {
   const t = useT();
   const now = useNow(agents.some(running));
   const [more, setMore] = useState(false);
   const [endedOpen, setEndedOpen] = useState(false);
+  const [endedAll, setEndedAll] = useState(false);
   const agentLine = (agent: Subagent, depth: number): Line => {
     const status = subagentStatus(agent, waiting);
     return {
@@ -146,7 +152,7 @@ export function SubagentsSection({
     ...agents.filter((agent) => !live(subagentStatus(agent, waiting))).map((agent) => agentLine(agent, 0)),
     ...children.filter((child) => !live(sessionStatus(child))).map(sessionLine),
   ].sort((a, b) => ENDED_RANK[a.status] - ENDED_RANK[b.status] || b.at - a.at);
-  const shown = more ? runningLines : runningLines.slice(0, SUBAGENTS_SHOWN);
+  const shown = listMode === "view-all" && !more ? runningLines.slice(0, SUBAGENTS_SHOWN) : runningLines;
   // Each running line's place in the wave, top to bottom; the ended lines take none.
   const wave = waveIndices(shown, (item) => live(item.status));
   const line = (item: Line, index: number, inWave: boolean) => (
@@ -182,16 +188,14 @@ export function SubagentsSection({
           {shown.map((item, index) => line(item, index, true))}
         </ul>
       )}
-      {runningLines.length > SUBAGENTS_SHOWN && (
+      {listMode === "view-all" && runningLines.length > SUBAGENTS_SHOWN && (
         <button
           type="button"
           className="acpmux-chat-inspector-fold acpmux-chat-inspector-subagents__more"
           aria-expanded={more}
           onClick={() => setMore(!more)}
         >
-          {more
-            ? t("chatInspector.subagents.less")
-            : t("chatInspector.subagents.more", { n: runningLines.length - SUBAGENTS_SHOWN })}
+          {more ? t("summary.showFewer") : t("summary.viewAll", { n: runningLines.length })}
         </button>
       )}
       {endedLines.length > 0 && (
@@ -209,8 +213,20 @@ export function SubagentsSection({
             <Icon name={endedOpen ? "disclosure.expanded" : "disclosure.collapsed"} size={10} />
           </button>
           {endedOpen && (
-            <ul className="acpmux-summary-list acpmux-chat-inspector-scroll acpmux-chat-inspector-subagents__list">
-              {endedLines.map((item, index) => line(item, index, false))}
+            <ul
+              className="acpmux-summary-list acpmux-chat-inspector-scroll acpmux-chat-inspector-subagents__list"
+              data-list-mode={listMode}
+            >
+              {(listMode === "view-all" && !endedAll ? endedLines.slice(0, ENDED_SHOWN) : endedLines).map(
+                (item, index) => line(item, index, false),
+              )}
+              {listMode === "view-all" && endedLines.length > ENDED_SHOWN && (
+                <li>
+                  <button type="button" className="acpmux-chat-inspector-fold" onClick={() => setEndedAll(!endedAll)}>
+                    {endedAll ? t("summary.showFewer") : t("summary.viewAll", { n: endedLines.length })}
+                  </button>
+                </li>
+              )}
             </ul>
           )}
         </>

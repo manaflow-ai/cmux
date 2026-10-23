@@ -35,6 +35,8 @@ export interface ChatDisplay {
   /// lies over the transcript's text (Leo, 2026-10-21); `push` always moves the chat aside. Not a
   /// look: the Text & Width popover's Reset leaves it.
   inspector: "push" | "overlay";
+  /// Whether Session Info includes the machine and folder rows at its top.
+  showMachineAndFolder: boolean;
 }
 
 /// Settings > Agent Chat > Inspector (Swift AgentPaneDisplaySettingsSchema has the same row).
@@ -50,6 +52,7 @@ export const CHAT_DISPLAY = {
   lineHeight: { key: "agentPane.display.font.lineHeight", min: 1.2, max: 2.4, step: 0.05, fallback: 1.625 },
   codeFamily: { key: "agentPane.display.code.family" },
   codeScale: { key: "agentPane.display.code.scale", min: 0.6, max: 1.25, step: 0.025, fallback: 0.875 },
+  showMachineAndFolder: { key: "agentPane.display.showMachineAndFolder", fallback: false },
 } as const;
 export type ChatDisplayOption = keyof typeof CHAT_DISPLAY;
 
@@ -69,6 +72,7 @@ export const DEFAULT_CHAT_DISPLAY: ChatDisplay = {
   codeFamily: null,
   codeScale: null,
   inspector: "overlay",
+  showMachineAndFolder: false,
 };
 
 /// The body font stacks, as the Markdown viewer's presets (pages/markdown/settings.ts).
@@ -117,6 +121,7 @@ export function resolveChatDisplay(raw: unknown): ChatDisplay {
       number(values[CHAT_DISPLAY.codeScale.key], CHAT_DISPLAY.codeScale) ??
       number(values[MARKDOWN_FOLLOWED.codeScale], CHAT_DISPLAY.codeScale),
     inspector: values[INSPECTOR_PLACEMENT_KEY] === "push" ? "push" : "overlay",
+    showMachineAndFolder: values[CHAT_DISPLAY.showMachineAndFolder.key] === true,
   };
 }
 

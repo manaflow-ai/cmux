@@ -70,6 +70,10 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                     SettingChoice("overlay", SettingsText.keyed("settings.choice.agentChatInspectorOverlay", "Overlay")),
                 ]),
                 .string("overlay"), ["session", "info", "inspector", "panel", "side", "right", "overlay", "push", "details"]),
+            row(["showMachineAndFolder"], SettingsText.keyed("settings.agentPane.display.showMachineAndFolder", "Show Machine and Folder"),
+                help: SettingsText.keyed("settings.agentPane.display.showMachineAndFolder.help",
+                                         "Show the machine and folder rows at the top of Session Info."),
+                .toggle, .bool(false), ["session", "info", "machine", "folder", "environment"]),
         ]
     }
 }

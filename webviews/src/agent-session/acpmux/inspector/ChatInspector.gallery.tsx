@@ -269,6 +269,7 @@ const summary = {
 const full: Props = {
   summary,
   machineName: "Studio",
+  showMachineAndFolder: true,
   repository: "manaflow-ai/cmux",
   made: { ...made, pullRequests },
   links: [
@@ -482,6 +483,26 @@ export default componentEntry<Props>({
       note: "Alternative (not shipped): the same three blocks as the shipped layout, each one hairline card (three boxes in place of eight). Groups well, but it is still boxes in a box.",
       props: { ...full, layout: "groups" },
     },
+    "rail-view-all": {
+      note: "Chosen for long sections: the rail grows with its content to the window bottom, then the window-height body scrolls. Outputs, Subagents and Background tasks show about six rows followed by a View all row; machine and folder stay hidden by default.",
+      props: { ...busy, showMachineAndFolder: false, listMode: "view-all" },
+    },
+    "rail-scroll": {
+      note: "Alternative: each long section keeps its own scroll box. It preserves more rows at once, but creates nested scroll targets and still makes the panel feel cut off.",
+      props: { ...busy, showMachineAndFolder: false, listMode: "scroll" },
+    },
+    "rail-all": {
+      note: "Alternative: every long section expands in full and only the rail body scrolls. It is direct, but a single busy section can push the useful sections below the fold.",
+      props: { ...busy, showMachineAndFolder: false, listMode: "all" },
+    },
+    "environment-hidden": {
+      note: "Default Session Info: machine and folder rows are omitted so the rail starts with the useful session state. Repository and branch remain when available.",
+      props: { ...full, showMachineAndFolder: false },
+    },
+    "environment-shown": {
+      note: "Session Info with Show Machine and Folder enabled: the machine, folders, repository and branch are available together at the top.",
+      props: { ...full, showMachineAndFolder: true },
+    },
     "environment-folders": {
       note: "Environment for a chat in ~/Projects/cmux that worked across six projects: the machine with Save, its folder with its parent, each other project it touched (each opens in Files), the repository and the branch (each links to GitHub).",
       props: {
@@ -600,7 +621,7 @@ export default componentEntry<Props>({
       },
     },
     "fits-content": {
-      note: "A chat with little to show, over a 900px pane: Environment and Context only. The card ends right after Context, with the body's 10px under it and no fixed or minimum height: the 560px ceiling is only a maximum (Leo, 2026-10-22: \"the card should just end when there's no more content to show\").",
+      note: "A chat with little to show, over a 900px pane: Environment and Context only. The card ends right after Context, with the body's 10px under it and no fixed or minimum height.",
       props: {
         summary: { ...summary, mcpServers: [] },
         machineName: "Studio",
@@ -610,7 +631,7 @@ export default componentEntry<Props>({
       },
     },
     ceiling: {
-      note: "A busy coordinator over the same 900px pane: its sections run far past the ceiling, so the card stops at 560px (never more than 80% of the room under the header) and its body scrolls.",
+      note: "A busy coordinator over the same 900px pane: its sections grow to the window bottom and the body scrolls there instead of stopping at a fixed panel height.",
       props: { ...busy, closable: true },
     },
     push: {

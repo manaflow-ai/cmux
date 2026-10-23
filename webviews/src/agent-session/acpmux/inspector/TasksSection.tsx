@@ -6,8 +6,8 @@
 // terminal beside the chat (processTerminal.ts); a peer's (SSH) or Cloud chat has none, so there
 // it shows the Bash call that started it in the transcript, and a row with neither is no button
 // and says why. A command the registry lists also has Stop.
-// Dev servers are listed under Servers instead (ServersSection.tsx). The list scrolls inside the
-// section; nothing is cut to a few rows. A command that starts while the list is drawn drops in at
+// Dev servers are listed under Servers instead (ServersSection.tsx). Long lists show a few rows and
+// a View all row; the whole rail owns scrolling. A command that starts while the list is drawn drops in at
 // the top (ui/presence.ts `useArrivals`); the ones the list is drawn with are simply there.
 import { useState } from "react";
 import { useArrivals } from "../../../ui/presence";
@@ -19,8 +19,10 @@ import { openCommand } from "../processTerminal";
 import { useNow } from "../subagents/SubagentGroup";
 import type { SummaryWakeup } from "../summary/sessionSummary";
 import { arrivalKey, splitCommands, type BackgroundCommand } from "./processes";
+import type { InspectorListMode } from "./OutputsSection";
 
 const ROW_ICON = rowIconSize(12);
+const TASKS_SHOWN = 6;
 
 /// What a command's state says (the summary card's rows say the same, summary/SummaryTasks.tsx).
 export const COMMAND_STATE: Record<BackgroundCommand["state"], StringKey> = {
@@ -38,6 +40,7 @@ export function TasksSection({
   local = true,
   calls,
   onShowCall,
+  listMode = "view-all",
 }: {
   commands: readonly BackgroundCommand[];
   /// Wakeups and cron jobs the agent scheduled for itself (sessionSummary `scheduled`).
@@ -52,13 +55,23 @@ export function TasksSection({
   /// Shows the call that started a command in the transcript (App.tsx `showToolRow`); false when no
   /// loaded row holds it.
   onShowCall?: (toolCallId: string) => boolean;
+  /// Gallery-only alternatives for the long-list treatment.
+  listMode?: InspectorListMode;
 }) {
   const t = useT();
+  const [showAll, setShowAll] = useState(false);
   const [showFinished, setShowFinished] = useState(false);
+  const [finishedAll, setFinishedAll] = useState(false);
   const { running, finished } = splitCommands(commands);
   const now = useNow(running.length > 0);
   // Every command's id, so opening the finished fold, or a command finishing, replays nothing.
   const { arrived, played } = useArrivals(commands.map(arrivalKey));
+  const shownRunning = listMode === "view-all" && !showAll ? running.slice(0, TASKS_SHOWN) : running;
+  const shownScheduled =
+    listMode === "view-all" && !showAll
+      ? scheduled.slice(0, Math.max(0, TASKS_SHOWN - shownRunning.length))
+      : scheduled;
+  const shownFinished = listMode === "view-all" && !finishedAll ? finished.slice(0, TASKS_SHOWN) : finished;
   const row = (command: BackgroundCommand, time: string | undefined, state?: string, enters = false) => {
     const toolCallId = command.toolCallId;
     // What a click opens: the terminal on this Mac (else the call, when the host refuses), the call
@@ -105,8 +118,8 @@ export function TasksSection({
   return (
     <div className="acpmux-chat-inspector-scroll" data-section="tasks">
       {(running.length > 0 || scheduled.length > 0) && (
-        <ul className="acpmux-chat-inspector-list">
-          {running.map((command) =>
+        <ul className="acpmux-chat-inspector-list" data-list-mode={listMode}>
+          {shownRunning.map((command) =>
             row(
               command,
               // A task only the transcript knows may not say when it started.
@@ -117,13 +130,20 @@ export function TasksSection({
               arrived.has(arrivalKey(command)),
             ),
           )}
-          {scheduled.map((wakeup) => (
+          {shownScheduled.map((wakeup) => (
             <li key={wakeup.id} className="acpmux-chat-inspector-task">
               <Icon name="task.status.started" size={ROW_ICON} row />
               <span className="acpmux-chat-inspector-task__command">{wakeup.text}</span>
               {wakeup.cron && <span className="acpmux-chat-inspector-task__time">{wakeup.cron}</span>}
             </li>
           ))}
+          {listMode === "view-all" && running.length + scheduled.length > TASKS_SHOWN && (
+            <li>
+              <button type="button" className="acpmux-chat-inspector-fold" onClick={() => setShowAll(!showAll)}>
+                {showAll ? t("summary.showFewer") : t("summary.viewAll", { n: running.length + scheduled.length })}
+              </button>
+            </li>
+          )}
         </ul>
       )}
       {finished.length > 0 && (
@@ -138,8 +158,8 @@ export function TasksSection({
             {t("rail.finished", { count: finished.length })}
           </button>
           {showFinished && (
-            <ul className="acpmux-chat-inspector-list" data-finished="">
-              {finished.map((command) =>
+            <ul className="acpmux-chat-inspector-list" data-finished="" data-list-mode={listMode}>
+              {shownFinished.map((command) =>
                 row(
                   command,
                   command.endedAt !== undefined && command.startedAt !== undefined
@@ -147,6 +167,17 @@ export function TasksSection({
                     : undefined,
                   t(COMMAND_STATE[command.state]),
                 ),
+              )}
+              {listMode === "view-all" && finished.length > TASKS_SHOWN && (
+                <li>
+                  <button
+                    type="button"
+                    className="acpmux-chat-inspector-fold"
+                    onClick={() => setFinishedAll(!finishedAll)}
+                  >
+                    {finishedAll ? t("summary.showFewer") : t("summary.viewAll", { n: finished.length })}
+                  </button>
+                </li>
               )}
             </ul>
           )}
