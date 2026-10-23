@@ -117,7 +117,7 @@ final class TopHomePageView: NSView {
             Task { _ = try? await store.perform(.setReadCursor(conversation: id, seq: row.summary.lastSeq)) }
         }
         list.onMarkUnread = { id in if id != HomeSidebarView.draftRowID { sidebar.setMarkedUnread(true, id) } }
-        // Usage… and Archive Chief on a Chief's row; Hide or Show Alerts on a DM or group's row, and for a group
+        // Usage…, Archive Chief and Delete Chief… on a Chief's row; Hide or Show Alerts on a DM or group's row, and for a group
         // Group Info, Rename, Add People and Leave (the same actions as the palette and the CLI).
         list.menuItems = { id in
             guard let row = home.homeStore.rows.first(where: { $0.id == id }) else { return [] }
@@ -131,8 +131,10 @@ final class TopHomePageView: NSView {
                 // Chief Usage (chief.openUsage) reads this Mac's Chiefs: left out in a build without one.
                 let usage = registry.unavailableReason(for: ChiefUsagePageTab.actionID) == nil
                     ? item(ChiefUsagePageTab.actionID, ChiefUsagePageTab.menuTitle) : []
-                guard let chief = row.summary.participants.lazy.compactMap({ home.directory.chief(for: $0.id) }).first else { return usage }
-                return usage + item("home.archiveChief", nil, ["chief": .string(chief.id)])
+                // Delete for any Chief but the default one; Archive for a cloud Chief (this Mac's have no archive).
+                let delete = home.deletableChief(of: row).map { item("home.deleteChief", nil, ["chief": .string($0.id)]) } ?? []
+                guard let chief = row.summary.participants.lazy.compactMap({ home.directory.chief(for: $0.id) }).first else { return usage + delete }
+                return usage + item("home.archiveChief", nil, ["chief": .string(chief.id)]) + delete
             }
             let conversation: [String: ActionValue] = ["conversation": .string(id.rawValue)]
             let actions = home.groupActions
