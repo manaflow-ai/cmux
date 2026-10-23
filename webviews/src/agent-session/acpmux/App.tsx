@@ -4924,7 +4924,7 @@ function AcpmuxPane() {
         },
       }),
       ...(forkable && {
-        fork: (throughSeq: number) => void callNative("chat.fork", { throughSeq }).catch(() => undefined),
+        fork: (throughSeq: number) => callNative("chat.fork", { throughSeq }),
         forkSeq,
         forkAny,
         promptTurns: stablePromptSeqs,

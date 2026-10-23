@@ -4,7 +4,7 @@
 // prompt's read receipt, Copy, Retry, Fork from here (its title and what it does), Pin, Read
 // aloud and More (the message's right-click menu), each glyph ROW_ICON px in a 24 px button. The rows show on hover or keyboard focus only,
 // with Claude's fade (conversation.css).
-import { useContext } from "react";
+import { useContext, useState } from "react";
 import { useMinuteClock } from "../clock";
 import { usePaneLanguage, useT } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -57,19 +57,47 @@ export function MessageCopy({ text }: { text: string }) {
 }
 
 /// Fork from here, with Claude's tooltip: the title, then that this chat stays as it is.
-export function ForkButton({ onFork }: { onFork(): void }) {
+export function ForkButton({ onFork }: { onFork(): Promise<unknown> }) {
   const t = useT();
+  const [state, setState] = useState<"idle" | "pending" | "error">("idle");
+  const pending = state === "pending";
+  const failed = state === "error";
+  const fork = () => {
+    if (pending) return;
+    setState("pending");
+    let request: Promise<unknown>;
+    try {
+      request = Promise.resolve(onFork());
+    } catch {
+      setState("error");
+      return;
+    }
+    void request.then(
+      (result) => setState(result === undefined || result === null || result === false ? "error" : "idle"),
+      () => setState("error"),
+    );
+  };
   return (
-    <button
-      type="button"
-      className="cv-iconbtn cv-iconbtn--compact"
-      aria-label={t("turn.fork")}
-      title={t("turn.fork")}
-      data-tooltip-detail={t("turn.forkDetail")}
-      onClick={onFork}
-    >
-      <TurnFork size={ROW_ICON} />
-    </button>
+    <>
+      <button
+        type="button"
+        className="cv-iconbtn cv-iconbtn--compact"
+        aria-label={t("turn.fork")}
+        aria-busy={pending}
+        data-fork-state={state}
+        title={failed ? t("notice.forkFailed") : t("turn.fork")}
+        {...(!failed ? { "data-tooltip-detail": t("turn.forkDetail") } : {})}
+        disabled={pending}
+        onClick={fork}
+      >
+        <TurnFork size={ROW_ICON} />
+      </button>
+      {failed && (
+        <span className="cv-fork-status" role="status" aria-live="polite">
+          {t("notice.forkFailed")}
+        </span>
+      )}
+    </>
   );
 }
 

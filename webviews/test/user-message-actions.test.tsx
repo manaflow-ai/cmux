@@ -74,7 +74,10 @@ test("a read prompt's row is Leo's: check, age, dot, Copy, Retry, Fork, each nam
   };
   await draw(row, {
     edit: { seqs: new Map([["user-4", 3]]), send: async () => true },
-    fork: (seq: number) => forked.push(seq),
+    fork: async (seq: number) => {
+      forked.push(seq);
+      return "session-1";
+    },
     forkAny: true,
     retry: (rowId: string, prompt: string) => sent.push([rowId, prompt]),
     // Fork goes through the prompt's own turn, the one its summary closes.
@@ -115,7 +118,7 @@ test("a read prompt's row is Leo's: check, age, dot, Copy, Retry, Fork, each nam
 test("a chat that cannot fork at a prompt hides Fork there rather than showing it disabled", async () => {
   await draw(
     { id: "user-2", version: 1, at: Date.now(), kind: "user", seq: 2, text: "First" },
-    { fork: () => {}, forkSeq: 9, promptTurns: new Map([["user-2", 3]]), retry: () => {} },
+    { fork: async () => "session-1", forkSeq: 9, promptTurns: new Map([["user-2", 3]]), retry: () => {} },
   );
   expect(labels()).toEqual(["Read by the agent", "just now", "·", "Copy", "Retry"]);
 });

@@ -2616,6 +2616,14 @@ a.cv-sha:focus-visible {
 .cv-turn-action-group:empty {
   display: none;
 }
+.cv-fork-status {
+  align-self: center;
+  margin-inline: 6px 4px;
+  color: var(--agent-danger);
+  font-size: var(--text-detail);
+  line-height: var(--cv-meta-row);
+  white-space: nowrap;
+}
 .cv-iconbtn {
   all: unset;
   box-sizing: border-box;
