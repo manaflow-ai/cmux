@@ -38,7 +38,15 @@ import { FileSearch } from "./FileSearch";
 import { ComposerBox, type ComposerBoxHandle } from "./ComposerBox";
 import { Icon } from "./icons/Icon";
 import { MentionMenu, mentionQuery, mentionResults, useMentionSearch } from "./MentionMenu";
-import { hasOtherChats, mentionInsert, mentionItems, mentionSelection, type MentionItem } from "./mentionItems";
+import {
+  hasOtherChats,
+  loadRecentMentionPaths,
+  mentionInsert,
+  mentionItems,
+  mentionSelection,
+  rememberMentionPath,
+  type MentionItem,
+} from "./mentionItems";
 import type { ContextMenuItem } from "../../ui/ContextMenu";
 import { openChipMenu } from "./composerChipMenu";
 import type { Choice } from "./ComposerPickers";
@@ -705,7 +713,13 @@ export function Composer({
     () =>
       mentionWord === undefined
         ? []
-        : mentionItems({ query: mentionWord, files: mentionFiles, sessions: snapshot.sessions, chatId }),
+        : mentionItems({
+            query: mentionWord,
+            files: mentionFiles,
+            recentPaths: loadRecentMentionPaths(),
+            sessions: snapshot.sessions,
+            chatId,
+          }),
     [mentionWord, mentionFiles, snapshot.sessions, chatId],
   );
   // A chat whose folder cannot be searched (a remote chat) opens the picker only on a matching
@@ -754,6 +768,7 @@ export function Composer({
   /// Writes the picked chat, folder or file over the `@word` being typed.
   const pickMention = (item: MentionItem) => {
     if (!mentionAt) return;
+    rememberMentionPath(item);
     const { markdown, shown } = mentionInsert(item);
     // Markdown doesn't show trailing whitespace, so what follows an end-of-prompt caret is dropped.
     const after = text.slice(markdownOffset(text, caret)).replace(/^\s+$/, "");

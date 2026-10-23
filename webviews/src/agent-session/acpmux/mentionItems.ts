@@ -19,6 +19,36 @@ export const MENTION_FOLDERS = 3;
 /// How much of a chat's title a word is matched against: a chat named for its first prompt has the
 /// whole prompt as its title, and a word deep in it says little about the chat.
 export const MENTION_TITLE_CHARS = 100;
+const RECENT_MENTION_PATHS_KEY = "cmux.acpmux.recentMentionPaths";
+const RECENT_MENTION_PATHS_LIMIT = 12;
+
+/// Recent paths are local UI memory, never sent to the host. They make a bare `@` useful before
+/// the first search and keep a picked file easy to add again in the next prompt.
+export function loadRecentMentionPaths(): string[] {
+  try {
+    const value: unknown = JSON.parse(localStorage.getItem(RECENT_MENTION_PATHS_KEY) ?? "[]");
+    return Array.isArray(value)
+      ? value
+          .filter((path): path is string => typeof path === "string" && path.length > 0)
+          .slice(0, RECENT_MENTION_PATHS_LIMIT)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+export function rememberMentionPath(item: MentionItem): void {
+  if (item.kind !== "file") return;
+  const next = [item.path, ...loadRecentMentionPaths().filter((path) => path !== item.path)].slice(
+    0,
+    RECENT_MENTION_PATHS_LIMIT,
+  );
+  try {
+    localStorage.setItem(RECENT_MENTION_PATHS_KEY, JSON.stringify(next));
+  } catch {
+    // Private windows and blocked storage keep the picker functional without recents.
+  }
+}
 
 /// `text` lowercased a character at a time, with the string index in `text` of the character each
 /// of its units comes from. Some characters lowercase to more units than they take (`İ` is one
@@ -186,17 +216,24 @@ export function mentionItems({
   files,
   sessions,
   chatId,
+  recentPaths = [],
 }: {
   query: string;
   files: readonly FileMatch[];
   sessions: readonly AcpmuxSessionEntry[];
   chatId?: string;
+  recentPaths?: readonly string[];
 }): MentionItem[] {
   const text = query.trim();
   const chats = sessionItems(sessions, chatId, text);
+  const known = new Set(files.map((file) => file.path));
+  const recent = recentPaths
+    .filter((path) => !known.has(path) && (!text || fuzzyIndices(text, path) !== undefined))
+    .map((path): FileMatch => ({ path, ...(text ? { matches: fuzzyIndices(text, path) } : {}) }));
+  const allFiles = [...recent, ...files];
   const paths = [
-    ...folderItems(files, text),
-    ...files.map((file): MentionItem => ({
+    ...folderItems(allFiles, text),
+    ...allFiles.map((file): MentionItem => ({
       kind: "file",
       key: `file:${file.path}`,
       path: file.path,

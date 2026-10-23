@@ -5738,7 +5738,7 @@ function AcpmuxPane() {
     );
   }, [showsWhatItIs, drewKeptTail]);
   const composerSnapshot = useMemo(() => {
-    const enabledCmuxActions = new Set<CmuxCommand["action"]>(["import"]);
+    const enabledCmuxActions = new Set<CmuxCommand["action"]>(["import", "model", "fast", "context", "plan"]);
     if (forkable && forkSeq !== undefined) enabledCmuxActions.add("fork");
     if (continueAvailable) enabledCmuxActions.add("continue");
     // A side session asks nothing aside: its composer answers in it.
@@ -7977,6 +7977,53 @@ function AcpmuxPane() {
             onUnsentDraft={quick ? undefined : postUnsentDraft}
             keptAttachments={quick ? undefined : keptAttachments}
             onCmuxCommand={(command, args) => {
+              const argument = args?.trim();
+              const passThrough = (name: string) =>
+                callNative("chat.send", { text: `/${name}${argument ? ` ${argument}` : ""}` });
+              if (command.action === "passThrough") return passThrough(command.name);
+              // GUI-native commands are available even when a harness does not advertise an ACP
+              // command. Arguments keep the harness form useful (`/model opus`, `/plan explain`).
+              if (command.action === "model") {
+                if (argument) return passThrough(command.name);
+                return openPicker(translate(PICKER_LABELS.model)) || passThrough(command.name);
+              }
+              if (command.action === "context") {
+                if (argument) return passThrough(command.name);
+                if (inspector.reveal) {
+                  inspector.reveal("context");
+                  return true;
+                }
+                return passThrough(command.name);
+              }
+              if (command.action === "plan") {
+                if (argument) return passThrough(command.name);
+                const modes = snapshot.summary?.modes?.availableModes ?? [];
+                const plan = modes.find((mode) => /(^|[-_])plan$/i.test(mode.id));
+                if (plan) {
+                  const build = modes.find((mode) => !/(^|[-_])plan$/i.test(mode.id));
+                  return callNative("chat.mode", {
+                    modeId: snapshot.summary?.modes?.currentModeId === plan.id ? (build?.id ?? plan.id) : plan.id,
+                  });
+                }
+                return passThrough(command.name);
+              }
+              if (command.action === "fast") {
+                if (argument) return passThrough(command.name);
+                const option = snapshot.summary?.configOptions?.find(
+                  (entry) => entry.id === "fast-mode" || /fast[ _-]?mode/i.test(entry.name ?? ""),
+                );
+                if (option) {
+                  const off =
+                    option.options.find((choice) => /^(off|false|disabled)$/i.test(choice.value))?.value ??
+                    option.options[0]?.value;
+                  const on =
+                    option.options.find((choice) => /^(on|true|enabled|fast|priority)$/i.test(choice.value))?.value ??
+                    option.options.find((choice) => choice.value !== off)?.value;
+                  const next = option.currentValue === off ? on : off;
+                  if (next) return callNative("chat.effort", { configId: option.id, value: next });
+                }
+                return passThrough(command.name);
+              }
               if (command.action === "btw") {
                 const question = args?.trim();
                 const sessionId = snapshot.sessionId;

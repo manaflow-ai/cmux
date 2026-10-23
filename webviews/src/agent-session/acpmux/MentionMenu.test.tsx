@@ -133,6 +133,19 @@ test("a bare @ offers the most recent other chats before anything is typed", asy
   ]);
 });
 
+test("a bare @ also offers recently picked files, and a query fuzzy-matches them", () => {
+  const recent = mentionItems({
+    query: "",
+    files: [],
+    recentPaths: ["docs/README.md", "src/app.ts"],
+    sessions: [],
+  });
+  expect(recent.map((item) => item.key)).toEqual(["file:docs/README.md", "file:src/app.ts"]);
+  expect(
+    mentionItems({ query: "rmd", files: [], recentPaths: ["docs/README.md"], sessions: [] }).map((item) => item.key),
+  ).toEqual(["file:docs/README.md"]);
+});
+
 test("picking a row hands back the row, and each kind writes what the agent reads", async () => {
   const container = installDom();
   const items = mentionItems({
