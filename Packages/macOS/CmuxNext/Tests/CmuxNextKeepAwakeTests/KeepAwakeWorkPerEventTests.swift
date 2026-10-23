@@ -59,6 +59,36 @@ struct KeepAwakeWorkPerEventTests {
                 "the agent work check tracked every workspace's screens and every pane's tabs (O(all) per tab-list change)")
     }
 
+    /// A working agent's title tick (or a shell's preexec title) reaches the store as the tab's
+    /// tab-changed, which indexes the tab again: the same record leaves and rejoins the index in
+    /// one write, so the set of tabs with a status fact does not move and the check stays asleep.
+    @Test func aRenameOfAWorkingTabDoesNotWakeTheAgentWorkCheck() throws {
+        let store = try Self.liveStore(workspaces: 2, tabs: 2)
+        let workspace = try #require(store.workspaces.first)
+        let screen = try #require(workspace.screens.first)
+        let pane = try #require(screen.panes.first)
+        let working = try #require(pane.tabs.first)
+        working.setAgent(AgentStatus(surface: working.surface, state: .working))
+
+        let reached = OSAllocatedUnfairLock(initialState: false)
+        let isWorking = withObservationTracking {
+            KeepAwakeService.agentsWorking(store)
+        } onChange: {
+            reached.withLock { $0 = true }
+        }
+        #expect(isWorking)
+
+        for title in ["⠋ claude", "⠙ claude", "⠹ claude"] {
+            let delta = TabDelta(workspace: workspace.handle, screen: screen.handle, pane: pane.handle, surface: working.surface,
+                                 index: nil, entity: TabSnapshot(surface: working.surface, title: title))
+            #expect(store.apply(.tabChanged(delta)) == DaemonStore.Followup.none)
+        }
+        #expect(working.title == "⠹ claude", "the rename did not reach the tab")
+        #expect(KeepAwakeService.agentsWorking(store), "a renamed working tab stopped counting")
+        #expect(!reached.withLock { $0 },
+                "a rename reindexed the working tab and rewrote the status-fact set (the keep-awake check woke)")
+    }
+
     /// The narrow read keeps the answer: a tab whose agent starts working holds the Mac awake,
     /// and the hold goes when it stops or its tab leaves the tree.
     @Test func aTabWhoseAgentWorksHoldsAndLetsGo() throws {
