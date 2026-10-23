@@ -18,6 +18,8 @@ enum AgentPanePageHost {
                                chromium: chromium,
                                // Its rates (`.full`, `.capped`) never follow Low Power Mode; the pane sets them.
                                lowPowerMode: LowPowerMode(enabled: false))
+        // The pane's pacer holds a hidden pane's frames itself and still sends the ones the page waits on.
+        page?.holdsEventsWhileHidden = false
         // The composer menu's edits run as the page view's own responder actions.
         provider.onEdit = { [weak page] command in page?.performEdit(command.selector) }
         return page

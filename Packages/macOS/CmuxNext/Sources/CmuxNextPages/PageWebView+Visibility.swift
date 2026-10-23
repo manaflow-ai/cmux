@@ -7,9 +7,10 @@ import AppKit
 /// Either engine: the router feeds WebKit and Chromium pages alike.
 @MainActor
 extension PageWebView {
-    /// Tells the router whether nobody can see the page now. Showing it sends the waiting events.
+    /// Tells the router whether nobody can see the page now (never, for a page that does not hold
+    /// its events, ``holdsEventsWhileHidden``). Showing it sends the waiting events.
     func updatePageVisibility() {
-        let hidden = Self.nobodySees(self, ignoringOcclusion: Self.ignoresOcclusion)
+        let hidden = holdsEventsWhileHidden && Self.nobodySees(self, ignoringOcclusion: Self.ignoresOcclusion)
         if router.isPageHidden != hidden { router.isPageHidden = hidden }
     }
 
