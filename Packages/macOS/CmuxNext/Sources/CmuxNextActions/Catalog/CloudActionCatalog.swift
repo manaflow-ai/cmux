@@ -167,6 +167,14 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
             ActionDescriptor(id: "cloudFirewallDelete", title: "Delete Cloud Firewall Rule", keywords: ["cloud", "firewall", "network"], category: .cloud, symbol: "shield.slash", surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.pathString, CatalogArgument.confirmBool], cliName: "cloud firewall-delete", destructive: true),
             ActionDescriptor(id: "cloudDomainList", title: "List Cloud Domains", keywords: ["cloud", "domain", "dns", "verify"], category: .cloud, symbol: "globe", surfaces: [.palette], cliName: "cloud domain-list"),
             ActionDescriptor(id: "cloudPublicationList", title: "List Cloud Publications", keywords: ["cloud", "domain", "publication", "tls"], category: .cloud, symbol: "globe.americas", surfaces: [.palette], cliName: "cloud publication-list"),
+            // Read only: a CLI or agent run answers the app's own machine list (the sidebar's
+            // Cloud machines) as `result`; a person's run shows the Cloud sidebar.
+            ActionDescriptor(
+                id: "cloudListMachines",
+                title: String(localized: "action.cloudListMachines", defaultValue: "List Cloud Machines", bundle: .module),
+                keywords: ["vm", "cloud", "machines", "list", "inventory"], category: .cloud, symbol: "list.bullet.rectangle",
+                surfaces: [.palette], cliName: "cloud list-machines"
+            ),
             ActionDescriptor(
                 id: "cloudNewTerminal",
                 title: String(localized: "action.cloudNewTerminal", defaultValue: "New Terminal on Machine", bundle: .module),
@@ -282,7 +290,7 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
             "cloudFileRemove", "cloudFileStat", "cloudPrepareSCP",
             "cloudTunnelAttach", "cloudTunnelDetach", "cloudTunnelRotateKey", "cloudNetworkList",
             "cloudFirewallList", "cloudFirewallGet", "cloudFirewallCreate", "cloudFirewallDelete",
-            "cloudDomainList", "cloudPublicationList",
+            "cloudDomainList", "cloudPublicationList", "cloudListMachines",
             // A CLI or agent run answers with the result: the machine's facts, the command's
             // output, the new machine's or workspace's id (CloudHandlers+Results.swift).
             "palette.cloud.status", "palette.cloud.ports", "palette.cloud.tools", "palette.cloud.handoff",
