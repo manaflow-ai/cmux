@@ -16,6 +16,32 @@ import CmuxNextTabs
 enum TabMoves {
     typealias Completion = @MainActor (Bool) -> Void
 
+    /// A move onto a pending create's stand-in (a tab or group dropped on the pane New Column, New
+    /// Row or Cmd-D just made, during its motion), or after a stand-in column: the daemon refuses
+    /// a stand-in's handle, so the move runs again with the daemon's pane and column once they
+    /// arrived (``DaemonStore/daemonTarget(for:)``, ``DaemonStore/daemonColumnTarget(column:heights:)``),
+    /// or fails when that create was refused or closed. Returns true when it deferred `rerun`;
+    /// a move on daemon objects runs on at once.
+    static func deferredToDaemonPane(_ pane: PaneModel, afterColumn: DaemonColumnID? = nil, of daemon: DaemonService,
+                                     completion: @escaping Completion,
+                                     _ rerun: @escaping @MainActor (PaneModel, DaemonColumnID?) -> Void) -> Bool {
+        let store = daemon.store
+        guard store.isStandIn(pane.handle) || afterColumn.map({ store.isStandIn(column: $0) }) == true else { return false }
+        let handle = pane.handle
+        Task {
+            do {
+                let target = try await store.daemonTarget(for: handle)
+                var column = afterColumn
+                if let afterColumn { column = try await store.daemonColumnTarget(column: afterColumn, heights: []).column }
+                guard let model = store.pane(target) else { return completion(false) }
+                rerun(model, column)
+            } catch {
+                completion(false)
+            }
+        }
+        return true
+    }
+
     /// Reorder or cross-pane move to `index` (final display index), shown
     /// at once as an intent in the store's intent log.
     static func move(_ tab: TabModel, to pane: PaneModel, index: Int, services: AppServices,
@@ -25,6 +51,9 @@ enum TabMoves {
         guard services.daemon(for: pane) === daemon else { return refuseOtherMachine(services, completion) }
         guard !refusesIncognitoCrossing(tab, to: pane, services: services),
               !ChatDockRules.refusesMove(tab, to: pane, services: services) else { return completion(false) }
+        if deferredToDaemonPane(pane, of: daemon, completion: completion, { pane, _ in
+            move(tab, to: pane, index: index, services: services, transaction: transaction, completion: completion)
+        }) { return }
         let surface = tab.surface, target = pane.handle
         let current = pane.tabs.firstIndex { $0.surface == surface }
         let wire = TabMoveIndex.wireIndex(finalIndex: index, currentIndex: current)
@@ -83,6 +112,10 @@ enum TabMoves {
         // Workspaces never mix machines: a drop onto another machine's pane is refused.
         guard services.daemon(for: pane) === daemon else { return refuseOtherMachine(services, completion) }
         guard !refusesIncognitoCrossing(tab, to: pane, services: services) else { return completion(false) }
+        if deferredToDaemonPane(pane, of: daemon, completion: completion, { pane, _ in
+            toNewSplit(tab, pane: pane, edge: edge, services: services, respawn: respawn, roomDecided: roomDecided,
+                       keepFocus: keepFocus, transaction: transaction, completion: completion)
+        }) { return }
         // Its own pane's only tab on that pane's edge (every entry point): the New Tab page opens behind it.
         if respawn == nil, let source = services.locateTab(tab.id)?.1, source.handle == pane.handle, source.tabs.count == 1 { return splitBehind(pane, edge: edge, services: services, completion: completion) }
         // With a respawn the source pane stays (it gets the new tab).
@@ -132,6 +165,10 @@ enum TabMoves {
         // Workspaces never mix machines: a drop onto another machine's pane is refused.
         guard services.daemon(for: pane) === daemon else { return refuseOtherMachine(services, completion) }
         guard !refusesIncognitoCrossing(tab, to: pane, services: services) else { return completion(false) }
+        if deferredToDaemonPane(pane, afterColumn: afterColumn, of: daemon, completion: completion, { pane, afterColumn in
+            toNewColumn(tab, anchor: pane, afterColumn: afterColumn, services: services, keepFocus: keepFocus,
+                        transaction: transaction, completion: completion)
+        }) { return }
         let surface = tab.surface, paneHandle = pane.handle
         let echoes = daemon.supports(DaemonCapabilities.tabDrag)
         let spawn = services.newColumnWidth(nextTo: pane, movingFrom: services.locateTab(tab.id)?.1)
@@ -173,6 +210,10 @@ enum TabMoves {
         guard services.daemon(for: pane) === daemon, daemon.supports(DaemonCapabilities.dockColumns),
               !edge.isBand || daemon.supports(DaemonCapabilities.edgeDocks),
               !refusesIncognitoCrossing(tab, to: pane, services: services) else { return completion(false) }
+        if deferredToDaemonPane(pane, of: daemon, completion: completion, { pane, _ in
+            toNewDockColumn(tab, anchor: pane, edge: edge, mode: mode, role: role, width: width, respawn: respawn,
+                            pinned: pinned, services: services, transaction: transaction, completion: completion)
+        }) { return }
         let surface = tab.surface, paneHandle = pane.handle
         let overlay = mode.map { $0 == .overlay } ?? (DesignSettings.shared.dockColumnMode == .overlay)
         let pin = DockSnapshot(edge: DockSnapshot.Edge(rawValue: edge.rawValue) ?? .right, mode: overlay ? .overlay : .docked,

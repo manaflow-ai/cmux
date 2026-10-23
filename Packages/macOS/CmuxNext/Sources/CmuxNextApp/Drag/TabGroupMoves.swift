@@ -15,6 +15,9 @@ enum TabGroupMoves {
         guard let daemon = owner(of: group, target: pane, services: services),
               !refusesIncognitoCrossing(group, to: pane, services: services),
               !ChatDockRules.refusesGroupMove(to: pane, services: services) else { return completion(false) }
+        if TabMoves.deferredToDaemonPane(pane, of: daemon, completion: completion, { pane, _ in
+            move(group, to: pane, index: index, services: services, transaction: transaction, completion: completion)
+        }) { return }
         let target = pane.handle
         run("move-tab-group", daemon: daemon, completion: completion) { connection in
             _ = try await connection.moveTabGroup(group, to: target, index: index, transaction: transaction)
@@ -27,6 +30,10 @@ enum TabGroupMoves {
                            emptying: PaneModel? = nil, transaction: ClientTransactionID, completion: @escaping Completion) {
         guard let daemon = owner(of: group, target: pane, services: services),
               !refusesIncognitoCrossing(group, to: pane, services: services) else { return completion(false) }
+        if TabMoves.deferredToDaemonPane(pane, of: daemon, completion: completion, { pane, _ in
+            toNewSplit(group, pane: pane, edge: edge, services: services, roomDecided: roomDecided, emptying: emptying,
+                       transaction: transaction, completion: completion)
+        }) { return }
         let decision = ChatDockRules.dropSplit(roomDecided: roomDecided, intoChatDock: ChatDockRules.isChatDock(pane, services: services)) {
             services.splitRoom(for: pane, edge: edge)
         }
@@ -49,6 +56,9 @@ enum TabGroupMoves {
                             transaction: ClientTransactionID, completion: @escaping Completion) {
         guard let daemon = owner(of: group, target: pane, services: services),
               !refusesIncognitoCrossing(group, to: pane, services: services) else { return completion(false) }
+        if TabMoves.deferredToDaemonPane(pane, afterColumn: afterColumn, of: daemon, completion: completion, { pane, afterColumn in
+            toNewColumn(group, anchor: pane, afterColumn: afterColumn, services: services, transaction: transaction, completion: completion)
+        }) { return }
         let target = pane.handle
         let spawn = services.newColumnWidth(nextTo: pane)
         let width = spawn.width
