@@ -75,8 +75,10 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
         return .loaded(snapshot)
     }
 
+    /// Decodes without the import guard: the app's own snapshot and its
+    /// backups are trusted, and a large real session must still load so the
+    /// restore budget can trim it. Imports scan first (`importableSnapshot`).
     private func decodedSnapshot(from data: Data) -> SnapshotValue? {
-        guard Self.jsonIsWithinDecodeLimits(data) else { return nil }
         let decoder = JSONDecoder()
         for (key, value) in decoderUserInfo {
             decoder.userInfo[key] = value
@@ -161,10 +163,11 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
     /// (scrollback included) are a few MiB at most.
     static var maximumImportableSnapshotBytes: Int64 { 256 * 1024 * 1024 }
 
-    /// Lexical limits applied before Foundation materializes the Codable graph.
-    /// The layout model is recursive, so post-decode caps alone are too late
-    /// to protect the process from deeply nested JSON or from a structure
-    /// large enough to build millions of objects. String length is not
+    /// Lexical limits applied to an imported file before Foundation
+    /// materializes the Codable graph, so an arbitrary file can't build
+    /// millions of objects. Only imports are scanned: real snapshots run about
+    /// 110-345 tokens per panel, so a large own session can exceed these and
+    /// must still load for the restore budget to trim. String length is not
     /// limited: the file size already bounds it, and the app's own snapshot
     /// may legitimately hold a large draft or scrollback string.
     // Generic types cannot declare static stored properties on the Swift
