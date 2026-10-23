@@ -45,6 +45,9 @@ parser.add_argument("--tag", required=True)
 parser.add_argument("--out", default="/tmp")
 parser.add_argument("--mode", default="on", choices=["on", "off"])
 parser.add_argument("--keep", action="store_true", help="leave the app running")
+parser.add_argument("--input", default="hid", choices=["hid", "debug"],
+                    help="hid: real CGEvents (nx-remote --needs input); debug: debug.mouse/debug.key into the app's queue "
+                         "(any GUI slot; proves the page window takes AppKit's events, not the WindowServer's routing)")
 parser.add_argument("--checks", default="all", choices=["all", "hosted"], help="hosted: only the valid and hosted rows")
 parser.add_argument("--tunables", default="scratch", choices=["scratch", "build"],
                     help="build: set the tunable in the build's own debug-tunables.json (what the benches read)")
@@ -153,7 +156,28 @@ def post(event):
     time.sleep(0.02)  # test harness: the WindowServer delivers in order
 
 
+DEBUG_MOUSE = {5: "move", 1: "down", 2: "up", 6: "drag", 3: "down", 4: "up"}
+
+
+def to_window(point):
+    """A global top-left display point in the cmux window's top-left points (debug.mouse)."""
+    main = CG.CGDisplayBounds(CG.CGMainDisplayID())
+    for window in (rpc("debug.layers") or {}).get("windows") or []:
+        wx, wy, ww, wh = window.get("frame") or [0, 0, 0, 0]
+        return point[0] - wx, point[1] - (main.size.y - wy - wh)
+    return point
+
+
 def hid_mouse(kind, point, button=0):
+    if opts.input == "debug":
+        x, y = to_window(point)
+        params = {"action": DEBUG_MOUSE[kind], "x": x, "y": y}
+        if kind in (3, 4):
+            params["button"] = "right"
+        if kind == 6:
+            params = {"action": "drag", "x": x, "y": y, "to_x": x, "to_y": y, "steps": 1, "press": False, "release": False}
+        rpc("debug.mouse", params)
+        return
     post(CG.CGEventCreateMouseEvent(None, kind, CGPoint(*point), button))
 
 
@@ -165,6 +189,9 @@ def hid_click(point, right=False):
 
 
 def hid_key(name):
+    if opts.input == "debug":
+        rpc("debug.key", {"key": name})
+        return
     for down in (True, False):
         post(CG.CGEventCreateKeyboardEvent(None, KEYCODES[name], down))
 
@@ -367,7 +394,11 @@ def main():
         sp = screen_point(0.5, 0.8)
         hid_mouse(5, sp)
         for _ in range(10):
-            post(CG.CGEventCreateScrollWheelEvent(None, 0, 1, -40))  # pixel units, one wheel
+            if opts.input == "debug":
+                x, y = to_window(sp)
+                rpc("debug.mouse", {"action": "scroll", "x": x, "y": y, "dy": -40})
+            else:
+                post(CG.CGEventCreateScrollWheelEvent(None, 0, 1, -40))  # pixel units, one wheel
             time.sleep(1 / 60)  # test harness: one wheel event per frame
         scrolled = wait(lambda: page("window.scrollY"), 3)
         row("scroll", (scrolled or 0) > 0, {"scrollY": scrolled})
