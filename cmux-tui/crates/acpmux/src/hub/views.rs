@@ -2,6 +2,8 @@
 
 use super::*;
 
+mod host_load;
+
 /// The tag naming the session whose agent started this one (`Hub::spawned_by`).
 pub const SPAWNED_BY_TAG: &str = "spawnedBy";
 

@@ -1,9 +1,13 @@
-//! Part of `Hub`; see `hub/mod.rs`. The host's CPU and RAM budget as this daemon
+//! Part of `Hub` (`hub/views.rs`). The host's CPU and RAM budget as this daemon
 //! reports it (`host_pressure.rs`), with its own share of the load. Only this
 //! daemon's sessions count: a peer's turns are that peer's load, and its daemon
 //! reports them. Warns only; nothing is refused, queued or held.
 
-use super::*;
+use crate::host_pressure::Meter;
+use crate::hub::*;
+
+/// A turn's acceptance callback (`PromptOptions::on_accepted`).
+type Accepted = Box<dyn FnOnce(Value) + Send>;
 
 /// How many sessions `host_pressure.top` names.
 const TOP: usize = 5;
@@ -12,12 +16,12 @@ impl Hub {
     /// `daemon status`'s `host_pressure`: the verdict, the turns and background
     /// processes running here, and the sessions with the most of them. Waits at most
     /// `host_pressure::SAMPLE_WAIT` for a sample; with none yet, `ok` is null.
-    pub(super) async fn host_pressure_status(&self) -> Value {
-        let verdict = self.host_pressure.current().await;
+    pub(in crate::hub) async fn host_pressure_status(&self) -> Value {
+        let verdict = Meter::shared().current().await;
         let mut v = match verdict.and_then(|v| serde_json::to_value(v).ok()) {
             Some(v) => v,
             None => {
-                json!({"host": self.host_pressure.host(), "ok": null, "over": [], "warning": null})
+                json!({"host": Meter::shared().host(), "ok": null, "over": [], "warning": null})
             }
         };
         let mut top = Vec::new();
@@ -47,10 +51,21 @@ impl Hub {
         v
     }
 
-    /// The verdict, for a turn's acceptance, while the host is over budget. Never
-    /// waits (`Meter::peek`).
-    pub(super) fn host_pressure_warning(&self) -> Option<Value> {
-        let v = self.host_pressure.peek().filter(|v| !v.ok)?;
-        serde_json::to_value(v).ok()
+    /// Wraps a turn's `on_accepted` so its acceptance carries the verdict while the
+    /// host is over budget: whoever sent it hears so. Reads the verdict now and never
+    /// waits (`Meter::peek`): an await before acceptance would let a later prompt
+    /// overtake this one.
+    pub(in crate::hub) fn with_host_pressure(&self, f: Option<Accepted>) -> Option<Accepted> {
+        let f = f?;
+        let over = Meter::shared().peek().filter(|v| !v.ok);
+        let Some(pressure) = over.and_then(|v| serde_json::to_value(v).ok()) else {
+            return Some(f);
+        };
+        Some(Box::new(move |mut v: Value| {
+            if let Some(obj) = v.as_object_mut() {
+                obj.insert("host_pressure".into(), pressure);
+            }
+            f(v);
+        }))
     }
 }

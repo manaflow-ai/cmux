@@ -4,7 +4,7 @@
 
 use super::{Budget, HostProbe, Probe, Verdict, evaluate, host_name, load_budget};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 /// How long a request waits for a sample before it takes the last verdict.
@@ -47,9 +47,13 @@ impl Drop for Sampling<'_> {
 }
 
 impl Meter {
-    /// This host, its own probe, and the override file read at each fresh sample.
-    pub fn for_this_host() -> Self {
-        Self::new(host_name(), Box::new(HostProbe), Box::new(load_budget))
+    /// This host's one meter, shared by the process: the budget is the host's, not a
+    /// daemon's. Its probe and the override file are read at each fresh sample.
+    pub fn shared() -> &'static Arc<Meter> {
+        static SHARED: OnceLock<Arc<Meter>> = OnceLock::new();
+        SHARED.get_or_init(|| {
+            Arc::new(Self::new(host_name(), Box::new(HostProbe), Box::new(load_budget)))
+        })
     }
 
     pub fn new(
