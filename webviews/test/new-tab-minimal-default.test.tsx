@@ -1,5 +1,8 @@
 // New Tab opens on Minimal (Leo 2026-10-20: "only do the composer for the default"), a layout of
-// its own beside the others: a quiet greeting and the composer, which keeps its project strip. The
+// its own beside the others: the composer, which keeps its project strip, and no greeting (Leo
+// 2026-10-22: "new tab page let's have no greeting text by default... maybe as toggle but as useful
+// toggle"). The toggle (`tabs.newTabWidgets.greeting`) draws a headline that asks what to work on,
+// with the project as an inline picker, never a time-of-day greeting. The
 // project card, the quick actions, the recent chats and the template dots are Minimal's widgets
 // (`tabs.newTabWidgets.*`, newtab/pageWidgets.ts), off until the user turns them on. The page has
 // no Search | Ask switch (new-tab-auto-action.test.tsx), with or without the widgets. The other
@@ -18,7 +21,6 @@ import {
 } from "../src/agent-session/acpmux/newtab/templates";
 import {
   PAGE_WIDGETS,
-  greetingKey,
   parsePageWidgets,
   shownPageWidgets,
   type PageWidget,
@@ -73,10 +75,10 @@ afterAll(() => {
 });
 
 const noop = () => {};
-// 9:30 local time: the morning greeting.
+// 9:30 local time, when the page once said "Good morning".
 const MORNING = new Date(2026, 9, 20, 9, 30).getTime();
 
-async function render(template: ScreenTemplate, widgets: readonly PageWidget[] | undefined) {
+async function render(template: ScreenTemplate, widgets: readonly PageWidget[] | undefined, startCwd?: string) {
   const { createRoot } = await import("react-dom/client");
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
   const root: Root = createRoot(host);
@@ -89,6 +91,7 @@ async function render(template: ScreenTemplate, widgets: readonly PageWidget[] |
         snapshot={noChat(manySessions(12))}
         lastAgent="claude"
         cwd="/Users/you/src/atlas"
+        {...(startCwd ? { startCwd } : {})}
         projects={[{ cwd: "/Users/you/src/atlas", label: "atlas" }]}
         loadChatsPage={async () => ({ ready: true, chats: [] })}
         onOpenChat={noop}
@@ -108,7 +111,7 @@ async function render(template: ScreenTemplate, widgets: readonly PageWidget[] |
 
 const parts = () => ({
   minimal: host.querySelector(".nt-screen")?.hasAttribute("data-minimal") ?? false,
-  greeting: host.querySelector(".nt-greeting")?.textContent ?? null,
+  headline: host.querySelector(".nt-headline-text")?.textContent ?? null,
   stage: host.querySelectorAll(".nt-stage").length,
   projects: host.querySelectorAll(".nt-env").length,
   actions: host.querySelectorAll(".nt-suggest, .nt-create").length,
@@ -122,18 +125,44 @@ test("Minimal is the default layout and the first dot; no other layout is gone",
   expect(PAGE_STYLES).toEqual(["minimal", "cards", "default", "composer", "threads", "console", "classic"]);
 });
 
-test("Minimal is the greeting and the composer, with its project strip", async () => {
-  const root = await render("minimal", ["greeting"]);
+test("by default Minimal is the composer alone, with its project strip and no greeting", async () => {
+  const root = await render("minimal", undefined);
   try {
     expect(parts()).toEqual({
       minimal: true,
-      greeting: "Good morning",
+      headline: null,
       stage: 0,
       projects: 0,
       actions: 0,
       chats: 0,
       strip: 1,
     });
+    // No greeting of any kind: no greeting element, no time-of-day text.
+    expect(host.querySelector(".nt-greeting")).toBeNull();
+    expect(host.textContent).not.toMatch(/Good (morning|afternoon|evening)/);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("the toggle draws a useful headline: what to work on, with the project as an inline picker", async () => {
+  // The host's start folder is the project the composer's strip names, so the headline names it too.
+  let root = await render("minimal", ["greeting"], "/Users/you/src/atlas");
+  try {
+    expect(parts()).toMatchObject({ minimal: true, headline: "What should we work on in atlas?", strip: 1 });
+    // The project's name is the picker, inside the question (ProjectChooser inline).
+    const picker = host.querySelector<HTMLButtonElement>(".nt-headline-text .acpmux-project-button");
+    expect(picker?.textContent).toBe("atlas");
+    expect(picker?.getAttribute("aria-haspopup")).toBeTruthy();
+    expect(host.textContent).not.toMatch(/Good (morning|afternoon|evening)/);
+  } finally {
+    await act(async () => root.unmount());
+  }
+  // No project yet: the question, and Choose project under it.
+  root = await render("minimal", ["greeting"]);
+  try {
+    expect(parts().headline).toBe("What should we work on?");
+    expect(host.querySelector(".nt-headline-choose .acpmux-project-button")).not.toBeNull();
   } finally {
     await act(async () => root.unmount());
   }
@@ -150,7 +179,7 @@ test("Minimal's widgets turned on take Default's stage around the composer", asy
   }
   root = await render("minimal", ["chats"]);
   try {
-    expect(parts()).toMatchObject({ minimal: false, greeting: null, stage: 1, projects: 0, actions: 0 });
+    expect(parts()).toMatchObject({ minimal: false, headline: null, stage: 1, projects: 0, actions: 0 });
     expect(parts().chats).toBeGreaterThan(0);
   } finally {
     await act(async () => root.unmount());
@@ -161,7 +190,7 @@ test("the other layouts ignore Minimal's widgets and draw what they always drew"
   for (const template of ["cards", "threads", "default"] as const) {
     const root = await render(template, ["greeting"]);
     try {
-      expect(parts(), template).toMatchObject({ minimal: false, greeting: null });
+      expect(parts(), template).toMatchObject({ minimal: false, headline: null });
       expect(parts().chats, template).toBeGreaterThan(0);
     } finally {
       await act(async () => root.unmount());
@@ -176,20 +205,7 @@ test("the handshake's pageWidgets: known names in order, Settings' defaults when
   expect(newTabHost({ newTab: { pageWidgets: ["chats"] } })?.pageWidgets).toEqual(["chats"]);
   expect(newTabHost({ newTab: { pageWidgets: [] } })?.pageWidgets).toEqual([]);
   expect(newTabHost({ newTab: {} })?.pageWidgets).toBeUndefined();
-  expect([...shownPageWidgets("minimal")]).toEqual(["greeting"]);
+  expect([...shownPageWidgets("minimal")]).toEqual([]);
   expect([...shownPageWidgets("minimal", [])]).toEqual([]);
   expect([...shownPageWidgets("cards", ["greeting"])]).toEqual(PAGE_WIDGETS.filter((widget) => widget !== "greeting"));
-});
-
-test("the greeting follows the hour", () => {
-  expect([4, 5, 11, 12, 17, 18, 23, 0].map(greetingKey)).toEqual([
-    "greeting.evening",
-    "greeting.morning",
-    "greeting.morning",
-    "greeting.afternoon",
-    "greeting.afternoon",
-    "greeting.evening",
-    "greeting.evening",
-    "greeting.evening",
-  ]);
 });

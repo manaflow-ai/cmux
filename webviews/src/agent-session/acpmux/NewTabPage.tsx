@@ -117,7 +117,7 @@ export type NewTabHost = {
   /// The widget view under the composer (Debug Settings `newTab.widgets`, newtab/WidgetCards.tsx).
   widgets?: boolean;
   /// The Minimal layout's widgets the user turned on (`tabs.newTabWidgets.*`, newtab/pageWidgets.ts);
-  /// unset is Settings' defaults (the greeting).
+  /// unset is Settings' defaults (none: the composer alone).
   pageWidgets?: PageWidget[];
   /// The page lists only its own connection's chats, not the store every page shares (Debug
   /// Settings `newTab.privateChatLists`, newtab/chatStore.ts).

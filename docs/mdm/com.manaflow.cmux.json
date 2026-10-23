@@ -4122,9 +4122,9 @@
       "type" : "boolean"
     },
     "tabs.newTabWidgets.greeting" : {
-      "default" : true,
-      "description" : "A short greeting over the composer.",
-      "title" : "Show Greeting on New Tab",
+      "default" : false,
+      "description" : "A headline over the composer that asks what to work on, with the project as a picker.",
+      "title" : "Ask What to Work On on New Tab",
       "type" : "boolean"
     },
     "tabs.newTabWidgets.order" : {
