@@ -7,7 +7,7 @@ struct FeedRoot: View {
     let model: FeedModel
     let appearance: FeedAppearance
     var layoutOverride: FeedLayout?
-    var onReportsReply: (@MainActor (String, String) -> Void)? = nil
+    var onReportsReply: (@MainActor (String, String) -> Bool)? = nil
 
     var body: some View {
         FeedView(model: model, layout: layoutOverride ?? FeedTunables.layout.value, onReportsReply: onReportsReply)
@@ -21,7 +21,7 @@ struct FeedRoot: View {
 struct FeedView: View {
     let model: FeedModel
     let layout: FeedLayout
-    let onReportsReply: (@MainActor (String, String) -> Void)? = nil
+    let onReportsReply: (@MainActor (String, String) -> Bool)? = nil
     @Environment(\.feedColors) private var colors
 
     var body: some View {

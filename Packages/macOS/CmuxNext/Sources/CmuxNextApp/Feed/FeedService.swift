@@ -114,7 +114,10 @@ final class FeedService {
     /// Starts the mirror when signed in; the panel and requests call it again (after a sign-in).
     func startIfSignedIn() {
         guard !started else {
-            if auth.isSignedIn { source.setPresence(active: NSApp.isActive) }
+            if auth.isSignedIn {
+                startReportsIfNeeded()
+                source.setPresence(active: NSApp.isActive)
+            }
             return
         }
         account = auth.user?.id
@@ -176,7 +179,14 @@ final class FeedService {
 
     private var githubEnabled = false
 
-    private static let reportsRecipient = "reports:leo"
+    /// The signed-in account owns its own local alias. Using the stable auth
+    /// id keeps a second account from reading Leo's reports mailbox.
+    private var reportsRecipient: String? {
+        guard let person = auth.user?.id.trimmingCharacters(in: .whitespacesAndNewlines), !person.isEmpty else {
+            return nil
+        }
+        return "reports:\(person)"
+    }
 
     private func resetReports() {
         reportsTask?.cancel()
@@ -190,7 +200,8 @@ final class FeedService {
     /// mailbox wait is event-driven; quiet delivery notifies this reader but
     /// never wakes the sender's ACP turn.
     private func startReportsIfNeeded() {
-        guard reportsTask == nil, let socketPath = acpmuxEnvironment?.socketPath else { return }
+        guard auth.isSignedIn, reportsTask == nil, let socketPath = acpmuxEnvironment?.socketPath,
+              let reportsRecipient else { return }
         let client = reportsClient
         reportsTask = Task { [weak self] in
             guard let self else { return }
@@ -198,7 +209,7 @@ final class FeedService {
                 do {
                     let page = try await client.wait(
                         socketPath: socketPath,
-                        recipient: Self.reportsRecipient,
+                        recipient: reportsRecipient,
                         after: self.reportsCursor
                     )
                     applyReports(page)
