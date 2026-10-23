@@ -304,7 +304,7 @@ public final class LayoutModel {
             for (pane, hold) in columnWidthHolds {
                 guard let column = layout.column(containing: pane) else { continue }
                 if abs(column.width - hold.value) < 0.002 {
-                    if hold.ended && hold.settled { columnWidthHolds[pane] = nil }
+                    if hold.ended { columnWidthHolds[pane] = nil }
                 } else {
                     layout = layout.settingWidth(hold.value, for: column.id)
                 }
