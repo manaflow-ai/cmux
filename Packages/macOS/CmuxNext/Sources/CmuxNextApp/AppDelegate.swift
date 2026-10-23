@@ -163,6 +163,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // recorded ones; the record is read and the files deleted off the
         // main actor). Downloads of this run are never touched.
         launchCleanup.schedule(on: launchSettle)
+        // The system file picker made ahead at the first idle moment, so the first click is not cold.
+        OpenPanelLaunchWarmUp(openPanel: services.openPanel).schedule(on: launchSettle)
         services.palette.onPresented = { DebugTimings.palettePresented($0) }
         // The key-down that opens the palette (a synthesized one under `debug.key`), for its input stage.
         services.palette.openingEventTimestamp = { [weak router = services.keyRouter] in
