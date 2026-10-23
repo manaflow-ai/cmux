@@ -1,4 +1,4 @@
-import XCTest
+import Testing
 import AppKit
 
 #if canImport(cmux_DEV)
@@ -8,8 +8,11 @@ import AppKit
 #endif
 
 @MainActor
-final class MainWindowVisibilityControllerTests: XCTestCase {
-    func testFocusDeminiaturizesAndActivatesThroughSingleOwner() {
+@Suite(.serialized)
+struct MainWindowVisibilityControllerTests {
+
+    @Test
+    func focusDeminiaturizesAndActivatesThroughSingleOwner() {
         let window = makeWindow()
         defer { window.orderOut(nil) }
 
@@ -38,21 +41,23 @@ final class MainWindowVisibilityControllerTests: XCTestCase {
             )
         )
 
-        XCTAssertTrue(
+        #expect(
             controller.focus(
                 window,
                 reason: .focusMainWindow,
                 activation: .runningApplication([.activateAllWindows])
             )
         )
-        XCTAssertTrue(activeWindows.first === window)
-        XCTAssertTrue(deminiaturizedWindows.first === window)
-        XCTAssertTrue(madeKeyWindows.first === window)
-        XCTAssertEqual(unhideCount, 1)
-        XCTAssertEqual(appActivations, [[.activateAllWindows]])
+        #expect(activeWindows.first === window)
+        #expect(deminiaturizedWindows.first === window)
+        #expect(madeKeyWindows.first === window)
+        #expect(unhideCount == 1)
+        #expect(appActivations == [[.activateAllWindows]])
     }
 
-    func testFocusSuppressionOnlyUpdatesActiveContext() {
+
+    @Test
+    func focusSuppressionOnlyUpdatesActiveContext() {
         let window = makeWindow()
         defer { window.orderOut(nil) }
 
@@ -74,14 +79,16 @@ final class MainWindowVisibilityControllerTests: XCTestCase {
             )
         )
 
-        XCTAssertTrue(controller.focus(window, reason: .focusMainWindow))
-        XCTAssertTrue(activeWindows.first === window)
-        XCTAssertEqual(deminiaturizedCount, 0)
-        XCTAssertEqual(madeKeyCount, 0)
-        XCTAssertEqual(activationCount, 0)
+        #expect(controller.focus(window, reason: .focusMainWindow))
+        #expect(activeWindows.first === window)
+        #expect(deminiaturizedCount == 0)
+        #expect(madeKeyCount == 0)
+        #expect(activationCount == 0)
     }
 
-    func testHotkeyRestoreUsesCapturedVisibleTargetsWithoutDeminiaturizingMiniaturizedWindows() {
+
+    @Test
+    func hotkeyRestoreUsesCapturedVisibleTargetsWithoutDeminiaturizingMiniaturizedWindows() {
         let visibleWindow = makeWindow()
         let miniaturizedWindow = makeWindow()
         defer {
@@ -130,20 +137,22 @@ final class MainWindowVisibilityControllerTests: XCTestCase {
             windows: [visibleWindow, miniaturizedWindow],
             reason: .globalHotkey
         )
-        XCTAssertEqual(hideCount, 1)
+        #expect(hideCount == 1)
 
         controller.toggleApplicationVisibility(
             windows: [visibleWindow, miniaturizedWindow],
             reason: .globalHotkey
         )
 
-        XCTAssertEqual(unhideCount, 1)
-        XCTAssertEqual(activationCount, 1)
-        XCTAssertTrue(madeKeyWindows.contains { $0 === visibleWindow })
-        XCTAssertFalse(deminiaturizedWindows.contains { $0 === miniaturizedWindow })
+        #expect(unhideCount == 1)
+        #expect(activationCount == 1)
+        #expect(madeKeyWindows.contains { $0 === visibleWindow })
+        #expect(!deminiaturizedWindows.contains { $0 === miniaturizedWindow })
     }
 
-    func testShowApplicationWindowsStillRestoresMiniaturizedWindowsWhenNoHiddenTargetsWereCaptured() {
+
+    @Test
+    func showApplicationWindowsStillRestoresMiniaturizedWindowsWhenNoHiddenTargetsWereCaptured() {
         let miniaturizedWindow = makeWindow()
         defer { miniaturizedWindow.orderOut(nil) }
 
@@ -171,12 +180,14 @@ final class MainWindowVisibilityControllerTests: XCTestCase {
 
         _ = controller.showApplicationWindows(windows: [miniaturizedWindow], reason: .globalHotkey)
 
-        XCTAssertEqual(activationCount, 1)
-        XCTAssertTrue(deminiaturizedWindows.contains { $0 === miniaturizedWindow })
-        XCTAssertTrue(madeKeyWindows.contains { $0 === miniaturizedWindow })
+        #expect(activationCount == 1)
+        #expect(deminiaturizedWindows.contains { $0 === miniaturizedWindow })
+        #expect(madeKeyWindows.contains { $0 === miniaturizedWindow })
     }
 
-    func testDismissWindowsSoftHidesVisibleTargetsAndRestoresWithoutDeminiaturizing() {
+
+    @Test
+    func dismissWindowsSoftHidesVisibleTargetsAndRestoresWithoutDeminiaturizing() {
         let window = makeWindow()
         defer { window.orderOut(nil) }
 
@@ -205,14 +216,16 @@ final class MainWindowVisibilityControllerTests: XCTestCase {
         controller.dismissWindows(windows: [window], reason: .titlebarDismiss)
         _ = controller.showApplicationWindows(windows: [window], reason: .applicationReopen)
 
-        XCTAssertTrue(softHiddenWindows.contains { $0 === window })
-        XCTAssertTrue(orderedRegardlessWindows.contains { $0 === window })
-        XCTAssertTrue(madeKeyWindows.contains { $0 === window })
-        XCTAssertEqual(activationCount, 1)
-        XCTAssertTrue(deminiaturizedWindows.isEmpty)
+        #expect(softHiddenWindows.contains { $0 === window })
+        #expect(orderedRegardlessWindows.contains { $0 === window })
+        #expect(madeKeyWindows.contains { $0 === window })
+        #expect(activationCount == 1)
+        #expect(deminiaturizedWindows.isEmpty)
     }
 
-    func testDismissedWindowDoesNotRestoreWhileAnotherWindowIsVisible() {
+
+    @Test
+    func dismissedWindowDoesNotRestoreWhileAnotherWindowIsVisible() {
         let dismissedWindow = makeWindow()
         let visibleWindow = makeWindow()
         defer {
@@ -252,12 +265,14 @@ final class MainWindowVisibilityControllerTests: XCTestCase {
             reason: .menuBar
         )
 
-        XCTAssertTrue(softHiddenWindows.contains { $0 === dismissedWindow })
-        XCTAssertTrue(madeKeyWindows.contains { $0 === visibleWindow })
-        XCTAssertFalse(madeKeyWindows.contains { $0 === dismissedWindow })
+        #expect(softHiddenWindows.contains { $0 === dismissedWindow })
+        #expect(madeKeyWindows.contains { $0 === visibleWindow })
+        #expect(!madeKeyWindows.contains { $0 === dismissedWindow })
     }
 
-    func testPassiveRevealWithoutKeyTransferDoesNotActivateApplication() {
+
+    @Test
+    func passiveRevealWithoutKeyTransferDoesNotActivateApplication() {
         let window = makeWindow()
         defer { window.orderOut(nil) }
 
@@ -287,16 +302,17 @@ final class MainWindowVisibilityControllerTests: XCTestCase {
             makeKey: false
         )
 
-        XCTAssertEqual(
-            activationCount,
-            0,
+        #expect(
+            activationCount == 0,
             "Ordering a visible cmux window without transferring key focus must not make cmux the Launch Services frontmost app."
         )
-        XCTAssertTrue(orderedRegardlessWindows.contains { $0 === window })
-        XCTAssertTrue(madeKeyWindows.isEmpty)
+        #expect(orderedRegardlessWindows.contains { $0 === window })
+        #expect(madeKeyWindows.isEmpty)
     }
 
-    func testPassiveRevealWithoutKeyTransferDoesNotDeminiaturizeWindow() {
+
+    @Test
+    func passiveRevealWithoutKeyTransferDoesNotDeminiaturizeWindow() {
         let window = makeWindow()
         defer { window.orderOut(nil) }
 
@@ -331,17 +347,19 @@ final class MainWindowVisibilityControllerTests: XCTestCase {
             makeKey: false
         )
 
-        XCTAssertNil(
-            revealedWindow,
+        #expect(
+            revealedWindow == nil,
             "A passive reveal must not unminiaturize a background cmux window because AppKit can mark the app frontmost."
         )
-        XCTAssertEqual(activationCount, 0)
-        XCTAssertTrue(deminiaturizedWindows.isEmpty)
-        XCTAssertTrue(orderedRegardlessWindows.isEmpty)
-        XCTAssertTrue(madeKeyWindows.isEmpty)
+        #expect(activationCount == 0)
+        #expect(deminiaturizedWindows.isEmpty)
+        #expect(orderedRegardlessWindows.isEmpty)
+        #expect(madeKeyWindows.isEmpty)
     }
 
-    func testHiddenAppRestoreFallsBackToSoftDismissedTargets() {
+
+    @Test
+    func hiddenAppRestoreFallsBackToSoftDismissedTargets() {
         let window = makeWindow()
         defer { window.orderOut(nil) }
 
@@ -372,12 +390,66 @@ final class MainWindowVisibilityControllerTests: XCTestCase {
         isAppHidden = true
         _ = controller.showApplicationWindows(windows: [window], reason: .applicationReopen)
 
-        XCTAssertEqual(unhideCount, 1)
-        XCTAssertTrue(softShownWindows.contains { $0 === window })
-        XCTAssertTrue(madeKeyWindows.contains { $0 === window })
+        #expect(unhideCount == 1)
+        #expect(softShownWindows.contains { $0 === window })
+        #expect(madeKeyWindows.contains { $0 === window })
     }
 
-    func testApplicationActivationRestoreOrdersBeforeActivationThenMakesKeyAfterActivation() {
+#if DEBUG
+
+    @Test
+    func applicationReopenActivatesWhenRestoringBackgroundMainWindow() {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+
+        let windowId = UUID()
+        let window = makeWindow()
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
+        let tabManager = TabManager()
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: tabManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            window.orderOut(nil)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        var appActivations: [NSApplication.ActivationOptions] = []
+        var madeKeyWindows: [NSWindow] = []
+        var activeWindows: [NSWindow] = []
+        let controller = MainWindowVisibilityController(
+            dependencies: .init(
+                isActivationSuppressed: { false },
+                setActiveMainWindow: { activeWindows.append($0) },
+                isApplicationHidden: { false },
+                activateRunningApplication: { appActivations.append($0) },
+                windowOperations: makeWindowOperations(
+                    isVisible: { candidate in candidate === window },
+                    isMiniaturized: { _ in false },
+                    makeKey: { madeKeyWindows.append($0) }
+                )
+            )
+        )
+        app.replaceMainWindowVisibilityControllerForTesting(controller)
+
+        #expect(app.applicationShouldHandleReopen(NSApplication.shared, hasVisibleWindows: false))
+
+        #expect(appActivations == [[.activateAllWindows]])
+        #expect(activeWindows.contains { $0 === window })
+        #expect(madeKeyWindows.contains { $0 === window })
+    }
+#endif
+
+
+    @Test
+    func applicationActivationRestoreOrdersBeforeActivationThenMakesKeyAfterActivation() {
         let window = makeWindow()
         defer { window.orderOut(nil) }
 
@@ -407,30 +479,32 @@ final class MainWindowVisibilityControllerTests: XCTestCase {
         )
 
         controller.dismissWindows(windows: [window], reason: .titlebarDismiss)
-        XCTAssertTrue(visibleIds.isEmpty)
+        #expect(visibleIds.isEmpty)
 
         let preActivationWindow = controller.orderFrontApplicationWindowsBeforeActivation(
             windows: [window],
             reason: .applicationWillBecomeActive
         )
-        XCTAssertTrue(preActivationWindow === window)
-        XCTAssertEqual(activationCount, 0)
-        XCTAssertTrue(orderedRegardlessWindows.contains { $0 === window })
-        XCTAssertTrue(madeKeyWindows.isEmpty)
+        #expect(preActivationWindow === window)
+        #expect(activationCount == 0)
+        #expect(orderedRegardlessWindows.contains { $0 === window })
+        #expect(madeKeyWindows.isEmpty)
 
         let restoredWindow = controller.finishPendingApplicationActivationRestore(
             windows: [window],
             reason: .applicationDidBecomeActive
         )
-        XCTAssertTrue(restoredWindow === window)
-        XCTAssertEqual(activationCount, 0)
-        XCTAssertEqual(activeWindows.filter { $0 === window }.count, 2)
-        XCTAssertEqual(softShownWindows.filter { $0 === window }.count, 2)
-        XCTAssertEqual(orderedRegardlessWindows.filter { $0 === window }.count, 2)
-        XCTAssertEqual(madeKeyWindows.filter { $0 === window }.count, 1)
+        #expect(restoredWindow === window)
+        #expect(activationCount == 0)
+        #expect(activeWindows.filter { $0 === window }.count == 2)
+        #expect(softShownWindows.filter { $0 === window }.count == 2)
+        #expect(orderedRegardlessWindows.filter { $0 === window }.count == 2)
+        #expect(madeKeyWindows.filter { $0 === window }.count == 1)
     }
 
-    func testPassiveActivationDoesNotRestoreOnlyMiniaturizedWindows() {
+
+    @Test
+    func passiveActivationDoesNotRestoreOnlyMiniaturizedWindows() {
         let window = makeWindow()
         defer { window.orderOut(nil) }
 
@@ -458,22 +532,22 @@ final class MainWindowVisibilityControllerTests: XCTestCase {
             )
         )
 
-        XCTAssertNil(
+        #expect(
             controller.orderFrontApplicationWindowsBeforeActivation(
                 windows: [window],
                 reason: .applicationWillBecomeActive
-            )
+            ) == nil
         )
-        XCTAssertNil(
+        #expect(
             controller.restoreApplicationWindowsAfterActivation(
                 windows: [window],
                 reason: .applicationDidBecomeActive
-            )
+            ) == nil
         )
-        XCTAssertTrue(deminiaturizedWindows.isEmpty)
-        XCTAssertTrue(orderedRegardlessWindows.isEmpty)
-        XCTAssertTrue(madeKeyWindows.isEmpty)
-        XCTAssertEqual(activationCount, 0)
+        #expect(deminiaturizedWindows.isEmpty)
+        #expect(orderedRegardlessWindows.isEmpty)
+        #expect(madeKeyWindows.isEmpty)
+        #expect(activationCount == 0)
     }
 
     private func makeWindow() -> NSWindow {
