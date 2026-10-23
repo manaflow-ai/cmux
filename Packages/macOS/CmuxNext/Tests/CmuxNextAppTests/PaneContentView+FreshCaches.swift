@@ -1,4 +1,5 @@
 @testable import CmuxNextApp
+import CmuxNextDesign
 import CmuxNextTabs
 
 extension PaneContentView {
