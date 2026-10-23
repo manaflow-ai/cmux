@@ -62,6 +62,7 @@ import { injectedNewTabContext, useEarlyNewTabContext, useNewTabAdoption, useNew
 import { markMockPage, publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
 import { heldPick, withDraftFolder } from "./newtab/draftFolder";
 import { rememberRecentFolders } from "./newtab/recentProject";
+import { rememberStartedProject } from "./newtab/startedProject";
 import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
 import { PageDots } from "./newtab/PageDots";
 import { editedPageWidgets, editNewTabWidgets, shownPageWidgets } from "./newtab/pageWidgets";
@@ -3626,6 +3627,9 @@ export function AcpmuxApp() {
   );
 }
 
+/// No projects known (a stable value, so memos keyed on it hold).
+const NO_PROJECTS: Project[] = [];
+
 function AcpmuxPane() {
   // Debug measurement (acpmuxPerf): the pane's own render, before its children.
   const paneRenderStart = acpmuxPerf.enabled ? performance.now() : 0;
@@ -5489,8 +5493,13 @@ function AcpmuxPane() {
   }, []);
   const freshRef = useRef(false);
   freshRef.current = freshChat && !snapshot.sessionId;
+  /// The project the person picked in this pane's project picker, until they send in it: that send
+  /// makes it the New Tab default (newtab/startedProject.ts). A folder the host or an agent named
+  /// is no pick.
+  const pickedProject = useRef<string | undefined>(undefined);
   const chooseProject = useCallback(
     (cwd: string, peer?: string) => {
+      pickedProject.current = undefined;
       // Another computer's folder is that computer's to check.
       if (peer) {
         void callNative("chat.new", { cwd, peer }).catch(() => undefined);
@@ -5498,6 +5507,7 @@ function AcpmuxPane() {
       }
       // Fresh or started is read when the folder is used (an answer can come later).
       requestFolder(cwd, (folder) => {
+        pickedProject.current = folder;
         if (freshRef.current) setProjectDraft(folder);
         else void callNative("chat.new", { cwd: folder }).catch(() => undefined);
       });
@@ -5514,6 +5524,8 @@ function AcpmuxPane() {
     setWorktreeError(undefined);
     setWorktreeCreating(true);
     const use = (folder: string) => {
+      // The person's pick: a send there makes it the New Tab default (newtab/startedProject.ts).
+      pickedProject.current = folder;
       // A chat that started meanwhile keeps its folder: the worktree gets a new chat of its own.
       if (freshRef.current) setProjectDraft(folder);
       else void callNative("chat.new", { cwd: folder }).catch(() => undefined);
@@ -6959,7 +6971,9 @@ function AcpmuxPane() {
         // A chat on another machine starts only with a send (cx-k21v): with no text, the folder
         // waits for the first send.
         if (folder && !text && directClient.current?.startsOnSend) return setProjectDraft(folder);
-        if (folder) await callNative("chat.new", { cwd: folder });
+        const started = folder ? await callNative("chat.new", { cwd: folder }) : undefined;
+        // A chat the person started here with a prompt makes its project the default.
+        if (started && text && !directClient.current?.startsOnSend) rememberStartedProject(folder, callNative);
         if (text) await callNative("chat.send", { text });
       })().catch(() => undefined);
     // The page's own folder is inherited (`~` in a fresh workspace): the chat starts in its start
@@ -6980,7 +6994,14 @@ function AcpmuxPane() {
       }),
     [],
   );
-  const [directProjects, setDirectProjects] = useState<Project[]>([]);
+  /// The daemon's list, with the New Tab page it was asked for (`newTabGeneration`): the list is
+  /// that page's machine's, so a later page (another machine's, or this Mac's after one) never
+  /// reads it, from its first render, while its own is pending or if it fails (Codex review of
+  /// #24274).
+  /// `projects` undefined: not answered yet.
+  const [loadedProjects, setDirectProjects] = useState<{ page: number; projects?: Project[] }>({ page: 0 });
+  const projectsAnswered = loadedProjects.page === newTabGeneration && loadedProjects.projects !== undefined;
+  const directProjects = projectsAnswered ? loadedProjects.projects! : NO_PROJECTS;
   const onNewTab = Boolean(newTab);
   useEffect(() => {
     // Start Agent's folder picker lists them too (cx-hkat), and so does the New Tab page: the
@@ -6989,7 +7010,7 @@ function AcpmuxPane() {
     let active = true;
     void loadNewTabProjects()
       .then((projects) => {
-        if (active) setDirectProjects(projects);
+        if (active) setDirectProjects({ page: newTabGeneration, projects });
       })
       .catch(() => undefined);
     return () => {
@@ -7026,11 +7047,15 @@ function AcpmuxPane() {
     composerSnapshot.connection !== "disconnected" &&
     composerSnapshot.connection !== "debug";
   // The folders the host lists as projects (no chat folders): the most recent project is one of them.
-  // The daemon's list (removals win) once it has answered, else the page's own.
-  const newTabKnownProjects = useMemo(
-    () => (directProjects.length > 0 ? directProjects.map((project) => project.cwd) : (newTab?.projects ?? [])),
-    [directProjects, newTab?.projects],
-  );
+  // The daemon's list (removals win) once it has answered, else the page's own. This Mac's store
+  // answering with no project (every one removed or missing) is `null`: no chat or started folder
+  // counts (Codex review of #24274). Another machine's empty answer may be no answer at all
+  // (AgentPaneModel `onListRemoteProjects`), so there it stays "not loaded".
+  const newTabKnownProjects = useMemo((): readonly string[] | null => {
+    if (directProjects.length > 0) return directProjects.map((project) => project.cwd);
+    const own = newTab?.projects ?? [];
+    return projectsAnswered && own.length === 0 && newTab?.home ? null : own;
+  }, [directProjects, projectsAnswered, newTab?.projects, newTab?.home]);
   const newTabProjects = useMemo(() => {
     const byPath = new Map<string, Project>();
     // A folder the host listed keeps its repository (projectRepos.ts) when a chat names it again.
@@ -7088,6 +7113,7 @@ function AcpmuxPane() {
       // The chat starts in its agent-home folder, never the workspace's (AcpmuxPathPolicy).
       // A refused start keeps the folder picked before.
       onNoProject: () => {
+        pickedProject.current = undefined;
         // A chat on another machine starts only with a send (cx-k21v); it has no agent-home folder here.
         if (directClient.current?.startsOnSend) return setProjectDraft(undefined);
         void callNative("chat.new", { noProject: true })
@@ -7630,6 +7656,17 @@ function AcpmuxPane() {
               // Shell mode's chips carry their commands' output as it is now.
               const attachments = shellContextAttachments(chips ?? [], (id) => shellRuns.get(id));
               if (!snapshot.sessionId) claimShellRuns.current = true;
+              // A send in the project the person picked here starts their chat there: once that chat
+              // has started (or the send to it landed), the next New Tab defaults to it (Leo
+              // 2026-10-21, newtab/startedProject.ts). A refused or failed start leaves the default.
+              const sentIn = !snapshot.sessionId ? projectDraft : snapshot.summary?.cwd;
+              const startedHere =
+                pickedProject.current && sentIn === pickedProject.current && !remoteChat ? sentIn : undefined;
+              const rememberStart = () => {
+                if (!startedHere) return;
+                rememberStartedProject(startedHere, callNative);
+                if (pickedProject.current === startedHere) pickedProject.current = undefined;
+              };
               // A started chat never holds the prompt (plans/cmux-next/composer-delivery-DESIGN.md):
               // it leaves the composer at once and shows as its own row, which says how far it got,
               // and a refusal stays on that row with Retry, Edit and Remove. One refused before any
@@ -7648,7 +7685,10 @@ function AcpmuxPane() {
                 }
                 const holder = composerHandle.current;
                 callNative("chat.send", { text, attachments, steer }).then(
-                  () => promptLanded.current(),
+                  () => {
+                    rememberStart();
+                    promptLanded.current();
+                  },
                   (error: unknown) => {
                     cancelOpenInWindow();
                     if (failedRowOf(error) || isTrustRefusal(error)) return;
@@ -7680,13 +7720,18 @@ function AcpmuxPane() {
                   // The chat's start is part of this send: a trust refusal there asks the folder's
                   // question, keeps this prompt (with its send's gesture) and sends it after Trust
                   // (cx-nn3e P0b; the prompt was lost when only the start ran again).
-                  await callNative("chat.new", { cwd: projectDraft, ...heldPick(snapshot) }).catch((error: unknown) => {
-                    if (isTrustRefusal(error)) {
-                      holdPrompt.current?.();
-                      trustRefused.current?.(error, () => composerHandle.current?.send());
-                    }
-                    throw error;
-                  });
+                  await callNative("chat.new", { cwd: projectDraft, ...heldPick(snapshot) }).then(
+                    (started) => {
+                      if (started) rememberStart();
+                    },
+                    (error: unknown) => {
+                      if (isTrustRefusal(error)) {
+                        holdPrompt.current?.();
+                        trustRefused.current?.(error, () => composerHandle.current?.send());
+                      }
+                      throw error;
+                    },
+                  );
                 return callNative("chat.send", { text, attachments, accepted: () => accept(true), steer });
               };
               // The composer that holds the prompt: a refusal that comes once it is gone (the pane
@@ -8053,6 +8098,7 @@ function AcpmuxPane() {
               location={newTab.location}
               lastAgent={newTab.lastAgent}
               home={newTab.home}
+              {...(newTab.startedProject ? { startedProject: newTab.startedProject } : {})}
               knownProjects={newTabKnownProjects}
               {...(newTab.openTabs ? { openTabs: newTab.openTabs } : {})}
               // The field takes keys from its first render (the host's buffer hands them over at
@@ -8078,6 +8124,7 @@ function AcpmuxPane() {
                   cwd: newTab.cwd,
                   chatCwd: startFolder,
                   requestFolder,
+                  startsHere: () => !directClient.current?.startsOnSend,
                   leave: () => setNewTab(undefined),
                   selectSession,
                   showAllChats,
@@ -8095,6 +8142,9 @@ function AcpmuxPane() {
               hotkeys={newTab.hotkeys}
               initialKind={newTab.initialKind}
               cwd={newTab.cwd}
+              {...(newTab.startedProject ? { startedProject: newTab.startedProject } : {})}
+              {...(newTab.home ? { home: newTab.home } : {})}
+              knownProjects={newTabKnownProjects}
               host={newTab.host ?? machineName}
               location={newTab.location}
               omnibar={newTab.omnibar}
