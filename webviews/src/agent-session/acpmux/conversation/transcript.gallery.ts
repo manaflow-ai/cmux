@@ -368,6 +368,53 @@ const takeawayTurnRows = [
   summary(4.3, { id: "gallery-takeaway-summary", status: "completed", durationMs: 456_000, toolCount: 7 }),
 ];
 
+/// A finished turn whose "Worked for" folds four calls, then a later turn below it: opening or
+/// closing the line slides the rows below and fades what it shows or hides (turnFold.ts).
+const turnFoldRows = [
+  user("Add retries with backoff to the fetch helper", 8, { id: "gallery-turnfold-user" }),
+  activity(
+    [
+      thought("The retry wrapper swallows the status code, so check how the helper parses errors first."),
+      tool("Read src/net/client.ts", "read", "completed"),
+      tool("Search for fetchWithRetry", "search", "completed"),
+      tool("bun test src/net", "execute", "completed", { command: "bun test src/net", output: "12 pass", exitCode: 0 }),
+      tool("bun run typecheck", "execute", "completed", { command: "bun run typecheck", exitCode: 0 }),
+    ],
+    7.9,
+    { id: "gallery-turnfold-activity" },
+  ),
+  assistant(
+    "Retries now back off from 200 ms, doubling up to three tries.\n\nOnly timeouts and 5xx answers retry; a 4xx fails at once.",
+    7.5,
+    { id: "gallery-turnfold-answer" },
+  ),
+  summary(7.5, { id: "gallery-turnfold-summary", status: "completed", toolCount: 4 }),
+  user("Now cover it with a test that fakes two timeouts", 6, { id: "gallery-turnfold-next-user" }),
+  assistant("Added `client.retry.test.ts`: it passes, and fails with the retry taken out.", 5.5, {
+    id: "gallery-turnfold-next-answer",
+  }),
+  summary(5.5, { id: "gallery-turnfold-next-summary", status: "completed" }),
+];
+
+/// Holds every running animation halfway, so the still shows the fold mid-motion (a base that
+/// plays none shows the line already open or closed).
+const holdFoldHalfway = (ctx: PlayContext) => {
+  for (const animation of ctx.document.getAnimations()) {
+    const duration = Number(animation.effect?.getComputedTiming().duration) || 0;
+    animation.pause();
+    animation.currentTime = duration / 2;
+  }
+};
+
+/// Clicks "Worked for" so it ends `expanded`, and holds its fold halfway.
+const toggleWorkedHalfway = async (ctx: PlayContext, expanded: boolean) => {
+  const line = ctx.find({ selector: ".cv-worked" }) as HTMLElement;
+  // A plain click: a play step waits for the page to settle, which would let the fold finish.
+  line.click();
+  await ctx.waitFor(() => line.getAttribute("aria-expanded") === String(expanded));
+  holdFoldHalfway(ctx);
+};
+
 const longChatRows = Array.from({ length: 24 }, (_, index) => {
   const at = 3000 - index * 120;
   return [
@@ -2900,6 +2947,26 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-command").length === 2);
         const lines = [...ctx.document.querySelectorAll(".cv-command__line")].map((line) => line.textContent);
         if (lines[0] !== LONG_CP) throw new Error(`the cp row reads ${lines[0]}, not the whole command`);
+      },
+    },
+    "worked-for-opening": {
+      note: "Play: open Worked for and hold its fold halfway: the rows below slide down from where they were, the steps it shows fade in and the chevron turns. With animations off or under Reduce Motion it opens at once.",
+      checks: shellDisclosureChecks,
+      snapshot: chat(turnFoldRows),
+      play: (ctx) => toggleWorkedHalfway(ctx, true),
+    },
+    "worked-for-closing": {
+      note: "Play: open Worked for, then close it and hold the fold halfway: the steps fade out where they were while the rows below slide up over them.",
+      checks: shellDisclosureChecks,
+      snapshot: chat(turnFoldRows),
+      play: async (ctx) => {
+        await ctx.click({ selector: ".cv-worked" });
+        await ctx.waitFor(
+          () =>
+            ctx.find({ selector: ".cv-worked" }).getAttribute("aria-expanded") === "true" &&
+            ctx.document.getAnimations().every((animation) => animation.playState !== "running"),
+        );
+        await toggleWorkedHalfway(ctx, false);
       },
     },
     "fold-holds-clicked-line": {

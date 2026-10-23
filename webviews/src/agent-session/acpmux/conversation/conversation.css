@@ -1825,6 +1825,12 @@ pre.cv-math-source {
 .cv-fold {
   display: flow-root;
 }
+/* A row a closing "Worked for" hid, drawn where it was while it fades out under the rows sliding up
+   over it (turnFold.ts): never hit, focused or selected. */
+.acpmux-row.acpmux-row--fold-ghost {
+  pointer-events: none;
+  user-select: none;
+}
 .cv-rotor.is-open {
   transform: rotate(90deg);
 }

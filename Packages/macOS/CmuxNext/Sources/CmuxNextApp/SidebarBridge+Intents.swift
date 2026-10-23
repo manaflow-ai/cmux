@@ -53,7 +53,8 @@ extension SidebarBridge {
             // A placeholder row is no workspace: never claimed or shown.
             guard !model.isPlaceholder(id) else { return }
             model.apply(intent)
-            services.windows.show(workspaceID: id.rawValue, in: state)
+            // A pick in this window's sidebar shows here, also a workspace another window lists.
+            services.windows.show(workspaceID: id.rawValue, in: state, from: .thisWindow)
         case let .selectTab(_, tab):
             _ = services.revealTab(tab.rawValue)
         case .moveTab:

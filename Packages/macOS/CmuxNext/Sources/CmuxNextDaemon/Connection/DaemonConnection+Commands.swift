@@ -108,14 +108,21 @@ extension DaemonConnection {
     @discardableResult
     public func createTerminal(in key: WorkspaceKey, cwd: String? = nil, argv: [String]? = nil, name: String? = nil,
                                size: CellSize? = nil, env: [String: String]? = nil, keep: Bool? = nil) async throws -> CreateTerminalResult {
+        try await request(createTerminalRequest(in: key, cwd: cwd, argv: argv, name: name, size: size, env: env, keep: keep))
+    }
+
+    /// One `create-terminal` for workspace `key`: a new terminal id and mutation identity, so the
+    /// request sent again replays the terminal instead of starting a second one.
+    func createTerminalRequest(in key: WorkspaceKey, cwd: String?, argv: [String]? = nil, name: String? = nil,
+                               size: CellSize? = nil, env: [String: String]? = nil, keep: Bool? = nil) async -> CreateTerminalRequest {
         let terminal = TerminalID.generate()
         var env = await terminalEnvironment(env)
         if identity?.supports(DaemonCapabilities.shared.terminalEnv) == true {
             env = (env ?? [:]).merging(Self.placementEnvironment(workspace: key, terminal: terminal)) { _, placement in placement }
         }
         let keep = identity?.supports(DaemonCapabilities.shared.terminalReap) == true ? keep : nil
-        return try await request(CreateTerminalRequest(workspace: .key(key), argv: argv, cwd: cwd, name: name, size: size,
-                                                       terminalID: terminal, env: env, keep: keep, mutation: mutation()))
+        return CreateTerminalRequest(workspace: .key(key), argv: argv, cwd: cwd, name: name, size: size,
+                                     terminalID: terminal, env: env, keep: keep, mutation: mutation())
     }
 
     /// New terminal tab in `pane` (the daemon's focused pane when nil).
