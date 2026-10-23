@@ -1,37 +1,37 @@
 // The images a tool call produced, for the strip under its row (ToolRow): the images it returned
-// (ACP `image` blocks, kept as data URLs, and those in a JSON result envelope) and the image files it wrote or printed (a screenshot
+// (ACP `image` blocks, kept as data URLs, and those of a plain MCP envelope its text then leaves
+// out, toolResult.ts) and the image files it wrote or printed (a screenshot
 // it saved, a chart it rendered): the file it edited, its locations, and absolute image paths in
 // its output. Files load through the host like a reply's local image (ReplyImage), so only files
 // inside the session's folders show; a PDF shows its first page (the host draws it), and a video
-// plays inline (ReplyMedia). A running call shows only its envelope's.
+// plays inline (ReplyMedia). A running call shows none yet.
 import type { AcpmuxActivity } from "./model";
 import { editedPaths } from "./toolPaths";
-import { cleanText } from "./conversation/mcpCalls";
 import { envelopeImages, MAX_TOOL_IMAGES } from "./conversation/toolResult";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
-/// The most images a call's envelope gives the strip (toolResult.ts keeps the rest as JSON), and
-/// the most of its own.
+/// The most images a call's envelope gives its strip, and the most of its own besides.
 export { MAX_TOOL_IMAGES };
 const IMAGE_FILE = /\.(png|jpe?g|gif|webp|svg|heic|tiff?|bmp|pdf|mp4|m4v|mov|webm)$/i;
 /// An absolute image path in output text, ended by space, a quote or a bracket.
 const IMAGE_PATH = /(?<![\w./:~-])\/[^\s"'`()<>[\]]+\.(?:png|jpe?g|gif|webp|svg|pdf|mp4|m4v|mov|webm)(?![\w-])/gi;
 
-/// The call's images, each once: those its result envelope's text leaves out (at most
-/// `MAX_TOOL_IMAGES`, see toolResult.ts), then its own returned images and image files, at most
-/// `MAX_TOOL_IMAGES` of them, as before envelopes gave up theirs.
-export function toolImages(tool: Tool): string[] {
-  // Images inside a result a harness passed on as JSON text (an MCP result's `image` blocks), read
-  // as ToolRow reads its text: without the context a host put around it. Its text no longer shows
-  // them, so they all show here, a running call's too (they are in its output already). A shell
-  // prints its output as it came, so an envelope it printed keeps its images there.
+/// Whether the call's strip shows the images its result's envelope holds, which its text then
+/// leaves out (toolResult.ts): a finished call's, never a shell's, whose output shows as it came.
+export function stripsEnvelopeImages(tool: Tool): boolean {
   const shell = tool.kind === "execute" && Boolean(tool.command);
-  const envelope = shell ? [] : [...new Set(envelopeImages(tool.output, cleanText))];
-  if (tool.status === "pending" || tool.status === "in_progress") return envelope;
-  const own: string[] = [];
+  return !shell && tool.status !== "pending" && tool.status !== "in_progress";
+}
+
+/// The call's images, each once: its envelope's (at most `MAX_TOOL_IMAGES`), then the ones it
+/// returned and the files it wrote, at most `MAX_TOOL_IMAGES` of those, as without an envelope.
+export function toolImages(tool: Tool): string[] {
+  if (tool.status === "pending" || tool.status === "in_progress") return [];
+  const envelope = stripsEnvelopeImages(tool) ? envelopeImages(tool.output) : [];
+  const found: string[] = [];
   const add = (source: string) => {
-    if (own.length < MAX_TOOL_IMAGES && !own.includes(source)) own.push(source);
+    if (found.length < MAX_TOOL_IMAGES && !found.includes(source)) found.push(source);
   };
   for (const image of tool.images ?? []) add(image);
   const file = (path: string) => {
@@ -40,5 +40,5 @@ export function toolImages(tool: Tool): string[] {
   for (const path of editedPaths(tool)) file(path);
   for (const location of tool.locations ?? []) file(location.path);
   for (const match of tool.output?.matchAll(IMAGE_PATH) ?? []) file(match[0].replace(/[.,;:]+$/, ""));
-  return [...envelope, ...own.filter((source) => !envelope.includes(source))];
+  return [...envelope, ...found.filter((source) => !envelope.includes(source))];
 }

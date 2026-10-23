@@ -4,7 +4,7 @@
 // really returned, stay JSON.
 import { expect, test } from "bun:test";
 import { envelopeImages, toolResult } from "./toolResult";
-import { toolImages } from "../toolImages";
+import { stripsEnvelopeImages, toolImages } from "../toolImages";
 import { cleanText, prettyOutput } from "./mcpCalls";
 import { findMatches } from "./chatFind";
 import type { AcpmuxRow } from "../model";
@@ -50,7 +50,7 @@ const PNG = "iVBORw0KGgo=";
 const pretty = (value: unknown) => JSON.stringify(value, null, 2);
 
 test("what an envelope holds besides its text follows it as the JSON it is", () => {
-  const image = { type: "image", data: PNG, mimeType: "image/svg+xml" };
+  const image = { type: "image", data: PNG, mimeType: "image/png" };
   const link = { type: "resource_link", uri: "docs://a", name: "a", title: "A", description: "About a" };
   const blob = { type: "resource", resource: { uri: "report://r1", mimeType: "application/pdf", blob: "JVBERi0=" } };
   expect(toolResult(JSON.stringify([{ type: "text", text: "Shot" }, image, link, blob])).text).toBe(
@@ -252,101 +252,92 @@ test("Find in Chat reads what the opened call draws", () => {
 
 const shot = (i: number) => ({ type: "image", data: `${PNG}${i}`, mimeType: "image/png" });
 const url = (i: number) => `data:image/png;base64,${PNG}${i}`;
+const call = (output: string, status = "completed") => ({ id: "c1", title: "mcp__shots__take", status, output });
+/// What the opened call shows of a finished call's output, its MCP call's response, and its strip.
+const shown = (output: string) => {
+  const row = toolResult(output, cleanText, true).text;
+  expect(prettyOutput(output, true)).toBe(row || undefined);
+  return { row, strip: toolImages(call(output)) };
+};
+const imageJSON = (text: string) => text.match(/"type": "image"/g)?.length ?? 0;
 
-test("an envelope's images show in the call's strip, its text in the opened call", () => {
+test("a finished call's plain envelope gives its images to the strip, its text to the opened call", () => {
   const output = JSON.stringify({ content: [{ type: "text", text: "Screenshot" }, shot(0)] });
-  expect(toolResult(output)).toEqual({ text: "Screenshot", lang: "text" });
-  expect(envelopeImages(output)).toEqual([url(0)]);
-  expect(toolImages({ id: "c1", title: "mcp__shots__take", status: "completed", output })).toEqual([url(0)]);
+  expect(shown(output)).toEqual({ row: "Screenshot", strip: [url(0)] });
+  expect(toolResult(output, cleanText, true).lang).toBe("text");
   // An image alone: the strip shows it, and the opened call nothing more, never its JSON too.
-  const alone = JSON.stringify([shot(1)]);
-  expect(envelopeImages(alone)).toEqual([url(1)]);
-  expect(toolResult(alone).text).toBe("");
-  expect(prettyOutput(alone)).toBeUndefined();
+  expect(shown(JSON.stringify([shot(1)]))).toEqual({ row: "", strip: [url(1)] });
 });
 
-test("an envelope that shows as printed keeps its images there, out of the strip", () => {
-  const rounded = JSON.stringify({
-    content: [{ type: "text", text: "Shot" }, shot(0)],
-    structuredContent: { id: 1 },
-  }).replace('"id":1', '"id":9007199254740993');
-  expect(toolResult(rounded).text).toBe(rounded);
-  expect(envelopeImages(rounded)).toEqual([]);
+test("an image repeated in one envelope shows once, in the strip", () => {
+  const output = JSON.stringify([{ type: "text", text: "Five" }, ...[0, 0, 0, 0, 0].map(shot)]);
+  expect(envelopeImages(output)).toEqual([url(0)]);
+  expect(shown(output)).toEqual({ row: "Five", strip: [url(0)] });
 });
 
-test("an image envelope holding a number a double would change shows as printed in the row and the MCP call", () => {
-  const output = `{"jsonrpc":"2.0","id":9007199254740993,"result":{"content":[${JSON.stringify(shot(0))}]}}`;
-  expect(toolResult(output, cleanText).text).toBe(output);
-  expect(envelopeImages(output, cleanText)).toEqual([]);
-  expect(prettyOutput(output)).toBe(output);
+test("an envelope whose images cannot all go to the strip keeps every one as JSON, as before", () => {
+  const svg = { type: "image", data: PNG, mimeType: "image/svg+xml" };
+  for (const blocks of [[0, 1, 2, 3, 4].map(shot), [shot(0), svg]]) {
+    const output = JSON.stringify([{ type: "text", text: "Shots" }, ...blocks]);
+    expect(envelopeImages(output)).toEqual([]);
+    expect(shown(output)).toEqual({ row: toolResult(output, cleanText).text, strip: [] });
+    expect(imageJSON(toolResult(output, cleanText, true).text)).toBe(blocks.length);
+  }
 });
 
-test("the strip keeps every image an envelope's text leaves out, ahead of the call's own", () => {
+test("only a plain envelope, as it came, gives its images to the strip", () => {
+  const plain = JSON.stringify([{ type: "text", text: "Shot" }, shot(0)]);
+  const outputs = [
+    // Inside a JSON-RPC result, inside text, after a host's context, or holding a number a double changes.
+    JSON.stringify({ jsonrpc: "2.0", id: 1, result: { content: [{ type: "text", text: "Shot" }, shot(0)] } }),
+    JSON.stringify([{ type: "text", text: plain }]),
+    `${plain}\n<system-reminder>internal</system-reminder>`,
+    JSON.stringify({ content: [{ type: "text", text: "Shot" }, shot(0)], _meta: { n: 1 } }).replace(
+      '"n":1',
+      '"n":9007199254740993',
+    ),
+  ];
+  // Each renders exactly as without the strip, its image in its text.
+  for (const output of outputs) {
+    expect(envelopeImages(output)).toEqual([]);
+    expect(toolImages(call(output))).toEqual([]);
+    expect(toolResult(output, cleanText, true)).toEqual(toolResult(output, cleanText));
+    expect(toolResult(output, cleanText, true).text).toContain(`${PNG}0`);
+    expect(prettyOutput(output, true)).toBe(prettyOutput(output));
+    expect(prettyOutput(output, true)).toContain(`${PNG}0`);
+  }
+});
+
+test("a running call or a shell keeps its envelope's images in its text", () => {
+  const output = JSON.stringify([{ type: "text", text: "Shot" }, shot(0)]);
+  const shell = { ...call(output), kind: "execute", command: "cat shot.json" };
+  for (const tool of [call(output, "in_progress"), call(output, "pending"), shell]) {
+    expect(stripsEnvelopeImages(tool)).toBe(false);
+    expect(toolImages(tool)).toEqual([]);
+  }
+  expect(stripsEnvelopeImages(call(output, "failed"))).toBe(true);
+  expect(imageJSON(toolResult(output, cleanText).text)).toBe(1);
+});
+
+test("the strip shows an envelope's images, then the call's own as before, each once", () => {
   const output = JSON.stringify([{ type: "text", text: "Four" }, ...[0, 1, 2, 3].map(shot)]);
   const own = "data:image/png;base64,OWN";
-  const images = toolImages({ id: "c1", title: "mcp__shots__take", status: "completed", output, images: [own] });
+  const images = toolImages({ ...call(output), images: [own, url(2)] });
   expect(images).toEqual([...[0, 1, 2, 3].map(url), own]);
-  expect(toolResult(output).text).toBe("Four");
 });
 
-test("a running call's strip shows the envelope images its text leaves out", () => {
+test("Find in Chat reads a finished call's text without the images in its strip", () => {
   const output = JSON.stringify([{ type: "text", text: "Shot" }, shot(0)]);
-  const own = "data:image/png;base64,OWN";
-  const running = { id: "c1", title: "mcp__shots__take", status: "in_progress", output, images: [own] };
-  expect(toolResult(output).text).toBe("Shot");
-  expect(toolImages(running)).toEqual([url(0)]);
-});
-
-test("an image nested in the text of an envelope holding an unsafe number shows once, as the row shows it", () => {
-  const inner = JSON.stringify([{ type: "text", text: "Shot" }, shot(0)]);
-  const output = `{"jsonrpc":"2.0","id":9007199254740993,"result":${JSON.stringify(inner)}}`;
-  expect(toolResult(output, cleanText).text).toBe("Shot");
-  expect(envelopeImages(output, cleanText)).toEqual([url(0)]);
-  expect(prettyOutput(output)).toBe("Shot");
-});
-
-test("a shell that printed an envelope keeps its images in its output, out of the strip", () => {
-  const output = JSON.stringify([{ type: "text", text: "Shot" }, shot(0)]);
-  const shell = {
-    id: "c1",
-    title: "cat shot.json",
-    kind: "execute",
-    command: "cat shot.json",
-    status: "completed",
-    output,
-  };
-  expect(toolImages(shell)).toEqual([]);
-});
-
-test("the opened MCP call reads an envelope a host put its context around as the row does", () => {
-  const output = `${JSON.stringify([{ type: "text", text: "Shot" }, shot(0)])}\n<system-reminder>internal</system-reminder>`;
-  expect(prettyOutput(output)).toBe("Shot");
-  expect(prettyOutput(output)).toBe(toolResult(output, cleanText).text);
-  expect(envelopeImages(output, cleanText)).toEqual([url(0)]);
-});
-
-test("the opened MCP call reads text and images inside text as the row does", () => {
-  const inner = JSON.stringify({ content: [{ type: "text", text: "Inner" }, shot(0)] });
-  const output = JSON.stringify({ content: [{ type: "text", text: inner }] });
-  expect(prettyOutput(output)).toBe(toolResult(output, cleanText).text);
-  expect(prettyOutput(output)).toBe("Inner");
-  expect(envelopeImages(output, cleanText)).toEqual([url(0)]);
-});
-
-test("images past the strip's room stay JSON, across envelopes inside envelopes", () => {
-  const flat = JSON.stringify([{ type: "text", text: "Six" }, ...[0, 1, 2, 3, 4, 5].map(shot)]);
-  expect(envelopeImages(flat)).toEqual([0, 1, 2, 3].map(url));
-  expect(toolResult(flat).text.match(/"type": "image"/g)).toHaveLength(2);
-  const child = JSON.stringify({ content: [{ type: "text", text: "Child" }, shot(1), shot(2), shot(3), shot(4)] });
-  const nested = JSON.stringify([shot(0), { type: "text", text: child }]);
-  expect(envelopeImages(nested)).toEqual([0, 1, 2, 3].map(url));
-  expect(toolResult(nested).text).toBe(`Child\n\n${JSON.stringify(shot(4), null, 2)}`);
-});
-
-test("images are found with the row's cleaning, nested in text or after a host's context", () => {
-  const nested = JSON.stringify([{ type: "text", text: JSON.stringify([shot(0)]) }]);
-  expect(envelopeImages(nested)).toEqual([url(0)]);
-  const output = `${JSON.stringify([{ type: "text", text: "Shot" }, shot(1)])}\n<system-reminder>internal</system-reminder>`;
-  expect(toolResult(output, cleanText).text).toBe("Shot");
-  expect(toolImages({ id: "c1", title: "mcp__shots__take", status: "completed", output })).toEqual([url(1)]);
+  const row = (tool: ReturnType<typeof call> & { kind?: string }): AcpmuxRow => ({
+    id: "work",
+    version: 1,
+    at: 0,
+    kind: "activity",
+    text: "",
+    items: [{ kind: "tool", text: "Shot", tool }],
+  });
+  for (const title of ["Lookup", "mcp__shots__take"]) {
+    expect(findMatches([row({ ...call(output), title })], "iVBORw0KGgo")).toHaveLength(0);
+    expect(findMatches([row({ ...call(output, "in_progress"), title })], "iVBORw0KGgo").length).toBeGreaterThan(0);
+  }
 });

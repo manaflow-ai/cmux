@@ -6,7 +6,7 @@
 import { createContext } from "react";
 import type { Translate } from "../i18n";
 import type { AcpmuxActivity } from "../model";
-import { losesNumbers, oneLine, peelEnvelope, printable, toolResult } from "./toolResult";
+import { envelopeImages, losesNumbers, oneLine, peelEnvelope, printable, toolResult } from "./toolResult";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
@@ -276,19 +276,13 @@ function mcpValue(output: string | undefined): unknown {
 
 /// Whether the output is an envelope that holds more than text (structured content, an error's
 /// data, a block that is not text), at its top or in an envelope its text holds, as toolResult.ts
-/// reads text that is JSON again, and JSON a host put its context around once that is dropped.
+/// reads text that is JSON again.
 function holdsMore(output: string, depth = 0): boolean {
-  if (depth > 6) return false;
-  let text = output;
-  let parsed = parseJSON(text);
-  if (parsed === undefined && depth === 0) {
-    text = cleanText(output).replace(/\n$/, "");
-    parsed = text === output ? undefined : parseJSON(text);
-  }
-  const peeled = parsed === undefined || !oneLine(text) ? undefined : peelEnvelope(parsed);
+  if (depth > 6 || !oneLine(output)) return false;
+  const parsed = parseJSON(output);
+  const peeled = parsed === undefined ? undefined : peelEnvelope(parsed);
   if (!peeled) return false;
-  // Parts besides its text, or images its text leaves out for the strip (toolResult.ts).
-  if (peeled.rest.length || peeled.images.length) return true;
+  if (peeled.rest.length) return true;
   return holdsMore(cleanText(peeled.texts.join("\n\n")).replace(/\n$/, ""), depth + 1);
 }
 
@@ -304,14 +298,17 @@ export function prettyValue(value: unknown): string | undefined {
   return JSON.stringify(clean, null, 2);
 }
 
-/// The opened call's response.
-export function prettyOutput(output: string | undefined): string | undefined {
-  // An envelope that holds more than text, at any depth, reads exactly as the tool row reads it:
-  // its text, then each other part as the JSON it is, never cleaned or parsed again, and as it came
-  // when it holds a number a double would change (toolResult.ts).
-  if (output && holdsMore(output)) return toolResult(output, cleanText).text || undefined;
-  // Other JSON holding such a number (a 64-bit ID) shows as it came, never parsed and rounded.
+/// The opened call's response. `strip`: whether the call's strip shows its envelope's images
+/// (toolImages.ts `stripsEnvelopeImages`).
+export function prettyOutput(output: string | undefined, strip = false): string | undefined {
+  // JSON holding a number a double would change (a 64-bit ID) shows as it came, never parsed and
+  // rounded, as toolResult.ts shows it.
   if (output && parseJSON(output) !== undefined && losesNumbers(output)) return output.replace(/\n$/, "");
+  // An envelope whose images the strip shows reads as the tool row reads it: its text, without them.
+  if (output && strip && envelopeImages(output).length) return toolResult(output, cleanText, true).text || undefined;
+  // An envelope that holds more than text reads exactly as the tool row reads it: its text, then
+  // each other part as the JSON it is, never cleaned or parsed again (toolResult.ts).
+  if (output && holdsMore(output)) return toolResult(output, cleanText).text || undefined;
   return prettyValue(mcpValue(output));
 }
 

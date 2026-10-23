@@ -20,7 +20,7 @@ export type ToolResult = {
 const MAX_PARSE_CHARS = 2_000_000;
 /// Envelopes inside envelopes (JSON text in a text block that is itself a result) are peeled this deep.
 const MAX_DEPTH = 6;
-/// The most images one call's strip shows (toolImages.ts); an envelope's images past it stay JSON.
+/// The most images a call's envelope gives its strip (toolImages.ts): with more, they all stay JSON.
 export const MAX_TOOL_IMAGES = 4;
 /// The largest image block shown (its base64 text), as for a call's ACP image blocks (direct.ts).
 const MAX_IMAGE_CHARS = 8 * 1024 * 1024;
@@ -84,22 +84,31 @@ const isBlocks = (value: unknown): value is Block[] =>
   Array.isArray(value) && value.length > 0 && value.every((entry) => isBlock(entry));
 
 /// An envelope's parts: its texts, and what it holds besides (`rest`: a block that is not text,
-/// structured content, an error's data), which shows after the text as the JSON it is.
-/// `images`: its images as data URLs, for the call's strip; `room`: how many more the strip has room
-/// for, shared by envelopes inside envelopes.
-type Peeled = { texts: string[]; rest: unknown[]; images: string[]; room: number };
+/// structured content, an error's data), which shows after the text as the JSON it is. `images`:
+/// its image blocks as data URLs, each once, when they all go to the call's strip instead.
+type Peeled = { texts: string[]; rest: unknown[]; images?: string[] };
 
-/// One block's text (a text resource's after its URI), an image for the strip, or the block
-/// itself as JSON (an image in another format, past the size cap or past the strip's room).
+/// The image blocks among `blocks` as data URLs, each once, when every one can go to the call's
+/// strip: a PNG, JPEG, GIF or WebP under the size cap, at most `MAX_TOOL_IMAGES` different ones.
+/// Otherwise undefined, and every one stays JSON, as when the envelope holds no image.
+function stripImages(blocks: Block[]): string[] | undefined {
+  const images = new Set<string>();
+  for (let block of blocks) {
+    while (block.type === "content") block = block.content as Block;
+    if (block.type !== "image") continue;
+    const { data, mimeType } = block as { data: string; mimeType: string };
+    if (!/^image\/(png|jpeg|gif|webp)$/.test(mimeType) || data.length > MAX_IMAGE_CHARS) return undefined;
+    images.add(`data:${mimeType};base64,${data}`);
+    if (images.size > MAX_TOOL_IMAGES) return undefined;
+  }
+  return images.size ? [...images] : undefined;
+}
+
+/// One block's text (a text resource's after its URI), nothing for an image in the strip, or the
+/// block itself as JSON.
 function peelBlock(block: Block, into: Peeled) {
   if (block.type === "content") return peelBlock(block.content as Block, into);
-  if (
-    block.type === "image" &&
-    /^image\/(png|jpeg|gif|webp)$/.test(block.mimeType as string) &&
-    (block.data as string).length <= MAX_IMAGE_CHARS &&
-    into.images.length < into.room
-  )
-    return void into.images.push(`data:${block.mimeType as string};base64,${block.data as string}`);
+  if (block.type === "image" && into.images) return;
   const resource = block.resource as Record<string, unknown> | undefined;
   if (block.type === "text") into.texts.push(block.text as string);
   else if (
@@ -127,14 +136,16 @@ function repeated(texts: string[], structured: unknown): number {
 const says = (peeled: Peeled) => peeled.texts.some((text) => text.trim());
 
 /// The parts of `value` when it is an envelope a harness wrapped a result in, else undefined.
-export function peelEnvelope(value: unknown, depth = 0, room = MAX_TOOL_IMAGES): Peeled | undefined {
-  const part = (texts: string[], rest: unknown[]): Peeled => ({ texts, rest, images: [], room });
+/// `strip`: whether its images may go to the call's strip (only a plain MCP envelope's: its blocks,
+/// or a `CallToolResult`'s, never one inside a JSON-RPC result or inside text).
+export function peelEnvelope(value: unknown, depth = 0, strip = false): Peeled | undefined {
   if (depth > MAX_DEPTH) return undefined;
   // A list of content blocks, or one block. Blocks with no text to read (audio alone) stay JSON.
   if (isBlocks(value) || isBlock(value)) {
-    const peeled = part([], []);
-    for (const block of Array.isArray(value) ? value : [value]) peelBlock(block, peeled);
-    return says(peeled) || peeled.images.length ? peeled : undefined;
+    const blocks = Array.isArray(value) ? value : [value];
+    const peeled: Peeled = { texts: [], rest: [], images: strip ? stripImages(blocks) : undefined };
+    for (const block of blocks) peelBlock(block, peeled);
+    return says(peeled) || peeled.images ? peeled : undefined;
   }
   if (!isRecord(value)) return undefined;
   // An MCP `CallToolResult`: its blocks, then its structured content as JSON. A text block that
@@ -144,8 +155,9 @@ export function peelEnvelope(value: unknown, depth = 0, room = MAX_TOOL_IMAGES):
     (value.content.length === 0 || isBlocks(value.content)) &&
     onlyKeys(value, ["content", "structuredContent", "isError", "_meta"])
   ) {
-    const peeled = part([], []);
-    for (const block of value.content as Block[]) peelBlock(block, peeled);
+    const blocks = value.content as Block[];
+    const peeled: Peeled = { texts: [], rest: [], images: strip ? stripImages(blocks) : undefined };
+    for (const block of blocks) peelBlock(block, peeled);
     const structured = value.structuredContent;
     if (structured !== undefined && structured !== null) {
       const index = repeated(peeled.texts, structured);
@@ -158,23 +170,23 @@ export function peelEnvelope(value: unknown, depth = 0, room = MAX_TOOL_IMAGES):
   if (("result" in value || "error" in value) && onlyKeys(value, ["result", "error", "_meta", "id", "jsonrpc"])) {
     const error = value.error;
     if (error !== undefined && error !== null) {
-      if (typeof error === "string") return part([error], []);
-      if (!isRecord(error) || typeof error.message !== "string") return part([], [error]);
+      if (typeof error === "string") return { texts: [error], rest: [] };
+      if (!isRecord(error) || typeof error.message !== "string") return { texts: [], rest: [error] };
       // The message reads as text. A JSON-RPC error (`code`, `message`, `data`) follows with its
       // data; any other error (a REST API's `status`, `details`) with everything but its message.
       const { message, ...others } = error;
-      if (!onlyKeys(others, ["code", "data"])) return part([message], [others]);
+      if (!onlyKeys(others, ["code", "data"])) return { texts: [message], rest: [others] };
       // A `data` the error names, even null, follows it: only an absent one is left out.
-      return part([message], "data" in error && error.data !== undefined ? [error.data] : []);
+      return { texts: [message], rest: "data" in error && error.data !== undefined ? [error.data] : [] };
     }
     const result = value.result;
-    if (result === undefined || result === null) return part([], []);
-    if (typeof result === "string") return part([result], []);
-    return peelEnvelope(result, depth + 1, room) ?? part([], [result]);
+    if (result === undefined || result === null) return { texts: [], rest: [] };
+    if (typeof result === "string") return { texts: [result], rest: [] };
+    return peelEnvelope(result, depth + 1) ?? { texts: [], rest: [result] };
   }
   // Codex's function call output: `{"output": "…", "metadata": {"exit_code": 0, …}}`.
   if (typeof value.output === "string" && "metadata" in value && onlyKeys(value, ["output", "metadata"]))
-    return part([value.output], []);
+    return { texts: [value.output], rest: [] };
   return undefined;
 }
 
@@ -228,35 +240,41 @@ const MAX_MARKDOWN_CHARS = 20_000;
 
 /// What an opened non-shell call shows of `output` (ToolRow.tsx), and what Find in Chat reads of it
 /// (chatFind.ts), so both see one text. `clean` drops what a host injected into the result's text
-/// (mcpCalls.ts `cleanText`), once it is out of its envelope.
-export function toolResult(output: string, clean: (text: string) => string = identity): ToolResult {
-  const { text, lang } = read(output, clean);
+/// (mcpCalls.ts `cleanText`), once it is out of its envelope. `strip`: whether the call's strip
+/// shows its envelope's images (toolImages.ts `stripsEnvelopeImages`), so its text leaves them out.
+export function toolResult(output: string, clean: (text: string) => string = identity, strip = false): ToolResult {
+  const { text, lang } = read(output, clean, strip);
   return { text, lang };
 }
 
 const identity = (text: string) => text;
 type Read = ToolResult & { images: string[] };
 
-function read(output: string, clean: (text: string) => string): Read {
+function read(output: string, clean: (text: string) => string, strip: boolean): Read {
   const parsed = parseJSONValue(output);
-  if (parsed !== undefined) return fromJSON(parsed, output, 0, clean, MAX_TOOL_IMAGES);
+  // Only an envelope the output is, as it came, gives its images to the strip, and never one holding
+  // a number a double would change: that one shows as printed, its images included.
+  if (parsed !== undefined) return fromJSON(parsed, output, 0, clean, strip && !losesNumbers(output));
   // A host may have put its context around the JSON (a reminder after a result): read it again without.
   const cleaned = clean(output).replace(/\n$/, "");
   const reparsed = cleaned === output ? undefined : parseJSONValue(cleaned);
-  if (reparsed !== undefined) return fromJSON(reparsed, cleaned, 0, clean, MAX_TOOL_IMAGES);
+  if (reparsed !== undefined) return fromJSON(reparsed, cleaned, 0, clean, false);
   return { text: cleaned, lang: "text", images: [] };
 }
 
-function fromJSON(value: unknown, printed: string, depth: number, clean: (text: string) => string, room: number): Read {
-  let peeled = depth < MAX_DEPTH && oneLine(printed) ? peelEnvelope(value, 0, room) : undefined;
+function fromJSON(
+  value: unknown,
+  printed: string,
+  depth: number,
+  clean: (text: string) => string,
+  strip: boolean,
+): Read {
+  let peeled = depth < MAX_DEPTH && oneLine(printed) ? peelEnvelope(value, 0, strip) : undefined;
   // An envelope with nothing in it shows as the JSON it is, and so does one whose other parts
   // cannot be printed again unchanged (a number a double rounds, nesting too deep).
-  if (peeled && !says(peeled) && !peeled.rest.length && !peeled.images.length) peeled = undefined;
-  if (peeled?.rest.length && !peeled.rest.every(printable)) peeled = undefined;
-  // A number a double would change anywhere in an envelope that holds more than text: the whole of
-  // it as printed, its images included, as the opened MCP call shows it (mcpCalls.ts prettyOutput).
-  if ((peeled?.rest.length || peeled?.images.length) && losesNumbers(printed)) peeled = undefined;
-  // Its images show in the strip only when its text leaves them out: each image shows once.
+  if (peeled && !says(peeled) && !peeled.rest.length && !peeled.images) peeled = undefined;
+  if (peeled?.rest.length && (losesNumbers(printed) || !peeled.rest.every(printable))) peeled = undefined;
+  // Its images, when the strip shows them: its text below leaves them out, so each shows once.
   const images = peeled?.images ?? [];
   if (peeled) {
     const text = clean(peeled.texts.join("\n\n")).replace(/\n$/, "");
@@ -266,35 +284,29 @@ function fromJSON(value: unknown, printed: string, depth: number, clean: (text: 
       const lang = text.trim() ? "text" : "json";
       return { text: [text, ...rest].filter((part) => part.trim()).join("\n\n"), lang, images };
     }
-    // The text inside is JSON again: an envelope in an envelope (sharing the strip's room), or a JSON result.
+    // The text inside is JSON again: an envelope in an envelope (its images stay JSON), or a JSON result.
     const inner = parseJSONValue(text);
-    if (inner !== undefined) {
-      const result = fromJSON(inner, text, depth + 1, clean, room - images.length);
-      return { ...result, images: [...images, ...result.images] };
-    }
+    if (inner !== undefined) return { ...fromJSON(inner, text, depth + 1, clean, false), images };
     const markdown = text.length <= MAX_MARKDOWN_CHARS && MARKDOWN.test(text);
     return { text, lang: markdown ? "markdown" : "text", images };
   }
   // JSON the tool returned. On one line it is indented, unless that would change it (a number a
   // double rounds) or it is nested too deep; printed on lines (a file it read) it stays as printed.
   const asPrinted = !oneLine(printed) || losesNumbers(printed) || deeperThan(value, MAX_PRETTY_DEPTH);
-  return { text: asPrinted ? printed.replace(/\n$/, "") : JSON.stringify(value, null, 2), lang: "json", images };
+  return { text: asPrinted ? printed.replace(/\n$/, "") : JSON.stringify(value, null, 2), lang: "json", images: [] };
 }
 
-const imagesCaches = new WeakMap<(text: string) => string, Map<string, string[]>>();
+const imagesCache = new Map<string, string[]>();
 
-/// The images an output's envelope carried (its `image` blocks, as data URLs), read with the same
-/// `clean` as its text (toolImages.ts passes mcpCalls.ts `cleanText`, as ToolRow does). Kept for the
-/// last few outputs asked per `clean`, so a transcript re-render parses nothing again.
-export function envelopeImages(output: string | undefined, clean: (text: string) => string = identity): string[] {
-  // `image` is in any output with an image block, nested in JSON text (`\"image\"`) or not.
+/// The images the call's strip shows from its output's envelope, the ones `toolResult(output, …,
+/// true)` leaves out of its text (which `clean` never changes). Kept for the last few outputs, so a
+/// transcript re-render parses nothing again.
+export function envelopeImages(output: string | undefined): string[] {
   if (!output || !output.includes("image")) return [];
-  let cache = imagesCaches.get(clean);
-  if (!cache) imagesCaches.set(clean, (cache = new Map()));
-  const known = cache.get(output);
+  const known = imagesCache.get(output);
   if (known) return known;
-  const images = read(output, clean).images;
-  if (cache.size >= 32) cache.delete(cache.keys().next().value!);
-  cache.set(output, images);
+  const images = read(output, identity, true).images;
+  if (imagesCache.size >= 32) imagesCache.delete(imagesCache.keys().next().value!);
+  imagesCache.set(output, images);
   return images;
 }
