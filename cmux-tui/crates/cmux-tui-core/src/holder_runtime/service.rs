@@ -169,8 +169,8 @@ impl HolderService {
         let chan = self.next_chan.fetch_add(1, Ordering::AcqRel);
         let sink = HolderSink::new(0);
         sink.prepend(seed);
-        let (pid, custody) = link.spawn(chan, request, sink.clone() as Arc<dyn TerminalSink>)?;
-        Ok(self.track(chan, request.id, pid, custody, sink))
+        let spawned = link.spawn(chan, request, sink.clone() as Arc<dyn TerminalSink>)?;
+        Ok(self.track(chan, request.id, spawned.pid, (spawned.master, spawned.ring), sink))
     }
 
     /// The terminal `id` a previous daemon left running on the holder, now
@@ -193,7 +193,7 @@ impl HolderService {
             sink.prepend(&[super::sink::CANCEL]);
         }
         link.attach(entry.chan, entry.oldest, sink.clone() as Arc<dyn TerminalSink>)?;
-        Ok(Some(self.track(entry.chan, *id, entry.pid, custody, sink)))
+        Ok(Some(self.track(entry.chan, *id, entry.pid, (custody, entry.ring), sink)))
     }
 
     /// Whether the holder ran terminal `id` (running or ended) when this
@@ -284,7 +284,7 @@ impl HolderService {
         chan: u32,
         id: [u8; 16],
         pid: i32,
-        custody: OwnedFd,
+        (custody, ring): (OwnedFd, Option<OwnedFd>),
         sink: Arc<HolderSink>,
     ) -> Arc<HolderTerminal> {
         let service = Arc::downgrade(self);
@@ -298,6 +298,7 @@ impl HolderService {
             id,
             pid,
             custody,
+            ring: Mutex::new(ring),
             sink,
             service: self.clone(),
             replay: Mutex::new(None),
@@ -318,9 +319,11 @@ impl HolderService {
     /// After the link was lost: a terminal the holder `link` still runs
     /// (`still_held`, by channel: the same holder) resumes from the last
     /// byte this daemon received; every other live terminal goes to the new
-    /// holder with its custody master, pid, and the offset its output
-    /// continues from. Output the shells wrote meanwhile waited in their
-    /// PTYs.
+    /// holder with its custody master, pid, ring segment and a prologue
+    /// built at the exact offset the parser confirmed
+    /// ([`HolderTerminal::adoption`]). Output the shells wrote meanwhile
+    /// waited in their PTYs; output the dead holder read but never sent is
+    /// in the ring segment.
     fn readopt(&self, link: &HolderLink, still_held: &HashMap<u32, [u8; 16]>) {
         let live: Vec<_> =
             self.live.lock().recover_poison().values().filter_map(Weak::upgrade).collect();
@@ -332,19 +335,15 @@ impl HolderService {
                 }
                 continue;
             }
-            // The old holder is gone, so nothing more arrives: once the
-            // reader parsed what it had, the daemon's screen is the screen
-            // at `base`, the new holder's prologue for a later restart.
-            terminal.sink.wait_drained(std::time::Duration::from_secs(1));
-            let base = terminal.sink.received();
-            let prologue = terminal.prologue(super::terminal::ADOPT_PROLOGUE_MAX_BYTES);
+            let adoption =
+                terminal.adoption(link.has_rings(), super::terminal::ADOPT_PROLOGUE_MAX_BYTES);
             let sink = terminal.sink.clone() as Arc<dyn TerminalSink>;
             if let Err(error) = link.adopt(
                 terminal.chan,
                 &terminal.id,
-                (terminal.pid, base),
-                &terminal.custody,
-                (sink, &prologue),
+                (terminal.pid, adoption.base, adoption.resume),
+                (&terminal.custody, adoption.ring.as_ref()),
+                (sink, &adoption.prologue),
             ) {
                 eprintln!("cmux-tui: hand terminal {} to the new holder: {error}", terminal.chan);
             }
@@ -380,23 +379,51 @@ impl HolderService {
         )
     }
 
-    /// Start the holder from the host executable (the slim, content-addressed
-    /// `cmux-tui-host` on macOS) and wait until it listens.
+    /// Start a holder and wait until it listens: the standalone
+    /// `cmux-holder` (std and libc only, its own content-addressed copy on
+    /// macOS, `crate::host_exe::holder_executable`) when the daemon has one
+    /// that speaks its wire, else the holder built into the host executable
+    /// (`cmux-tui-host __holder`).
     fn launch(&self) -> io::Result<()> {
-        let mut child = crate::host_exe::spawn_host(|command| {
+        let configure =
+            |command: &mut std::process::Command| {
+                command
+                    .arg("--socket")
+                    .arg(&self.socket)
+                    // Every shell gets back the open-file limit cmux started
+                    // with; the holder keeps the daemon's raised one.
+                    .envs(
+                        cmux_pty::original_open_file_limit()
+                            .map(|soft| (cmux_holder::NOFILE_SOFT_ENV, soft.to_string())),
+                    )
+                    // A DEV build's, debug build's or test's grace, as its hosts
+                    // get: the holder ends its terminals once no daemon came back.
+                    .envs(crate::terminal_host_runtime::spawned_orphan_grace().map(|grace| {
+                        (cmux_holder::ORPHAN_GRACE_ENV, grace.as_millis().to_string())
+                    }))
+                    .stdin(Stdio::piped())
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::null());
+            };
+        let standalone = standalone_holder().and_then(|path| {
+            use std::os::unix::process::CommandExt;
+            let mut command = std::process::Command::new(&path);
+            command.arg0(crate::host_exe::HOLDER_NAME);
+            configure(&mut command);
             command
-                .args(["__holder", "--socket"])
-                .arg(&self.socket)
-                // Every shell gets back the open-file limit cmux started
-                // with; the holder keeps the daemon's raised one.
-                .envs(
-                    cmux_pty::original_open_file_limit()
-                        .map(|soft| (cmux_holder::NOFILE_SOFT_ENV, soft.to_string())),
-                )
-                .stdin(Stdio::piped())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::null());
-        })?;
+                .spawn()
+                .inspect_err(|error| {
+                    eprintln!("cmux-tui: start the terminal holder {}: {error}", path.display());
+                })
+                .ok()
+        });
+        let mut child = match standalone {
+            Some(child) => child,
+            None => crate::host_exe::spawn_host(|command| {
+                command.arg("__holder");
+                configure(command);
+            })?,
+        };
         let hex: String = self.token.iter().map(|byte| format!("{byte:02x}")).collect();
         let mut stdin = child.stdin.take().ok_or_else(|| io::Error::other("no holder stdin"))?;
         stdin.write_all(format!("{hex}\n").as_bytes())?;
@@ -413,6 +440,30 @@ impl HolderService {
         }
         Ok(())
     }
+}
+
+/// The standalone holder this daemon starts, when it has one whose wire
+/// range it speaks (`cmux-holder --version`).
+pub(crate) fn standalone_holder() -> Option<PathBuf> {
+    crate::host_exe::holder_executable(&|answer| {
+        cmux_holder::parse_version_line(answer).is_some_and(|(min, max)| {
+            min <= cmux_holder::wire::VERSION && max >= cmux_holder::wire::MIN_VERSION
+        })
+    })
+}
+
+/// Make the standalone holder's copy and run its `--version` on a
+/// background thread, so the first terminal of a session does not pay for
+/// the copy, its hash and its first exec. Only with the holder model on.
+/// A daemon calls it when it starts serving (unit tests start none).
+#[cfg(not(test))]
+pub(crate) fn prepare_in_background() {
+    if !super::enabled() {
+        return;
+    }
+    let _ = std::thread::Builder::new().name("cmux-holder-exe".into()).spawn(|| {
+        let _ = standalone_holder();
+    });
 }
 
 /// `/tmp/cmux-hd-<uid>/<hash of the host root>.sock`: short enough for

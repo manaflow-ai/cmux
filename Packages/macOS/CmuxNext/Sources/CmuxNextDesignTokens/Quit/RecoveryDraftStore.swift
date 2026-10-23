@@ -11,7 +11,6 @@ package import os
 /// back. The next launch reads `drafts()` and shows the restore notice.
 @MainActor
 public final class RecoveryDraftStore {
-    public static let shared = RecoveryDraftStore(directory: RecoveryDraftFiles.defaultDirectory)
     public static let defaultMaxDraftBytes = 8 * 1024 * 1024
     public static let defaultMaxTotalBytes = 100 * 1024 * 1024
 

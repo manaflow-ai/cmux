@@ -304,6 +304,12 @@ struct AttachmentStrip: View {
             HStack(spacing: 8) {
                 ForEach(model.attachments) { attachment in
                     tile(attachment)
+                        .contentShape(.rect(cornerRadius: 12, style: .continuous))
+                        // Tap opens it full screen before it is sent.
+                        .onTapGesture { model.previewAttachment(attachment.id) }
+                        .accessibilityAddTraits(.isButton)
+                        .accessibilityHint("Opens a preview")
+                        .accessibilityIdentifier("terminal.attachment")
                         .overlay(alignment: .topTrailing) {
                             Button {
                                 model.removeAttachment(attachment.id)

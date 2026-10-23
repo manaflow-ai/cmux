@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '703393e4b4e99f70fa8b7761ae54eebd46dc54b8ed3ce9b83a597216d6f75cb1'
+IR_SHA256 = '1e8ed8d1c9488496f61ce39773888417486f7d9a3ecf0469f4e801cd383fe3bd'
 
 
 @dataclass(frozen=True)
@@ -2950,8 +2950,10 @@ COMMANDS = {
         None,
         {
             'bytes': CommandFieldMetadata(None, None),
+            'expect_agent': CommandFieldMetadata(None, 'send-expect-agent-v1'),
             'expect_foreground': CommandFieldMetadata(None, 'send-expect-foreground-v1'),
             'paste': CommandFieldMetadata(7, None),
+            'submit': CommandFieldMetadata(None, 'send-expect-agent-v1'),
             'surface': CommandFieldMetadata(None, None),
             'terminal_id': CommandFieldMetadata(None, 'terminal-input-while-creating-v1'),
             'text': CommandFieldMetadata(None, None),
@@ -3628,6 +3630,7 @@ COMMANDS = {
             'color': CommandFieldMetadata(None, None),
             'icon': CommandFieldMetadata(None, None),
             'name': CommandFieldMetadata(None, None),
+            'proxy': CommandFieldMetadata(None, None),
         },
     ),
     'update-frontend-browser-tab': CommandMetadata(

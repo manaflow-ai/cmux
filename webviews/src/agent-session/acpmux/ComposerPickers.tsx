@@ -994,8 +994,8 @@ export function ComposerPickers({
           </button>
         </ContextMenu>
       )}
-      {/* The harness's other settings (Codex's collaboration mode, a custom harness's own
-          options): each config option no chip above owns, picked like the effort level. */}
+      {/* A custom harness's other settings: each config option no chip above owns, picked like the
+          effort level. Codex's collaboration mode stays on its command/mode paths. */}
       <AgentOptionsMenu options={extraConfigOptions(summary)} onPick={(configId, value) => onEffort(configId, value)} />
     </div>
   );
@@ -1412,7 +1412,7 @@ export function ContextRing({
       <AnchoredCard
         anchor={shown ? trigger.current : null}
         // AnchoredCard makes it the shared glass hover card (ui-tooltip ui-card ui-glass).
-        className={`acpmux-context-card acpmux-context-pop${breakdown ? " acpmux-context-pop--breakdown" : ""}${full}`}
+        className={`acpmux-context-card acpmux-context-pop${breakdown ? " acpmux-context-pop--breakdown" : " acpmux-context-pop--compact"}${full}`}
         side="top"
         interactive
         ariaLabel={t("context.title")}

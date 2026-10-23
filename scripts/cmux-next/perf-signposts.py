@@ -18,6 +18,11 @@ What the action rows mean:
                            own end signal for input-to-result numbers and the 10 ms budget.
   action.commit.missed     commits the boundary missed (end message commit=missed): excluded
                            from action.commit, counted here
+  action.*.nested_loop     runs whose handler opened a nested run loop that waited for the person
+                           (a menu pop-up, a modal panel; end message loop=nested): they hold the
+                           person's dwell time, so they are kept out of action.perform,
+                           action.commit and input to commit and counted here; the action picked
+                           inside that loop is a sample of its own
   action.input_to_commit   action.commit plus the begin's input_age_ms, for runs a person started
                            (input_age_ms >= 0: the key or click being dispatched, or for a run a
                            confirmation or the palette let through in a later turn, the press
@@ -102,7 +107,7 @@ def is_loss(line: str, event: dict | None) -> bool:
 
 
 def parse(lines, timebase: tuple[int, int] | None) -> dict:
-    """{intervals: [{name, category, ms, fields, missed}], lost, unpaired}."""
+    """{intervals: [{name, category, ms, fields, missed, nested_loop}], lost, unpaired}."""
     numer, denom = timebase or (0, 0)
     open_intervals: dict[tuple, tuple[float, dict]] = {}
     done = []
@@ -135,8 +140,9 @@ def parse(lines, timebase: tuple[int, int] | None) -> dict:
             open_intervals[key] = (at, fields(event.get("eventMessage", "")))
         elif kind == "end" and key in open_intervals:
             start, info = open_intervals.pop(key)
-            missed = fields(event.get("eventMessage", "")).get("commit") == "missed"
-            done.append({"name": key[2], "category": key[1], "ms": (at - start) * 1000, "fields": info, "missed": missed})
+            end = fields(event.get("eventMessage", ""))
+            done.append({"name": key[2], "category": key[1], "ms": (at - start) * 1000, "fields": info,
+                         "missed": end.get("commit") == "missed", "nested_loop": end.get("loop") == "nested"})
     return {"intervals": done, "lost": lost, "unpaired": len(open_intervals)}
 
 
@@ -150,7 +156,8 @@ def summarize(intervals: list[dict]) -> list[dict]:
     groups: dict[tuple[str, str], list[float]] = {}
     for interval in intervals:
         detail = interval["fields"].get("id") or interval["fields"].get("kind") or ""
-        name = interval["name"] + (".missed" if interval.get("missed") else "")
+        suffix = ".nested_loop" if interval.get("nested_loop") else ".missed" if interval.get("missed") else ""
+        name = interval["name"] + suffix
         groups.setdefault((name, detail), []).append(interval["ms"])
         groups.setdefault((name, "*"), []).append(interval["ms"])
         age = interval["fields"].get("input_age_ms")
@@ -223,9 +230,18 @@ Filtering the log data using "subsystem == ..."
 {"eventType":"signpostEvent","subsystem":"com.cmuxterm.app.next","category":"action","signpostName":"action.commit","signpostID":11,"signpostType":"begin","processID":1,"machTimestamp":4000000000,"timestamp":"2026-10-23 04:55:44.000000-0700","eventMessage":"id=tab.close origin=user input_age_ms=1.00"}
 {"eventType":"signpostEvent","subsystem":"com.cmuxterm.app.next","category":"action","signpostName":"action.gate","signpostID":12,"signpostType":"begin","processID":1,"machTimestamp":5000000000,"timestamp":"2026-10-23 04:55:45.000000-0700","eventMessage":"id=tabGroup.close origin=user input_age_ms=0.20"}
 {"eventType":"signpostEvent","subsystem":"com.cmuxterm.app.next","category":"action","signpostName":"action.gate","signpostID":12,"signpostType":"end","processID":1,"machTimestamp":5000500000,"timestamp":"2026-10-23 04:55:45.000500-0700","eventMessage":""}
+{"eventType":"signpostEvent","subsystem":"com.cmuxterm.app.next","category":"action","signpostName":"action.perform","signpostID":13,"signpostType":"begin","processID":1,"machTimestamp":6000000000,"timestamp":"2026-10-23 04:55:46.000000-0700","eventMessage":"id=tab.new origin=user input_age_ms=0.20"}
+{"eventType":"signpostEvent","subsystem":"com.cmuxterm.app.next","category":"action","signpostName":"action.perform","signpostID":13,"signpostType":"end","processID":1,"machTimestamp":8000000000,"timestamp":"2026-10-23 04:55:48.000000-0700","eventMessage":"loop=nested"}
 {"eventType":"lossEvent","eventMessage":"lost 3 unreliable messages","timestamp":"2026-10-23 04:55:44.100000-0700"}
 {"eventType":"signpostEvent","subsystem":"other","category":"action","signpostName":"action.commit","signpostID":7,"signpostType":"end","processID":1,"machTimestamp":1009000000,"timestamp":"2026-10-23 04:55:41.259635-0700","eventMessage":""}
 """
+
+
+def missing_input_age(intervals: list[dict]) -> bool:
+    """User action.commit runs exist and none carries an input age: the App's input wiring broke, or the
+    runs came from outside a key or click dispatch (input to commit would be empty and look healthy)."""
+    user = [i for i in intervals if i["name"] == "action.commit" and i["fields"].get("origin") == "user"]
+    return bool(user) and all(float(i["fields"].get("input_age_ms", "-1")) < 0 for i in user)
 
 
 def self_test() -> int:
@@ -244,6 +260,11 @@ def self_test() -> int:
     # A gate is its own row, never one of the action's run rows.
     assert abs(rows[("action.gate", "tabGroup.close")]["p50_ms"] - 0.5) < 1e-6, rows
     assert ("action.commit", "tabGroup.close") not in rows and ("action.input_to_commit", "tabGroup.close") not in rows, rows
+    # A run that spanned a nested run loop (2 s of menu dwell) is reported apart, out of action.perform.
+    assert rows[("action.perform.nested_loop", "tab.new")]["count"] == 1, rows
+    assert rows[("action.perform", "tab.new")]["count"] == 1, rows
+    assert missing_input_age([{"name": "action.commit", "fields": {"origin": "user", "input_age_ms": "-1"}}])
+    assert not missing_input_age(parsed["intervals"])
     assert parsed["lost"] == 1 and parsed["unpaired"] == 1, parsed
     assert parse(["Dropped 12 messages"], None)["lost"] == 1
     print("self-test ok")
@@ -259,6 +280,8 @@ def main() -> int:
     parser.add_argument("--seconds", type=float)
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--allow-loss", action="store_true")
+    parser.add_argument("--require-input-age", action="store_true",
+                        help="exit 3 when user action.commit runs exist and none has input_age_ms >= 0")
     parser.add_argument("--self-test", action="store_true")
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
@@ -289,7 +312,12 @@ def main() -> int:
         print(f"{'name':28} {'detail':36} {'n':>5} {'p50':>9} {'p95':>9} {'max':>9}")
         for row in rows:
             print(f"{row['name']:28} {row['detail'][:36]:36} {row['count']:5} {row['p50_ms']:9.3f} {row['p95_ms']:9.3f} {row['max_ms']:9.3f}")
-    if status:
+    if missing_input_age(parsed["intervals"]):
+        print("perf-signposts: WARNING: user action runs carry no input age (input_age_ms -1 on every one): "
+              "input to commit is empty; the App's dispatchingInputEvent wiring or the scenario is wrong", file=sys.stderr)
+        if args.require_input_age:
+            status = status or 3
+    if status == 2:
         print(f"perf-signposts: log stream lost messages {parsed['lost']} time(s); the sample is not complete "
               "(rerun, or pass --allow-loss to keep it)", file=sys.stderr)
     return status

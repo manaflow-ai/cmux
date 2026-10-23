@@ -169,10 +169,18 @@ impl Surface {
     ) -> anyhow::Result<Arc<Surface>> {
         let surface = Self::spawn_local(spawn, holder_local_launch(terminal, command, cwd)?)?;
         let weak = Arc::downgrade(&surface);
-        terminal.set_replay(Box::new(move |max_bytes| {
-            weak.upgrade()
-                .and_then(|surface| surface.as_pty().map(|pty| holder_prologue(pty, max_bytes)))
-                .unwrap_or_default()
+        terminal.set_replay(Box::new(move |max_bytes, at_point| match weak.upgrade() {
+            Some(surface) => match surface.as_pty() {
+                Some(pty) => holder_prologue(pty, max_bytes, at_point),
+                None => {
+                    at_point();
+                    Vec::new()
+                }
+            },
+            None => {
+                at_point();
+                Vec::new()
+            }
         }));
         Ok(surface)
     }
@@ -180,28 +188,37 @@ impl Surface {
 
 /// A VT replay of the daemon's parsed screen (screen, modes, title,
 /// directory and the newest history that fits in `max_bytes`) plus its
-/// OSC 9;4 progress: a new holder's prologue after a holder crash, or a
-/// snapshot the holder keeps for a restarted daemon. Empty when it does not
-/// fit: a later restart then shows only the output since.
-fn holder_prologue(pty: &PtySurface, max_bytes: usize) -> Vec<u8> {
-    let Ok(mut replay) = pty
-        .term
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .vt_replay_bounded_bytes(max_bytes)
-    else {
-        return Vec::new();
+/// OSC 9;4 progress, ending with the incomplete sequence the parser is
+/// inside: a new holder's prologue after a holder crash, or a snapshot the
+/// holder keeps for a restarted daemon. Empty when it does not fit: a later
+/// restart then shows only the output since.
+///
+/// `at_point` runs under the terminal lock, at the instant the replay
+/// shows: the reader confirms each chunk under the same lock
+/// (`HolderSink::confirm_parsed`), so what it reads there matches the
+/// replay byte for byte.
+fn holder_prologue(pty: &PtySurface, max_bytes: usize, at_point: &mut dyn FnMut()) -> Vec<u8> {
+    let (replay, progress) = {
+        let mut term = pty.term.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        at_point();
+        // The reader updates the progress under the terminal lock too.
+        let progress = pty
+            .terminal_metadata
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .osc_progress()
+            .to_owned();
+        (term.vt_replay_bounded(max_bytes), progress)
     };
-    let progress = pty
-        .terminal_metadata
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .osc_progress()
-        .to_owned();
+    let Ok(replay) = replay else { return Vec::new() };
+    let mut bytes = replay.bytes;
     if !progress.is_empty() {
-        replay.extend_from_slice(format!("\x1b]9;{progress}\x1b\\").as_bytes());
+        bytes.extend_from_slice(format!("\x1b]9;{progress}\x1b\\").as_bytes());
     }
-    if replay.len() > max_bytes { Vec::new() } else { replay }
+    // Last, right before the live stream that completes it: an escape
+    // sequence or UTF-8 character the holder's crash cut in two.
+    bytes.extend_from_slice(&replay.pending_sequence);
+    if bytes.len() > max_bytes { Vec::new() } else { bytes }
 }
 
 fn pty_size(terminal: &HolderTerminal) -> Option<(u16, u16)> {

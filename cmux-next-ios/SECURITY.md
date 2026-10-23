@@ -263,16 +263,16 @@ A phone browser tab streams from a CEF remote browser host the Mac app runs,
     page when hostd sees it, so frames painted before the host goes back can
     reach the phone; a navigation check inside the host (CEF `OnBeforeBrowse`)
     would close that gap and needs a new pinned host binary.
-  - **Known gap: subresources.** hostd sees top-level pages only. A `file:`
-    page that the rules allow (a shared folder, or one the Mac shows) can
-    embed other local files (an `<iframe>` or `<img>` of `file:///...`;
-    Chromium lets a `file:` page show, though not script-read, other files),
-    and they appear in the streamed video. So an HTML file written into a
-    shared workspace folder can show a file outside it on the phone, as it
-    would in the Mac's own browser. Closing it needs a per-load check in the
-    host (CEF `OnBeforeResourceLoad` / `OnBeforeBrowse` with the shared roots)
-    and a new pinned host binary; until then the "never home, `~/.ssh`,
-    `~/Library`" bound holds for top-level pages only.
+  - **Subresources and the load itself** (closed 2026-10-22). The host checks
+    every `file:` load before Chromium opens the file (`rb.file_policy`,
+    `file_policy.rs`; `OnBeforeBrowse` and `OnBeforeResourceLoad` in
+    `rb_shim.mm`): a `file:` page that the rules allow can no longer embed a
+    file outside the shared folders and the pages the Mac showed (iframe,
+    image, fetch), a link to a refused file never loads (no frames reach the
+    phone), and the path is resolved at load time, so a symlink swapped in
+    after hostd's check is refused too. Needs the pinned host built from this
+    source (`remote-browser-host.pin.json`); an older host ignores the policy
+    and the earlier after-the-fact take-back still applies.
   - The other `rb.*` messages are an allowlist (`browser.rs`). The daemon's
     `new-browser-tab` and `browser-navigate` (which drive the person's own Mac
     browser, with its profile) still take only `http(s)` and `about:blank`.
@@ -297,7 +297,7 @@ A phone browser tab streams from a CEF remote browser host the Mac app runs,
 | --- | --- |
 | Executes commands or opens content on local objects? | It renders pages in an isolated host, as the Mac's own browser would: web pages, and local files only inside the folders the Mac shares with the phone or a page the Mac's own browser already shows. No script URL or app scheme is opened. |
 | Mutates or destroys objects the session does not own? | No: a fresh cache per host, removed on exit; the person's browser profiles are not used. |
-| Reads local state the remote should not see? | Only what a web page sees in a fresh profile (no cookies, history or saved logins of the person), files in the shared folders (the same files the `file` previews read), and pages the Mac already shows. Top-level pages are never home itself, `~/.ssh`, `~/Library` or the other credential trees unless the Mac's own browser has that page open; a `file:` page that is allowed can still embed other local files (known gap above). |
+| Reads local state the remote should not see? | Only what a web page sees in a fresh profile (no cookies, history or saved logins of the person), files in the shared folders (the same files the `file` previews read), and pages the Mac already shows. Never home itself, `~/.ssh`, `~/Library` or the other credential trees unless the Mac's own browser has that page open (that page, not its folder's other files); the host checks every file load, subresources included. |
 
 ## Link transport: TURN over TLS, and no backend relay (`feat-cnx-ios-turntls`)
 
@@ -417,7 +417,7 @@ read when the person reads them on the phone). Rule 2 answers:
 
 - Executes commands or opens content: no. An ask from a terminal agent (an
   approval or a question in its TUI) is not answered from the Feed; the item
-  opens the terminal tab.
+  opens the terminal tab. (A finished turn takes a typed reply: below.)
 - Mutates objects the session does not own: the read mark is the person's
   own, on their own tab, the same mark the Mac's panel sets.
 - Reads local state: the notification titles and bodies the Mac already shows
@@ -425,6 +425,117 @@ read when the person reads them on the phone). Rule 2 answers:
   journal accepts it, so the body is at most the tool an approval waits on.
 - Rule 6: `allows_the_terminal_feed` (policy) covers these exact lines and
   refuses the activity stream, the session journal and replies into a terminal.
+
+### Terminal agents' texts and the Feed reply to a terminal agent (`feat-cmux-next-terminal-agent-feed`)
+
+A terminal agent's Feed card now shows what a GUI chat's shows. Its prompt,
+its whole last answer, or a failed tool's error text ride on the daemon's
+live `notification` event (`id`, `prompt`, `message`). They are kept in the
+daemon's memory only, as the banner's `preview` already was: not in the
+ledger, the journal, a log or any daemon file. The behavior test
+`a_finished_turn_notification_carries_the_whole_prompt_and_answer_for_the_feed`
+checks the daemon's folders after a checkpoint. The texts are up to 4000
+characters each. The phone keeps them in its own Feed archive, as it keeps a
+GUI chat's preview. That includes a failed tool's error text, which, like the
+Mac's own banner, is not redacted: error output can name a path or a value
+the agent printed. They never go into a push. The phone reads the texts
+through the `subscribe` it already had. No command was added.
+
+**Feed reply to a terminal agent.** A finished turn's card or an error's card
+takes a typed reply. The phone types it into that terminal's agent and
+submits it, as the Mac's `notify --reply` banner does (paste, then Return as
+its own key). It uses only lines the phone's terminal keyboard already sends:
+`identify` (for the daemon's capabilities), `process-info {surface}`, then
+one `send {surface, text, paste: true, submit: true, expect_foreground,
+expect_agent: {session}}`. `notification-reply` stays refused. Policy test:
+`allows_the_terminal_feed_reply`.
+
+Who may reply:
+- **Owner only.** The paired owner's phone can reply, over its own approved
+  link (device key, owner-only admission, "Who the peer is"). The reply goes
+  to the item's own Mac, never another linked Mac
+  (`LiveCoordinator.terminalFeed(macID:)`), over that Mac's current daemon
+  connection. A write is refused if the connection changed while the reply
+  was on its way (`connectionSerial`). After a reconnect, the phone reads the
+  ledger again before it allows a reply.
+
+When a reply goes in: the phone checks first (`TerminalFeed.reply`), then
+the daemon checks again right before the write. The phone's view can be a
+moment old, so the daemon checks are the guarantee.
+- **The daemon.** `send-expect-agent-v1` (`cmd_terminal_io.rs`), checked
+  just before the write, in one command with no gap between the text and
+  Return (`submit`):
+  - **Foreground program.** It must still be the foreground program
+    (`expect_foreground`, its full path). So text never lands in a shell
+    that took the terminal back, or in another program.
+  - **At its prompt.** The terminal's agent must be `idle` or `done`
+    (`expect_agent`). Typed text, or the Return, would otherwise answer
+    something else: refused while it works, or while it is blocked on an
+    approval or a question. Those are answered in the terminal.
+  - **Same session.** The agent must be in the harness session that
+    posted the event (`expect_agent.session`, the event's `session`). A
+    new session in the same terminal, after a restart or `/clear`, is
+    refused.
+  - **Older Macs.** A Mac whose daemon lacks `send-expect-agent-v1` takes
+    no reply from the Feed. The phone asks `identify` first.
+- **The phone**, before it sends:
+  - The event must still be its terminal's newest. A later event means the
+    agent moved on.
+  - The terminal must still run an agent of the same harness.
+  - The foreground program must not be a shell.
+  - The reply's control characters are dropped, except line breaks and
+    tabs. An escape inside a paste would end the paste early and send the
+    rest as keys.
+  - One reply at a time per card.
+  - A link that drops after the send went out says the reply may have
+    arrived, so it is not typed twice.
+
+Rule 2 answers:
+- **Executes commands?** It types text into a program's input, which the
+  phone's terminal view already allows on any of the person's terminals. The
+  reply narrows that: one terminal, one waiting agent, a program that is not a
+  shell.
+- **Mutates objects the session does not own?** No. The terminal is the
+  person's own.
+- **Reads local state?** The agent's own prompt and answer, which the person
+  sees on the Mac's screen and in its banner.
+
+This is not a trust-policy change. A paired phone could already type into
+these terminals. The lock-screen notification reply (`cmux.terminal.reply`,
+`notification-reply`) is a different path. It stays held behind #13742 in
+the push-fallback branch, and this branch adds no notification action.
+
+### Answering a terminal agent's question from the phone (`rich-push-termq`)
+
+A terminal-hosted Claude Code AskUserQuestion is answered from the Feed card or
+its notification by typing the answer into that terminal. No command is added
+to the allowlist: the phone uses `read-screen {surface}` and `send {surface,
+bytes}`, which its own keyboard already uses on the person's terminals.
+
+- Where the question comes from: the agent hook reads the tool input before
+  redaction and sends it beside the journal event (`live_question`); the daemon
+  keeps it in memory only while the agent waits (never the journal, the ledger,
+  the database or a log; `an_agent_question_reaches_the_notification_and_its_row_in_memory_only`
+  checks the state folder). A program's OSC notification never carries a
+  question; a program that runs the agent hook helper itself can post one, which still
+  only lets the person's chosen option numbers and printable text reach that terminal (`a_terminal_agent_question_pushes_as_a_question`).
+- What is typed: only keys that select the person's chosen options
+  (`TerminalQuestionKeys`): option numbers, Tab, arrow-down, Return, Escape,
+  and "Other" text limited to printable characters, so a free-text answer can
+  never press Return, an arrow or Escape it was not meant to.
+- Where it is typed: only while `read-screen` shows this question with each of
+  its options at its own number. A terminal that moved on (a shell, another
+  prompt, another question) gets nothing, and the card says so.
+- Which question: a notification answers only the question it was sent for (its push is
+  named by a hash of the question and its options; the phone types only while that question is pending), never a
+  newer one on the same tab.
+- When: a notification's answer is a foreground action (the app is open and
+  unlocked); nothing is typed from the lock screen. Lock-screen terminal input
+  is PR B's held policy (`verify/notifications-trust.md`).
+- Residual: the screen check reads text, so an agent that draws a lookalike
+  question screen in the same terminal could receive the keys; they are still
+  only the person's chosen option numbers and printable text, into a terminal
+  the person already types into from the phone.
 
 ## `acpmux`: agent chats in the person's workspaces (`feat-cnx-ios-agentcwd`, in `feat-cnx-ios-parity`)
 

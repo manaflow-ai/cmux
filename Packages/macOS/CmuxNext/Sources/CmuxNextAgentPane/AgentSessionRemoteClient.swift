@@ -24,11 +24,17 @@ public nonisolated protocol AgentSessionRemoteClient: Sendable {
     /// The chats the attached session started on that machine, as its acpmux summarizes them
     /// (`{sessions}`, `agent-session-children-v1`); their changes then arrive as `.changed`.
     func children() async throws -> Data
+    /// Reads one image from the attached chat's host, as `{mimeType, data}` with base64 bytes.
+    func media(path: String) async throws -> Data
 }
 
 extension AgentSessionRemoteClient {
     /// A daemon without `agent-session-children-v1` lists none.
     public func children() async throws -> Data { Data(#"{"sessions":[]}"#.utf8) }
+    /// Older daemons have no host media command; callers turn this into a refused image.
+    public func media(path: String) async throws -> Data {
+        throw AgentSessionRemoteError(code: "agent_session.media_unsupported", message: "the daemon does not serve agent session media")
+    }
 }
 
 /// A page request: forward from `afterSeq`, or the newest `limit` before `beforeSeq`.

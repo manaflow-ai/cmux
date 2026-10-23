@@ -227,7 +227,7 @@ extension ColorTransition {
     /// user's own number.
     @MainActor
     public static var current: ColorTransition {
-        guard ThemeStore.shared.hasAppliedConfig else { return ColorTransition(enabled: false) }
+        guard ThemeScope.app.store.hasAppliedConfig else { return ColorTransition(enabled: false) }
         return DesignSettings.shared.colorTransition.resolved(speedOff: !Motion.feedback.isEnabled, systemReduceMotion: Motion.reduceMotion)
     }
 }

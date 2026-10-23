@@ -1320,7 +1320,7 @@
 }
 /* The context ring ends the quiet row, as Claude Code's does: no pill on hover or while its card
    shows (Leo 2026-10-21; the card is the feedback), the row's outline under keyboard focus. */
-.acpmux-composer-foot .acpmux-context-ring { width: 24px; height: 24px; margin-inline-start: 8px; }
+.acpmux-composer-foot .acpmux-context-ring { width: 22px; height: 22px; margin-inline-start: 4px; }
 .acpmux-composer-foot .acpmux-context-ring:focus-visible { outline-offset: 0; }
 
 /* The environment picker (EnvironmentPicker.tsx, preview): the folder popover's field and rows,

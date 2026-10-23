@@ -25,7 +25,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use cmux_holder::client::{Event, HolderClient, launch, launch_with};
 use cmux_holder::holder::error_code;
-use cmux_holder::wire::{ACK_EVERY, Kind};
+use cmux_holder::wire::{self, ACK_EVERY, Kind};
 use cmux_holder::{ExitStatus, NOFILE_SOFT_ENV, SpawnRequest};
 
 const TERMINALS: u32 = 16;
@@ -227,6 +227,78 @@ fn shells_survive_a_holder_crash_and_a_daemon_crash_with_their_screens() {
     }
     drop(screens);
     drop(restored);
+    kill(second);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The replay race (holder item 1): a holder SIGKILLed while it holds
+/// output it read from the PTY but never sent loses no byte. The "daemon"
+/// acknowledges nothing, so the holder sends one credit window and keeps
+/// reading until the program printed everything into its ring; then it
+/// dies. The segment the daemon kept goes to a new holder, which sends the
+/// rest from the offset the daemon has, byte for byte.
+#[test]
+fn a_holder_killed_holding_unsent_output_loses_no_byte_through_its_ring() {
+    const TOTAL: usize = 700_000;
+    let dir = temp_dir();
+    let socket = dir.join("h.sock");
+    let first = launch(holder_binary(), &socket, &TOKEN).unwrap();
+    let (mut client, _) = HolderClient::connect(&socket, &TOKEN).unwrap();
+    assert!(client.version() >= 4, "this holder speaks the ring version");
+    let mut request = shell(1);
+    request.argv[2] = format!(
+        "stty raw -echo; yes abcdefghijklmnopqrstuvwxyz0123456789 | head -c {TOTAL}; exec cat"
+    )
+    .into_bytes();
+    let spawned = client.spawn_with_ring(1, &request).unwrap();
+    let ring = spawned.ring.expect("the holder passes its ring segment");
+    client.attach(1, 0).unwrap();
+    let mut got = Vec::new();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while (got.len() as u64) < wire::CREDIT_WINDOW {
+        if let Event::Data { offset, bytes, .. } = client.next_event(deadline).unwrap() {
+            assert_eq!(offset, got.len() as u64);
+            got.extend(bytes);
+        }
+    }
+    // Without an acknowledgement the holder sends nothing more, but it
+    // reads the rest of the program's output into its ring.
+    while cmux_holder::ring::segment_end(&ring).unwrap() < TOTAL as u64 {
+        assert!(Instant::now() < deadline, "the holder never read the whole output");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    kill(first);
+    // What the dead holder had written to the socket still arrives.
+    while let Ok(event) = client.next_event(Instant::now() + Duration::from_millis(500)) {
+        if let Event::Data { offset, bytes, .. } = event {
+            assert_eq!(offset, got.len() as u64);
+            got.extend(bytes);
+        }
+    }
+    drop(client);
+    assert!(got.len() < TOTAL, "the dead holder had sent everything; nothing was at stake");
+    let second = launch(holder_binary(), &socket, &TOKEN).unwrap();
+    let (mut client, _) = HolderClient::connect(&socket, &TOKEN).unwrap();
+    let received = got.len() as u64;
+    let mut id = [0u8; 16];
+    id[..4].copy_from_slice(&1u32.to_le_bytes());
+    client
+        .adopt_with_ring(1, &id, (spawned.pid, received, received), &spawned.master, &ring, b"")
+        .unwrap();
+    client.attach(1, received).unwrap();
+    while got.len() < TOTAL {
+        if let Event::Data { offset, bytes, .. } = client.next_event(deadline).unwrap() {
+            assert_eq!(offset, got.len() as u64, "the new holder continues where the daemon is");
+            got.extend(bytes);
+            client.ack(1, got.len() as u64).unwrap();
+        }
+    }
+    let line = b"abcdefghijklmnopqrstuvwxyz0123456789\n";
+    let expected: Vec<u8> = line.iter().copied().cycle().take(TOTAL).collect();
+    assert!(got == expected, "the output after the crash differs from what the program printed");
+    assert!(alive(spawned.pid), "the shell died with its holder");
+    client.close(1, 200).unwrap();
+    drop(client);
     kill(second);
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -616,6 +688,47 @@ fn an_idle_holder_exits_and_a_scripts_sigterm_does_not_end_one_with_terminals() 
         std::thread::sleep(Duration::from_millis(50));
     }
     assert!(!socket.exists(), "the idle holder left its socket");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Holder item 5 (parity with terminal hosts before the holder is the
+/// default): a holder started with an orphan grace (`CMUX_HOLDER_ORPHAN_GRACE_MS`,
+/// the grace a DEV or test daemon gives its hosts) ends its terminals once no
+/// daemon was linked for that long, then exits idle, so throwaway daemons do
+/// not keep shells and PTYs for ever. A daemon that comes back in time keeps
+/// them.
+#[test]
+fn an_orphan_grace_ends_the_terminals_of_a_holder_no_daemon_came_back_to() {
+    let dir = temp_dir();
+    let socket = dir.join("h.sock");
+    let mut holder = launch_with(holder_binary(), &socket, &TOKEN, |command| {
+        command.args(["--idle-exit-ms", "500"]).env("CMUX_HOLDER_ORPHAN_GRACE_MS", "1500");
+    })
+    .unwrap();
+    let (mut client, _) = HolderClient::connect(&socket, &TOKEN).unwrap();
+    let (pid, master) = client.spawn(1, &shell(1)).unwrap();
+    client.attach(1, 0).unwrap();
+    let mut screens = BTreeMap::from([(1, Screen { master, pid, base: 0, bytes: Vec::new() })]);
+    pump_until(&mut client, &mut screens, |chan| format!("ready-{chan}"));
+    // A daemon that reconnects within the grace keeps the shell.
+    drop(client);
+    std::thread::sleep(Duration::from_millis(700));
+    let (client, listed) = HolderClient::connect(&socket, &TOKEN).unwrap();
+    assert_eq!(listed.len(), 1, "the holder dropped its terminal before the grace");
+    drop(client);
+    std::thread::sleep(Duration::from_millis(1000));
+    assert!(alive(pid), "the grace counted from the first link's end, not the last");
+    // No daemon comes back: the shell ends, then the idle holder exits.
+    let deadline = Instant::now() + Duration::from_secs(15);
+    while alive(pid) {
+        assert!(Instant::now() < deadline, "an orphaned holder kept its shell");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    while holder.try_wait().unwrap().is_none() {
+        assert!(Instant::now() < deadline, "the orphaned holder kept running");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    drop(screens);
     let _ = std::fs::remove_dir_all(&dir);
 }
 
