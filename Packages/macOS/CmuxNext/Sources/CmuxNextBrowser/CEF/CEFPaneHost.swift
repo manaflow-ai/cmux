@@ -97,6 +97,8 @@ final class CEFPaneHost {
 
     /// Whether a host visibility pass is queued for this run-loop turn.
     private var hostVisibilityPending = false
+    /// Tabs shown before their browser existed, created once the frame committed (`createAfterCommit`).
+    private(set) var deferredCreations: [WeakCEFTab] = []
 
     /// The host view's visibility is derived: hidden unless the shown tab is
     /// not concealed. A conceal queues one pass for the end of this run-loop
@@ -141,6 +143,11 @@ final class CEFPaneHost {
         // Tabs from windows cmux does not host go to a pane, never a panel.
         if !isPopupHost { runtime.lastShownHost = self }
         if attachPopupWindowIfNeeded(tab) { return }
+        // A tab shown before its browser exists (a new tab, a hibernated one waking) gets it once
+        // this turn's frame is committed: building or joining a Chromium window holds the main
+        // thread (`create_window`, `tab_add`), and the tab's toolbar and themed page area must be
+        // on screen in the frame of the key that asked for it (PL-cef-tab: < 10 ms).
+        if tab.browserID == nil, !tab.awaitsWindowMove { return createAfterCommit(tab) }
         ensureCreated(tab)
         if tab.awaitsWindowMove {
             // Still in its opener's window: activating it there would show
@@ -175,6 +182,27 @@ final class CEFPaneHost {
     }
 
     // MARK: Creation
+
+    /// Creates `tab`'s browser after the current run-loop pass committed its frame: one main
+    /// run loop observer after every other one of the pass (Core Animation's commit runs before
+    /// it), once. The run loop is woken after, so what the creation changed commits in the next pass.
+    private func createAfterCommit(_ tab: CEFTab) {
+        guard !deferredCreations.contains(where: { $0.tab === tab }) else { return }
+        deferredCreations.append(WeakCEFTab(tab))
+        guard deferredCreations.count == 1 else { return }
+        let observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue, false, CFIndex.max) { [weak self] _, _ in
+            MainActor.assumeIsolated { self?.createDeferred() } // main-proof: an observer of the main run loop
+        }
+        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+    }
+
+    /// Makes the browsers of the tabs shown before theirs existed (the observer of `createAfterCommit`; tests call it).
+    func createDeferred() {
+        let waiting = deferredCreations.compactMap(\.tab)
+        deferredCreations.removeAll()
+        for tab in waiting where !tab.isClosed && tabs.contains(where: { $0 === tab }) { ensureCreated(tab) }
+        CFRunLoopWakeUp(CFRunLoopGetMain())
+    }
 
     func ensureCreated(_ tab: CEFTab) {
         guard tab.browserID == nil, tab.isCreationPending == false, runtime.acceptsNewBrowsers, let shim = runtime.shim else { return }
@@ -349,4 +377,10 @@ final class CEFPaneHost {
 private let tabSwitchLog = Logger(subsystem: "com.cmuxterm.app.next", category: "tab-switch")
 private func tabSwitchMark(_ name: String) {
     tabSwitchLog.debug("tab-switch \(name, privacy: .public) \(Date().timeIntervalSince1970 * 1_000, format: .fixed(precision: 3), privacy: .public)")
+}
+
+/// A tab a host creates after the frame commits; weak, so a tab closed meanwhile goes.
+struct WeakCEFTab {
+    weak var tab: CEFTab?
+    init(_ tab: CEFTab) { self.tab = tab }
 }
