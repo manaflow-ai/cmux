@@ -104,10 +104,6 @@ final class ScreenBarController {
 
     private func screen(_ id: StripTabID) -> ScreenModel? { content.workspace.screens.first { $0.id == id.rawValue } }
 
-    private func ref(_ id: StripTabID) -> ScreenRef? {
-        screen(id).map { ScreenRef(workspace: content.workspace, screen: $0, daemon: content.daemon, content: content) }
-    }
-
     private func handle(_ intent: TabStripIntent) {
         let daemon = content.daemon, services = content.services, workspace = content.workspace
         switch intent {
@@ -136,8 +132,6 @@ final class ScreenBarController {
             view.beginInlineRename(id)
         case .renameCommitted(let id, let name):
             if let screen = screen(id) { ScreenCommands.rename(screen, to: name, daemon: daemon) }
-        case .duplicate(let id):
-            if let ref = ref(id) { ScreenCommands.duplicate(ref) }
         case .dragBegan(let start):
             guard let screen = screen(start.tabID) else { return view.restoreDetachedTab(start.tabID) }
             let session = ScreenDragSession(services: services, screen: screen, daemon: daemon, source: workspace,

@@ -57,18 +57,6 @@ extension TabStripModel {
             }
             tabs = ordered
             select(item)
-        case .duplicate(let id):
-            guard let index = ordered.firstIndex(where: { $0.id == id }) else { return false }
-            var copy = makeTab()
-            let source = ordered[index]
-            copy.title = source.title
-            copy.subtitle = source.subtitle
-            copy.icon = source.icon
-            copy.isPinned = source.isPinned
-            copy.groupID = source.groupID
-            ordered.insert(copy, at: index + 1)
-            tabs = ordered
-            select(copy)
         case .toggleAudioMute(let id):
             // The demo's speaker: playing and muted swap (the App mutes the page instead).
             guard let index = tabs.firstIndex(where: { $0.id == id }), let audio = tabs[index].audio else { return false }

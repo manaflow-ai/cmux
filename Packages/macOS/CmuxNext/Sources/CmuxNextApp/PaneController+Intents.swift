@@ -29,10 +29,6 @@ extension PaneController {
         case .pin(let id), .unpin(let id): setPinned(id, pinned: { if case .pin = intent { true } else { false } }())
         case .rename(let id): rename(id)
         case .renameCommitted(let id, let name): commitRename(id, name: name)
-        // Duplicate Tab's one path (a browser tab keeps its engine and history, a chat its kind).
-        case .duplicate(let id):
-            _ = services.registry.perform("duplicateTab",
-                                          invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: id.rawValue), origin: .user))
         // The speaker click runs Mute Tab, the menu's, palette's and CLI's one path.
         case .toggleAudioMute(let id):
             _ = services.registry.perform(BrowserTabAudio.toggleActionID,

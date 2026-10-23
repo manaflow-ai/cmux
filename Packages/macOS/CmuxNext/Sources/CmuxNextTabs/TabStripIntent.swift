@@ -41,7 +41,6 @@ public enum TabStripIntent: Equatable, Sendable {
     /// The inline rename editor (`TabStripView.beginInlineRename`) committed
     /// `name` (trimmed; empty clears the custom name).
     case renameCommitted(TabID, name: String)
-    case duplicate(TabID)
     /// The speaker of a tab playing sound (or muted) was clicked: mute the
     /// tab, or unmute it (Chrome's tab alert button). The App runs Mute Tab.
     case toggleAudioMute(TabID)
