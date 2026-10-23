@@ -107,6 +107,19 @@ import Testing
         #expect(tokens == ["a", "b c", "d\\e", "f g"])
     }
 
+    @Test func tokenizerReadsUnicodeScalarsSoACombiningMarkCannotHideAQuote() throws {
+        // As Characters, `"` + U+0301 is one grapheme and not a quote; a shell
+        // reads the quote. Scalars agree with the shell.
+        let tokens = try #require(SubrouterCodexResumeRouting.shellCommandTokens("\"\u{301}x\" y"))
+        #expect(tokens == ["\u{301}x", "y"])
+        #expect(router.providerEvidence(inShellCommand: "codex -c \"\u{301}\" ; rm") == .ambiguous)
+    }
+
+    @Test func embeddedNewlineIsAmbiguous() {
+        #expect(router.providerEvidence(inShellCommand: "codex -c model_provider=subrouter\n") == .ambiguous)
+        #expect(router.providerEvidence(inShellCommand: "codex\n-c model_provider=subrouter") == .ambiguous)
+    }
+
     @Test func providerAfterTheArgumentTerminatorIsPromptText() {
         #expect(router.providerEvidence(inShellCommand: "codex -- -c model_provider=subrouter") == .absent)
     }
