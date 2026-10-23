@@ -64,6 +64,9 @@ if [[ "$static_only" = true ]]; then
   # install-cmux-tui-client.sh and bundle-cmux-tui.sh generate this manifest
   # directly from the exact binary (`__daemon-capabilities --json`). Validate
   # that signed artifact's advertised static set without starting a daemon.
+  # `required` is the unconditional publication contract. The `optional` list
+  # also contains host/runtime-dependent capabilities (for example the active
+  # terminal reaper), so those remain covered by the daemon integration lane.
   manifest="$(dirname "$binary")/daemon-capabilities.json"
   [[ -f "$manifest" ]] || {
     echo "check-daemon-capabilities: $manifest is missing; regenerate it from the installed binary" >&2
@@ -79,7 +82,7 @@ served = set(manifest.get("cmuxTui") or [])
 if not served:
     raise SystemExit(f"check-daemon-capabilities: {manifest_path} has no cmuxTui capability list")
 required = json.load(open(required_path, encoding="utf-8"))
-needed = set(required.get("required", [])) | set(required.get("optional", []))
+needed = set(required.get("required", []))
 missing = sorted(needed - served)
 if missing:
     raise SystemExit("check-daemon-capabilities: the bundled static capability manifest is missing " + ", ".join(missing))
