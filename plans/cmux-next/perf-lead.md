@@ -151,4 +151,5 @@ Batch 2 (after batch 1 lands): issues 8, 9, 11, 15-20.
 
 | Date | Workstream | sha range on feat-cmux-next | Row | Before | After |
 |---|---|---|---|---|---|
+| 2026-10-23 | PL-guardrails | this push | pre-push guardrails (guardrails.py), perf-hot markers, OWNERS.md, codebase-health.md | no rule; hooks on this Mac from 10-19 | 8 rules refuse new debt in added lines; 0.16-0.20 s per typical push (Lawrence's Mac, loaded); no CI change |
 | | | | | | |
