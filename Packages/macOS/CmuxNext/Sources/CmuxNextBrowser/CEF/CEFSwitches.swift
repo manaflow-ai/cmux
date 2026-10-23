@@ -53,8 +53,16 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // app's Core Animation commit (its CATransactionCoordinator pre-commit handler, on our main
         // thread) until it has a frame at the new size, or for up to 500 ms: each frame of a split
         // or close that resized a page waited for that page's relayout and raster. AsyncLiveResize
-        // skips the wait in NativeWidgetNSWindowBridge::UpdateWindowGeometry; a page window is never
-        // in a live resize of its own, so the async live-resize path it also turns on never runs.
+        // skips the wait in NativeWidgetNSWindowBridge::UpdateWindowGeometry (Chromium 154.0.8037.58,
+        // the fork's base: the feature is declared in ui_base_features.cc and read at
+        // native_widget_ns_window_bridge.mm:683 and :2285; an unknown name would be ignored
+        // silently). It also turns on Chromium's async live-resize path (views_nswindow_delegate.mm
+        // windowWillResize:toSize:, only while that Chromium window is in a user live resize). An
+        // embedded window (a page, docked or undocked DevTools in CEFDevToolsWindow, an extension
+        // popup window) is never resized by the user, and ChromiumWindowGuard hides or closes Chromium's own
+        // titled windows, so that path runs only for Chromium's picture-in-picture windows (top
+        // level, floating, resizable): a user resize of one waits for Chromium's frame at the new
+        // size before the window takes it. Not checked by hand yet.
         // From fork API 27 (the resize-sync call) the fork's own default is no wait, and a
         // layer-hosted page waits up to the deadline CEFLayerHosting sets, so AsyncLiveResize would
         // only lose that sync. A fork at API 26 has layer hosting but no deadline: its layer-hosted

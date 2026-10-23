@@ -41,6 +41,9 @@ enum CEFColorScheme {
         Task { [weak tab] in
             do {
                 _ = try await runtime.devTools(browserID, method: media.method, params: media.params)
+                // The page restyles for the new scheme: the host's resize gap takes its new
+                // background (`CEFHostView.pageBackdrop`), not the color sampled at load.
+                tab?.samplePageBackdrop()
             } catch {
                 // A send that threw or timed out must not stay remembered as
                 // sent: the guard above would short-circuit every later

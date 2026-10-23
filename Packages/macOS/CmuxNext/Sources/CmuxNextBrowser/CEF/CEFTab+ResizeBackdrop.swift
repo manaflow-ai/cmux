@@ -7,7 +7,8 @@ import AppKit
 /// gap is Chromium's page background where its compositor already drew the
 /// new size, and the host view under the page window where it did not. Both
 /// take the page's own background (`pageBackdropARGB`), sampled from the
-/// document when it loads and again when a live resize starts, so the gap
+/// document when it loads, when its emulated color scheme changes
+/// (`CEFColorScheme`), and again when a live resize starts, so the gap
 /// reads as more page instead of white or the window backdrop
 /// (`BrowserResizeTunables.pageBackdrop`).
 extension CEFTab {
@@ -60,8 +61,9 @@ extension CEFTab {
         return CGColor(srgbRed: channel(16), green: channel(8), blue: channel(0), alpha: 1)
     }
 
-    /// Reads the document's background (after a load, and when a live resize
-    /// starts) and applies it to Chromium's page background and the host view.
+    /// Reads the document's background (after a load, after a color scheme
+    /// change, and when a live resize starts) and applies it to Chromium's page
+    /// background and the host view.
     func samplePageBackdrop() {
         guard BrowserResizeTunables.pageBackdrop.value, pastFirstRealPage, browserID != nil, !isClosed else { return }
         let document = pageBackdropDocument
