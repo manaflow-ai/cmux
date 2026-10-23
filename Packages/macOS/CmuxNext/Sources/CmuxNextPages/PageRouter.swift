@@ -184,9 +184,16 @@ public final class PageRouter {
         // A provider may send its current state from inside `subscribe` (the icon picker's open
         // session). Those events wait until the reply that names `sub` reaches the page.
         let early = PageEarlyEvents()
-        let subscription = try await provider.subscribe(stream, filter: filter, context: PageCallContext(page: descriptor.id)) { [weak self] data in
-            if !provider.eventsAfterSubscribeReply, early.hold(data) { return }
-            self?.deliver(sub: sub, data)
+        let subscription: PageSubscription
+        do {
+            subscription = try await provider.subscribe(stream, filter: filter, context: PageCallContext(page: descriptor.id)) { [weak self] data in
+                if !provider.eventsAfterSubscribeReply, early.hold(data) { return }
+                self?.deliver(sub: sub, data)
+            }
+        } catch {
+            activeStreams.remove(sub)
+            streamProviders.removeValue(forKey: sub)
+            throw error
         }
         guard !closed else {
             subscription.cancel()

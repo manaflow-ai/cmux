@@ -80,6 +80,10 @@ public final class AgentPageProvider: PageProvider {
     /// ``AgentPaneView`` and is released with that view if no page returns, so this is a
     /// gap-lifetime queue rather than process-wide retention; a reconnect drains it once.
     private var bufferedEvents: [AgentPageEvent] = []
+    /// Set when the bounded replay queue cannot retain a dropped envelope. The next publish
+    /// returns false so the transport closes and the page performs a full resync; no event is
+    /// silently evicted.
+    private var deliveryOverflowed = false
     /// A subscriber's replay is held in one queue until its subscription reply has reached the
     /// page. Events arriving during that handoff append to the same queue instead of overtaking it.
     private final class PendingEvents {
@@ -97,6 +101,12 @@ public final class AgentPageProvider: PageProvider {
             let remaining = Array(events[next...])
             next = events.count
             return remaining
+        }
+
+        func compactDelivered() {
+            guard next >= 128, next * 2 >= events.count else { return }
+            events.removeFirst(next)
+            next = 0
         }
     }
     private var pendingEvents: [UInt64: PendingEvents] = [:]
@@ -123,22 +133,30 @@ public final class AgentPageProvider: PageProvider {
         guard stream == Self.hostEvents,
               case .string(let kind)? = data["kind"] else { return }
         let value = data["value"] ?? .null
-        guard bufferedEvents.count < Self.maximumBufferedEvents else { return }
+        guard bufferedEvents.count < Self.maximumBufferedEvents else {
+            deliveryOverflowed = true
+            return
+        }
         bufferedEvents.append(AgentPageEvent(kind: kind, value: value))
     }
 
     /// Sends `event` to every subscribed page.
     @discardableResult
     public func publish(_ event: AgentPageEvent) -> Bool {
+        guard !deliveryOverflowed else { return false }
         guard !listeners.isEmpty else {
-            guard bufferedEvents.count < Self.maximumBufferedEvents else { return false }
+            guard bufferedEvents.count < Self.maximumBufferedEvents else {
+                deliveryOverflowed = true
+                return false
+            }
             bufferedEvents.append(event)
             return true
         }
         var accepted = true
         for id in listeners.keys.sorted() {
             if let pending = pendingEvents[id] {
-                guard pending.events.count < Self.maximumBufferedEvents else {
+                guard pending.events.count - pending.next < Self.maximumBufferedEvents else {
+                    deliveryOverflowed = true
                     accepted = false
                     continue
                 }
@@ -155,6 +173,12 @@ public final class AgentPageProvider: PageProvider {
     public func subscribe(_ stream: String, filter: JSONValue, context: PageCallContext,
                           onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription {
         guard stream == Self.hostEvents else { throw PageError.unknownOp(stream) }
+        if deliveryOverflowed, listeners.isEmpty {
+            // The transport already reported backpressure; its reconnect performs the authoritative
+            // acpmux resync, while this page stream starts from current replay state.
+            bufferedEvents.removeAll(keepingCapacity: true)
+            deliveryOverflowed = false
+        }
         let id = nextListener
         nextListener += 1
         listeners[id] = onEvent
@@ -193,6 +217,7 @@ public final class AgentPageProvider: PageProvider {
             pending.next += 1
             listener(event.data)
         }
+        pending.compactDelivered()
         if pending.next < pending.events.count {
             // Yield between batches so a reconnect cannot monopolize the main actor.
             Task { @MainActor [weak self] in self?.flushPendingEvents(for: id) }

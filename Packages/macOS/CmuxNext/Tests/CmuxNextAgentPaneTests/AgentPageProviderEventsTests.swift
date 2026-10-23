@@ -147,6 +147,15 @@ struct AgentPageProviderEventsTests {
         #expect(!provider.publish(Self.command("backpressure")))
     }
 
+    @Test func droppedBacklogOverflowSignalsResyncInsteadOfEvicting() {
+        let provider = AgentPageProvider { _ in nil }
+        for index in 0...AgentPageProvider.maximumBufferedEvents {
+            provider.eventDeliveryDropped(stream: AgentPageProvider.hostEvents,
+                                          data: Self.command("dropped-\(index)").data)
+        }
+        #expect(!provider.publish(Self.command("backpressure")))
+    }
+
     @Test func aPageResetRequeuesAnEnvelopeDroppedByTheScriptPipeline() async throws {
         let provider = AgentPageProvider { _ in nil }
         let page = Received()
