@@ -105,68 +105,72 @@ and `WorkspaceRowDogEarTests.swift`. The offscreen gallery gives a visual matrix
 the dog-ear tests cover geometry and hit testing. A native scene should reuse
 the same fixtures and expose a stable scene id before it is used in a PR capture.
 
-## Agent-friendly wrapper proposal
+## Agent-friendly wrapper
 
-To make this loop ergonomic for developers and agents, the intended interface for
-`scripts/cmux-next/preview.sh` is below. This is a proposal until the wrapper
-implementation lands; reconcile names and fields with the implementation PR.
+Use the checked-in wrapper for the repeatable local and branch-gallery loop:
 
 ```sh
 # Start or describe the local HMR surfaces.
 scripts/cmux-next/preview.sh web --json
 
-# Open the pushed branch's real gallery entry and compare it with merge base.
+# Open a local HMR gallery entry without changing focus unless --open is given.
 scripts/cmux-next/preview.sh gallery --entry sidebar.closeNotch --open --json
 
-# Request one exact-head native scene capture through the fleet.
-scripts/cmux-next/preview.sh native \
-  --sha "$HEAD_SHA" --pr "$PR_NUMBER" --state scene:sidebar.closeNotch --json
+# For a pushed branch, compare against its merge base.
+scripts/cmux-next/preview.sh gallery --compare --entry sidebar.closeNotch --open --json
 
-# Print the current preview records without opening a tab or changing focus.
+# Print the current preview record without opening a tab.
 scripts/cmux-next/preview.sh status --json
-
-# Arrange the developer's terminal, preview, and reference tabs explicitly.
-scripts/cmux-next/preview.sh all --entry sidebar.closeNotch --open
 ```
 
-The agent contract should be deliberately small:
+The wrapper owns `web`, `gallery`, and `status`; native capture remains an
+explicit managed-fleet operation:
 
-* `--json` emits one machine-readable record per requested surface, with
-  `mode`, `status`, `repo`, `branch`, `sha`, `dirty`, `source`, `entry` or
-  `state`, `url`, `createdAt`, and (for hosted work) the job or capture id;
-* human output may include the same values, but the final URL or artifact link
-  is easy to extract;
-* success means the preview was accepted or opened; it does not mean the
-  hosted build or capture is complete. `status` or the supported fleet wait
-  then reports `running`, `success`, `failed`, or `expired`;
+```sh
+cmux-ci capture "$HEAD_SHA" --state scene:<registered-name> --pr "$PR_NUMBER"
+```
+
+The agent contract is deliberately small:
+
+* `--json` emits one machine-readable record with `mode`, `repo`, `branch`, `sha`,
+  `worktree_dirty`, `index_url`, `gallery_url`, `entry`, `pid`, `log`, `reused`,
+  `opened`, and `phase`;
+* human output includes the same key provenance, and the final URL or artifact
+  link is easy to extract;
+* success means the local process is reachable or the compare helper accepted
+  the request; it does not mean a hosted gallery build or native capture is
+  complete;
 * `--open` is opt-in. Without it, the command prints records and never changes
   focus, selection, scroll, or the active cmux tab;
-* repeated calls reuse a task-local record when the repo, mode, source, and SHA
-  still match. They return a new record after a source or head change instead of
-  silently reusing an old tab;
+* repeated `web` and `gallery` calls reuse the task-local process when the repo
+  and SHA still match. A changed SHA stops the old managed process before
+  starting a new one, instead of silently reusing old preview proof;
 * failures identify the owning lane and the next command, with a non-zero exit
   status. No polling loop or duplicate fleet dispatch is hidden inside the
   wrapper.
 
-The task-local record should be easy for an agent to attach to a work log, for
-example `.cmux-preview/<task-id>.json` (or another implementation-owned path):
+The wrapper stores its task-local record outside the checkout under
+`$TMPDIR/cmux-next-preview` (override with `CMUX_PREVIEW_STATE_DIR`). Its JSON
+receipt looks like this:
 
 ```json
 {
   "mode": "gallery",
-  "status": "running",
-  "repo": "manaflow-ai/cmux",
-  "branch": "feat/sidebar-close-notch",
+  "repo": "/Users/leoli/Projects/checkouts/cmux/sidebar-row-dogear",
+  "branch": "sidebar-row-dogear",
   "sha": "<full-40-character-sha>",
-  "source": "webviews/src/gallery/sidebar.closeNotch.gallery.tsx",
+  "worktree_dirty": true,
+  "gallery_url": "http://127.0.0.1:4178/gallery/?entry=sidebar.closeNotch",
   "entry": "sidebar.closeNotch",
-  "url": "https://…",
-  "createdAt": "2026-10-22T…Z"
+  "pid": 12345,
+  "reused": true,
+  "opened": false,
+  "phase": "ready"
 }
 ```
 
-The exact path is an implementation choice; it must be task-local and safe to
-delete. Do not put preview state in shared machine configuration.
+The exact state file is implementation-owned and safe to delete. Do not put
+preview state in shared machine configuration.
 
 ## Provenance and stale-preview safeguards
 
