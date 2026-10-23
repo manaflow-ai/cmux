@@ -60,4 +60,19 @@ describe("createCoalescedRefresh", () => {
 
     expect(requests).toBe(1);
   });
+
+  it("stops at one follow-up when the operation keeps invalidating itself", async () => {
+    let requests = 0;
+    let queueRefresh: (() => void) | undefined;
+    queueRefresh = createCoalescedRefresh(async () => {
+      requests += 1;
+      if (requests < 5) queueRefresh?.();
+    });
+
+    queueRefresh();
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    expect(requests).toBe(2);
+  });
 });

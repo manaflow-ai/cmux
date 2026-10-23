@@ -14,7 +14,18 @@ export function createCoalescedRefresh(
     if (running || cancelled) return;
     running = true;
     try {
-      while (dirty && !cancelled) {
+      // One invalidation starts the current request. Notifications while it
+      // is in flight collapse into one latest follow-up. Clear the marker
+      // before that follow-up so a sustained event stream cannot turn this
+      // helper into an unbounded request loop; a later event starts a new
+      // bounded cycle after this one completes.
+      dirty = false;
+      try {
+        await operation();
+      } catch (error) {
+        onError(error);
+      }
+      if (dirty && !cancelled) {
         dirty = false;
         try {
           await operation();
@@ -24,7 +35,7 @@ export function createCoalescedRefresh(
       }
     } finally {
       running = false;
-      if (dirty && !cancelled) void drain();
+      dirty = false;
     }
   };
 
