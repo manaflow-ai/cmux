@@ -4,7 +4,8 @@
 Run by the pre-push hook through `prepush-gate.py --pre-push` (and by a plain local `prepush-gate.py`),
 never by CI (Lawrence 2026-10-23: no new CI gates). Only Swift lines the push ADDS under
 Packages/macOS/CmuxNext/Sources count, plus unchanged lines that become debt because the push changed the
-line that gives them their context (`struct` -> `class` around a static, a view renamed to a `...Row`).
+line that gives them their context (`struct` -> `class` around a static, a view renamed to a `...Row`) or
+the comment that escaped them (a deleted or reworded `// <rule>-allow:` line).
 Per file and rule it is a count ratchet: an added match is new only when the same file does not remove as
 much debt (judged on the base text with the same context and escape rules, so editing a line that already
 has debt adds none, and a removed escaped line does not pay for an unescaped one), and an added line whose
@@ -167,10 +168,13 @@ class Added:
 
 @dataclass
 class Version:
-    """One side of a changed file: its lines and the 1-based lines the push changed on that side."""
+    """One side of a changed file: its lines, the 1-based lines the push changed on that side, and the 1-based
+    lines next to which it changed something (CHANGED plus the neighbours of a pure insertion or deletion on
+    the other side), the set an escape window is checked against."""
     path: str
     lines: list[str]
     changed: set[int]
+    touched: set[int] = field(default_factory=set)
     memo: dict = field(default_factory=dict)
 
 
@@ -181,17 +185,20 @@ class FileChange:
     added: list[Added] = field(default_factory=list)
     touched: set[int] = field(default_factory=set)  # head line numbers the push changed (deletions mark their spot)
     removed: list[Added] = field(default_factory=list)  # numbered in base
+    base_touched: set[int] = field(default_factory=set)  # base line numbers next to a pure insertion
     base_lines: list[str] = field(default_factory=list)
     is_new: bool = False
     has_perf_hot: bool = False
 
     @property
     def head(self) -> Version:
-        return Version(self.path, self.head_lines, {a.number for a in self.added})
+        changed = {a.number for a in self.added}
+        return Version(self.path, self.head_lines, changed, changed | self.touched)
 
     @property
     def base(self) -> Version:
-        return Version(self.path, self.base_lines, {r.number for r in self.removed})
+        changed = {r.number for r in self.removed}
+        return Version(self.path, self.base_lines, changed, changed | self.base_touched)
 
 
 @dataclass
@@ -219,14 +226,31 @@ class Matcher:
     window: Callable[[list[str], int], list[int]] = escape_window  # the lines whose comment can carry ESCAPE
 
 
+def escape_neighbours(lines: list[str], touched: set[int]) -> set[int]:
+    """0-based lines whose escape_window() can hold a TOUCHED (1-based) line: the line itself, the line below
+    it, and further down while every line from the touched one on is a comment or attribute line (the block
+    above the code line it escapes). crash_ratchet.allow_lines() (the line and the one above) is inside."""
+    out = set()
+    for number in touched:
+        i = number - 1
+        out.update((i, i + 1))
+        k = i
+        while 0 <= k < len(lines) and (COMMENT_LINE.match(lines[k]) or ATTRIBUTE_LINE.match(lines[k])):
+            out.add(k + 1)
+            k += 1
+    return {i for i in out if 0 <= i < len(lines)}
+
+
 def debt_in(version: Version, changed: list[Added], matcher: Matcher) -> list[Added]:
-    """The debt among VERSION's CHANGED lines, plus (context rules) unchanged matches whose context changed.
+    """The debt among VERSION's CHANGED lines, plus unchanged matches whose escape or context the push changed.
 
     A line counts when MATCHER's pattern matches its code, KEEP holds for it in VERSION's text and it carries
-    no escape there. For a context rule, an unchanged line also counts when an opener that makes it debt is a
-    changed line: `struct` -> `final class` around an old static, a view renamed to `...Row` around an old
-    store reference (head side); on the base side the same lines are the debt the push takes away, so an edit
-    of the opener that keeps the context (`final class A {` -> `final class A: Sendable {`) pairs with itself.
+    no escape there. An unchanged line also counts when its escape window holds a touched line (the push
+    deleted or reworded the `// <rule>-allow:` comment, or put a line between it and the code), and, for a
+    context rule, when an opener that makes it debt is a changed line: `struct` -> `final class` around an old
+    static, a view renamed to `...Row` around an old store reference. On the base side the same lines are the
+    debt the push takes away, so an edit that keeps the escape or the context (a reworded reason,
+    `final class A {` -> `final class A: Sendable {`) pairs with itself.
     """
     out = []
     lines = version.lines
@@ -237,19 +261,26 @@ def debt_in(version: Version, changed: list[Added], matcher: Matcher) -> list[Ad
             return False, openers
         return True, openers
 
+    def matches(index: int) -> bool:
+        return (index + 1 not in version.changed and matcher.pattern.search(lines[index]) is not None
+                and matcher.pattern.search(matcher.code(lines[index])) is not None)
+
     for line in changed:
         if matcher.pattern.search(matcher.code(line.text)) and is_debt(line.number - 1)[0]:
             out.append(line)
-    if matcher.keep is None or not version.changed:
-        return out
-    for index, text in enumerate(lines):
-        if index + 1 in version.changed or not matcher.pattern.search(text):
-            continue
-        if not matcher.pattern.search(matcher.code(text)):
-            continue
-        debt, openers = is_debt(index)
-        if debt and any(o in version.changed for o in openers):
-            out.append(Added(version.path, index + 1, text))
+    found: set[int] = set()
+    if matcher.escape is not None and version.touched:
+        for index in sorted(escape_neighbours(lines, version.touched)):
+            if matches(index) and any(j + 1 in version.touched for j in matcher.window(lines, index)) and is_debt(index)[0]:
+                found.add(index)
+    if matcher.keep is not None and version.changed:
+        for index in range(len(lines)):
+            if index in found or not matches(index):
+                continue
+            debt, openers = is_debt(index)
+            if debt and any(o in version.changed for o in openers):
+                found.add(index)
+    out += [Added(version.path, index + 1, lines[index]) for index in sorted(found)]
     return out
 
 
@@ -917,8 +948,11 @@ def parse_diff(diff: str) -> dict[str, FileChange]:
             if current is not None:
                 current.is_new = pending_new
         elif line.startswith("@@") and current is not None:
-            old = re.search(r"-(\d+)", line)
+            old = re.search(r"-(\d+)(?:,(\d+))?", line)
             old_number = int(old.group(1)) if old else 0
+            if old and old.group(2) == "0":
+                current.base_touched.add(max(old_number, 1))  # a pure insertion after base line `old_number`
+                current.base_touched.add(old_number + 1)
             match = re.search(r"\+(\d+)(?:,(\d+))?", line)
             number = int(match.group(1)) if match else 0
             count = int(match.group(2)) if match and match.group(2) is not None else 1
