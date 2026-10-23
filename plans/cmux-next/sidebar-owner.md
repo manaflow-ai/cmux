@@ -52,6 +52,7 @@ some undid each other:
 
 | Commit | Date | Who | Change |
 | --- | --- | --- | --- |
+| [83c8d5b6104](https://github.com/manaflow-ai/cmux/commit/83c8d5b61040b6c8e2f39fd3c5f53b375c7b40d6) | 10-23 | Chief subagent (Home unread dot) | Home's unread is the workspace rows' blue dot on the trailing column, no count (Lawrence 11384) |
 | [cd84bc62d13](https://github.com/manaflow-ai/cmux/commit/cd84bc62d13f501d0b80eae7b65a6164c7d60acc) | 10-22 | Leo (#23783) | Rows run full length; hover close becomes a top-right dog-ear |
 | [6c315dd4b83](https://github.com/manaflow-ai/cmux/commit/6c315dd4b83c2dc546f5de9e9df525b267043d2d) | 10-23 | a577 | Indent stops at six steps; a label keeps 150 pt |
 | [ab905adeadd](https://github.com/manaflow-ai/cmux/commit/ab905adeadd0327f92e2c3f3d1de568c6a6780d1) | 10-23 | a577 | Group rail starts at the header bar's left edge; 16 nesting levels |
@@ -140,6 +141,9 @@ the gap, no row left out of place after drop or cancel).
 
 | Commit | Date | Who | Change |
 | --- | --- | --- | --- |
+| [83c8d5b6104](https://github.com/manaflow-ai/cmux/commit/83c8d5b61040b6c8e2f39fd3c5f53b375c7b40d6) | 10-23 | Lawrence's Chief subagents (lawrencecchen) | cmux-next sidebar: Home's unread is a workspace row's blue dot, not a count |
+| [488ef6667db](https://github.com/manaflow-ai/cmux/commit/488ef6667dbfa443f217e7484c3d1de5ff0852f3) | 10-23 | Lawrence's Chief subagents (lawrencecchen) | test(sidebar): capture Home beside an unread workspace row at every density |
+| [b70369ea301](https://github.com/manaflow-ai/cmux/commit/b70369ea3014aa758a97774e8fc67c405054fbec) | 10-23 | Lawrence's Chief subagents (lawrencecchen) | test(sidebar): Home shows a blue unread dot, not a count (red) |
 | [6c315dd4b83](https://github.com/manaflow-ai/cmux/commit/6c315dd4b83c2dc546f5de9e9df525b267043d2d) | 10-23 02:35 | Lawrence's Chief subagents (lawrencecchen) | cmux-next sidebar: the indent goes six steps deep, a label keeps 150 pt |
 | [ab905adeadd](https://github.com/manaflow-ai/cmux/commit/ab905adeadd0327f92e2c3f3d1de568c6a6780d1) | 10-23 01:20 | Lawrence's Chief subagents (lawrencecchen) | cmux-next sidebar: a group's rail starts at its header bar's left edge; groups nest 16 levels |
 | [bab65850337](https://github.com/manaflow-ai/cmux/commit/bab658503376845a3ddc09c1b793338bb9c6d066) | 10-23 02:11 | Leo's agents (Leo) | cmux NEXT: a classic import keeps classic's workspace order again (base red since #22593) (#23693) |
