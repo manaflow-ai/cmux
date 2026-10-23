@@ -1305,7 +1305,7 @@ export function ContextRing({
               used={used}
               size={size}
               setup={setup}
-              breakdown={breakdown}
+              breakdown={reported}
               working={working}
               onCompact={
                 onCompact &&
