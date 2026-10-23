@@ -32,6 +32,7 @@ import { AnchoredCard } from "../../ui/Tooltip";
 import { HOVER_INTENT } from "../../ui/hoverIntent";
 import { useHoverCard } from "./chips/useHoverCard";
 import { ContextCardBody } from "./ContextCard";
+import { contextBreakdown } from "./inspector/ContextSection";
 import { ContextMenu } from "../../ui/ContextMenu";
 import { useComposerSettings } from "./composerSettings";
 import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
@@ -1146,6 +1147,7 @@ export function ContextRing({
   const fraction = known ? Math.min(1, Math.max(0, used / size)) : 0;
   const percent = Math.round(fraction * 100);
   const label = known ? t(PICKER_LABELS.context, { percent }) : t("context.title");
+  const breakdown = known ? contextBreakdown(reported) : undefined;
   const shown = known && (pinned || hover.open);
   // As Claude desktop's: a 14 px ring, a faint track with the share used drawn over it as an arc
   // from twelve o'clock (round ends), not a pie and not a spinner.
@@ -1288,7 +1290,7 @@ export function ContextRing({
       <AnchoredCard
         anchor={shown ? trigger.current : null}
         // AnchoredCard makes it the shared glass hover card (ui-tooltip ui-card ui-glass).
-        className={`acpmux-context-card${full}`}
+        className={`acpmux-context-card acpmux-context-pop${breakdown ? " acpmux-context-pop--breakdown" : ""}${full}`}
         side="top"
         interactive
         ariaLabel={t("context.title")}
@@ -1303,6 +1305,7 @@ export function ContextRing({
               used={used}
               size={size}
               setup={setup}
+              breakdown={breakdown}
               working={working}
               onCompact={
                 onCompact &&

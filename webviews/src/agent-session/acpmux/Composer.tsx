@@ -1679,6 +1679,7 @@ export function Composer({
               used={usage?.used}
               size={usage?.size}
               setup={usage?.setup}
+              breakdown={snapshot.summary?.contextBreakdown}
               working={snapshot.isWorking}
               onOpenDetails={onOpenContext}
             />

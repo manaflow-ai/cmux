@@ -5,6 +5,7 @@
 // shared glass hover card (.ui-card.ui-glass), as a session's hover card is (contextCard.css).
 import "./contextCard.css";
 import { useT } from "./i18n";
+import { ContextBreakdownView, contextBreakdown, type Breakdown } from "./inspector/ContextSection";
 
 /// One stretch of the stacked bar, as a share of the whole window (0-100).
 export type ContextSegment = { kind: "setup" | "conversation" | "used"; tokens: number; percent: number };
@@ -39,6 +40,7 @@ export function ContextCardBody({
   working,
   onCompact,
   onOpenDetails,
+  breakdown: reported,
 }: {
   used: number;
   size: number;
@@ -46,24 +48,29 @@ export function ContextCardBody({
   working: boolean;
   onCompact?(): void;
   onOpenDetails?(): void;
+  breakdown?: unknown;
 }) {
   const t = useT();
   const tokens = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
   const percent = Math.round(Math.min(1, Math.max(0, used / size)) * 100);
   const segments = contextSegments(used, size, setup);
   const split = segments.length > 1 && setup !== undefined;
+  const breakdown: Breakdown | undefined = contextBreakdown(reported);
   return (
     <>
       <div className="acpmux-context-card-title">{t("context.title")}</div>
       <div className="acpmux-context-card-line">
         {t("context.cardLine", { percent, used: tokens.format(used), size: tokens.format(size) })}
       </div>
-      <div className="acpmux-context-card-bar" aria-hidden="true">
-        {segments.map((segment) => (
-          <span key={segment.kind} data-segment={segment.kind} style={{ width: `${segment.percent}%` }} />
-        ))}
-      </div>
-      {split && (
+      {!breakdown && (
+        <div className="acpmux-context-card-bar acpmux-context-bar" aria-hidden="true">
+          {segments.map((segment) => (
+            <span key={segment.kind} data-segment={segment.kind} style={{ width: `${segment.percent}%` }} />
+          ))}
+        </div>
+      )}
+      {breakdown && <ContextBreakdownView breakdown={breakdown} />}
+      {!breakdown && split && (
         <div className="acpmux-context-card-parts">
           <div className="acpmux-context-card-part" data-segment="setup">
             <span className="acpmux-context-card-swatch" aria-hidden="true" />
