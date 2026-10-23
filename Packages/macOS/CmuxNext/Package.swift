@@ -53,9 +53,10 @@ import PackageDescription
 //   CmuxNextComputerUse -> AgentActivity, Compat, Settings, Wakeups (the macOS Computer Use helper:
 //     launch, v2 helper and its disclaimed spawner, signed Unix peer checks, the cua helper manifest
 //     reader; setup stays in the App)
-//   CmuxNextHistory -> Design, Icons (history model, SQLite visit log, cmux://history page; no daemon)
-//   CmuxNextStash -> Compat, Daemon, DaemonService, History (Stash on this Mac's daemon: the Stashed
-//     page's source; the App answers StashHost)
+//   CmuxNextHistory -> Compat, Design, Icons (history model, SQLite visit log, cmux://history page, the
+//     Stashed page's model and views; no daemon)
+//   CmuxNextStash -> Compat, Daemon, DaemonService (Stash on this Mac's daemon: the Stashed page's
+//     source; its values and seams are in Compat; the App answers StashHost)
 //   CmuxNextPages -> Design, Settings (the one host for React pages: PageWebView, cmux-page://<id>/
 //     scheme, engine-neutral bridge, PageRouter + PageProvider; no daemon; the App supplies providers;
 //     plans/cmux-next/react-pages.md)
@@ -360,11 +361,13 @@ let package = Package(
             dependencies: ["CmuxNextActions", "CmuxNextAgentPane", "CmuxNextBrowser", "CmuxNextCompat", "CmuxNextSettings", "CmuxNextSidebar", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
-        // Stash (a native OneTab, cx-rws36): the Stashed page's source on this Mac's daemon.
-        // The App only answers `StashHost`.
+        // Stash (a native OneTab, cx-rws36): the Stashed page's source on this Mac's daemon. Its
+        // values and seams (StashedGroup, OneTabExport, StashPageSource, StashPageClient) are in
+        // CmuxNextCompat; the page's model and views in CmuxNextHistory. The App only answers
+        // `StashHost` and makes the model and this service together.
         .target(
             name: "CmuxNextStash",
-            dependencies: ["CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDaemonService", "CmuxNextHistory"],
+            dependencies: ["CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDaemonService"],
             swiftSettings: uiSwiftSettings
         ),
         // Agent pane (plans/cmux-next roadmap Phase 1): hosts the React pane
@@ -647,7 +650,7 @@ let package = Package(
         // the per-profile page visit log (SQLite), and the cmux://history page.
         .target(
             name: "CmuxNextHistory",
-            dependencies: ["CmuxNextDesign", "CmuxNextIcons", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands")],
+            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextIcons", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands")],
             resources: [
                 .process("Resources"),
             ],
