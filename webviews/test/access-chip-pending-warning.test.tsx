@@ -336,6 +336,39 @@ test("a pending chat that starts in Plan keeps the inert chip: Plan is never an 
   expect(host.querySelector(".acpmux-chip-pending.acpmux-mode")).not.toBeNull();
 });
 
+test("a New Tab chat with no start mode to name still offers the harness's modes, at none", async () => {
+  // acpmux sets none here: the chip says "Mode", and a click opens the harness's own menu.
+  const answer = await acpmux(undefined);
+  await fresh();
+  await answer();
+  expect(access()).toEqual({ label: "Mode", warning: false });
+  const trigger = host.querySelector<HTMLButtonElement>("button.acpmux-access-trigger");
+  expect(trigger).not.toBeNull();
+  expect(host.querySelector(".acpmux-chip-pending.acpmux-mode")).toBeNull();
+  await act(async () => {
+    const press = new MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 1, clientY: 1 });
+    Object.defineProperties(press, { pointerId: { value: 1 }, pointerType: { value: "mouse" } });
+    trigger!.dispatchEvent(press);
+  });
+  const rows = [...document.querySelectorAll(".acpmux-access-item")];
+  const text = rows.map((row) => row.textContent ?? "").join("|");
+  expect(text).toContain("Bypass permissions");
+  expect(text).not.toContain("Plan");
+});
+
+test("an ask that fails is not acpmux's answer: the chip keeps what it showed", async () => {
+  const { setStartModeSource } = await import("../src/agent-session/acpmux/startMode");
+  // The socket closed under the ask: nothing was answered, so nothing is kept as "sets none".
+  setStartModeSource(async () => {
+    throw new Error("not connected");
+  });
+  await fresh();
+  await act(async () => {
+    await new Promise((done) => setTimeout(done, 0));
+  });
+  expect(access()).toEqual({ label: "Bypass permissions", warning: true });
+});
+
 // Last: it fills the shared profile store (`harnessProfiles` keeps no reset), which every
 // test above relies on being empty.
 test("a pending chat's access menu names acpmux's start mode, never the mode this harness's last chat showed", async () => {
