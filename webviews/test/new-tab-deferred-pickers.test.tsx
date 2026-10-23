@@ -1,9 +1,10 @@
 // A New Tab's picker uses the same ComposerPickers path as an active chat. A typed
-// model/effort/fast combo picked before the deferred chat has a session (an empty id) must
-// survive that chat reporting its real id, and still drop when the pane moves to another chat.
+// model/effort/fast combo picked before the deferred chat has a session goes into the harness
+// switch's config, so a prompt sent right after it runs its first turn on the whole combo: the
+// switch applies the picks, mapped onto the options the opened session names, before the prompt.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { act, useState } from "react";
+import { act, useSyncExternalStore } from "react";
 import type { Root } from "react-dom/client";
 
 const scope = globalThis as Record<string, unknown>;
@@ -30,6 +31,7 @@ const keys = [
   "getComputedStyle",
   "requestAnimationFrame",
   "cancelAnimationFrame",
+  "ResizeObserver",
 ] as const;
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
 let dom: JSDOM;
@@ -71,72 +73,79 @@ afterAll(() => {
 });
 
 type Snapshot = import("../src/agent-session/acpmux/model").AcpmuxSnapshot;
-type Sent = { method: string; value: string };
+type Option = NonNullable<NonNullable<Snapshot["summary"]>["configOptions"]>[number];
 
-/// A New Tab pane as harnessSwitch draws it: before acpmux reports the deferred chat's session,
-/// the summary has an empty id and names the picked model as both drawn and confirmed. Once the
-/// session opens, its id arrives with the model the agent runs, then the model the held pick set.
-async function mountNewTab({ effortBeforeSession }: { effortBeforeSession: boolean }) {
+const effortOption = (id = "effort"): Option => ({
+  id,
+  name: "Effort",
+  category: "thought_level",
+  currentValue: "medium",
+  options: ["low", "medium", "high"].map((value) => ({ value, name: value })),
+});
+const fastOption = (id = "fast-mode", values: [string, string] = ["off", "on"]): Option => ({
+  id,
+  name: "Fast mode",
+  currentValue: values[0],
+  options: values.map((value) => ({ value, name: value })),
+});
+
+/// A New Tab pane as App wires it: its chips draw the harness switch's view of the page's empty
+/// summary, and a pick starts the deferred chat (`chat.new {deferred}`) and goes to the switch
+/// (`chat.model`, `chat.effort`). The port records what reaches acpmux once the session opens with
+/// `opened` as its options.
+async function mountNewTab({ opened, model = "claude-sonnet-5-5" }: { opened: Option[]; model?: string }) {
   const { createRoot } = await import("react-dom/client");
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
   const { ComposerPickers } = await import("../src/agent-session/acpmux/ComposerPickers");
   const { usePickerCatalog } = await import("../src/agent-session/acpmux/modelCatalogHost");
   const { BUNDLED_MODEL_CATALOG } = await import("../src/agent-session/acpmux/modelCatalogData");
-  const acpmux = BUNDLED_MODEL_CATALOG.harnesses.map((entry) => ({
+  const { HarnessSwitch, applySwitch } = await import("../src/agent-session/acpmux/harnessSwitch");
+  const { HarnessProfiles } = await import("../src/agent-session/acpmux/harnessProfiles");
+  const catalog = BUNDLED_MODEL_CATALOG.harnesses.map((entry) => ({
     id: entry.id,
     name: entry.name,
     family: entry.families[0],
-    models: entry.models.map((model) => ({ id: model.id, name: model.name })),
+    models: entry.models.map((choice) => ({ id: choice.id, name: choice.name })),
   })) as Snapshot["catalog"];
-  const sent: Sent[] = [];
-  type State = { sessionId: string; model: string; confirmedModel: string; fast: string; effort: string };
-  let update: ((change: (state: State) => State) => void) | undefined;
+  // No session of this harness ran here before: the page knows none of its options.
+  const profiles = new HarnessProfiles(() => undefined);
+  const wire: string[] = [];
+  let open = false;
+  const store = new HarnessSwitch();
+  store.connect({
+    turnRunning: () => false,
+    shown: () => (open ? { sessionId: "s-1", harness: "claude", empty: true, configOptions: opened } : undefined),
+    create: async () => "s-1",
+    leave: () => undefined,
+    open: async (sessionId: string) => {
+      open = true;
+      return sessionId;
+    },
+    send: async (text: string) => void wire.push(`prompt ${text}`),
+    setModel: async (modelId: string) => void wire.push(`model ${modelId}`),
+    setMode: async () => undefined,
+    setConfig: async (configId: string, value: string) => void wire.push(`${configId}=${value}`),
+    discard: () => undefined,
+    prewarm: () => undefined,
+    prewarmSupported: () => false,
+  });
+  const raw: Snapshot = {
+    type: "snapshot",
+    protocolVersion: 1,
+    rows: [],
+    sessions: [],
+    connection: "test",
+    isWorking: false,
+    queue: [],
+    canLoadOlder: false,
+    catalog,
+    summary: { sessionId: "", harness: "claude", model, turnCount: 0 },
+  } as Snapshot;
+  const start = () => void store.switchTo("claude", "/tmp/project", { deferred: true });
 
   function Host() {
-    const [state, setState] = useState<State>({
-      sessionId: "",
-      model: "claude-sonnet-5-5",
-      confirmedModel: "claude-sonnet-5-5",
-      fast: "off",
-      effort: "medium",
-    });
-    update = setState;
-    const hasSession = state.sessionId.length > 0;
-    const effortOption = {
-      id: "effort",
-      name: "Effort",
-      category: "thought_level",
-      currentValue: state.effort,
-      options: ["low", "medium", "high"].map((value) => ({ value, name: value })),
-    };
-    const fastOption = {
-      id: "fast-mode",
-      name: "Fast mode",
-      currentValue: state.fast,
-      options: [
-        { value: "off", name: "Off" },
-        { value: "on", name: "On" },
-      ],
-    };
-    const snapshot: Snapshot = {
-      type: "snapshot",
-      protocolVersion: 1,
-      rows: [],
-      sessions: [],
-      connection: "test",
-      isWorking: false,
-      queue: [],
-      canLoadOlder: false,
-      catalog: acpmux,
-      summary: {
-        sessionId: state.sessionId,
-        harness: "claude",
-        model: state.model,
-        confirmedModel: state.confirmedModel,
-        turnCount: hasSession ? 0 : undefined,
-        configOptions: hasSession ? [effortOption, fastOption] : effortBeforeSession ? [effortOption] : [],
-      },
-    } as Snapshot;
+    const view = useSyncExternalStore(store.subscribe, store.view);
+    const snapshot = applySwitch(raw, view, catalog, profiles);
     const picker = usePickerCatalog(
       snapshot.catalog,
       { harness: "claude", configOptions: snapshot.summary?.configOptions },
@@ -147,19 +156,14 @@ async function mountNewTab({ effortBeforeSession }: { effortBeforeSession: boole
         snapshot={snapshot}
         pickerCatalog={picker.catalog}
         holdsModePick
-        onModel={(model) => {
-          sent.push({ method: "model", value: model });
-          // Before a session, the switch draws the pick back as the model at once.
-          setState((current) =>
-            current.sessionId ? { ...current, model } : { ...current, model, confirmedModel: model },
-          );
+        onModel={(modelId) => {
+          start();
+          void store.pickModel(modelId);
         }}
         onMode={() => undefined}
         onEffort={(configId, value) => {
-          sent.push({ method: configId, value });
-          setState((current) =>
-            configId === "fast-mode" ? { ...current, fast: value } : { ...current, effort: value },
-          );
+          start();
+          store.pickConfig(configId, value);
         }}
         onHarness={() => undefined}
         showPlan={false}
@@ -194,49 +198,44 @@ async function mountNewTab({ effortBeforeSession }: { effortBeforeSession: boole
     expect(row).not.toBeUndefined();
     await act(async () => row!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
   };
-  const set = async (change: (state: State) => State) => act(async () => update!(change));
-  return { sent, pickCombo, set };
+  // Return right after the pick (App's chat.new, then chat.send): the prompt queues on the switch,
+  // which opens the chat, applies the picks and then sends it.
+  const send = async (text: string) =>
+    act(async () => {
+      start();
+      void store.send(text);
+      for (let turn = 0; turn < 5; turn++) await new Promise((done) => setTimeout(done, 0));
+    });
+  return { wire, pickCombo, send };
 }
 
-test("a New Tab combo's effort goes to the switch at once and its Fast pick lands once the chat reports a session", async () => {
-  const { sent, pickCombo, set } = await mountNewTab({ effortBeforeSession: true });
+test("a New Tab combo's effort and Fast reach the chat before the prompt sent right after it", async () => {
+  const { wire, pickCombo, send } = await mountNewTab({ opened: [effortOption(), fastOption()] });
   await pickCombo("opus high fast", "Opus 5.5");
-  // The effort the agent's profile offers goes to the switch now, which holds it for the first turn.
-  expect(sent).toEqual([
-    { method: "model", value: "claude-opus-5-5" },
-    { method: "effort", value: "high" },
-  ]);
-  // The session opens on the model the agent runs, then the held pick lands: Fast mode follows.
-  await set((state) => ({ ...state, sessionId: "deferred-1", confirmedModel: "claude-sonnet-5-5" }));
-  await set((state) => ({ ...state, confirmedModel: state.model }));
-  expect(sent).toEqual([
-    { method: "model", value: "claude-opus-5-5" },
-    { method: "effort", value: "high" },
-    { method: "fast-mode", value: "on" },
-  ]);
+  await send("hello");
+  expect(wire).toEqual(["model claude-opus-5-5", "effort=high", "fast-mode=on", "prompt hello"]);
 });
 
-test("a New Tab combo with no effort offered before the session lands its effort and Fast once the chat runs the model", async () => {
-  const { sent, pickCombo, set } = await mountNewTab({ effortBeforeSession: false });
-  await pickCombo("opus high fast", "Opus 5.5");
-  expect(sent).toEqual([{ method: "model", value: "claude-opus-5-5" }]);
-  // The session first reports the model the agent started on; the combo waits rather than dropping.
-  await set((state) => ({ ...state, sessionId: "deferred-1", confirmedModel: "claude-sonnet-5-5" }));
-  expect(sent).toEqual([{ method: "model", value: "claude-opus-5-5" }]);
-  await set((state) => ({ ...state, confirmedModel: state.model }));
-  expect(sent).toEqual([
-    { method: "model", value: "claude-opus-5-5" },
-    { method: "effort", value: "high" },
-    { method: "fast-mode", value: "on" },
-  ]);
+test("a New Tab combo for the model already shown still carries its effort into the first turn", async () => {
+  const { wire, pickCombo, send } = await mountNewTab({ opened: [effortOption(), fastOption()] });
+  await pickCombo("sonnet high", "Sonnet 5.5");
+  await send("hello");
+  expect(wire).toEqual(["effort=high", "prompt hello"]);
 });
 
-test("a New Tab combo belongs to the first session its chat reports: another session after it drops the combo", async () => {
-  const { sent, pickCombo, set } = await mountNewTab({ effortBeforeSession: false });
+test("a held New Tab combo takes the opened session's own option names and values", async () => {
+  // A harness that names its effort another way and its Fast mode with true/false.
+  const { wire, pickCombo, send } = await mountNewTab({
+    opened: [effortOption("reasoning_effort"), fastOption("fast_mode", ["false", "true"])],
+  });
   await pickCombo("opus high fast", "Opus 5.5");
-  await set((state) => ({ ...state, sessionId: "deferred-1", confirmedModel: "claude-sonnet-5-5" }));
-  // The pane moves on to another chat before the pick reached the model: nothing lands there.
-  await set((state) => ({ ...state, sessionId: "other-chat" }));
-  await set((state) => ({ ...state, confirmedModel: state.model }));
-  expect(sent).toEqual([{ method: "model", value: "claude-opus-5-5" }]);
+  await send("hello");
+  expect(wire).toEqual(["model claude-opus-5-5", "reasoning_effort=high", "fast_mode=true", "prompt hello"]);
+});
+
+test("a held Fast pick the opened session does not offer is not sent", async () => {
+  const { wire, pickCombo, send } = await mountNewTab({ opened: [effortOption()] });
+  await pickCombo("opus high fast", "Opus 5.5");
+  await send("hello");
+  expect(wire).toEqual(["model claude-opus-5-5", "effort=high", "prompt hello"]);
 });
