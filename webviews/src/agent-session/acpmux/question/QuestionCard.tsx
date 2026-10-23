@@ -23,6 +23,7 @@ import {
   type CardInput,
   type CardState,
 } from "./cardState";
+import { inlineText, plainText } from "./inlineText";
 import {
   declineReply,
   hasPreviews,
@@ -351,7 +352,7 @@ function PendingQuestion({
     >
       <legend id={legendId} className="acpmux-question-head">
         <span className="acpmux-hidden-label">{t("question.asking", { agent })}</span>
-        <span className="acpmux-question-prompt">{item.prompt}</span>
+        <span className="acpmux-question-prompt">{inlineText(item.prompt)}</span>
         {item.header && <span className="acpmux-question-chip">{item.header}</span>}
       </legend>
       {state.question.items.length > 1 && (
@@ -400,8 +401,8 @@ function PendingQuestion({
                 >
                   <ChoiceMark multi={multi} chosen={chosen} />
                   <span className="acpmux-question-text">
-                    <span className="acpmux-question-label">{option.label}</span>
-                    {option.detail && <span className="acpmux-question-detail">{option.detail}</span>}
+                    <span className="acpmux-question-label">{inlineText(option.label)}</span>
+                    {option.detail && <span className="acpmux-question-detail">{inlineText(option.detail)}</span>}
                   </span>
                 </button>
                 {layout === "inline" && option === previewOption && preview}
@@ -498,7 +499,7 @@ function OptionPreview({ id, t, option, inline }: { id: string; t: Translate; op
   return (
     <section className="acpmux-question-preview" data-inline={inline || undefined} aria-labelledby={id}>
       <span id={id} className="acpmux-question-preview-label">
-        {t("question.preview", { option: option.label })}
+        {t("question.preview", { option: plainText(option.label) })}
       </span>
       <pre>{previewText(option.preview?.text ?? "")}</pre>
     </section>
@@ -617,8 +618,8 @@ function AnsweredQuestion({ question, answer }: { question: AgentQuestion; answe
       <span className="acpmux-question-answered-lines">
         {question.items.map((item) => (
           <span key={item.id} className="acpmux-question-answered-line">
-            <span className="acpmux-question-answered-key">{item.header ?? item.prompt}:</span>{" "}
-            {itemAnswerText(item, answer)}
+            <span className="acpmux-question-answered-key">{item.header ?? inlineText(item.prompt)}:</span>{" "}
+            {inlineText(itemAnswerText(item, answer))}
           </span>
         ))}
       </span>
