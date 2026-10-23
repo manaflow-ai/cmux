@@ -180,9 +180,10 @@ impl Hub {
         // wait again when it failed.
         let joined = super::digest::DigestTurn::default();
         let result = self.run_prompt_joined(session, blocks, client, steer, opts, &joined).await;
-        // `finish_turn` put them back already when the turn itself failed; this is any other way.
+        // `finish_turn` put them back already, held, when the turn itself failed; this is a turn
+        // that never started, which holds nothing (`fail_unstarted_turn`).
         if result.is_err() {
-            self.requeue_joined(session, &joined);
+            self.requeue_joined(session, &joined, false);
         }
         joined.answer.send_replace(Some(result.clone()));
         result
@@ -596,7 +597,7 @@ impl Hub {
         // The agent messages that went in with it go back before anything here waits, so one sent
         // from now on goes behind them (`digest.rs`).
         if let (Err(_), Some(joined)) = (&result, joined) {
-            self.requeue_joined(session, joined);
+            self.requeue_joined(session, joined, true);
         }
         // A failure on a bound route names the route and its fallback
         // (route_switch.rs), in the error's data and the turn result.
@@ -734,7 +735,8 @@ impl Hub {
     }
 
     /// A recorded prompt whose agent could not start: the turn ends failed, so every client
-    /// sees the prompt settle instead of a turn that never starts.
+    /// sees the prompt settle instead of a turn that never starts. It fails alone: the prompts
+    /// behind it are not held, each gets its own try.
     fn fail_unstarted_turn(
         self: &Arc<Self>,
         session: &Arc<Session>,
@@ -749,7 +751,6 @@ impl Hub {
             "turn_error",
             json!({"error": e.message, "code": e.code, "turnId": turn_id, "turnSeq": 0}),
         );
-        self.pause_queue(session, turn_id);
         let msg = json!({"status": "failed", "error": e.message, "code": e.code, "turnSeq": 0, "turnId": turn_id, "promptId": prompt_id});
         self.record_last_turn(session, &msg);
         self.append(session, "mux", "turn_result", msg);
