@@ -147,6 +147,8 @@ class Stress:
         self.pages = Pages()
         self.refusals = []
         self.chat_fallbacks = 0
+        # Each tab this builder made, by pane: (asked kind, tab id); the shape check reads them back.
+        self.made = {}
 
     # Socket helpers.
 
@@ -187,8 +189,11 @@ class Stress:
         return made
 
     def focus_pane(self, pane_id):
+        """Focuses `pane_id`; raises StressShapeError when focus does not get there (a tab made next
+        would land in another pane, and the total would hide it)."""
         self.action("pane.focus", target=f"pane:{pane_id}")
-        wait(lambda: (self.topology().get("focus") or {}).get("pane") == pane_id, 5, step=0.05)
+        if not wait(lambda: (self.topology().get("focus") or {}).get("pane") == pane_id, 10, step=0.05):
+            raise StressShapeError(f"focus never reached pane {pane_id}")
 
     def tabs(self, workspace_id, pane_id):
         pane = next((p for p in self.panes(self.workspace(workspace_id)) if p.get("id") == pane_id), None)
@@ -196,7 +201,8 @@ class Stress:
 
     def add_tab(self, workspace_id, pane_id, kind):
         """One tab of `kind` (terminal, chromium, webkit, chat) in the focused pane; waits for it."""
-        count = len(self.tabs(workspace_id, pane_id))
+        before = {t.get("id") for t in self.tabs(workspace_id, pane_id)}
+        count = len(before)
         if kind == "terminal":
             self.action("newSurface")
         elif kind == "chromium":
@@ -211,6 +217,8 @@ class Stress:
                 self.chat_fallbacks += 1
                 self.action("newTab.page")
         wait(lambda: len(self.tabs(workspace_id, pane_id)) > count, 20, step=0.1)
+        new = [t.get("id") for t in self.tabs(workspace_id, pane_id) if t.get("id") not in before]
+        self.made.setdefault(pane_id, []).append((kind, new[0] if len(new) == 1 else None))
 
     def send(self, tab_id, text):
         self.action("terminal.sendText", {"text": text}, target=f"tab:{tab_id}", focus=False)
@@ -323,7 +331,11 @@ class Stress:
 
     def build(self, check=True):
         start = time.monotonic()
-        self.build_background()
+        # 60 in all: the ones the app already has, the background, and the measured one.
+        existing = len(self.workspaces())
+        if existing > WORKSPACES - 1:
+            raise StressShapeError(f"the app already has {existing} workspaces; STRESS has {WORKSPACES} in all")
+        self.build_background(count=WORKSPACES - 1 - existing)
         self.build_measured()
         time.sleep(self.settle)  # test script: first page loads and the busy output start before a measure
         summary = self.summary()
@@ -334,17 +346,26 @@ class Stress:
 
     @staticmethod
     def check(summary):
-        """Raises StressShapeError when the session is not STRESS (another layout is never measured as it)."""
+        """Raises StressShapeError when the session is not STRESS (another layout is never measured as it):
+        exactly 60 workspaces, 4 columns side by side, 14 panes, each pane exactly 2 terminals, 2 Chromium
+        pages, 1 WebKit page and 1 chat (or a counted New Tab page fallback), real Chromium (no refusal,
+        debug.cef not unavailable), 10 background workspaces with 2 Chromium pages each, 10 busy terminals."""
         want_panes = COLUMNS * ROWS + len(NESTED_COLUMNS)
         tabs = sum((summary.get("measured_tabs") or {}).values())
-        problems = []
-        if (summary.get("workspaces") or 0) < WORKSPACES:
+        problems = list(summary.get("pane_problems") or [])
+        if summary.get("busy_terminals") != BUSY_TERMINALS:
+            problems.append(f"{summary.get('busy_terminals')} busy terminals, not {BUSY_TERMINALS}")
+        if summary.get("background_chromium") != [CHROMIUM_PER_WORKSPACE] * CHROMIUM_WORKSPACES:
+            problems.append(f"background Chromium pages per workspace {summary.get('background_chromium')}")
+        if summary.get("chromium_unavailable"):
+            problems.append(f"Chromium is not available: {summary.get('chromium_unavailable')}")
+        if (summary.get("workspaces") or 0) != WORKSPACES:
             problems.append(f"{summary.get('workspaces')} workspaces, not {WORKSPACES}")
         if summary.get("measured_panes") != want_panes:
             problems.append(f"{summary.get('measured_panes')} panes, not {want_panes}")
         if summary.get("shown_columns") != COLUMNS:
             problems.append(f"{summary.get('shown_columns')} columns side by side, not {COLUMNS}")
-        if tabs < want_panes * 6:
+        if tabs != want_panes * 6:
             problems.append(f"{tabs} tabs in the measured workspace, not {want_panes * 6}")
         if problems:
             raise StressShapeError("STRESS session has the wrong shape: " + "; ".join(problems)
@@ -355,7 +376,11 @@ class Stress:
         divider areas (`debug.layers` divider_areas_in_window, taller than wide); a nested split adds
         only horizontal dividers. Also the window frame."""
         layers = self.rpc("debug.layers")
-        window = ((layers or {}).get("windows") or [{}])[0] if isinstance(layers, dict) else {}
+        windows = ((layers or {}).get("windows") or []) if isinstance(layers, dict) else []
+        # The window that shows the measured workspace (topology windows carry the debug.layers id as `key`).
+        measured = getattr(self, "measured", None)
+        key = next((w.get("key") for w in self.topology().get("windows") or [] if w.get("workspace") == measured), None)
+        window = next((w for w in windows if w.get("id") == key), windows[0] if windows else {})
         xs = {round(x + w / 2) for x, y, w, h in window.get("divider_areas_in_window") or [] if h > w}
         return (len(xs) + 1 if window else None), window.get("frame")
 
@@ -370,12 +395,30 @@ class Stress:
                     kind = f"page:{tab.get('page')}"
                 kinds[kind] = kinds.get(kind, 0) + 1
         columns = sorted({p.get("column") for p in self.panes(measured) if p.get("column") is not None})
+        # Each measured pane's mix, from the tabs this builder made and what the topology says they are.
+        want = {"terminal": 2, "chromium": 2, "webkit": 1, "chat": 1}
+        pane_problems = []
+        for pane in self.panes(measured):
+            tabs = {t.get("id"): t.get("kind") for t in pane.get("tabs") or []}
+            asked = [("terminal", None)] + self.made.get(pane.get("id"), [])
+            got = {k: sum(1 for kind, _ in asked if kind == k) for k in want}
+            wrong = [f"{kind} tab {tab} is {tabs.get(tab)}" for kind, tab in asked[1:]
+                     if tab is None or tabs.get(tab) is None or (kind == "terminal") != (tabs.get(tab) == "terminal")]
+            if got != want or len(tabs) != 6 or wrong:
+                pane_problems.append(f"pane {pane.get('id')}: {len(tabs)} tabs, made {got}{'; ' + ', '.join(wrong[:3]) if wrong else ''}")
+        background = [sum(1 for p in self.panes(self.workspace(w)) for t in p.get("tabs") or [] if t.get("kind") not in (None, "terminal"))
+                      for w in getattr(self, "background", [])[:CHROMIUM_WORKSPACES]]
+        cef = self.rpc("debug.cef")
+        unavailable = [r for r in self.refusals if r.startswith("openBrowser.chromium")]
+        if isinstance(cef, dict) and (cef.get("error") or cef.get("unavailable")):
+            unavailable.append(str(cef.get("error") or cef.get("unavailable"))[:160])
         shown, frame = self.shown_columns()
         return {"workspaces": len(workspaces), "measured": getattr(self, "measured", None), "shown_columns": shown, "window": frame,
                 "measured_panes": len(self.panes(measured)), "measured_columns": len(columns) or None,
                 "measured_tabs": kinds, "busy_terminals": len(getattr(self, "busy", [])), "busy_where": self.busy_where,
                 "selected": self.selected, "chromium_workspaces": min(CHROMIUM_WORKSPACES, len(getattr(self, "background", []))),
-                "chat_fallbacks": self.chat_fallbacks, "refusals": self.refusals[:10]}
+                "chat_fallbacks": self.chat_fallbacks, "refusals": self.refusals[:10], "pane_problems": pane_problems[:6],
+                "background_chromium": background, "chromium_unavailable": unavailable[:3]}
 
 
 class StressShapeError(RuntimeError):
