@@ -412,6 +412,9 @@ export type AcpmuxSessionOffer = {
 /// the chat that offered it (cx-lo9yf).
 export type AcpmuxOfferResult = { offerId: string; childSessionId: string; title: string };
 
+/** The concrete app, resource, or working directory an approval covers. */
+export type AcpmuxPermissionScope = { kind: "app" | "resource" | "directory"; value: string };
+
 export type AcpmuxPermission = {
   permissionId: string;
   groupId?: string;
@@ -420,6 +423,8 @@ export type AcpmuxPermission = {
   command?: string;
   description?: string;
   rule?: string;
+  /** The target carried by ACP v2's permission subject, when one is provided. */
+  scope?: AcpmuxPermissionScope;
   kind?: string;
   /// The tool call it asks about: a subagent's own call when a subagent asks (summary/SubagentStatusList.tsx).
   toolCallId?: string;
