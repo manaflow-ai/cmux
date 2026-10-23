@@ -68,6 +68,12 @@ const KEEPALIVE_SECONDS: u16 = 10;
 /// the link gives up.
 const DIRECT_STALE: Duration = Duration::from_secs(14);
 const STUN_WAIT: Duration = Duration::from_millis(1500);
+/// Once one STUN server answered, how much longer the others get. Cloudflare
+/// lists STUN on 3478 and on 53, and cellular networks often take port 53 for
+/// their own DNS or drop it: waiting out [`STUN_WAIT`] for that one held
+/// every dial and roam on such a network 1.5 s (link-reliability-20261023.md).
+/// A second answer only adds a reflexive address the first usually shares.
+const STUN_GRACE: Duration = Duration::from_millis(150);
 
 pub struct WireGuardDialer;
 
@@ -256,7 +262,7 @@ async fn gather_endpoints(socket: &UdpSocket, options: &DialOptions) -> Gathered
             transactions.push(transaction);
         }
     }
-    let deadline = Instant::now() + STUN_WAIT;
+    let mut deadline = Instant::now() + STUN_WAIT;
     let mut buffer = [0u8; 1500];
     let mut answered = 0;
     while !transactions.is_empty() {
@@ -274,6 +280,7 @@ async fn gather_endpoints(socket: &UdpSocket, options: &DialOptions) -> Gathered
         if let Some(index) = found {
             transactions.swap_remove(index);
             answered += 1;
+            deadline = deadline.min(Instant::now() + STUN_GRACE);
         }
     }
     Gathered { endpoints: offered(endpoints, options), stun: servers, answered }
