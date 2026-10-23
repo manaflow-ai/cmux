@@ -152,6 +152,14 @@ import CmuxNextCompat
     /// Sends the pane's reply in place on as its chat's cmux agent message (``AgentPaneAgentReply``),
     /// for a chat on this Mac only; nil refuses every reply. The App wires it to this Mac's daemon.
     public var sendAgentReply: AgentPaneAgentReply.Send?
+    /// What the socket calls: the ``sendAgentReply`` set now, not the one set when it opened. A
+    /// prewarmed spare opens before its tab wires it, and a provisional tab's rekey rewires it.
+    private var currentAgentReply: AgentPaneAgentReply.Send {
+        { [weak self] reply in
+            guard let send = self?.sendAgentReply else { throw AgentPaneAgentReply.Failure.unavailable }
+            return try await send(reply)
+        }
+    }
 
     /// Keeps the prompts acpmux has not acknowledged across the app's end (``AgentPanePromptJournal``).
     public var promptJournal: AgentPanePromptJournal? = AgentPanePromptJournal.shared
@@ -206,7 +214,7 @@ import CmuxNextCompat
         requestIds = ids
         let socket = AcpmuxPaneSocket(request: connection.request, wire: connection.remote?.makeWire(), limits: limits,
                                       options: permissionOptions, sessions: sessions, decisions: decisions, ids: ids,
-                                      agentReplies: connection.remote == nil ? sendAgentReply : nil) { [weak self] in
+                                      agentReplies: connection.remote == nil ? currentAgentReply : nil) { [weak self] in
             // task-owner: one wake for the pacer; arrived(_:) ignores a stale connection
             Task { @MainActor [weak self] in self?.arrived(id) }
         }

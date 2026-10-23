@@ -113,6 +113,8 @@ public nonisolated struct AgentPaneAgentReply: Equatable, Sendable {
         do {
             let stored = try await send(reply)
             return frame(pageID: pageID, ["result": ["agentMessage": ["id": stored.id, "threadId": stored.threadId]]])
+        } catch Failure.unavailable {
+            return frame(pageID: pageID, ["error": refusal("reply.daemon_unavailable", "no cmux daemon on this Mac takes the reply")])
         } catch {
             return frame(pageID: pageID, ["error": refusal("reply.daemon_refused", "the cmux daemon did not take the reply")])
         }
