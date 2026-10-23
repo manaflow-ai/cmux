@@ -84,6 +84,9 @@ import Foundation
         if let column = provisional.column {
             return applyColumn(column, after: target, leaf: leaf, daemon: daemon, provisional: provisional, screen: screen, in: store)
         }
+        if let row = provisional.row {
+            return applyRow(row, below: target, leaf: leaf, daemon: daemon, provisional: provisional, screen: screen, in: store)
+        }
         guard let layout = split(screen.layout, target, direction, ratio, leaf, provisional.splitID) else { return nil }
         // The target's column tree (and row tree) take the split too; a tree the split cannot
         // reach leaves the intent unapplied, as cmux-tui would refuse it.
@@ -152,6 +155,38 @@ import Foundation
         let pane = model(of: provisional, in: store)
         let anchor = columns[index].layout.paneIDs
         let after = (screen.panes.lastIndex { anchor.contains($0.handle) } ?? screen.panes.count - 1) + 1
+        screen.panes.insert(pane, at: min(after, screen.panes.count))
+        store.index.insert(pane, in: screen)
+        return undo
+    }
+
+    /// New Row's overlay (`new-row`, cmux-tui `new_row_with_options_as`): a row holding `leaf` right
+    /// below the target's row in its column, at the row's height. A screen that is still a split
+    /// tree becomes one column, and a column without rows gets its tree as its first row (1000),
+    /// as the daemon does. The column's `layout` stays the compat chain of its rows.
+    private static func applyRow(_ row: ProvisionalRow, below target: PaneID, leaf: PaneID, daemon: PaneModel?,
+                                 provisional: ProvisionalPane, screen: ScreenModel, in store: DaemonStore) -> IntentUndo? {
+        guard screen.zoomedPane == nil else { return nil }
+        var columns = screen.columns
+        if columns.isEmpty { columns = [ColumnSnapshot(id: ColumnID(rawValue: row.firstHandle.rawValue | (1 << 60)), width: 1, layout: screen.layout)] }
+        guard let index = columns.firstIndex(where: { $0.layout.paneIDs.contains(target) }) else { return nil }
+        var column = columns[index]
+        var rows = column.rows.isEmpty ? [RowSnapshot(id: row.firstHandle, height: 1000, layout: column.layout)] : column.rows
+        guard let at = rows.firstIndex(where: { $0.layout.paneIDs.contains(target) }) else { return nil }
+        rows.insert(RowSnapshot(id: row.handle, height: row.height, layout: .leaf(leaf)), at: at + 1)
+        column.rows = rows
+        column.layout = rows.dropFirst().reduce(rows[0].layout) { chain, next in
+            .split(id: nil, resourceID: nil, direction: .down, ratio: 0.5, a: chain, b: next.layout)
+        }
+        columns[index] = column
+        let undo = IntentUndo.splitPane(screen: screen.handle, layout: screen.layout, columns: screen.columns,
+                                        pane: daemon == nil ? provisional.handle : nil)
+        screen.layout = split(screen.layout, target, .down, 0.5, leaf, provisional.splitID)
+            ?? .split(id: nil, resourceID: nil, direction: .down, ratio: 0.5, a: screen.layout, b: .leaf(leaf))
+        screen.columns = columns
+        guard daemon == nil else { return undo }
+        let pane = model(of: provisional, in: store)
+        let after = (screen.panes.firstIndex { $0.handle == target } ?? screen.panes.count - 1) + 1
         screen.panes.insert(pane, at: min(after, screen.panes.count))
         store.index.insert(pane, in: screen)
         return undo

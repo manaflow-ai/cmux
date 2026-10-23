@@ -47,11 +47,14 @@ extension WorkspaceContentController {
             guard daemon.supports(DaemonCapabilities.shared.rows), let handle = handles.panes[below] else {
                 return services.registry.refuse(daemon.missingCapabilityMessage(DaemonCapabilities.shared.rows))
             }
-            let cwd = panes[below]?.selectedTab?.cwd
-            let key = workspace.key
-            spawnPane("new-row") {
-                try await RowCommands($0).newRow(below: handle, height: height, options: SpawnOptions(cwd: cwd, workspace: key))
+            let options = SpawnOptions(cwd: panes[below]?.selectedTab?.cwd, workspace: workspace.key)
+            let command = NewRowCommand(pane: handle, height: height, options: options)
+            guard command.isOptimistic(on: daemon) else {
+                spawnPane("new-row") { try await RowCommands($0).newRow(below: handle, height: height, options: options) }
+                return
             }
+            let provisional = ProvisionalPane(rowHeight: height)
+            createInKeysTurn("newRow", provisional: provisional) { command.intendNow(on: self.daemon, provisional: provisional) }
         case .selectScreen(let screen):
             // Every screen switch (switcher click, screen actions) focuses the
             // screen's most recently focused pane (its active
@@ -117,6 +120,17 @@ extension WorkspaceContentController {
             }
         }
         let provisional = ProvisionalPane(columnWidth: request.width, widths: widths, treeWidth: treeWidth)
+        createInKeysTurn("newColumn", provisional: provisional, then: { [layoutModel] in layoutModel.commitNewColumnResize(request) }) {
+            command.intendNow(on: self.daemon, provisional: provisional)
+        }
+    }
+
+    /// One optimistic pane create (New Column, New Row) in the key's turn: focus expects the
+    /// provisional tab, typed keys wait for it (`CreationInputCoordinator`), the intent puts it in
+    /// the store, and `applyCurrent` lays it out and mounts it before the key's frame. `then` runs
+    /// once the daemon made it.
+    private func createInKeysTurn(_ label: String, provisional: ProvisionalPane, then: (@MainActor () -> Void)? = nil,
+                                  _ intend: () -> @MainActor () async throws -> SurfaceCreated) {
         let intent = beginFocusIntent()
         focus.expect(.tab(provisional.tabID), generation: intent)
         let window = layoutView.window
@@ -124,21 +138,20 @@ extension WorkspaceContentController {
         let keys = keyRouter.creationInputCoordinator.begin(in: window, generation: intent,
                                                             earlyTab: daemon.queuesCreatingInput ? provisional.tabID : nil,
                                                             tab: provisional.tabID)
-        // In the store now; laid out and mounted in this turn, so it draws in the key's frame.
-        let send = BenchSpans.measure("newColumn.intend") { command.intendNow(on: daemon, provisional: provisional) }
-        BenchSpans.measure("newColumn.layout") { applyCurrent() }
+        let send = BenchSpans.measure("\(label).intend") { intend() }
+        BenchSpans.measure("\(label).layout") { applyCurrent() }
         let logger = daemon.logger
         // [services, state]: the task pins this controller's owners until it ends (cx-6so P1b).
-        Task { [services, state, layoutModel] in
+        Task { [services, state] in
             var landed = false
             defer { keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window) }
             do {
                 _ = try await send()
-                BenchSpans.mark("newColumn.reply.optimistic")
+                BenchSpans.mark("\(label).reply.optimistic")
                 landed = true
-                layoutModel.commitNewColumnResize(request)
+                then?()
             } catch {
-                logger.error("new-pane-right failed: \(String(describing: error), privacy: .public)")
+                logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
             }
             withExtendedLifetime((services, state)) {}
         }
