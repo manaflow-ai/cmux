@@ -15,7 +15,7 @@
 5. Sound (a fake osascript): a launch mutes the sound output, BENCH_LAUNCH_AUDIO=keep leaves it.
 6. No environment variable passes the GUI-session gate; the one launch without a session is the explicit socket-only
    check, and its report says so.
-4. After a signal exit the crash-report wait wakes on the report folder, also for an account that never crashed (no
+7. After a signal exit the crash-report wait wakes on the report folder, also for an account that never crashed (no
    report folder yet), and says when it could watch no folder instead of returning at once in silence.
 
 Runs on any Mac, no GUI session or build needed (the session read is injected or the check is `--socket-only`, and a
