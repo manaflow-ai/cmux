@@ -24,11 +24,11 @@ enum DebugOpenPanelBench {
         let mode = params["mode"]?.stringValue ?? "made"
         guard let window = services.windows.controllers.first?.window else { return .object(["error": .string("no window")]) }
         guard window.attachedSheet == nil else { return .object(["error": .string("the window already shows a sheet")]) }
-        let shared = MadeAheadOpenPanel.shared
+        let shared = services.openPanel
         if mode == "made", !shared.isMade {
             shared.warmWhenIdle()
             frames.start()
-            _ = await frames.settled(until: { shared.isMade || shared.stoppedWarming }, start: .now, window: 0, deadline: 8_000)
+            _ = await frames.settled(until: { shared.isMade || !shared.isWarming }, start: .now, window: 0, deadline: 8_000)
             _ = frames.stop()
         }
         let madeBefore = shared.isMade
@@ -39,7 +39,10 @@ enum DebugOpenPanelBench {
 
         frames.start()
         let start = ContinuousClock.now
-        let panel = mode == "fresh" || mode == "window" ? NSOpenPanel() : shared.panel()
+        guard let panel = mode == "fresh" || mode == "window" ? NSOpenPanel() : shared.panel() else {
+            _ = frames.stop()
+            return .object(["mode": .string(mode), "error": .string("the panel came back dead (no prompt)")])
+        }
         let made = ContinuousClock.now
         if mode == "window" {
             panel.begin { _ in }
@@ -62,6 +65,7 @@ enum DebugOpenPanelBench {
         return .object([
             "mode": .string(mode),
             "made_ahead_before": .bool(madeBefore),
+            "prompt_nil": .bool(panel.prompt == nil),
             "init_ms": .number(BenchSpans.ms(made - start)),
             "begin_ms": .number(BenchSpans.ms(begun - made)),
             "sync_ms": .number(BenchSpans.ms(begun - start)),
