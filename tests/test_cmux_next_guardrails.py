@@ -382,6 +382,7 @@ class RuleTests(Fixture):
 
         self.git("reset", "--quiet", "--hard", self.base)
         self.rebase_on({f"{APP}/Feature.swift": body(450)}, "an existing big App file")
+        (self.repo / APP / "Features").mkdir()  # git before 2.54 does not create the folder for a git mv
         self.git("mv", f"{APP}/Feature.swift", f"{APP}/Features/Feature.swift")
         self.commit("moves it into a folder")
         self.assertEqual(self.check()[0], [], "a git mv adds no new App code")
