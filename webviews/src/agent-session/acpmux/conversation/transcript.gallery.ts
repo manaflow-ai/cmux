@@ -1621,6 +1621,40 @@ export default agentPaneEntry({
         { isWorking: true },
       ),
     },
+    "codex-turn-command-under-messages": {
+      note: 'Leo, 2026-10-22: "the ran thing basiclly replcaes the thinking usually". A command still running in an earlier run while the agent writes and messages others: it is the live line at the bottom (Running cp … with its time, ⌃B to run in background at its right on hover), not a Ran cp row with the hint over a Thinking line. Play: the line names the cp, no transcript row draws the hint or runs.',
+      snapshot: chat(
+        [
+          user("Copy the session log into recovery and tell the lanes what changed.", 3),
+          activity(
+            [
+              tool("cp", "execute", "in_progress", {
+                command: "cp /private/tmp/session-export/session.jsonl ~/recovery/",
+                startedAt: minutesAgo(1.2),
+              }),
+            ],
+            1.2,
+          ),
+          assistant(
+            "While the copy runs I'll tell the lanes what changed: the live line now names the command in flight, the Ctrl-B hint sits at its right, and finished commands keep their rows.",
+            1,
+          ),
+          activity([shellTool("acpmux send --no-wait coord-deputy '[lanes] summary sent'")], 0.8),
+        ],
+        { isWorking: true },
+      ),
+      play: async (ctx: PlayContext) => {
+        const doc = ctx.document;
+        await ctx.waitFor(() =>
+          (doc.querySelector(".cv-worked.is-below .cv-thinking")?.textContent ?? "").startsWith("Running cp "),
+        );
+        const stray = [...doc.querySelectorAll(".cv-command__bg")].filter((node) => !node.closest(".cv-worked"));
+        if (stray.length) throw new Error(`${stray.length} transcript rows draw the ⌃B hint`);
+        const live = doc.querySelectorAll(".cv-tool.is-live").length;
+        if (live) throw new Error(`${live} running rows draw over the live line`);
+        await liveLineClear(ctx);
+      },
+    },
     "codex-turn-raw-commands": {
       note: "Leo's turn-toolcalls-now.png: commands that all start with export PATH=… and send no description. Each reads as its meaningful command (acpmux ls, gh pr view 22363); the two runs and the short note between them are one folded line; the call in flight is the one live line at the bottom (Running acpmux send 13s), shimmering, no dots, 16px clear of the run over it; ⌃B to run in background shows on hover. Play: hover the line.",
       snapshot: chat(
@@ -1851,6 +1885,32 @@ export default agentPaneEntry({
         ),
         assistant("Lint fails on one unused variable; I can remove it.", 11.5),
         summary(11.5, { status: "completed", toolCount: 1 }),
+      ]),
+    },
+    "turn-stopped": {
+      note: 'The last turn, stopped by the reader: its footer says "You stopped after 40s" at rest and offers Continue, as Codex does. Continue sends a continue prompt through the composer\'s send; the button goes once that prompt shows (Leo, 2026-10-22: "and we should add a continue button if things were stopped, just like codex").',
+      snapshot: chat([
+        user(prompt, 3),
+        activity(
+          [
+            thought("Find where the fetch helper gives up on a failed request."),
+            tool("Read src/net/client.ts", "read", "completed"),
+          ],
+          2.8,
+        ),
+        assistant("The helper throws on the first failure. I'll wrap it in a retry loop with backoff next.", 2.5),
+        summary(2.33, { status: "cancelled", durationMs: 40_000, toolCount: 1 }),
+      ]),
+    },
+    "turn-stopped-then-continued": {
+      note: "A stopped turn that a prompt followed: only the last turn can offer Continue, so the earlier stopped turn offers none, and neither does the completed last turn.",
+      snapshot: chat([
+        user(prompt, 6),
+        assistant("The helper throws on the first failure. I'll wrap it in a retry loop with backoff next.", 5.5),
+        summary(5.33, { status: "cancelled", durationMs: 40_000 }),
+        user("Continue", 4),
+        assistant("Retries now back off from 200 ms, doubling up to three tries.", 3),
+        summary(3, { status: "completed", durationMs: 60_000 }),
       ]),
     },
     "turn-error": {
