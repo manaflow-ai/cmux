@@ -109,3 +109,41 @@ async fn stop_with_a_steer_waiting_still_ends_the_turn_stopped() {
     let (answer, _) = c.response(turn).await;
     assert_eq!(answer.unwrap()["stopReason"], "cancelled");
 }
+
+/// A send-now whose turn ended before the agent took it runs next (`steer_end.rs`), but it stops
+/// only the turn it was aimed at. A turn that began meanwhile, such as another agent's queued
+/// message, runs on (Leo, 2026-10-21: "me sending that ... might have accidentally swallowed up
+/// a queued message").
+#[tokio::test]
+async fn a_send_now_that_missed_its_turn_does_not_stop_the_turn_after_it() {
+    let (hub, mut c, id) = claude_hub().await;
+    let turn = long_step(&mut c, &id).await;
+    let session = hub.resolve(&id).unwrap();
+    let running = session.turn().expect("the long step runs").turn_id;
+    // The fallback's options: a send-now aimed at a turn that has ended.
+    let opts = acpmux::hub::PromptOptions {
+        prompt_id: Some("p-late".into()),
+        interrupt: true,
+        interrupt_turn: Some("t-ended".into()),
+        ..Default::default()
+    };
+    let late = tokio::spawn({
+        let (hub, session) = (hub.clone(), session.clone());
+        async move {
+            let blocks = vec![json!({"type": "text", "text": "LATE"})];
+            hub.prompt_with(&session, blocks, "pane", false, opts).await
+        }
+    });
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    assert_eq!(
+        session.turn().map(|t| t.turn_id),
+        Some(running),
+        "the send-now stopped a turn it was not aimed at"
+    );
+    // It still goes next: Stop ends the long step, and LATE runs.
+    c.send(method::SESSION_CANCEL, json!({"sessionId": id})).await;
+    let (answer, _) = c.response(turn).await;
+    assert_eq!(answer.unwrap()["stopReason"], "cancelled");
+    let late = tokio::time::timeout(Duration::from_secs(20), late).await.unwrap().unwrap();
+    assert!(late.is_ok(), "the send-now never ran: {late:?}");
+}
