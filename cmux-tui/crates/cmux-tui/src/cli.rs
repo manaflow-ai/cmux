@@ -255,15 +255,55 @@ pub(super) fn canonical_scope(value: &str) -> &str {
 pub(crate) fn removed_route_requested(args: &[String]) -> bool {
     scan_globals(args, MachineFlag::Global)
         .map(|(_, command)| {
-            let mut words = command
-                .iter()
-                .take_while(|word| *word != "--")
-                .filter(|word| !word.starts_with('-'));
-            matches!(words.next().map(String::as_str), Some("route"))
-                || (matches!(words.next().map(String::as_str), Some("help"))
-                    && matches!(words.next().map(String::as_str), Some("route")))
+            let mut words = command.iter().take_while(|word| *word != "--").peekable();
+            let mut command_words = Vec::new();
+            while let Some(word) = words.next() {
+                if startup_value_option(word) {
+                    let _ = words.next();
+                } else if !word.starts_with('-') {
+                    command_words.push(word.as_str());
+                }
+            }
+            let mut words = command_words.into_iter();
+            matches!(words.next(), Some("route"))
+                || (matches!(words.next(), Some("help"))
+                    && matches!(words.next(), Some("route")))
         })
         .unwrap_or(false)
+}
+
+fn startup_value_option(value: &str) -> bool {
+    matches!(
+        value,
+        "--terminal"
+            | "--state"
+            | "--machine-provider"
+            | "--cloud-host"
+            | "--cloud-user"
+            | "--cloud-port"
+            | "--cloud-identity"
+            | "--ws"
+            | "--ws-token"
+            | "--ws-allow-origin"
+            | "--ws-allow-host"
+            | "--remote-ws"
+            | "--remote-http"
+            | "--remote-state-dir"
+            | "--remote-link-socket"
+            | "--remote-admin-socket"
+            | "--remote-resume-lease-seconds"
+            | "--terminal-reap-grace-seconds"
+            | "--relay"
+            | "--relay-slot"
+            | "--relay-ticket"
+            | "--relay-ticket-file"
+            | "--relay-ticket-command"
+            | "--relay-ticket-command-arg"
+            | "--advertise"
+            | "--term"
+            | "--owner-host-fg"
+            | "--owner-host-bg"
+    )
 }
 
 /// Rewrites a pre-D1 `cmux server <lifecycle verb>` to `cmux daemon <verb>`

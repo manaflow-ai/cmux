@@ -18,6 +18,7 @@ fn removed_route_is_detected_after_global_options() {
     assert!(removed_route_requested(&strings(&["--headless", "route", "list"])));
     assert!(removed_route_requested(&strings(&["help", "route"])));
     assert!(removed_route_requested(&strings(&["--headless", "help", "route"])));
+    assert!(removed_route_requested(&strings(&["--state", "/tmp/state", "route", "list"])));
     assert!(!removed_route_requested(&strings(&["--socket", "route", "workspace", "list"])));
     assert!(!removed_route_requested(&strings(&["--", "route", "list"])));
 }
