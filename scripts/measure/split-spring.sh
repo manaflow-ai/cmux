@@ -17,7 +17,8 @@
 #                   this process only) so the app opens on it. When it does not come up as the main display at
 #                   that rate, the step measures on the real display and says so (VDISPLAY-FALLBACK). The
 #                   report (report.json, perf-gate.json) gets a `display` key either way: {requested_hz,
-#                   vdisplay, refresh_ms (the virtual display's measured interval, null after a fallback), line}.
+#                   vdisplay, refresh_ms, line}. refresh_ms is the virtual display's measured interval, or after a
+#                   fallback the real main display's (`VDisplay probe`; null only when that does not tick either).
 #                   Not yet confirmed on cmux20-bench by a perf cron run (2026-10-23).
 #   --vdisplay-hold=SECONDS  the helper's own lifetime (default 1200): it ends by itself even when this script
 #                   is killed with SIGKILL. The perf cron passes the part's run time.
@@ -95,6 +96,7 @@ vdisplay_pid="" bench_pid="" measuring=0
 stop_vdisplay() {
   if [[ -n "$vdisplay_pid" ]]; then
     kill "$vdisplay_pid" 2>/dev/null || true  # the helper this script started, by its PID
+    wait "$vdisplay_pid" 2>/dev/null || true  # its display arrangement is gone once it has exited
     vdisplay_pid=""
   fi
 }
@@ -155,6 +157,24 @@ PY
   else
     echo "split-spring: VDISPLAY-FALLBACK no ${vdisplay_hz} Hz virtual display ($line); measuring on the real display"
     stop_vdisplay
+    # The real main display's measured rate, so the frame rows of a fallback run still have a known refresh.
+    probe=""
+    if [[ -x "$vd/VDisplay.app/Contents/MacOS/VDisplay" ]]; then
+      probe="$("$vd/VDisplay.app/Contents/MacOS/VDisplay" probe 2>/dev/null | grep -m1 '^main ' || true)"
+    fi
+    if probed="$(python3 - "$display_json" "$probe" <<'PY'
+import json, re, sys
+display = json.loads(sys.argv[1]) if sys.argv[1] else {}
+m = re.match(r"main (\d+) ([\d.]+)", sys.argv[2])
+ms = float(m.group(2)) if m else 0.0
+display["refresh_ms"] = ms if 2 <= ms <= 50 else None
+display["host_display"] = sys.argv[2][:200] or None
+print(json.dumps(display))
+PY
+)"; then
+      display_json="$probed"
+    fi
+    echo "split-spring: the real display: ${probe:-not measured}"
   fi
   echo "$line" > "$out/display.txt"
 fi

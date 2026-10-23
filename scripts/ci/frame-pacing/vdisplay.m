@@ -1,6 +1,10 @@
 // vdisplay: hold a virtual display at a chosen refresh rate until killed (or HOLD seconds).
-// Usage: VDisplay HZ HOLD_SECONDS [main]. A copy of cmuxterm-hq's build-fleet/mini-ops/vdisplay.m
-// (`fleet vdisplay`); keep the two in step (this copy adds `main`, 2026-10-23).
+// Usage: VDisplay HZ HOLD_SECONDS [main], or VDisplay probe. A copy of cmuxterm-hq's
+// build-fleet/mini-ops/vdisplay.m (`fleet vdisplay`); keep the two in step (this copy adds `main` and
+// `probe`, 2026-10-23).
+// `probe` creates no display: it prints "main DISPLAY_ID p50_ms" for the current main display (its measured
+// CVDisplayLink interval, 0 when it does not tick) and exits. scripts/measure/split-spring.sh runs it after a
+// VDISPLAY-FALLBACK, so the report still says which refresh the real display measured at.
 // `main` makes the virtual display the main display (origin 0,0; every other display moves right of
 // it, keeping its place relative to the others) for this process only (kCGConfigureForAppOnly):
 // the old arrangement comes back when it exits. Without it, a host with any other display keeps
@@ -84,6 +88,11 @@ static double medianInterval(CGDirectDisplayID display) {
 int main(int argc, char **argv) {
   @autoreleasepool {
     setvbuf(stdout, NULL, _IONBF, 0);
+    if (argc > 1 && strcmp(argv[1], "probe") == 0) {
+      CGDirectDisplayID mainID = CGMainDisplayID();
+      printf("main %u %.2f\n", mainID, medianInterval(mainID));
+      return 0;
+    }
     double hz = argc > 1 ? atof(argv[1]) : 120;
     double hold = argc > 2 ? atof(argv[2]) : 1800;
     BOOL wantMain = argc > 3 && strcmp(argv[3], "main") == 0;

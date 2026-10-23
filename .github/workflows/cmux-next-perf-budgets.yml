@@ -35,12 +35,15 @@ name: cmux-next perf cron
 # CMUX_NEXT_PERF_CRON_YIELD=running (repository variable) also yields while a nightly or dev build
 # runs, not only while one waits.
 #
+# Artifact names carry the run id only (overwrite on upload), so "Re-run failed jobs" works: a re-run report
+# job reads the plan's and the part's artifacts from the first attempt.
+#
 # The measure job runs only on its own gateway label, vars.CI_PERF_CRON_GATEWAY, never the required
 # compile's CI_COMPILE_CHECK_GATEWAY: a gateway job holds its runner for the whole part (up to 53
 # minutes for STRESS), and on 2026-10-22 an advisory gateway job held 13 of the 19 runners serving that pool
 # while 71 required app compiles queued (fleet-test-compile.yml). Unset (it is unset on 2026-10-23), the
-# plan picks no Mac part (only the Linux one), the measure job is skipped, and the issue says no Mac row is
-# measured. The Mac rows come from one bench host, cmux20-bench, on macOS 27 only: macOS 14, 15 and 26 are
+# plan records every Mac part as not run (the measurement is incomplete: it is neither the last good run nor
+# a reset of the 24 h stale clock), the measure job is skipped, and the issue says "Mac parts disabled". The Mac rows come from one bench host, cmux20-bench, on macOS 27 only: macOS 14, 15 and 26 are
 # not measured by this cron.
 
 on:
@@ -109,8 +112,9 @@ jobs:
       - name: Keep the working state for the report
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: perf-cron-work-${{ github.run_id }}-${{ github.run_attempt }}
+          name: perf-cron-work-${{ github.run_id }}
           path: ${{ runner.temp }}/perf-cron
+          overwrite: true
           retention-days: 1
           if-no-files-found: error
 
@@ -156,11 +160,12 @@ jobs:
             exit 0
           fi
           python3 -I scripts/cmux-next/perf-cron.py fleet-check --client "$client" --yield-mode "$YIELD_MODE" \
-            --output "$RUNNER_TEMP/fleet.out" | tee "$RUNNER_TEMP/fleet.log"
+            --not-started "$out/not-started.json" --output "$RUNNER_TEMP/fleet.out" | tee "$RUNNER_TEMP/fleet.log"
           { echo "### perf cron fleet check"; echo; sed -n 's/^perf-cron fleet: //p' "$RUNNER_TEMP/fleet.log"; } >> "$GITHUB_STEP_SUMMARY"
           if ! grep -qx 'ok=true' "$RUNNER_TEMP/fleet.out"; then
-            # The fleet said no: not an attempt (the part waits for idle capacity, up to ABANDON_HOURS).
-            echo '{"reason": "the fleet check said no"}' > "$out/not-started.json"
+            # The fleet said no: not an attempt (the part waits for idle capacity; the wait does not count against
+            # ABANDON_HOURS). fleet-check wrote its reason there; a crash before it did leaves this one.
+            [ -f "$out/not-started.json" ] || echo '{"reason": "the fleet check said no"}' > "$out/not-started.json"
             exit 0
           fi
           python3 -I scripts/cmux-next/perf-cron.py run-part --client "$client" --sha "$SHA" --args "$PART_ARGS" \
@@ -182,8 +187,9 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: perf-cron-part-${{ github.run_id }}-${{ github.run_attempt }}
+          name: perf-cron-part-${{ github.run_id }}
           path: ${{ runner.temp }}/perf-cron-part
+          overwrite: true
           retention-days: 14
           if-no-files-found: ignore
 
@@ -233,8 +239,9 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: perf-cron-linux-${{ github.run_id }}-${{ github.run_attempt }}
+          name: perf-cron-linux-${{ github.run_id }}
           path: ${{ runner.temp }}/perf-cron-linux
+          overwrite: true
           retention-days: 14
           if-no-files-found: ignore
 
@@ -265,7 +272,7 @@ jobs:
       - name: Download the working state
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: perf-cron-work-${{ github.run_id }}-${{ github.run_attempt }}
+          name: perf-cron-work-${{ github.run_id }}
           path: ${{ runner.temp }}/perf-cron
 
       - name: Download the Mac part's result
@@ -273,7 +280,7 @@ jobs:
         continue-on-error: true
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: perf-cron-part-${{ github.run_id }}-${{ github.run_attempt }}
+          name: perf-cron-part-${{ github.run_id }}
           path: ${{ runner.temp }}/perf-cron-part
 
       - name: Download the Linux part's result
@@ -281,7 +288,7 @@ jobs:
         continue-on-error: true
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: perf-cron-linux-${{ github.run_id }}-${{ github.run_attempt }}
+          name: perf-cron-linux-${{ github.run_id }}
           path: ${{ runner.temp }}/perf-cron-linux
 
       - name: Store the part, compare, keep the regression issue
@@ -309,6 +316,7 @@ jobs:
         with:
           name: perf-cron-state
           path: ${{ runner.temp }}/perf-cron
+          overwrite: true
           retention-days: 90
           if-no-files-found: error
 

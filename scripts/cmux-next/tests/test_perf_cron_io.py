@@ -325,11 +325,13 @@ class GithubBusyTests(unittest.TestCase):
             if "/workflows/" in path:
                 return {"workflow_runs": []}
             if path.startswith("/repos/o/r/actions/runs/1/jobs"):
-                return {"jobs": [{"status": "queued", "labels": ["macos-15"], "name": "build"},
+                return {"jobs": [{"status": "queued", "labels": ["glaeda-trusted-next-nightly"], "name": "build"},
+                                 {"status": "queued", "labels": ["macos-15"], "name": "hosted"},
                                  {"status": "queued", "labels": ["ubuntu-latest"], "name": "lint"}]}
             raise AssertionError(path)
         with mock.patch.object(cron, "gh_request", gh):
-            self.assertIn("1 job(s) waiting for a Mac runner", cron.github_busy("o/r", "queued", T0))
+            self.assertIn("1 job(s) waiting for a Mac runner, e.g. build", cron.github_busy("o/r", "queued", T0),
+                          "a GitHub-hosted macos-15 job is not fleet load")
 
     def test_an_old_parked_run_and_a_linux_job_do_not(self):
         def gh(path, *a, **k):

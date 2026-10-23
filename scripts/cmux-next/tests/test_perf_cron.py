@@ -281,8 +281,18 @@ class PartTests(unittest.TestCase):
         for i in range(cron.MAX_YIELDS - 1):
             self.assertEqual(cron.record_part(cur, "motion", {"state": "yielded"}, "r")["state"], "yielded")
             self.assertIn("motion", cur["parts_todo"])
-        self.assertEqual(cron.record_part(cur, "motion", {"state": "yielded"}, "r")["state"], "failed")
+        self.assertEqual(cron.record_part(cur, "motion", {"state": "yielded"}, "r")["state"], "yielded_out")
         self.assertEqual(cur["parts_todo"], ["sidebar"])
+
+    def test_a_build_part_pre_empted_too_often_is_no_build_failure(self):
+        cur = cron.new_measurement("a" * 40, "tip", ["build", "motion", "sidebar", "diff-viewer"], T0)
+        for _ in range(cron.MAX_YIELDS):
+            cron.record_part(cur, "build", {"state": "yielded", "yielded_to": "j" * 24}, "r")
+        self.assertEqual(cur["parts"]["build"]["state"], "yielded_out")
+        self.assertEqual(cur["parts_todo"], ["motion", "sidebar", "diff-viewer"], "the other parts still run (and build)")
+        cur = cron.new_measurement("a" * 40, "tip", ["build", "motion"], T0)
+        cron.record_part(cur, "build", {"state": "failed", "tail": ["cmux-ci: lost the worker"]}, "r")
+        self.assertEqual(cur["parts_todo"], ["motion"], "a build part that failed without the build-failed mark ends nothing")
 
     def test_a_failed_build_ends_the_fleet_parts_but_not_the_linux_part(self):
         cur = cron.new_measurement("a" * 40, "tip", ["build", "motion", "sidebar", "diff-viewer"], T0)
@@ -301,7 +311,8 @@ class DisplayTests(unittest.TestCase):
         base = {"p.frame": {**row(8.4), "refresh_ms": 8.33}, "p.missed": {**row(0, "frames"), "refresh_ms": 8.33},
                 "t.e2e": {**row(9.0), "refresh_ms": 8.33}}
         regs = cron.find_regressions(now, base, 16.67, 8.33, budgets_mod)
-        self.assertEqual([r["name"] for r in regs], ["t.e2e"], "latency compares across refresh rates, frames do not")
+        self.assertEqual([r["name"] for r in regs], ["p.missed", "t.e2e"],
+                         "latency and dropped frames compare across refresh rates, frame intervals do not")
 
     def test_a_known_refresh_against_an_unknown_one_is_not_compared(self):
         now = {"p.frame": {**row(33.3), "refresh_ms": 16.67}}
@@ -488,7 +499,7 @@ class MissingResultTests(unittest.TestCase):
                 self.assertEqual(state["current"]["parts"]["motion"]["yields"], i)
                 self.assertIn("motion", state["current"]["parts_todo"])
             state = self.report(d, state, gone)
-            self.assertEqual(state["current"]["parts"]["motion"]["state"], "failed", "not retried forever")
+            self.assertEqual(state["current"]["parts"]["motion"]["state"], "yielded_out", "not retried forever")
             self.assertEqual(state["current"]["parts_todo"], ["sidebar"])
 
     def test_a_fleet_check_that_said_no_is_no_attempt(self):
@@ -604,6 +615,9 @@ class FleetTests(unittest.TestCase):
         self.assertTrue(cron.mac_job_waiting({"status": "queued", "labels": ["glaeda-side-std-xcode-26.6"]}))
         self.assertTrue(cron.mac_job_waiting({"status": "queued", "labels": []}))
         self.assertFalse(cron.mac_job_waiting({"status": "queued", "labels": ["blacksmith-4vcpu-ubuntu-2404"]}))
+        self.assertFalse(cron.mac_job_waiting({"status": "queued", "labels": ["macos-26"]}), "a GitHub-hosted Mac is not the fleet")
+        self.assertFalse(cron.mac_job_waiting({"status": "queued", "labels": ["macos-15-xlarge"]}))
+        self.assertTrue(cron.mac_job_waiting({"status": "queued", "labels": ["self-hosted", "macOS"]}))
         self.assertFalse(cron.mac_job_waiting({"status": "waiting", "labels": ["glaeda-mini"]}), "an approval gate is not load")
         self.assertFalse(cron.mac_job_waiting({"status": "in_progress", "labels": ["glaeda-mini"]}))
 
@@ -772,6 +786,188 @@ class PlanReportTests(unittest.TestCase):
                 json.dump(state, f)
             plan, _ = self.tick(d, at(1), "c" * 40)
             self.assertEqual(plan["sha"], "c" * 40)
+
+
+class Review2Tests(unittest.TestCase):
+    """Review 2 of pl-perf-cron: leftover part files, rows left out for refresh, Mac parts disabled, the bench host
+    missing, and yielding that does not count against ABANDON_HOURS."""
+
+    def report(self, d, state, results, now=None):
+        with open(os.path.join(d, "state.json"), "w") as f:
+            json.dump(state, f)
+        with mock.patch.object(cron, "now_utc", lambda: now or at(1)):
+            cron.cmd_report(argparse.Namespace(repo="o/r", dir=d, result=results, run_url="u", finish=False, issues=False,
+                                               output=os.path.join(d, "report.out")))
+        with open(os.path.join(d, "state.json")) as f:
+            return json.load(f)
+
+    def part_dir(self, d, name, result, report=None):
+        part = os.path.join(d, f"in-{name}-{len(os.listdir(d))}")
+        os.makedirs(part)
+        with open(os.path.join(part, "result.json"), "w") as f:
+            json.dump(result, f)
+        if report is not None:
+            with open(os.path.join(part, "report.json"), "w") as f:
+                json.dump(report, f)
+        return f"{name}={part}"
+
+    STRESS = {"refresh_ms": 8.33, "summary": [{"action": "close", "layout": "stress", "frames_p50_ms": 8.3,
+                                               "frames_p95_ms": 30.0, "missed": 0}]}
+
+    def test_a_dropped_measurement_leaves_no_rows_to_the_next(self):
+        with tempfile.TemporaryDirectory() as d:
+            state = cron.empty_state(T0)
+            state["persisted"] = True
+            state["last"] = state["last_good"] = {"sha": "0" * 40, "measured_at": cron.iso(T0), "rows": {}, "refresh_ms": 8.33}
+            state["current"] = cron.new_measurement("a" * 40, "tip", ["stress", "motion"], T0)
+            # A's stress part finishes; its report is kept in parts/.
+            state = self.report(d, state, [self.part_dir(d, "stress", {"state": "done"}, self.STRESS)])
+            self.assertTrue(os.listdir(os.path.join(d, "parts")))
+            # A is abandoned; the plan starts B and deletes A's part files.
+            plan = PlanReportTests()
+            with open(os.path.join(d, "state.json"), "w") as f:
+                json.dump(state, f)
+            plan.tick(d, at(cron.ABANDON_HOURS + 2), "b" * 40)
+            self.assertEqual(os.listdir(os.path.join(d, "parts")), [], "A's part files go with A")
+            with open(os.path.join(d, "state.json")) as f:
+                state = json.load(f)
+            self.assertEqual(state["current"]["sha"], "b" * 40)
+            # Even a file left behind is never read: it names A, not B. B's stress part fails, its build part ran.
+            with open(os.path.join(d, "parts", "stress.json"), "w") as f:
+                json.dump({"measurement": "tip:" + "a" * 40 + ":x", "report": self.STRESS}, f)
+            state["current"] = {**state["current"], "parts_todo": ["stress"], "parts": {"build": {"state": "done"}}}
+            state = self.report(d, state, [self.part_dir(d, "stress", {"state": "failed"})], at(cron.ABANDON_HOURS + 3))
+            self.assertIsNone(state["current"])
+            self.assertEqual(state["history"][-1]["status"], "empty", "no rows of A reported under B")
+            self.assertEqual(state["regressions"], [])
+
+    def test_a_part_file_without_this_measurement_id_is_not_read(self):
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "parts"))
+            with open(os.path.join(d, "parts", "stress.json"), "w") as f:
+                json.dump(self.STRESS, f)  # the old format: no measurement id
+            state = cron.empty_state(T0)
+            state["persisted"] = True
+            state["current"] = cron.new_measurement("b" * 40, "tip", ["motion"], T0)
+            state["current"]["parts"] = {"stress": {"state": "done"}}
+            state = self.report(d, state, [self.part_dir(d, "motion", {"state": "failed"})])
+            self.assertEqual(state["history"][-1]["status"], "empty")
+
+    def finish(self, state, sha, rows, refresh, hours, kind="tip"):
+        rng = cron.bisect_groups(state)[0]["range"] if kind == "bisect" else None
+        state["current"] = cron.new_measurement(sha, kind, [], at(hours), rng)
+        state["current"]["parts"] = {"stress": {"state": "done"}}
+        return cron.finish_measurement(state, rows, refresh, "bench", "r", at(hours), budgets_mod)
+
+    def test_a_regressed_frame_row_on_another_refresh_stays_open(self):
+        state = cron.empty_state(T0)
+        name = "panes.close.stress.frame"
+        self.finish(state, "a" * 40, {name: {**row(8.4), "refresh_ms": 8.33}}, 8.33, 0)
+        self.assertEqual(self.finish(state, "b" * 40, {name: {**row(30.0), "refresh_ms": 8.33}}, 8.33, 1), "regressed")
+        # c ran on the 60 Hz panel (VDISPLAY-FALLBACK): its frame row was measured but cannot be compared.
+        self.assertEqual(self.finish(state, "c" * 40, {name: {**row(16.7), "refresh_ms": 16.67}}, 16.67, 2), "still")
+        self.assertEqual([r["name"] for r in state["regressions"]], [name], "no false recovery")
+        self.assertEqual(state["regressions"][0]["unmeasured_at"], "c" * 40)
+        self.assertNotEqual(state["row_ok"].get(name), "c" * 40, "a row not compared is not good")
+        self.assertEqual(state["last"]["sha"], "b" * 40, "the stale clock keeps running")
+        self.assertIn("on another display refresh", state["history"][-1]["note"])
+
+    def test_a_bisect_step_on_another_refresh_is_skipped(self):
+        state = cron.empty_state(T0)
+        name = "panes.close.stress.frame"
+        self.finish(state, "a" * 40, {name: {**row(8.4), "refresh_ms": 8.33}}, 8.33, 0)
+        self.finish(state, "e" * 40, {name: {**row(30.0), "refresh_ms": 8.33}}, 8.33, 1)
+        verdict = self.finish(state, "c" * 40, {name: {**row(16.7), "refresh_ms": 16.67}}, 16.67, 2, "bisect")
+        self.assertEqual(verdict, "skipped", "not 'good': the row was not judged")
+        rng = state["regressions"][0]["range"]
+        self.assertEqual((rng["good"], rng["bad"], rng["skip"]), ("a" * 40, "e" * 40, ["c" * 40]))
+
+    def test_mac_parts_disabled_are_recorded_as_not_run(self):
+        state = cron.empty_state(T0)
+        why = "no gateway runner label"
+        d = cron.decide(state, T0, "a" * 40, None, lambda sha: ALL, None, mac_disabled=why)
+        self.assertEqual((d["part"], d["linux_part"]), ("", "diff-viewer"))
+        cur = state["current"]
+        self.assertEqual(cur["parts_todo"], ["diff-viewer"])
+        self.assertEqual(cur["parts"]["stress"], {"state": "disabled", "reason": why})
+        cur["parts_todo"] = []
+        cur["parts"]["diff-viewer"] = {"state": "done"}
+        event = cron.finish_measurement(state, {"diff.stream.p95": row(20.0)}, None, "linux", "r", T0, budgets_mod)
+        self.assertEqual(event, "first")
+        self.assertIsNone(state["last"], "a Linux-only measurement does not reset the stale clock")
+        self.assertIn("stress", state["history"][-1]["failed_parts"])
+        state["mac_off"] = why
+        self.assertIn(f"**Mac parts disabled:** {why}", cron.issue_body(state, "o/r", at(cron.STALE_HOURS + 1)))
+        self.assertIn("**Stale:**", cron.issue_body(state, "o/r", at(cron.STALE_HOURS + 1)))
+
+    def test_a_bisect_with_mac_parts_disabled_measures_only_linux_rows(self):
+        state = cron.empty_state(T0)
+        rng = {"good": "a" * 40, "bad": "e" * 40, "skip": [], "steps": 0}
+        state["regressions"] = [{"name": "panes.close.stress.frame", "range": rng}]
+        bisect = {"sha": "c" * 40, **cron.bisect_groups(state)[0]}
+        d = cron.decide(state, T0, None, bisect, lambda sha: ALL, None, mac_disabled="off")
+        self.assertIsNone(state["current"], "no bisect step that could only skip")
+        self.assertEqual(d["action"], "none")
+
+    def test_the_issue_says_when_the_bench_host_is_gone(self):
+        with tempfile.TemporaryDirectory() as d:
+            state = cron.empty_state(T0)
+            state["persisted"] = True
+            state["current"] = cron.new_measurement("b" * 40, "tip", ["motion"], T0)
+            part = os.path.join(d, "part")
+            os.makedirs(part)
+            with open(os.path.join(part, cron.NOT_STARTED), "w") as f:
+                json.dump({"reason": f"{cron.BENCH_WORKER} is not a controller worker now"}, f)
+            state = self.report(d, state, [f"motion={part}"])
+            self.assertEqual(state["current"]["parts_todo"], ["motion"], "no attempt")
+            self.assertEqual(state["bench_missing"]["since"], cron.iso(at(1)))
+            self.assertEqual(state["current"]["yield_since"], cron.iso(at(1)))
+            self.assertIn("**Bench host missing:**", cron.issue_body(state, "o/r", at(1)))
+            state = self.report(d, state, [self.part_dir(d, "motion", {"state": "yielded"})], at(2))
+            self.assertNotIn("bench_missing", state)
+            self.assertEqual(state["current"]["yield_hours"], 1.0)
+
+    def test_fleet_check_writes_its_reason(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "part", cron.NOT_STARTED)
+            with mock.patch.object(cron, "http_json", lambda url: {"queue": []}), \
+                    mock.patch.object(cron, "run_capture", lambda argv, timeout=120: argparse.Namespace(
+                        returncode=0, stdout="{}" if argv[1] == "workers" else "[]", stderr="")), \
+                    mock.patch("sys.stdout", new=__import__("io").StringIO()):
+                cron.cmd_fleet_check(argparse.Namespace(client="c", worker=cron.BENCH_WORKER, yield_mode="queued",
+                                                        output=os.path.join(d, "out"), not_started=path))
+            with open(path) as f:
+                self.assertIn("is not a controller worker", json.load(f)["reason"])
+
+    def test_dropped_frames_compare_on_a_slower_display_only(self):
+        drop = "panes.close.stress.missed"
+        at60 = {drop: {**row(1, "frames"), "refresh_ms": 16.67}}
+        at120 = {drop: {**row(0, "frames"), "refresh_ms": 8.33}}
+        self.assertEqual([r["name"] for r in cron.find_regressions(at60, at120, 16.67, 8.33, budgets_mod)], [drop],
+                         "one new drop on a 60 Hz fallback run against a 120 Hz reference is real")
+        faster = {drop: {**row(3, "frames"), "refresh_ms": 8.33}}
+        self.assertEqual(cron.find_regressions(faster, {drop: {**row(0, "frames"), "refresh_ms": 16.67}}, 8.33, 16.67,
+                                               budgets_mod), [], "the first 120 Hz run after a 60 Hz baseline opens nothing")
+        self.assertEqual(cron.refresh_skipped(faster, {drop: {**row(0, "frames"), "refresh_ms": None}}, 8.33, None), [drop])
+
+    def test_a_fallback_report_carries_the_real_display_refresh(self):
+        report = {"rows": [], "display": {"requested_hz": 120, "vdisplay": False, "refresh_ms": 16.67,
+                                          "host_display": "main 1 16.67", "line": "error: x"}}
+        self.assertEqual(cron.refresh_ms_of(report), 16.67)
+
+    def test_yielding_does_not_count_against_abandon_hours(self):
+        state = cron.empty_state(T0)
+        cron.decide(state, T0, "a" * 40, None, lambda sha: ["motion"], None)
+        cron.decide(state, at(1), None, None, lambda sha: ["motion"], "nightly.yml waits")
+        self.assertEqual(state["current"]["yield_since"], cron.iso(at(1)))
+        d = cron.decide(state, at(cron.ABANDON_HOURS + 6), "b" * 40, None, lambda sha: ["motion"], "nightly.yml waits")
+        self.assertEqual(state["current"]["sha"], "a" * 40, "17 h old, but only 1 h of it active")
+        self.assertTrue(d["yielded"])
+        cron.record_part(state["current"], "build", {"state": "done"}, "r", at(cron.ABANDON_HOURS + 7))
+        self.assertAlmostEqual(state["current"]["yield_hours"], cron.ABANDON_HOURS + 6)
+        cron.decide(state, at(cron.ABANDON_WALL_HOURS + 1), "b" * 40, None, lambda sha: ["motion"], "nightly.yml waits")
+        self.assertEqual(state["current"]["sha"], "b" * 40, "the wall-clock cap still ends it")
+        self.assertEqual(state["history"][-1]["status"], "abandoned")
 
 
 if __name__ == "__main__":
