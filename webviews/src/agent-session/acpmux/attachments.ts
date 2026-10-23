@@ -29,7 +29,7 @@ export type ComposerAttachment = {
   saved?: boolean;
 };
 
-export type AttachmentError = { name: string; reason: "tooLarge" | "unsupported" | "imagesUnsupported" | "tooMany" };
+export type AttachmentError = { name: string; reason: "tooLarge" | "unsupported" | "imagesUnsupported" };
 /// A refusal with the file it refuses, so a caller can send that file another way (a chat's upload).
 export type RefusedFile = AttachmentError & { file: File; unreadable?: boolean };
 
@@ -55,7 +55,6 @@ export const IMAGE_BUDGET_BYTES = 1536 * 1024;
 export const MAX_DOCUMENT_BYTES = 10 * 1024 * 1024;
 /** A text file this large is already a lot of prompt. */
 export const MAX_TEXT_BYTES = 256 * 1024;
-export const MAX_ATTACHMENTS = 10;
 const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 /// Pictures the models do not take as they are (an iPhone's HEIC, TIFF, BMP, AVIF) but the engine
 /// can decode: they go as PNG or JPEG. One it cannot decode goes as a file instead.
@@ -74,19 +73,14 @@ function isPdf(file: File): boolean {
   return file.type === "application/pdf" || /\.pdf$/i.test(file.name);
 }
 
-/// Reads `files` for a composer that already holds `held` attachments.
+/// Reads every file in a batch for the composer; per-file size and type rules still apply.
 export async function readAttachments(
   files: File[],
-  held: number,
   allowImages: boolean,
 ): Promise<{ attachments: ComposerAttachment[]; errors: RefusedFile[] }> {
   const attachments: ComposerAttachment[] = [];
   const errors: RefusedFile[] = [];
   for (const file of files) {
-    if (held + attachments.length >= MAX_ATTACHMENTS) {
-      errors.push({ name: file.name, reason: "tooMany", file });
-      continue;
-    }
     // A dropped folder arrives as a File whose bytes cannot be read.
     const result = await readAttachment(file, allowImages).catch((): RefusedFile => ({
       name: file.name,
