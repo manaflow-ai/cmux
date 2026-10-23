@@ -190,6 +190,12 @@ pub(super) fn list_notifications(mux: &Arc<Mux>, limit: Option<usize>) -> anyhow
                     "created_at_ms": row.created_at_ms,
                     "source": row.source.as_str(),
                     "acknowledged": acknowledged,
+                    // The question the row's agent still waits on (memory only).
+                    "question": row
+                        .terminal_id
+                        .as_ref()
+                        .and_then(|terminal| mux.pending_agent_question(terminal, row.id.as_str()))
+                        .as_deref(),
                 })
             })
             .collect::<Vec<_>>(),
