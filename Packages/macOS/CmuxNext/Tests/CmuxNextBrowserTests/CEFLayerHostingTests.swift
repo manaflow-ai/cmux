@@ -208,4 +208,38 @@ import Testing
         #expect(page.host(contextID: 0))
         #expect(page.contextID == 0)
     }
+
+    // Review-2 guards, adapted to the review-1 API (no pageMoved there): the per-show fork calls.
+    @Test func aWindowTheForkRefusedAfterItsRetryMakesNoCallPerShow() throws {
+        let hosting = makeHosting()
+        fake.contextID = 0
+        hosting.pageWindowCreated(browser: 3, fork: fake.fork)
+        turn.end()
+        hosting.trackerDidRead()
+        turn.end()
+        #expect(fake.calls.count == 2)
+        #expect(!hosting.isRetryArmed)
+        for _ in 0..<5 { hosting.trackerDidRead() }
+        #expect(turn.isEmpty)
+        fake.contextID = 11
+        for browser: Int32 in [3, 4, 3] { hosting.pageShown(browser: browser) }
+        #expect(fake.calls.count == 2)
+        #expect(hosting.refusals == 2)
+    }
+
+    @Test func aContextNothingCanShowGivesThePageItsWindowBackAndAsksNoMore() {
+        let hosting = makeHosting(layerHost: { _ in nil })
+        hosting.pageWindowCreated(browser: 3, fork: fake.fork)
+        turn.end()
+        #expect(fake.calls.map { $0.enabled } == [true, false])
+        #expect(hosting.page == nil)
+        #expect(view.subviews.isEmpty)
+        #expect(hosting.refusals == 1)
+        #expect(!hosting.isRetryArmed)
+        for _ in 0..<3 { hosting.pageShown(browser: 3) }
+        hosting.trackerDidRead()
+        #expect(turn.isEmpty)
+        #expect(fake.calls.count == 2)
+        #expect(hosting.refusals == 1)
+    }
 }
