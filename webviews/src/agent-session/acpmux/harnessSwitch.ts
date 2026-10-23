@@ -279,16 +279,14 @@ export class HarnessSwitch {
     // While the shown session's turn streams (or the pane holds a page), the pick applies to the next turn.
     const shown = options.deferred ? false : (previous?.shown ?? !(port?.turnRunning() ?? false));
     // Back to the harness of the session still on screen: there is nothing left to switch. The
-    // pick's held options go to that session now, after its model, as the session names them.
+    // pick's held options are not sent from here: that session is live, and the composer sends a
+    // combo's effort and Fast to it once it reports the picked model (ComposerPickers `crossing`),
+    // as a combo in a running chat does. Sending them here as well raced that, and a write still in
+    // flight when the model reported went out twice.
     if (!shown && previous && shownSession?.harness === harness) {
       this.cancel();
       if (options.model && options.model !== shownSession.model)
         void this.pickModel(options.model, { sessionId: shownSession.sessionId, model: shownSession.model });
-      const offered = shownSession.configOptions;
-      for (const [configId, value] of held) {
-        const pick = offered ? heldOptionPick(configId, value, offered) : { configId, value };
-        if (pick) void port?.setConfig(pick.configId, pick.value).catch(() => undefined);
-      }
       return Promise.resolve(shownSession.sessionId);
     }
     const done = deferred<string | undefined>();

@@ -36,32 +36,34 @@ export function isFastModeOption(option: { id: string; name?: string | null }): 
 
 const ON = /^(on|true|enabled)$/i;
 const OFF = /^(off|false|disabled)$/i;
-/// A tiered Fast option (Codex: standard, fast, ultrafast) names its plain tier this way.
-const FAST_TIER = /^fast$/i;
-const STANDARD = /^standard$/i;
+/// A tiered Fast option's plain tier, as acpmux's session options (fast) or the model catalog's
+/// service tiers (priority, pendingSpeed.ts) name it.
+const FAST_TIER = /^(fast|priority)$/i;
+/// A tiered Fast option's tier with Fast off: the session's standard, the catalog's default.
+const STANDARD = /^(standard|default)$/i;
 const ULTRA = /ultra/i;
 
-/// The value a generic Fast on or off (`HELD_FAST_ON`, a typed combo's "fast") takes on an option
-/// that lists `values`, as the composer reads that option (ComposerPickers `fastOn`/`fastOff`): on is
-/// the plain fast tier, else its on-like value, else its second value; off is its off-like or
-/// standard value, else its first. A generic on never becomes a higher tier (ultrafast): the user
-/// asked for fast, not more.
-function fastValue(value: string, values: readonly string[]): string | undefined {
-  if (ON.test(value)) {
-    const on = values.find((candidate) => FAST_TIER.test(candidate)) ?? values.find((candidate) => ON.test(candidate));
-    if (on !== undefined) return on;
-    const second = values[1];
-    return second !== undefined && !ULTRA.test(second) && !OFF.test(second) && !STANDARD.test(second)
-      ? second
-      : undefined;
-  }
-  if (OFF.test(value)) return values.find((candidate) => OFF.test(candidate) || STANDARD.test(candidate)) ?? values[0];
-  return undefined;
+/// The value a Fast pick takes on an option that lists `values` but not the pick itself, read by
+/// what the pick means. Off (off, false, standard, default) is the option's off-like or standard
+/// value, else its first. A higher tier (ultrafast) is the option's own spelling of it, else none.
+/// Anything else is Fast on (on, true, fast, priority; a typed combo's "fast" holds `HELD_FAST_ON`):
+/// the option's plain fast tier, else its on-like value, else its second value unless that is a
+/// higher tier. On never becomes a higher tier: the user asked for fast, not more.
+export function fastValue(value: string, values: readonly string[]): string | undefined {
+  if (OFF.test(value) || STANDARD.test(value))
+    return values.find((candidate) => OFF.test(candidate) || STANDARD.test(candidate)) ?? values[0];
+  if (ULTRA.test(value)) return values.find((candidate) => ULTRA.test(candidate));
+  const on = values.find((candidate) => FAST_TIER.test(candidate)) ?? values.find((candidate) => ON.test(candidate));
+  if (on !== undefined) return on;
+  const second = values[1];
+  return second !== undefined && !ULTRA.test(second) && !OFF.test(second) && !STANDARD.test(second)
+    ? second
+    : undefined;
 }
 
 /// The `configId: value` an opened session takes for a held pick, given the options it names: the
 /// option with that id, else its option of the same kind (effort, Fast mode) under its own id, a
-/// Fast pick's on or off as that option spells it (its fast tier, for a tiered one; `fastValue`).
+/// Fast pick as that option spells what it means (its fast tier for Fast on, `fastValue`).
 /// Undefined when the session offers no such option,
 /// or an effort or Fast option that does not list the value: the pick is the user's, so no other
 /// level stands in for it. A pick of another kind goes as held to an option of its id.

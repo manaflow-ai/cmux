@@ -25,7 +25,14 @@ import { rememberPick } from "./lastPick";
 import { defaultModel } from "./harnessSwitch";
 import { catalogRow } from "./catalogRow";
 import { harnessProfiles } from "./harnessProfiles";
-import { HELD_EFFORT_ID, HELD_FAST_ID, HELD_FAST_ON, isEffortOption, isFastModeOption } from "./heldOptions";
+import {
+  HELD_EFFORT_ID,
+  HELD_FAST_ID,
+  HELD_FAST_ON,
+  heldOptionPick,
+  isEffortOption,
+  isFastModeOption,
+} from "./heldOptions";
 import { type KeptStartMode, useStartMode } from "./startMode";
 import type { PickerCatalog } from "./modelCatalogData";
 import { useModelCatalogState } from "./modelCatalogHost";
@@ -486,6 +493,10 @@ export function ComposerPickers({
   // is not the one the pick started, drops it.
   const crossing = useRef<(ModelCombo & { from?: string }) | undefined>(undefined);
   const fastWanted = useRef<{ sessionId?: string; model: string } | undefined>(undefined);
+  // A combo's "fast" on the Fast option this chat draws, as the switch maps a held one onto a
+  // session (heldOptions.ts): its plain fast tier, never a higher one; none where the option has no
+  // such tier (standard and ultrafast only). Every path a combo's Fast takes sends this or nothing.
+  const comboFast = fastOption ? heldOptionPick(HELD_FAST_ID, HELD_FAST_ON, [fastOption]) : undefined;
   const combo = (picked: ModelCombo) => {
     crossing.current = undefined;
     fastWanted.current = undefined;
@@ -507,8 +518,11 @@ export function ComposerPickers({
     if (!picked.fast) return;
     // The model already runs: fast mode changes now; else once the agent reports the model.
     if (picked.model === current && fastMode) {
-      if (fastMode.currentValue !== fastMode.onValue) fastMode.onPick(fastMode.onValue);
-    } else if (presession) onEffort(fastOption?.id ?? HELD_FAST_ID, fastMode?.onValue ?? HELD_FAST_ON);
+      if (comboFast && fastMode.currentValue !== comboFast.value) onEffort(comboFast.configId, comboFast.value);
+    } else if (presession)
+      // Held as what it means on the option drawn now (a catalog's priority tier, pendingSpeed.ts),
+      // else as plain on: the switch maps either onto the names the session reports.
+      onEffort(comboFast?.configId ?? fastOption?.id ?? HELD_FAST_ID, comboFast?.value ?? HELD_FAST_ON);
     else fastWanted.current = { sessionId: summary?.sessionId, model: picked.model };
   };
   const switchFailed = snapshot.switching?.phase === "failed";
@@ -543,7 +557,7 @@ export function ComposerPickers({
     }
     if (current !== wanted.model || !fastMode) return;
     fastWanted.current = undefined;
-    if (fastValue !== fastMode.onValue) fastMode.onPick(fastMode.onValue);
+    if (comboFast && fastValue !== comboFast.value) onEffort(comboFast.configId, comboFast.value);
   });
   // A default model draws as the model it resolves to: the running session's, else the one this
   // harness's default last resolved to, else the model placeholder.
