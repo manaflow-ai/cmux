@@ -264,7 +264,7 @@ SKIPS = [
 MASS_DESTROY = r"(?i)(closeAll|closeOther|close.*Others|closeTabsTo|merge|ungroupAll|stashAll|stash.*Others|resetLayout)"
 WINDOW_CLOSERS = r"(?i)^(closeWindow|closeAllWindows|closeOtherWindows|window\.close.*)$"
 CONTEXT_SETUP = {"terminalFocused": "terminal", "browserFocused": "chromium", "webViewFocused": "chromium",
-                 "omnibarFocused": "omnibar", "agentPaneFocused": "chat", "signedOut": None}
+                 "omnibarFocused": "omnibar", "textBoxFocused": "omnibar", "agentPaneFocused": "chat", "signedOut": None}
 
 EXPECT = [
     (r"(?i)^(split|newColumn|newRow|newPane|pane\.new)", "pane+"),

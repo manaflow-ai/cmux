@@ -2,6 +2,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextControl
+import CmuxNextSettings
 import CmuxNextDesign
 
 /// `debug.action_perf` (DEBUG builds): per action handler run, from any entrypoint (a key,
