@@ -131,9 +131,9 @@ extension PageWebView {
         bridge.install { [weak self] message in await self?.receive(message) }
         bridge.onMessage = { [weak self] name, body in self?.chromiumMessage(name, body: body) }
         bridge.onFirstMessage = { [weak session] in session?.deadline.cancel() }
-        inputReadiness.editor = { [weak self, weak page] edit in
+        inputReadiness.editor = { [weak self, weak page] edit, expectedEpoch in
             guard let page else { return false }
-            return await Self.apply(edit, token: self?.inputReadiness.editToken, in: page)
+            return await Self.apply(edit, token: self?.inputReadiness.editToken, expectedEpoch: expectedEpoch, in: page)
         }
         chromiumSession = session
         scriptTarget.bridge = bridge
@@ -307,8 +307,8 @@ extension PageWebView {
     }
 
     /// Makes `edit` in the focused editable element of a Chromium page (``PageInputReadiness``).
-    private static func apply(_ edit: PageInputReadiness.Edit, token: String?, in page: any PageChromiumPage) async -> Bool {
-        let expression = "(function () {\n\(PageInputReadiness.editScript(edit, token: token))\n})()"
+    private static func apply(_ edit: PageInputReadiness.Edit, token: String?, expectedEpoch: Int?, in page: any PageChromiumPage) async -> Bool {
+        let expression = "(function () {\n\(PageInputReadiness.editScript(edit, token: token, expectedEpoch: expectedEpoch))\n})()"
         guard let json = try? await page.devTools("Runtime.evaluate", params: ["expression": expression, "returnByValue": true]) else {
             return false
         }
