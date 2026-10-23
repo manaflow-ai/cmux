@@ -34,6 +34,9 @@ public final class SwitchFrameTimer {
     public private(set) var kinds: [String] = []
     /// Daemon confirm latency of each switch that was shown (ms), in order.
     public private(set) var confirms: [Double] = []
+    /// Main-thread follow-up work by kind (`record_saves`, `trail_encodes`) that ran while a shown
+    /// switch waited for its commit (``noteWork(_:)``): work that can push the switch's frame late.
+    public private(set) var workBeforeCommit: [String: Int] = [:]
     private var started: [AnyHashable: Started] = [:]
     private var pending: [Pending] = []
     /// Switches shown and not yet confirmed by the daemon: (intent time, shown time).
@@ -52,6 +55,7 @@ public final class SwitchFrameTimer {
 
     public func start() {
         (started, pending, samples, kinds, confirms, unconfirmed, isRecording) = ([:], [], [], [], [], [], true)
+        workBeforeCommit = [:]
         onStart?()
     }
 
@@ -75,6 +79,11 @@ public final class SwitchFrameTimer {
 
     /// Whether a switch was shown and its Core Animation commit has not run yet.
     public var awaitsCommit: Bool { pending.contains { $0.commit == nil } }
+
+    /// Main-thread work of `kind` runs now: counted in ``workBeforeCommit`` while a shown switch awaits its commit.
+    public func noteWork(_ kind: String) {
+        if isRecording, awaitsCommit { workBeforeCommit[kind, default: 0] += 1 }
+    }
 
     /// Drops the intent of `key` that will not show (no sample).
     public func forget(_ key: AnyHashable) { started[key] = nil }

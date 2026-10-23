@@ -60,8 +60,10 @@ final class BrowserHibernation {
     var pendingWakes: [String: HibernatedBrowserTab.Wake] = [:]
     private var probing: Set<String> = []
     private let deadline = DemandTimer(owner: "BrowserHibernation")
-    /// A replan is queued for after this turn (``setNeedsReplan()``).
-    private(set) var replanQueued = false
+    /// One replan after a switch's turn (``tabDidHide(_:)``, ``refreshNeighbors(replans:)``): each replan reads every
+    /// hidden page, and a switch hides every shown page of the old workspace and moves every pane of both, so one
+    /// replan per change was O(changes x hidden pages) on the switch's own turn. Neighbor thaws stay immediate.
+    private(set) lazy var replanAfterTurn = AfterTurn { [weak self] in self?.replan() }
     /// Replans run (tests): a switch that hides N pages and moves N panes replans once.
     private(set) var replanCount = 0
     /// Hidden pages frozen now (`browser.freezeHiddenTabs`); they thaw when shown or driven.
@@ -237,7 +239,7 @@ final class BrowserHibernation {
     func tabDidHide(_ key: String) {
         guard cache?.browsers[key] != nil else { return }
         hiddenAt[key] = .now
-        setNeedsReplan()
+        replanAfterTurn.schedule()
     }
 
     func tabDidShow(_ key: String) {
@@ -355,7 +357,7 @@ final class BrowserHibernation {
             if exemptions[key] == .neighbor { exemptions[key] = nil }
         }
         for key in joined { warm(key) }
-        if replans { setNeedsReplan() }
+        if replans { replanAfterTurn.schedule() }
     }
 
     /// Wakes a hidden page early: thaws a frozen one, restores a hibernated one
@@ -381,26 +383,10 @@ final class BrowserHibernation {
 
     // MARK: Planning
 
-    /// Queues one ``replan()`` after this main-actor turn. A switch hides every shown page of the old
-    /// workspace and moves the presence of every pane in both (``tabDidHide(_:)``,
-    /// ``paneDidChange(_:order:selected:)``): each replan reads every hidden page, so one per change was
-    /// O(changes x hidden pages) on the switch's turn; queued, the switch replans once, after it, with
-    /// every change applied. Neighbor thaws stay immediate (``refreshNeighbors(replans:)``).
-    func setNeedsReplan() {
-        guard !replanQueued else { return }
-        replanQueued = true
-        // task-owner: the hibernation (weak); one per burst, ends after one replan. Detached: not under the
-        // task-locals of the action run whose change came first.
-        Task.detached { @MainActor [weak self] in
-            guard let self, self.replanQueued else { return }
-            self.replan()
-        }
-    }
-
     /// Hibernates every due page and arms one deadline for the next.
     func replan() {
         guard let cache else { return }
-        replanQueued = false // a queued pass would find nothing new
+        replanAfterTurn.cancel() // a queued pass would find nothing new
         replanCount &+= 1
         let now = ContinuousClock.now
         var graceEnds: Double?

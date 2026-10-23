@@ -24,7 +24,7 @@ final class WindowRecordSaver {
     unowned let manager: WindowManager
     /// Debounced save of window geometry (architecture.md 1: 500 ms).
     let geometryTimer = DemandTimer(owner: "WindowManager.geometry")
-    /// A selection, focus or membership save waits for the commit that shows its change (``saveAfterCommit(_:)``).
+    /// A selection, focus or membership save waits for the commit that shows its change (``stateDidChange(_:)``).
     private var afterCommit: CommitProbe?
     /// A save waits for that commit, or for ``afterCommitDeadline``.
     private var awaitingCommit = false
@@ -45,11 +45,21 @@ final class WindowRecordSaver {
         self.manager = manager
     }
 
-    /// A selection, focus, membership or sidebar change (a workspace, tab or space switch): saved
-    /// once the commit that shows it ran.
+    /// A selection, focus, membership or sidebar change (a workspace, tab or space switch): saved once the
+    /// commit that shows it ran (speed-of-sound-DESIGN.md 3.2): the save builds every window's records on
+    /// the main actor, so it never runs between a switch and its frame. The ticket opens now, so the
+    /// action that made the change still answers once the record is stored.
     func stateDidChange(_ state: WindowState) {
         guard manager.restored, !manager.isTerminating else { return }
-        saveAfterCommit(state)
+        guard let host = manager.controller(for: state.id)?.window?.contentView?.layer else { return requestSave() }
+        if let ticket = services.daemon.openTicket() { commitTickets.append(ticket) }
+        guard !awaitingCommit else { return }
+        awaitingCommit = true
+        let probe = afterCommit ?? CommitProbe { [weak self] _, _ in self?.commitShowedChange() }
+        afterCommit = probe
+        probe.mark(in: host)
+        // Bounded, cancellable deadline (DemandTimer): a window that commits nothing still saves.
+        afterCommitTimer.schedule(after: Self.afterCommitDeadline) { @MainActor [weak self] in self?.commitShowedChange() }
     }
 
     /// A frame change: save once it has settled for 500 ms.
@@ -67,24 +77,7 @@ final class WindowRecordSaver {
     func focusDidSettle(_ state: WindowState, pane: String?) {
         guard state.savedFocusedPane != pane else { return }
         state.savedFocusedPane = pane
-        guard manager.restored, !manager.isTerminating else { return }
-        saveAfterCommit(state)
-    }
-
-    /// The change's frame first (speed-of-sound-DESIGN.md 3.2): the save builds every window's
-    /// records on the main actor, so it starts once the commit that shows the change ran, never
-    /// between a switch and its frame. The ticket opens now, so the action that made the change
-    /// still answers once the record is stored.
-    private func saveAfterCommit(_ state: WindowState) {
-        guard let host = manager.controller(for: state.id)?.window?.contentView?.layer else { return requestSave() }
-        if let ticket = services.daemon.openTicket() { commitTickets.append(ticket) }
-        guard !awaitingCommit else { return }
-        awaitingCommit = true
-        let probe = afterCommit ?? CommitProbe { [weak self] _, _ in self?.commitShowedChange() }
-        afterCommit = probe
-        probe.mark(in: host)
-        // Bounded, cancellable deadline (DemandTimer): a window that commits nothing still saves.
-        afterCommitTimer.schedule(after: Self.afterCommitDeadline) { @MainActor [weak self] in self?.commitShowedChange() }
+        stateDidChange(state)
     }
 
     /// The commit that shows a change ran (or its deadline passed): the save it waited for starts.
@@ -147,7 +140,7 @@ final class WindowRecordSaver {
     @discardableResult
     func saveNow() async -> (any Error)? {
         guard let windowState = services.daemon.windowState else { return DaemonError.notConnected }
-        DebugSwitchWork.note("record_saves")
+        DebugPaneFocus.noteMainWork("record_saves")
         manager.captureGeometry()
         let records = currentRecords()
         // Keys on every machine, plus those whose machine has not loaded yet
