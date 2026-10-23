@@ -19,6 +19,9 @@ Usage: instant-new-surfaces-bench.py --tag TAG --app PATH [--runs 12] [--command
 """
 import argparse, glob, json, os, re, signal, socket, subprocess, sys, tempfile, time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from bench_launch import BenchApp  # noqa: E402
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
 parser.add_argument("--app", required=True)
@@ -244,21 +247,21 @@ def cleanup():
 
 
 def main():
-    global app
-    if os.path.exists(SOCKET):
-        ps = subprocess.run(["ps", "-axo", "command="], capture_output=True, text=True).stdout
-        if any(line.startswith(APP + "/Contents/MacOS/") for line in ps.splitlines()):
-            sys.exit(f"{SOCKET} exists and a {TAG} app runs; pick a fresh tag")
-        os.remove(SOCKET)
+    global app, SOCKET
+    # No socket check here: BenchApp.launch() refuses a live same-tag app (any bundle path) and unlinks only a
+    # socket nothing accepts on.
     env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
            "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": CONFIG,
            "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(SCRATCH, "ghostty"), "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,900"}
-    log = open(os.path.join(opts.out, f"app-{TAG}.log"), "a")
-    app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
-    LAUNCHED.append(app.pid)
-    if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.windows") or {}).get("windows"), 120):
-        sys.exit("the tagged app did not come up")
+    # One launch path (bench_launch.py): socket in the state folder, bench env, a clear reason when it does not come up.
+    bench = BenchApp(APP, out=opts.out, log_name=f"app-{TAG}.log", window=None, screen=None, teardown=False, env=env)
+    try:
+        bench.launch(timeout=120, on_start=lambda process: LAUNCHED.append(process.pid))
+    finally:
+        app = bench.process
+    SOCKET = bench.socket
+    CLI_ENV["CMUX_SOCKET_PATH"] = SOCKET
     time.sleep(2)  # test harness: shell prompt
     window = window_key()
     rows = []

@@ -16,6 +16,9 @@ import { SUBAGENT_DONE, SUBAGENT_OF, SUBAGENT_ROW } from "./subagents/subagentRo
 import type { ComposerAttachment } from "./attachments";
 import { STARTED_SESSIONS, type StartedSession, hasStatusLine } from "./started/startedSessions";
 import { PASTE_CHIP_HEIGHT, type PasteRange, collapsedPromptHeight, promptParts } from "./conversation/promptCollapse";
+import { mcpCall } from "./conversation/mcpCalls";
+import { subsessionCall } from "./conversation/subsessionCalls";
+import type { ChatTool } from "./summary/chatTools";
 
 /** One item of an agent's todo list (an ACP `plan` entry). */
 export type AcpmuxPlanEntry = { content: string; status: "pending" | "in_progress" | "completed" };
@@ -211,6 +214,8 @@ export type AcpmuxRow = {
   retryAttachments?: ComposerAttachment[];
   status?: string;
   error?: string;
+  /// acpmux's typed reason for a failed turn (`errorCode`, a string), for its card (failureCopy.ts).
+  errorCode?: string;
   permission?: AcpmuxPermission;
   /// A `questionRecord` row's question, answered or cancelled (question/record.ts).
   question?: AgentQuestion;
@@ -224,6 +229,7 @@ export type AcpmuxRow = {
   /// A run of finished tool calls folded under one summary line (Debug toggle
   /// `agentPane.debug.codexToolRuns`, on by default; conversation/turns.ts `codexRuns`,
   /// conversation/toolRunSummary.ts).
+  /// False keeps a run waiting for edit permission in tool rows without collapsing it.
   foldRun?: boolean;
   /// The live turn's latest row, whose last thought may still stream (conversation/turns.ts).
   live?: boolean;
@@ -441,6 +447,7 @@ export type AcpmuxCatalogModel = {
   efforts?: string[];
   defaultEffort?: string;
   fast?: boolean;
+  serviceTiers?: (string | { id: string; name?: string; description?: string })[];
   contextWindow?: number;
   /** The catalog release an alias stands for (the picker catalog's alias rows). */
   release?: string;
@@ -544,6 +551,9 @@ export type AcpmuxSnapshot = {
       currentValue?: string;
       options: { value: string; name?: string; description?: string }[];
     }[];
+    /// The chat's tools (acpmux `tools`, cx-thur3) and whether `_acpmux/set_tools` can change them.
+    tools?: ChatTool[];
+    toolsMutable?: boolean;
   };
   connection: string;
   /// The origin acpmux names for this connection in `initialize` (`_meta.acpmux.origin`):
@@ -688,6 +698,37 @@ const USER_STATUS_HEIGHT = 20;
 const META_GAP = 4;
 const META_ROW = 24;
 const MESSAGE_GAP = 8;
+/// The compact tool run rhythm (`conversation.css --cv-tool-row-height` and its run bottom gap).
+const TOOL_RUN_TOP = 2;
+const TOOL_ROW_HEIGHT = 22;
+const TOOL_RUN_BOTTOM = 4;
+
+/// Ordinary tool rows use the compact rhythm. Notes and specialized MCP cards keep a conservative
+/// estimate until their renderer reports its measured height (a wait can contain several three-line replies).
+function activityStepHeight(item: AcpmuxActivity): number {
+  const tool = item.tool;
+  if (!tool) return 26;
+  const mcp = mcpCall(tool);
+  if (mcp) {
+    const subsession = subsessionCall(tool, mcp);
+    if (!subsession) return 26;
+    if (subsession.tool === "wait" && !subsession.running) return Math.max(40, subsession.sessions.length * 80);
+    return 40;
+  }
+  switch (tool.kind) {
+    case "execute":
+    case "read":
+    case "edit":
+    case "delete":
+    case "move":
+    case "fileChange":
+    case "search":
+    case "fetch":
+      return TOOL_ROW_HEIGHT;
+    default:
+      return 26;
+  }
+}
 /// How many lines of another agent's message its card shows before it is cut
 /// (conversation/IncomingMessageCard.tsx, `.cv-received__body[data-cut]`).
 export const RECEIVED_LINES = 6;
@@ -836,9 +877,10 @@ function fallbackRowHeight(row: AcpmuxRow, width: number, beforeFooter = false, 
   if (row.kind === "activity") {
     // The edited-files card (conversation/EditedFilesCard.tsx): a 58px head, and 34px for each of the first
     // three files and for "Show N more"; one file is named in the head. Otherwise tool rows
-    // (`.cv-tools`: 2px above 26px rows), which is also how a copy inside an open "Worked for" draws.
+    // (`.cv-tools`: 2px above compact rows, with a small run gap), which is also how a copy inside
+    // an open "Worked for" draws.
     const edits = row.items?.filter((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange") ?? [];
-    if (edits.length && !isFoldedCopy(row)) {
+    if (edits.length && row.foldRun === undefined && !isFoldedCopy(row)) {
       const files = new Set(
         edits.flatMap(
           (item) => item.tool?.diffs?.flatMap((diff) => (contentsUnknown(diff) ? [] : [pathKey(diff)])) ?? [],
@@ -848,8 +890,10 @@ function fallbackRowHeight(row: AcpmuxRow, width: number, beforeFooter = false, 
       return 14 + editedCardHeight(files.size, plain.length);
     }
     // A folded run (Debug toggle) draws one summary line until opened.
-    if (row.foldRun && row.items && isFoldedRun(row.items)) return 36;
-    return Math.max(34, 10 + 26 * (row.items?.length ?? 1));
+    if (row.foldRun && row.items && isFoldedRun(row.items)) return TOOL_RUN_TOP + TOOL_ROW_HEIGHT + TOOL_RUN_BOTTOM;
+    const items = row.items ?? [];
+    const steps = items.length ? items.reduce((height, item) => height + activityStepHeight(item), 0) : TOOL_ROW_HEIGHT;
+    return TOOL_RUN_TOP + TOOL_RUN_BOTTOM + steps;
   }
   // A subagent group's 48px line with 8px above it, and in an open group a 48px line per
   // subagent, the last with the list's 8px below (subagents/SubagentGroup.tsx).

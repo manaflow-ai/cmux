@@ -95,14 +95,15 @@
 /* The card and its strip, the input box itself, are more glass than the stack around them (Leo
    2026-10-21, "a bit more glass on the input box"). Glass is never opaque, and the transcript
    scrolls under the card (Leo 2026-10-19), so on an opaque window too the card is glass: the
-   composer surface at 78% under the shared surface blur, so a row passing under it frosts. 78% keeps
-   the prompt at 4.5:1 or more over the brightest and the darkest page (composer-glass.test.ts).
-   Over art or a see-through window under Plain glass it is clearer, at 50%. Lens and Spectrum keep
-   the liquid glass's own tint and frost; Reduce Transparency the solid surface (glass.css). The
-   queued prompts keep the stack's tokens above. */
+   composer surface at 70% under a 24px shared surface blur, so a row passing under it frosts while
+   the prompt remains at 4.5:1 or more over the brightest and the darkest page
+   (composer-glass.test.ts). The gallery keeps the previous 78% level and a clearer candidate beside
+   this choice. Over art or a see-through window under Plain glass it is clearer, at 50%.
+   Lens and Spectrum keep the liquid glass's own tint and frost; Reduce Transparency the solid
+   surface (glass.css). The queued prompts keep the stack's tokens above. */
 :root:not([data-cmux-see-through]) .acpmux-composer > :is(.acpmux-composer-box, .acpmux-composer-strip) {
-  --glass-tint: color-mix(in srgb, var(--acpmux-composer-solid) 78%, transparent);
-  --glass-backdrop: var(--surface-blur);
+  --glass-tint: color-mix(in srgb, var(--acpmux-composer-solid) 70%, transparent);
+  --glass-backdrop: blur(24px) saturate(1.25);
 }
 :root[data-cmux-see-through]:not([data-glass="lens"], [data-glass="spectrum"])
   .acpmux-composer > :is(.acpmux-composer-box, .acpmux-composer-strip) {
@@ -185,9 +186,27 @@
   > :is(.acpmux-composer-strip, .acpmux-composer-queue, .acpmux-queue-foldbar):has(+ .nt-box) {
   mask: linear-gradient(black calc(100% - var(--acpmux-tray-tuck, 0px)), transparent 0);
 }
+/* Codex's look tucks New Tab's tray (.nt-above, composerLook.css) under the box the same way, less
+   the composer's gap (--nt-composer-gap, newtab/screen.css): over the desktop it showed through the
+   box's glass as a band across the field's top (Leo 2026-10-23, cx-ncc.113.116). The tray now ends
+   at the box's top edge; the box stays glass. */
+:root[data-cmux-see-through]:not([data-reduce-transparency]) .nt-composer[data-composer-look="codex"]
+  > .nt-above:has(+ .nt-box) {
+  mask: linear-gradient(
+    black calc(100% - var(--acpmux-tray-tuck, 0px) + var(--nt-composer-gap, 0px)),
+    transparent 0
+  );
+}
 @media (prefers-reduced-transparency: reduce) {
   :root[data-top-strip="tray"] :is(.acpmux-composer, .nt-composer)
     > :is(.acpmux-composer-strip, .acpmux-composer-queue, .acpmux-queue-foldbar) {
+    mask: none;
+  }
+  /* The Codex tray's mask above, at its own specificity (a plainer selector loses to it). The app
+     also says Reduce Transparency with data-reduce-transparency, which that rule leaves out; WebKit
+     has no prefers-reduced-transparency, so the mask is never scoped to its no-preference. */
+  :root[data-cmux-see-through]:not([data-reduce-transparency]) .nt-composer[data-composer-look="codex"]
+    > .nt-above:has(+ .nt-box) {
     mask: none;
   }
 }

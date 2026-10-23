@@ -60,6 +60,15 @@ import PackageDescription
 // (redraw=1), so daemon terminals (libghostty-vt, redraw off by default)
 // clear the prompt on resize too; the app already did. 493a8871b adds the
 // unused C API option GHOSTTY_TERMINAL_OPT_SHELL_REDRAWS_PROMPT.
+// Since 72578da21 the bash integration forks nothing per command on bash 5.3
+// and nothing at start when .bashrc sets PROMPT_COMMAND (PR 47).
+// Since 7d5fa1573 a host-sized resize presents the renderer thread's frame at
+// the new size, with the text reflowed, in the size's own Core Animation
+// commit (no main-thread draw of the old cells); a mirror's pixel-only resize
+// leaves its terminal alone (mode 2026 survives a drag) and never waits for
+// the terminal lock; a local-history restore holds frames only when it must;
+// a hidden surface's output and a hidden or steady cursor's blink wake
+// nothing; the first update of each refresh interval draws at once (PR 46).
 //
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
@@ -84,8 +93,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-5555f4220a862b9e2897cf54a5c85d2b273c8475-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "f0958acf6eb826f419d2ab8e16505f796dc2e30975b82ff92cbaf79c9f654289"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-7d5fa1573a7202ed7ae508f0aa70d2295712527e-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "4398bf681a37c4185cb8f37b267bfe6d49ce852c1e723f3c1c23276ec67031e4"
         ),
     ]
 )

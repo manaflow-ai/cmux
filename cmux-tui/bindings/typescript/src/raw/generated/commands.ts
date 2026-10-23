@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 655baaa1d0f11bd63754ffcda70267c4b8f07a2d8d415bf0c302c2ccab838a96. */
+/* cmux-tui mux protocol 12, IR 5d3ff5ed972a33f5c4bb6a49a9dd6aeed437faa9b1ef702813aa5522af7f0eb0. */
 
 
 import type * as T from "./types.js";
@@ -1796,8 +1796,10 @@ export interface NewRowRequest extends CmuxRequestBase {
   "height_permille": bigint;
   "keep"?: boolean;
   "pane": T.Id;
+  "pane_id"?: (string) | null;
   "rows"?: (number) | null;
   "shell_args"?: (Array<string>) | null;
+  "tab_id"?: (string) | null;
   "terminal_id"?: (string) | null;
   "transaction"?: (string) | null;
 }
@@ -2240,8 +2242,10 @@ export type SelectWorkspaceResult = T.EmptyResult;
 export interface SendRequest extends CmuxRequestBase {
   cmd: "send";
   "bytes"?: (T.Base64) | null;
+  "expect_agent"?: (T.SendExpectAgent) | null;
   "expect_foreground"?: (string) | null;
   "paste"?: boolean;
+  "submit"?: boolean;
   "surface"?: (T.Id) | null;
   "terminal_id"?: (string) | null;
   "text"?: (string) | null;

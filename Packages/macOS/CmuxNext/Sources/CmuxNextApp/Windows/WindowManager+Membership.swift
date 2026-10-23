@@ -118,16 +118,19 @@ extension WindowManager {
     // MARK: Entry points
 
     /// Shows `workspaceID`: in the window that lists it (brought forward),
-    /// else in `state`'s window, which takes it.
+    /// else in `state`'s window, which takes it. With `origin` `.thisWindow`
+    /// (a person's pick in `state`'s own sidebar) it always shows in `state`'s
+    /// window, which takes it from the window that listed it: a click in one
+    /// window never acts in another (Lawrence 2026-10-23).
     /// An action run without view-change permission shows nothing. The window
     /// swaps its content in this turn, not on its observation hop (I6).
-    func show(workspaceID: String, in state: WindowState) {
+    func show(workspaceID: String, in state: WindowState, from origin: ShowOrigin = .anywhere) {
         guard ActionRunScope.viewChangeAllowed() else { return }
         let value = registry.value
         if DebugWorkspaceSwitch.timer.isRecording, let timed = controller(for: value.owner(of: workspaceID) ?? state.id) ?? controller(for: state.id) {
             DebugWorkspaceSwitch.began(timed)
         }
-        if let owner = value.owner(of: workspaceID), owner != state.id, value.window(owner)?.isOpen == true,
+        if origin == .anywhere, let owner = value.owner(of: workspaceID), owner != state.id, value.window(owner)?.isOpen == true,
            let target = controller(for: owner) {
             select(workspaceID, in: target.state)
             target.showWorkspace(requested: target.state.workspaceID)
@@ -249,7 +252,7 @@ extension WindowManager {
     func userClosed(_ id: String) {
         let snapshots = services.sidebarSnapshots
         Task { await snapshots.forget(window: id) }
-        let keepsGroup = services.daemon.supports(DaemonCapabilities.shared.windowRecords)
+        let keepsGroup = services.daemon.supports(DaemonCapabilities.windowRecords)
         let changes = transition { $0.close(id, keepsGroup: keepsGroup) }
         discard(changes.discarded)
     }
@@ -302,8 +305,12 @@ extension WindowManager {
 
     // MARK: Reconcile with the daemons
 
-    /// Re-runs `reconcileMembership` whenever any machine's workspace list,
-    /// load state, or the Cloud machine list changes.
+    /// Re-runs `reconcileMembership` whenever a machine joins, leaves or
+    /// loads, the Cloud machine list changes, or a room's rules change. A
+    /// loaded machine's workspace set reaches it through the store's
+    /// `onWorkspaceListChanged` hook, never through its order: a move or a
+    /// group change keeps every window's membership, and this pass visits
+    /// every workspace (sidebar churn B).
     func observeMembership() {
         let machines = services.machines
         let cloud = services.cloud
@@ -311,7 +318,7 @@ extension WindowManager {
         membershipObservation = Task { [weak self] in
             for await _ in ObservationStream({ () -> [String] in
                 [String(cloud.hasLoadedMachines), String(cloud.isSignedIn)]
-                    + machines.daemons.map { "\($0.machineID):\($0.store.isLoaded):\(Self.order(of: $0, machines: machines))" }
+                    + machines.daemons.map { "\($0.machineID):\($0.store.isLoaded)" }
                     + [Self.profileTags(of: machines.local)]
             }) {
                 self?.reconcileMembership()
@@ -415,13 +422,15 @@ extension WindowManager {
         return sidebar + daemon.store.workspaces.map(\.id).filter { !listed.contains($0) }
     }
 
-    /// Each workspace's profile and the profile list, so a profile move or
-    /// a new profile re-runs reconcile.
+    /// The room rules (each room's followed sessions, each workspace pin)
+    /// and the profile list, so a profile move or a new profile re-runs
+    /// reconcile. Not the personal revision: a group change or a placement
+    /// bumps it and leaves every window's membership as it was.
     private static func profileTags(of daemon: DaemonService) -> String {
-        "\(daemon.store.personal.revision)|" + daemon.store.profileIDs.map(\.rawValue).joined(separator: ",")
-    }
-
-    private static func order(of daemon: DaemonService, machines: MachineRegistry) -> String {
-        orderedIDs(of: daemon, machines: machines).joined(separator: ",")
+        let personal = daemon.store.personal
+        let pins = personal.pins.map { "\($0.sessionID)/\($0.workspaceKey.rawValue)=\($0.profile.rawValue)" }
+        let follows = personal.follows.map { "\($0.key.rawValue)>\($0.value.sorted().joined(separator: "+"))" }.sorted()
+        return "\(personal.isLoaded)|" + pins.joined(separator: ",") + "|" + follows.joined(separator: ",") + "|"
+            + daemon.store.profileIDs.map(\.rawValue).joined(separator: ",")
     }
 }

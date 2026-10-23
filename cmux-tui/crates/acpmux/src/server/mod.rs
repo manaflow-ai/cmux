@@ -1002,7 +1002,9 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             conn.send(&Message::notification(method::MUX_SESSION_CHANGED, params));
             return;
         }
-        if rec.dir != "mux" {
+        // A deferred new chat has no attachment yet. Its command publication must still wake
+        // the page's read of that chat's command list, including when skills arrive after creation.
+        if rec.dir != "mux" && rec.kind != "available_commands_update" {
             return;
         }
         let Some(kind) = change_kind::session_change_kind(&rec.kind) else { return };

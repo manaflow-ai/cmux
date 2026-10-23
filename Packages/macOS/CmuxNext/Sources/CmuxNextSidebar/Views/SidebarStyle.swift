@@ -6,9 +6,12 @@ import CmuxNextIcons
 /// (`Metrics`, `Typography`). Hierarchy comes from weight and gray level.
 enum SidebarStyle {
     static var horizontalInset: CGFloat { SidebarDensityTokens.horizontalInset }
-    /// How much shorter than the list's inset a row ends on the right: the row's pill stops
-    /// before the sidebar's edge (Leo 2026-10-20: "trim the pill's right side").
-    static var rowTrailingTrim: CGFloat { Metrics.space4 }
+    /// How much shorter than the list's inset a row ends on the right: none. #22733 stopped the
+    /// pills `Metrics.space4` short of the sidebar's edge; Leo 2026-10-21 took it back ("bring back
+    /// the length, so we can have more content per sidebar row"). Pinned rows and list blocks
+    /// read it too, so every row still ends at one x. (Kept when #23783's corner close was
+    /// reverted, Lawrence 2026-10-23: only the close's look went back.)
+    static var rowTrailingTrim: CGFloat { 0 }
     static var rowCornerRadius: CGFloat { SidebarDensityTokens.rowCornerRadius }
     /// A listed tab's icon, sized to its caption-size title.
     static var tabIconSize: CGFloat { .iconRowSize(forLabelPointSize: subtitleFont.pointSize) }
@@ -21,11 +24,16 @@ enum SidebarStyle {
     /// A workspace row's leading glyph: the size an icon takes beside the
     /// row title (cap height and stroke matched to the text).
     static var kindGlyphSize: CGFloat { .iconRowSize(forLabelPointSize: titleFont.pointSize) }
-    /// Where a list row's title text starts when its leading icon slot begins at `leading`: one
-    /// `iconBox` slot, drawn or empty, then a Chrome-like gap after the glyph's drawing, so rows
-    /// with and without an icon line up (Lawrence 2026-10-21: "weird spacing").
-    static func titleTextX(leading: CGFloat) -> CGFloat {
-        leading + iconBox + Metrics.space3 - Swift.max(0, (iconBox - kindGlyphSize) / 2)
+    /// Where a list row's title text starts when its leading icon slot begins at `leading`.
+    ///
+    /// No icon (`iconSide` 0): at `leading`, as far left as the row allows (Lawrence 2026-10-23: "text
+    /// needs to be as left as possible (how it originally was)"; c779988d57d had kept an empty slot).
+    /// An icon: a Chrome-like 6 pt after the glyph's drawing (it draws at `kindGlyphSize`, centered in its
+    /// box). A color swatch: 6 pt after the swatch's box.
+    static func titleTextX(leading: CGFloat, iconSide: CGFloat, swatch: Bool = false) -> CGFloat {
+        guard iconSide > 0 else { return leading }
+        if swatch { return leading + iconSide + Metrics.space3 + Metrics.space1 }
+        return leading + iconSide + Metrics.space3 - Swift.max(0, (iconSide - kindGlyphSize) / 2)
     }
     /// An item's glyph on its `iconBox` well (the list look), clear of the well's edge.
     static var wellGlyphSize: CGFloat { Swift.max(.iconFloor, iconBox - Metrics.space2) }
@@ -119,7 +127,12 @@ enum SidebarStyle {
     /// The members' line sits just left of their rows, in the list's leading inset for a
     /// top-level group, so no hover or selection fill covers it (cx-q5jw) and the rows keep
     /// the ungrouped rows' left edge.
-    static func groupLineX(membersMinX: CGFloat) -> CGFloat { max(0, membersMinX - Metrics.space1 - groupBarWidth) }
+    static func groupLineX(membersMinX: CGFloat) -> CGFloat { max(0, membersMinX - groupRailReach) }
+    /// How far left of its members' x a group's rail starts: its width and the gap to the rows. A group
+    /// header's bar reaches left by the same amount, so the rail's left edge is the bar's left edge at
+    /// every level and density (Lawrence 2026-10-23: "the bar, left side, should be aligned with the
+    /// header part left side"), while the header's name keeps the rows' text column.
+    static var groupRailReach: CGFloat { Metrics.space1 + groupBarWidth }
     /// The quiet group headers' color dot, in the header's leading corner (cx-25az).
     static var groupDotSize: CGFloat { max(6, (Metrics.sidebarRowHeight * 0.28).rounded()) }
     static var headerFont: NSFont { Typography.header }

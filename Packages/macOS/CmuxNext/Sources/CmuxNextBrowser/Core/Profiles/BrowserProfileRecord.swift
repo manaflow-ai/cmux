@@ -19,9 +19,12 @@ public nonisolated struct BrowserProfileRecord: Codable, Hashable, Sendable, Ide
     /// Where an imported profile came from (`browser`, `profile_dir`,
     /// `display_name`); nil for a profile made in cmux.
     public var source: [String: String]?
+    /// The profile's own proxy (#24432), nil when direct.
+    public var proxy: BrowserProfileProxy?
 
     public init(id: String, name: String, color: String? = nil, icon: String? = nil, position: Int = 0,
-                source: [String: String]? = nil) {
+                source: [String: String]? = nil, proxy: BrowserProfileProxy? = nil) {
+        self.proxy = proxy
         self.id = id
         self.name = name
         self.color = color

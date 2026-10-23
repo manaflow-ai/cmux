@@ -55,6 +55,11 @@
   --cv-message-gap: 8px; /* a message (or its meta row) to the next row in its turn */
   --cv-live-gap: 10px; /* over the running turn's live line, inside its row: 16px under a reply */
   --cv-turn-gap: 24px; /* a turn's footer to the next prompt */
+  /* Tool rows follow Codex's compact transcript rhythm: a 22px line with a small, quiet gap
+     after the run before the next reply. Gallery-only attributes compare this against the prior
+     roomier rhythm without adding a product setting. */
+  --cv-tool-row-height: 22px;
+  --cv-tool-run-bottom-gap: 4px;
   /* A message's hover row fades as Claude Code desktop's (--cds-message-actions-reveal-*): in after
      100ms over 120ms, out at once (Claude's 60ms is off the motion scale: its quick 80ms), both on
      Claude's snap curve. */
@@ -1079,12 +1084,24 @@
 .cv-edit-diff__copy {
   color: var(--cv-codeblock-actions);
 }
-/* Its rows scroll sideways in Pierre's own box (`[data-code]`); the body only cuts the preview. */
+/* Its rows scroll sideways in Pierre's own box (`[data-code]`); the body only cuts the preview.
+   Unwrapped, Pierre keeps a lane for that box's scrollbar under the rows at all times, `--cv-lane`
+   tall, inside the box's own bottom gap (its padding is the gap less the lane), so the box is as
+   tall with a scrollbar as without one. A cut preview shows eight rows and the lane under them,
+   Pierre's box cut with it (`--cv-block-cut`, sideways.ts PIERRE_BLOCK_CSS), and its bottom fade
+   stops above the lane. Wrapped rows never scroll sideways: no lane. */
 .cv-edit-diff__body {
+  --cv-lane: 6px;
+  --cv-bar: var(--cv-lane);
+  --diffs-scrollbar-gutter-override: var(--cv-lane);
   overflow: hidden;
 }
+.cv-edit-diff[data-wrap="true"] > .cv-edit-diff__body {
+  --cv-lane: 0px;
+}
 .cv-edit-diff__body[data-preview="cut"] {
-  max-height: calc(8 * var(--cmux-diff-line-height, 18px));
+  --cv-block-cut: calc(8 * var(--cmux-diff-line-height, 18px) + var(--cv-lane));
+  max-height: var(--cv-block-cut);
 }
 .cv-edit-diff > .cv-output-more {
   margin: 0;
@@ -1588,6 +1605,23 @@ pre.cv-math-source {
   letter-spacing: var(--cv-tracking, 0.045px);
   -webkit-font-smoothing: antialiased;
 }
+/* Tool work ends closer to the following reply than a full message does. The row's own min-height
+   still protects cards and one-line activity, while a run with several calls keeps the compact
+   22px rhythm below. */
+.acpmux-row.acpmux-activity {
+  min-height: 0;
+  padding-bottom: var(--cv-tool-run-bottom-gap);
+}
+/* Gallery versions for the transcript spacing review. The selected default is the root rhythm
+   above; these are capture-only comparisons. */
+:root[data-transcript-tool-spacing="tight"] {
+  --cv-tool-row-height: 20px;
+  --cv-tool-run-bottom-gap: 2px;
+}
+:root[data-transcript-tool-spacing="roomy"] {
+  --cv-tool-row-height: 26px;
+  --cv-tool-run-bottom-gap: 8px;
+}
 /* An opened run's calls; past nine 26px rows the list scrolls. */
 .cv-tool-run {
   max-height: 234px;
@@ -1641,7 +1675,7 @@ pre.cv-math-source {
   align-items: center;
   gap: 8px;
   width: 100%;
-  min-height: 26px;
+  min-height: var(--cv-tool-row-height);
   line-height: 20px;
   color: var(--cv-text-dim);
 }
@@ -1825,6 +1859,12 @@ pre.cv-math-source {
 .cv-fold {
   display: flow-root;
 }
+/* A row a closing "Worked for" hid, drawn where it was while it fades out under the rows sliding up
+   over it (turnFold.ts): never hit, focused or selected. */
+.acpmux-row.acpmux-row--fold-ghost {
+  pointer-events: none;
+  user-select: none;
+}
 .cv-rotor.is-open {
   transform: rotate(90deg);
 }
@@ -1885,7 +1925,7 @@ pre.cv-math-source {
   overflow-wrap: anywhere;
 }
 .cv-shell__body[data-preview="cut"] {
-  max-height: calc(8 * 18px + 8px);
+  max-height: calc(8 * 18px + 8px + var(--cv-lane, 0px));
 }
 .cv-shell__exit {
   margin-top: 6px;
@@ -2401,8 +2441,20 @@ a.cv-sha:focus-visible {
   background: none;
   box-shadow: none;
 }
+/* A cut output shows eight whole lines: the box (border-box) is eight lines, its 8px top padding
+   and the lane under them (`--cv-lane`, below) tall, the lane added to the cut, never taken out of
+   it (Codex review of #23967). */
 .cv-tool-output__box > .cv-tool-output[data-preview="cut"] {
-  max-height: calc(8 * 18px);
+  max-height: calc(8 * 18px + 8px + var(--cv-lane));
+}
+/* A result whose text is Markdown (toolResult.ts) reads as a reply does, a little smaller, and
+   scrolls past the height a plain output stops at. */
+.cv-tool-output__markdown {
+  max-height: 320px;
+  overflow: auto;
+  padding: 6px 12px;
+  color: var(--cv-text-muted);
+  font-size: var(--text-detail);
 }
 /* Wrap lines (and the hover-actions experiment's Copy) in its corner, on hover or focus. */
 .cv-tool-output__actions {
@@ -2424,7 +2476,27 @@ a.cv-sha:focus-visible {
 /* A tool-call block's body (BlockParts.tsx): past eight lines its first ones fade out at the bottom
    (Show all N lines opens it), and an unwrapped line running past the right edge fades out there
    while more of it lies past (sideways.ts). A fade, never a hard edge; no transition, so it shows
-   and goes at once whatever the motion settings. */
+   and goes at once whatever the motion settings. Under unwrapped lines that run past the edge, the
+   box keeps a thin scrollbar thumb at rest (scrollers.ts SIDEWAYS_ATTRIBUTE), `--cv-bar` tall, in a
+   lane `--cv-lane` tall at its bottom: a cut preview is that much taller, its bottom fade ends above
+   the lane, and the bar takes the lane's padding when it comes. A call output's lane is its own
+   bottom padding, so it is as tall with the bar as without it, always. A Shell body keeps its lane
+   while its lines run past and, unwrapped, all the while its command runs (`data-live`), so a
+   streaming line that starts or stops running past does not move the transcript (Codex review of
+   #23967); one that ends fitting drops the lane when the command ends. Wrapped: no lane. */
+:is(.cv-shell__body, .cv-tool-output__box > .cv-tool-output) {
+  --cv-bar: var(--cmux-sideways-lane, 0px);
+}
+.cv-shell__body[data-wrap="false"]:is([data-live], [data-cmux-sideways]) {
+  --cv-lane: var(--cmux-scroller-size, 8px);
+}
+.cv-shell__body {
+  padding-bottom: calc(var(--cv-lane, 0px) - var(--cv-bar));
+}
+.cv-tool-output__box > .cv-tool-output {
+  --cv-lane: 8px;
+  padding-bottom: calc(var(--cv-lane) - var(--cv-bar));
+}
 :is(.cv-edit-diff__body, .cv-shell__body, .cv-tool-output__box > .cv-tool-output)[data-preview="cut"] {
   --cv-fade-bottom: 28px;
 }
@@ -2436,7 +2508,13 @@ a.cv-sha:focus-visible {
     [data-more-right]
   ) {
   mask-image:
-    linear-gradient(to bottom, #000 calc(100% - var(--cv-fade-bottom, 0px)), transparent),
+    linear-gradient(
+      to bottom,
+      #000 calc(100% - var(--cv-fade-bottom, 0px) - var(--cv-lane, 0px)),
+      transparent calc(100% - var(--cv-lane, 0px)),
+      transparent calc(100% - var(--cv-bar, 0px)),
+      #000 calc(100% - var(--cv-bar, 0px))
+    ),
     linear-gradient(to left, transparent, #000 var(--cv-fade-right, 0px));
   mask-composite: intersect;
 }
@@ -2634,6 +2712,79 @@ a.cv-sha:focus-visible {
   padding-block: 2px 4px;
   line-height: 18px;
   overflow-wrap: anywhere;
+}
+/* Its card (TurnRows.tsx TurnFailure; the turn-error-card experiment's arms): the cause with its
+   mark, then the way out and Details on one wrapping row. */
+.cv-turn-error {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cv-turn-error__cause {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+}
+.cv-turn-error__icon {
+  flex: none;
+  margin-top: 2px;
+  color: var(--agent-danger);
+}
+.cv-turn-error__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.cv-turn-error--card .cv-turn-error__actions,
+.cv-turn-error--rail .cv-turn-error__actions {
+  padding-inline-start: 21px;
+}
+.cv-turn-error__primary {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--agent-accent) 16%, transparent);
+}
+.cv-turn-error__primary:hover {
+  background: color-mix(in srgb, var(--agent-accent) 24%, transparent);
+}
+/* The CodeRouter offer (CodeRouterOffer.tsx): a link after the cause in the `link` arm. */
+/* The `link` arm: a link that ends the cause sentence, blue as every link (#22345). */
+.cv-turn-error__offer-link {
+  all: unset;
+  color: var(--agent-link);
+  cursor: pointer;
+}
+.cv-turn-error__offer-link:hover {
+  text-decoration: underline;
+}
+.cv-turn-error__offer-link:focus-visible {
+  outline: 1.5px solid color-mix(in srgb, var(--agent-link) 55%, transparent);
+  outline-offset: 1px;
+  border-radius: 3px;
+}
+.cv-turn-auth-action:disabled,
+.cv-turn-error__offer-link:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+.cv-turn-error__details[open] {
+  flex-basis: 100%;
+}
+.cv-turn-error__raw {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 4px;
+}
+.cv-turn-error--card {
+  margin-block: 2px 6px;
+  padding: 10px 12px;
+  border-radius: 10px;
+}
+.cv-turn-error--rail {
+  padding-inline-start: 10px;
+  border-inline-start: 2px solid color-mix(in srgb, var(--agent-danger) 70%, transparent);
 }
 
 /* R104: a block that appears while the reply streams, and a row that arrives live (a reply, a

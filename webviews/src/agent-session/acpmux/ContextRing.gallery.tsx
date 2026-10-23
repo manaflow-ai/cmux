@@ -6,13 +6,22 @@ import { useT } from "./i18n";
 import { ContextRing } from "./ComposerPickers";
 import { openPicker } from "./pickerOpeners";
 
-type Props = { used?: number; size?: number; setup?: number; details?: boolean };
+type Props = {
+  used?: number;
+  size?: number;
+  setup?: number;
+  details?: boolean;
+  wheel?: "compact" | "standard" | "minimal";
+};
 
 function GalleryContextRing(props: Props) {
   const t = useT();
   const [requested, setRequested] = useState(false);
   return (
-    <div className="context-ring-gallery" data-context-automation={requested ? "requested" : "idle"}>
+    <div
+      className={`context-ring-gallery context-ring-gallery--${props.wheel ?? "compact"}`}
+      data-context-automation={requested ? "requested" : "idle"}
+    >
       <ContextRing
         used={props.used}
         size={props.size}
@@ -62,7 +71,8 @@ export default componentEntry<Props>({
     "agent-session/acpmux/ComposerPickers.tsx#ContextRing",
     "agent-session/acpmux/ContextCard.tsx#ContextCardBody",
   ],
-  styles: () => Promise.all([import("./styles.css"), import("./composerControls.css")]),
+  styles: () =>
+    Promise.all([import("./styles.css"), import("./composerControls.css"), import("./ContextRing.gallery.css")]),
   checks: {
     anchorMovePx: {
       value: 0,
@@ -95,9 +105,21 @@ export default componentEntry<Props>({
       play: hoverCard,
     },
     "card-codex": {
-      note: "Hover on a Codex chat that reports only the window: the context line, one used stretch on the bar, and Details ›.",
+      note: "Hover on a Codex chat that reports only the window: the compact three-line tooltip keeps the ring quiet.",
       props: { used: 111_000, size: 475_000, details: true },
       play: hoverCard,
+    },
+    "wheel-compact": {
+      note: "Chosen: the ChatGPT-sized 22 px hit target and 12 px ring keep the quiet row compact while preserving keyboard focus.",
+      props: { used: 111_000, size: 475_000, wheel: "compact" },
+    },
+    "wheel-standard": {
+      note: "Alternative: the previous 28 px target and 14 px ring, which left too much empty space beside the model pill.",
+      props: { used: 111_000, size: 475_000, wheel: "standard" },
+    },
+    "wheel-minimal": {
+      note: "Alternative: an 18 px target and 10 px ring, which loses a little too much pointer and focus room.",
+      props: { used: 111_000, size: 475_000, wheel: "minimal" },
     },
     "usage-empty": {
       note: "A fresh chat: usage is known but nothing is used, so only the 1px track shows.",

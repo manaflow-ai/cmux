@@ -91,7 +91,8 @@ test("an ended turn's open Worked for folds each run into its summary line", () 
     text("done"),
     row("s", "turnSummary", { status: "completed", toolCount: 5 }),
   ];
-  const open = new Set(["worked-u"]);
+  // The long text between the runs is a takeaway, so each run folds under its own line.
+  const open = new Set(["worked-u", "worked-between"]);
   const folded = turnView(ended, open, { liveRuns: true }).filter((entry) => entry.kind === "activity");
   expect(folded.map((entry) => entry.foldRun)).toEqual([true, true]);
   const listed = turnView(ended, open, { liveRuns: false }).filter((entry) => entry.kind === "activity");
