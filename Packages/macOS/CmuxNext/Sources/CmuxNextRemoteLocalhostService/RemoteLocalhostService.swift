@@ -68,7 +68,7 @@ public final class RemoteLocalhostService {
         guard !daemon.isLocal else { return .thisMac }
         let name = machineName(of: daemon)
         guard isEnabled(workspace: workspace) else { return .thisMacInstead(name, .turnedOff) }
-        guard daemon.supports(DaemonCapabilities.loopbackForward) else { return .thisMacInstead(name, .updateMachine) }
+        guard daemon.supports(DaemonCapability.loopbackForward.rawValue) else { return .thisMacInstead(name, .updateMachine) }
         guard engine == .cef else { return .thisMacInstead(name, .webKit) }
         return .machine(name)
     }
