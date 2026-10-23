@@ -111,9 +111,13 @@ final class OutboundTab {
     }
 
     /// Keeps the open's stand-ins listed now (provisional, new and not the pane's) out until they go.
+    /// One made after a later open of this pane began is that open's, never this one's (Codex on #24308).
     private func latchStandIns() {
         guard let pane else { return }
-        own.formUnion(pane.pane.tabs.filter { !known.contains($0.id) && ProvisionalTab.isProvisional($0.id) && !shownByPane($0) }.map(\.id))
+        let later = Self.open[key]?.drop { $0 !== self }.dropFirst() ?? []
+        own.formUnion(pane.pane.tabs.filter { tab in
+            !known.contains(tab.id) && ProvisionalTab.isProvisional(tab.id) && !shownByPane(tab) && later.allSatisfy { $0.known.contains(tab.id) }
+        }.map(\.id))
     }
 
     /// `opened`, what the open returned, passed on (its stand-in, made now, stays out); an open refused at
