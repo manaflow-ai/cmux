@@ -64,9 +64,11 @@ import Testing
     @Test func aFastDragScrollsFurtherThanTheFinger() throws {
         var scroll = TerminalTUIScroll()
         scroll.began()
-        let wheel = try #require(scroll.moved(translationY: 16, velocityY: 3000))
+        let movedWheel = scroll.moved(translationY: 16, velocityY: 3000)
+        let wheel = try #require(movedWheel)
         #expect(wheel.dy == 16 * TerminalTUIScroll.maximumGain)
-        let up = try #require(scroll.moved(translationY: 0, velocityY: -3000))
+        let upWheel = scroll.moved(translationY: 0, velocityY: -3000)
+        let up = try #require(upWheel)
         #expect(up.dy == -16 * TerminalTUIScroll.maximumGain)
     }
 
@@ -86,13 +88,15 @@ import Testing
 
     @Test func aFastFlickGlidesWithTheGain() throws {
         var momentum = try #require(TerminalTUIMomentum(velocityY: 3000))
-        let first = try #require(momentum.step(dt: 1.0 / 60))
+        let firstWheel = momentum.step(dt: 1.0 / 60)
+        let first = try #require(firstWheel)
         #expect(abs(first.dy - 3000 * TerminalTUIScroll.maximumGain * 0.95 / 60) < 0.001)
     }
 
     @Test func aGentleFlickIsNotScaled() throws {
         var momentum = try #require(TerminalTUIMomentum(velocityY: -250))
-        let first = try #require(momentum.step(dt: 1.0 / 60))
+        let firstWheel = momentum.step(dt: 1.0 / 60)
+        let first = try #require(firstWheel)
         #expect(abs(first.dy - (-250 * 0.95 / 60)) < 0.001)
     }
 
@@ -107,8 +111,8 @@ import Testing
         #expect(first.momentum == .began)
         // Upward fling: newer content, so a wheel down (negative dy).
         #expect(first.dy < 0)
-        // 1200 pt/s decayed once over one 60 Hz frame.
-        #expect(abs(first.dy - (-1200 * 0.95 / 60)) < 0.001)
+        // 1200 pt/s with its gain, decayed once over one 60 Hz frame.
+        #expect(abs(first.dy - (-1200 * TerminalTUIScroll.gain(speed: 1200) * 0.95 / 60)) < 0.001)
         var last = first
         var steps = 1
         while let wheel = momentum.step(dt: 1.0 / 60) {
