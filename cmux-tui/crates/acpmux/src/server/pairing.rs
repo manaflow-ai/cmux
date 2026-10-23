@@ -12,6 +12,7 @@
 //! All four are the unix socket's only. `_acpmux/pair_redeem` is served only
 //! on a connection that presented an open ticket, and nothing else is.
 
+use crate::no_panic::JsonExt;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -147,7 +148,7 @@ async fn redeem(hub: &Arc<Hub>, secret: &str, params: Value) -> Result<Value, Rp
     let name = text("name").ok_or_else(|| RpcError::invalid_params("name is required"))?;
     let advertise = (text("advertiseUrl"), text("advertiseToken"));
     let taken = hub.config.read().await.peers.contains_key(&name)
-        || hub.peers().iter().any(|p| p["name"].as_str() == Some(name.as_str()));
+        || hub.peers().iter().any(|p| p.get("name").and_then(Value::as_str) == Some(name.as_str()));
     let redeemed = hub.pairing.redeem(secret, &name, |role| {
         if role != Role::Daemon {
             return Ok(());
@@ -183,9 +184,11 @@ async fn redeem(hub: &Arc<Hub>, secret: &str, params: Value) -> Result<Value, Rp
         // Checked before the redeem: a daemon-role ticket came with both.
         (Role::Daemon, (Some(url), Some(token))) => {
             hub.add_peer(&name, &url, Some(token), None, false).await?;
-            reply["peer"] = json!({"name": name, "url": url});
+            reply.set("peer", json!({"name": name, "url": url}));
         }
-        _ => reply["token"] = json!(redeemed.token),
+        _ => {
+            reply.set("token", json!(redeemed.token));
+        }
     }
     Ok(reply)
 }
