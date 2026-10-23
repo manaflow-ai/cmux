@@ -14,6 +14,15 @@ import CmuxNextDesignTokens
 @MainActor @Suite(.serialized) struct PopupGrowMotionTests {
     private static let pivot = CGPoint(x: 150, y: 200)
 
+    /// Native popup entrances use the shorter panel motion token. This check is display-free, so a
+    /// headless fleet worker cannot turn a timing regression into a false green by skipping AppKit
+    /// layer tests.
+    @Test func popupEntranceUsesTheShortPanelSpring() {
+        #expect(Motion.popupOpenSpring == .panel)
+        #expect(Motion.overlays.spring(Motion.popupOpenSpring).perceivedDuration
+            < Motion.overlays.spring(.popover).perceivedDuration)
+    }
+
     /// A borderless window on screen, at alpha 0 as a popup owner leaves it before an open.
     private static func popupWindow() throws -> (NSWindow, CALayer) {
         let window = NSWindow(contentRect: NSRect(x: 240, y: 240, width: 300, height: 200), styleMask: [.borderless],
