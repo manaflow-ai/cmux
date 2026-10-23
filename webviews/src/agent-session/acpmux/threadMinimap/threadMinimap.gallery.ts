@@ -3,6 +3,7 @@ import { agentPaneEntry } from "../../../gallery/format";
 import { assistant, chat, summary, user } from "../../../gallery/fixtures/acpmux";
 import { setBookmarkTransport } from "./bookmarks";
 import { threadMinimapLayout } from "./layout.experiment";
+import { LANDING_OFFSET } from "./model";
 
 // The gallery has no acpmux: the chat's marks live in this page, answered as acpmux answers them.
 const galleryMarks = new Map<string, Set<number>>();
@@ -148,6 +149,35 @@ export default agentPaneEntry({
         if (!ctx.document.querySelector('[data-tick="8"]')) return;
         await ctx.hover({ selector: '[data-tick="8"]' });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-minimap__card"));
+      },
+    },
+    landing: {
+      note: "Clicking row 8 jumps to prompt 8, whose bubble flashes a step brighter (scrollMotion.ts highlightBubble). A still cannot catch the flash in flight, so once the jump lands this state stops it and paints its first color on the landed bubble: the bubble's glass tint over transparent, the backdrop still showing through it, never the opaque base.",
+      snapshot: chat(rows, { title: "Thread minimap landing" }),
+      play: async (ctx) => {
+        // Off (the default arm) draws no minimap, and a narrow base width can hide the rail: skip there.
+        if (!ctx.document.querySelector('[data-tick="8"]')) return;
+        await ctx.click({ selector: '[data-tick="8"]' });
+        // The landed bubble: tick 8's prompt, once the jump has settled it LANDING_OFFSET below the
+        // transcript's top (ThreadMinimap.tsx settleScroll). The wait fails the state if it never lands.
+        const target = rows.filter((row) => row.kind === "user")[8]?.id;
+        let landed: HTMLElement | undefined;
+        await ctx.waitFor(() => {
+          const scroller = ctx.document.querySelector<HTMLElement>(".acpmux-scroll");
+          const bubble = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-row")]
+            .find((node) => node.dataset.rowId === target)
+            ?.querySelector<HTMLElement>(".cv-user__bubble");
+          if (!scroller || !bubble) return false;
+          const offset = bubble.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
+          if (Math.abs(offset - LANDING_OFFSET) > 1) return false;
+          landed = bubble;
+          return true;
+        });
+        if (!landed) return;
+        // The flash animates background-color over the inline fill: stop it so the still shows its first color.
+        for (const animation of landed.getAnimations()) if (animation.id === "acpmux-landing") animation.cancel();
+        landed.style.backgroundColor = getComputedStyle(landed).getPropertyValue("--acpmux-landing-highlight").trim();
+        landed.dataset.galleryLanding = "";
       },
     },
     bookmarked: {
