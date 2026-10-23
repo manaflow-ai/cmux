@@ -56,7 +56,9 @@ export type AnchoredCollapse = {
 /// Asks the transcript that holds `header` to keep it where it is drawn now. True when one will.
 export function holdHeader(header: HTMLElement): boolean {
   if (!header.isConnected) return false;
-  return !header.dispatchEvent(new CustomEvent(ANCHORED_COLLAPSE_EVENT, { bubbles: true, cancelable: true }));
+  // The node's own window builds the event, so a header in another document (an iframe, a test's DOM) can carry it.
+  const Custom = header.ownerDocument.defaultView?.CustomEvent ?? CustomEvent;
+  return !header.dispatchEvent(new Custom(ANCHORED_COLLAPSE_EVENT, { bubbles: true, cancelable: true }));
 }
 
 /// The nearest ancestor of `node` that scrolls.
