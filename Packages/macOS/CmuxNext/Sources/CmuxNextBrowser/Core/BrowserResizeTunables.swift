@@ -38,5 +38,13 @@ public nonisolated struct BrowserResizeTunables {
         help: "How long a pane resize waits for a layer-hosted Chromium page to draw at the new size, so the page and the pane change in the same frame. Never more than half a display frame (4 ms at 120 Hz). Applies at the page's next show. 0 never waits.",
         default: 0.008, range: 0...0.1, step: 0.001, unit: .seconds, code: "BrowserResizeTunables.syncDeadline")
 
-    public static var all: [TunableDescriptor] { [pageBackdrop.descriptor, layerHosting.descriptor, syncDeadline.descriptor] }
+    /// During the window's live resize, how long each Chromium page (hosted or
+    /// not) may hold the window's frame for its frame at the new size (fork
+    /// API 27; Chromium itself waited up to 500 ms). 0 never waits.
+    public static let liveResizeDeadline = Tunable<Double>.number(
+        "browserResize.liveResizeDeadline", section, "Page wait during window resize",
+        help: "While the window is resized, how long each Chromium page may hold a frame to draw at the new size, so it resizes with the window. 0 never waits; the page then shows its last frame until it draws.",
+        default: 0.016, range: 0...0.1, step: 0.001, unit: .seconds, code: "BrowserResizeTunables.liveResizeDeadline")
+
+    public static var all: [TunableDescriptor] { [pageBackdrop.descriptor, layerHosting.descriptor, syncDeadline.descriptor, liveResizeDeadline.descriptor] }
 }

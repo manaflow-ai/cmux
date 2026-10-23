@@ -59,11 +59,13 @@ final class CEFHostView: NSView {
     override func viewWillStartLiveResize() {
         super.viewWillStartLiveResize()
         liveResizeWillStart?()
+        layerHosting.windowLiveResize(active: true)
         updateBackground()
     }
 
     override func viewDidEndLiveResize() {
         super.viewDidEndLiveResize()
+        layerHosting.windowLiveResize(active: false)
         updateBackground()
     }
 
