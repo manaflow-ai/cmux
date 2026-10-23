@@ -335,13 +335,14 @@ final class CmuxSettingsFileStore {
             if malformedAutomation { snapshot.managedUserDefaults[SocketControlSettings.appStorageKey] = preservedSocketMode }
             if !issues.isEmpty {
                 configurationIssues = issues
-                let fontOnlyIssues = !snapshot.invalidManagedUserDefaultKeys.isEmpty
+                let managedFieldOnlyIssues = !snapshot.invalidManagedUserDefaultKeys.isEmpty
                     && issues.count == snapshot.invalidManagedUserDefaultKeys.count
-                    && issues.allSatisfy {
-                        $0.contains(CmuxJSONFontSettings.sidebarPath)
-                            || $0.contains(CmuxJSONFontSettings.surfaceTabBarPath)
+                    && issues.allSatisfy { issue in
+                        issue.contains(CmuxJSONFontSettings.sidebarPath)
+                            || issue.contains(CmuxJSONFontSettings.surfaceTabBarPath)
+                            || SurfaceTabBarLayoutSettings.allPaths.contains { issue.contains($0) }
                     }
-                if fontOnlyIssues, let lastGoodResolvedSettings {
+                if managedFieldOnlyIssues, let lastGoodResolvedSettings {
                     for key in snapshot.invalidManagedUserDefaultKeys {
                         if let previousValue = lastGoodResolvedSettings.managedUserDefaults[key] {
                             snapshot.managedUserDefaults[key] = previousValue
@@ -1680,7 +1681,8 @@ final class CmuxSettingsFileStore {
                 }
 
                 if change.defaultsKey == PaneChromeSettings.paneBorderColorKey ||
-                    change.defaultsKey == PaneChromeSettings.activePaneBorderColorKey {
+                    change.defaultsKey == PaneChromeSettings.activePaneBorderColorKey ||
+                    SurfaceTabBarLayoutSettings.allKeys.contains(change.defaultsKey) {
                     paneChromeDidChange = true
                 }
 
