@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 703393e4b4e99f70fa8b7761ae54eebd46dc54b8ed3ce9b83a597216d6f75cb1.
+// cmux-tui mux protocol 12, IR 5d3ff5ed972a33f5c4bb6a49a9dd6aeed437faa9b1ef702813aa5522af7f0eb0.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -3202,9 +3202,13 @@ pub struct SendRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub bytes: Optional<T::Base64>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub expect_agent: Optional<T::SendExpectAgent>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub expect_foreground: Optional<String>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub paste: Option<bool>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub submit: Option<bool>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub surface: Optional<T::Id>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -5285,11 +5289,17 @@ impl CmuxClient {
     }
 
     pub fn send(&mut self, request: SendRequest) -> Result<SendResult> {
+        if !request.expect_agent.is_missing() {
+            self.require_capability_field("send", "send-expect-agent-v1")?;
+        }
         if !request.expect_foreground.is_missing() {
             self.require_capability_field("send", "send-expect-foreground-v1")?;
         }
         if request.paste.is_some() {
             self.require_protocol_field("send", 7)?;
+        }
+        if request.submit.is_some() {
+            self.require_capability_field("send", "send-expect-agent-v1")?;
         }
         if !request.terminal_id.is_missing() {
             self.require_capability_field("send", "terminal-input-while-creating-v1")?;

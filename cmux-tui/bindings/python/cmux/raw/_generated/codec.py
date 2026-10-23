@@ -124,6 +124,7 @@ MODEL_BY_PATH = {
     'types/SavedTabGroupMember': models.SavedTabGroupMember,
     'types/SavedTabGroupRecord': models.SavedTabGroupRecord,
     'types/Screen': models.Screen,
+    'types/SendExpectAgent': models.SendExpectAgent,
     'types/ServerStatsConnections': models.ServerStatsConnections,
     'types/ServerStatsHistogram': models.ServerStatsHistogram,
     'types/ServerStatsJournalWriter': models.ServerStatsJournalWriter,
