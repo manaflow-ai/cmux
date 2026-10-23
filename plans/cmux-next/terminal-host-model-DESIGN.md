@@ -81,6 +81,12 @@ processes and ~2,000 threads fewer.
   the PTY's foreground group (no process-table scan, pty-holder.md 4): an interactive shell in
   its own group under login(1) is the foreground group, so it ends with its tab and hangs up
   its own jobs.
+- SPAWN never waits (holder-core review): the holder forks and returns; the child enters its
+  directory and searches `PATH` itself (as `execvp`, after its chdir), and reports a failure on
+  its close-on-exec pipe, which sits in the poll set. SPAWNED (with the custody dups) follows at
+  the pipe's end of file, ERROR SPAWN_FAILED when a report arrives. Before, the holder ran
+  `stat` on each `PATH` entry and blocked reading the pipe until the child's chdir and execve
+  finished, so one directory on a mount that stopped answering stopped every terminal.
 - One kqueue: the daemon link socket, every PTY master (EVFILT_READ), every child
   (EVFILT_PROC NOTE_EXIT, then `waitpid` for the status: the holder is the shells' parent). No
   thread per terminal; no timers.
