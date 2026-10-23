@@ -46,6 +46,16 @@ export function mountUpdateSurface(root: HTMLElement, kind: SurfaceKind, client:
           dismiss: () => call(SurfaceOps.dismiss),
         }
       : { openChangelog: () => call(SurfaceOps.openChangelog) };
+  // The sidebar host draws the Updated card's x natively (SidebarUpdatedCardHost: WebKit shows no
+  // hover and takes no first click while a Chromium page's window has the key). Escape closes the
+  // card once the page has the keyboard (a click into it).
+  if (kind === "updated") {
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape" || event.defaultPrevented || event.isComposing || latest === null) return;
+      event.preventDefault();
+      actions.dismiss?.();
+    });
+  }
   const react = createRoot(root);
   const spans = kind === "updated" && client ? new SpanNotes(client, () => render(latest)) : null;
   let latest: UpdateHighlights | null = null;
@@ -55,7 +65,13 @@ export function mountUpdateSurface(root: HTMLElement, kind: SurfaceKind, client:
       data === null ? null : kind === "ready" ? (
         <UpdateReadyHighlights data={data} strings={strings} actions={actions} />
       ) : (
-        <UpdatedCard data={data} span={spans?.notes(data.changelog)} strings={strings} actions={actions} />
+        <UpdatedCard
+          data={data}
+          span={spans?.notes(data.changelog)}
+          strings={strings}
+          actions={actions}
+          closeButton={false}
+        />
       ),
     );
     // The new rows exist after React's commit: size them from the next frame on.

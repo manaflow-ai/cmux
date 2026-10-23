@@ -295,7 +295,10 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         webView.navigationDelegate = self
         webView.uiDelegate = PageOpenPanel.shared
         webView.onUserEvent = { [weak self] in self?.noteTouch() }
-        webView.pageAcceptsFirstMouse = { [weak self] in self?.descriptor.acceptsFirstMouse ?? false }
+        webView.pageAcceptsFirstMouse = { [weak self] in
+            guard let self else { return false }
+            return descriptor.acceptsFirstMouse || engineOptions.acceptsFirstMouse
+        }
         setAccessibilityIdentifier("cmux.page.\(descriptor.id)")
         addSubview(webView)
         applyUIScale()
