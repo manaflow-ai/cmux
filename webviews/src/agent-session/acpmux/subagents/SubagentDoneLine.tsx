@@ -6,7 +6,9 @@
 // ("stopped by you", "interrupted by Send now"; subagentFold.ts `stopReasonOf`), nothing when it
 // does not. A click opens the subagent's view, its whole run. On hover, a subagent that did not
 // finish offers Restart, which asks the chat to run it again with its prompt (restart.ts), in the
-// hover row's buttons (conversation/MessageActions.tsx).
+// hover row's buttons (conversation/MessageActions.tsx). A subagent nothing named reads by its kind
+// ("Subagent finished: Explore"), else as "Subagent finished" alone, never by an id: its ids are the
+// line's tooltip, never its text (Leo: "this needs to be rendered better").
 import { useContext } from "react";
 import { formatDuration } from "../conversation/turns";
 import { Retry } from "../conversation/icons";
@@ -24,6 +26,14 @@ const DONE_LABEL: Record<string, StringKey> = {
   disconnected: "subagents.ended.disconnected",
 };
 
+/// The same, for a subagent with no name or kind to put after it.
+const DONE_LABEL_PLAIN: Record<string, StringKey> = {
+  completed: "subagents.endedPlain.completed",
+  failed: "subagents.endedPlain.failed",
+  cancelled: "subagents.endedPlain.cancelled",
+  disconnected: "subagents.endedPlain.disconnected",
+};
+
 export function SubagentDoneLine({ row }: { row: AcpmuxRow }) {
   const t = useT();
   const nav = useContext(SubagentNavContext);
@@ -32,7 +42,11 @@ export function SubagentDoneLine({ row }: { row: AcpmuxRow }) {
   const open = pane ?? nav;
   const agent = row.subagents?.[0];
   if (!agent) return null;
-  const label = t(DONE_LABEL[agent.state] ?? DONE_LABEL.completed!, { name: agent.name });
+  // "Subagent finished: …" says Subagent already: one nothing named shows its kind after it, or nothing.
+  const name = agent.unnamed ? agent.kind : agent.name;
+  const label = name
+    ? t(DONE_LABEL[agent.state] ?? DONE_LABEL.completed!, { name })
+    : t(DONE_LABEL_PLAIN[agent.state] ?? DONE_LABEL_PLAIN.completed!);
   const reasonKey = agent.state === "cancelled" && agent.stopReason ? STOP_REASON_LABEL[agent.stopReason] : undefined;
   const time = formatDuration(elapsed(agent, agent.endedAt ?? row.at));
   const restart = restartSubagent && canRestart(agent) ? restartSubagent : undefined;
@@ -44,6 +58,8 @@ export function SubagentDoneLine({ row }: { row: AcpmuxRow }) {
         data-state={agent.state}
         {...(agent.stopReason && { "data-reason": agent.stopReason })}
         disabled={!open}
+        // tooltip-allow: the ids that name this subagent to the harness (its session and Agent call, Claude's agentId), shown nowhere else
+        title={[agent.id, ...(agent.agentId ? [agent.agentId] : [])].join("\n")}
         onClick={() => open?.(agent.id)}
       >
         <span className="cv-tool__icon">

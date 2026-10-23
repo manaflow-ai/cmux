@@ -12,7 +12,7 @@ import { Icon } from "../icons/Icon";
 import { usePopover } from "../summary/usePopover";
 import { subagentStatus, subagentStatusLabel } from "../summary/SubagentStatusList";
 import { elapsed, running, useNow } from "./SubagentGroup";
-import type { Subagent } from "./subagentFold";
+import { subagentName, type Subagent } from "./subagentFold";
 
 /// A section's agents in its order, each nested agent moved right under the agent that spawned it
 /// when that one is in the section too, with how deep it then sits. An agent whose parent is in
@@ -115,7 +115,7 @@ export const AgentsPill = memo(function AgentsPill({
                       >
                         <span className="acpmux-agents-list__dot" aria-hidden="true" />
                         <span className="acpmux-agents-list__text">
-                          <span className="acpmux-agents-list__name">{agent.name}</span>
+                          <span className="acpmux-agents-list__name">{subagentName(agent, t)}</span>
                           <span className="acpmux-agents-list__state">{state}</span>
                         </span>
                         <span className="acpmux-agents-list__time">{formatDuration(elapsed(agent, now))}</span>
