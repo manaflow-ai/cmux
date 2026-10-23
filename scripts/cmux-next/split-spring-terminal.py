@@ -88,6 +88,10 @@ if "--suite=every-action" in sys.argv:
 if "--suite=typing-frame" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "typing-frame-bench.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=typing-frame"])
+# `--suite=switch-bench`: workspace, tab, space and group switches, light and STRESS, scripts/cmux-next/switch-bench.py (PL-switch).
+if "--suite=switch-bench" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "switch-bench.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=switch-bench"])
 if "--suite=anim-perf" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "anim-perf-terminal.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=anim-perf"])
