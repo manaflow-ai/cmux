@@ -52,7 +52,8 @@ export function toolRunCategories(items: readonly AcpmuxActivity[]): ToolRunCate
 /// the category with the most calls, the earlier one on a tie.
 export function mainToolRunCategory(items: readonly AcpmuxActivity[]): ToolRunCategory | undefined {
   const counts = new Map<ToolRunCategory, number>();
-  for (const item of items) if (item.tool) counts.set(callCategory(item.tool), (counts.get(callCategory(item.tool)) ?? 0) + 1);
+  for (const item of items)
+    if (item.tool) counts.set(callCategory(item.tool), (counts.get(callCategory(item.tool)) ?? 0) + 1);
   if (counts.has("edited")) return "edited";
   let main: ToolRunCategory | undefined;
   for (const [category, n] of counts) if (main === undefined || n > counts.get(main)!) main = category;

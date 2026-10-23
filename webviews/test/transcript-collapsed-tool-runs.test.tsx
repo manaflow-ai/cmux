@@ -77,9 +77,16 @@ const live = (work: AcpmuxActivity[]) => [
 ];
 const shaped = (work: AcpmuxActivity[]) => turnView(live(work), new Set(), { working: true, liveRuns: true });
 const words = (entry: AcpmuxRow) => renderToStaticMarkup(<ToolRows row={entry} />).replace(/<[^>]+>/g, " ");
-const toggles = (entry: AcpmuxRow) => (renderToStaticMarkup(<ToolRows row={entry} />).match(/aria-expanded/g) ?? []).length;
+const toggles = (entry: AcpmuxRow) =>
+  (renderToStaticMarkup(<ToolRows row={entry} />).match(/aria-expanded/g) ?? []).length;
 
-const mixed = [edit("src/client.ts"), read("src/client.ts"), command("bun test net"), edit("src/retry.ts"), read("src/retry.ts")];
+const mixed = [
+  edit("src/client.ts"),
+  read("src/client.ts"),
+  command("bun test net"),
+  edit("src/retry.ts"),
+  read("src/retry.ts"),
+];
 
 test("a run between two messages is one line naming its work in the order it came, edits too", () => {
   const work = shaped(mixed).find((entry) => entry.id === "work")!;
@@ -145,7 +152,8 @@ test("a run with an edit waiting for its permission is not collapsed", () => {
 
 test("the gallery's quieter versions dim the line", () => {
   const work = shaped([read("a.ts"), command("ls"), command("pwd")]).find((entry) => entry.id === "work")!;
-  const line = () => renderToStaticMarkup(<ToolRows row={work} />).match(/<button[^>]*class="cv-tool is-toggle[^"]*"/)![0];
+  const line = () =>
+    renderToStaticMarkup(<ToolRows row={work} />).match(/<button[^>]*class="cv-tool is-toggle[^"]*"/)![0];
   expect(line()).toContain("is-strong");
   configureToolRunLook("quiet-pencil");
   expect(line()).not.toContain("is-strong");

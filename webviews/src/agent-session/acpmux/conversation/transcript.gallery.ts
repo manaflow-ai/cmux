@@ -712,7 +712,10 @@ const collapsedRunChat = (extra: AcpmuxActivity[] = []) =>
       activity(
         [
           shellTool("rg -n retry src/net"),
-          tool("bun run typecheck", "execute", "in_progress", { command: "bun run typecheck", startedAt: minutesAgo(0.2) }),
+          tool("bun run typecheck", "execute", "in_progress", {
+            command: "bun run typecheck",
+            startedAt: minutesAgo(0.2),
+          }),
         ],
         0.3,
       ),

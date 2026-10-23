@@ -67,9 +67,7 @@ export function ToolRun({
         aria-controls={open ? list : undefined}
         onClick={() => setOpen((value) => !value)}
       >
-        <span className="cv-tool__icon">
-          {running ? <Spinner size={16} /> : runIcon(pencil ? "edited" : main)}
-        </span>
+        <span className="cv-tool__icon">{running ? <Spinner size={16} /> : runIcon(pencil ? "edited" : main)}</span>
         <span className="cv-tool__text" data-find-skip>
           {summary}
           {failures > 0 && <span className="cv-tool__failed"> {t("tools.failedCount", { n: failures })}</span>}
