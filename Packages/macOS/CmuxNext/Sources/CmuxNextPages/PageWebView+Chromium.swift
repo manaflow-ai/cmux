@@ -80,9 +80,15 @@ extension PageWebView {
         webView.isHidden = true
         let scripts = PageChromiumDocumentScripts(controller: webView.configuration.userContentController)
         let descriptor = descriptor
+        #if DEBUG
+        let traced = ChatOpenTrace.shared.isTraced(page: self)
+        #endif
         chromiumStart = Task { [weak self] in
             let page: any PageChromiumPage
             do {
+                #if DEBUG
+                ChatOpenTrace.shared.makingTracedPage = traced
+                #endif
                 page = try await hosting.makePage(descriptor)
             } catch {
                 self?.fallBackToWebKit(.chromiumFailed, detail: "\(error)")

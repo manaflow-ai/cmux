@@ -161,6 +161,7 @@ public final class ChatOpenTrace {
         page = nil
         view = nil
         chromiumPane = nil
+        makingTracedPage = false
         isArmed = true
         return true
     }
@@ -180,19 +181,29 @@ public final class ChatOpenTrace {
         if self.page == id { self.mark(mark) }
     }
 
-    /// Records `mark` of the pane `view` (the agent pane, or the pane hold's incoming view): once a
-    /// pane is bound, only it and views that contain it mark. Before the bind (a hold begins before
-    /// the pane shows its loading state) the first one counts.
+    /// Records `mark` of `view`: the agent pane, a view in it (its loading cover, while still in
+    /// it), or a view that contains it (the pane hold's incoming view). Once a pane is bound, any
+    /// other view's marks are not this open's; before the bind (a hold begins before the pane shows
+    /// its loading state) the first one counts.
     public func mark(_ mark: Mark, view: NSView) {
         guard isArmed else { return }
-        if let bound = self.view, bound !== view, !bound.isDescendant(of: view) { return }
+        if let bound = self.view, !view.isDescendant(of: bound), !bound.isDescendant(of: view) { return }
         self.mark(mark)
     }
 
-    /// Whether the Chromium page about to be made for an agent page is the traced chat's: its page
-    /// is bound and started Chromium, and no Chromium pane is bound yet. A traced WebKit page never
-    /// starts Chromium, so a later Chromium agent page does not bind.
-    public var awaitsChromiumPane: Bool { isArmed && page != nil && chromiumPane == nil && has(.chromiumStart) }
+    /// Set by the traced chat's own page right before it asks for its Chromium page
+    /// (`PageWebView.startChromium`); the Chromium host takes it in that same main-actor turn
+    /// (``takeMakingTracedPage()``), so it binds that page's pane (``chromiumPane``) and no other's.
+    public var makingTracedPage = false
+
+    /// Whether the Chromium page being made is the traced chat's; clears the flag.
+    public func takeMakingTracedPage() -> Bool {
+        defer { makingTracedPage = false }
+        return isArmed && makingTracedPage
+    }
+
+    /// Whether `page` is the traced chat's page.
+    public func isTraced(page: AnyObject) -> Bool { isArmed && self.page == ObjectIdentifier(page) }
 
     /// Records `mark` of the Chromium pane `pane`, when it is the traced chat's.
     public func mark(_ mark: Mark, chromiumPane pane: String?) {

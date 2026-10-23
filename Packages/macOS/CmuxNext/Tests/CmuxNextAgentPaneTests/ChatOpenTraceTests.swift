@@ -38,10 +38,26 @@ struct ChatOpenTraceTests {
         #expect(!trace.has(.loadingLeft), "another pane's loading state counted as the traced chat's")
         trace.mark(.holdEnd, view: container)
         #expect(trace.has(.holdEnd), "a hold over the view holding the traced pane is the open's")
-        trace.mark(.loadingLeft, view: pane)
-        #expect(trace.has(.loadingLeft))
-        #expect(!trace.awaitsChromiumPane, "a page that never started Chromium took a Chromium pane")
+        let cover = NSView()
+        pane.addSubview(cover)
+        trace.mark(.loadingLeft, view: cover)
+        #expect(trace.has(.loadingLeft), "the traced pane's own loading cover did not count")
         _ = trace.finish(timedOut: false)
+    }
+
+    @Test func onlyTheTracedPageIsTraced() {
+        let trace = ChatOpenTrace()
+        #expect(trace.begin())
+        let traced = NSObject()
+        let other = NSObject()
+        trace.mark(.chromiumStart, page: traced)
+        #expect(trace.isTraced(page: traced))
+        #expect(!trace.isTraced(page: other), "another agent page would bind its Chromium pane")
+        trace.makingTracedPage = true
+        #expect(trace.takeMakingTracedPage())
+        #expect(!trace.takeMakingTracedPage(), "a second Chromium page took the traced page's pane")
+        _ = trace.finish(timedOut: false)
+        #expect(!trace.isTraced(page: traced))
     }
 
     @Test func aHeldOpenHasNoEmptyStretch() {

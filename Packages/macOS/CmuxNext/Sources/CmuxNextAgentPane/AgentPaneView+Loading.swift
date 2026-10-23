@@ -155,10 +155,11 @@ public final class AgentPaneLoadingView: NSView {
     private func left(_ page: NSView?) {
         page?.alphaValue = 1
         leaving = false
-        removeFromSuperview()
         #if DEBUG
+        // Still in its pane: the pane's trace takes it.
         ChatOpenTrace.shared.mark(.loadingLeft, view: self)
         #endif
+        removeFromSuperview()
         alphaValue = 1
         let waiters = revealWaiters
         revealWaiters = []
