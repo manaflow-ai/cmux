@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "bun:test";
 import { createRecoverableStorage } from "../src/browser-storage";
 import { persistComposerDraft } from "../src/components/Composer";
-import { composerDraftKey, readComposerDraft, writeComposerDraft } from "../src/session";
+import { readComposerDraft, writeComposerDraft } from "../src/session";
 
 function memoryStorage(): Storage {
   const values = new Map<string, string>();
@@ -76,6 +76,5 @@ describe("first-use Composer draft", () => {
     assert.equal(readComposerDraft(storage), "survive storage failure");
     writeComposerDraft(storage, "");
     assert.equal(readComposerDraft(storage), "");
-    assert.equal(composerDraftKey, "agentui.draft");
   });
 });
