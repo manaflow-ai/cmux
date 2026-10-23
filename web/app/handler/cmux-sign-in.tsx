@@ -769,7 +769,9 @@ function useInIframe(): boolean {
 
 function readLastUsedProvider(): string | null {
   try {
-    return window.localStorage.getItem(LAST_USED_KEY);
+    // OAuth returns to the tab that started it; keep this marker tab-local so
+    // another tab cannot overwrite the provider for this callback.
+    return window.sessionStorage.getItem(LAST_USED_KEY);
   } catch {
     return null;
   }
@@ -907,7 +909,9 @@ function OAuthProviderButton({ provider, disabled, messages, lastUsedOverride, l
  */
 function startOAuth(app: ReturnType<typeof useHexclaveApp>, provider: string, loginHint: string | null = null): Promise<void> {
   try {
-    window.localStorage.setItem(LAST_USED_KEY, provider);
+    // The callback reads this marker after returning to this tab. A shared
+    // localStorage key lets another OAuth tab win the race.
+    window.sessionStorage.setItem(LAST_USED_KEY, provider);
   } catch {
     // The "last used" hint is a convenience only.
   }
