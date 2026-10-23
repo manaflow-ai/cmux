@@ -107,7 +107,7 @@ struct SignpostsTests {
         // Core Animation's commit observer on the main run loop.
         let layer = CALayer()
         layer.opacity = 0.5
-        let description: String = CFRunLoopCopyDescription(CFRunLoopGetMain()) as String
+        let description: String = CFCopyDescription(CFRunLoopGetMain()) as String
         let orders = Self.coreAnimationObserverOrders(in: description)
         pollingTurn()
         try #require(!orders.isEmpty, "no Core Animation commit observer on the main run loop:\n\(description.prefix(6_000))")
@@ -115,7 +115,7 @@ struct SignpostsTests {
     }
 
     /// The orders of the main run loop's Core Animation transaction observers in a
-    /// `CFRunLoopCopyDescription` dump (`order = 2000000, callout = _ZN2CA11Transaction...`).
+    /// `CFCopyDescription` dump of the run loop (`order = 2000000, callout = _ZN2CA11Transaction...`).
     private static func coreAnimationObserverOrders(in description: String) -> [Int] {
         guard let pattern = try? NSRegularExpression(pattern: #"order = (-?\d+), callout = ([^\s(]+)"#) else { return [] }
         let range = NSRange(description.startIndex..., in: description)
