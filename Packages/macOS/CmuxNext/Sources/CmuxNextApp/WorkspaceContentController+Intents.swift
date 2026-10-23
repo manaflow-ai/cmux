@@ -142,9 +142,12 @@ extension WorkspaceContentController {
         BenchSpans.measure("\(label).layout") { applyCurrent() }
         let logger = daemon.logger
         // [services, state]: the task pins this controller's owners until it ends (cx-6so P1b).
-        Task { [services, state] in
+        // After the create before it (a fast second press may target its stand-in).
+        let previous = pendingCreate
+        pendingCreate = Task { [services, state] in
             var landed = false
             defer { keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window) }
+            await previous?.value
             do {
                 _ = try await send()
                 BenchSpans.mark("\(label).reply.optimistic")
