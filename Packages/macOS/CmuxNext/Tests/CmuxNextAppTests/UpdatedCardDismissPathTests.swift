@@ -15,6 +15,20 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct UpdatedCardDismissPathTests {
+    @Test func anAlreadyHoveringCardRevealsItsXWhenItBecomesVisible() {
+        _ = NSApplication.shared
+        let window = PointerWindow(pointer: NSPoint(x: 50, y: 50))
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+        window.contentView = content
+        let host = SidebarUpdatedCardHost(frame: content.bounds)
+        content.addSubview(host)
+        host.configure(SidebarUpdatedCard(title: "Updated", whatsNewTitle: "See What's New", dismissLabel: "Close"))
+        host.isHidden = false
+        host.viewDidUnhide()
+
+        #expect(host.closeShown, "the x appears when the page makes the card visible under the pointer")
+    }
+
     @Test func thePagesXSendsTheSidebarsDismissIntent() async throws {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
@@ -66,4 +80,16 @@ struct UpdatedCardDismissPathTests {
         host.configure(nil)
         #expect(!host.closeShown, "a card that comes back waits for the pointer again")
     }
+}
+
+private final class PointerWindow: NSWindow {
+    private let pointer: NSPoint
+
+    init(pointer: NSPoint) {
+        self.pointer = pointer
+        super.init(contentRect: NSRect(x: 0, y: 0, width: 200, height: 120),
+                   styleMask: .borderless, backing: .buffered, defer: true)
+    }
+
+    override var mouseLocationOutsideOfEventStream: NSPoint { pointer }
 }
