@@ -159,9 +159,9 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
                 <EditDiff key={file.path} file={file} reveal={reveal} />
               ))}
             </div>
-          ) : (
-            <ToolOutput id={detailsId} result={result!} reveal={reveal} />
-          )}
+          ) : result ? (
+            <ToolOutput id={detailsId} result={result} reveal={reveal} />
+          ) : null}
         </div>
       )}
     </>
