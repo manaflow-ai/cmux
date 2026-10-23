@@ -283,6 +283,72 @@ def scenario_tag_held_while_removing():
             _check(code != 0, f"a tour asking for {name}'s tag mid-delete is refused (exit {code})")
 
 
+def run_from(path, age_seconds):
+    """A copy of sleep started from inside path's app bundle, as a tour's app starts its chief host, then
+    the dir aged back to age_seconds (copying the binary in touches it)."""
+    import shutil
+
+    binary = os.path.join(path, "Build", "Products", "Debug", "cmux DEV x.app", "Contents", "Resources", "bin",
+                          "optchat-chief")
+    os.makedirs(os.path.dirname(binary))
+    shutil.copy(shutil.which("sleep"), binary)
+    child = subprocess.Popen([binary, "600"], start_new_session=True)
+    JOBS.append(child)
+    time.sleep(0.3)
+    stamp = time.time() - age_seconds
+    for current, dirs, files in os.walk(path, topdown=False):
+        for entry in files + dirs:
+            os.utime(os.path.join(current, entry), (stamp, stamp))
+        os.utime(current, (stamp, stamp))
+    return child
+
+
+def scenario_dead_tours_app():
+    """Run 39199091515 was cancelled while its app started; the chief host and acpmux daemon it left ran from
+    cmux-ci-media-pr-21726-head for days and held the dir open, so the prune kept 10 GiB on cmux10s. When
+    every holder runs from inside the dir and no tour holds its tag, the prune ends them and removes it. A dir
+    that anything else holds, a held tag's, and a fresh build's stay, and so do their processes."""
+    lock = os.path.join(ROOT, "scripts", "ci", "media_tag_lock.py")
+    with tempfile.TemporaryDirectory() as root, tempfile.TemporaryDirectory() as outside, \
+            tempfile.TemporaryDirectory() as locks:
+        build_tree(root, outside)
+        dead = run_from(make_dir(root, "cmux-ci-media-pr-7-head", 80 * HOUR), 80 * HOUR)
+        shared_dir = make_dir(root, "cmux-ci-media-pr-8-head", 80 * HOUR)
+        shared = run_from(shared_dir, 80 * HOUR)
+        held_tag = run_from(make_dir(root, "cmux-ci-media-pr-10-head", 80 * HOUR), 80 * HOUR)
+        fresh = run_from(make_dir(root, "cmux-ci-media-pr-11-head", 80 * HOUR), 60)
+        held = subprocess.run([sys.executable, lock, "hold", "--tag", "ci-media-pr-10", "--lock-dir", locks,
+                               "--wait", "0", *held_by_a_running_job()], capture_output=True, text=True)
+        _check(held.returncode == 0, "a tour holds ci-media-pr-10")
+        if any(process.poll() is not None for process in (dead, shared, held_tag, fresh)):
+            # macOS kills a copied system binary (exit 137); the Linux guard lane runs this scenario.
+            print("skip: this platform will not run a copied sleep")
+            return
+        child = hold_open(os.path.join(root, "cmux-ci-media-pr-3-base"))
+        other = hold_open(shared_dir)
+        try:
+            result = subprocess.run([sys.executable, SCRIPT, "--root", root, "--keep-tag", "ci-media-pr-9-base",
+                                     "--keep-tag", "ci-media-pr-9-head", "--keep-others", "0", "--lock-dir", locks],
+                                    capture_output=True, text=True, timeout=300)
+        finally:
+            for process in (child, other):
+                process.kill()
+                process.wait()
+        print(result.stdout + result.stderr)
+        _check(result.returncode == 0, "the prune exits 0")
+        names = remaining(root)
+        time.sleep(0.5)
+        _check(dead.poll() is not None, "ends the dead tour's own process")
+        _check("cmux-ci-media-pr-7-head" not in names, "removes the dir its dead tour's app held open")
+        _check(shared.poll() is None and "cmux-ci-media-pr-8-head" in names,
+               "keeps a dir another process also holds, and its app")
+        _check(held_tag.poll() is None and "cmux-ci-media-pr-10-head" in names,
+               "keeps a held tag's dir, and its app")
+        _check(fresh.poll() is None and "cmux-ci-media-pr-11-head" in names,
+               "keeps a freshly built dir, and its app")
+        expect_kept_everywhere(root, outside, names)
+
+
 def workflow_step():
     with open(WORKFLOW) as handle:
         workflow = yaml.safe_load(handle)
@@ -405,6 +471,7 @@ def checks():
     scenario_old_head_prunes_with_the_lock("no-lock")
     scenario_old_head_prunes_with_the_lock("hold-only")
     scenario_workflow_step()
+    scenario_dead_tours_app()
     if FAILURES:
         print(f"{len(FAILURES)} failure(s)")
         return 1
