@@ -1,7 +1,8 @@
 //! The holder's single-threaded event loop.
 //!
 //! One `poll` set: the listening socket, the daemon link, connections that
-//! have not said HELLO yet, a self-pipe for SIGCHLD (and a launchd SIGTERM)
+//! have not said HELLO yet, links another daemon superseded that still
+//! finish their last frame, a self-pipe for SIGCHLD (and a launchd SIGTERM)
 //! and every PTY master. While no daemon is attached to a terminal its
 //! output is read as soon as it is ready and its ring keeps the newest
 //! bytes. While a daemon is attached nothing is lost: the holder reads a
@@ -196,6 +197,52 @@ impl Link {
     }
 }
 
+/// A link another daemon of the session took the place of. Its queued
+/// frames are dropped, as for any link that ends; the frame the socket took
+/// part of is finished, so the stream stays well formed, and ERROR
+/// SUPERSEDED follows as its last frame, whatever was queued. Its daemon
+/// then knows not to take the holder back (two daemons would take it from
+/// each other in turn). Polled for POLLOUT until it is written: at most a
+/// DATA chunk and a header, which the daemon's reader thread drains, or a
+/// write error once that daemon is gone.
+struct Retiring {
+    stream: UnixStream,
+    bytes: Vec<u8>,
+    written: usize,
+}
+
+impl Retiring {
+    fn new(link: Link) -> Self {
+        let mut bytes = link
+            .current
+            .filter(|frame| frame.written > 0)
+            .map(|frame| frame.bytes[frame.written..].to_vec())
+            .unwrap_or_default();
+        let payload = Out::default()
+            .u16(Kind::Hello as u16)
+            .u16(error_code::SUPERSEDED)
+            .bytes(b"another daemon took this holder")
+            .0;
+        bytes.extend_from_slice(&wire::encode(Kind::Error, 0, &payload));
+        Self { stream: link.stream, bytes, written: 0 }
+    }
+
+    /// Write what the socket takes. True once there is nothing more to do:
+    /// every byte is written (the stream closes as it drops), or the
+    /// daemon is gone.
+    fn write(&mut self) -> bool {
+        while self.written < self.bytes.len() {
+            match wire::send_with_fds(self.stream.as_raw_fd(), &self.bytes[self.written..], &[]) {
+                Ok(0) => return false,
+                Ok(n) => self.written += n,
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => return false,
+                Err(_) => return true,
+            }
+        }
+        true
+    }
+}
+
 /// A connection that has not authenticated yet. It never touches the
 /// current link: a liveness probe, a stale token or any local tool cannot
 /// drop the daemon that is attached.
@@ -237,6 +284,8 @@ pub struct Holder {
     socket: Option<PathBuf>,
     token: [u8; 32],
     link: Option<Link>,
+    /// Superseded links still writing their last frame.
+    retiring: Vec<Retiring>,
     pending: Vec<Pending>,
     terminals: BTreeMap<u32, Terminal>,
     /// Terminals whose child ended but whose master is not at end of file
@@ -340,6 +389,7 @@ impl Holder {
             socket,
             token,
             link: None,
+            retiring: Vec::new(),
             pending: Vec::new(),
             terminals: BTreeMap::new(),
             ending: Vec::new(),
@@ -401,6 +451,11 @@ impl Holder {
             fds.push(pollfd(link.stream.as_raw_fd(), events));
             fds.len() - 1
         });
+        let first_retiring = fds.len();
+        for retiring in &self.retiring {
+            fds.push(pollfd(retiring.stream.as_raw_fd(), libc::POLLOUT));
+        }
+        let retiring_count = self.retiring.len();
         let first_pending = fds.len();
         for pending in &self.pending {
             fds.push(pollfd(pending.stream.as_raw_fd(), libc::POLLIN));
@@ -440,6 +495,13 @@ impl Holder {
         }
         if fds[1].revents != 0 {
             self.reap();
+        }
+        // From the back, before anything adds to `retiring`: swap_remove
+        // moves only entries already handled.
+        for index in (0..retiring_count).rev() {
+            if fds[first_retiring + index].revents != 0 && self.retiring[index].write() {
+                self.retiring.swap_remove(index);
+            }
         }
         for (index, chan) in chans.iter().enumerate() {
             let revents = fds[first_terminal + index].revents;
@@ -586,8 +648,8 @@ impl Holder {
     }
 
     /// Make an authenticated connection the daemon link. The daemon it
-    /// replaces hears SUPERSEDED (when its queue lets that through) so it
-    /// does not take the holder back.
+    /// replaces always hears SUPERSEDED, however much was queued for it
+    /// ([`Retiring`]), so it does not take the holder back.
     fn promote(&mut self, pending: Pending, version: u16, listing: Listing) {
         // A daemon that died with frames still unread (its last ACKs) ended
         // before this one connected: its end is a lost link (a strike, the
@@ -597,19 +659,12 @@ impl Holder {
         if self.link_ended() {
             self.drop_link(LinkDrop::Lost);
         }
-        if self.flush_link()
-            && let Some(old) = self.link.as_ref()
-            && !old.has_output()
-        {
-            let payload = Out::default()
-                .u16(Kind::Hello as u16)
-                .u16(error_code::SUPERSEDED)
-                .bytes(b"another daemon took this holder")
-                .0;
-            let frame = wire::encode(Kind::Error, 0, &payload);
-            let _ = wire::send_with_fds(old.stream.as_raw_fd(), &frame, &[]);
+        if let Some(old) = self.drop_link(LinkDrop::Superseded) {
+            let mut retiring = Retiring::new(old);
+            if !retiring.write() {
+                self.retiring.push(retiring);
+            }
         }
-        self.drop_link(LinkDrop::Superseded);
         self.link = Some(Link {
             stream: pending.stream,
             reader: pending.reader,
@@ -629,13 +684,12 @@ impl Holder {
         }
     }
 
-    /// Forget the link. A link that was lost counts a strike against each
-    /// terminal it was streaming (the poison pill); a DETACH before it
-    /// ended, or another daemon taking the holder, does not.
-    fn drop_link(&mut self, why: LinkDrop) {
-        if self.link.take().is_none() {
-            return;
-        }
+    /// Forget the link and return it (dropping it closes it). A link that
+    /// was lost counts a strike against each terminal it was streaming (the
+    /// poison pill); a DETACH before it ended, or another daemon taking the
+    /// holder, does not.
+    fn drop_link(&mut self, why: LinkDrop) -> Option<Link> {
+        let link = self.link.take()?;
         let now = Instant::now();
         for terminal in self.terminals.values_mut() {
             if why == LinkDrop::Lost && terminal.sent.is_some() {
@@ -645,6 +699,7 @@ impl Holder {
             terminal.held = None;
             terminal.exit_sent = false;
         }
+        Some(link)
     }
 
     /// Read and handle the link's frames. False when the link is lost.
