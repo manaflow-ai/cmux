@@ -533,8 +533,8 @@ def one_run(tag, mode, timeout, profile=None):
             launch.stalls = launch_stalls(tag)
         if mode == "kept":
             # A measurement window, not a wait for a condition: a launch that restarts
-            # hidden terminals does so within it (eight at a time, each answering when
-            # its worker started); one that does not has nothing to wait for.
+            # hidden terminals does so within it (each `restart-tab` answers when its
+            # worker started); one that does not has nothing to wait for.
             time.sleep(KEPT_SETTLE_S)
             terminals = terminal_states(tag)
     finally:

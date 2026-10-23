@@ -1,7 +1,13 @@
 import Foundation
 
 extension DaemonConnection {
-    /// Starts a shell in each of the kept tabs `surfaces` in place, together (`restart-tab` of a
+    /// The kept-tab starts ``restartKeptTabs(_:)`` keeps in flight: each starts a host and a
+    /// shell, and a STRESS workspace shows 24 kept terminals (more with multi-view), so an
+    /// unbounded burst would fork them all at once beside the first frames.
+    static let keptTabRestartsInFlight = 8
+
+    /// Starts a shell in each of the kept tabs `surfaces` in place, up to
+    /// ``keptTabRestartsInFlight`` at a time (`restart-tab` of a
     /// dead tab with the workspace store's `relaunch` record: End Sessions, Keep Layout, or a tab
     /// `park-tabs` parked). Each keeps its tab id, slot, name, pin and group under the same
     /// terminal id, and its shell starts in the record's directory (else home), so the pane, its
@@ -13,12 +19,15 @@ extension DaemonConnection {
     /// - Returns: The tabs the daemon refused, each with its failure line (they stay dead).
     public func restartKeptTabs(_ surfaces: [SurfaceID]) async -> [SurfaceID: String] {
         await withTaskGroup(of: (SurfaceID, String)?.self) { group in
-            for surface in surfaces {
+            var pending = surfaces.makeIterator()
+            for _ in 0..<Self.keptTabRestartsInFlight {
+                guard let surface = pending.next() else { break }
                 group.addTask { await self.restartKeptTab(surface) }
             }
             var refused: [SurfaceID: String] = [:]
             for await failure in group {
                 if let failure { refused[failure.0] = failure.1 }
+                if let surface = pending.next() { group.addTask { await self.restartKeptTab(surface) } }
             }
             return refused
         }

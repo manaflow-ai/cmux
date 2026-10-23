@@ -187,9 +187,10 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         }
     }
 
-    /// The shown workspace, and with `sidebar.multiView` the ones beside it.
+    /// The shown workspace, and with `sidebar.multiView` on the ones beside it (a view set saved
+    /// while it was on is not on screen once it is off).
     private static func shownWorkspaceIDs(_ state: WindowState) -> [String] {
-        [state.workspaceID].compactMap { $0 } + (state.viewSet?.ids ?? [])
+        [state.workspaceID].compactMap { $0 } + ((multiViewEnabled ? state.viewSet?.ids : nil) ?? [])
     }
 
     /// Reads what starting the shown workspace's kept tabs depends on: the request; for each
@@ -197,7 +198,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     /// came from; and the shown workspaces' tabs (their set and which are dead). O(machines + tabs
     /// shown).
     private static func readKeptTabInputs(_ state: WindowState, machines: MachineRegistry) {
-        _ = (state.workspaceID, state.viewSet)
+        _ = (state.workspaceID, state.viewSet, multiViewEnabled)
         for daemon in machines.daemons {
             _ = (daemon.connection.map { ObjectIdentifier($0) }, daemon.store.identity?.generation, daemon.store.isLoaded,
                  daemon.store.generation, daemon.store.workspaces.count)
