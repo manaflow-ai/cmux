@@ -33,12 +33,12 @@ extension PageHostPool {
 
     private func build() async {
         let generation = rateGeneration
-        // A Low Power Mode change while this build ran: its host has the old rate, so the build
-        // starts over (lowPowerModeChanged cannot schedule one while this one runs).
-        var rebuild = false
+        // A Low Power Mode change while this build ran (before the park, during a turn after it, or
+        // during the load): lowPowerModeChanged dropped the spare but could not schedule a build
+        // while this one ran, so every way out of this build after a change schedules the next.
         defer {
             building = false
-            if rebuild { scheduleBuild() }
+            if generation != rateGeneration { scheduleBuild() }
         }
         guard let recipe = measure("pool.makeSpare.configure", {
             spareRecipe()
@@ -48,7 +48,6 @@ extension PageHostPool {
         host.countsTouches = false
         await Self.nextTurn()
         guard isLikely, spare == nil, generation == rateGeneration, let content = target?.contentView else {
-            rebuild = generation != rateGeneration
             host.close()
             return
         }
