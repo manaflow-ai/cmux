@@ -195,6 +195,24 @@ fn moves_keep_unarchived_items_above_the_archived_tail() {
 }
 
 #[test]
+fn items_archived_together_come_back_in_their_order() {
+    let mut doc = fixture();
+    // w5 and w6 sit together after the group; the selection names them in either order.
+    run(&mut doc, vec![archive(&["w6", "w5"])]);
+    assert_eq!(list(&doc, &machine(), None), ["w4", "g1", "w5", "w6"]);
+    assert!(archived(&doc, &item_id("w5")) && archived(&doc, &item_id("w6")));
+    run(&mut doc, vec![archive(&["w4"])]);
+    assert_eq!(list(&doc, &machine(), None), ["g1", "w5", "w6", "w4"]);
+    run(&mut doc, vec![unarchive(&["w6", "w5", "w4"])]);
+    assert_eq!(list(&doc, &machine(), None), ["w4", "g1", "w5", "w6"]);
+    // Pin unarchives several the same way.
+    run(&mut doc, vec![archive(&["w1", "w2"])]);
+    assert_eq!(list(&doc, &machine(), Some("g1")), ["w3", "w1", "w2"]);
+    run(&mut doc, vec![Op::Pin { items: vec![item_id("w2"), item_id("w1")] }]);
+    assert_eq!(list(&doc, &machine(), Some("g1")), ["w2", "w1", "w3"]);
+}
+
+#[test]
 fn archive_unpins_in_the_group_and_pin_unarchives() {
     let mut doc = fixture();
     run(&mut doc, vec![Op::Pin { items: vec![item_id("w3")] }]);
