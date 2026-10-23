@@ -21,6 +21,25 @@ export const ChatAccountsContext = createContext<ChatAccounts | undefined>(undef
 
 export const useChatAccounts = () => useContext(ChatAccountsContext);
 
+/// The route kinds that are cmux's own CodeRouter (acpmux routes.rs): the local router and the hosted one.
+const CODEROUTER_KINDS = new Set(["local-coderouter", "cmux-router"]);
+
+/// What a failed turn can offer of CodeRouter (TurnRows.tsx TurnFailure): `"on"` when the chat runs on
+/// a CodeRouter route already, the CodeRouter route that serves it when it has one, else undefined.
+export function codeRouterOffer(list: ChatAccountList): ChatAccount | "on" | undefined {
+  const isCodeRouter = (account: ChatAccount) => CODEROUTER_KINDS.has(account.kind ?? "");
+  const active = list.accounts.find((account) => account.id === list.active);
+  if (active && isCodeRouter(active)) return "on";
+  return list.accounts.find(isCodeRouter);
+}
+
+/// A failed turn's CodeRouter action for `sessionId` (turnActions.ts `ownRoute`): what its routes
+/// offer, and the move onto one, as the composer's Account menu moves it.
+export const ownRouteOf = (accounts: ChatAccounts, sessionId: string) => ({
+  find: () => accounts.list(sessionId).then(codeRouterOffer),
+  use: (routeId: string) => accounts.set(sessionId, routeId),
+});
+
 /// A `_acpmux/route/list` reply as the chat's accounts. A route that says it does not serve the
 /// chat's family is left out; an older acpmux names no `serves`, and then every route is listed.
 export function readChatAccounts(reply: unknown): ChatAccountList {
