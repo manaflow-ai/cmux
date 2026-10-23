@@ -32,6 +32,8 @@ import { useT } from "../i18n";
 import { failureCopy, failureKind, failureRecovery, type FailureRoute } from "../failureCopy";
 import { experimentArm } from "../../../experiments/experiment";
 import { turnErrorCard } from "./turnErrorCard.experiment";
+import { codeRouterOffer } from "./codeRouterOffer.experiment";
+import { CodeRouterAction, useCodeRouterChoice } from "./CodeRouterOffer";
 import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
 
 /// The "Worked for 15s" line; it opens the turn's commentary and tool calls.
@@ -366,10 +368,18 @@ function TurnFailure({
   const offersRetry = recovery !== undefined && retry !== undefined;
   // The way out goes first and reads as the card's one filled button.
   const switchFirst = offersSwitch && (recovery === "switch-model" || !offersRetry);
+  // cmux's own route for a key, sign-in or capacity failure (CodeRouterOffer.tsx), placed by the
+  // `coderouter-offer` arm. It takes the filled button only in the `primary` arm, or when it is the
+  // only way out; the card keeps exactly one.
+  const codeRouter = useCodeRouterChoice(kind, route, retry !== undefined);
+  const offerArm = experimentArm(codeRouterOffer);
+  const offerLeads = codeRouter !== undefined && offerArm === "primary";
+  const offerFilled =
+    offerLeads || (codeRouter !== undefined && offerArm === "button" && !offersSwitch && !offersRetry);
   const switchButton = offersSwitch && (
     <button
       type="button"
-      className={`cv-turn-auth-action${switchFirst ? " cv-turn-error__primary" : ""}`}
+      className={`cv-turn-auth-action${switchFirst && !offerLeads ? " cv-turn-error__primary" : ""}`}
       onClick={switchModel}
     >
       {t("turn.failure.switchModel")}
@@ -382,20 +392,38 @@ function TurnFailure({
     >
       <span className="cv-turn-error__cause">
         {arm !== "note" && <AlertCircle size={14} className="cv-turn-error__icon" />}
-        <span className="text-fg">{sentence}</span>
+        <span className="text-fg">
+          {sentence}
+          {codeRouter && offerArm === "link" && (
+            <>
+              {" "}
+              <CodeRouterAction choice={codeRouter} retry={retry} className="cv-turn-error__offer-link" />
+            </>
+          )}
+        </span>
       </span>
       <span className="cv-turn-error__actions">
+        {offerLeads && (
+          <CodeRouterAction choice={codeRouter} retry={retry} className="cv-turn-auth-action cv-turn-error__primary" />
+        )}
         {switchFirst && switchButton}
         {offersRetry && (
           <button
             type="button"
-            className={`cv-turn-auth-action${switchFirst ? "" : " cv-turn-error__primary"}`}
+            className={`cv-turn-auth-action${switchFirst || offerLeads ? "" : " cv-turn-error__primary"}`}
             onClick={retry}
           >
             {t("turn.retry")}
           </button>
         )}
         {!switchFirst && switchButton}
+        {codeRouter && offerArm === "button" && (
+          <CodeRouterAction
+            choice={codeRouter}
+            retry={retry}
+            className={`cv-turn-auth-action${offerFilled ? " cv-turn-error__primary" : ""}`}
+          />
+        )}
         {message && (
           <details className="cv-turn-error__details" onToggle={(event) => setDetailsOpen(event.currentTarget.open)}>
             {/* The chat's chevron, as on Worked for, not the browser's triangle. */}
