@@ -18,6 +18,7 @@ import { useUpdateOffer } from "./HarnessHealthNotice";
 import { CHAT_COLUMN, MODEL_PICKER_MIN_HEIGHT, pickerHeightBounds, type ModelPickerProps } from "./modelPickerLayout";
 import { curatedSections, modelSections } from "./modelSections";
 import { effortWords, fitsQuery, modelEffort, parseQuery } from "./modelQuery";
+import { groupVariants } from "./modelVariants";
 import { registerPicker } from "./pickerOpeners";
 import { QuickModelMenu, type QuickFamily, type QuickModel } from "./QuickModelMenu";
 import { useUiAnchor } from "../../ui/anchor";
@@ -66,6 +67,12 @@ type ModelChoice = {
   fast?: boolean;
   /** The catalog release an alias row stands for, which the curated list names. */
   release?: string;
+  /** The compact menu's one row for a model several providers serve: each provider's row. */
+  offers?: (ModelChoice & { provider: string })[];
+  /** The provider the row lands ("OpenRouter"), for a harness that routes to several. */
+  provider?: string;
+  /** A bracketed note the model's name carried ("New"). */
+  tag?: string;
 };
 
 /// A harness's models, each once: its curated top models, else each family's newest (`latest`),
@@ -74,7 +81,10 @@ type ModelChoice = {
 /// itself by its short name under its harness ("Opus 5.5"). Choices are memoized per harness
 /// entry, so the owner map keys stay the same objects between renders.
 const choiceCache = new WeakMap<HarnessChoice, { latest: ModelChoice[]; older: ModelChoice[] }>();
-function sectionsFor(entry: HarnessChoice | undefined): { latest: ModelChoice[]; older: ModelChoice[] } {
+function sectionsFor(entry: HarnessChoice | undefined): {
+  latest: ModelChoice[];
+  older: ModelChoice[];
+} {
   if (!entry) return { latest: [], older: [] };
   const cached = choiceCache.get(entry);
   if (cached) return cached;
@@ -109,7 +119,10 @@ function shownSections(
   const sections = sectionsFor(entry);
   const runs = sections.older.find((choice) => choice.id === model);
   if (!runs) return sections;
-  return { latest: [...sections.latest, runs], older: sections.older.filter((choice) => choice !== runs) };
+  return {
+    latest: [...sections.latest, runs],
+    older: sections.older.filter((choice) => choice !== runs),
+  };
 }
 
 /// How many models the compact menu lists at once (Leo 2026-10-21: "why are there so many models!?
@@ -123,15 +136,28 @@ const isVariant = (model: ModelChoice) => model.id.includes("[") || model.name.i
 
 /// The compact menu's rows: up to QUICK_ROWS of the harness's top models, plain models before
 /// variants, and the model the chat runs (`model`) always among them, in the list's order; `more` is
-/// every other model, in order.
+/// every other model, in order. A model several providers serve is one row (modelVariants.ts): it
+/// lands the running provider's, else the first listed, and `offers` holds every provider's.
 function quickSections(
   entry: HarnessChoice | undefined,
   model: string | undefined,
   usable: (choice: ModelChoice) => boolean = () => true,
 ): { shown: ModelChoice[]; more: ModelChoice[] } {
   const { latest, older } = sectionsFor(entry);
-  const all = [...latest, ...older].filter(usable);
-  const top = latest.filter(usable);
+  const latestIds = new Set(latest.map((choice) => choice.id));
+  const all = groupVariants([...latest, ...older].filter(usable), model).map(
+    ({ model: choice, name, tag, offers }): ModelChoice => ({
+      ...choice,
+      name,
+      ...(tag ? { tag } : {}),
+      ...(offers.find((offer) => offer.model === choice)?.provider
+        ? { provider: offers.find((offer) => offer.model === choice)!.provider }
+        : {}),
+      ...(offers.length > 1 ? { offers: offers.map((offer) => ({ ...offer.model, provider: offer.provider })) } : {}),
+    }),
+  );
+  // A model is a top one when any provider's row of it is.
+  const top = all.filter((choice) => (choice.offers ?? [choice]).some((offer) => latestIds.has(offer.id)));
   const picks = [...top.filter((choice) => !isVariant(choice)), ...top.filter(isVariant)].slice(0, QUICK_ROWS);
   const runs = all.find((choice) => choice.id === model);
   const chosen = new Set(runs && !picks.includes(runs) ? [...picks.slice(0, QUICK_ROWS - 1), runs] : picks);
@@ -203,6 +229,26 @@ function uniqueHarnesses(catalog: ModelPickerProps["catalog"]): HarnessChoice[] 
     existing.top ??= entry.top;
   }
   return [...result, ...profiles];
+}
+
+/// A model as a row of the compact menu's tab `family`, with its providers' rows when it has several.
+function quickRow(family: string, model: ModelChoice): QuickModel {
+  return {
+    id: model.id,
+    name: model.name,
+    family,
+    ...(model.unavailable ? { disabled: true } : {}),
+    ...(model.tag ? { tag: model.tag } : {}),
+    ...(model.provider ? { provider: model.provider } : {}),
+    ...(model.offers
+      ? {
+          offers: model.offers.map((offer) => ({
+            ...quickRow(family, offer),
+            provider: offer.provider,
+          })),
+        }
+      : {}),
+  };
 }
 
 /// The rail's Starred tab (never a harness id).
@@ -549,12 +595,7 @@ export function ModelPicker(props: ModelPickerProps) {
     // A started chat's compact menu lists its own harness's models with no rail; More models
     // opens the full picker, which has no rail either.
     if (!quick || harnessFixed) return undefined;
-    const row = (entry: HarnessChoice, model: ModelChoice): QuickModel => ({
-      id: model.id,
-      name: model.name,
-      family: entry.id,
-      ...(model.unavailable ? { disabled: true } : {}),
-    });
+    const row = (entry: HarnessChoice, model: ModelChoice) => quickRow(entry.id, model);
     const startable = harnesses.filter(
       (entry) => entry.pickable && !blockedProfile(entry) && entry.folder?.state !== "needs-enable",
     );
@@ -828,7 +869,9 @@ export function ModelPicker(props: ModelPickerProps) {
             // This harness's top models, the running one among them; a signed-out harness lists none.
             models:
               current && loginFor(current) === undefined
-                ? quickSections(current, props.model, (model) => !model.unavailable).shown
+                ? quickSections(current, props.model, (model) => !model.unavailable).shown.map((model) =>
+                    quickRow("", model),
+                  )
                 : [],
             current: props.model,
             onModel: (id) => onLand(id),
