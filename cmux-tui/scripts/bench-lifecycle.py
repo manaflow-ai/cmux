@@ -213,7 +213,7 @@ def main():
         _, base_ws = pane_of(c, base["surface"])
         c.call("close-workspace", workspace=base_ws, end_terminals=True)
         try:
-            st = c.call("server-stats", include=["write_path"])
+            st = c.call("server-stats", include=["write_path", "resource_projection"])
             result["server_stats"] = st.get("data")
         except Exception:  # noqa: BLE001
             pass
