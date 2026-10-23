@@ -446,6 +446,43 @@ class LocalizationDebtRatchetTests(unittest.TestCase):
         self.assertEqual(status, 1)
         self.assertIn("may only go down", output)
 
+    def test_a_moved_catalog_keeps_its_debt_and_the_bases_baseline(self):
+        # B1 (ba5e6df99f9) moved catalogs between packages: the ratchet read each as new debt
+        # at the new path and as a baseline raised above the base's.
+        self.write({"open": self.copied("Open"), "close": self.review("Close")})
+        self.check("--write-baseline")
+        base = self.root / "base-baseline.json"
+        base.write_text(self.baseline.read_text(encoding="utf-8"), encoding="utf-8")
+        moved = self.root / "Packages/macOS/CmuxNext/Sources/Other/Localizable.xcstrings"
+        moved.parent.mkdir(parents=True)
+        self.catalog.rename(moved)
+        self.assertEqual(self.check("--write-baseline")[0], 0)
+        self.assertEqual(json.loads(self.baseline.read_text(encoding="utf-8"))["catalogs"],
+                         {"Packages/macOS/CmuxNext/Sources/Other/Localizable.xcstrings":
+                          {"identical": 1, "needs_review": 1}})
+        status, output = self.check("--base-baseline", str(base))
+        self.assertEqual(status, 0, output)
+        self.assertIn("keeps the base's baseline", output)
+        # A moved catalog still may not grow, and a key whose file stays is not a move.
+        moved.write_text(json.dumps(catalog({"open": self.copied("Open"), "save": self.copied("Save")})),
+                         encoding="utf-8")
+        self.assertEqual(self.check("--base-baseline", str(base))[0], 1)
+
+    def test_a_baseline_key_whose_file_is_still_there_is_not_a_move(self):
+        self.write({"open": self.copied("Open")})
+        self.check("--write-baseline")
+        base = self.root / "base-baseline.json"
+        base.write_text(self.baseline.read_text(encoding="utf-8"), encoding="utf-8")
+        copy = self.root / "Packages/macOS/CmuxNext/Sources/Other/Localizable.xcstrings"
+        copy.parent.mkdir(parents=True)
+        copy.write_text(self.catalog.read_text(encoding="utf-8"), encoding="utf-8")
+        # A hand edit that moves the key to the copy while the old file stays in the tree.
+        self.baseline.write_text(MODULE.debt_json({str(copy.relative_to(self.root)): {"identical": 1}}),
+                                 encoding="utf-8")
+        status, output = self.check("--base-baseline", str(base))
+        self.assertEqual(status, 1)
+        self.assertNotIn("keeps the base's baseline", output)
+
     def write_base(self, strings):
         """The base tree's catalog and, as the base's baseline, a copy of the current baseline."""
         base = self.root / "base"
