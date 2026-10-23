@@ -62,6 +62,11 @@ public final class PageInputReadiness {
         self.webView = webView
     }
 
+    /// A stable token for the editable element that owns a queued edit sequence. The page stores
+    /// it on that element; later Deletes refuse a different focused element, so an async insert
+    /// cannot move the queued edits into another field.
+    var editToken = UUID().uuidString
+
     /// One message of the readiness script (`true`/`false`, `{list}` or `{editing}`), from any engine.
     func receive(_ body: Any) {
         if let body = body as? [String: Any] {
@@ -113,16 +118,23 @@ public final class PageInputReadiness {
     private func apply(_ edit: Edit) async -> Bool {
         if let editor { return await editor(edit) }
         guard let webView else { return false }
-        let done = try? await webView.callAsyncJavaScript(Self.editScript(edit), arguments: [:], in: nil, contentWorld: .page)
+        let done = try? await webView.callAsyncJavaScript(Self.editScript(edit, token: editToken), arguments: [:], in: nil, contentWorld: .page)
         return done as? Bool == true
     }
 
     /// A function body that makes `edit` in the focused editable element; false when none has focus.
-    static func editScript(_ edit: Edit) -> String {
+    static func editScript(_ edit: Edit, token: String? = nil) -> String {
+        let tokenLiteral = token.map(JSONValue.string(_:).compactText) ?? "null"
         """
         \(editable)
         const el = document.activeElement;
         if (!editable(el)) { return false; }
+        const token = \(tokenLiteral);
+        if (token !== null) {
+          const prior = el.__cmuxInputEditToken;
+          if (prior !== undefined && prior !== token) { return false; }
+          el.__cmuxInputEditToken = token;
+        }
         \(edit.script)
         """
     }
