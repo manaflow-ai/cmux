@@ -18,7 +18,9 @@
 //! never carries (`gesture_required`; the host's page relay brings it,
 //! request_origin.rs). Every other
 //! connection (another page, a relayed or remote client, a paired device, an
-//! agent that is not a Chief) is refused with `origin.forbidden`.
+//! agent that is not a Chief) is refused with `origin.forbidden`; the trusted
+//! owner connection used by a person-authorized CLI or app action remains the
+//! owner and records an ACP session actor when one is verified.
 //! The owner may do everything except delete the default Chief. A Chief
 //! may read every record, and may change only its own fields that its
 //! record lists in `self_edit` (the person's rule): never its own tools,
@@ -59,6 +61,7 @@ use super::{
 use crate::chief_registry::{self, AvatarChange, ChiefStore, Refusal};
 use crate::conversation_store::{ConversationEvent, LOCAL_USER};
 use crate::resource_router::ParsedResourceRequest;
+use crate::workspace_registry::Actor;
 
 use ResourceOperation as Op;
 
@@ -218,6 +221,10 @@ fn answer_locked(
                     client,
                     store,
                     &caller,
+                    &request.actor,
+                    request.envelope.origin.as_ref().is_some_and(|origin| {
+                        origin.claim == crate::request_origin::RequestOrigin::Agent
+                    }),
                     RegistryWrite { operation, fields, key, adoptee: adoptee.as_ref() },
                 )
             }
@@ -234,11 +241,21 @@ pub(super) fn set_chief_avatar(
     client: u64,
     fields: &Map<String, Value>,
     key: String,
+    agent_claim: bool,
 ) -> Result<Value, ResourceError> {
     let operation = Op::ChiefProfileAvatarSet;
     with_store(mux, operation, |store| {
         let caller = caller(mux, client, store)?;
-        mutate(mux, client, store, &caller, RegistryWrite { operation, fields, key, adoptee: None })
+        let request_actor = super::origin_gate::connection_actor(mux, client);
+        mutate(
+            mux,
+            client,
+            store,
+            &caller,
+            &request_actor,
+            agent_claim,
+            RegistryWrite { operation, fields, key, adoptee: None },
+        )
     })
 }
 
@@ -303,6 +320,8 @@ fn mutate(
     client: u64,
     store: &mut ChiefStore,
     caller: &Caller,
+    request_actor: &Actor,
+    agent_claim: bool,
     write: RegistryWrite<'_>,
 ) -> Result<Value, ResourceError> {
     let RegistryWrite { operation, fields, key, adoptee } = write;
@@ -341,6 +360,13 @@ fn mutate(
     if let Some(refusal) = chief_registry::validate_fields(&profile) {
         return Err(refused(operation, &refusal));
     }
+    if agent_claim && profile.contains_key("locked") {
+        return Err(ResourceError::operation_failed(
+            operation.wire_name(),
+            "chief_lock_person_only",
+            json!({"message": "only the person can lock or unlock a Chief", "fields": ["locked"]}),
+        ));
+    }
     let chief = chief_field(fields).to_owned();
     let expected_rev = fields.get("expected_rev").and_then(Value::as_u64);
     // The record before an edit: an edit that changes nothing keeps the rev
@@ -352,6 +378,16 @@ fn mutate(
         }
         _ => None,
     };
+    if agent_claim
+        && before.as_ref().is_some_and(|record| record.locked)
+        && !matches!(operation, Op::ChiefProfileCreate)
+    {
+        return Err(ResourceError::operation_failed(
+            operation.wire_name(),
+            "chief_locked",
+            json!({"message": "the person locked this Chief; only they change it", "fields": []}),
+        ));
+    }
     let mut avatar = match operation {
         Op::ChiefProfileAvatarSet => Some(avatar_change(operation, fields)?),
         _ => None,
@@ -408,7 +444,7 @@ fn mutate(
     }
     let actor = match caller {
         Caller::Chief(me) if manages => super::chief_manage::actor(me),
-        _ => audit_actor(mux, client, caller),
+        _ => audit_actor(mux, client, caller, request_actor, agent_claim),
     };
     let body = json!({"operation": operation.wire_name(), "fields": Value::Object(fields.clone())});
     let outcome = store
@@ -506,7 +542,24 @@ fn mutate(
 /// WebSocket, or the host's page relay) is told apart from a terminal's,
 /// `user_local via page:<page>` (`user_local via websocket` for a page with no
 /// page id); a Chief is its own id.
-fn audit_actor(mux: &Mux, client: u64, caller: &Caller) -> String {
+fn audit_actor(
+    mux: &Mux,
+    client: u64,
+    caller: &Caller,
+    request_actor: &Actor,
+    agent_claim: bool,
+) -> String {
+    // The daemon's verified request actor carries the ACP session identity for
+    // agent-originated writes. Keep the exact wire prefix in history so a
+    // person can distinguish an agent change from a person change without
+    // trusting a caller-supplied profile field.
+    if agent_claim {
+        return "agent".to_owned();
+    }
+    match request_actor {
+        Actor::AcpSession { .. } => return request_actor.wire(),
+        _ => {}
+    }
     match caller {
         Caller::Chief(me) => me.clone(),
         Caller::Owner | Caller::Page => match super::origin_gate::connection_page(mux, client) {
