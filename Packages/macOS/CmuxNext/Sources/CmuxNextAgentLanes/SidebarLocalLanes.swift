@@ -1,4 +1,4 @@
-import CmuxNextAgentActivity
+public import CmuxNextAgentActivity
 import CmuxNextBridge
 import CmuxNextDaemon
 
