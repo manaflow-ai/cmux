@@ -3486,6 +3486,8 @@
 		B804A0210000000000000021 /* SidebarGroupHeaderRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B804B0210000000000000021 /* SidebarGroupHeaderRowView.swift */; };
 		B8F266246A1A3D9A45BD840F /* SidebarHelpMenuUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8F266256A1A3D9A45BD840F /* SidebarHelpMenuUITests.swift */; };
 		B8624C010000000000000001 /* SidebarHiddenPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8624D010000000000000001 /* SidebarHiddenPresentationTests.swift */; };
+		4E539807DDB496542CB60852 /* SidebarHiddenStatusKeysSettingsFileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DC7DFB95135CBECA7B9BFCD /* SidebarHiddenStatusKeysSettingsFileTests.swift */; };
+		FF0EC8D1C14A5AE7637709D5 /* SidebarHiddenStatusKeysTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D53A8AC12DBB7947D9D835FD /* SidebarHiddenStatusKeysTests.swift */; };
 		51D800000000000000000001 /* SidebarIdentifierFormattingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51D800000000000000000002 /* SidebarIdentifierFormattingTests.swift */; };
 		AABBCC00000000000000020C /* SidebarInlineRenameAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC00000000000000020B /* SidebarInlineRenameAction.swift */; };
 		AABBCC00000000000000020E /* SidebarInlineRenameCommit.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC00000000000000020D /* SidebarInlineRenameCommit.swift */; };
@@ -8141,6 +8143,8 @@
 		B804B0210000000000000021 /* SidebarGroupHeaderRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKitList/Cells/SidebarGroupHeaderRowView.swift; sourceTree = "<group>"; };
 		B8F266256A1A3D9A45BD840F /* SidebarHelpMenuUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarHelpMenuUITests.swift; sourceTree = "<group>"; };
 		B8624D010000000000000001 /* SidebarHiddenPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarHiddenPresentationTests.swift; sourceTree = "<group>"; };
+		7DC7DFB95135CBECA7B9BFCD /* SidebarHiddenStatusKeysSettingsFileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SidebarHiddenStatusKeysSettingsFileTests.swift"; sourceTree = "<group>"; };
+		D53A8AC12DBB7947D9D835FD /* SidebarHiddenStatusKeysTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SidebarHiddenStatusKeysTests.swift"; sourceTree = "<group>"; };
 		51D800000000000000000002 /* SidebarIdentifierFormattingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarIdentifierFormattingTests.swift; sourceTree = "<group>"; };
 		AABBCC00000000000000020B /* SidebarInlineRenameAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarInlineRenameAction.swift; sourceTree = "<group>"; };
 		AABBCC00000000000000020D /* SidebarInlineRenameCommit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarInlineRenameCommit.swift; sourceTree = "<group>"; };
@@ -14257,6 +14261,8 @@
 				25FD7520201E1CA17A64BAEE /* ClaudeRelaunchRestoresEveryWorkspaceTests.swift */,
 				116A20BE2E7DF60266E43B58 /* ClaudeConfigDirectorySaveCaptureTests.swift */,
 				E4287F92FA9BEFC300BBCD4F /* ClaudeDroppedLaunchCaptureAccountTests.swift */,
+				7DC7DFB95135CBECA7B9BFCD /* SidebarHiddenStatusKeysSettingsFileTests.swift */,
+				D53A8AC12DBB7947D9D835FD /* SidebarHiddenStatusKeysTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -19319,6 +19325,8 @@
 				B8624C060000000000000006 /* SidebarFocusBoundaryLifecycleTests.swift in Sources */,
 				8175A0010000000000000001 /* SidebarGitProcessCompositionTests.swift in Sources */,
 				B8624C010000000000000001 /* SidebarHiddenPresentationTests.swift in Sources */,
+				4E539807DDB496542CB60852 /* SidebarHiddenStatusKeysSettingsFileTests.swift in Sources */,
+				FF0EC8D1C14A5AE7637709D5 /* SidebarHiddenStatusKeysTests.swift in Sources */,
 				51D800000000000000000001 /* SidebarIdentifierFormattingTests.swift in Sources */,
 				AABBCC000000000000000206 /* SidebarInlineRenameKeyResolverTests.swift in Sources */,
 				D41A7C01D41A7C01D41A7C01 /* SidebarLazyLayoutScaleTests.swift in Sources */,
