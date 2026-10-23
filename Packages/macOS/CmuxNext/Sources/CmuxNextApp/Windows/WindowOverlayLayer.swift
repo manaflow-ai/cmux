@@ -52,6 +52,9 @@ final class WindowOverlayLayer {
     private(set) var sidebarResizeArea: LayoutMouseArea?
     /// What the catcher panels cover: the divider areas, the sidebar's resize band last.
     private(set) var catcherAreas: [LayoutMouseArea] = []
+    /// Host views whose page draws in this window's layer tree (layer hosting): their page
+    /// windows draw nothing, so they need no overlay panel above them and no catcher panels.
+    private var hostedPageHosts: [ObjectIdentifier: WeakView] = [:]
     /// Each root's divider areas the catchers cover: its areas at its last report at rest.
     private var catcherAreasAtRest: [ObjectIdentifier: [LayoutMouseArea]] = [:]
     static let sidebarResizeAreaID = "sidebar.resize"
@@ -282,6 +285,8 @@ final class WindowOverlayLayer {
         if areas != catcherAreas {
             catcherAreas = areas
             syncCatchers()
+            // Layer-hosted pages leave these rects to the window as mouse holes (`mouseOnlyRects`).
+            if !hostedPageHosts.isEmpty { requestPageUpdate() }
         }
         guard rects != interactiveRects else { return }
         interactiveRects = rects
@@ -298,6 +303,29 @@ final class WindowOverlayLayer {
 
     static func isContent(_ child: NSWindow) -> Bool { WindowOverlayHost.isPageWindow(child) }
 
+    /// Rects that take the mouse but draw nothing: what the catcher panels cover (divider hit
+    /// areas at their rest places, the sidebar's resize band). Layer-hosted pages leave them to the
+    /// window (`BrowserWindowOcclusionProviding.browserMouseOnlyRectsInWindow`).
+    var mouseOnlyRects: [CGRect] { catcherAreas.map(\.rect) }
+
+    /// A page over `host` started or stopped drawing in this window's layer tree.
+    func pageHostingDidChange(_ host: NSView, hosted: Bool) {
+        hostedPageHosts = hostedPageHosts.filter { $0.value.view != nil }
+        hostedPageHosts[ObjectIdentifier(host)] = hosted ? WeakView(view: host) : nil
+        evaluate()
+        requestPageUpdate()
+    }
+
+    /// Visible content child windows that draw (not a layer-hosted page's window, which sits at
+    /// its host's screen rect and draws nothing).
+    private func drawingContentWindows() -> [NSWindow] {
+        let pages = Self.contentChildWindows(of: window)
+        let hosted = hostedPageHosts.values.compactMap { $0.view }.filter { $0.window === window && !$0.isHiddenOrHasHiddenAncestor }
+            .map { window.convertToScreen($0.convert($0.bounds, to: nil)) }
+        guard !hosted.isEmpty else { return pages }
+        return pages.filter { page in !hosted.contains { ChildPageGeometry.distance($0, page.frame) <= ChildPageGeometry.tolerance } }
+    }
+
     /// Moves the planes to where they draw above content, and restores the
     /// child window order when a page window was added above the overlay.
     func evaluate() {
@@ -311,7 +339,9 @@ final class WindowOverlayLayer {
         }
         isEvaluating = true
         defer { isEvaluating = false }
-        let wanted: Placement = window.isVisible && !Self.contentChildWindows(of: window).isEmpty ? .overlayWindow : .inWindow
+        // A layer-hosted page draws in this window, under the planes: only pages that draw in their
+        // own windows need the planes above them in the overlay panel (and catcher panels).
+        let wanted: Placement = window.isVisible && !drawingContentWindows().isEmpty ? .overlayWindow : .inWindow
         if wanted != placement {
             placement = wanted
             switch wanted {
@@ -430,7 +460,7 @@ final class WindowOverlayLayer {
     /// Whether the overlay is above every visible content child window (or
     /// not needed because there is none).
     var isOverlayAboveContent: Bool {
-        guard !Self.contentChildWindows(of: window).isEmpty else { return true }
+        guard !drawingContentWindows().isEmpty else { return true }
         return placement == .overlayWindow && WindowOverlayHost.existingHost(for: window)?.isAbovePages == true
     }
 
@@ -447,4 +477,9 @@ final class WindowOverlayLayer {
 
     var overlayPanel: NSWindow? { WindowOverlayHost.existingHost(for: window).flatMap { $0.isPanelAttached ? $0.panel : nil } }
     var adoptedPlanes: [OverlayPlane] { planes }
+}
+
+/// A view held weakly (`WindowOverlayLayer.hostedPageHosts`).
+private struct WeakView {
+    weak var view: NSView?
 }

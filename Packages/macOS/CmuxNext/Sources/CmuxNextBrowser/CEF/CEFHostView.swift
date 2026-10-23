@@ -51,6 +51,7 @@ final class CEFHostView: NSView {
         updateBackground()
         fileDrag.view = self
         layerHosting.view = self
+        layerHosting.onPageChange = { [weak self] in self?.reportHosting() }
         #if DEBUG
         Self.registerMotionSampler()
         #endif
@@ -189,7 +190,8 @@ final class CEFHostView: NSView {
     /// window's layer tree also the rects that only take the mouse (divider hit areas).
     var windowOcclusionRects: [CGRect] {
         guard let provider = window as? any BrowserWindowOcclusionProviding else { return [] }
-        let inWindow = provider.browserOcclusionRectsInWindow
+        let inWindow = isLayerHosted ? provider.browserOcclusionRectsInWindow + provider.browserMouseOnlyRectsInWindow
+            : provider.browserOcclusionRectsInWindow
         return inWindow.compactMap { rect in
             let local = convert(rect, from: nil).intersection(bounds)
             return local.isNull || local.isEmpty ? nil : local
@@ -207,8 +209,15 @@ final class CEFHostView: NSView {
         }.map(\.element)
     }
 
+    /// Tells the window whether the page over this view draws in its layer tree. Leaving a window
+    /// tells it nothing (it may be deallocating then): the window counts only hosts still in it.
+    private func reportHosting() {
+        (window as? any BrowserWindowOcclusionProviding)?.browserPageHostingDidChange(self, hosted: isLayerHosted)
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        if isLayerHosted { reportHosting() }
         if let windowObserver { NotificationCenter.default.removeObserver(windowObserver) }
         windowObserver = nil
         readGeometry = nil

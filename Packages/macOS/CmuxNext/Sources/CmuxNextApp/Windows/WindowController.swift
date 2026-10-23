@@ -497,6 +497,14 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
         overlayLayer.interactiveRects + (WindowOverlayHost.existingHost(for: self)?.occluderRects ?? [])
     }
 
+    /// Divider and sidebar resize hit areas: a page drawing in this window's layer tree leaves them
+    /// to this window (`WindowOverlayLayer.mouseOnlyRects`, at their rest places during a spring).
+    var browserMouseOnlyRectsInWindow: [CGRect] { overlayLayer.mouseOnlyRects }
+
+    func browserPageHostingDidChange(_ host: NSView, hosted: Bool) {
+        overlayLayer.pageHostingDidChange(host, hosted: hosted)
+    }
+
     /// Nested `endEditing(for:)` calls, and whether a responder change waits for them to end (ShellWindow+Events.swift).
     var editTeardown = (depth: 0, pending: false)
 
