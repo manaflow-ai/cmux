@@ -900,16 +900,3 @@ wire_enum! {
         Archived = "archived",
     }
 }
-
-wire_enum! {
-    HomeDeliveryState {
-        Queued = "queued",
-        Sent = "sent",
-        Delivered = "delivered",
-        Bounced = "bounced",
-        Complained = "complained",
-        Failed = "failed",
-        Suppressed = "suppressed",
-        RefusedEnv = "refused_env",
-    }
-}

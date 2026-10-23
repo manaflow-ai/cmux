@@ -4,6 +4,16 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_enum! {
+    StepOpOp {
+        AutomationList = "automation.list",
+        AutomationGet = "automation.get",
+        AutomationRunsList = "automation.runs.list",
+        AutomationRun = "automation.run",
+        UsageSummary = "usage.summary",
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct StepOp {
     pub r#type: LitOp,
