@@ -27,7 +27,7 @@ fn a_refusal_is_retried_not_kept() {
     for refusal in refusals() {
         match size_check_for(&[refusal.clone()], NODE, INPUT) {
             SizeCheck::Retry(text) => assert!(
-                text.contains("never refuse"),
+                text.to_lowercase().contains("never refuse"),
                 "retry for {refusal:?} should say never refuse: {text}"
             ),
             other => panic!("{refusal:?} was not retried: {other:?}"),
