@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import CmuxNextFilesUI
 
 /// The right sidebar's Find section and the Find pane (classic's project-wide
 /// find): ripgrep over a folder (``RipgrepSearch``, the flags classic ran),

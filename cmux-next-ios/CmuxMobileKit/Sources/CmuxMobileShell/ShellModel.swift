@@ -183,6 +183,11 @@ final class ShellModel {
                 guard let backend, !macs.isEmpty else { throw WorkspaceCreationError("Not connected to a Mac") }
                 for macID in macs { try await backend.clearAllNotifications(on: macID) }
             }
+            // A Feed reply to a terminal agent goes to its own Mac's link, into that terminal.
+            FeedRouting.shared.replyToTerminal = { [weak live] item, text in
+                guard let feed = live?.terminalFeed(macID: item.macID) else { return "Not connected to that Mac." }
+                return await feed.reply(itemID: item.id, text: text)
+            }
             StreamedBrowserDirectory.shared.opener = { [weak live] in await live?.browserLink() }
             StreamedBrowserDirectory.shared.macOpener = { [weak live] macID in await live?.browserLink(macID: macID) }
             creator.onTabResolved = { from, to in StreamedBrowserDirectory.shared.rename(tab: from, to: to) }
@@ -190,6 +195,7 @@ final class ShellModel {
             StreamedBrowserDirectory.shared.opener = nil
             StreamedBrowserDirectory.shared.macOpener = nil
             FeedRouting.shared.clearAllNotifications = nil
+            FeedRouting.shared.replyToTerminal = nil
             terminalTabs.sessionProvider = nil
             terminalTabs.hasLiveSession = nil
             terminalTabs.artifactSourceProvider = nil

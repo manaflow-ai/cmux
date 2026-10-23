@@ -40,6 +40,10 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let browserSetBackgroundColor: @convention(c) (Int32, UInt32) -> Int32
     /// A see-through page (fork API 17, `CEFTab.pageSeeThrough`); 0 when the fork lacks it.
     let tabSetTransparentBackground: @convention(c) (Int32, Int32) -> Int32
+    /// Fork API 26: `cmux_shim_browser_set_layer_hosting` (the page's CAContextID, 0 when off).
+    let browserSetLayerHosting: @convention(c) (Int32, Int32) -> UInt32
+    /// Fork API 27: `cmux_shim_browser_set_resize_sync` (deadline in ms, 0 never holds the commit).
+    let browserSetResizeSync: @convention(c) (Int32, Int32) -> Int32
     let initialize: @convention(c) (
         UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
         UnsafePointer<CChar>?, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
@@ -190,6 +194,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     // Remote localhost (plans/cmux-next/remote-localhost.md).
     let setContextProxy: @convention(c) (UnsafePointer<CChar>?, Int32) -> Int32
     let contextProxyState: @convention(c) (UnsafePointer<CChar>?) -> Int32
+    let setContextProxyServer: @convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
     let releaseContext: @convention(c) (UnsafePointer<CChar>?) -> Void
     let setNavigationGuard: @convention(c) (Int32, Int32) -> Void
     /// A sign-in tab's callback: scheme, https host, https path (all empty clears).
@@ -284,6 +289,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         setBackgroundColor = try r("cmux_shim_set_background_color")
         browserSetBackgroundColor = try r("cmux_shim_browser_set_background_color")
         tabSetTransparentBackground = try r("cmux_shim_tab_set_transparent_background")
+        browserSetLayerHosting = try r("cmux_shim_browser_set_layer_hosting")
+        browserSetResizeSync = try r("cmux_shim_browser_set_resize_sync")
         initialize = try r("cmux_shim_initialize")
         doWork = try r("cmux_shim_do_work")
         createWindow = try r("cmux_shim_create_window")
@@ -381,6 +388,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         rendererClientIDs = try r("cmux_shim_renderer_client_ids")
         setContextProxy = try r("cmux_shim_set_context_proxy")
         contextProxyState = try r("cmux_shim_context_proxy_state")
+        setContextProxyServer = try r("cmux_shim_set_context_proxy_server")
         releaseContext = try r("cmux_shim_release_context")
         setNavigationGuard = try r("cmux_shim_set_navigation_guard")
         setAuthCallback = try r("cmux_shim_set_auth_callback")

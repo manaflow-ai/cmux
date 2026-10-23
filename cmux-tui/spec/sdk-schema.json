@@ -7176,6 +7176,24 @@
       "kind": "scalar",
       "name": "string"
      }
+    },
+    "pane_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "capability": "row-client-keys-v1"
+    },
+    "tab_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "capability": "row-client-keys-v1"
     }
    },
    "kind": "object"
@@ -9277,6 +9295,21 @@
     "user",
     "auto"
    ]
+  },
+  "SendExpectAgent": {
+   "kind": "object",
+   "fields": {
+    "session": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null
+    }
+   },
+   "additional_properties": false
   }
  },
  "commands": {
@@ -10120,13 +10153,34 @@
       "nullable": true,
       "default": null,
       "capability": "send-expect-foreground-v1"
+     },
+     "expect_agent": {
+      "type": {
+       "kind": "ref",
+       "name": "SendExpectAgent"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "send-expect-agent-v1"
+     },
+     "submit": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false,
+      "capability": "send-expect-agent-v1"
      }
     },
     "additional_properties": false,
     "constraints": [
      "When both are present, UTF-8 text bytes precede decoded bytes.",
      "Exactly one of surface and terminal_id; terminal_id (terminal-input-while-creating-v1) is the host terminal id, also of a terminal still being created, and has the semantics of terminal.input.write.",
-     "expect_foreground (send-expect-foreground-v1) needs surface: the write happens only while the surface's foreground executable equals it, else the request fails with nothing written."
+     "expect_foreground (send-expect-foreground-v1) needs surface: the write happens only while the surface's foreground executable equals it, else the request fails with nothing written.",
+     "expect_agent and submit (send-expect-agent-v1) need surface: with expect_agent the write happens only while the agent of the surface's own terminal is idle in expect_agent.session (required), else the request fails with 'agent not waiting' and nothing written; submit writes Return after the payload in the same request."
     ]
    },
    "result": {
@@ -22416,6 +22470,38 @@
        "kind": "scalar",
        "name": "string"
       }
+     },
+     "pane_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "row-client-keys-v1",
+      "constraints": [
+       {
+        "pattern": "^pane_[0-9a-f]{32}$",
+        "format": "client-minted public pane id"
+       }
+      ]
+     },
+     "tab_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "row-client-keys-v1",
+      "constraints": [
+       {
+        "pattern": "^tab_[0-9a-f]{32}$",
+        "format": "client-minted public tab id"
+       }
+      ]
      }
     },
     "kind": "object"

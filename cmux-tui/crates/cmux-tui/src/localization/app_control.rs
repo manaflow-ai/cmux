@@ -47,6 +47,10 @@ pub(crate) struct AppControlMessages {
     pub skew_classic: &'static str,
     pub skew_other: &'static str,
     pub skew_use_cli: &'static str,
+    /// `cmux machine list` without the app's Cloud machines (cli/cloud_machines.rs).
+    pub cloud_machines_unlisted: &'static str,
+    /// The app answered `cloud.machines` without a `machines` list.
+    pub cloud_machines_malformed: &'static str,
     /// `cmux version` (cli/app/version.rs): the text report's labels.
     pub version: VersionLabels,
 }
@@ -105,6 +109,8 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
     skew_classic: "this cmux-next CLI ({cli}) sent {method}, but the app at {socket} is the classic cmux app{version}, which does not speak cmux-next methods. Run this in a cmux-next terminal, or use the classic app's own CLI.",
     skew_other: "this CLI ({cli}) sent {method}, but {app}{version} at {socket} does not support it. Use the CLI that ships with {app}, or quit {app} and open the app this CLI ships with.",
     skew_use_cli: "Its CLI: {path}",
+    cloud_machines_unlisted: "note: Cloud machines are not listed: {reason}",
+    cloud_machines_malformed: "the cmux app's cloud.machines reply has no machines list",
     version: VersionLabels {
         cli: "CLI",
         app: "App",
@@ -163,6 +169,8 @@ pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
     skew_classic: "この cmux-next CLI ({cli}) は {method} を送りましたが、{socket} のアプリは従来の cmux アプリ{version} で、cmux-next のメソッドを話しません。cmux-next のターミナルで実行するか、従来のアプリ自身の CLI を使ってください。",
     skew_other: "この CLI ({cli}) は {method} を送りましたが、{socket} の {app}{version} はこのメソッドに対応していません。{app} に同梱された CLI を使うか、{app} を終了してこの CLI が同梱されたアプリを開いてください。",
     skew_use_cli: "その CLI: {path}",
+    cloud_machines_unlisted: "注意: Cloud マシンは一覧にありません: {reason}",
+    cloud_machines_malformed: "cmux アプリの cloud.machines の応答にマシンの一覧がありません",
     version: VersionLabels {
         cli: "CLI",
         app: "アプリ",

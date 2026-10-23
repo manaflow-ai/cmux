@@ -7,8 +7,8 @@ import { registerPicker } from "./pickerOpeners";
 
 /// The composer's Options chip: every config option the harness advertises that has no chip of
 /// its own (`extraConfigOptions`), each a group of its choices. One option names itself on the
-/// chip ("Collaboration mode: Plan"); more show as Options. A pick goes through the same
-/// `session/set_config_option` path as the effort chip, and the session's report moves the check.
+/// chip; more show as Options. A pick goes through the same `session/set_config_option` path as
+/// the effort chip, and the session's report moves the check.
 export function AgentOptionsMenu({
   options,
   onPick,

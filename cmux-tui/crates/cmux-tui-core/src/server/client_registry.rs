@@ -322,6 +322,8 @@ pub(crate) struct ClientRegistry {
     /// Connection-scoped browser hosts (`browser-runtime-v1`).
     #[cfg(unix)]
     pub(super) browser_runtimes: super::browser_runtime::BrowserRuntimes,
+    /// Size leases of connections with `size-lease-v1` (size_lease.rs).
+    pub(super) size_leases: Arc<super::size_lease::SizeLeases>,
     /// Connection-scoped agent session attachments (`agent-session-attach-v1`).
     #[cfg(unix)]
     pub(super) agent_sessions: agent_session_attach::AgentSessions,
@@ -386,6 +388,7 @@ impl ClientRegistry {
             loopback: loopback_forward::LoopbackForwarder::default(),
             #[cfg(unix)]
             browser_runtimes: Default::default(),
+            size_leases: Default::default(),
             #[cfg(unix)]
             agent_sessions: Default::default(),
             snapshot_viewers: Default::default(),
@@ -646,6 +649,7 @@ impl ClientRegistry {
                     || capability == VIEW_ATTACHMENT_DETACH_CAPABILITY
                     || capability == SHARED_SIZING_CAPABILITY
                     || capability == SIZING_VIEW_DETACH_CAPABILITY
+                    || capability == super::SIZE_LEASE_CAPABILITY
                     || capability == OPEN_DEVICE_KINDS_CAPABILITY
                     || capability == TERMINAL_COLOR_OVERRIDES_CAPABILITY
                     || capability == TERMINAL_PENDING_SEQUENCE_CAPABILITY

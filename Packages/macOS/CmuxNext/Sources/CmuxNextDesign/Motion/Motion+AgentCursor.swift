@@ -1,4 +1,5 @@
 public import Foundation
+public import CmuxNextDesignTokens
 
 extension MotionGate {
     /// How long an agent cursor glide whose cmux-cua plan takes `natural`

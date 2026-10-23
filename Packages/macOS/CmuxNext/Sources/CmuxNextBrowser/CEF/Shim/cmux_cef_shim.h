@@ -279,6 +279,17 @@ CMUX_SHIM_EXPORT int cmux_shim_browser_set_background_color(int browser_id, unsi
 // no background. 0 gives the page its background color back. Kept across
 // navigations and tab moves. Returns 0 when the fork lacks the call.
 CMUX_SHIM_EXPORT int cmux_shim_tab_set_transparent_background(int browser_id, int transparent);
+// Fork API 26: layer hosting. enabled 1 moves browser_id's page pixels into
+// a Core Animation context and returns its CAContextID (> 0), which the
+// embedder shows with a CALayerHost in the parent view's layer tree; the page
+// window stays as a transparent input target. 0 turns it off. Returns 0 when
+// off, when the fork lacks the call, or when the browser has no page window.
+CMUX_SHIM_EXPORT unsigned int cmux_shim_browser_set_layer_hosting(int browser_id, int enabled);
+// Fork API 27: how long (ms) a resize of browser_id's page window may hold
+// this app's Core Animation commit for Chromium's frame at the new size; 0
+// never holds it (the fork's default). Returns 0 when the fork lacks the call
+// or the browser has no page window.
+CMUX_SHIM_EXPORT int cmux_shim_browser_set_resize_sync(int browser_id, int timeout_ms);
 // The page chrome://newtab shows when no extension overrides the New Tab
 // page (fork API 12); NULL or "" keeps Chromium's. Any time, also before
 // cmux_shim_initialize. The ADDRESS event reports "chrome://newtab/" for a
@@ -712,6 +723,15 @@ CMUX_SHIM_EXPORT int cmux_shim_renderer_client_ids(int browser_id, int* out, int
 // 127.0.0.1:port, which accepts only this app's processes. Returns 1 when
 // stored.
 CMUX_SHIM_EXPORT int cmux_shim_set_context_proxy(const char* profile_cache_path, int port);
+// A browser profile's own proxy (#24432): profile_cache_path's request
+// context uses exactly `server` ("http|https|socks5://host:port", one server,
+// no credentials), bypassing the hosts of bypass_list (";"-separated, may be
+// empty), with WebRTC UDP kept inside the proxy. A dead proxy fails closed:
+// Chromium never falls back to direct. An empty server clears it (system
+// proxy settings again). Applies to a context made earlier this launch now
+// and to a later one when it initializes. Returns 1 when stored, 0 for an
+// invalid server or a remote machine's context.
+CMUX_SHIM_EXPORT int cmux_shim_set_context_proxy_server(const char* profile_cache_path, const char* server, const char* bypass_list);
 // 2 applied to the request context, 1 pending (not initialized yet),
 // 0 none, -1 Chromium refused the preference.
 CMUX_SHIM_EXPORT int cmux_shim_context_proxy_state(const char* profile_cache_path);

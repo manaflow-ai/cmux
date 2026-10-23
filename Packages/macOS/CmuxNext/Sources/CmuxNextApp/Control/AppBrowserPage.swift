@@ -57,10 +57,9 @@ enum AppBrowserPage {
             target = try navigationTarget(raw, tabEngine: tab.browserEngine, page: page.engineKind).get()
         }
         if let refusal = agentURLRefusal(operation, target: target, page: page) { throw refusal }
-        if let refusal = agentExtensionRefusal(operation, target: target, page: page,
-                                               allowedByPerson: services.cache.agentMayUseExtensionTab(tabID), access: .fromDisk) {
-            throw refusal
-        }
+        // No extension rule here: every agent may drive every tab, in any
+        // profile (#24413). Saved passwords never fill in an agent-driven tab
+        // (`markAgentDriven` above), and the per-tab lease coordinates agents.
         switch operation {
         case .navigate:
             if let target { page.load(target) }

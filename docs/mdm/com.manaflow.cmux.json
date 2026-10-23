@@ -49,12 +49,12 @@
     },
     "agentPane.display.inspector.placement" : {
       "default" : "overlay",
-      "description" : "Where the Inspector opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat.",
+      "description" : "Where the Session Info panel opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat.",
       "enum" : [
         "push",
         "overlay"
       ],
-      "title" : "Inspector",
+      "title" : "Session Info",
       "type" : "string"
     },
     "agentPane.display.width" : {
@@ -1652,6 +1652,12 @@
       "title" : "Computer Use",
       "type" : "boolean"
     },
+    "diagnostics.hangReports" : {
+      "default" : false,
+      "description" : "Nightly builds send a daily report of hangs and slow frames: call stacks of cmux and macOS code, timings, your app and macOS versions, your Mac's chip and memory size, and rounded counts of open windows and tabs. It never includes file names, web addresses, terminal text, names or anything you type. View Hang Report shows exactly what is sent.",
+      "title" : "Send Hang Reports",
+      "type" : "boolean"
+    },
     "diff.colors" : {
       "default" : "theme",
       "description" : "diff.colors",
@@ -2638,6 +2644,12 @@
       ],
       "title" : "Page Theme",
       "type" : "string"
+    },
+    "media.pictureInPicture.enabled" : {
+      "default" : true,
+      "description" : "Offer Picture in Picture for a web page's video in menus, the command palette and the media controls. A site's own video controls are not affected.",
+      "title" : "Picture in Picture",
+      "type" : "boolean"
     },
     "MinimumVersion" : {
       "description" : "Oldest cmux version allowed to sign in, for example 1.2.0.",
@@ -4122,9 +4134,15 @@
       "type" : "boolean"
     },
     "tabs.newTabWidgets.greeting" : {
-      "default" : true,
-      "description" : "A short greeting over the composer.",
-      "title" : "Show Greeting on New Tab",
+      "default" : false,
+      "description" : "A headline over the composer that asks what to work on, with the project as a picker.",
+      "title" : "Ask What to Work On on New Tab",
+      "type" : "boolean"
+    },
+    "tabs.newTabWidgets.machines" : {
+      "default" : false,
+      "description" : "Your machines and whether each is online.",
+      "title" : "Show Machines on New Tab",
       "type" : "boolean"
     },
     "tabs.newTabWidgets.order" : {
@@ -4156,6 +4174,18 @@
       "description" : "Dots under the page that switch its template.",
       "title" : "Show Template Dots on New Tab",
       "type" : "boolean"
+    },
+    "tabs.newTabWidgets.weather" : {
+      "default" : false,
+      "description" : "The current weather and today's high and low, for the city below or your time zone's city.",
+      "title" : "Show Weather on New Tab",
+      "type" : "boolean"
+    },
+    "tabs.newTabWidgets.weatherCity" : {
+      "default" : "",
+      "description" : "A city for the weather widget. Empty uses your time zone's city.",
+      "title" : "Weather City",
+      "type" : "string"
     },
     "tabs.overflow" : {
       "default" : "shrink",
@@ -4362,6 +4392,12 @@
       "default" : true,
       "description" : "Splits, closes, moves, zooms, column scrolls and screen switches slide into place. Off: they change at once.",
       "title" : "Animate Panes",
+      "type" : "boolean"
+    },
+    "ui.reducedBackgrounds" : {
+      "default" : false,
+      "description" : "Draws windows in the plain theme color, without paintings, wallpapers or glass. Your background choices stay as they are and come back when you turn it off.",
+      "title" : "Plain Backgrounds",
       "type" : "boolean"
     },
     "UpdateChannel" : {

@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextFocus
 import CmuxNextLayout
 import CmuxNextSettings
 import CmuxNextWakeups
@@ -113,8 +114,13 @@ final class LinkOpener {
                 self.move(surface, from: source, to: .besideColumn, focus: !background)
             }
         case .besideDock:
-            // The daemon makes a tab aimed at a lone pinned dock in a new column right of it.
-            return make(source, nil)
+            // A lone pinned dock closed to tabs: the daemon makes a tab aimed at it in a new column
+            // right of it. Home's dock takes tabs, so the tab is made there and moves to the right.
+            guard source.isOpenPinnedDockPane else { return make(source, nil) }
+            return make(source) { [weak self, weak source] surface in
+                guard let self, let source else { return }
+                self.moveBeside(surface, from: source, focus: !background)
+            }
         case .dockChat:
             return make(source) { [weak source] surface in
                 guard let source else { return }
@@ -248,10 +254,17 @@ final class LinkOpener {
         }
     }
 
+    /// Moves new tab `surface`, made in `source`, to a new column right of it, focusing `target` in
+    /// it when `focus` (Home's dock, which takes tabs, opens its tools beside itself this way).
+    func moveBeside(_ surface: SurfaceID, from source: PaneController, focus: Bool, target: FocusState.Target = .content) {
+        move(surface, from: source, to: .besideColumn, focus: focus, target: target)
+    }
+
     /// Moves the new tab on `surface` out of `source` to `destination` (a new split, column or dock)
     /// once the store lists it, then focuses it unless not `focus`. A failed move selects it where
     /// it is, so it never stays hidden.
-    private func move(_ surface: SurfaceID, from source: PaneController, to destination: Destination, focus: Bool) {
+    private func move(_ surface: SurfaceID, from source: PaneController, to destination: Destination, focus: Bool,
+                      target: FocusState.Target = .content) {
         let services = source.services, store = source.daemon.store
         let intent = focus ? source.workspace?.beginFocusIntent() : nil
         services.registry.track(Task { @MainActor [weak source] () -> ActionWorkFailure? in
@@ -268,22 +281,24 @@ final class LinkOpener {
             let found = await listed.value
             bound.cancel()
             guard let tab = found, let source, let anchor = store.pane(holding: tab) else { return "link open: the new tab did not open" }
+            // An open in the background keeps the focus where it is: the daemon's move would focus the tab.
+            let keepFocus = !focus
             let moved = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
                 switch destination {
                 case .besideColumn:
                     let after = AgentBesidePlacement.newColumn(beside: anchor, in: store)
-                    TabMoves.toNewColumn(tab, anchor: anchor, afterColumn: after, services: services) { done.resume(returning: $0) }
+                    TabMoves.toNewColumn(tab, anchor: anchor, afterColumn: after, services: services, keepFocus: keepFocus) { done.resume(returning: $0) }
                 case .column(let after):
-                    TabMoves.toNewColumn(tab, anchor: anchor, afterColumn: after, services: services) { done.resume(returning: $0) }
+                    TabMoves.toNewColumn(tab, anchor: anchor, afterColumn: after, services: services, keepFocus: keepFocus) { done.resume(returning: $0) }
                 case .split(let edge):
-                    TabMoves.toNewSplit(tab, pane: anchor, edge: edge, services: services) { done.resume(returning: $0) }
+                    TabMoves.toNewSplit(tab, pane: anchor, edge: edge, services: services, keepFocus: keepFocus) { done.resume(returning: $0) }
                 case .dock(let edge):
                     TabMoves.toNewDockColumn(tab, anchor: anchor, edge: edge, services: services) { done.resume(returning: $0) }
                 }
             }
             let column = if case .besideColumn = destination { true } else { false }
             if moved {
-                if let intent { source.workspace?.expectFocus(on: surface, awayFrom: source.paneKey, generation: intent) }
+                if let intent { source.workspace?.expectFocus(on: surface, target: target, awayFrom: source.paneKey, generation: intent) }
                 if column { await AgentBesidePlacement.revealMoved(tab.id, from: anchor, services: services) }
                 return nil
             }

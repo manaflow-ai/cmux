@@ -235,6 +235,7 @@ impl Hub {
             agent_info: parent_meta.agent_info.clone(),
             agent_capabilities: parent_meta.agent_capabilities.clone(),
             steering: parent_meta.steering,
+            html_previews: parent_meta.html_previews,
             // The chat's own mode, model and effort, which the fork's agent is told again when it
             // loads (`replay_config`): an agent may answer session/fork with its defaults
             // instead (Codex), and the fork would then run another model than the chat.

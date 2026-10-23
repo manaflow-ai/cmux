@@ -16,6 +16,12 @@ extension NowPlayingSettings {
     public nonisolated static let newTabDefault = false
 }
 
+extension NowPlayingSettings {
+    /// `media.pictureInPicture.enabled`: On by default. Off: cmux offers no Picture in Picture of its own: the tab and media card menus, the palette, the CLI and MCP action, the Now Playing card's button and the media hub's button are gone. A site's own video controls are unchanged.
+    public nonisolated static let pictureInPicturePath = ["media", "pictureInPicture", "enabled"]
+    public nonisolated static let pictureInPictureDefault = true
+}
+
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
 nonisolated enum NowPlayingSettingsSchema {
     /// The Now Playing player (Austin's idea, Leo 2026-10-18): off by default since 2026-10-19 (Lawrence did not want the card in the sidebar); the user can turn it on. Only cmux's own tabs and player feed it unless sidebar.nowPlaying.otherApps is on (Lawrence 2026-10-21: it showed his other browser's audio).
@@ -58,6 +64,23 @@ nonisolated enum NowPlayingSettingsSchema {
                 kind: .toggle,
                 default: .bool(NowPlayingSettings.newTabDefault),
                 keywords: ["music", "now playing", "player", "media", "spotify", "song", "new tab", "new chat"]
+            ),
+        ]
+    }
+
+    /// cmux's own Picture in Picture entry points for a web page's video: on by default (today's behavior).
+    static var pictureInPictureDescriptors: [SettingDescriptor] {
+        let group = SettingsText.keyed("settings.group.media", "Media")
+        return [
+            SettingDescriptor(
+                NowPlayingSettings.pictureInPicturePath,
+                section: .browser,
+                group: group,
+                title: SettingsText.keyed("settings.media.pictureInPicture.enabled", "Picture in Picture"),
+                help: SettingsText.keyed("settings.media.pictureInPicture.enabled.help", "Offer Picture in Picture for a web page's video in menus, the command palette and the media controls. A site's own video controls are not affected."),
+                kind: .toggle,
+                default: .bool(NowPlayingSettings.pictureInPictureDefault),
+                keywords: ["pip", "picture in picture", "video", "float", "floating", "pop out", "media", "now playing"]
             ),
         ]
     }

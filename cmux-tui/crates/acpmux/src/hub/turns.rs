@@ -204,7 +204,7 @@ impl Hub {
         let prompt_id = opts.prompt_id.unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
         let control = opts.control;
         let trust_gate = opts.trust_gate;
-        let mut on_accepted = opts.on_accepted;
+        let mut on_accepted = self.with_host_pressure(opts.on_accepted);
         // The prompts this one replaced (`supersede.rs`), named in its acceptance: set where it
         // is committed (queued, started, or steered in), never before a refusal.
         let supersede = opts.supersede.clone();

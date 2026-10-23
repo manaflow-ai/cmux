@@ -414,7 +414,7 @@ impl Hub {
     ) -> Value {
         // One harness-neutral copy of any questions, before rules and the
         // record see the request (questions.rs).
-        super::questions::normalize(&mut request);
+        super::questions::normalize(&mut request, Self::preview_format(session));
         let needs_person = super::questions::needs_person(&request);
         let (rx, prev, grouping, permission_id) = {
             let cfg = self.config.read().await;

@@ -25,6 +25,7 @@ pub mod cli;
 pub mod cloud;
 pub mod cloud_vms;
 pub mod cmux_env;
+pub mod code_signature;
 pub mod codex_home;
 pub mod compactor;
 pub mod daemon;
