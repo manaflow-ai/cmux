@@ -170,10 +170,29 @@ jobs:
 
       - name: Record the static artifact verdict
         id: run
+        if: always() && steps.app.outcome != 'skipped'
         run: |
           set -euo pipefail
-          echo "verdict=pass" >> "$GITHUB_OUTPUT"
-          echo "### cmux NEXT build $BUILD passed static artifact verification" >> "$GITHUB_STEP_SUMMARY"
+          if [ "${{ steps.app.outcome }}" = success ]; then
+            echo "verdict=pass" >> "$GITHUB_OUTPUT"
+            echo "### cmux NEXT build $BUILD passed static artifact verification" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "verdict=fail" >> "$GITHUB_OUTPUT"
+            echo "### cmux NEXT build $BUILD failed static artifact verification" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Record the scheduled verdict
+        if: always() && github.event_name == 'schedule' && steps.run.outputs.verdict != ''
+        run: |
+          mkdir -p canary-verdict
+          echo "${{ steps.run.outputs.verdict }}" > canary-verdict/verdict
+
+      - name: Save the scheduled verdict
+        if: always() && github.event_name == 'schedule' && steps.run.outputs.verdict != ''
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: canary-verdict
+          key: ${{ env.CANARY_CACHE_PREFIX }}${{ env.BUILD }}
 
   verdict:
     # The name carries the static-artifact verdict.
