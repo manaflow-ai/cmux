@@ -111,7 +111,7 @@ public final class HomeChiefSettingsView: NSView {
     public var pictureWindow: () -> NSWindow? = { nil }
 
     /// The harness items the picker offers: the official engines (``ChiefBackend/official``:
-    /// the user's own Claude login, Codex, and UniiChat, acpmux's built-in `unii`); the
+    /// the user's own Claude login, Codex, Muse Code, and UniiChat, acpmux's built-in `unii`); the
     /// CodeRouter route (`claude-cr`) after Claude only when this Chief's acpmux has one
     /// configured. The subrouter pool (`claude-sr`) is never a default item; a current choice
     /// of it still shows (`fill`).

@@ -26,8 +26,11 @@ public struct LiveAPI: Sendable {
         public var teamId: String?
         /// A `presence` frame for a Mac its owner deleted (0.7.0): drop it.
         public var removed: Bool?
+        /// The computer the Mac runs on (added 2026-10-21): one per computer, shared by its cmux builds.
+        public var machineId: String?
 
-        public init(deviceId: String, name: String, online: Bool, lastSeenAt: String? = nil, ownerUserId: String? = nil, teamId: String? = nil, removed: Bool? = nil) {
+        public init(deviceId: String, name: String, online: Bool, lastSeenAt: String? = nil, ownerUserId: String? = nil, teamId: String? = nil, removed: Bool? = nil,
+                    machineId: String? = nil) {
             self.deviceId = deviceId
             self.name = name
             self.online = online
@@ -35,6 +38,7 @@ public struct LiveAPI: Sendable {
             self.ownerUserId = ownerUserId
             self.teamId = teamId
             self.removed = removed
+            self.machineId = machineId
         }
 
         public var lastSeenDate: Date? { lastSeenAt.flatMap(LiveAPI.parseDate) }
@@ -73,8 +77,12 @@ public struct LiveAPI: Sendable {
         public var online: Bool?
         /// Whether a phone has an APNs token registered.
         public var push: Bool?
+        /// A Mac's machine id (added 2026-10-21); nil for phones and older hosts.
+        public var machineId: String?
 
-        public init(deviceId: String, kind: String, name: String, teamId: String, createdAt: String? = nil, lastSeenAt: String? = nil, online: Bool? = nil, push: Bool? = nil) {
+        public init(deviceId: String, kind: String, name: String, teamId: String, createdAt: String? = nil, lastSeenAt: String? = nil, online: Bool? = nil, push: Bool? = nil,
+                    machineId: String? = nil) {
+            self.machineId = machineId
             self.deviceId = deviceId
             self.kind = kind
             self.name = name

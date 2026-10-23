@@ -41,6 +41,8 @@ nonisolated public enum UpdateCardAction: String, Sendable, CaseIterable {
     case rollBack = "roll_back"
     /// A pulled build: keep it until the fix installs (the default).
     case waitForFix = "wait_for_fix"
+    /// An install the relaunch gate holds: relaunch now anyway.
+    case relaunchNow = "relaunch_now"
 
     public var title: String {
         switch self {
@@ -50,6 +52,7 @@ nonisolated public enum UpdateCardAction: String, Sendable, CaseIterable {
         case .details: UpdaterStrings.details
         case .rollBack: UpdaterStrings.pulledRollBack
         case .waitForFix: UpdaterStrings.pulledWait
+        case .relaunchNow: UpdaterStrings.relaunch
         }
     }
 

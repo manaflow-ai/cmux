@@ -265,6 +265,7 @@ final class HomeService {
                     guard let known = current[listed.id], known.rev > listed.rev else { return listed }
                     return known
                 }
+                openChiefDirectMessages()
             } catch {
                 self?.logger.error("conversation-list: \(String(describing: error), privacy: .public)")
             }
@@ -297,6 +298,10 @@ final class HomeService {
             homeSource.publish(changed)
         case .cloudConversations(let event):
             handleCloud(event)
+        case .unknown(name: "chief-changed", let payload) where payload["change"]?.stringValue == "created":
+            // A Chief made by a Chief's chiefs tool or `cmux chief new` has no conversation yet:
+            // the list read again opens its direct message (openChiefDirectMessages).
+            if let connection { reloadList(connection) }
         default:
             break
         }

@@ -105,10 +105,19 @@ extension SidebarListViewComponents {
         // The one indent rule (`SidebarIndent`): from the drawn tree, a top-level group's rows flush with ungrouped
         // rows (#23975), each deeper level one gutter in, capped in a narrow list.
         let gutter = indentOffset(for: row)
+        // A group header reaches left over its members' rail (`groupRailReach`): the rail and the bar share one left edge.
+        let reach = railReach(for: row)
         // Rows end `rowTrailingTrim` short of the list's right inset, so a row's pill never runs to
         // the sidebar's edge (Leo 2026-10-20, Chrome's vertical tabs).
-        return NSRect(x: inset + gutter, y: row.y, width: max(0, bounds.width - inset * 2 - gutter - SidebarStyle.rowTrailingTrim),
-                      height: row.height)
+        return NSRect(x: inset + gutter - reach, y: row.y,
+                      width: max(0, bounds.width - inset * 2 - gutter - SidebarStyle.rowTrailingTrim) + reach, height: row.height)
+    }
+    /// How far left of its members' x `row` starts: a group header's reach over its rail
+    /// (`SidebarStyle.groupLineX`, never past the list's edge), 0 for every other row.
+    func railReach(for row: SidebarRow) -> CGFloat {
+        guard case .group = row.key else { return 0 }
+        let membersX = inset + indentOffset(for: row)
+        return membersX - SidebarStyle.groupLineX(membersMinX: membersX)
     }
     /// Whether `group` sits somewhere under `ancestor`, by the groups' parent links (cycle-safe).
     static func isNested(_ group: SidebarGroup, under ancestor: GroupID, in groups: [GroupID: SidebarGroup]) -> Bool {
@@ -288,6 +297,8 @@ extension SidebarListViewComponents {
         case let (.group(id), view as GroupHeaderRowView):
             // The model's own group when the cache (rebuilt on reload) lags it: a held drag shows the live sections.
             guard var group = groups[id] ?? model.group(id) else { return }
+            // `sidebar.showColors` off: the header draws as a group with no color; its stored color stays.
+            if !model.showsColors { group.tint = .none }
             var details = model.groupHeaderDetails
             details.otherStates = model.detailedStatus
             // A collapsed group holding subgroups shows their unread and loading too (nested-groups prototype):
@@ -300,6 +311,7 @@ extension SidebarListViewComponents {
                 }
             }
             view.configure(group, row: row, details: details, animated: animated)
+            view.railReach = railReach(for: row)
             view.isDropTarget = drag?.target == .intoGroup(id) || external?.proposal == .intoGroup(id)
         case let (.section(id), view as SectionHeaderRowView):
             guard let section = sections[id] else { return }

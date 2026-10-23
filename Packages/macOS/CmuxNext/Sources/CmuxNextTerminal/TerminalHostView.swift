@@ -25,16 +25,20 @@ public final class TerminalHostView: NSView {
     private var hostLossCause: TerminalHostLossCause?
     private var shellStall: TerminalShellStall?
     /// "Restart Shell Here" above the banner while the shell has ended.
-    private let restartButton = TerminalRestartButton()
+    /// It, Retry and the "Sized for" chip are built the first time they show, not with the
+    /// terminal: each is a rounded NSButton, whose bezel is sized and laid out through SwiftUI,
+    /// and a hidden chip's constraints conflict at its zero frame, all in a split's first frame.
+    private var restartButton: TerminalRestartButton?
     /// "Retry" above the banner once the view's attach kept failing.
-    private let retryButton = TerminalRetryButton()
+    private var retryButton: TerminalRetryButton?
     /// "Sized for <device>" with Take over, bottom-trailing, while another view sets the grid.
-    private let sizedForChip = TerminalSizedForChip()
+    private var sizedForChip: TerminalSizedForChip?
+    private var restartAction: (@MainActor () -> Void)?
     /// The App's `tab.restart` for this tab; nil hides the button (a daemon
     /// without `tab-restart-v1`, a tab that cannot restart).
     public var onRestart: (@MainActor () -> Void)? {
-        get { restartButton.onRestart }
-        set { restartButton.onRestart = newValue; needsLayout = true }
+        get { restartAction }
+        set { restartAction = newValue; syncRestartButton(); needsLayout = true }
     }
 
     /// The first cell's top-left in this view's coordinates (top-left
@@ -98,12 +102,6 @@ public final class TerminalHostView: NSView {
         scroller.onStyleChange = { [weak self] in self?.needsLayout = true }
         scroller.onScrollToRow = { [weak self] row in _ = self?.current?.performBindingAction("scroll_to_row:\(row)") }
         scroller.onWheel = { [weak self] event in self?.current?.scrollWheel(with: event) }
-        addSubview(restartButton, positioned: .above, relativeTo: banner)
-        addSubview(retryButton, positioned: .above, relativeTo: banner)
-        // The same re-attach a click in the disconnected terminal starts.
-        retryButton.onRetry = { [weak self] in self?.current?.session?.surfaceClicked() }
-        addSubview(sizedForChip, positioned: .above, relativeTo: banner)
-        sizedForChip.onTakeOver = { [weak self] setLatest in self?.current?.session?.takeOverSize(setLatest: setLatest) }
         // A config reload can change window-padding-x.
         configObserver = NotificationCenter.default.addObserver(forName: GhosttyRuntime.configDidChange, object: nil, queue: .main) { [weak self] _ in
             // main-proof: observer registered with queue: .main (OperationQueue.main runs on the main thread)
@@ -150,19 +148,48 @@ public final class TerminalHostView: NSView {
     func showStatus(_ status: TerminalConnectionStatus) {
         shownStatus = status
         banner.show(status, hostLoss: hostLoss, cause: hostLossCause, stall: shellStall)
-        restartButton.show(status)
-        retryButton.show(status)
+        syncRestartButton()
+        if retryButton == nil, TerminalRetryButton.shows(status) {
+            let button = TerminalRetryButton()
+            // The same re-attach a click in the disconnected terminal starts.
+            button.onRetry = { [weak self] in self?.current?.session?.surfaceClicked() }
+            addOverlay(button)
+            retryButton = button
+        }
+        retryButton?.show(status)
         needsLayout = true
+    }
+
+    /// Builds the restart button once the shell has ended and the App gave an action.
+    private func syncRestartButton() {
+        if restartButton == nil, shownStatus == .exited, restartAction != nil {
+            let button = TerminalRestartButton()
+            addOverlay(button)
+            restartButton = button
+        }
+        restartButton?.onRestart = restartAction
+        restartButton?.show(shownStatus)
+    }
+
+    /// Above the status banner, as the find bar is.
+    private func addOverlay(_ view: NSView) {
+        addSubview(view, positioned: .above, relativeTo: banner)
     }
 
     /// The "Sized for" chip's text, nil while hidden (diagnostics and tests).
     var sizedForText: String? {
-        sizedForChip.shown.map { TerminalSizedForChip.text(for: $0) }
+        sizedForChip?.shown.map { TerminalSizedForChip.text(for: $0) }
     }
 
     func showSizedFor(_ sizedFor: TerminalSizedFor?) {
-        guard sizedFor != sizedForChip.shown else { return }
-        sizedForChip.show(sizedFor)
+        guard sizedFor != sizedForChip?.shown else { return }
+        if sizedForChip == nil {
+            let chip = TerminalSizedForChip()
+            chip.onTakeOver = { [weak self] setLatest in self?.current?.session?.takeOverSize(setLatest: setLatest) }
+            addOverlay(chip)
+            sizedForChip = chip
+        }
+        sizedForChip?.show(sizedFor)
         needsLayout = true
     }
 
@@ -248,12 +275,12 @@ public final class TerminalHostView: NSView {
     /// less 24), the restart and retry buttons centered 8 pt above it, and
     /// the find bar in the top-trailing corner. Hidden ones are skipped.
     private func layoutOverlays() {
-        let buttons = [restartButton, retryButton].filter { !$0.isHidden } as [NSView]
+        let buttons: [NSView] = ([restartButton, retryButton] as [NSButton?]).compactMap { $0 }.filter { !$0.isHidden }
         if !banner.isHidden || !buttons.isEmpty {
             layoutStatus(buttons: buttons)
         }
         let inset = Metrics.panelInset
-        if !sizedForChip.isHidden {
+        if let sizedForChip, !sizedForChip.isHidden {
             // Bottom-trailing, clear of the scroller: where a padded grid leaves room.
             let trailing = bounds.width - scroller.reservedWidth - inset
             _ = place(sizedForChip, maxWidth: bounds.width - inset * 2) { size in

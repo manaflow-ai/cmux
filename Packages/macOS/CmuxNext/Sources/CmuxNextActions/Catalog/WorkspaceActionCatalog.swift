@@ -273,6 +273,13 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
                 keywords: ["color", "tint"], category: .workspace, symbol: "paintbrush",
                 surfaces: [.palette, .contextMenu], targets: [.workspace], cliName: "workspace reset-color"
             ),
+            // Lawrence 2026-10-22: "need to be able to remove all workspace colors".
+            ActionDescriptor(
+                id: "workspace.removeAllColors",
+                title: String(localized: "action.workspace.removeAllColors", defaultValue: "Remove All Workspace Colors", bundle: .module),
+                keywords: ["color", "colors", "tint", "clear", "reset", "none", "all", "group"], category: .workspace,
+                symbol: "circle.slash", surfaces: [.palette, .contextMenu], cliName: "workspace remove-all-colors"
+            ),
             ActionDescriptor(
                 id: "reconnectWorkspace",
                 title: String(localized: "action.reconnectWorkspace", defaultValue: "Reconnect Workspace", bundle: .module),
