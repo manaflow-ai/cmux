@@ -13,22 +13,30 @@ struct HomeDaemonNoticeTests {
     @Test func noTooOldNoticeWhileTheOwnerIsStillConnecting() async {
         let (services, view) = Self.home()
         await Self.settle()
-        #expect(!Self.showsUnavailable(view))
+        // Read outside `#expect`: it would reflect the view and the whole AppServices graph.
+        let shownWhileConnecting = Self.showsUnavailable(view)
+        #expect(!shownWhileConnecting, "the too-old notice shows while the owner is still connecting: \(Self.labels(view))")
         // A timeout or a closed socket says nothing about the owner's build.
         services.home.chief.noteFailure(.timedOut("identify"))
         await Self.settle()
-        #expect(!Self.showsUnavailable(view))
+        let refusedAfterTimeout = services.home.isRefused
+        let shownAfterTimeout = Self.showsUnavailable(view)
+        #expect(!refusedAfterTimeout, "a timeout counted as a refusal")
+        #expect(!shownAfterTimeout, "the too-old notice shows after a timeout: \(Self.labels(view))")
     }
 
     @Test func theNoticeShowsOnceTheOwnerIsRefusedAsTooOld() async {
         let (services, view) = Self.home()
         services.home.chief.noteFailure(.missingCapabilities([DaemonCapabilities.shared.localConversations]))
-        await Self.settle()
-        #expect(Self.showsUnavailable(view))
+        let refused = services.home.isRefused
+        #expect(refused, "a missing-capabilities refusal was not kept")
+        let shownOnRefusal = await Self.wait { Self.showsUnavailable(view) }
+        #expect(shownOnRefusal, "the too-old notice never showed after a refusal: \(Self.labels(view))")
         // A later retry that times out keeps the reason up.
         services.home.chief.noteFailure(.timedOut("identify"))
         await Self.settle()
-        #expect(Self.showsUnavailable(view))
+        let shownAfterRetry = Self.showsUnavailable(view)
+        #expect(shownAfterRetry, "a timeout after the refusal hid the notice: \(Self.labels(view))")
     }
 
     // MARK: Fixtures
@@ -41,9 +49,28 @@ struct HomeDaemonNoticeTests {
         return (services, view)
     }
 
-    /// Lets the view's availability stream apply the newest state.
+    /// Lets the view's availability stream apply the newest state (test-only: nothing to wait on
+    /// when the expected state is that nothing changes).
     static func settle() async {
         for _ in 0..<10 { await Task.yield() }
+        try? await Task.sleep(for: .milliseconds(200))
+    }
+
+    /// Waits up to five seconds for `done` (test-only), and says whether it came true.
+    static func wait(until done: () -> Bool) async -> Bool {
+        let deadline = ContinuousClock.now + .seconds(5)
+        while !done(), ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        return done()
+    }
+
+    /// Each text field's text and whether it shows, for a failure's message.
+    static func labels(_ view: NSView) -> String {
+        view.layoutSubtreeIfNeeded()
+        return descendants(of: view).compactMap { $0 as? NSTextField }
+            .map { "\($0.stringValue.prefix(40))\($0.isHiddenOrHasHiddenAncestor ? " (hidden)" : "")" }
+            .joined(separator: " | ")
     }
 
     static func showsUnavailable(_ view: NSView) -> Bool {
