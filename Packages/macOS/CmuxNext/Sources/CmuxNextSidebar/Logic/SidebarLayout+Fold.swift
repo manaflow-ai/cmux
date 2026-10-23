@@ -38,7 +38,7 @@ nonisolated extension SidebarLayout {
         guard group.parent == nil, !(o.foldsDone && group.workspaces.contains { $0.taskStatus == .done }),
               o.rowLimit == 0 || group.members.count <= o.rowLimit + 1,
               !section.nodes.contains(where: { if case let .group(child) = $0 { child.parent == group.id } else { false } }) else { return false }
-        let m = o.minimal ? base.minimal : base
+        let m = base.resolved(for: o)
         let header = rows[headerIndex]
         guard header.section == section.id else { return false }
         // The group's block: its header and the member rows right after it.

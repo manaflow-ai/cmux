@@ -16,6 +16,9 @@ Usage: omnibar-click-bench.py --tag TAG --app PATH [--runs 15] [--engines chromi
 """
 import argparse, glob, json, os, signal, socket, subprocess, sys, tempfile, time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from bench_launch import BenchApp  # noqa: E402
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
 parser.add_argument("--app", required=True)
@@ -192,7 +195,7 @@ def cleanup():
 
 
 def main():
-    global app
+    global app, SOCKET
     if os.path.exists(SOCKET):
         os.remove(SOCKET)
     env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
@@ -201,13 +204,16 @@ def main():
            "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(SCRATCH, "ghostty"), "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,900"}
     if not opts.activate:
         env["CMUX_NEXT_NO_ACTIVATE"] = "1"
-    log = open(os.path.join(opts.out, f"app-{TAG}.log"), "a")
-    app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
-    LAUNCHED.append(app.pid)
-    if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.windows") or {}).get("windows"), 120):
-        log.flush()
-        print(open(os.path.join(opts.out, f"app-{TAG}.log"), errors="replace").read()[-4000:], flush=True)
-        sys.exit("the tagged app did not come up")
+    else:
+        env["CMUX_NEXT_NO_ACTIVATE"] = None  # bench_launch: not the default no-activate launch
+    # One launch path (bench_launch.py): socket in the state folder, bench env, a clear reason when it does not come up.
+    bench = BenchApp(APP, out=opts.out, log_name=f"app-{TAG}.log", window=None, screen=None, teardown=False, env=env)
+    try:
+        bench.launch(timeout=120, on_start=lambda process: LAUNCHED.append(process.pid))
+    finally:
+        app = bench.process
+    SOCKET = bench.socket
+    CLI_ENV["CMUX_SOCKET_PATH"] = SOCKET
     time.sleep(2)  # test harness: first launch settles
     if opts.activate:
         subprocess.run(["osascript", "-e", f'tell application id "com.cmuxterm.app.debug.{TAG}" to activate'], capture_output=True, timeout=30)

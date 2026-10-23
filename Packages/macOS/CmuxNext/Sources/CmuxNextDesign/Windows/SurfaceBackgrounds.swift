@@ -1,4 +1,5 @@
 public import CmuxTheme
+public import CmuxNextDesignTokens
 
 /// A part of the window whose background the user may change
 /// (`appearance.surfaces.<surface>` in cmux.json, Lawrence R55;

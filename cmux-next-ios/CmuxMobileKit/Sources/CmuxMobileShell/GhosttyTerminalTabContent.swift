@@ -45,13 +45,37 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     /// Last frames kept across launches.
     var frameStore: TerminalFrameStore? = .standard
     private var backgroundObserver: NSObjectProtocol?
+    private var foregroundObserver: NSObjectProtocol?
+    /// The app is in the foreground: only then does a shown terminal size
+    /// its Mac terminal (PROTOCOL.md, "Terminal size claims").
+    private var appActive = UIApplication.shared.applicationState != .background
 
     init() {
         backgroundObserver = NotificationCenter.default.addObserver(
             forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.saveFrames() }
+            MainActor.assumeIsolated {
+                // The background (or the lock screen) releases every
+                // terminal's size at once. A short background task keeps the
+                // app running for the releases to reach the Mac (bounded:
+                // the Mac's size lease covers a release that never lands).
+                let release = SizeReleaseBackgroundTask()
+                release.begin()
+                self?.setAppActive(false)
+                self?.saveFrames()
+                release.endAfter(.seconds(2))
+            }
         }
+        foregroundObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.setAppActive(true) }
+        }
+    }
+
+    private func setAppActive(_ active: Bool) {
+        appActive = active
+        for host in hosts.values { host.model.setAppActive(active) }
     }
 
     /// Going to the background: each live page's frame goes to disk, so a
@@ -169,6 +193,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
                 }
             }
         }
+        model.setAppActive(appActive)
         let host = TerminalTabHost(model: model)
         hosts[tab.id] = host
         upgrade.built(tabID: tab.id, workspaceID: workspace.id, live: live != nil)
@@ -203,6 +228,8 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         endedShells = []
         for id in Array(feeds.keys) { stopWatching(id) }
         indicators = [:]
+        // Each session releases its size on the Mac before its channel closes.
+        for host in hosts.values { host.model.session.stop() }
         hosts = [:]
         slots = [:]
         upgrade.reset()
@@ -411,6 +438,36 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     /// DEBUG demos drive the open terminal tab through its model.
     func model(forTabID id: String) -> TerminalModel? { hosts[id]?.model }
     #endif
+}
+
+/// A short background task for the background release: begun before the
+/// sessions release their sizes, ended after `endAfter`'s bound or when iOS
+/// runs out of time, whichever is first (the size lease covers a lost release).
+@MainActor
+private final class SizeReleaseBackgroundTask {
+    private var id = UIBackgroundTaskIdentifier.invalid
+
+    func begin() {
+        id = UIApplication.shared.beginBackgroundTask(withName: "terminal-size-release") { [weak self] in
+            // iOS calls this on the main thread; hop explicitly all the same.
+            Task { @MainActor in self?.end() }
+        }
+    }
+
+    func endAfter(_ bound: Duration) {
+        guard id != .invalid else { return }
+        // An intentional bounded delay (the release's time to reach the Mac).
+        Task { @MainActor in
+            try? await Task.sleep(for: bound)
+            self.end()
+        }
+    }
+
+    private func end() {
+        guard id != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(id)
+        id = .invalid
+    }
 }
 
 /// The host a tab's page shows now. Observed: when a placeholder host is

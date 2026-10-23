@@ -89,30 +89,19 @@
 .acpmux-summary-subagent-rows button.cv-subagent:hover{background:var(--acpmux-menu-hover)}
 .acpmux-summary-subagent-rows button.cv-subagent:active{background:color-mix(in srgb,var(--agent-text) 18%,var(--acpmux-base))}
 .acpmux-summary-subagent-rows button.cv-subagent:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1.5px}
-/* A subagent row's icon (SubagentStatusList.tsx): a status dot, the accent while it runs, the warning colour while it waits on the user. */
+/* A subagent row's icon (SubagentStatusList.tsx, AgentLine.tsx). No corner dot: every row that draws it says its state in words
+   beside it (Running, Waiting, Done, Failed), and a running one's icon takes the accent (subagents.css). Leo 2026-10-22: "the
+   bottom right dots in most situations is kinda weird and unnecsesary... it doenst really tell me much". */
 .acpmux-lineage__icon{position:relative;flex:none;display:inline-flex;color:var(--agent-muted)}
-.acpmux-lineage__icon::after{content:"";position:absolute;right:-2px;bottom:-2px;width:6px;height:6px;border-radius:50%;box-shadow:0 0 0 1.5px var(--surface-popup);background:var(--agent-muted)}
-.acpmux-lineage__icon[data-state=running]::after{background:var(--agent-accent)}
-.acpmux-lineage__icon[data-state=waiting]::after{background:var(--acpmux-needs-you-mark)}
-.acpmux-lineage__icon[data-state=done]::after{background:var(--agent-success,var(--acpmux-add,#3fb950))}
-.acpmux-lineage__icon[data-state=completed]::after{background:var(--agent-success,var(--acpmux-add,#3fb950))}
-.acpmux-lineage__icon[data-state=failed]::after{background:var(--agent-danger)}
 /* The card slides in from the pane's right edge and back out (ui/presence.ts, data-presence): the inline column travels its own width inside the pane (the shell clips it), so the chat lays out once, not on every frame; the popover travels the shared few points. */
 .acpmux-summary-card[data-placement=inline]{--ui-enter-distance:100%}
 /* Static status indicators (cx-sya4n): a shape per state, not color alone. A subagent dot carries
-   a check when done and a cross when it failed; the lineage badge is a dot while running, ! while
-   it waits, a check, a cross, or a ring when it stopped otherwise. */
+   a check when done and a cross when it failed. */
 :root[data-status-indicators=static] .acpmux-summary-dot{position:relative}
 :root[data-status-indicators=static] .acpmux-summary-dot::after{position:absolute;inset:0;display:grid;place-items:center;font-size:var(--text-caption);transform:scale(.75);font-weight:700;line-height:1;color:var(--surface-popup)}
 :root[data-status-indicators=static] .acpmux-summary-dot[data-state=done]::after{content:"✓"}
 :root[data-status-indicators=static] .acpmux-summary-dot[data-state=failed]::after{content:"✕"}
 :root[data-status-indicators=static] .acpmux-summary-dot[data-state=running]::after{content:"";inset:4px;border-radius:50%;background:var(--surface-popup)}
-:root[data-status-indicators=static] .acpmux-lineage__icon::after{background:transparent;box-shadow:inset 0 0 0 1.5px var(--agent-muted)}
-:root[data-status-indicators=static] .acpmux-lineage__icon[data-state=running]::after{background:var(--agent-accent);box-shadow:0 0 0 1.5px var(--surface-popup)}
-:root[data-status-indicators=static] .acpmux-lineage__icon:is([data-state=completed],[data-state=done],[data-state=failed],[data-state=waiting])::after{width:8px;height:8px;right:-3px;bottom:-3px;border-radius:0;box-shadow:none;display:grid;place-items:center;font-size:var(--text-caption);transform:scale(.75);font-weight:700;line-height:1;background:var(--surface-popup)}
-:root[data-status-indicators=static] .acpmux-lineage__icon:is([data-state=completed],[data-state=done])::after{content:"✓";color:var(--agent-success,var(--acpmux-add,#3fb950))}
-:root[data-status-indicators=static] .acpmux-lineage__icon[data-state=failed]::after{content:"✕";color:var(--agent-danger)}
-:root[data-status-indicators=static] .acpmux-lineage__icon[data-state=waiting]::after{content:"!";color:var(--acpmux-warning,var(--agent-warning))}
 /* The chat's gallery (GalleryDialog.tsx): over the pane as the image viewer is, a grid of the chat's images and render cards. */
 .acpmux-chat-gallery{position:fixed;inset:0;z-index:var(--layer-modal);width:auto;margin-inline:0;display:flex;flex-direction:column;background:color-mix(in srgb,var(--agent-page-bg) 94%,transparent);-webkit-backdrop-filter:blur(24px);backdrop-filter:blur(24px);color:var(--agent-text);outline:none}
 /* Reduce Transparency: the gallery is a solid page, unblurred, as the other blurred acpmux surfaces are. The page background is clear in a translucent window, so the solid color is the opaque surface token the composer uses. */

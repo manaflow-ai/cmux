@@ -5,9 +5,9 @@ import Testing
 @Suite struct AgentSessionAttachClientObserverTests {
     @Test func observeUsesItsOwnCapabilityAndCommand() {
         let mode = AgentSessionAttachClient.Mode.observe
-        #expect(mode.capability == DaemonCapabilities.shared.agentSessionObserve)
+        #expect(mode.capability == DaemonCapabilities.agentSessionObserve)
         #expect(mode.command == "agent-session-observe")
-        #expect(mode.capability != DaemonCapabilities.shared.agentSessionAttach)
+        #expect(mode.capability != DaemonCapabilities.agentSessionAttach)
         #expect(mode.unsupportedMessage == "the daemon does not serve agent session observation")
         #expect(AgentSessionAttachClient.Mode.attach.unsupportedMessage == "the daemon does not serve agent session attach")
     }

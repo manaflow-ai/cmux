@@ -7,6 +7,7 @@ import CmuxNextDaemon
 import CmuxNextNowPlaying
 import CmuxNextSettings
 import CmuxNextTabs
+import CmuxNextRemoteLocalhostService
 
 /// Tabs a page asks for: a link opened in a new tab (Cmd-click, middle
 /// click, `target=_blank` handled as a URL), a popup or `window.open` that
@@ -25,6 +26,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
             nowPlaying.follow(services)
             sidebarNowPlaying.follow(sessions: { [weak self] in self?.services.map { s in s.cache.pageRequests.media.sessions(in: s.cache).map { NowPlayingSession(tab: $0.entry.tab.id, media: $0.media) } } ?? [] },
                                      tab: { [weak self] id in self?.services?.cache.browsers.values.first { $0.tab.id == id }?.tab })
+            sidebarNowPlaying.allowsPictureInPicture = { [weak self] in PictureInPictureHandlers.isEnabled(self?.services) }
             // A popup panel's page gets the same rows, acting for its opener's tab.
             services?.popups.hitItems = { [weak self] target, openerKey in self?.hitItems(for: target, tab: openerKey) ?? [] }
             // A popup window's omnibar suggests from its page's profile, as a tab's does.

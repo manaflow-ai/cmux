@@ -1295,7 +1295,7 @@ fn code_mode_server(fake: Fake) -> Server<Fake> {
 }
 
 #[test]
-fn code_mode_lists_two_tools_and_a_script_reaches_every_tool() {
+fn code_mode_lists_only_cmux_exec_and_a_script_reaches_every_tool() {
     let mut server = code_mode_server(Fake::with_actions());
     let initialize =
         server.handle(&json!({"jsonrpc": "2.0", "id": "i", "method": "initialize"})).unwrap();
@@ -1304,7 +1304,9 @@ fn code_mode_lists_two_tools_and_a_script_reaches_every_tool() {
         server.handle(&json!({"jsonrpc": "2.0", "id": "l", "method": "tools/list"})).unwrap();
     let tools = listed["result"]["tools"].as_array().cloned().unwrap();
     let names = tools.iter().filter_map(|tool| tool["name"].as_str()).collect::<Vec<_>>();
-    assert_eq!(names, ["cmux_docs", "cmux_exec"]);
+    // Only cmux_exec (Lawrence 2026-10-23): a script searches with
+    // `cmux.docs(query)`, and `cmux_docs` stays callable for old prompts.
+    assert_eq!(names, ["cmux_exec"]);
     let bytes = serde_json::to_vec(&tools).unwrap().len();
     assert!(bytes < 8 << 10, "the code-mode list is {bytes} bytes");
     let all = server.list();
@@ -1481,12 +1483,12 @@ fn cmux_docs_answers_a_task_with_its_guide() {
 /// The tools the acpmux sub-session server's instructions point agents at
 /// (`acpmux::subsession_mcp::CMUX_TOOLS`) stay tools of this server, and the
 /// instructions reach them the way an agent's `cmux mcp serve` does: in
-/// code mode, through a `cmux_exec` script, with `cmux_docs` for arguments.
+/// code mode, through a `cmux_exec` script, with `cmux.docs` for arguments.
 #[test]
 fn the_subsession_servers_instructions_name_real_cmux_tools() {
     let mut server = code_mode_server(Fake::with_actions());
     let rules = acpmux::subsession_mcp::instructions();
-    assert!(rules.contains("cmux_exec") && rules.contains("cmux_docs"), "{rules}");
+    assert!(rules.contains("cmux_exec") && rules.contains("cmux.docs"), "{rules}");
     let names = acpmux::subsession_mcp::CMUX_TOOLS;
     let found = call(&mut server, "cmux_docs", json!({"names": names}));
     assert_eq!(found["structuredContent"]["unknown"], json!([]), "{found}");

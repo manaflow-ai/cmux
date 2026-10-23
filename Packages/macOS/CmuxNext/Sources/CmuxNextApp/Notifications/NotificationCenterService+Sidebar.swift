@@ -34,7 +34,7 @@ extension NotificationCenterService {
                 return true
             }
             for await connected in ready where connected {
-                guard daemon.supports(DaemonCapabilities.shared.notificationAck) else { continue }
+                guard daemon.supports(DaemonCapabilities.notificationAck) else { continue }
                 daemon.send("list-notifications") { connection in
                     let entries = try await connection.notificationLedger()
                     await MainActor.run { daemon.store.seedNotificationTexts(entries) }

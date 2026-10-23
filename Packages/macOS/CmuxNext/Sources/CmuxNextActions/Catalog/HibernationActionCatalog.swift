@@ -34,7 +34,7 @@ nonisolated enum HibernationActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "neverHibernateSite", title: t("action.neverHibernateSite", "Never Hibernate This Site"),
                 keywords: ["tab", "browser", "hibernate", "sleep", "discard", "exception", "exclude", "site", "keep", "awake"],
-                category: .tab, symbol: "moon.zzz.fill", surfaces: [.palette, .contextMenu], targets: [.tab],
+                category: .tab, symbol: "moon.circle", surfaces: [.palette, .contextMenu], targets: [.tab],
                 cliName: "tab never-hibernate-site"
             ),
             ActionDescriptor(
