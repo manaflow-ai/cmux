@@ -208,7 +208,11 @@ final class NotificationCenterService {
     func noteTyping(in window: NSWindow?) {
         guard let tab = focusedTab(in: window) else { return }
         lastKeystroke[tab] = .now
-        if isTerminalFocused(in: window) { clearUnreadMark(ofTab: tab) }
+        // Workspace Mark as Unread belongs to this Mac; typing in another machine's terminal
+        // must not clear a local mark whose tab id happens to be the same.
+        if isTerminalFocused(in: window), content(of: window)?.daemon.isLocal != false {
+            clearUnreadMark(ofTab: tab)
+        }
         interacted(.keystroke, tabID: tab, in: window)
     }
 
@@ -321,14 +325,18 @@ final class NotificationCenterService {
     /// A click or key in `window` went into a tab in the workspace shown there. Resolve the tab
     /// on that workspace's owning machine so identical ids on different machines cannot cross-clear.
     func interacted(_ trigger: NotificationTrigger, tabID: String, in window: NSWindow?) {
-        let host = window.map { CmuxApplication.accessibilityWindow(for: $0) ?? $0 }
-        guard let host, let content = services?.windows.controllers.first(where: { $0.window === host })?.content else {
-            return interacted(trigger, tabID: tabID)
-        }
+        guard let content = content(of: window) else { return interacted(trigger, tabID: tabID) }
         let local = content.daemon.isLocal
         if !interacted(trigger, tabID: tabID, in: content.workspace, local: local), local {
             interacted(trigger, tabID: tabID)
         }
+    }
+
+    /// The workspace content `window` shows (a Chromium page window resolves to its cmux window);
+    /// nil for a window that shows none.
+    private func content(of window: NSWindow?) -> WorkspaceContentController? {
+        guard let host = window.map({ CmuxApplication.accessibilityWindow(for: $0) ?? $0 }) else { return nil }
+        return services?.windows.controllers.first(where: { $0.window === host })?.content
     }
 
     /// Resolve `tabID` within the shown workspace. Return false when that workspace has no tab by
