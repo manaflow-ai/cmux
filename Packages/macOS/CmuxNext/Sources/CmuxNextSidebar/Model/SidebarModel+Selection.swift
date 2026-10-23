@@ -76,7 +76,7 @@ extension SidebarModel {
             // `.select` is the singular activation intent used by the bridge to show the
             // workspace. Keep the range this local Shift navigation just established after
             // the bridge's optimistic echo applies that singular intent.
-            selection = rangeSelection
+            if selection == [id] { selection = rangeSelection }
         } else {
             click(id)
         }
