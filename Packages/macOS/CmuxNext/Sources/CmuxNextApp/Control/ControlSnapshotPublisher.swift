@@ -86,7 +86,7 @@ final class ControlSnapshotPublisher {
         let started = ContinuousClock.now
         (lastPublish, notBefore) = (started, nil)
         let (topology, settings, tabSearch) = withObservationTracking {
-            (Self.topology(services, cache: workspaceInfos), services.settings?.snapshot.root, TabSearchFactsBuilder.facts(services))
+            (Self.topology(services, cache: workspaceInfos), services.settings?.snapshot.root, TabSearchFactsBuilder.facts(services, cache: workspaceInfos))
         } onChange: { [weak self] in
             // Runs synchronously inside the mutation; publish after it lands.
             Task { @MainActor in self?.modelChanged() }
@@ -97,10 +97,11 @@ final class ControlSnapshotPublisher {
             snapshot.tabSearch = tabSearch
         }
         let elapsed = ContinuousClock.now - started
-        // The tab count walks every tab: only when a timing slot or the debug log wants it.
-        DebugTimings.controlPublished(tabs: topology.tabCount, elapsed)
+        // The cache keeps the tab count as entries change: no walk of every tab per publish.
+        let tabs = workspaceInfos.tabCount
+        DebugTimings.controlPublished(tabs: tabs, elapsed)
         if elapsed > .milliseconds(2) {
-            logger.debug("control snapshot took \(elapsed.components.attoseconds / 1_000_000_000_000_000) ms for \(topology.tabCount) tabs")
+            logger.debug("control snapshot took \(elapsed.components.attoseconds / 1_000_000_000_000_000) ms for \(tabs) tabs")
         }
     }
 
@@ -162,7 +163,7 @@ final class ControlSnapshotPublisher {
                                                    build: visible) ?? visible()
             return info
         }
-        cache?.retainMemos(Set(windows.controllers.map { "window:" + $0.state.id }))
+        cache?.retainMemos(Set(windows.controllers.map { "window:" + $0.state.id } + [TabSearchFactsBuilder.closedSlot]))
         if let active = windows.active {
             let pane = active.focusedPane
             // The strip's selected tab: a daemon tab, or an internal page

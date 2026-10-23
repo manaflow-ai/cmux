@@ -19,6 +19,8 @@ final class ControlWorkspaceList {
     var pageTabWorkspaces: Set<ObjectIdentifier> = []
     /// Workspaces whose `infos` value carries app facts from the last publish.
     var applied: Set<ObjectIdentifier> = []
+    /// Tabs of `infos` (app facts never add or drop a pane's tabs).
+    var tabCount = 0
     /// The generation of the tracking that read the list; nil once it fired.
     var generation: UInt64?
 }

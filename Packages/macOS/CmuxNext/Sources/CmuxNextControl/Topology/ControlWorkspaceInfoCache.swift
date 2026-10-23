@@ -63,7 +63,7 @@ public final class ControlWorkspaceInfoCache {
     private(set) var workspaceVisits = 0
     /// Tabs in the lists the last publish mapped (``ControlTopology/tabCount`` of their
     /// workspaces), kept as entries change instead of walking every tab.
-    public var tabCount: Int { 0 }
+    public var tabCount: Int { lists.values.reduce(0) { $0 + $1.tabCount } }
     /// Memo values built (not reused) since the cache was made (tests read the per-publish delta).
     private(set) var memoBuilds = 0
 
@@ -179,11 +179,13 @@ public final class ControlWorkspaceInfoCache {
         list.infos.reserveCapacity(models.count)
         list.paneOwners = [:]
         list.pageTabWorkspaces = []
+        list.tabCount = 0
         for (position, model) in models.enumerated() {
             let entry = entry(for: model, build: build)
             let key = ObjectIdentifier(model)
             index[key] = position
             list.infos.append(entry.info)
+            list.tabCount += Self.tabs(of: entry.info)
             own(entry, key, in: list)
         }
         for key in list.index.keys where index[key] == nil {
@@ -212,11 +214,17 @@ public final class ControlWorkspaceInfoCache {
             }
             list.pageTabWorkspaces.remove(key)
             let entry = entry(for: old.model, build: build)
+            list.tabCount += Self.tabs(of: entry.info) - Self.tabs(of: old.info)
             list.infos.modify(checked: position) { $0 = entry.info }
             list.applied.remove(key)
             own(entry, key, in: list)
         }
         if !dead.isEmpty { stale.withLock { set in dead.forEach { set.remove($0) } } }
+    }
+
+    /// The tabs of `info`'s panes.
+    private static func tabs(of info: ControlWorkspaceInfo) -> Int {
+        info.screens.reduce(0) { $0 + $1.panes.reduce(0) { $0 + $1.tabs.count } }
     }
 
     /// Records `entry`'s panes and page tabs in `list`.
