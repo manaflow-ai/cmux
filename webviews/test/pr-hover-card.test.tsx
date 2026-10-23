@@ -216,7 +216,7 @@ test("an inline link opens the same card: favicon, page title, host, the address
 test("the card's chrome is quiet: borderless buttons, no divider, no underline, a glass surface", async () => {
   const { readFileSync } = await import("node:fs");
   const path = await import("node:path");
-  const styles = readFileSync(path.join(import.meta.dir, "../src/agent-session/acpmux/styles.css"), "utf8");
+  const styles = readFileSync(path.join(import.meta.dir, "../src/agent-session/acpmux/chips/linkCard.css"), "utf8");
   const rule = (selector: string) =>
     new RegExp(`(?:^|\\})${selector.replace(/[[\]().:]/g, "\\$&")}\\{([^}]*)\\}`, "m").exec(styles)?.[1] ?? "";
   const open = rule(".cv-link-preview__open");

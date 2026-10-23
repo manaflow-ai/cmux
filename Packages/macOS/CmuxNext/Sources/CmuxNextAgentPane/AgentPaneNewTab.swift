@@ -46,6 +46,9 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     public var lastPicks: AgentPaneLastPicks?
     /// The home folder, so the field reads `~/path` as a folder.
     public var home: String?
+    /// The project of the chat the person last picked and started (`newTab.remember` `started`):
+    /// where a page with no folder of its own starts. nil on another machine or before any start.
+    public var startedProject: String?
     /// Identifies the opening whose focused field must acknowledge readiness.
     public var inputToken: String?
     /// false: the page leaves its field unfocused (Cmd-L opened it for the omnibar, cx-e2aa);

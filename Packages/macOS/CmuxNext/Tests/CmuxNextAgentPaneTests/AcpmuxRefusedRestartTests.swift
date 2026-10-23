@@ -4,10 +4,10 @@ import Testing
 @testable import CmuxNextAgentPane
 
 /// A daemon another binary runs on this app's acpmux socket (2026-10-22: a NIGHTLY's shared
-/// `~/.acpmux` held by an acpmux "not signed by this app's team") left the chat stuck: the error
-/// named no binary, and Retry asked the same daemon again forever. The refusal names the binary
-/// and its signing team, offers Restart acpmux, and that restart replaces the daemon with this
-/// app's own, keeping its sessions.
+/// `~/.acpmux` held by another install's acpmux) left the chat stuck: the error named no binary,
+/// and Retry asked the same daemon again forever. The refusal names the binary and its signing
+/// team, offers Restart acpmux, and that restart replaces the daemon with this app's own,
+/// keeping its sessions.
 @Suite(.serialized)
 @MainActor
 struct AcpmuxRefusedRestartTests {
@@ -22,10 +22,10 @@ struct AcpmuxRefusedRestartTests {
         return URL(fileURLWithPath: String(cString: buffer)).resolvingSymlinksInPath().path
     }
 
-    /// "Not signed by this app's team" names the binary on the socket and says it has no team.
-    @Test func aTeamRefusalNamesTheBinaryOnTheSocket() throws {
+    /// A refusal names the binary on the socket and says it has no team.
+    @Test func aRefusalNamesTheBinaryOnTheSocket() throws {
         try withFakeDaemon { environment in
-            let error = AcpmuxHost.refused(.notTeamSigned, environment)
+            let error = AcpmuxHost.refused(.olderDaemon, environment)
             let message = AgentPaneHostError.userMessage(for: error)
             #expect(message.contains(ownPath), "the refusal does not name the binary on the socket: \(message)")
         }

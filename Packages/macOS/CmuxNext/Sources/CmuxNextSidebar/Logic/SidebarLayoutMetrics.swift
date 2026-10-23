@@ -133,6 +133,8 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// compact row's dim time on the name's line. Off by default (Lawrence 2026-10-19): no row
     /// draws a time unless the user picks the Last Activity element.
     public var showsTimestamps = false
+    /// `sidebar.showColors`: off, a row draws no workspace color (`WorkspaceIcon.uncolored`).
+    public var showsColors = true
     /// The start of today: the last-activity element shows a time for today,
     /// else a date. A day, not the current time, so options stay equal.
     public var now = Date(timeIntervalSince1970: 0)
@@ -189,6 +191,7 @@ nonisolated extension SidebarLayoutOptions {
             content.badge = nil
         }
         if !showsTimestamps { (content.time, content.badgeTime) = (nil, nil) }
+        if !showsColors { content.icon = content.icon?.uncolored }
         // What the agent needs, for the row's accessibility label only: a row draws no status words
         // (Leo 2026-10-21), its badge's dot says it. Worded on the main actor by the row view.
         if !minimal, let chip = WorkspaceRowContent.rowChip(ws.agentChip) { content.chip = chip }

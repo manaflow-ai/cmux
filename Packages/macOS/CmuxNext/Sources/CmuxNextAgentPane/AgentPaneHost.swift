@@ -20,7 +20,7 @@ public nonisolated protocol AgentPaneHostProviding: Sendable {
     /// ``AgentPaneFilePutFailure``. Never starts a daemon.
     func putFile(sessionId: String, name: String, data: Data) async throws -> String
     /// A person asked to restart acpmux from this app's own binary after a refusal named another
-    /// binary on the socket (``AgentPaneHostError/daemonRefused(holder:socketPath:reason:owner:)``
+    /// binary on the socket (``AgentPaneHostError/daemonRefused(holder:socketPath:reason:executable:owner:)``
     /// with an owner): stops that daemon, keeping its sessions, so the next handshake starts this
     /// app's. True when it stopped.
     func restartAcpmux() async -> Bool
@@ -78,10 +78,12 @@ public nonisolated enum AgentPaneHostError: Error, Equatable, Sendable {
     case chiefStopped
     /// A daemon answers on `socketPath`, but this build may not use it: it runs another
     /// executable (`holder`, the cmux app that owns it, when known) or failed the peer check
-    /// for `reason`. Its log says nothing, since the daemon itself never saw a failure. `owner`:
+    /// for `reason`. Its log says nothing, since the daemon itself never saw a failure.
+    /// `executable` is this app's own acpmux: the message's shutdown command runs it. `owner`:
     /// the binary that holds the socket, when this app may stop it and start its own
     /// (``AgentPaneHostProviding/restartAcpmux()``); nil when it may not.
-    case daemonRefused(holder: String?, socketPath: String, reason: String, owner: AcpmuxSocketOwner? = nil)
+    case daemonRefused(holder: String?, socketPath: String, reason: String, executable: String = "acpmux",
+                       owner: AcpmuxSocketOwner? = nil)
     case timedOut
 }
 
@@ -255,7 +257,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         AcpmuxFailureLog(logPath: environment.logPath).record(.peerRefused, detail: "\(environment.socketPath): \(refusal.description)")
         logger.error("acpmux at \(environment.socketPath, privacy: .public) refused: \(refusal.description, privacy: .public); held by \(found?.path ?? holder ?? "unknown", privacy: .public) team \(found?.team ?? "none", privacy: .public); this app runs \(environment.executable.path, privacy: .public)")
         return .daemonRefused(holder: holder, socketPath: environment.socketPath, reason: reason ?? refusal.description,
-                              owner: startsDaemons ? owner : nil)
+                              executable: environment.executable.path, owner: startsDaemons ? owner : nil)
     }
 
     /// Each stale daemon's heal, by pid: one heal per daemon, however many panes ask,
@@ -297,7 +299,8 @@ public actor AcpmuxHost: AgentPaneHostProviding {
                 AcpmuxFailureLog(logPath: environment.logPath).record(.foreignHome, detail: "home \(status.home ?? "?")")
                 let holder = status.pid.flatMap(AcpmuxVersionHandoff.executablePath(pid:)).map(AcpmuxServerPeer.holderName(executablePath:))
                 throw AgentPaneHostError.daemonRefused(holder: holder, socketPath: environment.socketPath,
-                                                       reason: "it serves the acpmux home \(status.home ?? ""), not \(environment.home.path)")
+                                                       reason: "it serves the acpmux home \(status.home ?? ""), not \(environment.home.path)",
+                                                       executable: environment.executable.path)
             }
             // After an update the daemon may be the previous build's: hand it
             // off (its agents keep running under their hosts) and start ours.

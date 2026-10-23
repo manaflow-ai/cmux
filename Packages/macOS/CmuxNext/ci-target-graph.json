@@ -163,7 +163,8 @@
         "CmuxNextPages",
         "CmuxNextPagesTestSupport",
         "CmuxNextRemoteFetch",
-        "CmuxNextSettings"
+        "CmuxNextSettings",
+        "CmuxNextWakeups"
       ],
       "packages": [],
       "reads": [
@@ -374,6 +375,7 @@
         "CmuxNextRemote",
         "CmuxNextRemoteLocalhostService",
         "CmuxNextScreenshots",
+        "CmuxNextStash",
         "CmuxNextTabs",
         "CmuxNextTasks",
         "CmuxNextTerminalGeometry",
@@ -1007,7 +1009,6 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextImportCards",
       "targets": [
         "CmuxNextActions",
-        "CmuxNextAgentPane",
         "CmuxNextBrowserImport",
         "CmuxNextCompat",
         "CmuxNextDesign",

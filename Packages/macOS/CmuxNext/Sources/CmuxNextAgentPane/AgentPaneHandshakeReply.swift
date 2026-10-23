@@ -86,7 +86,7 @@ enum AgentPaneHandshakeReply {
             if let machine = (error as? any AgentPaneHostRefusal)?.machineName { details["machineName"] = machine }
             // A daemon another binary runs holds this app's socket: asking again cannot help, so
             // the page stops retrying on its own and offers Restart acpmux (`acpmux.restart`).
-            if case .daemonRefused(_, _, _, _?) = error as? AgentPaneHostError {
+            if case .daemonRefused(_, _, _, _, _?) = error as? AgentPaneHostError {
                 details["restartAcpmux"] = true
                 model.acpmuxRestartOffered = true
             } else {

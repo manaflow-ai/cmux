@@ -216,6 +216,7 @@ let package = Package(
                 "CmuxNextDiff",
                 "CmuxNextHome",
                 "CmuxNextHomeEngine",
+                "CmuxNextHostPressure",
                 "CmuxNextChiefPetWiring",
                 "CmuxNextHostedChief",
                 "CmuxNextDaemonService",
@@ -355,7 +356,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextAgentPaneTests",
-            dependencies: ["CmuxNextAgentPane", "CmuxNextDaemon", "CmuxNextActions", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextDictation", "CmuxNextPages", "CmuxNextPagesTestSupport", "CmuxNextRemoteFetch", "CmuxNextSettings"],
+            dependencies: ["CmuxNextAgentPane", "CmuxNextDaemon", "CmuxNextActions", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextDictation", "CmuxNextPages", "CmuxNextPagesTestSupport", "CmuxNextRemoteFetch", "CmuxNextSettings", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         // Dictation (the composer's mic): the on-device speech engines and
@@ -452,11 +453,11 @@ let package = Package(
             dependencies: ["CmuxNextImportSuggestions", "CmuxNextBrowserImport"],
             swiftSettings: daemonSwiftSettings
         ),
-        // The cards' center and surfaces: the scan schedule, the job runner, the `import.*`
-        // actions, the agent pages' push and the Chief front page's row. The App supplies `ImportCardsHost`.
+        // The cards' center: the scan schedule, the job runner and the `import.*` actions, for
+        // Settings › Import (no Home or New Tab suggestion). The App supplies `ImportCardsHost`.
         .target(
             name: "CmuxNextImportCards",
-            dependencies: ["CmuxNextActions", "CmuxNextAgentPane", "CmuxNextBrowserImport", "CmuxNextCompat", "CmuxNextDesign",
+            dependencies: ["CmuxNextActions", "CmuxNextBrowserImport", "CmuxNextCompat", "CmuxNextDesign",
                            "CmuxNextImportSuggestions", "CmuxNextOnboarding", "CmuxNextSettings"],
             swiftSettings: uiSwiftSettings
         ),
@@ -756,6 +757,18 @@ let package = Package(
             name: "CmuxNextKeepAwakeTests",
             dependencies: ["CmuxNextKeepAwake", "CmuxNextSettings"],
             swiftSettings: uiSwiftSettings
+        ),
+        // Host pressure (cmuxterm-hq#2995): the shared host budget's verdict (acpmux's
+        // `host_pressure`, else the same formula locally) as a level that does not flicker.
+        // The memory pressure dispatch source, plus one 15 s timer for load and swap.
+        .target(
+            name: "CmuxNextHostPressure",
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextHostPressureTests",
+            dependencies: ["CmuxNextHostPressure"],
+            swiftSettings: daemonSwiftSettings
         ),
         // VS Code (Inline): the one `serve-web` server on 127.0.0.1 behind Open Folder in VS Code
         // (Inline) and Stop/Restart VS Code Inline Server. The App opens its URL in a browser tab.
@@ -1460,6 +1473,7 @@ let package = Package(
                 "CmuxNextRemote",
                 "CmuxNextRemoteLocalhostService",
                 "CmuxNextScreenshots",
+                "CmuxNextStash",
                 "CmuxNextTabs",
                 "CmuxNextTasks",
                 "CmuxNextTerminalGeometry",

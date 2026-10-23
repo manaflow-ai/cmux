@@ -15,6 +15,8 @@ import { OutputMore, useOutput } from "./toolOutput";
 import { ToolImages } from "./ToolRow";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { useFold } from "./fold";
+import { toolFailure } from "./toolFailure";
+import { failureWord, InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
 
 export function McpCallRows({ items, disclosureKey }: { items: readonly AcpmuxActivity[]; disclosureKey: string }) {
   return items.length === 1 ? (
@@ -90,6 +92,8 @@ function McpCallRow({ item }: { item: AcpmuxActivity }) {
   const raw = mcpRawName(tool, call);
   const images = useMemo(() => toolImages(tool), [tool]);
   const running = isRunning(tool);
+  // An MCP server's error is often JSON: its message, in one line (toolFailure.ts).
+  const failure = useMemo(() => (tool.status === "failed" ? toolFailure(tool) : undefined), [tool]);
   return (
     <>
       <button
@@ -104,7 +108,8 @@ function McpCallRow({ item }: { item: AcpmuxActivity }) {
         </span>
         <span className="cv-tool__text" data-find-skip>
           {mcpLabel(t, [call], names)}
-          {tool.status === "failed" && <span className="cv-tool__failed"> {t("tools.failed")}</span>}
+          {failure && <span className="cv-tool__failed"> {failureWord(t, failure)}</span>}
+          <InlineFailureCause failure={failure} />
         </span>
         <ChevronRight
           size={14}
@@ -112,6 +117,7 @@ function McpCallRow({ item }: { item: AcpmuxActivity }) {
           className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
         />
       </button>
+      <ToolFailureCause failure={failure} />
       {images.length > 0 && <ToolImages sources={images} />}
       {fold.present && (
         <div ref={fold.ref} className="cv-fold">

@@ -200,6 +200,8 @@ public extension PageDescriptor {
     /// highlight's "Try it", and only for an action in ``changelogTryItActions``: the signed
     /// notes may name an action id, never a command or a URL. Its one network source is the
     /// nightly reels' folder (``changelogReelSource``), so the update's reel plays in the page.
+    /// A highlight's PR chip opens its link through the owner's `cmux.changelog.browser.openIn`,
+    /// which takes only https and spends the person's gesture (ChangelogPageProvider).
     static let changelog = PageDescriptor(
         id: "cmux.changelog", resource: "changelog", namespaces: ["cmux.changelog."],
         nativeOps: [PageNativeOp.actionRun], actions: changelogTryItActions,

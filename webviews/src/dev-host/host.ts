@@ -192,7 +192,6 @@ export function devHostReply(host: DevHostParams, request: Request): DevHostRepl
     case "newTab.setTemplate":
     case "newTab.editWidgets":
     case "nowPlaying.command":
-    case "importCards.act":
     case "newTab.touched":
     case "newTab.warm":
     case "shortcut.edit":

@@ -180,7 +180,7 @@ test("the card's owner/repo#N is a styled link to the pull request", async () =>
   expect(ref!.hasAttribute("title")).toBe(false);
   const { readFileSync } = await import("node:fs");
   const { join } = await import("node:path");
-  const styles = readFileSync(join(import.meta.dir, "../src/agent-session/acpmux/styles.css"), "utf8");
+  const styles = readFileSync(join(import.meta.dir, "../src/agent-session/acpmux/chips/linkCard.css"), "utf8");
   const rule = styles.match(/\.acpmux-pr-card__ref\{([^}]*)\}/)?.[1] ?? "";
   expect(rule).toContain("color:var(--agent-link)");
   expect(rule).toContain("text-decoration:underline");
@@ -302,7 +302,7 @@ test("the state is the glyph's colour, with no pill and no state word", async ()
   }
   const { readFileSync } = await import("node:fs");
   const path = await import("node:path");
-  const styles = readFileSync(path.join(import.meta.dir, "../src/agent-session/acpmux/styles.css"), "utf8");
+  const styles = readFileSync(path.join(import.meta.dir, "../src/agent-session/acpmux/chips/linkCard.css"), "utf8");
   const colour = (state: string) =>
     new RegExp(`\\.acpmux-pr-card__glyph\\[data-state=${state}\\]\\{color:([^}]*)\\}`).exec(styles)?.[1];
   expect(colour("open")).toContain("--agent-success");
@@ -392,7 +392,7 @@ test("every red being the base's reads the ✗ muted", async () => {
   // colour, neither danger pink nor the warning colour.
   const { readFileSync } = await import("node:fs");
   const path = await import("node:path");
-  const styles = readFileSync(path.join(import.meta.dir, "../src/agent-session/acpmux/styles.css"), "utf8");
+  const styles = readFileSync(path.join(import.meta.dir, "../src/agent-session/acpmux/chips/linkCard.css"), "utf8");
   const rule = (selector: string) =>
     new RegExp(`${selector.replace(/[[\]().]/g, "\\$&")}\\{([^}]*)\\}`).exec(styles)?.[1] ?? "";
   const failed = rule(".acpmux-pr-card__checks[data-state=failing][data-on-base=all] .acpmux-pr-card__failed");

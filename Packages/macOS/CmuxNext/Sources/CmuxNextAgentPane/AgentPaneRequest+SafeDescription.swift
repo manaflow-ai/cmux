@@ -47,7 +47,6 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .listProjects: "listProjects"
         case .projectIcon: "projectIcon"
         case .nowPlaying: "nowPlaying"
-        case .importCard: "importCard"
         case .openChat: "openChat"
         case .openChatInTerminal: "openChatInTerminal"
         case .watchChat: "watchChat"

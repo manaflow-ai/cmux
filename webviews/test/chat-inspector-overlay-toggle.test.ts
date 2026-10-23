@@ -13,7 +13,7 @@
 // cannot launch them (requireBrowserLane). Locally:
 // CMUX_BROWSER_TESTS=1 bun test test/chat-inspector-overlay-toggle.test.ts
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
-import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
+import { chromium, webkit, type Browser, type BrowserType, type Locator, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { papercutPane } from "./support/papercutChat";
 
@@ -219,6 +219,87 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
             await page.close();
           }
         }
+    });
+
+  // Leo, 2026-10-22: "the card should just end when there's no more content to show". The ceiling
+  // (560px, 80% of the room under the header) is only a maximum: below it the card's height is its
+  // content's, the same in a tall pane as in a short one, floating or pushing, with nothing under its
+  // last section but the body's own padding, and its body does not scroll. Folding a section shrinks
+  // the card with it, so no fixed or minimum height holds it open either.
+  /// The card's height, the room under its last section (the sections themselves, not the
+  /// `data-section` blocks inside them) and the body's bottom padding.
+  const fit = (panel: Locator) =>
+    panel.evaluate((node) => {
+      const box = node.getBoundingClientRect();
+      const body = node.querySelector(".acpmux-chat-inspector__body")!;
+      const sections = [...body.querySelectorAll(":scope > section[data-section]")];
+      const last = sections[sections.length - 1]!.getBoundingClientRect();
+      return {
+        top: box.top,
+        card: box.height,
+        endsAtContent: Math.abs(box.bottom - last.bottom - parseFloat(getComputedStyle(body).paddingBottom)) < 0.5,
+        scrolls: body.scrollHeight > body.clientHeight + 1,
+      };
+    });
+  for (const name of browsers.keys())
+    test(`${name}: floating or pushing, a card with little to show ends right after its last section, in any pane`, async () => {
+      current = browsers.get(name)!;
+      for (const [width, placement] of [
+        [1600, "overlay"],
+        [700, "push"],
+      ] as const) {
+        const cards: ({ height: number } & Awaited<ReturnType<typeof fit>>)[] = [];
+        let folded: { shrank: boolean; endsAtContent: boolean; scrolls: boolean } | undefined;
+        for (const height of [1400, 800, 520]) {
+          const page = await pane!.open({ width, height });
+          try {
+            const { panel } = await openInspector(page, 0, placement);
+            const open = await fit(panel);
+            cards.push({ height, ...open });
+            if (height !== 520) continue;
+            // Fold Environment: the card ends at its sections again, shorter by just its rows.
+            const environment = panel.locator('section[data-section="environment"]');
+            const rows = environment.locator(".ui-disclosure-panel");
+            const fold = await rows.evaluate((node) => node.getBoundingClientRect().height);
+            await environment.locator(".ui-disclosure-trigger").click();
+            await rows.waitFor({ state: "detached", timeout: 5_000 });
+            await page.evaluate(
+              () => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))),
+            );
+            const after = await fit(panel);
+            folded = {
+              shrank: fold > 0 && Math.abs(open.card - after.card - fold) < 0.5,
+              endsAtContent: after.endsAtContent,
+              scrolls: after.scrolls,
+            };
+          } finally {
+            await page.close();
+          }
+        }
+        // The harness's sections are about 200px tall: well under the ceiling in every one of these panes.
+        const [first] = cards;
+        expect({
+          cards: cards.map(({ height, top, card, endsAtContent, scrolls }) => ({
+            placement,
+            height,
+            belowCeiling: card < Math.min(560, (height - top) * 0.8),
+            sameAsTallestPane: Math.abs(card - first!.card) < 0.5,
+            endsAtContent,
+            scrolls,
+          })),
+          folded,
+        }).toEqual({
+          cards: cards.map(({ height }) => ({
+            placement,
+            height,
+            belowCeiling: true,
+            sameAsTallestPane: true,
+            endsAtContent: true,
+            scrolls: false,
+          })),
+          folded: { shrank: true, endsAtContent: true, scrolls: false },
+        });
+      }
     });
 
   // Leo, 2026-10-22: "WHY DOES IT STAY ON IN THESE RANDOM SITUATIONS WITHOUT BEING CLOSABLE!?" Over a

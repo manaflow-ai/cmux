@@ -298,7 +298,7 @@ final class HoverCardPanel: NSPanel {
         // escape slot under the Debug middle layout); `rest` placed it the same way.
         escapeGeometry = placement == .besideRow
             ? HoverCardEscapeGeometry(anchor: anchor, cardSize: size,
-                                      visible: screen.map { $0.visibleFrame.insetBy(dx: Metrics.space2, dy: Metrics.space2) },
+                                      visible: screen.map { HoverCardEscapeGeometry.room(visible: $0.visibleFrame, window: parentWindowRef?.frame, margin: Metrics.space2) },
                                       scale: scale, alignment: alignment)
             : nil
         // R131: the window moves in the same frame (a window-frame slide restarted on every tab
@@ -398,7 +398,7 @@ extension HoverCardPanel {
         case .besideRow:
             // Beside a sidebar row, top-aligned with it and clamped into the visible frame; left of
             // the row when the screen ends first (`HoverCardEscapeGeometry`).
-            let room = (visible ?? screen ?? area).insetBy(dx: margin, dy: margin)
+            let room = HoverCardEscapeGeometry.room(visible: visible ?? screen ?? area, window: window, margin: margin)
             let geometry = HoverCardEscapeGeometry(anchor: anchor, cardSize: size, visible: room, scale: scale, alignment: rowAlignment)
             origin = geometry.card.origin
             isLeading = geometry.isLeading

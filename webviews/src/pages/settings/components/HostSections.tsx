@@ -93,37 +93,37 @@ export function MachinesSection({ title }: { title: string }) {
   const picks = stringMap(colors.value);
   return (
     <>
-    <section className="group" data-card="machines">
-      <h3 className="group-title">{title}</h3>
-      <div className="rows" data-row-key={MACHINE_COLORS_KEY}>
-        <ListRows
-          rows={host.machines}
-          empty={t("settingsWindow.machinesEmpty")}
-          marks
-          trailing={(row) => (
-            <MachineColor
-              row={row}
-              picks={picks}
-              disabled={!colors.connected || !colors.readable || colors.managed !== null}
-              write={(next) => void store.set(MACHINE_COLORS_KEY, next)}
-            />
-          )}
-        />
-      </div>
-      <div className="host-footer">
-        {/* One entry for every new device (add-device-DESIGN.md): Add Device opens the card; it hands
+      <section className="group" data-card="machines">
+        <h3 className="group-title">{title}</h3>
+        <div className="rows" data-row-key={MACHINE_COLORS_KEY}>
+          <ListRows
+            rows={host.machines}
+            empty={t("settingsWindow.machinesEmpty")}
+            marks
+            trailing={(row) => (
+              <MachineColor
+                row={row}
+                picks={picks}
+                disabled={!colors.connected || !colors.readable || colors.managed !== null}
+                write={(next) => void store.set(MACHINE_COLORS_KEY, next)}
+              />
+            )}
+          />
+        </div>
+        <div className="host-footer">
+          {/* One entry for every new device (add-device-DESIGN.md): Add Device opens the card; it hands
             off to Add Machine or Add Server, and the page passes nothing, so it never approves. */}
-        <button
-          type="button"
-          className="button"
-          data-add-device=""
-          onClick={() => void store.runAction("device.add")}
-        >
-          {host.devices?.add_title ?? t("action.device.add")}
-        </button>
-      </div>
-    </section>
-    {host.devices && <DevicesSection devices={host.devices} />}
+          <button
+            type="button"
+            className="button"
+            data-add-device=""
+            onClick={() => void store.runAction("device.add")}
+          >
+            {host.devices?.add_title ?? t("action.device.add")}
+          </button>
+        </div>
+      </section>
+      {host.devices && <DevicesSection devices={host.devices} />}
     </>
   );
 }
