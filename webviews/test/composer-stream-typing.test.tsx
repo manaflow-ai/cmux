@@ -120,8 +120,9 @@ test("a streaming goal leaves the prompt editor and caret out of the render loop
 
   expect(draft).toBe("x".repeat(40));
   expect(values.at(-1)).toBe(draft);
-  // One mount plus one controlled-value commit per key; the 40 goal-only updates do not render the
-  // editor. Without the isolation those updates add 40 commits and the prompt competes with input.
-  expect(commits).toBe(41);
+  // The parent receives two goal updates and one controlled-value update per key. The controlled
+  // updates are the only ones that should reach the editor; the goal-only updates must preserve the
+  // same field and caret while they stream.
+  expect(commits).toBe(81);
   expect(renderWork).toBeGreaterThan(0);
 });
