@@ -14,9 +14,19 @@ import os
 /// `O_SYMLINK` opens the link, not its target), so files other processes write
 /// beside it wake nothing; it is watched again after every change, since a
 /// put-back entry is a new file. A socket file cannot be opened, so for one the
-/// watch falls back to its directory (the quiet per-user state folder). On
-/// each event it runs one `lstat` on `queue` and calls `onMissing` only when
-/// nothing is at the path; a path that exists is left alone, whoever owns it.
+/// watch falls back to its directory (the quiet per-user state folder); so does
+/// a path with nothing at it. A directory watch moves back to following the
+/// entry as soon as an event finds one it can open (someone else's link or file
+/// put at the path, a link restored by another path). On each event it runs
+/// one `lstat` on `queue` and calls `onMissing` only when nothing is at the
+/// path; a path that exists is left alone, whoever owns it. A directory watch
+/// on a shared directory (/tmp: a socket-path override there, or another
+/// socket holding the link's path) wakes on every write there by any process;
+/// it is logged once so idle measurements can see it.
+///
+/// Every watch is made and swapped on `queue`, the queue its events run on, so
+/// an event never sees a half-installed watch and no older watch replaces a
+/// newer one.
 ///
 /// `onMissing` returns whether the socket is back. A restore that keeps
 /// failing would re-trigger itself (its own bind creates and removes a staging
@@ -56,7 +66,7 @@ final class ControlSocketPathWatch: Sendable {
 
     func start() {
         stopped.withLock { $0 = false }
-        watch()
+        queue.async { [weak self] in self?.watch() }
     }
 
     func stop() {
@@ -71,11 +81,17 @@ final class ControlSocketPathWatch: Sendable {
     /// Set by ``stop()``: a check in flight on `queue` then watches nothing again.
     private let stopped = Mutex(true)
 
-    /// Watches the entry at the path, or its directory when the entry cannot be opened (a
-    /// socket file, nothing there); replaces the watch in place.
-    private func watch() {
+    /// The directory watch is on a shared directory; logged once per watch.
+    private let loggedSharedDirectory = Mutex(false)
+
+    /// On `queue`: watches the entry at the path, or its directory when the entry cannot be
+    /// opened (a socket file, nothing there); replaces the watch in place. `entryOnly`: keep
+    /// the current watch unless the entry can be followed now.
+    private func watch(entryOnly: Bool = false) {
+        dispatchPrecondition(condition: .onQueue(queue))
         let entry = open(path, O_EVTONLY | O_SYMLINK)
         let followsEntry = entry >= 0
+        if entryOnly, !followsEntry { return }
         let descriptor: Int32
         if followsEntry {
             descriptor = entry
@@ -88,13 +104,15 @@ final class ControlSocketPathWatch: Sendable {
                 pathWatchLog.error("socket path watch off: cannot open \(parent, privacy: .public): \(error, privacy: .public)")
                 return
             }
+            noteSharedDirectory(parent)
         }
         let mask: DispatchSource.FileSystemEvent = followsEntry ? [.delete, .rename, .revoke] : [.write, .rename, .delete]
         let watch = DispatchSource.makeFileSystemObjectSource(fileDescriptor: descriptor, eventMask: mask, queue: queue)
         // wakeup-allow: kqueue event on the entry (or its directory), no timer; one lstat per event
         watch.setEventHandler { [weak self] in self?.changed(followingEntry: followsEntry) }
         watch.setCancelHandler { close(descriptor) }
-        // Resumed before it is published: an inactive source must never be cancelled or released.
+        // Resumed before it is published (an inactive source must never be cancelled or
+        // released); its events run on `queue`, after this install.
         watch.resume()
         let installed = stopped.withLock { stopped -> Bool in
             guard !stopped else { return false }
@@ -108,10 +126,25 @@ final class ControlSocketPathWatch: Sendable {
     }
 
     /// An event on `queue`. The entry a watch follows was deleted, renamed or revoked: whatever
-    /// is at the path now (put back, or someone else's) is a new file, watched again.
+    /// is at the path now (put back, or someone else's) is a new file, watched again. A
+    /// directory watch moves to the entry whenever one it can follow is there.
     private func changed(followingEntry: Bool) {
         let restored = checkPath()
-        if followingEntry || restored { watch() }
+        if followingEntry || restored {
+            watch()
+        } else if !stopped.withLock({ $0 }) {
+            var info = stat()
+            if lstat(path, &info) == 0 { watch(entryOnly: true) }
+        }
+    }
+
+    /// Logs once that the watch wakes on every write in a directory other processes share.
+    private func noteSharedDirectory(_ directory: String) {
+        var info = stat()
+        guard stat(directory, &info) == 0, info.st_mode & S_ISVTX != 0, info.st_mode & S_IWOTH != 0 else { return }
+        guard loggedSharedDirectory.withLock({ logged in defer { logged = true }; return !logged }) else { return }
+        pathWatchLog.notice(
+            "socket path watch on shared directory \(directory, privacy: .public) for \(self.path, privacy: .public): wakes on every write there")
     }
 
     /// Runs on `queue`, so a restore never overlaps the server's accept handler. True when it
@@ -121,7 +154,7 @@ final class ControlSocketPathWatch: Sendable {
         checks.add(1, ordering: .relaxed)
         if !retrying, failures.withLock({ $0.waiting }) { return false }  // backing off
         var info = stat()
-        guard lstat(path, &info) != 0, errno == ENOENT, source.withLock({ $0 != nil }) else {
+        guard lstat(path, &info) != 0, errno == ENOENT, !stopped.withLock({ $0 }) else {
             failures.withLock { $0 = Failures() }
             return false
         }
