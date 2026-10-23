@@ -22,6 +22,7 @@ import { MathDisplay, MathInline } from "./Math";
 import { normalizeMath } from "./mathDelimiters";
 import { IncrementalMarkdown, type KeyedBlock } from "./incrementalMarkdown";
 import { linkedText, PathChip, UrlChip } from "../chips/LinkChips";
+import { BareReferenceChip } from "../chips/BareReferenceChip";
 import { codePath, linkPath, pathName, textLinks } from "../chips/paths";
 import { OpenableImage, ReplyImage } from "../chips/ReplyImage";
 import "../../../markdown-task-checkbox.css";
@@ -386,6 +387,8 @@ function lineLabel(path: string, written: string): string | undefined {
   return line ? `${pathName(path)}:${line}` : undefined;
 }
 
+const NO_REPOSITORY = "-/-";
+
 function linkedGithubText(
   text: string,
   key: string,
@@ -397,13 +400,15 @@ function linkedGithubText(
   // A pull request address, so the chip opens the pull request card (an issue redirects there);
   // a commit (`abc1234`, `owner/repo@abc1234`) opens its GitHub page. In reading order; a commit
   // inside a reference, a URL or a path (`https://x.test/app.js?v=3a7bd3e2`) is part of it.
-  const issues = githubReferences(text, repository, "pull", true);
+  // With no repository, a bare `#N` still goes to BareReferenceChip, which links it only when the
+  // transcript names its repository.
+  const issues = githubReferences(text, repository ?? NO_REPOSITORY, "pull", true);
   const commits = quietCommits ? quietCommitReferences(text, issues, repository) : commitReferences(text, repository);
-  const spans = commits.length ? textLinks(text) : [];
-  const refs = [
-    ...issues,
-    ...commits.filter((commit) => !spans.some((span) => commit.start < span.end && span.start < commit.end)),
-  ]
+  // A commit or a bare `#N` inside a URL or a path (`https://x.test/?q=#12`) is part of it.
+  const spans = commits.length || issues.some((issue) => issue.bare) ? textLinks(text) : [];
+  const outside = (ref: { start: number; end: number }) =>
+    !spans.some((span) => ref.start < span.end && span.start < ref.end);
+  const refs = [...issues.filter((issue) => !issue.bare || outside(issue)), ...commits.filter(outside)]
     .sort((a, b) => a.start - b.start)
     .filter((ref, index, all) => index === 0 || ref.start >= all[index - 1]!.end);
   if (!refs.length) return linkedText(text, key);
@@ -433,6 +438,16 @@ function linkedGithubText(
         </UrlChip>
       ),
     );
+    // A bare `#N` names the repository the transcript's evidence says, not only `repository`.
+    if ("bare" in reference && reference.bare)
+      out[out.length - 1] = (
+        <BareReferenceChip
+          key={`${key}-${index}`}
+          number={reference.bare}
+          href={repository ? reference.href : undefined}
+          text={reference.text}
+        />
+      );
     at = reference.end;
   });
   if (at < text.length) out.push(...linkedText(text.slice(at), `${key}-after`));
@@ -748,7 +763,7 @@ function Block({
     case "blockquote":
       return (
         <blockquote className={`cv-quote${motion}`}>
-          <Blocks blocks={block.children} opts={opts} depth={depth} />
+          <Blocks blocks={block.children} opts={opts} depth={depth} plain={code === "plain"} />
         </blockquote>
       );
     case "list": {
@@ -769,7 +784,9 @@ function Block({
                 {i === block.items.length - 1 && !it.children.length ? inline(it.text) : renderInline(it.text, opts)}
               </span>
               <ItemThumbs text={it.text} opts={opts} streaming={Boolean(tail) && i === block.items.length - 1} />
-              {it.children.length > 0 && <Blocks blocks={it.children} opts={opts} depth={depth + 1} />}
+              {it.children.length > 0 && (
+                <Blocks blocks={it.children} opts={opts} depth={depth + 1} plain={code === "plain"} />
+              )}
             </li>
           ))}
         </L>
@@ -812,12 +829,24 @@ function ItemThumbs({ text, opts, streaming }: { text: string; opts: InlineOptio
   ) : null;
 }
 
-function Blocks({ blocks, opts, depth }: { blocks: MdBlock[]; opts: InlineOptions; depth: number }) {
+/// Nested blocks (a quote's, a list item's). `plain` keeps the outer Markdown's plain fences
+/// (`plainCode`) inside them too: no diagram or render card at any depth.
+function Blocks({
+  blocks,
+  opts,
+  depth,
+  plain = false,
+}: {
+  blocks: MdBlock[];
+  opts: InlineOptions;
+  depth: number;
+  plain?: boolean;
+}) {
   return (
     <>
       {blocks.map((b, i) => (
         <Fragment key={i}>
-          <Block block={b} opts={opts} depth={depth} />
+          <Block block={b} opts={opts} depth={depth} code={plain ? "plain" : undefined} />
         </Fragment>
       ))}
     </>

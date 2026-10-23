@@ -90,6 +90,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     }
 
     let devToolsSetKeyHandler: @convention(c) (KeyFn?) -> Void
+    /// Key downs the page left unhandled (`cmux_shim_set_unhandled_key_handler`).
+    let setUnhandledKeyHandler: @convention(c) (KeyFn?) -> Void
     let devToolsSetPlacement: @convention(c) (Int32, UnsafeMutableRawPointer?, Int32, Int32, Int32, Int32) -> Void
     let devToolsCommand: @convention(c) (Int32, Int32, Int32, Int32) -> Int32
     let devToolsBrowser: @convention(c) (Int32) -> Int32
@@ -309,6 +311,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         devToolsWatchEvents = try r("cmux_shim_devtools_watch_events")
         devToolsSend = try r("cmux_shim_devtools_send")
         devToolsSetKeyHandler = try r("cmux_shim_devtools_set_key_handler")
+        setUnhandledKeyHandler = try r("cmux_shim_set_unhandled_key_handler")
         devToolsSetPlacement = try r("cmux_shim_devtools_set_placement")
         devToolsCommand = try r("cmux_shim_devtools_command")
         devToolsBrowser = try r("cmux_shim_devtools_browser")

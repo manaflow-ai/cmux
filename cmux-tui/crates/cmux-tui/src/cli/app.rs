@@ -34,6 +34,7 @@ mod classic;
 mod events;
 mod keybinding;
 mod open;
+mod open_link;
 mod page;
 mod right;
 mod run;
@@ -667,6 +668,13 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         AppCommand::Open { requests, stop_on_failure } => {
             let mut status = 0;
             for request in requests {
+                if request.method == "browser.open_link" {
+                    status = status.max(open_link::run(global, stream, request));
+                    if stop_on_failure && status != 0 {
+                        break;
+                    }
+                    continue;
+                }
                 let timeout = Some(request.timeout());
                 if let Ran::Done(code) = call(
                     global,
