@@ -255,17 +255,13 @@ pub(super) fn canonical_scope(value: &str) -> &str {
 pub(crate) fn removed_route_requested(args: &[String]) -> bool {
     scan_globals(args, MachineFlag::Global)
         .map(|(_, command)| {
-            command
+            let mut words = command
                 .iter()
-                .position(|word| word == "route")
-                .is_some_and(|index| {
-                    if index == 1 && command.first().is_some_and(|word| word == "help") {
-                        return true;
-                    }
-                    command[..index]
-                        .iter()
-                        .all(|word| word != "--" && word.starts_with('-'))
-                })
+                .take_while(|word| *word != "--")
+                .filter(|word| !word.starts_with('-'));
+            matches!(words.next().map(String::as_str), Some("route"))
+                || (matches!(words.next().map(String::as_str), Some("help"))
+                    && matches!(words.next().map(String::as_str), Some("route")))
         })
         .unwrap_or(false)
 }
