@@ -5,6 +5,7 @@ import { agentBrand } from "../shared/agentBrand";
 import { agentDisplayName } from "./agents";
 import { seedLastPicks } from "./lastPick";
 import { ArrowUpIcon } from "./ComposerPickers";
+import { useComposerLook } from "./composerLook";
 import type { AcpmuxSnapshot } from "./model";
 import { ProjectChooser, type Project } from "./ProjectChooser";
 import {
@@ -18,19 +19,31 @@ import {
 } from "./omnibar";
 import {
   activityTime,
+  firstProject,
   folded,
   homePath,
   listed,
-  projectLabel,
+  mostRecentProject,
   normalizedSessionEntry,
+  projectLabel,
   sessionMark,
   type AcpmuxSessionEntry,
 } from "./sessionList";
 import { type StringKey, type Translate, translate, useT } from "./i18n";
 import { parsePageWidgets, type PageWidget } from "./newtab/pageWidgets";
 import { parseNewTabTemplate, type NewTabTemplate } from "./newtab/templates";
+import { isStartableProject, rememberedStartedProject } from "./newtab/startedProject";
 import { seedWarmNewTab } from "./newtab/warmSnapshot";
+import { useNoEntryMotion } from "./newtab/noEntryMotion";
 import { usePasteAnywhere } from "./composer/pasteAnywhere";
+import type { ComposerAttachment } from "./attachments";
+import {
+  AttachmentStrip,
+  backspacedAttachment,
+  useAttachmentIntake,
+  useSendWhenAttached,
+} from "./composer/attachmentIntake";
+import { DropOverlay } from "./composer/DropOverlay";
 
 /// The three things a new tab can become (#16620). Order is the switch's order and Tab's cycle.
 export const TAB_KINDS = ["terminal", "browser", "agent"] as const;
@@ -93,6 +106,8 @@ export type NewTabHost = {
   template?: NewTabTemplate;
   /// The agent last picked (decision Q3).
   lastAgent?: string;
+  /// The project of the chat the person last picked and started (newtab/startedProject.ts).
+  startedProject?: string;
   /// The home folder, so `~/path` reads as a folder.
   home?: string;
   /// false: leave the field unfocused (Cmd-L opened the page for the omnibar, cx-e2aa).
@@ -152,6 +167,9 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
     layout: object.layout === "a" ? "a" : "b",
     ...(template ? { template } : {}),
     ...(typeof object.lastAgent === "string" && object.lastAgent ? { lastAgent: object.lastAgent } : {}),
+    ...(isStartableProject(typeof object.startedProject === "string" ? object.startedProject : undefined)
+      ? { startedProject: object.startedProject as string }
+      : {}),
     ...(typeof object.home === "string" && object.home.startsWith("/") ? { home: object.home } : {}),
     ...(typeof object.inputToken === "string" && object.inputToken ? { inputToken: object.inputToken } : {}),
     ...(object.focusesField === false ? { focusesField: false } : {}),
@@ -234,6 +252,16 @@ type Props = {
   initialKind?: TabKind;
   /// The folder the new tab starts in (the pane's terminal cwd).
   cwd?: string;
+  /// The app's copy of the project of the chat the person last picked and started (this run's own
+  /// copy wins): the project a tab with no folder of its own starts on.
+  startedProject?: string;
+  /// This Mac's home folder; unset on a page of another machine (NewTabPageMachine), which never
+  /// starts in this Mac's started or recent project.
+  home?: string;
+  /// The host's project folders (`project.list`): a started or recent project it no longer lists
+  /// (removed, deleted) is never the start. Absent or empty is not loaded yet, so every folder
+  /// counts; `null` (the host answered with no project), none does.
+  knownProjects?: readonly string[] | null;
   /// The machine it runs on (the handshake's `machineName`); "This Mac" when absent.
   host?: string;
   inputToken?: string;
@@ -249,7 +277,7 @@ type Props = {
   projects?: Project[];
   /// Make the tab `kind`: run `text` (in `cwd`), open it, or ask it. A promise that rejects is a
   /// refused open: the page says so under the field and keeps what was typed.
-  onSubmit(kind: TabKind, text: string, cwd?: string): void | Promise<unknown>;
+  onSubmit(kind: TabKind, text: string, cwd?: string, attachments?: ComposerAttachment[]): void | Promise<unknown>;
   /// Go to an open tab or workspace instead of opening a duplicate.
   onJump?(target: "tab" | "workspace", id: string): void;
   onOpenSession(sessionId: string): void;
@@ -268,6 +296,9 @@ export function NewTabPage({
   hotkeys = {},
   initialKind = "agent",
   cwd,
+  startedProject,
+  home,
+  knownProjects,
   host,
   chips: Chips,
   omnibar = EMPTY_OMNIBAR,
@@ -283,18 +314,35 @@ export function NewTabPage({
   onInputReady,
 }: Props) {
   const t = useT();
+  // The classic template is a New Tab page too: what it opens (the project chooser, its menus)
+  // appears at once; exits keep their fades (newtab/noEntryMotion.ts).
+  useNoEntryMotion();
   const [kind, setKind] = useState<TabKind>(initialKind);
   // The field is reused when the kind changes. A short directional handoff gives the new
   // placeholder and context a visible swipe without moving the composer or stealing its focus.
   const [kindSwitch, setKindSwitch] = useState<KindSwitchDirection>();
   const kindSwitchTimer = useRef<number | undefined>(undefined);
-  const [projectCwd, setProjectCwd] = useState(cwd);
+  // A tab with no project of its own (none, `~`, a private agent-home folder) on this Mac starts on
+  // the project of the chat the person last picked and started (Leo 2026-10-21,
+  // newtab/startedProject.ts), else the newest chat's, each only while the host still lists it; a
+  // page on another machine (no `home`) never on this Mac's. A pick replaces it.
+  const [picked, setProjectCwd] = useState<string | undefined>(undefined);
+  const [started] = useState(() => (home ? (rememberedStartedProject() ?? startedProject) : undefined));
+  const projectCwd =
+    picked ??
+    (isStartableProject(cwd) || !home
+      ? cwd
+      : (firstProject(started ? [started.replace(/(.)\/+$/, "$1")] : [], home, knownProjects) ??
+        mostRecentProject(snapshot.sessions, home, knownProjects) ??
+        cwd));
   const [text, setText] = useState(location ?? "");
   /// The last open was refused (the host made no tab): a note under the field until the next edit.
   const [openFailed, setOpenFailed] = useState(false);
+  const attachmentRef = useRef<ComposerAttachment[]>([]);
   const make = (next: TabKind, value: string, folder?: string) => {
     setOpenFailed(false);
-    const result = onSubmit(next, value, folder);
+    const attachments = next === "agent" ? attachmentRef.current : [];
+    const result = onSubmit(next, value, folder, attachments.length ? attachments : undefined);
     // The suggestions float over the note: they close until the next edit, so it shows.
     if (result)
       void result.catch(() => {
@@ -323,6 +371,19 @@ export function NewTabPage({
   // The kind a prefix switched from, so Backspace in the empty field switches back.
   const [beforePrefix, setBeforePrefix] = useState<TabKind>();
   const field = useRef<HTMLInputElement>(null);
+  const { attachments, setAttachments, pending, attachError, drop, dropLanded } = useAttachmentIntake({
+    allowImages: snapshot.summary?.promptCapabilities?.image !== false,
+    pasteTarget: (target) => (kind === "agent" && field.current?.contains(target) ? { uploads: false } : undefined),
+    dropZone: () => field.current?.closest(".acpmux-newtab") ?? null,
+  });
+  attachmentRef.current = attachments;
+  const holdForAttachments = useSendWhenAttached(pending.length);
+  const [dropHost, setDropHost] = useState<Element | null>(null);
+  useEffect(() => {
+    const element = field.current;
+    setDropHost(element ? (element.closest(".acpmux-newtab") ?? element.ownerDocument.body) : null);
+  }, []);
+  const dropLandingTarget = useCallback(() => field.current?.parentElement ?? null, []);
   // Cmd-V anywhere on the page outside a text field (a row, a card, the empty page) goes into the
   // field, caret at the end, as in a chat (composer/pasteAnywhere.ts; Leo 2026-10-22: "cmd v anywhere
   // in chat should put it in chat").
@@ -444,11 +505,15 @@ export function NewTabPage({
     event.preventDefault();
     field.current?.focus();
   };
+  const submitNow = useRef<() => void>(() => {});
   const submit = (event?: React.FormEvent) => {
     event?.preventDefault();
+    if (holdForAttachments(() => submitNow.current())) return;
+    submitNow.current();
+  };
+  submitNow.current = () => {
     const row = rows[selected];
     if (row) return activate(row);
-    // An empty terminal or agent opens as it is; an empty page has nothing to load.
     if (kind === "browser" && !query.trim()) return;
     make(kind, query.trim(), kind === "browser" ? undefined : projectCwd);
   };
@@ -474,6 +539,16 @@ export function NewTabPage({
       event.preventDefault();
       changeKind(beforePrefix);
       setBeforePrefix(undefined);
+    } else {
+      // Backspace at the field's start takes back the last chip (backspacedAttachment).
+      const backspaced = backspacedAttachment(
+        event,
+        input.selectionStart === 0 && input.selectionEnd === 0,
+        attachments,
+      );
+      if (!backspaced) return;
+      event.preventDefault();
+      setAttachments((current) => current.filter((item) => item.id !== backspaced.id));
     }
   };
   const edit = (next: string) => {
@@ -489,9 +564,12 @@ export function NewTabPage({
     }
     setText(next);
   };
+  // The composer's look (composerLook.ts; the page's first two dots, newtab/PageDots.tsx): Codex's
+  // lays the row under the field out as Codex's (composerLook.css).
+  const look = useComposerLook();
 
   return (
-    <div className="acpmux-newtab" data-kind={kind}>
+    <div className="acpmux-newtab" data-kind={kind} data-composer-look={look === "codex" ? "codex" : undefined}>
       {/* The suggestions float under the field (cx-6k6cg): opening them moves nothing below. */}
       <div className="acpmux-newtab-anchor">
         <form className="acpmux-newtab-box" onSubmit={submit}>
@@ -555,6 +633,19 @@ export function NewTabPage({
               ))}
             </fieldset>
           </div>
+          <AttachmentStrip
+            attachments={attachments}
+            pending={pending}
+            {...(attachError ? { error: attachError } : {})}
+            codex={false}
+            onRemove={(id) => {
+              setAttachments((current) => current.filter((item) => item.id !== id));
+              field.current?.focus();
+            }}
+          />
+          {dropHost && (
+            <DropOverlay state={drop} onLanded={dropLanded} container={dropHost} landingTarget={dropLandingTarget} />
+          )}
           <div className="acpmux-newtab-under" data-kind-switch={kindSwitch}>
             <span className="acpmux-newtab-context">
               {kind !== "browser" && (
@@ -600,7 +691,7 @@ export function NewTabPage({
         {rows.length > 0 && (
           <div
             ref={attachList}
-            className="acpmux-omni"
+            className="acpmux-omni ui-popup ui-glass"
             id="acpmux-omni"
             // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
             role="listbox"

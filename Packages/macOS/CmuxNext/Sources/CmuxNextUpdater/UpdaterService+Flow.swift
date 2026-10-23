@@ -14,6 +14,7 @@ extension UpdaterService {
     /// hidden; a check they ask for clears that first (``checkForUpdates()``).
     public var card: UpdateCard? {
         guard let card = flow.card(downloadsAutomatically: downloadSetting.enabled) else { return pulledWatch.card }
+        if card == .installing, installCardDismissed { return pulledWatch.card }
         if case .available(let version) = card, updateSnooze.hides(version: version, at: now()) { return pulledWatch.card }
         return card
     }
@@ -63,6 +64,7 @@ extension UpdaterService {
     private func perform(_ effect: UpdateFlowEffect) {
         switch effect {
         case .install:
+            stagedRefresh.installStarted()
             log.append("gate: installing the staged update")
             #if DEBUG
             UpdateHarness.mark("install_started")
@@ -88,7 +90,7 @@ extension UpdaterService {
 
     /// Feeds ``indicatorPhase`` to the gate when it moved.
     func syncFlowPhase() {
-        dropStaleStagedUpdate()
+        stagedRefresh.dropStale(updater: self)
         let phase = indicatorPhase
         guard phase != flow.phase else { return }
         if userCheckRunning, phase != .checking { userCheckRunning = false }
@@ -103,7 +105,9 @@ extension UpdaterService {
         let wasReady = if case .ready = flow.phase { true } else { false }
         let clickedInstall = flow.installRequested
         send(.sparkle(phase))
+        followInstall(phase)
         followStagedUpdate(phase)
+        stagedRefresh.follow(phase, updater: self)
         switch phase {
         case .ready:
             recordStagedUpdate()
@@ -157,6 +161,7 @@ extension UpdaterService {
             controller?.idleInstallWaitCap = .seconds(idleInstall.maxWait)
         }
         downloadSetting = (downloadAutomatically, metered)
+        stagedRefresh.reschedule(automatic: checkAutomatically, interval: checkInterval, updater: self)
         if automaticUpdates != downloadAutomatically { automaticUpdates = downloadAutomatically }
         guard let controller else { return }
         controller.setSchedule(automaticChecks: checkAutomatically, interval: checkInterval)
@@ -176,6 +181,7 @@ extension UpdaterService {
         guard self.ring != ring else { return }
         self.ring = ring
         controller?.ring = ring
+        stagedRefresh.ringMoved()
         log.append("update ring \(ring.rawValue)")
         guard picked else { return }
         log.append("update ring picked: checking \(ring.rawValue) now")

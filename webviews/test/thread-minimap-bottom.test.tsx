@@ -231,49 +231,81 @@ for (const how of ["hover", "focus"] as const)
 // pointer on the rail): no pointerenter comes, so the magnified tick used to stay the one first
 // hovered while another sat under the pointer (#24058 review round 5). The magnified tick is the
 // one under the pointer at every offset.
-test("wheeling the chat with the pointer still on the rail magnifies the tick under the pointer", async () => {
+/// Where the rail's list sits in the window, for the tests that point at it: jsdom lays nothing out,
+/// so its box is put there by hand, below the window's top as the rail is (railTop).
+const LIST_TOP = 140;
+const placeList = (node: HTMLElement) => {
+  node.getBoundingClientRect = () =>
+    ({
+      top: LIST_TOP,
+      bottom: LIST_TOP + node.clientHeight,
+      left: 0,
+      right: 10,
+      width: 10,
+      height: node.clientHeight,
+      x: 0,
+      y: LIST_TOP,
+    }) as DOMRect;
+};
+
+/// The chat rendered at its top with the pointer resting on tick 3 (35 px into the list), and the
+/// ticks the rail magnifies against the one under that pointer.
+async function pointerOnRail(sessionId: string) {
   const document = dom.window.document;
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
+  await act(async () =>
+    root.render(
+      <VirtualTranscript
+        rows={turnView(turns, new Set())}
+        sessionId={sessionId}
+        onToggleActivity={() => {}}
+        expanded={new Set()}
+      />,
+    ),
+  );
+  const scroller = host.querySelector<HTMLElement>(".acpmux-scroll")!;
+  const list = () => host.querySelector<HTMLElement>(".acpmux-minimap__list")!;
+  const bottom = scroller.scrollTop;
+  const scrollTo = async (top: number) => {
+    scroller.scrollTop = top;
+    await act(async () => void scroller.dispatchEvent(new dom.window.Event("scroll")));
+  };
+  await scrollTo(0);
+  placeList(list());
+  const y = LIST_TOP + 35;
+  const Event = (dom.window as unknown as { PointerEvent?: typeof MouseEvent }).PointerEvent ?? dom.window.MouseEvent;
+  await act(async () => {
+    list()
+      .querySelector<HTMLElement>('[data-tick="3"]')!
+      .dispatchEvent(new Event("pointerover", { bubbles: true, clientY: y, relatedTarget: document.body }));
+  });
+  /// The magnified tick and the one under the pointer, as the list now sits.
+  const read = () => ({
+    active: list().querySelector('[data-tone="active"]')?.getAttribute("data-tick"),
+    under: String(Math.floor((y - LIST_TOP + list().scrollTop) / 10)),
+  });
+  const close = async () => {
+    await act(async () => root.unmount());
+    host.remove();
+  };
+  return { list, bottom, scrollTo, read, close };
+}
+
+test("wheeling the chat with the pointer still on the rail magnifies the tick under the pointer", async () => {
+  const rail = await pointerOnRail("minimap-hover-wheel");
   try {
-    await act(async () =>
-      root.render(
-        <VirtualTranscript
-          rows={turnView(turns, new Set())}
-          sessionId="minimap-hover-wheel"
-          onToggleActivity={() => {}}
-          expanded={new Set()}
-        />,
-      ),
-    );
-    const scroller = host.querySelector<HTMLElement>(".acpmux-scroll")!;
-    const list = () => host.querySelector<HTMLElement>(".acpmux-minimap__list")!;
-    const bottom = scroller.scrollTop;
-    const scrollTo = async (top: number) => {
-      scroller.scrollTop = top;
-      await act(async () => void scroller.dispatchEvent(new dom.window.Event("scroll")));
-    };
-    await scrollTo(0);
-    // jsdom lays nothing out: the list's box is at 0, so the pointer's clientY is its y in the list.
-    const y = 35;
-    const Event = (dom.window as unknown as { PointerEvent?: typeof MouseEvent }).PointerEvent ?? dom.window.MouseEvent;
-    await act(async () => {
-      list()
-        .querySelector<HTMLElement>('[data-tick="3"]')!
-        .dispatchEvent(new Event("pointerover", { bubbles: true, clientY: y, relatedTarget: document.body }));
-    });
-    expect(list().querySelector('[data-tone="active"]')?.getAttribute("data-tick")).toBe("3");
+    expect(rail.read().active).toBe("3");
     let moved = false;
     const wrong: string[] = [];
-    for (let top = 0; top <= bottom; top += 120) {
-      await scrollTo(top);
-      if (list().scrollTop > 0) moved = true;
-      const under = String(Math.floor((y + list().scrollTop) / 10));
-      const active = list().querySelector('[data-tone="active"]')?.getAttribute("data-tick");
+    for (let top = 0; top <= rail.bottom; top += 120) {
+      await rail.scrollTo(top);
+      if (rail.list().scrollTop > 0) moved = true;
+      const { active, under } = rail.read();
       if (active !== under)
         wrong.push(
-          `at ${top} px the list is at ${list().scrollTop}: tick ${active} magnified, ${under} under the pointer`,
+          `at ${top} px the list is at ${rail.list().scrollTop}: tick ${active} magnified, ${under} under the pointer`,
         );
       if (wrong.length > 5) break;
     }
@@ -281,8 +313,50 @@ test("wheeling the chat with the pointer still on the rail magnifies the tick un
     expect(moved).toBe(true);
     expect(wrong).toEqual([]);
   } finally {
-    await act(async () => root.unmount());
-    host.remove();
+    await rail.close();
+  }
+});
+
+// End or an arrow key moves focus to a tick past the list's end, and the browser scrolls the
+// overflow-hidden list to show it (a focus() without preventScroll). The pointer did not move: the
+// magnified tick is the one under it, not the one it was on before the list moved (#24058 review
+// round 6).
+test("a key that focuses a tick off the list, with the pointer still on the rail, magnifies the tick under the pointer", async () => {
+  const focus = dom.window.HTMLElement.prototype.focus;
+  // As a browser does: a focus that may scroll brings the tick into its list's view.
+  dom.window.HTMLElement.prototype.focus = function (this: HTMLElement, options?: FocusOptions) {
+    focus.call(this, options);
+    const list = this.closest<HTMLElement>(".acpmux-minimap__list");
+    if (!list || options?.preventScroll) return;
+    const room = Number.parseFloat(list.parentElement?.style.height ?? "0");
+    const at = Number(this.dataset.tick) * 10;
+    const top = at < list.scrollTop ? at : at + 10 > list.scrollTop + room ? at + 10 - room : list.scrollTop;
+    if (top === list.scrollTop) return;
+    list.scrollTop = top;
+    list.dispatchEvent(new dom.window.Event("scroll"));
+  };
+  const rail = await pointerOnRail("minimap-hover-keys");
+  try {
+    expect(rail.read().active).toBe("3");
+    const press = async (key: string) => {
+      const target =
+        dom.window.document.activeElement?.closest("[data-tick]") ?? rail.list().querySelector('[data-tick="3"]')!;
+      await act(async () => void target.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key, bubbles: true })));
+    };
+    const seen: string[] = [];
+    for (const key of ["End", "Home", "End", "ArrowUp"]) {
+      await press(key);
+      const { active, under } = rail.read();
+      seen.push(`${key}: list at ${rail.list().scrollTop}, tick ${active} magnified, ${under} under the pointer`);
+      expect(seen.at(-1)).toBe(
+        `${key}: list at ${rail.list().scrollTop}, tick ${under} magnified, ${under} under the pointer`,
+      );
+    }
+    // End did take the list down past its first screen.
+    expect(seen[0]).not.toContain("list at 0,");
+  } finally {
+    dom.window.HTMLElement.prototype.focus = focus;
+    await rail.close();
   }
 });
 

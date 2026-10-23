@@ -185,9 +185,6 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
       `<span class="acpmux-floating-status" data-status="attention"></span>` +
       ["running", "done", "failed"]
         .map((state) => `<span class="acpmux-summary-dot" data-state="${state}"></span>`)
-        .join("") +
-      ["running", "waiting", "completed", "failed", "cancelled"]
-        .map((state) => `<span class="acpmux-lineage__icon" data-state="${state}"></span>`)
         .join("");
     // The theme the pane always gets (applyAgentTheme), so state colors resolve as in the app.
     const colors =
@@ -207,13 +204,11 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
       return {
         floating: [...document.querySelectorAll(".acpmux-floating-status")].map((node) => shape(node)),
         summary: [...document.querySelectorAll(".acpmux-summary-dot")].map((node) => shape(node, "::after")),
-        lineage: [...document.querySelectorAll(".acpmux-lineage__icon")].map((node) => shape(node, "::after")),
       };
     });
     await p.close();
     expect(new Set(shapes.floating).size).toBe(2);
     expect(new Set(shapes.summary).size).toBe(3);
-    expect(new Set(shapes.lineage).size).toBe(5);
   });
 
   test("the theme push sets the attribute the stylesheets read", async () => {

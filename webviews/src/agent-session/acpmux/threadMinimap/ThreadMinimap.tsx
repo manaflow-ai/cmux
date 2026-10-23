@@ -7,7 +7,7 @@
 // transcript's layout (`tops`), so nothing here measures a transcript row; the rail reads only its
 // own list (during a scrub) and the card's height. Motion is transform only (threadMinimap.css);
 // the numbers are in model.ts.
-import React, { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { transcriptColumn, type AcpmuxRow, type ConversationLayout } from "../model";
 import { useT } from "../i18n";
@@ -123,14 +123,16 @@ export function ThreadMinimap({
   const [arm] = useState(() => experimentArm(threadMinimapLayout));
   const full = arm === "full";
   const marks = usePromptMarks(sessionId);
+  /// The turns of the last commit: the next render reads from them and leaves them as they are, so
+  /// a render React drops before it commits changes nothing (#24058 review round 6).
   const lastTurns = useRef<MinimapTurns | undefined>(undefined);
   // Every streamed token is a new `rows`: `turns` then changes with the live reply (the card reads
   // it), while `ticks` stays as long as the prompts do, so the tick list below renders nothing.
-  const { turns, ticks } = useMemo(() => {
-    const next = minimapTurns(rows, sessionId, lastTurns.current, change);
-    lastTurns.current = next;
-    return next;
-  }, [rows, sessionId, change]);
+  const read = useMemo(() => minimapTurns(rows, sessionId, lastTurns.current, change), [rows, sessionId, change]);
+  useLayoutEffect(() => {
+    lastTurns.current = read;
+  }, [read]);
+  const { turns, ticks } = read;
   /// The row under the pointer, or the one a scrub is on.
   const [hovered, setHovered] = useState<number | undefined>(undefined);
   /// The row keyboard focus is on.
@@ -448,6 +450,21 @@ export function ThreadMinimap({
   // keeps the list where it is while the whole band shows clear of the fades, so the tick under the
   // pointer moves only once the band would leave the rail. Only a scrub, whose pointer is on the
   // row it shows, holds the list.
+  /// After the list moved under a pointer that did not (the reader wheels the chat with the pointer
+  /// on the rail, or a key focuses a tick past the list's end and the browser scrolls the list to it),
+  /// no pointerenter comes, so the magnified row would stay the old one while another sits under the
+  /// pointer (#24058 review rounds 5 and 6). The hovered row becomes the one under it now. A scrub
+  /// sets its own row from its pointer.
+  const followPointer = useCallback((node: HTMLElement) => {
+    const over = live.current.hovered;
+    const y = pointerY.current;
+    if (over === undefined || y === undefined || scrub.current?.moved) return;
+    const under = Math.floor((y - node.getBoundingClientRect().top + node.scrollTop) / ROW_PITCH);
+    const index = Math.max(0, Math.min(live.current.turns.length - 1, under));
+    if (index === over) return;
+    setHovered(index);
+    setCardRow(index);
+  }, []);
   useLayoutEffect(() => {
     const node = list.current;
     // The commit that added older turns placed the list itself, around the band.
@@ -456,18 +473,8 @@ export function ThreadMinimap({
     if (Math.abs(next - node.scrollTop) < 0.5) return;
     node.scrollTop = next;
     setListTop(node.scrollTop);
-    // The list moved under a pointer that did not (the reader wheels the chat with the pointer on
-    // the rail): no pointerenter comes, so the magnified row would stay the old one while another
-    // sits under the pointer (#24058 review round 5). The hovered row is the one under it now.
-    const over = live.current.hovered;
-    const y = pointerY.current;
-    if (over === undefined || y === undefined) return;
-    const under = Math.floor((y - node.getBoundingClientRect().top + node.scrollTop) / ROW_PITCH);
-    const index = Math.max(0, Math.min(live.current.turns.length - 1, under));
-    if (index === over) return;
-    setHovered(index);
-    setCardRow(index);
-  }, [onScreen.first, onScreen.last, turns.length, overflow, height, scrubbing]);
+    followPointer(node);
+  }, [onScreen.first, onScreen.last, turns.length, overflow, height, scrubbing, followPointer]);
 
   /// The rows' actions: stable for the memoized rows, reading the latest state through `live`.
   const actions = useMemo<TickActions>(
@@ -601,7 +608,10 @@ export function ThreadMinimap({
           data-fade-top={fades.top || undefined}
           data-fade-bottom={(overflow && fades.bottom) || undefined}
           style={{ "--acpmux-minimap-fade": `${railFade(height)}px` } as React.CSSProperties}
-          onScroll={(event) => setListTop(event.currentTarget.scrollTop)}
+          onScroll={(event) => {
+            setListTop(event.currentTarget.scrollTop);
+            followPointer(event.currentTarget);
+          }}
           onPointerOver={(event) => {
             pointerY.current = event.clientY;
           }}

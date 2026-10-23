@@ -1,6 +1,6 @@
 import { preferenceStorage, draftStorage } from "../browser-storage";
-import { useCallback, useMemo, useState } from "react";
-import { composerDraftKey, visibleWorkflowHarnesses, type OptionValue } from "../session";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { readComposerDraft, visibleWorkflowHarnesses, writeComposerDraft, type OptionValue } from "../session";
 import { useCtx } from "../context";
 import { readStoredProviderOptions, updateStoredProviderOption } from "../options-store";
 import { ArrowUp } from "./icons";
@@ -24,6 +24,10 @@ import {
 import { selectHarnessLocale, formatHarnessMessage, renderHarnessMessage } from "../harness-i18n";
 
 const readProviderOptions = readStoredProviderOptions;
+
+export function persistComposerDraft(prompt: string) {
+  writeComposerDraft(draftStorage, prompt);
+}
 
 export function Composer() {
   const {
@@ -50,17 +54,16 @@ export function Composer() {
   const [provider, setProvider] = useState(() => preferenceStorage.getItem("agentui.provider") || "claude");
   const [cwd, setCwd] = useState(() => preferenceStorage.getItem("agentui.cwd") || "");
   const [committedCwd, setCommittedCwd] = useState(() => preferenceStorage.getItem("agentui.cwd") || "");
-  const [prompt, setPrompt] = useState(() => {
-    const draft = draftStorage.getItem(composerDraftKey) || "";
-    draftStorage.removeItem(composerDraftKey);
-    return draft;
-  });
+  const [prompt, setPrompt] = useState(() => readComposerDraft(draftStorage));
   const [startOptionsByProvider, setStartOptionsByProvider] = useState<Record<string, Record<string, OptionValue>>>(() => ({
     [provider]: readProviderOptions(provider),
   }));
   const [openOptionId, setOpenOptionId] = useState<string | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
   const taRef = useAutoGrow(prompt, 300);
+  useEffect(() => {
+    persistComposerDraft(prompt);
+  }, [prompt]);
   const baseOptions = providerOptions[provider]?.length ? providerOptions[provider] : capabilities[provider]?.options ?? [];
   const allProviderOptions = providerOptionMap(providers, providerOptions, capabilities);
   const loadingProviderIds = useMemo(
@@ -111,6 +114,7 @@ export function Composer() {
     const runCwd = cwd.trim();
     const sent = start({ provider, cwd: runCwd, prompt: text, options: sanitizeStartOptions(startOptions, options) });
     if (!sent) return;
+    persistComposerDraft("");
     preferenceStorage.setItem("agentui.provider", provider);
     preferenceStorage.setItem("agentui.cwd", runCwd);
   };

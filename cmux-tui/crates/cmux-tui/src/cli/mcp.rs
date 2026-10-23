@@ -103,6 +103,9 @@ const INSTRUCTIONS: &str = "These tools drive the cmux terminal app and its sess
     A change takes idempotency_key: when a call fails with state in_progress, retry it with the \
     key from the error so it cannot apply twice. Tools never move the user's focus unless the \
     call passes focus: true or the tool's purpose is focus. \
+    Name workspaces and tabs to the person by their titles, never by an id they cannot see. \
+    When the person must act in a tab (log in, confirm, approve, pick), mark it: tab_update \
+    {tab, attention: \"reason\"}; when they ask to go there, tab_focus it. \
     In a cmux chat reply, show UI rather than describe it: ![alt](/abs/path.png), a bare image \
     path or an https image address draws as a thumbnail, and two in one paragraph sit side by side.";
 

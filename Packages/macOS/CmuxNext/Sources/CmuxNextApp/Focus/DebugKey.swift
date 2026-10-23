@@ -6,6 +6,7 @@ import CmuxNextSettings
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextTerminal
+import CmuxNextWakeups
 
 /// `debug.key` (DEBUG builds): a key-down synthesized into one of this
 /// process's own windows and dispatched the way `NSApplication.sendEvent`
@@ -87,7 +88,10 @@ enum DebugKey {
         }
         let press = keyPress(params["key"]?.stringValue ?? "", modifiers: (params["modifiers"]?.arrayValue ?? []).compactMap(\.stringValue))
         let flags = press.flags
-        guard let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime,
+        // `timestamp` (seconds since boot, CLOCK_UPTIME_RAW): when the client sent the key, so the typing probe
+        // counts the wait for the main thread too, as a real key waits in the event queue (sidebar-churn-typing.py).
+        let timestamp = params["timestamp"]?.doubleValue ?? ProcessInfo.processInfo.systemUptime
+        guard let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: timestamp,
                                            windowNumber: window.windowNumber, context: nil, characters: press.characters,
                                            charactersIgnoringModifiers: press.characters, isARepeat: false, keyCode: press.keyCode)
         else { return .object(["error": .string("bad key")]) }
@@ -133,6 +137,8 @@ enum DebugKey {
             if DebugNativeInput.usesAppKitPath(window) {
                 DebugNativeInput.sendThroughApp([event])
             } else {
+                // Off the app's sendEvent (a window that is not key), the typing probe opens its sample here.
+                if TypingLatencyProbe.isEnabled { TypingLatencyProbe.shared.keyDown(eventTimestamp: event.timestamp) }
                 DebugNativeInput.runPaneMonitors(event, in: window, services: services)
                 window.sendEvent(event)
             }

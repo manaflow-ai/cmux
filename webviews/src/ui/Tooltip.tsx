@@ -5,7 +5,7 @@
 // "WHERE IS THE GLASS EVERYWHERE, all these hover tooltips and hover previews"), primary ink, an
 // optional shortcut hint. Every tooltip and hover card here is glass, never the solid popup surface
 // (webviews/scripts/check-glass-never-opaque.ts fails one that is not).
-import { useState, type PointerEventHandler, type ReactElement, type ReactNode } from "react";
+import { useState, type PointerEventHandler, type ReactElement, type ReactNode, type Ref } from "react";
 import { Tooltip as BaseTooltip } from "@base-ui/react/tooltip";
 import { usePopupHost, usePortalContainer } from "./UiProvider";
 import { useEscapingPopup } from "./popupHost";
@@ -41,8 +41,10 @@ export function Tooltip({ label, children, side = "bottom", shortcut, className 
   const host = usePopupHost();
   const [trigger, setTrigger] = useState<HTMLElement | null>(null);
   const [popup, setPopup] = useState<HTMLElement | null>(null);
-  // No room in the page (a tiny pane): past the window's edge, as a Mac tooltip (popupHost.ts).
-  useEscapingPopup(host, popup, () => trigger, { side, align: "start", gap: 6, kind: "tooltip" });
+  // No room in the page (a tiny pane): past the window's edge, as a Mac tooltip (popupHost.ts). A
+  // hover card (`ui-card`) wraps its lines, so its width never sends it there.
+  const wraps = /(^|\s)ui-card(\s|$)/.test(className ?? "");
+  useEscapingPopup(host, popup, () => trigger, { side, align: "start", gap: 6, kind: "tooltip", wraps });
   return (
     <BaseTooltip.Root>
       <BaseTooltip.Trigger ref={host ? setTrigger : undefined} render={children} />
@@ -78,6 +80,8 @@ export interface AnchoredCardProps {
   ariaLabel?: string;
   onPointerEnter?: PointerEventHandler<HTMLDivElement>;
   onPointerLeave?: PointerEventHandler<HTMLDivElement>;
+  /** The card's own element (its padding included), for a caller's inside/outside checks. */
+  popupRef?: Ref<HTMLDivElement>;
   children: ReactNode;
 }
 
@@ -99,6 +103,7 @@ export function AnchoredCard({
   ariaLabel,
   onPointerEnter,
   onPointerLeave,
+  popupRef,
   children,
 }: AnchoredCardProps) {
   const container = usePortalContainer();
@@ -113,6 +118,7 @@ export function AnchoredCard({
           sideOffset={6}
         >
           <BaseTooltip.Popup
+            ref={popupRef}
             id={id}
             className={cx("ui-tooltip ui-card ui-glass", className)}
             data-state={state}

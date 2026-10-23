@@ -34,10 +34,16 @@ struct AgentPaneTabRowHolesTests {
         return (view, page)
     }
 
-    /// The holes the page window has, back in the chat view's (top-left) coordinates.
+    /// The holes the page window has, back in the chat view's coordinates measured from its top-left
+    /// corner. The chat view is not flipped, so y 0 of its own coordinates is its bottom: holes there
+    /// cut the composer's footer row out of the page and leave the tabs covered (Lucas 2026-10-23).
     private func holes(_ page: FakeChromiumPage, in view: AgentPaneView) -> [CGRect] {
-        page.occlusionRects.map { view.convert($0, from: page.contentView).integral }
-            .sorted { $0.minX < $1.minX }
+        page.occlusionRects.map { rect -> CGRect in
+            let local = view.convert(rect, from: page.contentView)
+            let top = view.isFlipped ? local.minY - view.bounds.minY : view.bounds.maxY - local.maxY
+            return CGRect(x: local.minX, y: top, width: local.width, height: local.height).integral
+        }
+        .sorted { $0.minX < $1.minX }
     }
 
     @Test func aChromiumChatInTheTabRowLeavesTheTabsAndToolbarUncovered() async throws {

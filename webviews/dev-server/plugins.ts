@@ -269,7 +269,7 @@ function devServerShell(): Plugin {
 /// directory), a second HTML entry beside the diff viewer's. The page itself runs the fragment
 /// handshake (devHost.ts) in Swift's place. Mirrors vite.config.acpmux-pane.mjs, which still
 /// serves the pane alone at its root.
-function agentPaneHost(): Plugin {
+export function agentPaneHost(): Plugin {
   const paneDir = path.join(webviewsRoot, "src/agent-session/acpmux");
   const paneURL = "/src/agent-session/acpmux";
   const sharedStyles = path.join(webviewsRoot, "src/agent-session/shared/styles.css");

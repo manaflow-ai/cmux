@@ -8,6 +8,7 @@
 import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import type { MinimapTurns } from "../src/agent-session/acpmux/threadMinimap/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "compact" };
 setDefaultTimeout(120_000);
@@ -220,34 +221,66 @@ function counted<T>(rows: T[]) {
   return { proxy, reads };
 }
 
-/// The rows the rail's turns read for one streamed token in a chat of `prompts` prompts, given
-/// where the snapshot changed (the transcript finds it once for every reader of the rows).
-function readsPerToken(prompts: number) {
-  const chatRows = (reply: string) =>
-    Array.from({ length: prompts }, (_, index) => [
-      row(`user-${index + 1}`, "user", `Question ${index}`),
-      row(`t${index}-answer`, "assistant", index === prompts - 1 ? reply : `Answer ${index}.`),
-    ]).flat();
-  const base = counted(chatRows("Streaming"));
-  const first = minimapTurns(base.proxy, "s");
-  // The last result's turns behind a counter too: a copy of them reads every one.
-  const turns = counted(first.turns);
-  const previous = { ...first, turns: turns.proxy };
-  const ticks = first.ticks;
-  const next = base.proxy.slice();
+/// Counts the items read from `list` by index, in place: the list keeps its identity (the next
+/// read finds the list it last wrote by it), and every read of an item, a copy's included, counts.
+function countReads<T>(list: T[]) {
+  const reads = { count: 0 };
+  list.forEach((item, index) => {
+    let value = item;
+    Object.defineProperty(list, index, {
+      configurable: true,
+      enumerable: true,
+      get() {
+        reads.count += 1;
+        return value;
+      },
+      set(next: T) {
+        value = next;
+      },
+    });
+  });
+  return reads;
+}
+
+/// The chat's rows with the last prompt's reply at `reply`.
+const streamingChat = (prompts: number, reply: string) =>
+  Array.from({ length: prompts }, (_, index) => [
+    row(`user-${index + 1}`, "user", `Question ${index}`),
+    row(`t${index}-answer`, "assistant", index === prompts - 1 ? reply : `Answer ${index}.`),
+  ]).flat();
+
+/// `rows` with its last row's text replaced, as one streamed token does.
+const streamed = (rows: readonly AcpmuxRow[], text: string) => {
+  const next = rows.slice();
   const at = next.length - 1;
-  next[at] = { ...next[at]!, text: "Streaming more", version: 2 };
-  const after = counted(next);
+  next[at] = { ...next[at]!, text, version: (next[at]!.version ?? 1) + 1 };
+  return { next, change: { base: rows, rows: next, from: at } };
+};
+
+/// The rows the rail's turns read for one streamed token in a chat of `prompts` prompts, given
+/// where the snapshot changed (the transcript finds it once for every reader of the rows), after
+/// one token before it (the rail's steady state: the list it writes the next turns into exists).
+function readsPerToken(prompts: number) {
+  const first = minimapTurns(streamingChat(prompts, "Streaming"), "s");
+  const one = streamed(first.rows, "Streaming more");
+  const base = counted(one.next);
+  const previous = minimapTurns(base.proxy, "s", first, { ...one.change, rows: base.proxy });
+  // The committed turns, counted in place: a copy of them reads every one.
+  const committed = [...previous.turns];
+  const turns = countReads(previous.turns);
+  const ticks = previous.ticks;
+  const two = streamed(base.proxy, "Streaming more still");
+  const after = counted(two.next);
   base.reads.count = 0;
-  turns.reads.count = 0;
-  const result = minimapTurns(after.proxy, "s", previous, { base: base.proxy, rows: after.proxy, from: at });
+  const result = minimapTurns(after.proxy, "s", previous, { ...two.change, rows: after.proxy });
   return {
     reads: base.reads.count + after.reads.count,
-    turnReads: turns.reads.count,
+    turnReads: turns.count,
     result,
     previous,
+    committed,
     ticks,
-    fresh: minimapTurns(next, "s"),
+    fresh: minimapTurns(two.next, "s"),
   };
 }
 
@@ -258,14 +291,59 @@ test("a streamed token reads the same few rows in a 300- and a 3000-prompt chat"
   expect(large.reads).toBe(small.reads);
   expect(small.reads).toBeLessThan(10);
   // The reply's preview is still filling, so the live turn is new; the turns before it are neither
-  // copied nor walked (#24058 review round 5): the list is updated in place, finding the live turn
-  // by binary search, about log2(prompts) reads.
-  expect(large.result.turns).toBe(large.previous.turns);
+  // copied nor walked (#24058 review round 5): the live turn is found by binary search, about
+  // log2(prompts) reads of the committed turns.
   expect(small.turnReads).toBeLessThan(30);
   expect(large.turnReads).toBeLessThan(30);
+  // The committed turns are left as they were (#24058 review round 6): the new ones are another list.
+  expect(large.result.turns).not.toBe(large.previous.turns);
+  expect(large.previous.turns.length).toBe(large.committed.length);
+  expect(large.previous.turns.every((turn, index) => turn === large.committed[index])).toBe(true);
   // The prompts did not change: the same ticks; the turns are what a fresh read gives.
   expect(large.result.ticks).toBe(large.ticks);
   expect([...large.result.turns]).toEqual(large.fresh.turns);
+});
+
+// React may render with the next rows and then drop that render (a scroll or another update wins)
+// before it commits. The rail reads the next turns from the committed ones; that read must leave them
+// as they were, or the committed rail would show prompts and replies from rows it never committed
+// (#24058 review round 6).
+test("a dropped render leaves the committed turns as they were, and the next read matches a fresh one", () => {
+  const first = minimapTurns(streamingChat(40, "Streaming"), "s");
+  const warm = streamed(first.rows, "Streaming more");
+  let committed = minimapTurns(warm.next, "s", first, warm.change);
+  const snapshot = (result: MinimapTurns) => ({
+    turns: [...result.turns],
+    ticks: [...result.ticks],
+    length: result.turns.length,
+  });
+  const unchanged = (result: MinimapTurns, before: ReturnType<typeof snapshot>) => {
+    expect(result.turns.length).toBe(before.length);
+    expect(result.turns.every((turn, index) => turn === before.turns[index])).toBe(true);
+    expect(result.ticks.every((tick, index) => tick === before.ticks[index])).toBe(true);
+  };
+  for (let step = 0; step < 4; step += 1) {
+    const before = snapshot(committed);
+    // Dropped: a new prompt, then a streamed token, each read from the committed turns.
+    const added = [...committed.rows, row(`dropped-${step}`, "user", `Dropped question ${step}`)];
+    const dropped = minimapTurns(added, "s", committed, {
+      base: committed.rows,
+      rows: added,
+      from: committed.rows.length,
+    });
+    expect(dropped.turns.at(-1)?.prompt).toBe(`Dropped question ${step}`);
+    unchanged(committed, before);
+    const token = streamed(committed.rows, `Streaming more, step ${step} dropped`);
+    minimapTurns(token.next, "s", committed, token.change);
+    unchanged(committed, before);
+    // Then the render that commits, from the same committed turns.
+    const next = streamed(committed.rows, `Streaming more, step ${step}`);
+    const result = minimapTurns(next.next, "s", committed, next.change);
+    unchanged(committed, before);
+    expect([...result.turns]).toEqual(minimapTurns(next.next, "s").turns);
+    expect(result.turns.some((turn) => turn.prompt.startsWith("Dropped"))).toBe(false);
+    committed = result;
+  }
 });
 
 test("a change in the middle of the chat reads from there on, and matches a fresh read", () => {
@@ -274,7 +352,6 @@ test("a change in the middle of the chat reads from there on, and matches a fres
     row(`t${index}-answer`, "assistant", `Answer ${index}.`),
   ]).flat();
   const previous = minimapTurns(rows, "s");
-  // The previous list is updated in place: keep what it held before.
   const before = previous.turns.slice();
   // A prompt edited mid-chat, and a row inserted before a later prompt (its index moves).
   const edited = rows.slice();

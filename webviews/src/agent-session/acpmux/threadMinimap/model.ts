@@ -222,9 +222,14 @@ export type MinimapTick = Pick<MinimapTurn, "key" | "id" | "prompt">;
 export type MinimapTurns = {
   rows: readonly AcpmuxRow[];
   sessionId: string;
-  turns: MinimapTurn[];
+  turns: readonly MinimapTurn[];
   ticks: readonly MinimapTick[];
+  /// The list the next changed turns are written into (the one before `turns`), never `turns`.
+  spare?: MinimapTurn[];
 };
+
+/// For a list the next turns are written into, the list whose first `same` turns it holds.
+const agreed = new WeakMap<readonly MinimapTurn[], { list: readonly MinimapTurn[]; same: number }>();
 
 /// Where a rows snapshot first differs (by object) from the one before it, as the transcript finds
 /// it once per snapshot for everything that reads the rows (VirtualTranscript's arriving rows): the
@@ -241,6 +246,12 @@ export type RowsChange = { base: readonly AcpmuxRow[]; rows: readonly AcpmuxRow[
 /// streamed token reads only the live turn's rows, however long the chat (#24058 review round 4).
 /// Without it (another session, a first read, a step the transcript did not see) the rows are
 /// compared from the start.
+///
+/// `previous` is left as it was: React can render with the next rows and drop that render, and the
+/// committed result must still be the rows it shows (#24058 review round 6). Changed turns go into
+/// `previous.spare`, the list before `previous.turns`, which holds every turn up to where the two
+/// last differed, so a streamed token writes the live turn alone and copies none of the others. The
+/// result before `previous` is spent: pass the committed result, or one read from it.
 export function minimapTurns(
   rows: readonly AcpmuxRow[],
   sessionId = "",
@@ -316,21 +327,27 @@ export function minimapTurns(
     const tick = oldTicks?.[keep + at];
     if (tick?.key !== turn.key || tick.prompt !== turn.prompt || tick.id !== turn.id) sameTicks = false;
   }
-  // The previous list is the one this returns, changed in place from `keep` on: a streamed token
-  // whose reply preview is still filling replaces the live turn alone, not a copy of every turn
-  // (#24058 review round 5). `previous` is spent once it is passed in; read the result instead.
-  // What reads the turns follows the rows (ThreadMinimap renders on each snapshot), and `ticks`
-  // keeps its own identity rule.
-  let turns: MinimapTurn[];
-  if (!old) turns = tail;
-  else {
-    turns = old;
-    if (!sameTurns) {
-      turns.length = keep;
-      for (const turn of tail) turns.push(turn);
-    }
-  }
-  return { rows, sessionId, turns, ticks: sameTicks ? oldTicks! : ticksOf(turns, oldTicks) };
+  // Changed turns go into the spare list, never into `old`: it holds `old`'s turns up to where the
+  // two last differed, so a streamed token whose reply preview is still filling writes the live turn
+  // alone, not a copy of every turn (#24058 review round 5), and `previous` stays the committed rows'
+  // (round 6). A dropped render wrote only the spare, and its agreement says how far it still holds.
+  if (!old) return { rows, sessionId, turns: tail, ticks: ticksOf(tail, oldTicks) };
+  if (sameTurns)
+    return { rows, sessionId, turns: old, ticks: sameTicks ? oldTicks! : ticksOf(old, oldTicks), spare: reuse!.spare };
+  const list = reuse!.spare ?? [];
+  const agreement = agreed.get(list);
+  for (let at = agreement?.list === old ? Math.min(agreement.same, keep) : 0; at < keep; at += 1) list[at] = old[at]!;
+  list.length = keep;
+  for (const turn of tail) list.push(turn);
+  agreed.set(list, { list: old, same: keep });
+  agreed.set(old, { list, same: keep });
+  return {
+    rows,
+    sessionId,
+    turns: list,
+    ticks: sameTicks ? oldTicks! : ticksOf(list, oldTicks),
+    spare: old as MinimapTurn[],
+  };
 }
 
 /// Whether two reply previews are the same blocks and spans.

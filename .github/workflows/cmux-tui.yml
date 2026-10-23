@@ -845,6 +845,12 @@ jobs:
         working-directory: cmux-tui
         run: cargo build --locked -p cmux-tui --bin cmux-tui
 
+      # The shared Claude Code turn crate and the Cloud Chief's Rust turn runner
+      # (its own workspace; the runner's tests drive the real binary on Linux).
+      - name: chief-turn test suite
+        working-directory: Native/OptChat/chief-turn
+        run: cargo test --locked
+
       - name: optchat-chief test suite
         working-directory: Native/OptChat/optchat-chief
         run: cargo test --locked

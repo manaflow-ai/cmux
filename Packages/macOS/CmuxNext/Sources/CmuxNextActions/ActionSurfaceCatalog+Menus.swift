@@ -42,6 +42,8 @@ nonisolated extension ActionSurfaceCatalog {
         "workspace.toggleAudioMute": [p(.workspaceRow, .identity, 115, folder: .options)],
         "palette.workspaceColor": [p(.workspaceRow, .identity, 104, folder: .appearance)],
         "palette.resetWorkspaceColor": [p(.workspaceRow, .identity, 105, folder: .appearance)],
+        "workspace.removeAllColors": [p(.workspaceRow, .identity, 106, folder: .appearance),
+                                      p(.workspaceGroup, .identity, 103, folder: .options)],
         "reconnectWorkspace": [p(.workspaceRow, .connection, 401, folder: .options)],
         "disconnectWorkspace": [p(.workspaceRow, .connection, 402, folder: .options)],
         "workspace.setRemoteLocalhost": [p(.workspaceRow, .connection, 403, .choices, folder: .options)],
@@ -122,6 +124,7 @@ nonisolated extension ActionSurfaceCatalog {
         "workspaceGroup.color.purple": [p(.workspaceGroup, .identity, 6, in: "workspaceGroup.setColor", label: ObjectMenuLabels.colorName("purple"))],
         "workspaceGroup.color.cyan": [p(.workspaceGroup, .identity, 7, in: "workspaceGroup.setColor", label: ObjectMenuLabels.colorName("cyan"))],
         "workspaceGroup.color.orange": [p(.workspaceGroup, .identity, 8, in: "workspaceGroup.setColor", label: ObjectMenuLabels.colorName("orange"))],
+        "workspaceGroup.clearColor": [p(.workspaceGroup, .identity, 100, in: "workspaceGroup.setColor", label: ObjectMenuLabels.removeColor)],
         // The space menu (SIDEBAR-FOOTER-AND-SPACE-MENU F3, Arc-style): icon,
         // name, theme color, browser profile; New Group; Delete. The rest of
         // the space actions stay in the palette and the CLI (`.minimalMenu`).

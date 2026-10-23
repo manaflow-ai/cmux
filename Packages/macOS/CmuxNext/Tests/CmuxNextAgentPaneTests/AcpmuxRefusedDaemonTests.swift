@@ -24,6 +24,38 @@ struct AcpmuxRefusedDaemonTests {
         #expect(!message.contains("did not start"))
     }
 
+    /// Lawrence, 2026-10-22: the chat said "acpmux is running at ~/.acpmux/acpmux.sock, but this
+    /// build may not use it: <reason>" and "cmux tries again on its own", and the prompt waited
+    /// for good. A refused daemon does not heal by retrying: every refusal names one command
+    /// that stops that daemon (hosted agents keep running for the next one), run with this app's
+    /// own acpmux on that very socket, and then what to do.
+    @Test(arguments: [nil, "cmux DEV nxdog98-v1"] as [String?])
+    func everyRefusalSaysExactlyWhatToDo(holder: String?) {
+        let error = AgentPaneHostError.daemonRefused(
+            holder: holder, socketPath: "/Users/u/.acpmux/acpmux.sock",
+            reason: "the socket's peer is not signed by this app's team",
+            executable: "/Applications/cmux NIGHTLY.app/Contents/Resources/bin/acpmux")
+        let message = AgentPaneHostError.userMessage(for: error)
+        #expect(message.contains(
+            "ACPMUX_SOCKET='/Users/u/.acpmux/acpmux.sock' '/Applications/cmux NIGHTLY.app/Contents/Resources/bin/acpmux' daemon shutdown"))
+        #expect(message.contains("agents keep running"))
+        #expect(message.contains("new agent chat"))
+        if let holder { #expect(message.contains("Quit \(holder)")) }
+    }
+
+    /// The command quotes a path with a single quote in it for the shell.
+    @Test func theShutdownCommandQuotesForTheShell() {
+        #expect(AgentPaneHostError.shutdownCommand(socketPath: "/tmp/it's.sock", executable: "/a b/acpmux")
+                == #"ACPMUX_SOCKET='/tmp/it'\''s.sock' '/a b/acpmux' daemon shutdown"#)
+    }
+
+    /// The refusal the host makes carries this app's own acpmux, so the command never runs the
+    /// refused daemon's binary or a stray one on PATH.
+    @Test func theHostsRefusalNamesThisAppsAcpmux() async throws {
+        let (_, _, executable) = try await refusalWithExecutable(daemonHome: nil)
+        #expect(executable.hasSuffix("/bin/acpmux"))
+    }
+
     /// The end-to-end path of the bug: a daemon answers on the socket but is not the acpmux this
     /// app runs. A reconnect (it never starts a daemon) reports who holds it.
     @Test func aRefusedDaemonIsNamedNotReportedAsNotStarted() async throws {
@@ -41,6 +73,11 @@ struct AcpmuxRefusedDaemonTests {
     /// Runs a reconnect against a fake daemon (this test process, never this app's acpmux) that
     /// reports `daemonHome`, and returns the refused socket path and reason.
     private func refusal(daemonHome: String?) async throws -> (String, String) {
+        let (path, reason, _) = try await refusalWithExecutable(daemonHome: daemonHome)
+        return (path, reason)
+    }
+
+    private func refusalWithExecutable(daemonHome: String?) async throws -> (String, String, String) {
         let root = URL(fileURLWithPath: "/tmp/asc-\(UUID().uuidString.prefix(8))", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let bin = root.appendingPathComponent("bin", isDirectory: true)
@@ -62,15 +99,15 @@ struct AcpmuxRefusedDaemonTests {
             _ = try await host.reconnectHandshake(sessionId: "s")
             Issue.record("a daemon that is not this app's acpmux was accepted")
         } catch let error as AgentPaneHostError {
-            guard case .daemonRefused(_, let path, let reason) = error else {
+            guard case .daemonRefused(_, let path, let reason, let executable) = error else {
                 Issue.record("expected daemonRefused, got \(error)")
-                return ("", "")
+                return ("", "", "")
             }
             #expect(path == socketPath)
             #expect(!AgentPaneHostError.userMessage(for: error).contains("did not start"))
-            return (path, reason)
+            return (path, reason, executable)
         }
-        return ("", "")
+        return ("", "", "")
     }
 }
 
