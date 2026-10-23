@@ -140,7 +140,8 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     public init(expanded ws: SidebarWorkspace, now: Date, machine: String? = nil, showsNotification: Bool = true,
                 showsPullRequest: Bool = true) {
         let place = [Self.nonEmpty(ws.directory), Self.nonEmpty(ws.branch)].compactMap { $0 }
-        let meta = [Self.nonEmpty(machine), Self.nonEmpty(ws.stage), showsPullRequest ? Self.nonEmpty(ws.pullRequest) : nil].compactMap { $0 }
+        let bypass = ws.reported?.entries.first { $0.key == SidebarWorkspaceStatus.Entry.bypassKey }?.text
+        let meta = [bypass, Self.nonEmpty(machine), Self.nonEmpty(ws.stage), showsPullRequest ? Self.nonEmpty(ws.pullRequest) : nil].compactMap { $0 }
         self.init(
             icon: ws.icon ?? ws.taskStatus?.glyph,
             detail: (showsNotification ? Self.nonEmpty(ws.notificationText) : nil) ?? Self.descriptionLine(ws)
@@ -181,10 +182,20 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     /// The part of `reported` the shown elements draw; nil when empty.
     static func status(_ reported: SidebarWorkspaceStatus?, _ set: WorkspaceRowElements) -> SidebarWorkspaceStatus? {
         guard let reported else { return nil }
-        let block = SidebarWorkspaceStatus(entries: set.shows(.agentStatus) ? reported.entries : [],
+        // The bypass warning shows whatever the elements are: nothing hides that a chat acts unasked.
+        let block = SidebarWorkspaceStatus(entries: set.shows(.agentStatus) ? reported.entries
+                                               : reported.entries.filter { $0.key == SidebarWorkspaceStatus.Entry.bypassKey },
                                            log: set.shows(.log) ? reported.log : nil,
                                            progressLabel: set.shows(.progress) ? reported.progressLabel : nil)
         return block.isEmpty ? nil : block
+    }
+
+    /// Only the bypass warning of `status` (a workspace's reported status), for a row that draws no
+    /// status block otherwise (minimal, workspaces as tabs): nothing hides that a chat acts unasked.
+    /// Nil when it has none.
+    static func bypassOnly(_ status: SidebarWorkspaceStatus?) -> SidebarWorkspaceStatus? {
+        let warning = status?.entries.filter { $0.key == SidebarWorkspaceStatus.Entry.bypassKey } ?? []
+        return warning.isEmpty ? nil : SidebarWorkspaceStatus(entries: warning)
     }
 
     static func activity(_ state: StatusIndicatorState, working: Bool, progress: Bool) -> StatusIndicatorState {

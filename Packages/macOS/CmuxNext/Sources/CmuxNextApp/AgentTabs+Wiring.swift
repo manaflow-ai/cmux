@@ -230,6 +230,7 @@ extension AgentTabStore {
             }
             var host = AgentTabRemoteHost(surface: tab.surface.rawValue, session: session, machine: machine, endpoint: endpoint, servesTrust: daemon.supports(DaemonCapabilities.agentSessionTrust),
                                            servesKeyedReason: daemon.supports(DaemonCapabilities.agentSessionStartKeyedReason))
+            host.tabHost = record.host
             if started {
                 // The tab may still be provisional here: each handshake reads its store surface.
                 host.existing = { [weak tabs] in

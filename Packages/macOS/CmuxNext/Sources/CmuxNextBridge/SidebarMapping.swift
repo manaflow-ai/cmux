@@ -181,6 +181,12 @@ public struct SidebarMapping {
         row.lastMessage = lastMessage(front, tabs)
         if showsUnread { row.notificationText = newestUnread(tabs).flatMap(notificationText) }
         row.reported = Self.reported(workspace.status, asset: iconAsset)
+        if tabs.contains(where: { tab in
+            tab.agentSession.flatMap { ref in ref.session.map { AgentBypassSessions.shared.contains($0, host: ref.host) } } == true
+        }) {
+            let reported = row.reported ?? SidebarWorkspaceStatus()
+            row.reported = SidebarWorkspaceStatus(entries: [.bypass] + reported.entries, log: reported.log, progressLabel: reported.progressLabel)
+        }
         row.workspaceDescription = workspace.workspaceDescription
         row.taskStatus = workspace.taskStatus.map(Self.taskStatus)
         row.checklist = workspace.checklist.map(Self.checklistItem)
@@ -332,10 +338,13 @@ public struct SidebarMapping {
     /// line (`cmux workspace status set ports|pr <text>`).
     public static let portsKey = "ports"
     public static let pullRequestKey = "pr"
+    /// Keys no reporter's entry shows as status: the ones other elements show,
+    /// and the bypass key, the app's own warning that no reporter shows or hides.
+    static let notStatusKeys: Set<String> = [portsKey, pullRequestKey, SidebarWorkspaceStatus.Entry.bypassKey]
 
     /// The status line: every entry but the ones other elements show.
     static func statusLine(_ entries: [WorkspaceStatus.Entry]) -> String? {
-        let texts = entries.filter { $0.key != portsKey && $0.key != pullRequestKey }.map(\.text).filter { !$0.isEmpty }
+        let texts = entries.filter { !notStatusKeys.contains($0.key) }.map(\.text).filter { !$0.isEmpty }
         return texts.isEmpty ? nil : texts.joined(separator: " · ")
     }
 
@@ -345,7 +354,7 @@ public struct SidebarMapping {
     static func reported(_ status: WorkspaceStatus?, asset: (String) -> SidebarFavicon? = { _ in nil }) -> SidebarWorkspaceStatus? {
         guard let status else { return nil }
         let block = SidebarWorkspaceStatus(
-            entries: status.entries.filter { $0.key != portsKey && $0.key != pullRequestKey }.map {
+            entries: status.entries.filter { !notStatusKeys.contains($0.key) }.map {
                 SidebarWorkspaceStatus.Entry(key: $0.key, text: $0.text, icon: $0.icon, tint: SidebarWorkspaceStatus.Tint($0.color), state: $0.state,
                                              image: $0.icon.flatMap(asset))
             },

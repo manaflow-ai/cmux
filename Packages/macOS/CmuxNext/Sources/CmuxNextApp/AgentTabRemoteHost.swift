@@ -12,6 +12,8 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
     let session: String?
     let machine: String
     let endpoint: AgentSessionAttachClient.EndpointProvider
+    /// The tab's host as its record names it (`registry:<id>`), the key of its bypass facts.
+    var tabHost: String?
     /// `.observe` opens the remote session as a read-only viewer with no mutation fallback.
     var mode: AgentSessionAttachClient.Mode = .attach
     /// The machine's daemon answers the folder trust question (`agent-session-trust-v1`).
@@ -55,14 +57,14 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
             return try answer.get()
         }
         if let session {
-            route = AgentPaneRemoteRoute(machine: machine, approvals: approvals) { [surface, session, endpoint] in
-                let client = AgentSessionAttachClient(surface: surface, mode: mode, endpoint: endpoint)
+            route = AgentPaneRemoteRoute(machine: machine, approvals: approvals) { [surface, session, endpoint, tabHost] in
+                let client = AgentSessionAttachClient(surface: surface, mode: mode, tabHost: tabHost, endpoint: endpoint)
                 return RemoteAcpmuxWire(client: AgentTabRemoteClient(client: client, mode: mode), session: session, trust: mode == .attach && servesTrust ? ask : nil)
             }
         } else if let start, mode == .attach {
             // A new chat: nothing runs on that machine until the page's first send (cx-k21v). The
             // page shows the New Tab page or an empty chat; its `session/new` starts the chat.
-            route = AgentPaneRemoteRoute(machine: machine, approvals: approvals) { [endpoint] in
+            route = AgentPaneRemoteRoute(machine: machine, approvals: approvals) { [endpoint, tabHost] in
                 RemoteAcpmuxWire(start: { [approvals = approvals, servesKeyedReason] cwd, harness in
                     let started: AgentTabRemoteStart.Started
                     do {
@@ -71,7 +73,7 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
                     } catch let refusal as AgentRemoteStartRefusal {
                         throw AgentSessionRemoteError(code: refusal.code, message: servesTrust ? refusal.userMessage : refusal.withoutTrust.userMessage, folder: refusal.folder)
                     }
-                    let client = AgentSessionAttachClient(surface: started.surface, endpoint: endpoint)
+                    let client = AgentSessionAttachClient(surface: started.surface, tabHost: tabHost, endpoint: endpoint)
                     return (AgentTabRemoteClient(client: client, mode: .attach), started.session)
                 }, trust: servesTrust ? ask : nil)
             }

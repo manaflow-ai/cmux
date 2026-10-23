@@ -55,6 +55,9 @@ public actor AgentSessionAttachClient {
     private let mode: Mode
     private let endpoint: EndpointProvider
     private let requestTimeout: Duration
+    /// The tab's host as its record names it (`registry:<id>`): with the session, the key its
+    /// chat's mode facts are filed under (``AgentBypassSessions``); nil files none.
+    private let tabHost: String?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-attach")
     private var transport: LineTransport?
     private var connecting: Task<LineTransport, any Error>?
@@ -64,6 +67,8 @@ public actor AgentSessionAttachClient {
     private var servesStart = false
     /// The connected daemon serves `agent-session-trust-v1`.
     private var servesTrust = false
+    /// The connected daemon serves `agent-session-adopt-v1`.
+    private var servesAdopt = false
     /// The connected daemon serves `agent-session-start-keyed-reason-v1`.
     private var servesKeyedReason = false
     /// The connected daemon serves `agent-session-children-v1`.
@@ -76,20 +81,48 @@ public actor AgentSessionAttachClient {
         public init(instance: String?) { self.instance = instance }
     }
 
-    /// `surface`: the tab's surface id in the daemon's store.
-    public init(surface: UInt64, requestTimeout: Duration = .seconds(10), mode: Mode = .attach,
+    /// `surface`: the tab's surface id in the daemon's store; `tabHost`: its record's host.
+    public init(surface: UInt64, requestTimeout: Duration = .seconds(10), mode: Mode = .attach, tabHost: String? = nil,
                 endpoint: @escaping EndpointProvider) {
         self.surface = surface
+        self.tabHost = tabHost
         self.mode = mode
         self.endpoint = endpoint
         self.requestTimeout = requestTimeout
     }
 
-    /// Subscribes and returns the attach page's JSON. Pushes go to `events` from then on.
+    /// Subscribes and returns the attach page's JSON. Pushes go to `events` from then on. The
+    /// chat's mode (the reply's `agentMode`, then each `agent-session-mode` push of a daemon with
+    /// `agent-session-adopt-v1`) goes to ``AgentBypassSessions`` instead.
     public func attach(afterSeq: UInt64?, beforeSeq: UInt64?, limit: Int?, kinds: [String]?,
                        events: @escaping EventHandler) async throws -> Data {
-        handler.set(events)
-        return try await call(mode.command, page(afterSeq, beforeSeq, limit, kinds))
+        handler.set { [tabHost] event, line in
+            guard event == "agent-session-mode" else { return events(event, line) }
+            AgentBypassSessions.note(.push, of: line, host: tabHost)
+        }
+        _ = try await liveTransport()
+        var params = page(afterSeq, beforeSeq, limit, kinds)
+        if servesAdopt { params["mode_events"] = true }
+        let data = try await call(mode.command, params)
+        AgentBypassSessions.note(.attachReply, of: data, host: tabHost)
+        return data
+    }
+
+    /// `agent-session-mode` (`agent-session-adopt-v1`) of tab `surface` over a connection of its
+    /// own: the answer (``AgentBypassSessions/Carrier/answer``), nil from a daemon without the verb.
+    /// The caller notes it only while its connection is current.
+    public static func readMode(surface: UInt64, endpoint: @escaping EndpointProvider) async throws -> Data? {
+        let client = AgentSessionAttachClient(surface: surface, endpoint: endpoint)
+        let result: Result<Data?, any Error>
+        do { result = .success(try await client.chatMode()) } catch { result = .failure(error) }
+        await client.close()
+        return try result.get()
+    }
+
+    /// The `agent-session-mode` answer; nil from a daemon without the verb.
+    private func chatMode() async throws -> Data? {
+        _ = try await liveTransport()
+        return servesAdopt ? try await call("agent-session-mode", [:]) : nil
     }
 
     public func events(afterSeq: UInt64?, beforeSeq: UInt64?, limit: Int?, kinds: [String]?) async throws -> Data {
@@ -261,6 +294,7 @@ public actor AgentSessionAttachClient {
             }
             servesStart = identity.supports(DaemonCapabilities.agentSessionStart)
             servesTrust = identity.supports(DaemonCapabilities.agentSessionTrust)
+            servesAdopt = identity.supports(DaemonCapabilities.agentSessionAdopt)
             servesKeyedReason = identity.supports(DaemonCapabilities.agentSessionStartKeyedReason)
             servesChildren = identity.supports(DaemonCapabilities.agentSessionChildren)
             _ = try await DaemonConnection.perform(
