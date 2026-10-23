@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "build": "3992836248101",
+  "notes": "notes/3992836248101.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 24457,
+      "title": "cmux NEXT composer: the Codex tray on an opaque window drops the frost its solid fill hides",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24298,
+      "title": "cmux NEXT: host pressure monitor on the shared host budget (part 1, no UI)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24299,
+      "title": "agents: name tabs by title, mark the tab the person must act in (skills, MCP instructions)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
