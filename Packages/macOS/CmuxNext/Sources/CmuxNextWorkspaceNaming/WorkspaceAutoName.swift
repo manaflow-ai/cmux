@@ -83,7 +83,7 @@ public nonisolated struct WorkspaceAutoName: Equatable, Sendable {
     /// Whether the user named the workspace: a title, or a name the daemon did not give.
     public static func isUserNamed(name: String, title: String?, nameSource: WorkspaceNameSource = .auto,
                                    nameRevision: UInt64 = 0, allowsLegacyDefaults: Bool = true) -> Bool {
-        !(title ?? "").isEmpty || (nameSource == .user && (nameRevision > 0 || !allowsLegacyDefaults))
+        return !(title ?? "").isEmpty || (nameSource == .user && (nameRevision > 0 || !allowsLegacyDefaults))
             || !NewWorkspaceName.isDefaultWorkspaceName(name)
     }
 
