@@ -534,9 +534,7 @@ async fn dispatch_request(
             let web = super::remote_guard::control_of(conn.origin, conn.auth, &params)
                 == crate::hub::Control::Web;
             crate::prompt_context::apply(mux_meta(&params), web, &mut blocks)?;
-            // The app pane signs a reply only as a chat it shows (`Hub::app_reply_fits`).
-            let shows = |id: &str| conn.sub_opts(id).is_some_and(|o| !o.hidden);
-            let provenance = hub.prompt_provenance(&params, conn.origin, &s.id, &shows)?;
+            let provenance = crate::hub::Hub::prompt_provenance(&params, conn.origin)?;
             // Sent from inside another session (its proven caller token) with none of its own:
             // that session's message, so the receiver's transcript does not show it as the person's.
             let provenance = match (provenance, conn.caller()) {
@@ -1021,6 +1019,7 @@ async fn dispatch_request(
         }
         method::MUX_VIEW => view::view(hub, conn, &params),
         method::MUX_MARK_UNREAD => view::mark_unread(hub, &params),
+        method::MUX_APP_REPLY => super::app_reply::check(hub, conn, &params),
         method::MUX_HARNESS_INVENTORY_WATCH => super::inventory_watch::handle(hub, conn, &params),
         method::MUX_WATCH => {
             let on = params.get("enabled").and_then(Value::as_bool).unwrap_or(true);
