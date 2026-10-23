@@ -448,8 +448,21 @@ def run_session(session):
                 stuck = os.path.join(OUT, f"sample-launch-{session}.txt")
                 subprocess.run(["/usr/bin/sample", str(app.pid), "3", "-file", stuck], capture_output=True, timeout=60)
                 try:
-                    graph = open(stuck, errors="replace").read().split("Call graph:", 1)[-1].splitlines()
-                    note("main thread while the app does not answer:\n" + "\n".join(l[:180] for l in graph[:60]))
+                    text = open(stuck, errors="replace").read()
+                    graph = text.split("Call graph:", 1)[-1].splitlines()
+                    # The main thread's heaviest path: its first block of the call graph, deepest frames kept.
+                    main, started = [], False
+                    for line in graph:
+                        if "com.apple.main-thread" in line:
+                            started = True
+                        elif started and line.strip() and not line.lstrip().startswith(("+", "|", "!", ":")) and "Thread_" in line:
+                            break
+                        if started:
+                            main.append(line.rstrip())
+                    deep = [l for l in main if l.strip()][:400]
+                    note("main thread while the app does not answer:\n" + "\n".join(l[-200:] for l in deep[:160]))
+                    top = text.split("Sort by top of stack", 1)[-1].splitlines()[:25]
+                    note("top of stack:\n" + "\n".join(l[:200] for l in top))
                 except OSError:
                     pass
             note(f"{session}: the tagged app did not come up (exit={app.poll()}); log tail: "
