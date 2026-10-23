@@ -138,6 +138,7 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
         guard normalizedLauncher == nil || normalizedLauncher == "codex" else {
             return nil
         }
+        let argvProvider = providerEvidence(in: launchArguments, launcher: normalizedLauncher)
         let capturedProvider = providerEvidenceWithCapturedConfig(
             in: launchArguments,
             launcher: normalizedLauncher,
@@ -145,11 +146,15 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
         )
         guard capturedProvider == .provider("subrouter") else { return nil }
 
-        // New captures carry a launch-bound marker. Older captures can still
-        // prove the route through their CODEX_HOME config, so use the stable
-        // Subrouter launcher when the marker is absent.
-        let marker = capturedLaunchBoundMarker(in: environment) ?? "sr codex resume"
-        return marker.split(separator: " ").map(String.init) + [sessionID]
+        if let marker = capturedLaunchBoundMarker(in: environment) {
+            return marker.split(separator: " ").map(String.init) + [sessionID]
+        }
+        // Argv that names the provider was written by a launch cmux saw, so
+        // it routes only with the wrapper-bound marker. Older captures that
+        // name no provider can still prove the route through their CODEX_HOME
+        // config; those use the stable Subrouter launcher.
+        guard argvProvider == .absent else { return nil }
+        return ["sr", "codex", "resume", sessionID]
     }
 
     /// Returns whether captured Codex arguments explicitly select Subrouter.

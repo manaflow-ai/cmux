@@ -163,6 +163,35 @@ import Testing
         )
     }
 
+    @Test func markerlessCaptureRoutesOnlyWhenCodexHomeConfigProvesSubrouter() throws {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-home-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        try "model_provider = \"subrouter\"\n".write(
+            to: home.appendingPathComponent("config.toml"), atomically: true, encoding: .utf8
+        )
+        let routing = SubrouterCodexResumeRouting()
+        let environment = ["CODEX_HOME": home.path]
+
+        // An older capture names no provider; its CODEX_HOME config proves the route.
+        #expect(routing.resumeArguments(
+            launcher: "codex",
+            sessionID: sessionID,
+            launchArguments: ["codex"],
+            environment: environment
+        ) == ["sr", "codex", "resume", sessionID])
+
+        // Argv that names Subrouter without the wrapper-bound marker stays fail-closed,
+        // even when the config agrees.
+        #expect(routing.resumeArguments(
+            launcher: "codex",
+            sessionID: sessionID,
+            launchArguments: ["codex", "-c", "model_provider=subrouter"],
+            environment: environment
+        ) == nil)
+    }
+
     @Test func malformedOrConflictingCodexConfigDoesNotRoute() {
         let routing = SubrouterCodexResumeRouting()
         #expect(
