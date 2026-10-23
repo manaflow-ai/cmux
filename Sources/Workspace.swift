@@ -9397,6 +9397,15 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 from: panelId, orientation: orientation, insertFirst: insertFirst, focus: focus
             ) ? .routedToRemote : .failed
         }
+        // Mosh+tmux has no pane-creation transport yet. Never fall through to
+        // a local PTY: that would make a remote workspace appear split while
+        // silently launching the new pane on this Mac. An explicit local split
+        // and session-restore scaffolding remain valid callers.
+        if rejectsImplicitMoshTmuxSplit(
+            suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand
+        ) {
+            return .moshTmuxSplitUnsupported
+        }
         // Auto layout re-tiles every pane itself, so only a plain split is
         // checked against the minimum pane size (#15371).
         let spaceVerdict: SplitSpaceVerdict = autoLayout || splitSpaceAdmissionBypassDepth > 0
@@ -9424,6 +9433,18 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             inheritStartupWork: inheritStartupWork
         ) else { return .failed }
         return .created(panel)
+    }
+
+    private func rejectsImplicitMoshTmuxSplit(
+        suppressWorkspaceRemoteStartupCommand: Bool
+    ) -> Bool {
+        guard !suppressWorkspaceRemoteStartupCommand,
+              !suppressRemoteTerminalStartupForSessionRestoreScaffold,
+              remoteConfiguration?.terminalTransport == .mosh,
+              remoteConfiguration?.terminalProfile.kind == .tmux else {
+            return false
+        }
+        return true
     }
 
     private func newTerminalSplitLocal(
@@ -15058,6 +15079,10 @@ extension Workspace: BonsplitDelegate {
 
     func splitTabBar(_ controller: BonsplitController, shouldSplitPane pane: PaneID, orientation: SplitOrientation) -> Bool {
         guard !isRetiredFromOwningTabManager else { return false }
+        if !isProgrammaticSplit,
+           rejectsImplicitMoshTmuxSplit(suppressWorkspaceRemoteStartupCommand: false) {
+            return false
+        }
         // In a remote tmux mirror, split means tmux `split-window`; always veto
         // local splits so the mirror never gains an orphan pane.
         guard isRemoteTmuxMirror else {
@@ -15070,6 +15095,34 @@ extension Workspace: BonsplitDelegate {
             if accepted { ProductAnalytics.app.featureUsed(.split) }
         }
         return false
+    }
+
+    func splitTabBar(
+        _ controller: BonsplitController,
+        shouldSplitPane pane: PaneID,
+        orientation: SplitOrientation,
+        movingTab: Bonsplit.Tab
+    ) -> Bool {
+        guard !isRetiredFromOwningTabManager else { return false }
+        if isRemoteTmuxMirror {
+            return splitTabBar(controller, shouldSplitPane: pane, orientation: orientation)
+        }
+        guard admitsBonsplitUISplit(of: pane, orientation: orientation) else { return false }
+        // Programmatic callers own their tabs and have already passed their
+        // own safety policy. For a direct tab-edge drag, only veto the sole-tab
+        // case that would make Bonsplit create an Empty placeholder and cmux
+        // repair it with a new local terminal.
+        guard rejectsImplicitMoshTmuxSplit(suppressWorkspaceRemoteStartupCommand: false),
+              !isProgrammaticSplit,
+              let sourcePane = controller.allPaneIds.first(where: {
+                  controller.tabs(inPane: $0).contains(where: { $0.id == movingTab.id })
+              }),
+              sourcePane == pane else {
+            return true
+        }
+        return controller.tabs(inPane: sourcePane).contains {
+            $0.id != movingTab.id && panelIdFromSurfaceId($0.id) != nil
+        }
     }
 
     func splitTabBar(_ controller: BonsplitController, didReorderTabsInPane pane: PaneID, orderedTabIds: [TabID]) {

@@ -238,7 +238,7 @@ extension TerminalController {
                 )
             case .noSpace:
                 return .noSpace
-            case .failed:
+            case .failed, .moshTmuxSplitUnsupported:
                 newId = nil
             }
         }
@@ -592,7 +592,7 @@ extension TerminalController {
                     workspaceID: ws.id,
                     typeRawValue: panelType.rawValue
                 )
-            case .failed, .noSpace:
+            case .failed, .noSpace, .moshTmuxSplitUnsupported:
                 newPanelId = nil
             }
         }

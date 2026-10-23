@@ -13577,6 +13577,8 @@ class TerminalController {
                 result = "OK routed-to-remote-tmux"
             case .noSpace:
                 result = "ERROR: No space for new pane"
+            case .moshTmuxSplitUnsupported:
+                result = "ERROR: Mosh tmux workspace splits are not supported"
             case .failed:
                 break
             }

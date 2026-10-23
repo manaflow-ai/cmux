@@ -60,6 +60,10 @@ extension TabManager {
             // a split with no room for another pane beeps instead of doing
             // nothing silently (#15371).
             NSSound.beep()
+        } else if case .moshTmuxSplitUnsupported = outcome {
+            // Mosh has no native tmux pane-creation transport yet. Refusing is
+            // intentional; never mask it by creating a local terminal.
+            NSSound.beep()
         }
         return outcome
     }
