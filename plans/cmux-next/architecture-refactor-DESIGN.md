@@ -45,7 +45,7 @@ its highest layer and lists the rest under `mixes`.
 
 ### Measured violations (fix with each slice that touches the edge)
 
-Hard (32), grouped by cause:
+Hard (32 at the baseline, 184fa32532c; 28 after batch 4, see "Removed" below), grouped by cause:
 
 1. **Design is three layers in one target** (core values + domain state + UI kit, 39.5k lines; 43
    targets import it). Settings uses 102 Design types, 86 of them from files that import no UI
@@ -61,10 +61,36 @@ Hard (32), grouped by cause:
    provider registry (`PageProvider`, `PageRouter`) lift to a `CmuxNextPagesCore` core target; the
    WKWebView/CEF host stays in Pages (ui).
 4. **View models live inside UI packages**: Bridge -> Layout, Sidebar, Tabs, Icons;
-   DaemonService -> Layout, Apps; ComputerUse -> AgentActivity; Stash -> History; HostedChief ->
-   HomeEngine; WebUpdates -> Updater. Fix: the model files (Sidebar `Model/Store/Logic`, Tabs
-   items, Layout topology values, History model) move into their domain package; the view package
-   depends on it.
+   DaemonService -> Apps; ComputerUse -> AgentActivity; HostedChief -> HomeEngine; WebUpdates ->
+   Updater. Fix: the model files (Sidebar `Model/Store/Logic`, Tabs items, Layout topology values,
+   History model) move into their domain package; the view package depends on it.
+
+Removed (batch 4, hard 31 -> 28; each edge was a type in the wrong layer, not a renamed import):
+
+- **Stash -> History.** StashService owned the Stashed page's model and its per-page drafts, and
+  used the page's values. The values and the source protocol (`StashedGroup`, `OneTabExport`,
+  `StashPageSource`) and a `StashPageClient` seam (`source`, `reload()`) are core (Compat/Stash).
+  The model and the drafts stay in CmuxNextHistory (already marked `mixes: domain`); the App makes
+  the model and the service together (`HistoryPageService.stash`), and the service reloads the
+  model through the seam. History does not depend on Stash: no ui -> service edge took its place.
+  Open: the model moves to a History domain package with History's own model (B4).
+- **DaemonService -> Layout.** `RefusalStrings.direction(_ LayoutDirection)` moved to the App
+  (`Handlers/RefusalStrings+LayoutDirection.swift`, 15 lines of logic in the composition root);
+  the direction words are `package` in DaemonService for it. Open debt: lift `LayoutDirection` to
+  core (it is a pure value enum) and move `direction(_:)` back into DaemonService. That needs a
+  `public import CmuxNextCompat` line in `LayoutRootView.swift` (PL-motion-core), so it waits for
+  that owner; the request went to session `cmux-b6 [0ad95f]` on 2026-10-23. After that line lands:
+  move `LayoutDirection` to Compat, put `direction(_:)` back in `DaemonService/RefusalStrings.swift`,
+  and delete the App file.
+- **MobileHost -> RemoteBrowser.** The loopback remote browser host process
+  (`LocalRemoteBrowserHost`, its locator) is a service: it moved to CmuxNextRemote (BrowserHost/),
+  `RemoteRdLoopbackEndpoint` and the host's `Failure` (`LocalRemoteBrowserHostFailure`) to Compat,
+  so the remote tab's strings (RemoteBrowser, ui) say a failure without depending on Remote.
+  Open debt: the host is still a `@MainActor` class, so `start` launches its `Process` and reads
+  its stdout lines on the main actor. A Service is an `actor` unless an AppKit API forces the main
+  thread, and `Process` does not. Follow-up: make `LocalRemoteBrowserHost` an actor (or make
+  `start` nonisolated with the deadline guard kept private), then delete its "process launch"
+  entry in `scripts/cmux-next/main-actor-work-baseline.json`.
 
 Soft (12): Control, Diff, KeepAwake, MobileHost, PhoneAccess, RemoteLocalhostService, WebUpdates,
 AgentIntegrations, AgentUpdates, ComputerUse -> Settings; DaemonService, KeepAwake -> Bridge.
@@ -286,7 +312,9 @@ violations), sha ranges on feat-cmux-next:
 | 2026-10-23 | 1: A2 signposts, B1 4 dirs, A3 24 files | 1549981b654..5846e103ece | 141,393 | 148 | 253 | 130 | 32 / 12 |
 | 2026-10-23 | 2: review-1 fixes, A3 18 files, B1 53 leaf files, A4 WindowKeyFamily | this push | 139,814 | 148 | 228 | 108 | 32 / 12 |
 | 2026-10-23 | 3: DaemonCapabilities static, B2 CmuxNextDesignTokens, Release-test compiler crash fixes, generic-class deinit rule, bench config, signpost port, B3 BackdropRevision | cc7a964ef61..bc6284f47b6 | 140,765 (base grew) | 147 | 231 | 106 | 31 / 12 |
+| 2026-10-23 | 4: three hard edges (Stash -> History, DaemonService -> Layout, MobileHost -> RemoteBrowser), layer-import guardrail | arch-layers-three-edges (this push) | 141,368 (base grew) | 140 | 238 | 112 | 28 / 12 |
 
 App lines are measured at each tip, so other lanes' additions count too (the base grew about 1,000
-lines during batch 2; batch 2 moved 2,399 lines out). The hard/soft edges are unchanged so far:
-the moves only used existing edges by design (B2, the DesignTokens split, removes the first four).
+lines during batch 2; batch 2 moved 2,399 lines out). Through batch 2 the hard/soft edges did not
+change: the moves only used existing edges by design. Batch 3 removed one (WorkspaceNaming off
+Design) and batch 4 three (Stash -> History, DaemonService -> Layout, MobileHost -> RemoteBrowser).
