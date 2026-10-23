@@ -123,7 +123,7 @@ extension SidebarBridge {
     }
 
     /// Presentation of every built-in, app and workspace item in `layout` (a closed workspace dimmed); `registered` says
-    /// whether an action exists. Notifications carries `unread`, Home (built-in or app) `homeUnread` (its
+    /// whether an action exists. Notifications carries `unread`, Home (built-in or app) a dot for `homeUnread` (its
     /// unread conversations, ``HomeService/unreadConversations``), the Chief its status (`ChiefSidebar`) and the
     /// picture of the chosen pet character `chiefMascot` (`home.chiefPetMascot`), and each
     /// built-in carries its action's `shortcut` for its tooltip. The update
@@ -141,7 +141,7 @@ extension SidebarBridge {
                 if item.ref.kind == LayoutItemRef.workspaceKind { infos[item.id] = workspace(item.ref) ?? closedWorkspaceInfo(item); continue }
                 if item.ref.kind == LayoutItemRef.appKind {
                     var info = app(item.ref.value)
-                    if SidebarBuiltIn.firstParty(appID: item.ref.value) == .home { info.badge = homeUnread > 0 ? homeUnread : nil }
+                    if SidebarBuiltIn.firstParty(appID: item.ref.value) == .home { Self.markHomeUnread(&info, homeUnread) }
                     infos[item.id] = info
                     continue
                 }
@@ -150,7 +150,7 @@ extension SidebarBridge {
                 info.isMissing = !(builtInActions[builtIn].map(registered) ?? false)
                 info.shortcut = builtInActions[builtIn].flatMap(shortcut)
                 if builtIn == .notifications { info.badge = unread > 0 ? unread : nil } else if builtIn == .home {
-                    info.badge = homeUnread > 0 ? homeUnread : nil
+                    Self.markHomeUnread(&info, homeUnread)
                 } else if builtIn == .chief {
                     ChiefSidebar.shared.decorate(&info)
                     info.favicon = ChiefSidebarPicture.favicon(mascot: chiefMascot)
@@ -159,6 +159,13 @@ extension SidebarBridge {
             }
         }
         return infos
+    }
+
+    /// Home's unread indicator: the blue unread dot of a workspace row while any Home conversation is
+    /// unread, never a count (Lawrence 2026-10-23: "home unread indicator should just be blue dot instead").
+    static func markHomeUnread(_ info: inout SidebarItemInfo, _ homeUnread: Int) {
+        info.badge = nil
+        info.unreadDot = homeUnread > 0
     }
 
     /// A workspace item no open workspace answers: dimmed under its stored

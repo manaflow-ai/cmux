@@ -6,6 +6,7 @@ import { isImeKeyEvent } from "../../pages/shared/imeKeys";
 import { activeFormats, applyFormat, type MarkdownFormat } from "./markdownFormat";
 import "./markdownField.css";
 import { followScrollEdges } from "./summary/scrollEdges";
+import { followActionsWidth } from "./composerScrollLane";
 import { MINIMAL_SCROLLER_ATTRIBUTE } from "../../scrollers";
 import {
   Editor,
@@ -44,6 +45,9 @@ export type MarkdownFieldHandle = {
   /// The prompt as plain text (blocks joined by newlines) and the selection's offsets into it,
   /// for dictation, which splices words at the cursor.
   text(): PlainPrompt;
+  /// Whether Backspace here would do nothing: an empty caret at the very start of a plain first
+  /// paragraph (a heading, list item or quote there takes Backspace to lift itself).
+  atStart(): boolean;
   /// Rewrites the plain text to `value` as one undoable edit of the span that changed, then
   /// selects `selectionStart...selectionEnd`; the composer hears it through `onChange`.
   writeText(value: string, selectionStart: number, selectionEnd: number): void;
@@ -746,6 +750,12 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
         : undefined,
     [],
   );
+  // In the composer's box, its scrollbar runs down the box's right edge, clear of the actions
+  // (composerScrollLane.ts).
+  useEffect(
+    () => (wrapper.current && typeof ResizeObserver === "function" ? followActionsWidth(wrapper.current) : undefined),
+    [],
+  );
   const handle = useRef<MarkdownFieldHandle>(undefined);
   useImperativeHandle(
     ref,
@@ -788,6 +798,18 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
             selectionStart: plainOffset(doc, selection.from),
             selectionEnd: plainOffset(doc, selection.to),
           };
+        },
+        atStart: () => {
+          const current = view.current;
+          if (!current) return false;
+          const { doc, selection } = current.state;
+          const { $from } = selection;
+          return (
+            selection.empty &&
+            selection.from === Selection.atStart(doc).from &&
+            $from.depth === 1 &&
+            $from.parent.type.name === "paragraph"
+          );
         },
         writeText: (value, selectionStart, selectionEnd) => {
           const current = view.current;

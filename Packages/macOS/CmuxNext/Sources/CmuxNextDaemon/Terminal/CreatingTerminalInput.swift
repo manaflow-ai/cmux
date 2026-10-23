@@ -11,7 +11,8 @@ import CmuxNextCompat
 /// (`targetKnown`), the next chunk goes by the attachment (`send {surface}`), which the daemon
 /// writes after the queue: no chunk can pass another.
 public nonisolated final class CreatingTerminalInput: Sendable {
-    private let terminalID: String
+    /// The host terminal id the creation minted (the id a give-back names).
+    public let terminalID: String
     private let connection: DaemonConnection
     private let targetKnown: @Sendable () -> Bool
     /// True once input goes by the attachment for good.
