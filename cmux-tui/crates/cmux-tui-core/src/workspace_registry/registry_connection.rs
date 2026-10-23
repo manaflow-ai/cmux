@@ -162,7 +162,7 @@ impl RegistryConnection {
         connection: Connection,
         database_path: Option<&std::path::Path>,
     ) -> Arc<Self> {
-        let durability = database_path.map(|path| {
+        let durability = database_path.filter(|_| false).map(|path| {
             super::wal_durability::WalDurability::attach(
                 &connection,
                 path,
