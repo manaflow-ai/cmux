@@ -23,7 +23,9 @@ thread top frames).
       [--samples 120] [--churn-hz 10] [--trace] [--gate-p95-ms 8]
 
 --gate-p95-ms: exit 1 when the churn phase's key-to-frame p95 is over that many ms, or over the idle
-phase's p95 by more than --gate-delta-ms (default 2). Fleet: scripts/measure/sidebar-churn-typing.sh.
+phase's p95 by more than --gate-delta-ms (default 2). Fleet (an owned mini with a console; the step builds the app):
+  cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/split-spring.sh --ref SHA \
+    --artifact artifacts/split-spring/report.json --arg=--suite=sidebar-churn [--arg=--trace] [--arg=--gate-p95-ms=8]
 """
 import argparse, csv, glob, json, os, random, shutil, socket, statistics, subprocess, sys, tempfile, threading, time
 
