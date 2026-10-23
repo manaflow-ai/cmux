@@ -2,6 +2,7 @@ import AppKit
 import CmuxTheme
 @testable import CmuxNextDesign
 import Testing
+import CmuxNextDesignTokens
 
 /// Leo 2026-10-21 on the workspace card ("this doesn't line up nor work very well"): a row's icon
 /// can say a state in its color (a pull request's "Merged" icon in the merged ink), over a
