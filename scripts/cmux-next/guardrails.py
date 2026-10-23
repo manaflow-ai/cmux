@@ -141,11 +141,16 @@ class Added:
 
 @dataclass
 class Version:
-    """One side of a changed file: its lines and the 1-based lines the push changed on that side."""
+    """One side of a changed file: its lines and the 1-based lines the push changed on that side.
+
+    TYPES answers which type names are generic at that side's revision (the generic-class rule reads an
+    extension's context with it); without one, only the file's own declarations count.
+    """
     path: str
     lines: list[str]
     changed: set[int]
     memo: dict = field(default_factory=dict)
+    types: "GenericTypes | None" = None
 
 
 @dataclass
@@ -158,14 +163,16 @@ class FileChange:
     base_lines: list[str] = field(default_factory=list)
     is_new: bool = False
     has_perf_hot: bool = False
+    head_types: "GenericTypes | None" = None
+    base_types: "GenericTypes | None" = None
 
     @property
     def head(self) -> Version:
-        return Version(self.path, self.head_lines, {a.number for a in self.added})
+        return Version(self.path, self.head_lines, {a.number for a in self.added}, types=self.head_types)
 
     @property
     def base(self) -> Version:
-        return Version(self.path, self.base_lines, {r.number for r in self.removed})
+        return Version(self.path, self.base_lines, {r.number for r in self.removed}, types=self.base_types)
 
 
 @dataclass
@@ -747,35 +754,122 @@ def app_size(changes: list[FileChange], moved: collections.Counter) -> list[Adde
     return hits
 
 
-# A generic class whose deinit is implicit. In a main-actor target (the default of every UI and test
-# target, `.defaultIsolation(MainActor.self)`) that deinit is isolated, and swift-frontend 6.3.3 (Xcode 26.6)
-# crashes on it in -O: signal 11 in EarlyPerfInliner, isCallerAndCalleeLayoutConstraintsCompatible, on the
-# class's deallocating deinit (`...CfD`). It broke `swift build --build-tests -c release` twice on 2026-10-23
-# (PageTestWait.Once, CloudPaneTests.Seen) and can hit any edit of such a class.
-GENERIC_CLASS = re.compile(r"(^|[\s)])(final\s+)?class\s+\w+\s*<")
+# A class with an implicit deinit in a generic context: its own generic parameters, or those of a type, extension
+# or function it is declared in (ObservedMap.Slot is generic through ObservedMap). In a main-actor target (the
+# default of every UI and test target, `.defaultIsolation(MainActor.self)`) that deinit is isolated, and
+# swift-frontend 6.3.3 (Xcode 26.6) crashes on it in -O: signal 11 in EarlyPerfInliner,
+# isCallerAndCalleeLayoutConstraintsCompatible, on the class's deallocating deinit (`...CfD`). It broke
+# `swift build --build-tests -c release` twice on 2026-10-23 (PageTestWait.Once, CloudPaneTests.Seen) and can hit
+# any edit of such a class. An `isolated deinit` is that isolated deinit written out, so only a `nonisolated deinit`
+# or a plain `deinit` (nonisolated unless marked) is the fix.
+CLASS_DECL = re.compile(r"(^|[\s)])(final\s+)?(?P<kw>class)\s+(?!(?:func|var|let|subscript|init|deinit|override)\b)"
+                        r"(?P<name>[A-Za-z_]\w*)\s*(<|:|\{|\bwhere\b|$)")
 GENERIC_CLASS_ALLOW = re.compile(r"//\s*generic-class-allow:\s*\S")
+GENERIC_TYPE = re.compile(r"\b(?:class|struct|enum|actor)\s+([A-Za-z_]\w*)\s*<")
+GENERIC_DECL = re.compile(r"\b(?:class|struct|enum|actor)\s+[A-Za-z_]\w*\s*<|\b(?:func|subscript)\s+[^\s(<]*\s*<|\binit\??\s*<")
+DECL_OPENER = re.compile(r"\b(class|struct|enum|actor|extension|protocol|func|init|subscript)\b")
+EXTENSION = re.compile(r"\bextension\s+([A-Za-z_][\w.]*)")
+NEVER = re.compile(r"(?!)")
+EXPLICIT_DEINIT = re.compile(r"\b(isolated\s+)?deinit\b")
+
+
+class GenericTypes:
+    """Which type names are declared generic (`struct Name<...>`) at one revision.
+
+    KNOWN holds the declarations in the push's own files at that revision. A name it lacks is looked up once in
+    the revision's `Name.swift` files (CLAUDE.md: one major type per file, named after the type); a type declared
+    in a file of another name is not found, and its extensions read as non-generic (fail open).
+    """
+
+    def __init__(self, repo: Path | None, rev: str | None, texts: list[str]):
+        self.repo, self.rev = repo, rev
+        self.known = {name for text in texts for name in GENERIC_TYPE.findall(text)}
+        self.looked: dict[str, bool] = {}
+        self.tree: list[str] | None = None
+
+    def __contains__(self, name: str) -> bool:
+        if name in self.known:
+            return True
+        if name not in self.looked:
+            self.looked[name] = self.declared_generic(name)
+        return self.looked[name]
+
+    def declared_generic(self, name: str) -> bool:
+        if self.repo is None or self.rev is None:
+            return False
+        if self.tree is None:
+            self.tree = git(self.repo, "ls-tree", "-r", "--name-only", self.rev, "--", SOURCES, TESTS,
+                            check=False).split("\n")
+        paths = [p for p in self.tree if p.rsplit("/", 1)[-1] == f"{name}.swift"]
+        declared = re.compile(r"\b(?:class|struct|enum|actor)\s+" + re.escape(name) + r"\s*<")
+        return any(declared.search(text) for text in blobs(self.repo, [(self.rev, p) for p in paths]).values())
+
+
+def declaration_of(lines: list[str], number: int, opener: str) -> str:
+    """The declaration an opener (`{` line) belongs to, joined with the lines above it that continue it
+    (`final class Cache<\n    Key\n> {`), up to 8 lines."""
+    text, j = opener, number - 2
+    while not DECL_OPENER.search(text) and j >= 0 and number - 1 - j <= 8:
+        above = code_of(lines[j]).strip()
+        if not above or above.endswith(("{", "}", ";")):
+            break
+        text, j = above + " " + text, j - 1
+    return text
+
+
+def generic_context(version: Version, index: int, prefix: str) -> list[int]:
+    """The 1-based lines of the generic declarations LINES[INDEX] is nested in: a generic type or function, a
+    `where` clause, or an extension of a generic type (this file, the push's files, or the type's own file)."""
+    if "generic" not in version.memo:
+        version.memo["generic"] = set(GENERIC_TYPE.findall("\n".join(version.lines)))
+    local = version.memo["generic"]
+    found = []
+    for opener, number in enclosing_openers(version.lines, index, NEVER, prefix):
+        decl = declaration_of(version.lines, number, opener)
+        if not DECL_OPENER.search(decl):
+            continue  # a control-flow block (`for x in xs where ...`) is no generic context
+        extension = EXTENSION.search(decl)
+        generic = bool(GENERIC_DECL.search(decl) or re.search(r"\bwhere\b", decl))
+        if not generic and extension:
+            names = extension.group(1).split(".")
+            generic = any(n in local or (version.types is not None and n in version.types) for n in names)
+        if generic:
+            found.append(number)
+    return found
 
 
 def implicit_deinit(version: Version, index: int) -> tuple[bool, list[int]]:
-    """A generic class declared here that is not `nonisolated` and whose body declares no `deinit`."""
+    """A class declared here, not `nonisolated`, generic itself or by context, whose body declares no
+    `nonisolated deinit` or plain `deinit` (an `isolated deinit` is the crashing one)."""
     code = code_of(version.lines[index])
-    match = GENERIC_CLASS.search(code)
-    if match is None or re.search(r"\bnonisolated\b", code[:match.end()]):
+    match = CLASS_DECL.search(code)
+    if match is None or re.search(r"\bnonisolated\b", code[:match.start("kw")]):
         return False, []
-    depth, opened = 0, False
+    own = GENERIC_TYPE.match(code, match.start("kw")) is not None
+    context = generic_context(version, index, code[:match.start("kw")])
+    if not own and not context:
+        return False, []
+    # The class body at depth 1 (its own members, not those of nested types).
+    depth, opened, members = 0, False, []
     for j in range(index, len(version.lines)):
-        line = code_of(version.lines[j])
-        if opened and depth == 1 and re.search(r"\bdeinit\b", line):
-            return False, []
-        for c in line if j > index else line[match.start():]:
+        line = code_of(version.lines[j]) if j > index else code[match.start("kw"):]
+        for c in line:
             if c == "{":
                 depth += 1
                 opened = True
             elif c == "}":
                 depth -= 1
+                if opened and depth <= 0:
+                    break
+            elif depth == 1:
+                members.append(c)
         if opened and depth <= 0:
             break
-    return True, []
+        members.append("\n")
+    for deinit in EXPLICIT_DEINIT.finditer("".join(members)):
+        if deinit.group(1) is None:
+            return False, []
+    return True, context
 
 
 singleton = matcher_rule(Matcher(SINGLETON_ANY, SINGLETON_ALLOW, holds_state))
@@ -837,14 +931,16 @@ RULES = (
          "ForEach",
          "// row-snapshot-allow: <why>",
          row_store),
-    Rule("generic-class-deinit", "A generic class with an implicit deinit (main-actor by default)",
-         "swift-frontend 6.3.3 (Xcode 26.6) crashes with signal 11 in -O on the implicit isolated deinit of a generic "
+    Rule("generic-class-deinit",
+         "A class generic by itself or by context (nested in a generic type, extension or function) with an "
+         "implicit or `isolated` deinit (main-actor by default)",
+         "swift-frontend 6.3.3 (Xcode 26.6) crashes with signal 11 in -O on the isolated deinit of a generic "
          "main-actor class (EarlyPerfInliner, isCallerAndCalleeLayoutConstraintsCompatible): the Release test build "
-         "and every Release bench stop (2026-10-23: PageTestWait.Once, CloudPaneTests.Seen)",
-         "give it `nonisolated deinit {}` (or a nonisolated deinit that does its cleanup), declare the class "
-         "`nonisolated`, or make the box non-generic",
+         "and every Release bench stop (2026-10-23: PageTestWait.Once, CloudPaneTests.Seen, ObservedMap.Slot)",
+         "give it `nonisolated deinit {}` (or a nonisolated deinit that does its cleanup; not `isolated deinit`), "
+         "declare the class `nonisolated`, or move it out of the generic context",
          "// generic-class-allow: <why this class is not main-actor isolated, e.g. its target's default isolation>",
-         matcher_rule(Matcher(GENERIC_CLASS, GENERIC_CLASS_ALLOW, implicit_deinit)),
+         matcher_rule(Matcher(CLASS_DECL, GENERIC_CLASS_ALLOW, implicit_deinit)),
          scope=(SOURCES, TESTS)),
     Rule("bench-hooks-shipped", "The bench configuration in a shipped build's settings",
          "CMUX_BENCH_HOOKS (reload.sh --config bench) keeps the debug.* control commands in an optimized app for "
@@ -1086,6 +1182,10 @@ def check(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Added
         change.head_lines = text.split("\n")
         change.base_lines = texts.get((base, path), "").split("\n")
         change.has_perf_hot = "perf-hot:" in text
+    head_types = GenericTypes(repo, head, [texts.get((head, p), "") for p in paths])
+    base_types = GenericTypes(repo, base, [texts.get((base, p), "") for p in paths])
+    for path in paths:
+        changes[path].head_types, changes[path].base_types = head_types, base_types
     files = [changes[p] for p in paths]
     moved = collections.Counter(r.text.strip() for c in files for r in c.removed if r.text.strip())
     refusals = []
