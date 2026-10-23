@@ -46,10 +46,10 @@ struct SubtleElevationTests {
         let window = NSWindow(contentRect: content.frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = content
         defer { window.orderOut(nil) }
-        let shadow = try #require(Self.shadows(in: content).first)
-        #expect(shadow.shadowBlurRadius == raised.blur)
-        #expect(shadow.shadowOffset == NSSize(width: 0, height: -raised.offset))
-        #expect(abs((shadow.shadowColor?.alphaComponent ?? 0) - raised.alpha) < 0.001)
+        // The shared popup host casts it around the glass, as a hover card's does.
+        let host = try #require(content.glass.superview as? PopupHostView)
+        expectRaised(host.shadowLayer, flipped: false)
+        #expect(Self.shadows(in: content).isEmpty)
     }
 
     @Test func aLiftedTabChipOrSidebarRowCastsTheRaisedStep() throws {

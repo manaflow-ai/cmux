@@ -23,11 +23,13 @@ final class PaletteContentView: NSView {
     /// Hosts the results and fades them out at the top or bottom while more
     /// are hidden there.
     private lazy var listHost = ScrollEdgeFadeView(scrollView: list)
-    private let emptyTitle = PaletteText.label(Typography.bodyEmphasized, tone: .secondary)
-    private let emptyHint = PaletteText.label(Typography.caption, tone: .tertiary)
+    /// The empty state ("No Results" and its hint), drawn on the glass.
+    let emptyTitle = PaletteText.label(Typography.bodyEmphasized, tone: .secondary)
+    let emptyHint = PaletteText.label(Typography.caption, tone: .tertiary)
     /// The page's line under the field (`PaletteModel.fieldHint`).
     private let fieldHint = PaletteText.label(Typography.caption, tone: .tertiary)
-    private let footer = PaletteFooterView()
+    /// The hint bar, drawn on the glass.
+    let footer = PaletteFooterView()
     let actionsMenuView = PaletteActionsMenuView()
     private let recorderView = PaletteShortcutRecorderView()
     private var recorderHeight: CGFloat = 0
