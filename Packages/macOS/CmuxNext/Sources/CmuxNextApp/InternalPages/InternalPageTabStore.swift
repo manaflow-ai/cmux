@@ -190,6 +190,8 @@ final class InternalPageTabStore {
                       focus: Bool, key given: String? = nil,
                       created onCreated: (@MainActor (SurfaceID) -> Void)? = nil) -> InternalPageView? {
         let daemon = pane.daemon, store = daemon.store
+        // Nothing opens in Home's dock (an app page, a file): without a placement of the caller's, the tab moves beside it.
+        let onCreated = onCreated ?? HomeDockOpens.placing(pane.pane, services: pane.services, focus: focus, then: nil)
         guard let provider = providers[page], daemon.supports(DaemonCapabilities.shared.pageTabs),
               case .connected = store.connectionState else { return nil }
         let provisional = ProvisionalTab()

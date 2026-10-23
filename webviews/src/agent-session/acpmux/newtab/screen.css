@@ -819,6 +819,11 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 .nt-screen[data-minimal] {
   padding-top: max(32px, calc(50vh - 150px));
 }
+/* The second dot's quick action pills (tabDots.ts) sit centered under the composer, as the headline
+   over it is. */
+.nt-screen[data-minimal] .nt-create {
+  justify-content: center;
+}
 /* Minimal's headline slot (NewTabScreen.tsx): the old greeting's box (its heading line and 6px
    under it), there with the headline on or off, so the composer sits where it sat under the greeting
    and turning the headline on never moves it. The headline sits on the slot's floor and a taller
