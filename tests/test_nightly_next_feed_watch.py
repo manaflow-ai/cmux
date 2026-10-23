@@ -82,6 +82,23 @@ class AssessTests(unittest.TestCase):
         self.assertIn("runs/6", stage.reason)
         self.assertIn("did not publish", stage.reason)
 
+    def test_promotion_stall_quotes_the_tick_refusal(self):
+        # 2026-10-21: every tick refused 120 commits for want of daemon-tested
+        # trees while the issue said only "Nothing was promoted".
+        tally = "120 refused: 87x the daemon tests have not passed for tree <sha> yet"
+        stage = watch.assess(NOW, NEWEST, [run(1, 5)], [], lambda r: [], [], [], 3.0, tick_refusal=lambda: tally)
+        self.assertIn("refused every newer commit: " + tally, stage.detail)
+        self.assertIn(stage.detail, watch.issue_body(stage, NEWEST, NOW, "", 3.0, "url"))
+        # The tally changes every tick; the issue comments only when the stage itself changes.
+        gh = FakeGitHub([{"number": 7, "body": watch.issue_body(stage, NEWEST, NOW, "", 3.0, "url")}])
+        watch.sync_issue(gh, watch.Stage(True, 5.5, stage.since, stage.reason, "121 refused: other"), "body", 3.0, "url")
+        self.assertEqual(gh.calls, [("PATCH", "/issues/7", None)])
+        read = []
+        stage = watch.assess(NOW, NEWEST, [run(1, 5)], [run(7, 2, conclusion="failure")], lambda r: JOBS.get(r["id"], []),
+                             [], [], 3.0, tick_refusal=lambda: read.append(1) or tally)
+        self.assertNotIn(tally, stage.reason)
+        self.assertEqual(read, [])  # a promoted build's stage needs no tick lookup
+
     def test_release_compile_is_read_from_the_newest_decided_run(self):
         # Superseded pushes cancel their compile; that is not the stuck stage.
         stage = assess([run(1, 5)], compiles=[run(10, 1), run(9, 2)])
@@ -137,6 +154,55 @@ class MainTests(unittest.TestCase):
                 self.assertEqual(watch.main(["--repo", "o/r", "--dry-run"]), 0)
         finally:
             watch.GitHub.call, watch.read_feed = original
+
+
+class TickRefusalTests(unittest.TestCase):
+    class Tick(watch.GitHub):
+        def __init__(self, notes):
+            super().__init__("o/r", "t", dry_run=True)
+            self.notes = notes
+
+        def call(self, method, path, body=None):
+            if "/workflows/nightly-next-tick.yml/runs" in path:
+                return {"workflow_runs": [{"id": 5, "html_url": "https://github.com/o/r/actions/runs/5"}]}
+            if path.startswith("/actions/runs/5/jobs"):
+                return {"jobs": [{"id": 50, "name": "request"}]}
+            if path.startswith("/check-runs/50/annotations"):
+                return self.notes
+            raise AssertionError(path)
+
+    def test_reads_the_tick_annotation_by_title(self):
+        notes = [{"title": "other", "message": "x"}, {"title": watch.TICK_ANNOTATION, "message": "87x daemon tests\n"}]
+        self.assertEqual(self.Tick(notes).tick_refusal(), "87x daemon tests (https://github.com/o/r/actions/runs/5)")
+        self.assertEqual(self.Tick([]).tick_refusal(), "")
+
+    def test_the_tick_writes_the_annotation_the_watch_reads(self):
+        tick = (Path(__file__).resolve().parents[1] / ".github/workflows/nightly-next-tick.yml").read_text()
+        self.assertIn(f"::warning title={watch.TICK_ANNOTATION}::", tick)
+
+
+class StaleExitTests(unittest.TestCase):
+    """A stale feed fails the scheduled run: a green run hid a 4-hour stall on 2026-10-21."""
+
+    def main_with(self, stale):
+        stage = watch.Stage(stale, 5.0 if stale else 0.5, NOW - dt.timedelta(hours=5), "Nothing was promoted.")
+        with unittest.mock.patch.object(watch, "read_feed", lambda url: NEWEST), \
+                unittest.mock.patch.object(watch, "published_commit", lambda gh: ""), \
+                unittest.mock.patch.object(watch, "oldest_waiting_push", lambda gh, sha, newest: None), \
+                unittest.mock.patch.object(watch, "assess", lambda *a, **k: stage), \
+                unittest.mock.patch.object(watch.GitHub, "runs", lambda self, *a, **k: []), \
+                unittest.mock.patch.object(watch, "sync_issue", lambda *a: "synced"), \
+                unittest.mock.patch.dict("os.environ", {"GH_TOKEN": "t"}):
+            return watch.main(["--repo", "o/r", "--dry-run"])
+
+    def test_stale_fails_and_current_passes(self):
+        self.assertEqual(self.main_with(True), 1)
+        self.assertEqual(self.main_with(False), 0)
+
+    def test_the_limit_is_three_hours(self):
+        workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/nightly-next-feed-watch.yml").read_text()
+        self.assertIn("vars.NIGHTLY_NEXT_MAX_FEED_LAG_HOURS || '3'", workflow)
+        self.assertIn("default=3.0", SCRIPT.read_text())
 
 
 class FeedTests(unittest.TestCase):

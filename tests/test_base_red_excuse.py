@@ -4,6 +4,7 @@ import importlib.util
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -57,6 +58,12 @@ class FakeGitHub:
         # Runs of workflows other than 7, by workflow; the workflow of each run that is not 7.
         self.other_runs: dict[int, list[dict]] = {}
         self.run_workflows: dict[int, int] = {}
+        # Base commits that predate the merge-base (a compare from it says "behind"), and the
+        # runs of workflow 7 at the base tip.
+        self.stale: set[str] = set()
+        self.tip_runs: list[dict] = []
+        # Completed workflow_dispatch runs of workflow 7 on the base (the tip Swift suite).
+        self.dispatch_runs: list[dict] = []
 
     def json(self, route, *, paginate=False):
         self.routes.append(route)
@@ -65,6 +72,10 @@ class FakeGitHub:
             limit = int(route.rsplit("per_page=", 1)[1])
             return [{"sha": sha} for sha in self.history.get(ref, [])[:limit]]
         if "/compare/" in route:
+            ancestor, sha = route.split("/compare/", 1)[1].split("?", 1)[0].split("...")
+            if sha != HEAD:
+                assert ancestor == self.merge_base, route
+                return {"status": "behind" if sha in self.stale else ("identical" if sha == ancestor else "ahead")}
             return {"merge_base_commit": {"sha": self.merge_base}} if self.merge_base else {}
         if "/commits/" in route and "/check-runs" in route:
             sha = route.split("/commits/", 1)[1].split("/", 1)[0]
@@ -76,6 +87,11 @@ class FakeGitHub:
             return [[{"sha": sha} for sha in self.pr_commits.get(number, [])]]
         if "/actions/workflows/7/runs?" in route and "event=pull_request" in route:
             return {"workflow_runs": copy.deepcopy(self.pr_runs)}
+        if "/actions/workflows/7/runs?" in route and "head_sha=" in route:
+            return {"workflow_runs": copy.deepcopy(self.tip_runs)}
+        if "/actions/workflows/7/runs?" in route and "event=workflow_dispatch" in route:
+            assert "branch=feat-cmux-next" in route and "status=completed" in route, route
+            return {"workflow_runs": copy.deepcopy(self.dispatch_runs)}
         if "/actions/runs/" in route and route.endswith("/jobs?filter=latest&per_page=100"):
             run = int(route.split("/actions/runs/", 1)[1].split("/", 1)[0])
             return [{"jobs": [copy.deepcopy(job) for job in self.jobs.values() if job["run_id"] == run]}]
@@ -88,7 +104,7 @@ class FakeGitHub:
             return {"workflow_runs": copy.deepcopy(self.base_runs)}
         if "/actions/runs/" in route:
             run = int(route.rsplit("/", 1)[1])
-            return {"id": run, "workflow_id": self.run_workflows.get(run, 7)}
+            return {"id": run, "workflow_id": self.run_workflows.get(run, 7), "path": ".github/workflows/ci.yml"}
         raise AssertionError(route)
 
     def log(self, repo, job):
@@ -110,6 +126,16 @@ class Excusing(unittest.TestCase):
         self.assertIn("writesTheRequestAfterTheReadyMarkerAndReturnsTheReply()", text)
         # The cancelled run 21 has no verdict; the newest run with one decides.
         self.assertNotIn("run 21", text)
+
+    def test_a_job_pushes_skip_is_judged_by_the_newest_dispatched_base_run(self):
+        # cmux-next swift test is skipped on feat-cmux-next pushes; its base verdict comes from the
+        # scheduled tip Swift suite dispatch, older than the newest twenty push runs.
+        self.gh.base_runs = [{"id": 21, "event": "push", "head_branch": "feat-cmux-next", "status": "completed",
+                              "conclusion": "success", "created_at": "2026-10-21T20:00:00Z"}]
+        self.gh.dispatch_runs = [{"id": 20, "event": "workflow_dispatch", "head_branch": "feat-cmux-next",
+                                  "status": "completed", "conclusion": "failure", "head_sha": BASE_SHA,
+                                  "created_at": "2026-10-21T17:00:00Z"}]
+        self.assertIn("run 20", "\n".join(self.judge()))
 
     def test_counts_do_not_matter_only_names(self):
         # The base fails one more test than the head; the head's are all on the base.
@@ -319,6 +345,172 @@ class BaseOwnedCrash(unittest.TestCase):
             self.judge()
         self.gh.logs[2] = crashed(SWIFT, 5, ["a()"], "g", OTHER)
         self.assertTrue(self.judge())
+
+OLD_BASE = "e" * 40
+NEW_TIP = "f" * 40
+
+
+class StaleBase(unittest.TestCase):
+    """2026-10-20: feat-cmux-next's CI workflow runs only when dispatched. Its newest run, from
+    02:29Z, predated every red that landed after it, so each read as "not excused"."""
+
+    def setUp(self):
+        self.gh = FakeGitHub()
+        # The PR branched from BASE_SHA; the base has moved on to NEW_TIP since. No commit has check runs
+        # for the job, so the base workflow's runs decide.
+        self.gh.history = {"feat-cmux-next": [NEW_TIP, BASE_SHA, OLD_BASE]}
+        self.gh.merge_base = BASE_SHA
+
+    def judge(self):
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh)
+
+    def test_a_base_run_older_than_the_merge_base_is_not_compared(self):
+        # Run 20 ran on a commit before the merge-base: it is green there, as the base was then.
+        self.gh.jobs[2].update(head_sha=OLD_BASE, conclusion="success")
+        self.gh.base_runs[1]["head_sha"] = OLD_BASE
+        self.gh.stale = {OLD_BASE}
+        with self.assertRaises(excuse.Refused) as caught:
+            self.judge()
+        text = str(caught.exception)
+        self.assertNotIn("not red on", text)
+        self.assertIn("run 20", text)
+        self.assertIn(BASE_SHA[:10], text)
+        self.assertIn(NEW_TIP[:10], text)
+        self.assertIn("gh workflow run ci.yml --repo manaflow-ai/cmux --ref feat-cmux-next", text)
+
+    def test_a_running_base_run_at_the_tip_is_named_instead_of_a_dispatch(self):
+        self.gh.base_runs[1]["head_sha"] = OLD_BASE
+        self.gh.jobs[2]["head_sha"] = OLD_BASE
+        self.gh.stale = {OLD_BASE}
+        self.gh.jobs[2]["conclusion"] = "success"
+        self.gh.tip_runs = [{"id": 39386215666, "status": "in_progress", "head_sha": NEW_TIP}]
+        with self.assertRaisesRegex(excuse.Refused, f"run 39386215666 of ci.yml at the base tip {NEW_TIP[:10]} is in_progress"):
+            self.judge()
+
+    def test_an_unreadable_tip_run_list_still_names_the_dispatch(self):
+        self.gh.base_runs[1]["head_sha"] = OLD_BASE
+        self.gh.jobs[2].update(head_sha=OLD_BASE, conclusion="success")
+        self.gh.stale = {OLD_BASE}
+        original = self.gh.json
+
+        def failing(route, *, paginate=False):
+            if "head_sha=" in route:
+                raise excuse.Refused("GitHub evidence request failed: HTTP 502")
+            return original(route, paginate=paginate)
+        self.gh.json = failing
+        with self.assertRaises(excuse.Refused) as caught:
+            self.judge()
+        self.assertIn("gh workflow run ci.yml", str(caught.exception))
+        self.assertIn("run 20", str(caught.exception))
+
+    def test_base_runs_are_read_newest_first_whatever_order_github_lists_them(self):
+        # Run 20 (a stale green) is listed before run 23, the newer run at the tip that is red the same way.
+        self.gh.base_runs[1].update(head_sha=OLD_BASE, created_at="2026-10-20T02:29:05Z")
+        self.gh.jobs[2].update(head_sha=OLD_BASE, conclusion="success")
+        self.gh.stale = {OLD_BASE}
+        self.gh.base_runs.append({"id": 23, "event": "workflow_dispatch", "status": "completed", "conclusion": "failure",
+                                  "head_sha": NEW_TIP, "created_at": "2026-10-20T07:40:00Z"})
+        self.gh.jobs[3] = failed_job(3, 23, NEW_TIP)
+        self.gh.logs[3] = self.gh.logs[1]
+        self.assertIn("run 23", "\n".join(self.judge()))
+
+    def test_a_stale_base_run_red_the_same_way_still_excuses(self):
+        # The head inherits a red its merge-base's ancestors already had.
+        self.gh.base_runs[1]["head_sha"] = OLD_BASE
+        self.gh.jobs[2]["head_sha"] = OLD_BASE
+        self.gh.stale = {OLD_BASE}
+        self.assertIn("run 20", "\n".join(self.judge()))
+
+    def test_a_base_run_with_no_commit_is_stale(self):
+        self.gh.jobs[2]["conclusion"] = "success"
+        del self.gh.base_runs[1]["head_sha"]
+        with self.assertRaisesRegex(excuse.Refused, "run 20 at \\? .*predates the merge-base"):
+            self.judge()
+
+    def test_a_green_commit_before_the_merge_base_is_not_a_verdict(self):
+        # merge-base's own check runs say nothing; tip~2 (older than the merge-base) is green.
+        check = {"id": 9, "name": SWIFT, "status": "completed", "conclusion": "success", "app": {"slug": "github-actions"},
+                 "details_url": f"https://github.com/{REPO}/actions/runs/30/job/9"}
+        self.gh.commit_checks = {OLD_BASE: [check]}
+        self.gh.jobs[9] = dict(failed_job(9, 30, OLD_BASE), conclusion="success")
+        self.gh.base_runs = []
+        with self.assertRaises(excuse.Refused) as caught:
+            self.judge()
+        text = str(caught.exception)
+        self.assertIn("predates the merge-base", text)
+        self.assertIn("gh workflow run ci.yml", text)
+
+    def test_a_base_run_at_the_tip_after_the_merge_base_decides(self):
+        # The newest run contains the merge-base: the red there is the base's.
+        self.gh.base_runs[1]["head_sha"] = NEW_TIP
+        self.gh.jobs[2]["head_sha"] = NEW_TIP
+        text = "\n".join(self.judge())
+        self.assertIn("run 20", text)
+        self.assertIn("writesTheRequestAfterTheReadyMarkerAndReturnsTheReply()", text)
+
+
+DEFAULTS = "defaults-snapshot"
+FRESH = "The defaults snapshot matches the exports"
+
+
+class StepOutput(unittest.TestCase):
+    """2026-10-20: defaults-snapshot was red on feat-cmux-next too, but its step prints no test
+    name and no `error:` line, so it was refused with "no failing test or error line to match"."""
+
+    def setUp(self):
+        self.gh = FakeGitHub()
+        self.gh.jobs = {1: failed_job(1, 10, HEAD, name=DEFAULTS, step=FRESH),
+                        2: failed_job(2, 20, BASE_SHA, name=DEFAULTS, step=FRESH)}
+        stale = ("schemas/defaults/cmux-next.json is stale: the settings export changed "
+                 "(source stamp 3f9a2c1d0b != 81be44a7c2)")
+        self.gh.logs = {1: log(DEFAULTS, FRESH, "##[group]Run python3 scripts/ci/defaults_guard.py check-fresh",
+                               "##[endgroup]", stale, "##[error]Process completed with exit code 1."),
+                        2: log(DEFAULTS, FRESH, "##[group]Run python3 scripts/ci/defaults_guard.py check-fresh",
+                               "##[endgroup]", stale.replace("3f9a2c1d0b", "77aa01bc9e"),
+                               "##[error]Process completed with exit code 1.")}
+
+    def judge(self):
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh)
+
+    def test_a_red_step_printing_what_the_base_printed_is_excused(self):
+        text = "\n".join(self.judge())
+        self.assertIn(DEFAULTS, text)
+        self.assertIn("schemas/defaults/cmux-next.json is stale", text)
+
+    def test_a_red_step_printing_only_part_of_the_base_output_blocks(self):
+        # Review: a head that fails earlier, silently, prints a prefix of the base's output.
+        check = "##[group]Run python3 scripts/ci/defaults_guard.py check-fresh"
+        self.gh.logs[2] = log(DEFAULTS, FRESH, check, "##[endgroup]", "Checking settings export",
+                              "Checking keymap export", "keymap.json is stale",
+                              "##[error]Process completed with exit code 1.")
+        self.gh.logs[1] = log(DEFAULTS, FRESH, check, "##[endgroup]", "Checking settings export",
+                              "##[error]Process completed with exit code 1.")
+        with self.assertRaisesRegex(excuse.Refused, "head did not print.*keymap.json is stale"):
+            self.judge()
+
+    def test_a_red_step_printing_something_the_base_did_not_blocks(self):
+        self.gh.logs[1] = self.gh.logs[1].replace("is stale", "is missing key sidebar.width")
+        with self.assertRaisesRegex(excuse.Refused, "output not on feat-cmux-next run 20.*sidebar.width"):
+            self.judge()
+
+
+class RateLimit(unittest.TestCase):
+    def test_a_rate_limited_read_exits_3_with_the_reset_time(self):
+        fake = Path(tempfile.mkdtemp()) / "gh"
+        fake.write_text("#!/bin/sh\n"
+                        "if [ \"$1 $2\" = 'api rate_limit' ]; then printf '%s' '{\"resources\":{\"core\":"
+                        "{\"limit\":5000,\"remaining\":0,\"reset\":4102444800},\"graphql\":{\"limit\":5000,"
+                        "\"remaining\":0,\"reset\":4102444800}}}'; exit 0; fi\n"
+                        "echo 'gh: API rate limit exceeded for user ID 13091533. (HTTP 403)' >&2; exit 1\n")
+        fake.chmod(0o755)
+        env = {**os.environ, "PATH": f"{fake.parent}{os.pathsep}{os.environ['PATH']}"}
+        result = subprocess.run([sys.executable, str(ROOT / "scripts/ci/base_red_excuse.py"), "--repo", REPO,
+                                 "--base", "feat-cmux-next", "--sha", HEAD, "--run", "10"],
+                                env=env, capture_output=True, text=True, timeout=60)
+        self.assertEqual(result.returncode, 3, result.stderr)
+        self.assertIn("rate-limited", result.stderr)
+        self.assertIn("core 0 of 5000 left, resets 00:00:00Z", result.stderr)
+
 
 CHECKS = "cmux-next checks (god files, concurrency, crash safety, l10n)"
 L10N = "String tables (21 languages)"

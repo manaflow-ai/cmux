@@ -4978,6 +4978,7 @@
     "unsupportedParams": "This link includes unsupported parameters cmux will reject: {params}",
     "conflictingParams": "This link includes parameters that cannot be used together: {params}",
     "invalidParams": "This link includes invalid parameter values: {params}",
+    "ignoredParams": "cmux ignores parameters it does not use: {params}. The session still opens.",
     "fixParams": "Fix the URL parameters, then reload this page.",
     "examplePrefix": "See an",
     "exampleLink": "example link",
@@ -7406,6 +7407,8 @@
     "errorInvalidCode": "That code isn't valid. Check your email and try again.",
     "errorInvalidTotp": "That two-factor code isn't valid.",
     "errorSignUpNotAllowed": "New accounts can't be created right now.",
+    "errorEmailUnverified": "This email already has an account, but the address isn't verified yet. Sign in the way you signed up, then verify your email to use sign-in codes.",
+    "useEmailPasswordInstead": "Sign in with email & password",
     "errorPasskey": "Passkey sign-in didn't finish. Try again or use another method.",
     "errorGeneric": "Something went wrong. Try again."
   },

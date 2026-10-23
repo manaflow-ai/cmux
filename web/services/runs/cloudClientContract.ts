@@ -45,3 +45,20 @@ export function parseRunCloudResponse(input: { readonly method: string; readonly
   if (!input.ok || input.method === "DELETE") return {};
   throw new Error(`Cloud ${input.method} operation returned no JSON object (${input.status})`);
 }
+
+const SAFE_CLOUD_ERROR_CODE = /^[a-z][a-z0-9_]{0,47}$/;
+
+/** A refused Cloud operation. Carries only the status and a short error code
+ * (`vm_limit_exceeded`), never the response's message. */
+export class RunCloudHttpError extends Error {
+  readonly status: number;
+  readonly code: string | undefined;
+
+  constructor(method: string, status: number, payload: Record<string, unknown>) {
+    super(`Cloud ${method} operation failed (${status})`);
+    this.name = "RunCloudHttpError";
+    this.status = status;
+    const code = payload.error;
+    this.code = typeof code === "string" && SAFE_CLOUD_ERROR_CODE.test(code) ? code : undefined;
+  }
+}

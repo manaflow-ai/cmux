@@ -3452,6 +3452,7 @@
     "unsupportedParams": "Questo collegamento include parametri non supportati che cmux rifiuterà: {params}",
     "conflictingParams": "Questo collegamento include parametri che non possono essere utilizzati insieme: {params}",
     "invalidParams": "Questo collegamento include valori di parametri non validi: {params}",
+    "ignoredParams": "cmux ignora i parametri che non utilizza: {params}. La sessione si apre comunque.",
     "fixParams": "Correggi i parametri URL, quindi ricarica questa pagina.",
     "examplePrefix": "Vedi un",
     "exampleLink": "collegamento di esempio",
@@ -5523,6 +5524,8 @@
     "errorInvalidCode": "Il codice non è valido. Controlla l'email e riprova.",
     "errorInvalidTotp": "Il codice a due fattori non è valido.",
     "errorSignUpNotAllowed": "Al momento non è possibile creare nuovi account.",
+    "errorEmailUnverified": "Questa email ha già un account, ma l'indirizzo non è ancora verificato. Accedi con il metodo che hai usato per registrarti, poi verifica la tua email per usare i codici di accesso.",
+    "useEmailPasswordInstead": "Accedi con email e password",
     "errorPasskey": "L'accesso con passkey non è stato completato. Riprova o usa un altro metodo.",
     "errorGeneric": "Si è verificato un errore. Riprova."
   },

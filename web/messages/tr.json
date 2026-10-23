@@ -3450,6 +3450,7 @@
     "unsupportedParams": "Bu bağlantı cmux'un reddedeceği desteklenmeyen parametreler içeriyor: {params}",
     "conflictingParams": "Bu bağlantı birlikte kullanılamayan parametreleri içerir: {params}",
     "invalidParams": "Bu bağlantı geçersiz parametre değerleri içeriyor: {params}",
+    "ignoredParams": "cmux kullanmadığı parametreleri yok sayar: {params}. Oturum yine de açılır.",
     "fixParams": "URL parametrelerini düzeltin ve ardından bu sayfayı yeniden yükleyin.",
     "examplePrefix": "Bir gör",
     "exampleLink": "örnek bağlantı",
@@ -5521,6 +5522,8 @@
     "errorInvalidCode": "Bu kod geçersiz. E-postanı kontrol edip tekrar dene.",
     "errorInvalidTotp": "Bu iki adımlı doğrulama kodu geçersiz.",
     "errorSignUpNotAllowed": "Şu anda yeni hesap oluşturulamıyor.",
+    "errorEmailUnverified": "Bu e-postanın zaten bir hesabı var, ancak adres henüz doğrulanmadı. Kaydolduğun yöntemle giriş yap, ardından giriş kodlarını kullanmak için e-postanı doğrula.",
+    "useEmailPasswordInstead": "E-posta ve şifreyle giriş yap",
     "errorPasskey": "Geçiş anahtarıyla giriş tamamlanmadı. Tekrar dene veya başka bir yöntem kullan.",
     "errorGeneric": "Bir sorun oluştu. Tekrar dene."
   },

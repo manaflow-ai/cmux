@@ -137,6 +137,14 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_merge_fast_gate.py
 
+      - name: Validate the gh-merge-green review receipt
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_review_receipt.py
+
+      - name: Validate the gh-merge-green check-path gate
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_merge_check_paths.py
+
       - name: Validate the bug-fix proof-section warning
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_pr_proof_section.py
@@ -148,6 +156,10 @@ jobs:
       - name: Validate base-red excusal for gh-merge-green
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_base_red_excuse.py
+
+      - name: Validate the pinned gh-merge-green install
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_install_gh_merge_green.py
 
       - name: Validate base-red evidence with a gh that has no --slurp
         if: ${{ matrix.group == 'ci' }}
@@ -667,6 +679,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_queue_janitor.py
 
+      - name: Validate the starved fleet runner label alert
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_starved_labels.py
+
       - name: Validate pull request macOS pool choice
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_pr_runner_pool.py
@@ -711,6 +727,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_admission_placement.py
 
+      - name: Validate that roll-up gates never read an absent signal as green
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_gate_absent_signal.py
+
       - name: Validate the Linux tests dispatch lane
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_linux_tests_lane.py
@@ -738,6 +758,12 @@ jobs:
       - name: Validate the persistent-pool rescue
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_owned_pool_rescue.py
+
+      # Reads the other branch's workflows too (origin/feat-cmux-next here, origin/main on
+      # feat-cmux-next); under Actions the test fetches it blob-less and fails if it cannot.
+      - name: Validate that the persistent-pool rescue watches every owned-pool workflow
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_owned_pool_sources.py
 
       - name: Validate the backend migrations plan
         if: ${{ matrix.group == 'ci' }}
@@ -803,6 +829,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_signing_secrets_need_release_environment.py
 
+      - name: Validate the nightly-next train runs only feat-cmux-next code with the release App
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_nightly_next_train_drive_pin.py
+
       - name: Validate the signing keychain is deleted before bundle code runs
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py
@@ -856,6 +886,28 @@ jobs:
       - name: Validate the PR media pruner
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_prune_pr_media.py
+
+      # The same tesseract the media publishing action installs: a picture
+      # showing a seeded private term is refused before it is written, and the
+      # action's canary preflight passes. A local run (scripts/ci/guards-local.sh)
+      # installs nothing; without tesseract the tests skip themselves.
+      - name: Validate the media publishing gate with real OCR
+        if: ${{ matrix.group == 'ci' }}
+        timeout-minutes: 6
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          set -euo pipefail
+          if ! command -v tesseract >/dev/null && [ "${GITHUB_ACTIONS:-}" = true ] && command -v apt-get >/dev/null; then
+            sudo apt-get -o DPkg::Lock::Timeout=120 update -qq
+            sudo apt-get -o DPkg::Lock::Timeout=120 install -y -qq --no-install-recommends \
+              tesseract-ocr tesseract-ocr-eng >/dev/null
+          fi
+          python3 tests/test_ci_pr_media_privacy.py -v SeededTermEndToEndTests
+
+      - name: Validate the PR media privacy gate
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_pr_media_privacy.py
 
       - name: Validate nightly prune Python compatibility
         if: ${{ matrix.group == 'release-tooling' }}
@@ -1195,9 +1247,17 @@ jobs:
           python3 tests/test_nightly_publication_marker.py
           python3 tests/test_nightly_resume_tracks.py
 
+      - name: Validate the nightly-next canary runs the installed app
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_next_canary_runs_installed_app.py
+
       - name: Validate the cmux NEXT DEV daily dispatcher
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_next_dev_daily_dispatch.py
+
+      - name: Validate the cmux NEXT tip Swift suite dispatcher
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_cmux_next_tip_swift_suite_dispatch.py
 
       - name: Validate nightly tag permission probe
         if: ${{ matrix.group == 'release-notary' }}
@@ -1258,6 +1318,7 @@ jobs:
         run: |
           python3 tests/test_nightly_promotion_admission.py
           python3 tests/test_nightly_next_promotion_queue.py
+          python3 tests/test_nightly_next_feed_watch.py
           python3 tests/test_ci_nightly_push_throttle.py
           python3 tests/test_ci_nightly_off_blacksmith.py
           python3 tests/test_ci_helper_prebuild_lifecycle.py

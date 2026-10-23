@@ -454,6 +454,19 @@ class UploadRetryTests(unittest.TestCase):
         media.upload(Tool, "o/r", "1/x/t/a.png", Path("a.png"), "m", sleep=lambda _: None)
         self.assertEqual(len(calls), 3)
 
+    def test_a_privacy_refusal_is_never_retried(self) -> None:
+        tool = media.uploader()
+        calls, sleeps = [], []
+
+        def refuse(*args):
+            calls.append(args)
+            raise tool.PrivacyError("refused 1 file(s) that show private names: 1/x/t/a.png")
+
+        tool.put_file = refuse
+        with self.assertRaises(tool.PrivacyError):
+            media.upload(tool, "o/r", "1/x/t/a.png", Path("a.png"), "m", sleep=sleeps.append)
+        self.assertEqual((len(calls), sleeps), (1, []))
+
 
 class TourCacheTests(StubbedTest):
     merge_sha = ""

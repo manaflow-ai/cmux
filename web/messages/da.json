@@ -3449,6 +3449,7 @@
     "unsupportedParams": "Dette link indeholder ikke-understøttede parametre, cmux vil afvise: {params}",
     "conflictingParams": "Dette link indeholder parametre, der ikke kan bruges sammen: {params}",
     "invalidParams": "Dette link indeholder ugyldige parameterværdier: {params}",
+    "ignoredParams": "cmux ignorerer parametre, som den ikke bruger: {params}. Sessionen åbnes alligevel.",
     "fixParams": "Ret URL-parametrene, og genindlæs derefter denne side.",
     "examplePrefix": "Se en",
     "exampleLink": "eksempel link",
@@ -5520,6 +5521,8 @@
     "errorInvalidCode": "Koden er ikke gyldig. Tjek din e-mail, og prøv igen.",
     "errorInvalidTotp": "Totrinskoden er ikke gyldig.",
     "errorSignUpNotAllowed": "Der kan ikke oprettes nye konti lige nu.",
+    "errorEmailUnverified": "Denne e-mail har allerede en konto, men adressen er ikke bekræftet endnu. Log ind på den måde, du oprettede kontoen, og bekræft derefter din e-mail for at bruge loginkoder.",
+    "useEmailPasswordInstead": "Log ind med e-mail og adgangskode",
     "errorPasskey": "Login med adgangsnøgle blev ikke fuldført. Prøv igen, eller brug en anden metode.",
     "errorGeneric": "Noget gik galt. Prøv igen."
   },

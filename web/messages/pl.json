@@ -3452,6 +3452,7 @@
     "unsupportedParams": "Ten link zawiera nieobsługiwane parametry, które cmux odrzuci: {params}",
     "conflictingParams": "Ten link zawiera parametry, których nie można używać razem: {params}",
     "invalidParams": "Ten link zawiera nieprawidłowe wartości parametrów: {params}",
+    "ignoredParams": "cmux ignoruje parametry, których nie używa: {params}. Sesja i tak zostanie otwarta.",
     "fixParams": "Popraw parametry adresu URL, a następnie załaduj ponownie tę stronę.",
     "examplePrefix": "Zobacz",
     "exampleLink": "przykładowy link",
@@ -5523,6 +5524,8 @@
     "errorInvalidCode": "Ten kod jest nieprawidłowy. Sprawdź pocztę i spróbuj ponownie.",
     "errorInvalidTotp": "Ten kod uwierzytelniania dwuskładnikowego jest nieprawidłowy.",
     "errorSignUpNotAllowed": "Obecnie nie można tworzyć nowych kont.",
+    "errorEmailUnverified": "Ten adres e-mail ma już konto, ale nie został jeszcze zweryfikowany. Zaloguj się tak samo jak przy rejestracji, a następnie zweryfikuj e-mail, aby korzystać z kodów logowania.",
+    "useEmailPasswordInstead": "Zaloguj się e-mailem i hasłem",
     "errorPasskey": "Logowanie kluczem dostępu nie zostało ukończone. Spróbuj ponownie lub użyj innej metody.",
     "errorGeneric": "Coś poszło nie tak. Spróbuj ponownie."
   },

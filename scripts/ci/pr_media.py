@@ -771,13 +771,14 @@ def uploader():
 def upload(tool, repository: str, path: str, local: Path, message: str, attempts: int = 4,
            sleep: Callable[[float], None] = time.sleep) -> None:
     """put_file, retried: publish jobs of several PRs and people's uploads move
-    the media branch at once, so a lost race or a 5xx is routine."""
+    the media branch at once, so a lost race or a 5xx is routine. A privacy
+    refusal is not retried: the same file is refused every time."""
     for attempt in range(attempts):
         try:
             tool.put_file(repository, MEDIA_BRANCH, path, local, message)
             return
-        except tool.MediaError:
-            if attempt == attempts - 1:
+        except tool.MediaError as error:
+            if isinstance(error, getattr(tool, "PrivacyError", ())) or attempt == attempts - 1:
                 raise
             sleep(3 + 4 * attempt)
 

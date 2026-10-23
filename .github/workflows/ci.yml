@@ -1749,6 +1749,35 @@ jobs:
     # required check every pull request waits on.
     timeout-minutes: 5
     steps:
+      # An absent signal must never read green. The steps below allow a
+      # `skipped` need, which is right only when that job's routing turned it
+      # off. This asks each skipped job's own `if:` whether it was selected,
+      # with the same needs, variables, inputs and event fields that decided
+      # it, and fails when a selected job never ran (scripts/ci/gate_verdict.py;
+      # tests/test_ci_gate_absent_signal.py walks the needs graph).
+      - name: Check out the gate verdict
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci/gate_verdict.py
+            .github/workflows/ci.yml
+          sparse-checkout-cone-mode: false
+
+      - name: Every selected job reported
+        env:
+          GATE_NEEDS: ${{ toJSON(needs) }}
+          GATE_VARS: ${{ toJSON(vars) }}
+          GATE_INPUTS: ${{ toJSON(inputs) }}
+          GATE_GITHUB: >-
+            {"event_name": ${{ toJSON(github.event_name) }},
+            "repository": ${{ toJSON(github.repository) }},
+            "repository_owner": ${{ toJSON(github.repository_owner) }},
+            "run_attempt": ${{ toJSON(github.run_attempt) }},
+            "triggering_actor": ${{ toJSON(github.triggering_actor) }},
+            "event": {"pull_request": {"head": {"repo": {"full_name": ${{ toJSON(github.event.pull_request.head.repo.full_name) }}}}}}}
+        run: python3 scripts/ci/gate_verdict.py --workflow .github/workflows/ci.yml --gate ci-status
+
       - name: Check platform workflow routing
         env:
           PLATFORM_NEEDS: ${{ toJSON(needs) }}

@@ -704,7 +704,9 @@ extension Workspace {
                         lastActivityAt: $0.lastActivityAt.timeIntervalSince1970
                     )
                 } : nil,
-                resumeBinding: localTmuxStartCommand == nil ? resumeBinding : nil,
+                resumeBinding: localTmuxStartCommand == nil
+                    ? Self.resumeBinding(resumeBinding, namingClaudeConfigDirectoryOf: effectiveRestorableAgent)
+                    : nil,
                 textBoxDraft: terminalPanel.sessionTextBoxDraftSnapshot(),
                 isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
                 remotePTYSessionID: remotePTYSessionIDForSnapshot(panelId: panelId),
@@ -1210,6 +1212,38 @@ extension Workspace {
             }
         }
         return restorableAgent
+    }
+
+    /// A Claude hook binding whose launch capture lost `CLAUDE_CONFIG_DIR` takes
+    /// the one the index recovered for the same session, so restore reopens it
+    /// under that account instead of the app's default.
+    nonisolated static func resumeBinding(
+        _ resumeBinding: SurfaceResumeBindingSnapshot?,
+        namingClaudeConfigDirectoryOf restorableAgent: SessionRestorableAgentSnapshot?
+    ) -> SurfaceResumeBindingSnapshot? {
+        guard var resumeBinding,
+              resumeBinding.isAgentHookBinding,
+              let restorableAgent,
+              restorableAgent.kind == .claude,
+              Self.restorableAgentForSessionRestore(restorableAgent, resumeBinding: resumeBinding) != nil,
+              let configDirectory = normalizedResumeBindingValue(
+                  restorableAgent.launchCommand?.environment?["CLAUDE_CONFIG_DIR"]
+              ) else {
+            return resumeBinding
+        }
+        if normalizedResumeBindingValue(resumeBinding.environment?["CLAUDE_CONFIG_DIR"]) == nil {
+            var environment = resumeBinding.environment ?? [:]
+            environment["CLAUDE_CONFIG_DIR"] = configDirectory
+            resumeBinding.environment = environment
+        }
+        if var launchCommand = resumeBinding.launchCommand,
+           normalizedResumeBindingValue(launchCommand.environment?["CLAUDE_CONFIG_DIR"]) == nil {
+            var environment = launchCommand.environment ?? [:]
+            environment["CLAUDE_CONFIG_DIR"] = configDirectory
+            launchCommand.environment = environment
+            resumeBinding.launchCommand = launchCommand
+        }
+        return resumeBinding
     }
 
     nonisolated private static func normalizedResumeBindingValue(_ value: String?) -> String? {

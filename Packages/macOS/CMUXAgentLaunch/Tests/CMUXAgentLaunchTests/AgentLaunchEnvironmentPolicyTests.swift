@@ -57,14 +57,13 @@ struct AgentLaunchEnvironmentPolicyTests {
     @Test("Does not derive a Cursor config root from XDG_CONFIG_HOME")
     func doesNotDeriveCursorConfigRootFromXDG() {
         // cursor-agent reads XDG_CONFIG_HOME only on Linux/BSD; on macOS it uses ~/.cursor,
-        // so only an explicit CURSOR_CONFIG_DIR is replayed.
-        let selected = AgentLaunchEnvironmentPolicy().selectedRestoreEnvironment(
-            from: ["XDG_CONFIG_HOME": "/tmp/custom-config"],
-            kind: "cursor"
-        )
+        // so only an explicit CURSOR_CONFIG_DIR is replayed. The key is still captured,
+        // because OpenCode restores need it, so the check is on what a Cursor launch keeps.
+        let policy = AgentLaunchEnvironmentPolicy()
+        let environment = ["XDG_CONFIG_HOME": "/tmp/custom-config"]
 
-        #expect(selected.isEmpty)
-        #expect(!AgentLaunchEnvironmentPolicy().inputEnvironmentKeys.contains("XDG_CONFIG_HOME"))
+        #expect(policy.selectedRestoreEnvironment(from: environment, kind: "cursor").isEmpty)
+        #expect(policy.selectedEnvironment(from: environment, kind: "cursor").isEmpty)
     }
 
     @Test("Cursor config override stays scoped to Cursor restores")

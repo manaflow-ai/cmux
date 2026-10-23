@@ -65,6 +65,26 @@ crashed-thread frames each run, so its crash lines are not compared: the
 base's job must have died on the same signal, which makes the crash the
 base's (2026-10-09: a base SIGTRAP refused every feat-cmux-next PR). Failed
 steps and any test red before the crash are still compared.
+
+A red step that prints no test name, error line or crash (defaults-snapshot's
+`... changed` / `not stamped`) is compared by what its failed steps printed,
+numbers and hashes masked, like lint; but the head must print exactly what the
+base printed, not a part of it: a head that fails earlier, silently, prints a
+prefix of the base's output (2026-10-20: defaults-snapshot red on
+feat-cmux-next too was refused with "no failing test or error line to match").
+
+A base verdict older than the merge-base cannot say a red is the head's: the
+red may have landed on the base after it (2026-10-20: feat-cmux-next's CI
+workflow runs only when dispatched, and its newest run, from 02:29Z, refused
+every red that landed after it). A base run, or a merge-base~N / base tip~N
+commit, that predates the merge-base still excuses a red it shares, since the
+head inherits it; when it does not, the refusal names it as stale, with the
+merge-base, the base tip, and the run already going at the tip or the command
+that dispatches one. It never dispatches: that is a write starting a whole CI
+run, and every lane asking at once would start one each.
+
+Exit 0: excused (audit lines on stdout); 1: not excused; 3: GitHub rate-limited
+a read (the reset time on stderr).
 """
 from __future__ import annotations
 
@@ -79,6 +99,7 @@ _spec = importlib.util.spec_from_file_location("main_fix_evidence", Path(__file_
 _evidence = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_evidence)
 GitHub, Refused, job_for, latest_checks = _evidence.GitHub, _evidence.Refused, _evidence.job_for, _evidence.latest_checks
+RateLimited = _evidence.RateLimited
 
 SETUP_STEPS = frozenset({"Set up job", "Set up runner"})
 # Jobs that only report the run's other jobs: judged by those jobs, never by themselves.
@@ -405,7 +426,16 @@ class Head:
         self.crash = crash_signals(log)
         self.soft = soft_failed_steps(job, log)
         self.lint = bool(LINT.search(self.name))
-        self.printed = printed(job, log) if self.lint else Counter()
+        # A red step with no test, error line or crash to name is compared by what it printed.
+        self.by_output = self.lint or not (self.tests or self.errors or self.crash)
+        self.output_error = ""
+        try:
+            self.printed = printed(job, log) if self.by_output else Counter()
+        except Refused as unreadable:
+            if self.lint:
+                raise
+            # A status job reports through its lines instead; judge() refuses only when it compares output.
+            self.printed, self.output_error = Counter(), str(unreadable)
 
     def mismatch(self, base_job: dict, base_log: str, where: str) -> str | None:
         """Why `base_job` does not fail the way this head job does, or None when it does."""
@@ -413,13 +443,18 @@ class Head:
         if missing := sorted(self.crash - crash_signals(base_log)):
             return f"the test helper died on signal {', '.join(missing)}, and {where} did not"
         compared = [("failed steps", self.steps, base_steps), ("failing tests", self.tests, base_tests)]
-        if self.lint:
+        if self.by_output:
             try:
                 base_printed = printed(base_job, base_log)
+            except RateLimited:
+                raise
             except Refused as cut_short:
                 return f"{where}: {cut_short}"
             # By count: one more copy of a base finding (a second blocking call) is the head's.
-            compared.append(("findings", set(self.printed - base_printed), set()))
+            compared.append(("findings" if self.lint else "output", set(self.printed - base_printed), set()))
+            if not self.lint:
+                # Exactly the base's output: a head that failed earlier, silently, prints only part of it.
+                compared.append(("output the head did not print, which is", set(base_printed - self.printed), set()))
         elif not self.tests:
             compared.append(("errors", self.errors, base_errors))
         for kind, head, seen in compared:
@@ -448,6 +483,11 @@ class Base:
         self._logs: dict[int, str] = {}
         self.notes: list[str] = []
         self.tip_is_merge_base = False
+        self.tip: str | None = None
+        self.merge_base: str | None = None
+        # Base commits read that predate the merge-base, and whether a commit contains it.
+        self._stale: set[str] = set()
+        self._contains: dict[str, bool] = {}
         # Whether the base tip or the commits just before it had a verdict for the job judged last.
         self.tip_verdict = False
 
@@ -462,30 +502,40 @@ class Base:
         self._lines = []
         try:
             tip_history = self.history(self.base)
+        except RateLimited:
+            raise
         except Refused as error:
             self.notes.append(f"could not list {self.base} commits ({error})")
             return self._lines
         if not tip_history:
             self.notes.append(f"GitHub listed no {self.base} commits")
             return self._lines
-        tip = tip_history[0]
+        tip = self.tip = tip_history[0]
         self._lines.append(("base tip", [(commit, "base tip" if index == 0 else f"base tip~{index}")
                                          for index, commit in enumerate(tip_history)]))
         try:
             compared = self.github.json(f"repos/{self.repo}/compare/{tip}...{self.sha}?per_page=1")
             merge_base = ((compared or {}).get("merge_base_commit") or {}).get("sha")
+        except RateLimited:
+            raise
         except Refused as error:
             merge_base = None
             self.notes.append(f"could not read the merge-base of {short(tip)} and {short(self.sha)} ({error})")
+        self.merge_base = merge_base
+        if merge_base in tip_history:
+            self._stale.update(tip_history[tip_history.index(merge_base) + 1:])
         if merge_base and merge_base != tip:
             try:
                 history = self.history(merge_base) if merge_base not in tip_history else \
                     tip_history[tip_history.index(merge_base):]
+            except RateLimited:
+                raise
             except Refused as error:
                 history = [merge_base]
                 self.notes.append(f"could not list commits before merge-base {short(merge_base)} ({error})")
             self._lines.append(("merge-base", [(commit, "merge-base" if index == 0 else f"merge-base~{index}")
                                                for index, commit in enumerate(history)]))
+            self._stale.update(history[1:])
         elif merge_base == tip:
             self.tip_is_merge_base = True
         return self._lines
@@ -494,6 +544,8 @@ class Base:
         if commit not in self._checks:
             try:
                 self._checks[commit] = latest_checks(self.repo, commit, self.github)
+            except RateLimited:
+                raise
             except Refused as error:
                 self.notes.append(f"could not read check runs on {short(commit)} ({error})")
                 self._checks[commit] = {}
@@ -516,6 +568,8 @@ class Base:
                     if ids[0] not in self._run_workflow:
                         try:
                             run = self.github.json(f"repos/{self.repo}/actions/runs/{ids[0]}")
+                        except RateLimited:
+                            raise
                         except Refused as error:
                             self.notes.append(f"could not read base run {ids[0]} ({error})")
                             run = None
@@ -533,6 +587,8 @@ class Base:
         if job_id not in self._jobs:
             try:
                 self._jobs[job_id] = self.github.json(f"repos/{self.repo}/actions/jobs/{job_id}")
+            except RateLimited:
+                raise
             except Refused as error:
                 self.notes.append(f"could not read base job {job_id} ({error})")
                 self._jobs[job_id] = {}
@@ -566,12 +622,78 @@ class Base:
 
     def workflow_runs(self, workflow) -> list[dict]:
         if workflow not in self._workflow_runs:
-            listed = self.github.json(
-                f"repos/{self.repo}/actions/workflows/{workflow}/runs?branch={self.base}&status=completed&per_page=20")
-            self._workflow_runs[workflow] = [run for run in listed.get("workflow_runs") or []
-                                             if run.get("event") not in ("pull_request", "pull_request_target")
-                                             and run.get("conclusion") != "skipped"]
+            listing = f"repos/{self.repo}/actions/workflows/{workflow}/runs?branch={self.base}&status=completed&per_page=20"
+            # Dispatched runs are read on their own too: a job that base pushes skip (feat-cmux-next's
+            # Swift suite) gets its base verdict only from a dispatched run, such as the scheduled tip
+            # Swift suite, which twenty pushes on a busy base would push out of the first listing.
+            listed = {}
+            for page in (self.github.json(listing), self.github.json(f"{listing}&event=workflow_dispatch")):
+                for run in page.get("workflow_runs") or []:
+                    listed.setdefault(run.get("id"), run)
+            runs = [run for run in listed.values()
+                    if run.get("event") not in ("pull_request", "pull_request_target")
+                    and run.get("conclusion") != "skipped"]
+            # Newest first by creation, which GitHub returns but does not document: the newest run
+            # with a verdict decides, and one older than the merge-base is stale.
+            self._workflow_runs[workflow] = sorted(
+                runs, key=lambda run: run.get("created_at") or "", reverse=True)  # stable: ties keep GitHub's order
         return self._workflow_runs[workflow]
+
+
+def predates(base: Base, commit: str) -> bool:
+    """Whether a base commit read in lines() is older than the merge-base."""
+    base.lines()
+    return commit in base._stale
+
+
+def contains_merge_base(base: Base, sha: str | None) -> bool:
+    """Whether a base run's commit has the merge-base in its history, so it saw every base change the
+    head has. Unknown when the merge-base could not be read: then it counts, as before."""
+    base.lines()
+    if not base.merge_base:
+        return True
+    if not sha:
+        return False
+    if sha in (base.merge_base, base.tip):
+        return True
+    if sha in base._stale:
+        return False
+    if sha not in base._contains:
+        try:
+            status = base.github.json(f"repos/{base.repo}/compare/{base.merge_base}...{sha}?per_page=1").get("status")
+            base._contains[sha] = status in ("ahead", "identical")
+        except RateLimited:
+            raise
+        except Refused as error:
+            base.notes.append(f"could not compare run commit {short(sha)} with the merge-base ({error})")
+            base._contains[sha] = True
+    return base._contains[sha]
+
+
+def stale_run(base: Base, run: dict, file: str) -> str:
+    return (f"the newest {base.base} run of {file} with a verdict for it, run {run['id']} at "
+            f"{short(run.get('head_sha'))} ({run.get('created_at') or run.get('updated_at') or 'time unknown'}), "
+            f"predates the merge-base {short(base.merge_base)} (base tip {short(base.tip)}), so it cannot say "
+            "whether this red came from the base")
+
+
+def dispatch_hint(base: Base, workflow, path: str) -> str:
+    """The run already going at the base tip, or the command that starts one. Never dispatched here."""
+    file = path.rsplit("/", 1)[-1] if path else str(workflow)
+    if base.tip and workflow is not None:
+        try:
+            listed = base.github.json(f"repos/{base.repo}/actions/workflows/{workflow}/runs?branch={base.base}"
+                                      f"&head_sha={base.tip}&per_page=5")
+        except RateLimited:
+            raise
+        except Refused as error:
+            base.notes.append(f"could not list runs at the base tip {short(base.tip)} ({error})")
+            listed = {}
+        if pending := [run for run in listed.get("workflow_runs") or [] if run.get("status") != "completed"]:
+            return (f"run {pending[0]['id']} of {file} at the base tip {short(base.tip)} is "
+                    f"{pending[0].get('status')}: retry when it finishes")
+    return (f"dispatch {file} on {base.base} for a base verdict, then retry when it finishes "
+            f"(gh workflow run {file} --repo {base.repo} --ref {base.base}), or fix it on this head")
 
 
 def verdict_at(head: Head, base: Base, commit: str) -> tuple[list[dict], str]:
@@ -595,18 +717,27 @@ def judge_on_commits(head: Head, base: Base) -> tuple[str | None, list[str], boo
             jobs, how = verdict_at(head, base, commit)
             if not jobs:
                 continue
-            had_verdict = True
-            base.tip_verdict = base.tip_verdict or line == "base tip"
             where = f"{label} {short(commit)}"
+            # Older than the merge-base: a red it shares is the head's inheritance, but its green or
+            # different red cannot say the head's red is its own; the red may have landed since.
+            stale = predates(base, commit)
+            found = []
             for job in base.candidates(jobs, how):
                 if job.get("conclusion") != "failure":
-                    reasons.append(f"green on {where} ({job.get('name')}{how}: {job_url(base.repo, job)})")
+                    found.append(f"green on {where} ({job.get('name')}{how}: {job_url(base.repo, job)})")
                     continue
                 if why := head.mismatch(job, base.log(job), f"{where} ({job_url(base.repo, job)})"):
-                    reasons.append(why)
+                    found.append(why)
                     continue
                 return (f"excused '{head.name}': {base.base} {where} fails the same way "
-                        f"({job.get('name')}{how}: {job_url(base.repo, job)}): {head.what()}"), reasons, True
+                        f"({job.get('name')}{how}: {job_url(base.repo, job)}): {head.what()}"), reasons + found, True
+            if stale:
+                reasons.append(f"{where} predates the merge-base {short(base.merge_base)}, too old to judge a red "
+                               f"the base may have gained since ({'; '.join(found)})")
+            else:
+                had_verdict = True
+                base.tip_verdict = base.tip_verdict or line == "base tip"
+                reasons.extend(found)
             break
         else:
             before = ", ".join(short(commit) for commit, _ in commits[1:])
@@ -618,11 +749,12 @@ def judge_on_commits(head: Head, base: Base) -> tuple[str | None, list[str], boo
     return None, reasons, had_verdict
 
 
-def judge_on_base_runs(head: Head, base: Base, workflows: list) -> tuple[str | None, str | None, bool]:
-    """Per workflow, the newest base run that has a verdict for the head job decides; any excusing one excuses."""
+def judge_on_base_runs(head: Head, base: Base, workflows: list, path: str = "") -> tuple[str | None, str | None, bool]:
+    """Per workflow, the newest base run that has a verdict for the head job decides; any excusing one excuses.
+    `path` is the head job's own workflow file (the first of `workflows`)."""
     reasons, had_verdict = [], False
-    for workflow in workflows:
-        excused, reason, verdict = judge_on_workflow_runs(head, base, workflow)
+    for index, workflow in enumerate(workflows):
+        excused, reason, verdict = judge_on_workflow_runs(head, base, workflow, path if index == 0 else "")
         if excused:
             return excused, None, True
         reasons.append(reason)
@@ -630,8 +762,9 @@ def judge_on_base_runs(head: Head, base: Base, workflows: list) -> tuple[str | N
     return None, "; ".join(reason for reason in reasons if reason), had_verdict
 
 
-def judge_on_workflow_runs(head: Head, base: Base, workflow) -> tuple[str | None, str | None, bool]:
-    """The newest base run of `workflow` that has a verdict for the head job decides."""
+def judge_on_workflow_runs(head: Head, base: Base, workflow, path: str = "") -> tuple[str | None, str | None, bool]:
+    """The newest base run of `workflow` that has a verdict for the head job decides. One older than
+    the merge-base still excuses a red it shares; otherwise it is stale, not a verdict."""
     for candidate_run in base.workflow_runs(workflow):
         found, how = matching_shards(head.name, base.run_jobs(candidate_run["id"]))
         found = [job for job in found if job.get("conclusion") in VERDICTS and not refused_at_setup(job)]
@@ -648,6 +781,11 @@ def judge_on_workflow_runs(head: Head, base: Base, workflow) -> tuple[str | None
                 continue
             url = candidate_run.get("html_url") or f"https://github.com/{base.repo}/actions/runs/{candidate_run['id']}"
             return f"excused '{head.name}': {where} fails the same way{how} ({url}): {head.what()}", None, True
+        if not contains_merge_base(base, candidate_run.get("head_sha")):
+            file = path.rsplit("/", 1)[-1] if path else f"workflow {workflow}"
+            seen = "; ".join(sorted({"green" if job.get("conclusion") != "failure" else "red another way"
+                                     for job in base.candidates(found, how)}))
+            return None, f"'{head.name}': {stale_run(base, candidate_run, file)} (it is {seen} there)", False
         return None, "; ".join(reasons), True
     runs = base.workflow_runs(workflow)
     return None, (f"no completed {base.base} run of its workflow or of workflow {workflow} has a verdict for it "
@@ -683,6 +821,8 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
             continue
         try:
             head = Head(repo, job, head_log)
+        except RateLimited:
+            raise
         except Refused as cut_short:
             refusals.append(f"{cut_short} (at {short(sha)}, {job_url(repo, job)})")
             continue
@@ -708,9 +848,9 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
             judged.update(found["id"] for found in under)
             statuses.append((job, reported, under, matches))
             continue
-        if not head.lint and not head.tests and not head.errors and not head.crash and not head.soft:
-            refusals.append(f"'{name}' at {short(sha)} ({head.url}): no failing test or error line to match; "
-                            "nothing to compare with the base")
+        if head.by_output and not head.printed:
+            refusals.append(f"'{name}' at {short(sha)} ({head.url}): "
+                            f"{head.output_error or 'its failed steps printed nothing to compare with the base'}")
             continue
         excused, commit_reasons, had_verdict = judge_on_commits(head, evidence)
         if excused:
@@ -720,9 +860,10 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         if not evidence.tip_verdict:
             # The base tip line's verdict is newer than any run found by searching: a green tip is
             # green. An older merge-base verdict is not, so a path-filtered job still searches.
-            workflow = github.json(f"repos/{repo}/actions/runs/{job['run_id']}").get("workflow_id")
+            head_run = github.json(f"repos/{repo}/actions/runs/{job['run_id']}")
+            workflow, path = head_run.get("workflow_id"), head_run.get("path") or ""
             workflows = [workflow] + [found for found in evidence.workflows_running(name) if found != workflow]
-            excused, run_reason, run_verdict = judge_on_base_runs(head, evidence, workflows)
+            excused, run_reason, run_verdict = judge_on_base_runs(head, evidence, workflows, path)
             if excused:
                 audit.append(excused)
                 continue
@@ -730,8 +871,8 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         if run_reason:
             tried.append(run_reason)
         if not had_verdict and not run_verdict:
-            tried.append(f"dispatch its workflow on {base} for a base verdict "
-                         f"(gh workflow run <workflow> --repo {repo} --ref {base}), or fix it on this head")
+            # No verdict at all implies none on the base tip line, so the run search above set workflow.
+            tried.append(dispatch_hint(evidence, workflow, path))
             refusals.append(f"'{name}' at {short(sha)} ({head.url}): no {base} verdict to compare with: "
                             + " | ".join(tried))
         else:
@@ -772,6 +913,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         audit = judge(args.repo, args.base, args.sha, args.run, GitHub(), checks=args.check)
+    except RateLimited as error:
+        print(f"rate-limited: {error}", file=sys.stderr)
+        return 3
     except (Refused, KeyError, ValueError) as error:
         print(f"not excused: {error}", file=sys.stderr)
         return 1

@@ -2167,10 +2167,18 @@ fn run_server(
         surface_options.extra_env.push(("PATH".into(), path));
     }
     #[cfg(unix)]
-    if let Some(path) = codex_wrapper::pane_path()
-        && !surface_options.extra_env.iter().any(|(name, value)| name == "PATH" && value == &path)
-    {
-        surface_options.extra_env.push(("PATH".into(), path));
+    if let Some(path) = codex_wrapper::pane_path() {
+        if !surface_options.extra_env.iter().any(|(name, value)| name == "PATH" && value == &path) {
+            surface_options.extra_env.push(("PATH".into(), path));
+        }
+        // Integrated shells keep this directory first after startup files
+        // reorder PATH: Codex runs its hooks in a shared daemon that cannot
+        // see the terminal's environment, so only the shim routes them.
+        if let Some(dir) =
+            codex_wrapper::shim_directory().and_then(|dir| dir.into_os_string().into_string().ok())
+        {
+            surface_options.extra_env.push((cmux_tui_core::AGENT_SHIMS_ENV.into(), dir));
+        }
     }
 
     let state_root = if args.ephemeral {

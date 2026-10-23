@@ -3452,6 +3452,7 @@
     "unsupportedParams": "Ovaj link uključuje nepodržane parametre cmux će odbiti: {params}",
     "conflictingParams": "Ova veza uključuje parametre koji se ne mogu koristiti zajedno: {params}",
     "invalidParams": "Ova veza uključuje nevažeće vrijednosti parametara: {params}",
+    "ignoredParams": "cmux ignoriše parametre koje ne koristi: {params}. Sesija se ipak otvara.",
     "fixParams": "Popravite URL parametre, a zatim ponovo učitajte ovu stranicu.",
     "examplePrefix": "Vidi an",
     "exampleLink": "primjer linka",
@@ -5523,6 +5524,8 @@
     "errorInvalidCode": "Taj kod nije ispravan. Provjeri e-mail i pokušaj ponovo.",
     "errorInvalidTotp": "Taj kod za dvofaktorsku provjeru nije ispravan.",
     "errorSignUpNotAllowed": "Novi računi se trenutno ne mogu napraviti.",
+    "errorEmailUnverified": "Ovaj e-mail već ima račun, ali adresa još nije potvrđena. Prijavi se na isti način kao pri registraciji, a zatim potvrdi e-mail kako bi se mogli koristiti kodovi za prijavu.",
+    "useEmailPasswordInstead": "Prijavi se e-mailom i lozinkom",
     "errorPasskey": "Prijava pristupnim ključem nije završena. Pokušaj ponovo ili koristi drugi način.",
     "errorGeneric": "Nešto nije u redu. Pokušaj ponovo."
   },

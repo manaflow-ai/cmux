@@ -4961,6 +4961,7 @@
     "unsupportedParams": "このリンクには、cmux が拒否するサポートされていないパラメータが含まれています: {params}",
     "conflictingParams": "このリンクには、一緒に使用できないパラメータが含まれています: {params}",
     "invalidParams": "このリンクには無効なパラメータ値が含まれています: {params}",
+    "ignoredParams": "cmux は使用しないパラメータを無視します: {params}。セッションはそのまま開きます。",
     "fixParams": "URL パラメータを修正して、このページを再読み込みします。",
     "examplePrefix": "を参照してください。",
     "exampleLink": "リンク例",
@@ -7316,6 +7317,8 @@
     "errorInvalidCode": "このコードは無効です。メールを確認してもう一度お試しください。",
     "errorInvalidTotp": "この 2 要素認証コードは無効です。",
     "errorSignUpNotAllowed": "現在、新しいアカウントは作成できません。",
+    "errorEmailUnverified": "このメールアドレスにはすでにアカウントがありますが、アドレスがまだ確認されていません。登録したときの方法でサインインしてから、メールアドレスを確認するとサインインコードを使えるようになります。",
+    "useEmailPasswordInstead": "メールとパスワードでサインイン",
     "errorPasskey": "パスキーでのサインインが完了しませんでした。もう一度試すか、別の方法を使用してください。",
     "errorGeneric": "問題が発生しました。もう一度お試しください。"
   },

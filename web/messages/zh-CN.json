@@ -3452,6 +3452,7 @@
     "unsupportedParams": "此链接包含 cmux 将拒绝的不受支持的参数：{params}",
     "conflictingParams": "此链接包含不能一起使用的参数：{params}",
     "invalidParams": "此链接包含无效参数值：{params}",
+    "ignoredParams": "cmux 会忽略它不使用的参数：{params}。会话仍会打开。",
     "fixParams": "修复 URL 参数，然后重新加载此页面。",
     "examplePrefix": "参见",
     "exampleLink": "示例链接",
@@ -5523,6 +5524,8 @@
     "errorInvalidCode": "验证码无效。请检查邮箱后重试。",
     "errorInvalidTotp": "双重验证码无效。",
     "errorSignUpNotAllowed": "目前无法创建新账号。",
+    "errorEmailUnverified": "此邮箱已有账号，但地址尚未验证。请使用注册时的方式登录，然后验证邮箱，即可使用登录验证码。",
+    "useEmailPasswordInstead": "使用邮箱和密码登录",
     "errorPasskey": "通行密钥登录未完成。请重试或改用其他方式。",
     "errorGeneric": "出了点问题，请重试。"
   },

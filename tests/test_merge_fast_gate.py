@@ -1,7 +1,10 @@
 """scripts/ci/merge_fast_gate.py against a fake PR: no network, no sleeping."""
+import contextlib
 import importlib.util
+import io
 import re
 import subprocess
+import tempfile
 from pathlib import Path
 import unittest
 
@@ -300,6 +303,51 @@ class FastGate(unittest.TestCase):
             run(Reader([check("cmux-next path routing"), check("cmux-next fast tier", "QUEUED", "")]), timeout=60)
         with self.assertRaisesRegex(gate.Refused, "head moved"):
             run(Reader(GREEN, head="b" * 40))
+
+    def test_a_wait_that_runs_out_names_each_lane_still_queued(self):
+        """2026-10-20: #22200's --wait ran out with a required lane still QUEUED, and the refusal
+        read `fast gate: nothing reported; waited 0m00s, 898s in all`."""
+        reader = Reader([check("cmux-next path routing"), check("cmux-next fast tier", "QUEUED", "")],
+                        files=("Packages/macOS/CmuxNext/Sources/A.swift", "webviews/a.ts"))
+        with self.assertRaises(gate.WaitRanOut) as caught:
+            run(reader, timeout=60)
+        error = caught.exception
+        self.assertIn("--wait budget of 60s ran out", str(error))
+        self.assertIn("cmux-next fast tier (queued)", str(error))
+        self.assertIn("react-apps-check (not reported yet)", str(error))
+        self.assertGreaterEqual(error.waited, 60)
+        self.assertIn("cmux-next fast tier (queued)", error.waiting)
+
+    def test_main_prints_the_wait_and_the_queued_lanes_when_the_wait_runs_out(self):
+        rollup = [check("cmux-next path routing"), check("cmux-next fast tier", "QUEUED", "")]
+        original = gate.gh_json
+        gate.gh_json = Reader(rollup)
+        try:
+            with tempfile.TemporaryFile("w+") as out, contextlib.redirect_stdout(out), \
+                    contextlib.redirect_stderr(io.StringIO()):
+                status = gate.main(["manaflow-ai/cmux", "42", HEAD, "--next-covered", "--timeout", "0"])
+                out.seek(0)
+                printed = out.read()
+        finally:
+            gate.gh_json = original
+        self.assertEqual(status, 1)
+        self.assertIn("waited=0", printed)
+        self.assertIn("waiting=cmux-next fast tier (queued)", printed)
+
+    def test_a_rate_limited_read_refuses_at_once_with_the_reset_time(self):
+        def limited(args):
+            if args[:2] == ["api", "rate_limit"]:
+                return '{"resources":{"graphql":{"limit":5000,"remaining":0,"reset":4102444800}}}'
+            raise AssertionError(args)
+        failed = subprocess.CompletedProcess([], 1, "", "GraphQL: API rate limit already exceeded for user ID 1.")
+        original_run, original_limits = gate.subprocess.run, gate.read_limits
+        gate.subprocess.run = lambda *a, **k: failed
+        gate.read_limits = lambda: gate._rate.read_limits(limited)
+        try:
+            with self.assertRaisesRegex(gate.RateLimited, "graphql 0 of 5000 left, resets 00:00:00Z"):
+                gate.gh_json("pr", "view", "42")
+        finally:
+            gate.subprocess.run, gate.read_limits = original_run, original_limits
 
 
 if __name__ == "__main__":

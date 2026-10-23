@@ -3451,6 +3451,7 @@
     "unsupportedParams": "此連結包含 cmux 將拒絕的不受支援的參數：{params}",
     "conflictingParams": "此連結包含不能一起使用的參數：{params}",
     "invalidParams": "此連結包含無效參數值：{params}",
+    "ignoredParams": "cmux 會忽略它不使用的參數：{params}。工作階段仍會開啟。",
     "fixParams": "修復 URL 參數，然後重新載入此頁面。",
     "examplePrefix": "參見",
     "exampleLink": "範例連結",
@@ -5522,6 +5523,8 @@
     "errorInvalidCode": "驗證碼無效。請檢查電子郵件後再試一次。",
     "errorInvalidTotp": "雙重驗證碼無效。",
     "errorSignUpNotAllowed": "目前無法建立新帳號。",
+    "errorEmailUnverified": "此電子郵件已有帳號，但地址尚未驗證。請使用註冊時的方式登入，然後驗證電子郵件，即可使用登入驗證碼。",
+    "useEmailPasswordInstead": "使用電子郵件和密碼登入",
     "errorPasskey": "通行密鑰登入未完成。請再試一次或改用其他方式。",
     "errorGeneric": "發生問題，請再試一次。"
   },

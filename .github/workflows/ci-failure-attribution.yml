@@ -68,6 +68,29 @@ jobs:
           permission-issues: write
           permission-pull-requests: write
 
+      # Reads (jobs, logs, the pull request, its comments and files) draw on the
+      # manaflow-glaeda-route App's own budget, not the GITHUB_TOKEN budget every
+      # workflow shares (it ran out on 2026-10-21). Writes stay on GH_TOKEN: the
+      # re-run must come from github-actions[bot] (ci-macos.yml routes attempt 3
+      # by its triggering actor) and pr_status finds the comment by its author.
+      # Check-run annotations need `checks`, which the App lacks: GH_TOKEN reads
+      # them (guard_attribution.GitHub).
+      - name: Mint the glaeda-route token
+        id: glaeda-token
+        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-actions: read
+          permission-contents: read
+          permission-issues: read
+          permission-pull-requests: read
+
       - name: Checkout main's classifier
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -78,4 +101,5 @@ jobs:
       - name: Attribute failures and re-run machine failures
         env:
           GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
+          READ_TOKEN: ${{ steps.cmux-bot-token.outputs.token || steps.glaeda-token.outputs.token }}
         run: python3 scripts/ci/classify_failures.py act

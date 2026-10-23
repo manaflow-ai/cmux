@@ -101,7 +101,7 @@ class NightlyOffBlacksmithTests(unittest.TestCase):
         """
         forbidden = re.compile(
             r"cmux11s|glaeda-(side-|root-|gui-|session-|aws-)?std-xcode"
-            r"|vars\.(CI_SIDE_LANE_RUNNER|CI_NEXT_DAEMON_POOL|CI_NEXT_PROMOTE_POOL|CI_LIGHT_LANE_RUNNER)\b"
+            r"|vars\.(CI_SIDE_LANE_RUNNER|CI_NEXT_DAEMON_POOL|CI_NEXT_PROMOTE_POOL|CI_PIN_DAEMON_POOL|CI_LIGHT_LANE_RUNNER)\b"
         )
         allowed = ("vars.CI_SEED_TRUSTED_POOL", "vars.CI_NIGHTLY_NEXT_TRUSTED_POOL")
         failures = []
@@ -152,21 +152,42 @@ class NightlyOffBlacksmithTests(unittest.TestCase):
                 self.assertNotRegex(runs_on, SHARED_RUNNER_VARIABLES)
 
     @unittest.skipUnless((WORKFLOWS / "cmux-next.yml").exists(), "no cmux-next on this branch")
-    def test_a_schedule_starts_a_nightly_next_at_least_twice_a_day(self) -> None:
-        """Pushes alone are not a trigger: a red or cancelled push run asks nothing.
+    def test_finished_push_runs_start_a_nightly_next_without_a_clock(self) -> None:
+        """Every finished feat-cmux-next push run asks for a NEXT nightly; no cron does.
 
-        GitHub runs `schedule` only from the default branch, so the tick
-        workflow must exist on main too; it asks for the newest green
-        feat-cmux-next commit and can also be started by hand.
+        A push whose own request was cancelled by the next push, or whose
+        request waited on a stalled pool, asked for nothing. The tick closes
+        that gap from events, not a clock (user decision 2026-10-20: no GitHub
+        cron on the nightly path; the dedicated builder is cmux22,
+        plans/cmux-next/nightly-builder-DESIGN.md). It starts when a
+        cmux-next or cmux-tui artifacts push run on feat-cmux-next completes,
+        whatever its conclusion, and can be started by hand. GitHub runs
+        `workflow_run` only from the default branch, so the file must exist
+        on main too.
         """
         path = WORKFLOWS / "nightly-next-tick.yml"
         self.assertTrue(path.exists(), "nightly-next-tick.yml must exist")
         text = path.read_text(encoding="utf-8")
-        crons = re.findall(r"^\s+- cron: \"([^\"]+)\"", text, re.MULTILINE)
-        self.assertGreaterEqual(len(crons), 2)
+        self.assertNotRegex(text, r"(?m)^\s+schedule:")
+        self.assertNotRegex(text, r"(?m)^\s+- cron:")
+        self.assertIn("workflow_run:", text)
+        workflows = re.search(r"(?m)^\s+workflows: \[(.+)\]$", text)
+        self.assertIsNotNone(workflows, "workflow_run must name its workflows")
+        self.assertIn('"cmux-next"', workflows.group(1))
+        self.assertIn('"cmux-tui artifacts"', workflows.group(1))
+        self.assertRegex(text, r"(?m)^\s+branches: \[feat-cmux-next\]$")
+        self.assertRegex(text, r"(?m)^\s+types: \[completed\]$")
+        self.assertIn("github.event.workflow_run.event == 'push'", text)
         self.assertIn("workflow_dispatch:", text)
         self.assertIn("scripts/cmux-next/request-nightly-next.sh --tree-ready", text)
         self.assertIn("cancel-in-progress: false", text)
+
+    def test_no_workflow_reads_the_retired_decide_runner_variable(self) -> None:
+        """CI_NIGHTLY_DECIDE_RUNNER named a Blacksmith pool and is deleted."""
+        for path in sorted(WORKFLOWS.glob("*.yml")):
+            with self.subTest(workflow=path.name):
+                self.assertNotIn("CI_NIGHTLY_DECIDE_RUNNER", path.read_text(encoding="utf-8"))
+
 
 if __name__ == "__main__":
     unittest.main()

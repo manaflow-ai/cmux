@@ -18,6 +18,15 @@
 //       policy line `@require_non_lander_approver on` the approval must come
 //       from someone who is not a lander (ackDecision()); off, any approval in
 //       the approval environment counts.
+// A train commit (nightly-next-train.yml; docs/ci/nightly-next-train.md) is
+// checked by G1'/G2' in place of G1/G2:
+//   G1' its second parent is on feat-cmux-next, and its tree is that parent
+//       with exactly its `Nightly-Train-Revert:` reverts, which the injected
+//       verifyTrain() rebuilds (scripts/ci/nightly_next_train.py verify);
+//   G2' a nightly-next-train.yml dispatch run of this repository on a
+//       nightly-train/* ref for that exact SHA has a successful
+//       "nightly-next train Release compile" job;
+// and its first parent must be the current nightly-next. G3/G4 are unchanged.
 // Anything it cannot establish is a "refuse" (fail closed).
 //
 // The functions take injected clients so tests drive them with a fake API.
@@ -105,11 +114,116 @@ async function admitted(github, owner, repo, sha, { attempts, delayMs, sleep, co
   return false;
 }
 
+// A train commit (scripts/ci/nightly_next_train.py): two parents, the
+// nightly-next head it was made on and a feat-cmux-next tip, and the
+// `Nightly-Train: v1` trailer. Anything else (or an unreadable commit) is not a
+// train commit and goes through G1/G2, which refuse what they cannot place.
+export const TRAIN_TRAILER = 'Nightly-Train: v1';
+export const TRAIN_WORKFLOW = '.github/workflows/nightly-next-train.yml';
+export const TRAIN_GATE_JOB = 'nightly-next train Release compile';
+export const TRAIN_REF_PREFIX = 'nightly-train/';
+
+export async function readTrainCommit(github, owner, repo, sha) {
+  let data;
+  try {
+    ({ data } = await github.rest.git.getCommit({ owner, repo, commit_sha: sha }));
+  } catch {
+    return null;
+  }
+  const lines = String(data?.message || '').split('\n').map((line) => line.trim());
+  if (!lines.includes(TRAIN_TRAILER) || (data.parents || []).length !== 2) return null;
+  return { firstParent: data.parents[0].sha, tip: data.parents[1].sha };
+}
+
+// verifyTrain for decide(): run the train script's `verify --fetch` in the
+// guard's checkout (main's copy of the script) and read its JSON verdict.
+export function trainVerifier(script, { cwd = process.cwd(), spawn } = {}) {
+  return async (sha) => {
+    const run = spawn || (await import('node:child_process')).spawnSync;
+    const proc = run('python3', [script, 'verify', '--fetch', '--commit', sha], { cwd, encoding: 'utf8', timeout: 600000 });
+    let verdict = null;
+    try {
+      verdict = JSON.parse(String(proc.stdout || '').trim().split('\n').pop());
+    } catch {
+      verdict = null;
+    }
+    if (!verdict || typeof verdict.ok !== 'boolean') {
+      throw new Error(`verify exited ${proc.status}: ${String(proc.stderr || '').trim().slice(0, 400)}`);
+    }
+    return { ok: verdict.ok && proc.status === 0, reason: verdict.reason };
+  };
+}
+
+async function admittedTrain(github, owner, repo, sha, { attempts, delayMs, sleep, core }) {
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {
+      owner, repo, workflow_id: 'nightly-next-train.yml', event: 'workflow_dispatch', head_sha: sha, per_page: 100,
+    });
+    for (const run of runs) {
+      if (run.head_sha !== sha || run.event !== 'workflow_dispatch') continue;
+      if (run.path !== TRAIN_WORKFLOW || !String(run.head_branch || '').startsWith(TRAIN_REF_PREFIX)) continue;
+      if (run.head_repository?.full_name !== `${owner}/${repo}`) continue;
+      const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
+        owner, repo, run_id: run.id, filter: 'latest', per_page: 100,
+      });
+      if (jobs.some((job) => job.status === 'completed' && job.name === TRAIN_GATE_JOB && job.conclusion === 'success')) {
+        return true;
+      }
+    }
+    if (attempt < attempts) {
+      core?.notice?.(`The ${TRAIN_GATE_JOB} result of ${sha} is not visible yet; retrying (${attempt}/${attempts - 1}).`);
+      await sleep(delayMs);
+    }
+  }
+  return false;
+}
+
 // The compare API returns at most this many commits per page and files only on
-// its first page (at most 300). Anything it cannot list in full is refused.
+// its first page (at most 300). It pages through ranges of any length, so the
+// guard reads every page; anything it cannot list in full is refused.
 const COMPARE_PAGE = 100;
-const MAX_RANGE_COMMITS = 1000;
+// A budget, not a history limit: G4 reads each commit of the range once, and
+// the job token allows 15,000 requests an hour. A range over this budget is
+// refused (fail closed) instead of running the token dry halfway through.
+// It was 1000 until 2026-10-20, when a 1782-commit range (1549 of them from
+// one merge) had no smaller step and blocked every nightly (run 39407965731).
+const MAX_RANGE_COMMITS = 10000;
 const COMMIT_FILE_CAP = 3000;
+// Per-commit reads in flight at once. One by one, a 1782-commit range ran the
+// decide job past its 10-minute limit (run 39410930509); 16 stays well under
+// GitHub's secondary rate limit for concurrent requests.
+const READ_CONCURRENCY = 16;
+
+// GitHub answers a read with a 5xx now and then (run 39413299148). A read
+// that fails that way is tried again after a short wait, up to this many
+// times in all; a 4xx or a lasting 5xx still throws (fail closed).
+const READ_ATTEMPTS = 4;
+
+async function retrying(fn, sleep) {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await fn();
+    } catch (error) {
+      if (!(error?.status >= 500) || attempt >= READ_ATTEMPTS) throw error;
+      await sleep(1000 * 2 ** attempt);
+    }
+  }
+}
+
+// fn over items with at most `limit` calls in flight; results in input order.
+async function mapLimit(items, limit, fn) {
+  const results = new Array(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const index = next;
+      next += 1;
+      results[index] = await fn(items[index], index);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
 
 // One compare request, memoized for the life of a decision: the guard reads
 // the same range several times and the job token's quota is shared.
@@ -127,16 +241,20 @@ function comparer(github, owner, repo) {
 // Every commit in base...head (all parents, merges included), from the compare
 // API's paginated commit list. Returns null when the list cannot be read in full.
 async function rangeCommits(compare, base, head) {
-  const commits = [];
-  let total = null;
-  for (let page = 1; page <= MAX_RANGE_COMMITS / COMPARE_PAGE + 1; page += 1) {
-    const data = await compare(`${base}...${head}`, page);
-    total = data.total_commits;
-    const batch = data.commits || [];
-    commits.push(...batch);
-    if (commits.length >= total || batch.length === 0) break;
-  }
+  const first = await compare(`${base}...${head}`, 1);
+  const total = first.total_commits;
   if (typeof total !== 'number' || total > MAX_RANGE_COMMITS) return null;
+  // Page count from the first page's total; every page is read, and the
+  // pages must add up to exactly that many distinct commits.
+  const pages = Math.max(1, Math.ceil(total / COMPARE_PAGE));
+  const commits = [...(first.commits || [])];
+  for (let page = 2; page <= pages; page += 1) {
+    const data = await compare(`${base}...${head}`, page);
+    if (data.total_commits !== total) return null;
+    const batch = data.commits || [];
+    if (batch.length === 0) break;
+    commits.push(...batch);
+  }
   if (commits.length !== total || new Set(commits.map((commit) => commit.sha)).size !== total) return null;
   return commits;
 }
@@ -262,24 +380,54 @@ async function landersOf(github, owner, repo, commit, actors) {
 export async function decide({
   github, owner, repo, sha, surfaceText, core, sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
   debounce = false, minIntervalHours = 0, admissionAttempts = 6, admissionDelayMs = 5000, now = () => Date.now(),
+  verifyTrain = null,
 }) {
   if (!/^[0-9a-f]{40}$/.test(sha)) return refuse(`promote_nightly_next_sha must be 40 lowercase hex characters, got ${sha}`);
 
-  // G1: on feat-cmux-next.
   const sourceHead = (await github.rest.git.getRef({ owner, repo, ref: `heads/${SOURCE}` })).data.object.sha;
-  let onSource;
-  try {
-    onSource = (await github.rest.repos.compareCommitsWithBasehead({ owner, repo, basehead: `${sha}...${sourceHead}` })).data.status;
-  } catch (error) {
-    return refuse(`${sha} cannot be compared with ${SOURCE} (${error.status || error.message})`);
-  }
-  if (onSource !== 'ahead' && onSource !== 'identical') {
-    return refuse(`${sha} is not on ${SOURCE} (compare status ${onSource})`);
-  }
+  const onSourceStatus = async (commit) => {
+    try {
+      return (await github.rest.repos.compareCommitsWithBasehead({ owner, repo, basehead: `${commit}...${sourceHead}` })).data.status;
+    } catch (error) {
+      return { error: `${commit} cannot be compared with ${SOURCE} (${error.status || error.message})` };
+    }
+  };
+  const train = await readTrainCommit(github, owner, repo, sha);
+  let trainFirstParent = null;
+  if (train) {
+    // G1' (docs/ci/nightly-next-train.md): the second parent is on
+    // feat-cmux-next and the tree is that parent with exactly the listed
+    // reverts, which the verifier rebuilds itself (it trusts no list).
+    const status = await onSourceStatus(train.tip);
+    if (status?.error) return refuse(status.error);
+    if (status !== 'ahead' && status !== 'identical') {
+      return refuse(`train commit ${sha}: its second parent ${train.tip} is not on ${SOURCE} (compare status ${status})`);
+    }
+    if (typeof verifyTrain !== 'function') return refuse(`train commit ${sha}: no train tree verifier in this job; nothing promoted`);
+    let verdict;
+    try {
+      verdict = await verifyTrain(sha);
+    } catch (error) {
+      return refuse(`train commit ${sha}: the tree check failed to run (${error.message})`);
+    }
+    if (!verdict?.ok) return refuse(`train commit ${sha}: ${verdict?.reason || 'its tree is not its second parent minus its listed reverts'}`);
+    // G2': a green Release compile of this exact commit in nightly-next-train.yml.
+    if (!(await admittedTrain(github, owner, repo, sha, { attempts: admissionAttempts, delayMs: admissionDelayMs, sleep, core }))) {
+      return refuse(`train commit ${sha} has no ${TRAIN_WORKFLOW} dispatch run on a ${TRAIN_REF_PREFIX}* ref in ${owner}/${repo} with a successful "${TRAIN_GATE_JOB}" job`);
+    }
+    trainFirstParent = train.firstParent;
+  } else {
+    // G1: on feat-cmux-next.
+    const onSource = await onSourceStatus(sha);
+    if (onSource?.error) return refuse(onSource.error);
+    if (onSource !== 'ahead' && onSource !== 'identical') {
+      return refuse(`${sha} is not on ${SOURCE} (compare status ${onSource})`);
+    }
 
-  // G2: the trusted gate.
-  if (!(await admitted(github, owner, repo, sha, { attempts: admissionAttempts, delayMs: admissionDelayMs, sleep, core }))) {
-    return refuse(`${sha} has no ${GATE_WORKFLOW} push run on ${SOURCE} in ${owner}/${repo} with a successful "${GATE_JOB}" job`);
+    // G2: the trusted gate.
+    if (!(await admitted(github, owner, repo, sha, { attempts: admissionAttempts, delayMs: admissionDelayMs, sleep, core }))) {
+      return refuse(`${sha} has no ${GATE_WORKFLOW} push run on ${SOURCE} in ${owner}/${repo} with a successful "${GATE_JOB}" job`);
+    }
   }
 
   if (debounce && Number.isFinite(minIntervalHours) && minIntervalHours > 0) {
@@ -300,6 +448,9 @@ export async function decide({
     if (error.status !== 404) throw error;
   }
   if (current === sha) return { action: 'skip', reason: `${TARGET} is already at ${sha}.`, sha, current };
+  if (trainFirstParent !== null && trainFirstParent !== current) {
+    return refuse(`train commit ${sha} was made on ${trainFirstParent}, but ${TARGET} is at ${current || 'nothing'}; the next train starts from the new head`, { sha, current });
+  }
 
   // The current nightly-next must be an ancestor of the target: compare
   // status "ahead". "identical" was handled above; anything else refuses.
@@ -327,7 +478,7 @@ export async function decide({
   // Every commit in the range, merges and second parents included.
   const commits = await rangeCommits(compare, current, sha);
   if (!commits) {
-    return refuse(`the range ${current}...${sha} has more than ${MAX_RANGE_COMMITS} commits or the compare API did not list them all`, { sha, current });
+    return refuse(`the range ${current}...${sha} has more than ${MAX_RANGE_COMMITS} commits (the per-commit read budget) or the compare API did not list them all`, { sha, current });
   }
   const rangeSet = new Set(commits.map((commit) => commit.sha));
 
@@ -349,11 +500,10 @@ export async function decide({
   // surface (a commit whose file list GitHub truncates counts as touching).
   // A change no single commit shows (a merge that kept the other side's
   // version) is attributed to the range's merge commits.
-  const detailed = [];
-  for (const commit of commits) {
-    const full = await commitWithFiles(github, owner, repo, commit.sha);
-    detailed.push(full || { sha: commit.sha, truncated: true, files: [], parents: commit.parents || [] });
-  }
+  const detailed = await mapLimit(commits, READ_CONCURRENCY, async (commit) => {
+    const full = await retrying(() => commitWithFiles(github, owner, repo, commit.sha), sleep);
+    return full || { sha: commit.sha, truncated: true, files: [], parents: commit.parents || [] };
+  });
   const touching = detailed.filter((commit) => commit.truncated || commit.files.some(touches));
   // A surface path that no commit's own diff lists changed through a merge
   // resolution: every merge commit in the range is a lander for it.
@@ -370,11 +520,12 @@ export async function decide({
   const actors = await pushActors(github, owner, repo, compare, new Set(touching.map((commit) => commit.sha)), rangeSet, current);
   const landers = new Set();
   const unresolved = [];
-  for (const commit of touching) {
-    const logins = await landersOf(github, owner, repo, commit, actors);
+  const landerSets = await mapLimit(touching, READ_CONCURRENCY, (commit) => retrying(() => landersOf(github, owner, repo, commit, actors), sleep));
+  touching.forEach((commit, index) => {
+    const logins = landerSets[index];
     if (!logins) unresolved.push(commit.sha);
     else logins.forEach((login) => landers.add(login));
-  }
+  });
   if (unresolved.length && policy.require_non_lander_approver) {
     return refuse(`no push actor found for ${unresolved.join(', ')}; the landers of the release surface change are unknown`, { sha, current, surfaceFiles });
   }

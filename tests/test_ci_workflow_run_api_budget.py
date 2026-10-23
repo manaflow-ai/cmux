@@ -14,6 +14,8 @@ macOS) on PATH that records each call.
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import os
 import subprocess
@@ -179,6 +181,128 @@ class FailureAttributionCalls(unittest.TestCase):
         self.assertEqual(gh.writes, [])
 
 
+    NEXT_RUN = {**RUN, "id": 42, "conclusion": "success", "pull_requests": [
+        {"number": 7, "base": {"ref": "feat-cmux-next", "repo": {"url": f"https://api.github.com/repos/{REPO}"}}}]}
+
+    def test_a_green_run_into_feat_cmux_next_reads_only_the_comments(self) -> None:
+        # feat-cmux-next's ci.yml skips `Fast static checks` and so `macos` by design: routing,
+        # not "macOS never ran". Before, that skip read the pull request, its comments and its files.
+        jobs = [{"name": "changes", "conclusion": "success"}, {"name": "Fast static checks", "conclusion": "skipped"}]
+        self.assertEqual(cf.macos_blocked(jobs, "feat-cmux-next"), "")
+        self.assertEqual(cf.macos_blocked(jobs, "main"), "`Fast static checks` skipped")
+        rep = cf.green_next_report(CountingGitHub(), self.NEXT_RUN)  # type: ignore[arg-type]
+        self.assertIsNotNone(rep)
+        gh = CountingGitHub(files=["Packages/macOS/CmuxNext/Sources/A.swift"])
+        result = cf.act(gh, cf.Writer(gh, dry_run=False), self.NEXT_RUN, rep)  # type: ignore[arg-type]
+        self.assertEqual(gh.reads, ["comments 7"])  # no jobs, pull or files read
+        self.assertEqual(gh.writes, [])
+        self.assertEqual(result["line"], "skipped: nothing reported on this pull request")
+        # An earlier report on the pull request is still updated to "passes".
+        gh = CountingGitHub(comments=[BOT_COMMENT])
+        cf.act(gh, cf.Writer(gh, dry_run=False), self.NEXT_RUN, cf.green_next_report(gh, self.NEXT_RUN))  # type: ignore[arg-type]
+        self.assertEqual(gh.writes, [("PATCH", f"repos/{REPO}/issues/comments/99")])
+
+    def test_only_a_green_run_into_feat_cmux_next_skips_the_jobs(self) -> None:
+        gh = CountingGitHub()
+        self.assertIsNone(cf.green_next_report(gh, {**self.NEXT_RUN, "conclusion": "failure"}))  # type: ignore[arg-type]
+        main_run = {**self.NEXT_RUN, "pull_requests": [
+            {"number": 7, "base": {"ref": "main", "repo": {"url": f"https://api.github.com/repos/{REPO}"}}}]}
+        self.assertIsNone(cf.green_next_report(gh, main_run))  # type: ignore[arg-type]
+        fork_pr = {**self.NEXT_RUN, "pull_requests": [
+            {"number": 7, "base": {"ref": "feat-cmux-next", "repo": {"url": "https://api.github.com/repos/someone/cmux"}}}]}
+        self.assertIsNone(cf.green_next_report(gh, fork_pr))  # type: ignore[arg-type]
+
+    def test_feat_cmux_next_ci_skips_the_static_checks_and_gates_macos_on_them(self) -> None:
+        shown = subprocess.run(["git", "-C", str(ROOT), "show", "origin/feat-cmux-next:.github/workflows/ci.yml"],
+                               capture_output=True, text=True, check=False)
+        if shown.returncode:
+            self.skipTest("origin/feat-cmux-next is not fetched")
+        jobs = yaml.safe_load(shown.stdout)["jobs"]
+        static = next(name for name, job in jobs.items() if job.get("name") == cf.STATIC_CHECKS_JOB)
+        self.assertIn("github.event.pull_request.base.ref != 'feat-cmux-next'", jobs[static]["if"])
+        self.assertIn(f"needs.{static}.result == 'success'", jobs["macos"]["if"])
+
+
+class FeatCmuxNextSkips(unittest.TestCase):
+    """CI runs of pull requests into feat-cmux-next start no guard analysis: that branch's ci.yml
+    skips `fast-guards` for them, so the analysis read the run's jobs to find no verdict."""
+
+    def test_guard_attribution_skips_feat_cmux_next_ci_runs(self) -> None:
+        job, _ = workflow_step("ci-guard-attribution.yml", "analyze", "Analyze")
+        self.assertIn("!(github.event.workflow_run.event == 'pull_request' && "
+                      "github.event.workflow_run.path == '.github/workflows/ci.yml' && "
+                      "github.event.workflow_run.pull_requests[0].base.ref == 'feat-cmux-next')", job["if"])
+        shown = subprocess.run(["git", "-C", str(ROOT), "show", "origin/feat-cmux-next:.github/workflows/ci.yml"],
+                               capture_output=True, text=True, check=False)
+        if shown.returncode:
+            self.skipTest("origin/feat-cmux-next is not fetched")
+        guards = yaml.safe_load(shown.stdout)["jobs"]["fast-guards"]
+        self.assertIn("github.event.pull_request.base.ref != 'feat-cmux-next'", guards["if"])
+
+
+class ReadTokenRouting(unittest.TestCase):
+    """guard_attribution.GitHub: reads on the App's token, writes and checks reads on GH_TOKEN."""
+
+    def calls(self, steps, refuse: dict[str, int] | None = None) -> list[tuple[str, str, str]]:
+        seen: list[tuple[str, str, str]] = []
+
+        class Response:
+            def __init__(self) -> None:
+                self.headers: dict = {}
+
+            def read(self) -> bytes:
+                return b"{}"
+
+            def __enter__(self):  # noqa: ANN204
+                return self
+
+            def __exit__(self, *exc: object) -> None:
+                return None
+
+        def urlopen(req, timeout=60):  # noqa: ANN001, ANN202
+            token = req.unredirected_hdrs["Authorization"].split()[-1]
+            path = req.full_url.split("api.github.com/")[1]
+            seen.append((req.get_method(), path, token))
+            code = (refuse or {}).get(token)
+            if code:
+                raise ga.urllib.error.HTTPError(req.full_url, code, "no", {}, io.BytesIO(b"refused"))  # type: ignore[arg-type]
+            return Response()
+
+        original = ga.urllib.request.urlopen
+        ga.urllib.request.urlopen = urlopen  # type: ignore[assignment]
+        try:
+            gh = ga.GitHub(REPO, "workflow", read_token="app")
+            steps(gh)
+        finally:
+            ga.urllib.request.urlopen = original  # type: ignore[assignment]
+        return seen
+
+    def test_reads_use_the_app_and_writes_the_workflow_token(self) -> None:
+        def steps(gh: ga.GitHub) -> None:
+            gh.get(f"repos/{REPO}/actions/runs/1/jobs?per_page=100")
+            gh.get(f"repos/{REPO}/check-runs/5/annotations?per_page=50")
+            gh.request("POST", f"repos/{REPO}/actions/runs/1/rerun-failed-jobs", {})
+            gh.request("PATCH", f"repos/{REPO}/issues/comments/9", {"body": "x"})
+        self.assertEqual([(m, t) for m, _, t in self.calls(steps)],
+                         [("GET", "app"), ("GET", "workflow"), ("POST", "workflow"), ("PATCH", "workflow")])
+
+    def test_a_refused_read_is_made_again_with_the_workflow_token(self) -> None:
+        def steps(gh: ga.GitHub) -> None:
+            gh.get(f"repos/{REPO}/pulls/7")
+            gh.get(f"repos/{REPO}/pulls/8")
+        for code, second in ((403, "app"), (401, "workflow")):
+            with self.subTest(code=code), contextlib.redirect_stderr(io.StringIO()):
+                tokens = [t for _, _, t in self.calls(steps, refuse={"app": code})]
+                # 403 (no permission or no budget for this read) retries that read; 401 (an
+                # expired token) keeps the workflow token from then on.
+                self.assertEqual(tokens[:2], ["app", "workflow"])
+                self.assertEqual(tokens[2], second)
+
+    def test_without_a_read_token_everything_uses_the_workflow_token(self) -> None:
+        gh = ga.GitHub(REPO, "workflow", read_token="workflow")
+        self.assertEqual(gh.read_token, "")
+
+
 # ---------------------------------------------------------------- CI guard attribution
 
 
@@ -230,6 +354,9 @@ FAKE_GH = textwrap.dedent("""\
     import json, os, sys
     with open(os.environ["FAKE_GH_LOG"], "a") as log:
         log.write(json.dumps(sys.argv[1:]) + "\\n")
+    if os.environ.get("FAKE_GH_TOKEN_LOG"):
+        with open(os.environ["FAKE_GH_TOKEN_LOG"], "a") as log:
+            log.write(os.environ.get("GH_TOKEN", "") + "\\n")
     args = [a for a in sys.argv[1:] if a.startswith("repos/")]
     responses = json.loads(os.environ.get("FAKE_GH_RESPONSES", "{}"))
     path = args[0] if args else ""
@@ -373,6 +500,16 @@ class HostedQueueRescueCalls(StepHarness):
             f"-X POST repos/{REPO}/actions/runs/42/rerun"])
         self.assertIn("rerunning hosted queue timeout 42", out)
 
+    def test_reads_use_the_read_token_and_the_rerun_the_workflow_token(self) -> None:
+        self.assertEqual(self.STEP["env"]["READ_TOKEN"],
+                         "${{ steps.cmux-bot-token.outputs.token || steps.glaeda-token.outputs.token }}")
+        with tempfile.TemporaryDirectory() as tmp:
+            tokens = Path(tmp) / "tokens"
+            self.run_step(self.STEP["run"], {**self.ENV, "READ_TOKEN": "app", "FAKE_GH_TOKEN_LOG": str(tokens)},
+                          {"runs/42": self.RUN, "runs/42/jobs": self.NO_RUNNER})
+            # run, jobs on the App; the re-run on GH_TOKEN (github-actions[bot] routes attempt 3).
+            self.assertEqual(tokens.read_text().split(), ["app", "app", "t"])
+
     def test_a_run_already_rerun_is_left_alone(self) -> None:
         calls, _, out = self.run_step(self.STEP["run"], self.ENV, {"runs/42": {**self.RUN, "run_attempt": 2}})
         self.assertEqual(len(calls), 1)
@@ -426,7 +563,8 @@ class CmuxBotTokenWorkflowShape(unittest.TestCase):
                     self.assertTrue(token_envs)
                     for step_id, value in token_envs:
                         if filename == "ci-queue-janitor.yml" and step_id == "fresh":
-                            self.assertEqual(value, "${{ github.token }}")
+                            # Ahead of the cmux-bot mint, so only the glaeda-route App's token.
+                            self.assertEqual(value, "${{ steps.glaeda-token.outputs.token || github.token }}")
                         else:
                             self.assertIn("steps.cmux-bot-token.outputs.token", value)
 

@@ -16,7 +16,9 @@ run-name: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow
 # `owned-pool-watch` artifact when they place attempt 1 on an owned pool, and
 # ci-macos.yml's late-placement an `owned-pool-watch-late` one when it moves
 # jobs onto one; every minute the sweeper lists both names repository-wide
-# and gives each new run a thread running the per-run watch. Until
+# and gives each new run a thread running the per-run watch. A run marked
+# `owned-pool-watch-refusals` (cmux-next.yml, no free overflow) and its
+# re-runs are watched for refusals only: a long queue is left alone. Until
 # 2026-09-25 each such run had its own owned-pool-watch job, a "Watch owned
 # pool jobs" check on the pull request, dispatching its own rescue run: 263
 # rescue runs in the 2 hours to 12:30 UTC, and 59 of the last 60 did nothing.
@@ -37,9 +39,11 @@ run-name: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow
 #   vars.CI_NIGHTLY_TRUSTED_RUNNER a glaeda-runner-* label, attempt 1 of every
 #   push or schedule run on main asks for that one trusted mini, so every such
 #   run is watched (owned_pool_rescue.NIGHTLY_WORKFLOW_PATH).
-# The side lanes have no picker and are already covered by the periodic
-# sweeper. They stay in the script's target rules for explicit dispatches, but
-# no longer wake a fresh rescue through workflow_run.
+# The side lanes (owned_pool_rescue.SIDE_WORKFLOW_PATHS, every other workflow
+# owned_pool_sources.py finds on main or feat-cmux-next) have no picker and no
+# marker: the sweeper finds each failed run of one by path, which is when a
+# refused job's failed jobs can be re-run. They do not wake a fresh rescue
+# through workflow_run (one per run, #16076).
 # It needs actions: write, and its code comes from main. It runs whenever
 # owned pools are on (CI_PR_POOL_OWNED is 1), because a run on an owned pool
 # has no other way off it; CI_OWNED_POOL_RESCUE=0 turns it off. The switch
@@ -138,6 +142,17 @@ jobs:
           private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
           permission-actions: read
           permission-pull-requests: read
+
+      # The rescue reads a failed side-lane run's `needs` graph from its workflow file
+      # (owned_pool_rescue.downstream_of_refusals()), which needs PyYAML. Best effort:
+      # without it that check excuses nothing and the rescue runs as before.
+      - name: Prepare rescue Python
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/rescue-venv"
+          "$RUNNER_TEMP/rescue-venv/bin/python" -m pip install --disable-pip-version-check --no-input PyYAML==6.0.3
+          echo "$RUNNER_TEMP/rescue-venv/bin" >> "$GITHUB_PATH"
 
       - name: Watch runs on persistent pools
         env:

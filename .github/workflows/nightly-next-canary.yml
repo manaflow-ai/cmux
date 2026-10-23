@@ -8,11 +8,15 @@ name: nightly-next canary
 # crash in the first minute (scripts/smoke-signed-app-cli.sh --canary, from
 # the build's own commit). It covers either nightly-next writer, Mac or Linux.
 #
-# Repository variable NIGHTLY_NEXT_CANARY: unset or `report` opens or comments
-# on one `nightly-next canary failed` issue; `enforce` also pulls the build
-# off the feed (nightly-next-rollback.yml, bad_build = the build that failed);
-# `off` skips the canary. A schedule runs only from the default branch, so
-# this file lives on main. A pull request that changes the canary runs it on
+# Repository variable NIGHTLY_NEXT_CANARY, resolved by
+# scripts/ci/nightly_next_canary_mode.py (the same resolver as nightly.yml's
+# pre-publication canary): `report` opens or comments on one `nightly-next
+# canary failed` issue; `enforce` also pulls the build off the feed
+# (nightly-next-rollback.yml, bad_build = the build that failed), which then
+# starts the fix-forward; `off` skips the canary. Unset or `auto` reports until
+# NIGHTLY_NEXT_CANARY_ENFORCE_AFTER (default in the script, one week of report
+# mode) and enforces after it, unless the canary failed a build in that week.
+# A schedule runs only from the default branch, so this file lives on main. A pull request that changes the canary runs it on
 # the newest feed build with the pull request's own harness and pulls nothing.
 on:
   schedule:
@@ -29,6 +33,7 @@ on:
       - .github/workflows/nightly-next-canary.yml
       - scripts/smoke-signed-app-cli.sh
       - scripts/cmux-next/signed-app-canary-checks.py
+      - scripts/ci/nightly_next_canary_mode.py
 
 permissions: {}
 
@@ -46,13 +51,33 @@ jobs:
     if: github.repository == 'manaflow-ai/cmux' && vars.NIGHTLY_NEXT_CANARY != 'off' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-24.04
     timeout-minutes: 5
-    permissions: {}
+    permissions:
+      contents: read
+      issues: read # the report week of the auto flip
     outputs:
       build: ${{ steps.feed.outputs.build }}
       url: ${{ steps.feed.outputs.url }}
       length: ${{ steps.feed.outputs.length }}
       checked: ${{ steps.seen.outputs.cache-hit }}
+      mode: ${{ steps.mode.outputs.mode }}
     steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci/nightly_next_canary_mode.py
+          sparse-checkout-cone-mode: false
+
+      # report, enforce or off; the one-week auto flip reads the canary issue.
+      - name: Resolve the canary mode
+        id: mode
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NIGHTLY_NEXT_CANARY: ${{ vars.NIGHTLY_NEXT_CANARY }}
+          NIGHTLY_NEXT_CANARY_ENFORCE_AFTER: ${{ vars.NIGHTLY_NEXT_CANARY_ENFORCE_AFTER }}
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/nightly_next_canary_mode.py resolve | tee -a "$GITHUB_OUTPUT"
+
       - name: Read the feed
         id: feed
         env:
@@ -141,7 +166,15 @@ jobs:
           spctl -a -vv --type execute "$app"
           version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app/Contents/Info.plist")"
           [ "$version" = "$BUILD" ] || { echo "the DMG holds build $version, the feed says $BUILD" >&2; exit 1; }
-          echo "app=$app" >> "$GITHUB_OUTPUT"
+          # Run what a person runs: the app copied out of the DMG. Launched from the read-only,
+          # compressed mount, a cold start pages the bundle through hdiutil: the control socket
+          # took over 45 s to appear on hosted runners, and every good build failed (#22648).
+          installed="$RUNNER_TEMP/canary-app/$(basename "$app")"
+          mkdir -p "$RUNNER_TEMP/canary-app"
+          ditto "$app" "$installed"
+          codesign --verify --deep --strict "$installed"
+          spctl -a -vv --type execute "$installed"
+          echo "app=$installed" >> "$GITHUB_OUTPUT"
           echo "commit=$(/usr/libexec/PlistBuddy -c 'Print :CMUXCommit' "$app/Contents/Info.plist")" >> "$GITHUB_OUTPUT"
 
       # The harness runs from the build's own commit, so it speaks that
@@ -217,8 +250,40 @@ jobs:
           path: canary-verdict
           key: ${{ env.CANARY_CACHE_PREFIX }}${{ env.BUILD }}
 
-  # A failed canary: report it, and with NIGHTLY_NEXT_CANARY=enforce pull the
-  # build. A pull request's run only tests the harness and does neither.
+  # The durable verdict (nightly-next-verdict.yml writes verdicts/<build>.json
+  # next to the cmux NEXT appcast in R2). The train's base is the newest feed
+  # build whose verdict is `pass`; the Actions cache above only marks a build
+  # checked, and it expires.
+  verdict:
+    # The name carries the verdict: nightly-next-verdict.yml accepts a pass
+    # only from a run with a `verdict pass <build>` job (a skip also leaves the
+    # canary job green).
+    name: verdict ${{ needs.canary.outputs.verdict }} ${{ needs.pick.outputs.build }}
+    needs: [pick, canary]
+    if: always() && github.event_name == 'schedule' && needs.canary.outputs.verdict != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: write # dispatch nightly-next-verdict.yml
+    steps:
+      - name: Write the verdict to R2
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD: ${{ needs.pick.outputs.build }}
+          VERDICT: ${{ needs.canary.outputs.verdict }}
+        run: |
+          set -euo pipefail
+          # Until nightly-next carries nightly-next-verdict.yml (the next
+          # promotion after it lands), the dispatch fails: warn, keep the canary green.
+          if gh workflow run nightly-next-verdict.yml -R "$GITHUB_REPOSITORY" --ref nightly-next \
+            -f build="$BUILD" -f verdict="$VERDICT" -f canary_run="$GITHUB_RUN_ID"; then
+            echo "requested the $VERDICT verdict of build $BUILD"
+          else
+            echo "::warning title=nightly-next verdict::could not dispatch nightly-next-verdict.yml on nightly-next; build $BUILD has no durable verdict"
+          fi
+
+  # A failed canary: report it, and in enforce mode pull the build. A pull
+  # request's run only tests the harness and does neither.
   failed:
     needs: [pick, canary]
     if: always() && github.event_name != 'pull_request' && needs.canary.outputs.verdict == 'fail'
@@ -228,9 +293,9 @@ jobs:
       actions: write # dispatch nightly-next-rollback.yml
       issues: write # the nightly-next canary failed issue
     steps:
-      - name: Pull the build off the feed (NIGHTLY_NEXT_CANARY=enforce)
+      - name: Pull the build off the feed (enforce mode)
         id: pull
-        if: vars.NIGHTLY_NEXT_CANARY == 'enforce'
+        if: needs.pick.outputs.mode == 'enforce'
         env:
           GH_TOKEN: ${{ github.token }}
           BUILD: ${{ needs.pick.outputs.build }}
@@ -248,7 +313,7 @@ jobs:
         env:
           BUILD: ${{ needs.pick.outputs.build }}
           PULL: ${{ steps.pull.outcome }}
-          MODE: ${{ vars.NIGHTLY_NEXT_CANARY || 'report' }}
+          MODE: ${{ needs.pick.outputs.mode || 'report' }}
         with:
           script: |
             const title = 'nightly-next canary failed';
@@ -258,7 +323,7 @@ jobs:
               ? 'The pull of this build off the feed was requested (nightly-next-rollback.yml).'
               : process.env.PULL === 'failure'
                 ? `Requesting the pull FAILED, so the build is still on the feed. Pull it: ${pull}`
-                : `NIGHTLY_NEXT_CANARY is \`${process.env.MODE}\`, so the build stays on the feed. Pull it: ${pull}`;
+                : `The canary is in \`${process.env.MODE}\` mode, so the build stays on the feed. Pull it: ${pull}`;
             const body = `cmux NEXT build ${process.env.BUILD} failed the canary twice: ${run}\n\n${action}`;
             const open = await github.paginate(github.rest.issues.listForRepo, { ...context.repo, state: 'open', per_page: 100, creator: 'github-actions[bot]' });
             const issue = open.find(i => i.title === title && !i.pull_request);

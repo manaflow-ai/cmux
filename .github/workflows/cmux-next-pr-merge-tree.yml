@@ -15,7 +15,10 @@ name: cmux-next PR merge tree
 # environment, used by this job alone (deployment policy: main), and the
 # minted token is for this repository only. The App's ref is a push, which
 # starts cmux-tui-artifacts.yml (push: "**"); GITHUB_TOKEN only dispatches a
-# pin that already existed (the App has no actions permission).
+# pin that already existed (the App has no actions permission), and cancels
+# the artifacts runs still queued or running for this pull request's older
+# pins (publish_pr_merge_tree.py cancel_superseded_pins; each pin is its own
+# ref, so the artifacts workflow cannot group them by pull request).
 #
 # It runs none of the pull request's code: it checks out main, reads the merge
 # commit from the API and points cmux-tui-pin-<sha12> at it. That run is the

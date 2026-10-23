@@ -1,10 +1,13 @@
 """Fix-forward merging requires actual builds and same-base test evidence."""
+import contextlib
 import copy
+import io
 from datetime import datetime, timedelta, timezone
 import json
 import importlib.util
 from pathlib import Path
 import unittest
+from unittest import mock
 import signal
 import subprocess
 import tempfile
@@ -30,6 +33,23 @@ os.environ["GH_MERGE_GREEN_FREEZE_ISSUES"] = _NO_FREEZES.name
 os.environ["GH_MERGE_GREEN_FREEZE_EVENTS"] = _NO_FREEZES.name
 os.environ["GH_MERGE_GREEN_TEST"] = "1"
 HEAD = "a" * 40
+# Under GH_MERGE_GREEN_TEST the review receipt check reads GH_MERGE_GREEN_REVIEWS, never the
+# pull request. Every run gets an independent review's SHIP receipt on HEAD unless a test
+# passes its own; a test run without the fixture refuses.
+
+
+def reviews_fixture(*comments, head=HEAD):
+    """A pull request read for scripts/ci/review_receipt.py: comments are (body, createdAt)."""
+    handle = tempfile.NamedTemporaryFile("w", suffix="-reviews.json", delete=False)
+    json.dump({"headRefOid": head, "reviews": {"nodes": []}, "comments": {"nodes": [
+        {"createdAt": at, "body": body, "authorAssociation": "MEMBER", "author": {"__typename": "User", "login": "teamleaderleo"}}
+        for body, at in comments]}}, handle)
+    handle.close()
+    return handle.name
+
+
+SHIP_RECEIPT = f"Review (subagent, correctness first): SHIP at {HEAD}"
+os.environ["GH_MERGE_GREEN_REVIEWS"] = reviews_fixture((SHIP_RECEIPT, "2026-10-21T05:00:00Z"))
 MERGED_SHA = "d" * 40
 BASE = "b" * 40
 ANCESTOR = "c" * 40
@@ -73,6 +93,7 @@ jobs:
   cmux-scheme-compile:
     name: ${{ inputs.dev_daily == true && 'cmux NEXT DEV Release compile' || 'cmux app scheme compile (Debug)' }}
 """
+RATE_LIMITED = "<rate limited>"
 CI_WORKFLOW = """name: CI
 jobs:
   changes:
@@ -154,6 +175,20 @@ class MainFixEvidenceTests(unittest.TestCase):
 
     def validate(self):
         return module.validate("manaflow-ai/cmux", 42, self.gh)
+
+    def test_a_rate_limited_main_fix_exits_3(self):
+        class Limited:
+            def json(self, route, *, paginate=False):
+                raise module.RateLimited("GitHub rate-limited `gh api`; core 0 of 5000 left")
+        original = module.GitHub
+        module.GitHub = Limited
+        try:
+            with contextlib.redirect_stderr(io.StringIO()) as err:
+                status = module.main(["manaflow-ai/cmux#42", "--check-only"])
+        finally:
+            module.GitHub = original
+        self.assertEqual(status, 3)
+        self.assertIn("rate-limited:", err.getvalue())
 
     def test_green_requires_three_actual_builds(self):
         evidence = self.validate()
@@ -362,7 +397,7 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue(marker.exists(), result.stderr)
 
-    def run_helper(self, directory, marker, *, check_name="ci-status", check_conclusion="success", extra_checks=(), extra_args=(), event_log=None, labels=(), cmux_next_runs=(("completed", "success", 1),), changed_files=("docs/README.md",), cmux_next_workflow=None, is_cross_repository=False, pr_fields=None, base="feat-cmux-next", full=True, rollup=(), rollup_head=HEAD, excuse=None, files_rest_fails=False, rollup_base=None, base_after=None, base_workflow=None, protected_paths=PROTECTED_PATHS, rollup_files_limit=None, terminate_after=None):
+    def run_helper(self, directory, marker, *, check_name="ci-status", check_conclusion="success", extra_checks=(), extra_args=(), event_log=None, labels=(), cmux_next_runs=(("completed", "success", 1),), changed_files=("docs/README.md",), cmux_next_workflow=None, is_cross_repository=False, pr_fields=None, base="feat-cmux-next", full=True, rollup=(), rollup_head=HEAD, excuse=None, files_rest_fails=False, rollup_base=None, base_after=None, base_workflow=None, protected_paths=PROTECTED_PATHS, rollup_files_limit=None, terminate_after=None, rate_limit=None, check_paths=None, fast_gates_base=None, fast_gates_after=None, tip_sha=None, compare=None, reviews=None, reviews_final=None):
         """full=True keeps a feat-cmux-next merge on the full gate (--full) these
         tests were written for; full=False runs the default fast gate, whose
         `gh pr view --json statusCheckRollup` read returns rollup. excuse=(status, output)
@@ -398,9 +433,35 @@ class InstalledHelperRegression(unittest.TestCase):
         if base_workflow is None:
             base_workflow = cmux_next_workflow
         base_workflow_route = "printf '%s' " + shlex.quote(base_workflow) + "; exit 0" if base_workflow else "exit 1"
+        if base_workflow == RATE_LIMITED:
+            base_workflow_route = "echo 'gh: API rate limit exceeded for user ID 1. (HTTP 403)' >&2; exit 1"
         protected_route = "printf '%s' " + shlex.quote(protected_paths) + "; exit 0" if protected_paths is not None else "exit 1"
+        check_paths_route = ("printf '%s' " + shlex.quote(check_paths) + "; exit 0" if check_paths is not None
+                             else "echo 'gh: Not Found (HTTP 404)' >&2; exit 1")
+
+        def fast_status(base_sha, state="success", at="2026-10-21T13:00:00Z"):
+            return json.dumps({"statuses": [{"context": "cmux-next/fast-gates", "state": state, "updated_at": at,
+                                             "description": f"base {base_sha}",
+                                             "target_url": "https://example.test/runs/7"}] if base_sha else []})
+        # The head's cmux-next/fast-gates status: fast_gates_base before a dispatch, then fast_gates_after
+        # (base, state) once the check-path gate dispatched the workflow.
+        after = fast_status(*fast_gates_after, at="2026-10-21T14:12:00Z") if fast_gates_after else fast_status(fast_gates_base)
+        check_paths_reads = (
+            "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'commits/" + HEAD + "/status'; then "
+            "if [ -e \"$MERGE_MARKER.dispatched\" ]; then printf '%s\\n' " + shlex.quote(after) + "; "
+            "else printf '%s\\n' " + shlex.quote(fast_status(fast_gates_base)) + "; fi; exit 0; fi\n"
+            "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'branches/feat-cmux-next'; then "
+            "printf '%s\\n' " + shlex.quote(tip_sha or BASE) + "; exit 0; fi\n"
+            "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q '/compare/'; then printf '%s\\n' "
+            + shlex.quote(json.dumps(compare or {"status": "diverged", "ahead_by": 0, "files": []})) + "; exit 0; fi\n"
+            "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'cmux-next-fast-gates.yml/dispatches'; then "
+            "printf '%s\\n' dispatch >> \"$EVENT_LOG\"; touch \"$MERGE_MARKER.dispatched\"; exit 0; fi\n"
+        ) if check_paths is not None else ""
+        rate_limit_route = ("if [ \"$1 $2\" = 'api rate_limit' ]; then printf '%s\\n' "
+                            + shlex.quote(json.dumps({"resources": rate_limit})) + "; exit 0; fi\n") if rate_limit else ""
         gh.write_text(
             "#!/bin/sh\n"
+            + rate_limit_route +
             "if [ \"$1 $2\" = 'pr view' ] && printf '%s' \"$*\" | grep -q statusCheckRollup; then "
             "printf '%s\\n' " + rollup_payload + "; exit 0; fi\n"
             "if [ \"$1 $2\" = 'pr view' ] && [ -e \"$MERGE_MARKER\" ]; then "
@@ -422,11 +483,17 @@ class InstalledHelperRegression(unittest.TestCase):
             + base_workflow_route + "; fi\n"
             "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'contents/scripts/ci/merge-fast-gate-protected-paths.txt?ref=" + base + "'; then "
             + protected_route + "; fi\n"
+            # The check-path gate's list: not on the base (a 404) unless a test gives one.
+            "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'contents/scripts/ci/check-paths.txt'; then "
+            + check_paths_route + "; fi\n"
+            + check_paths_reads +
             "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'contents/.github/workflows/ci.yml?ref=" + HEAD + "'; then "
             "printf '%s' " + shlex.quote(CI_WORKFLOW) + "; exit 0; fi\n"
             "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'contents/.github/workflows/ci-web.yml?ref=" + HEAD + "'; then "
             "printf '%s' " + shlex.quote(CI_WEB_WORKFLOW) + "; exit 0; fi\n"
-            + ("if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'pulls/42/files.*filename'; then exit 1; fi\n"
+            + ("if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'pulls/42/files.*filename'; then "
+               + ("echo 'gh: API rate limit exceeded for user ID 1. (HTTP 403)' >&2; " if files_rest_fails == "quota" else "")
+               + "exit 1; fi\n"
                "if [ \"$1 $2\" = 'api graphql' ] && printf '%s' \"$*\" | grep -q 'files(first'; then printf '%s\\n' "
                + shlex.quote(json.dumps({"data": {"repository": {"pullRequest": {"files": {"nodes": [{"path": f} for f in changed_files], "pageInfo": {"hasNextPage": False}}}}}}))
                + "; exit 0; fi\n" if files_rest_fails else "") +
@@ -438,7 +505,11 @@ class InstalledHelperRegression(unittest.TestCase):
         )
         gh.chmod(0o755)
         argv = [str(ROOT / "scripts/gh-merge-green"), "manaflow-ai/cmux#42", *extra_args, "--squash"]
-        env = {**os.environ, "PATH": directory + os.pathsep + os.environ["PATH"], "MERGE_MARKER": str(marker), "EVENT_LOG": str(event_log or Path(directory) / "events"), "MERGE_ARGS_LOG": str(Path(directory) / "merge-args"), "GH_MERGE_GREEN_NO_AUTO_UPDATE": "1"}
+        env = {**os.environ, "PATH": directory + os.pathsep + os.environ["PATH"], "MERGE_MARKER": str(marker), "EVENT_LOG": str(event_log or Path(directory) / "events"), "MERGE_ARGS_LOG": str(Path(directory) / "merge-args"), "GH_MERGE_GREEN_NO_AUTO_UPDATE": "1", "GH_MERGE_GREEN_CHECK_PATHS_INTERVAL": "0"}
+        if reviews is not None:
+            env["GH_MERGE_GREEN_REVIEWS"] = reviews
+        if reviews_final is not None:
+            env["GH_MERGE_GREEN_REVIEWS_FINAL"] = reviews_final
         if terminate_after is None:
             return subprocess.run(argv, env=env, capture_output=True, text=True)
         # A caller's timeout: SIGTERM to the whole group while the gate still waits.
@@ -673,6 +744,73 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertIn("still waiting for the gate's lanes when stopped", summary[0])
             self.assertNotIn("nothing reported", summary[0])
 
+    def test_a_wait_that_runs_out_names_the_queued_lane_in_the_summary(self):
+        """2026-10-20: #22200's --wait ran out with the fast tier still QUEUED, and the summary
+        read `fast gate: nothing reported; waited 0m00s, 898s in all`."""
+        queued = tuple(("cmux-next fast tier", "queued", "") if name == "cmux-next fast tier" else (name, status, c)
+                       for name, status, c in self.FAST_GREEN)
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=queued,
+                                     extra_args=("--wait", "0"))
+            self.assertNotEqual(result.returncode, 0, result.stderr)
+            self.assertFalse(marker.exists())
+            summary = [line for line in result.stderr.splitlines() if line.startswith("gh-merge-green:")]
+            self.assertEqual(len(summary), 1, result.stderr)
+            self.assertIn("--wait ran out with cmux-next fast tier (queued) not done", summary[0])
+            self.assertNotIn("nothing reported", summary[0])
+
+    RATE_SPENT = {"core": {"limit": 5000, "remaining": 0, "reset": 4102444800},
+                  "graphql": {"limit": 5000, "remaining": 4800, "reset": 4102444800}}
+
+    def test_a_spent_rest_quota_refuses_at_once_with_the_reset_time(self):
+        """2026-10-20: GraphQL was rate-limited, the REST fallback was too, and gh-merge-green
+        refused only about 30 minutes later, with no reset time."""
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=self.FAST_GREEN,
+                                     rate_limit=self.RATE_SPENT)
+            self.assertEqual(result.returncode, 75, result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("rate-limited:", result.stderr)
+            self.assertIn("core 0 of 5000 left, resets 00:00:00Z", result.stderr)
+            summary = [line for line in result.stderr.splitlines() if line.startswith("gh-merge-green:")]
+            self.assertEqual(len(summary), 1, result.stderr)
+            self.assertIn("refused (GitHub rate limit)", summary[0])
+
+    def test_a_rate_limited_paths_filter_read_refuses_before_the_wait(self):
+        """Review on #22443: a rate-limited read of the base's paths filter counted as covered,
+        and the fast gate then waited out --wait for routing that never came."""
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, full=False, changed_files=("docs/README.md",), rollup=(),
+                                     base_workflow=RATE_LIMITED, extra_args=("--wait", "600"))
+            self.assertEqual(result.returncode, 75, result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("rate-limited: GitHub rate-limited gh api", result.stderr)
+
+    def test_a_red_after_a_recovered_rate_limited_read_is_still_a_red(self):
+        """Review on #22443: the REST file list was rate-limited and its GraphQL fallback answered;
+        a genuine red after it is an ordinary refusal (exit 1), not a rate limit."""
+        rollup = [c for c in self.FAST_GREEN if c[0] != "cmux-next fast tier"] + [("cmux-next fast tier", "completed", "failure")]
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=rollup,
+                                     files_rest_fails="quota", excuse=(1, "not excused: the head's own red"))
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertIn("used GraphQL fallback", result.stderr)
+            self.assertNotIn("rate-limited:", result.stderr)
+
+    def test_a_rate_limited_base_comparison_refuses_as_rate_limited(self):
+        rollup = [c for c in self.FAST_GREEN if c[0] != "cmux-next fast tier"] + [("cmux-next fast tier", "completed", "failure")]
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=rollup,
+                                     excuse=(3, "rate-limited: core 0 of 5000 left"))
+            self.assertEqual(result.returncode, 75, result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("rate-limited:", result.stderr)
+
     def test_the_fast_gate_refuses_a_red_fast_lane_or_a_red_gating_check(self):
         for red in (("cmux-next fast tier", "completed", "failure"),
                     ("cmux-next Swift canary", "completed", "failure"),
@@ -734,6 +872,69 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertTrue(marker.exists())
             self.assertEqual(events.read_text().splitlines(), ["comment", "merge"])
             self.assertIn(f"--override waives {self.LINT}", result.stderr)
+
+    # The check-path gate (scripts/ci/merge_check_paths.py, tests/test_merge_check_paths.py): 2026-10-21, #22975
+    # merged after #23365 landed check:fixed-waits on the base and never ran it.
+    CHECK_PATHS = "webviews/scripts/check-*\n.github/workflows/ci-web.yml\n"
+    LANDED = {"status": "ahead", "ahead_by": 1, "files": [".github/workflows/ci-web.yml", "webviews/scripts/check-fixed-waits.ts"]}
+
+    def test_the_check_path_gate_passes_a_fresh_fast_gates_result(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker, events = Path(directory) / "merged", Path(directory) / "events"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=self.FAST_GREEN,
+                                     event_log=events, check_paths=self.CHECK_PATHS, fast_gates_base=ANCESTOR,
+                                     tip_sha=ANCESTOR)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
+            self.assertEqual(events.read_text().splitlines(), ["merge"])
+            self.assertIn("check paths fresh", result.stdout + result.stderr)
+
+    def test_replay_of_22975_the_check_path_gate_reruns_the_fast_gates_and_refuses_their_red(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker, events = Path(directory) / "merged", Path(directory) / "events"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=self.FAST_GREEN,
+                                     event_log=events, check_paths=self.CHECK_PATHS, fast_gates_base=ANCESTOR,
+                                     fast_gates_after=(MERGED_SHA, "failure"), tip_sha=MERGED_SHA,
+                                     compare=self.LANDED)
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertEqual(events.read_text().splitlines(), ["dispatch"])
+            self.assertIn("has changed the check path .github/workflows/ci-web.yml since", result.stderr)
+            self.assertIn("check-path gate", result.stderr)
+
+    def test_the_check_path_gate_merges_on_the_reruns_fresh_success(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker, events = Path(directory) / "merged", Path(directory) / "events"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=self.FAST_GREEN,
+                                     event_log=events, check_paths=self.CHECK_PATHS, fast_gates_base=ANCESTOR,
+                                     fast_gates_after=(MERGED_SHA, "success"), tip_sha=MERGED_SHA,
+                                     compare=self.LANDED)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
+            self.assertEqual(events.read_text().splitlines(), ["dispatch", "merge"])
+
+    def test_override_waives_the_check_path_gates_red(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker, events = Path(directory) / "merged", Path(directory) / "events"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=self.FAST_GREEN,
+                                     event_log=events, check_paths=self.CHECK_PATHS, fast_gates_base=ANCESTOR,
+                                     fast_gates_after=(MERGED_SHA, "failure"), tip_sha=MERGED_SHA,
+                                     compare=self.LANDED, extra_args=("--override", self.OVERRIDE))
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
+            self.assertIn("merge", events.read_text().splitlines())
+            self.assertIn("--override waives the check-path gate", result.stderr)
+
+    def test_a_dry_run_dispatches_nothing_for_a_stale_check_path(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker, events = Path(directory) / "merged", Path(directory) / "events"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=self.FAST_GREEN,
+                                     event_log=events, check_paths=self.CHECK_PATHS, fast_gates_base=ANCESTOR,
+                                     tip_sha=MERGED_SHA, compare=self.LANDED, extra_args=("--dry-run",))
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertFalse(events.exists() and "dispatch" in events.read_text())
+            self.assertIn("a merge would dispatch", result.stderr)
 
     def test_a_red_fast_lane_the_base_shares_merges_on_the_fast_gate(self):
         rollup = [c for c in self.FAST_GREEN if c[0] != "cmux-next fast tier"] + [("cmux-next fast tier", "completed", "failure")]
@@ -896,6 +1097,83 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertFalse(marker.exists())
             self.assertIn("react-apps-check", result.stderr)
+
+    def test_feat_next_refuses_a_head_with_no_review_receipt(self):
+        """2026-10-21: cmux#22899 merged before its re-review, which then found cmux#22988, and
+        #22911 merged before its green run. Into feat-cmux-next a head merges only with an
+        independent review's SHIP receipt for that exact head, as next-autoland requires."""
+        old = reviews_fixture((f"Review (subagent, correctness first): SHIP at {'b' * 40}", "2026-10-21T05:00:00Z"))
+        for name, reviews in (("none", reviews_fixture()), ("an older head", old)):
+            for full in (False, True):
+                with self.subTest(receipt=name, full=full), tempfile.TemporaryDirectory() as directory:
+                    marker = Path(directory) / "merged"
+                    result = self.run_helper(directory, marker, full=full, changed_files=self.SWIFT, rollup=self.FAST_GREEN,
+                                             reviews=reviews)
+                    self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertFalse(marker.exists())
+                    self.assertIn("no SHIP review receipt", result.stderr)
+                    self.assertIn(f"Review (subagent, correctness first): SHIP at {HEAD}", result.stderr)
+
+    def test_override_cannot_waive_the_review_receipt(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker, events = Path(directory) / "merged", Path(directory) / "events"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=self.FAST_GREEN,
+                                     extra_args=("--override", self.OVERRIDE), event_log=events, reviews=reviews_fixture())
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("no SHIP review receipt", result.stderr)
+            self.assertIn("--override cannot waive", result.stderr)
+            self.assertFalse(events.exists() and "comment" in events.read_text(), "posted an override for a refused merge")
+
+    def test_a_newer_block_on_the_head_beats_its_ship(self):
+        reviews = reviews_fixture((SHIP_RECEIPT, "2026-10-21T05:00:00Z"),
+                                  (f"Independent review (codex): BLOCK at {HEAD[:12]}: drops a lock", "2026-10-21T06:00:00Z"))
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=self.FAST_GREEN,
+                                     reviews=reviews)
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("no SHIP review receipt", result.stderr)
+
+    def test_a_block_posted_during_the_wait_refuses_before_the_override_comment(self):
+        """The receipt is read again right before the merge, ahead of the merge-override and
+        merge-source-trust comments: a BLOCK posted while the gate waited stops the merge and
+        leaves no override on the record for a merge that never happened."""
+        during = reviews_fixture((SHIP_RECEIPT, "2026-10-21T05:00:00Z"),
+                                 (f"Independent review (codex): BLOCK at {HEAD[:12]}: drops a lock", "2026-10-21T06:00:00Z"))
+        with tempfile.TemporaryDirectory() as directory:
+            marker, events = Path(directory) / "merged", Path(directory) / "events"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=self.FAST_GREEN,
+                                     extra_args=("--override", self.OVERRIDE), event_log=events, reviews_final=during)
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("no SHIP review receipt", result.stderr)
+            self.assertFalse(events.exists() and "comment" in events.read_text(), "posted an override for a refused merge")
+
+    def test_the_receipt_is_named_when_the_head_merges(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=self.FAST_GREEN)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
+            self.assertIn("review receipt", result.stderr)
+
+    def test_main_does_not_need_a_review_receipt(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, full=False, base="main", reviews=reviews_fixture())
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
+
+    def test_a_test_run_without_the_reviews_fixture_refuses(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=self.FAST_GREEN,
+                                     reviews="")
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("GH_MERGE_GREEN_REVIEWS", result.stderr)
 
     def test_main_keeps_the_full_wait_without_full(self):
         """Only feat-cmux-next gets the fast gate: a main PR with green fast lanes and a
@@ -1108,6 +1386,9 @@ class InstalledHelperRegression(unittest.TestCase):
                   touch "$MERGE_MARKER"
                   exit 0
                 fi
+                if [ "$1" = api ] && printf '%s' "$*" | grep -q 'contents/scripts/ci/check-paths.txt'; then
+                  echo 'gh: Not Found (HTTP 404)' >&2; exit 1
+                fi
                 if [ "$1" = api ] && printf '%s' "$*" | grep -q '/contents/'; then
                   printf '%s\\n' 'HTTP/2.0 200'; exit 0
                 fi
@@ -1176,6 +1457,9 @@ class WorkflowPresenceRegression(unittest.TestCase):
                     pass
                 elif a[:2] == ['pr', 'merge']:
                     Path(os.environ['MERGE_MARKER']).touch()
+                elif a[0] == 'api' and any('contents/scripts/ci/check-paths.txt' in arg for arg in a):
+                    print('gh: Not Found (HTTP 404)', file=sys.stderr)
+                    sys.exit(1)
                 elif a[0] == 'api' and any('/contents/' in arg for arg in a):
                     present = x['app_workflow'] if any('ci-macos.yml' in arg for arg in a) else x['workflow']
                     code = 200 if present else x['probe_status']
@@ -1392,6 +1676,10 @@ class WorkflowPresenceRegression(unittest.TestCase):
 class HelperCheckoutUpdateRegression(unittest.TestCase):
     """The symlinked helper refreshes only a clean main checkout."""
 
+    # The caller's settings that change what the helper does before it reads a PR: the installer's
+    # GH_MERGE_GREEN_NO_AUTO_UPDATE=1 skips this very update, and GH_REPO/GH_HOST point gh elsewhere.
+    CALLER = ("GH_MERGE_GREEN_NO_AUTO_UPDATE", "GH_MERGE_GREEN_HOME", "GH_REPO", "GH_HOST")
+
     def invoke(self, mode):
         with tempfile.TemporaryDirectory() as directory:
             directory = Path(directory)
@@ -1412,9 +1700,11 @@ class HelperCheckoutUpdateRegression(unittest.TestCase):
                     stream.write(' '.join(a) + '\\n')
                 if a[-2:] == ['rev-parse', '--show-toplevel']:
                     print(os.environ['CHECKOUT'])
-                elif a[-2:] == ['status', '--porcelain'] or a[-3:] == ['status', '--porcelain', '--untracked-files=all']:
+                elif 'status' in a and '--porcelain' in a:
                     if os.environ['MODE'] == 'dirty':
                         print(' M scripts/gh-merge-green')
+                    elif os.environ['MODE'] == 'untracked' and '--untracked-files=no' not in a:
+                        print('?? .metadata_never_index')
                 elif a[-2:] == ['branch', '--show-current']:
                     print('main')
                 elif a[-2:] == ['rev-parse', 'refs/remotes/origin/main']:
@@ -1422,7 +1712,7 @@ class HelperCheckoutUpdateRegression(unittest.TestCase):
                 elif a[-2:] == ['rev-parse', 'HEAD']:
                     print('a' * 40)
                 elif 'merge-base' in a and '--is-ancestor' in a:
-                    if os.environ['MODE'] == 'behind' and a[-2:] == ['a' * 40, 'b' * 40]:
+                    if os.environ['MODE'] in ('behind', 'untracked') and a[-2:] == ['a' * 40, 'b' * 40]:
                         sys.exit(0)
                     sys.exit(1)
                 elif 'merge' in a and '--ff-only' in a:
@@ -1438,7 +1728,8 @@ class HelperCheckoutUpdateRegression(unittest.TestCase):
             fake_gh.chmod(0o755)
             result = subprocess.run(
                 [str(ROOT / "scripts/gh-merge-green"), "manaflow-ai/cmux#42"],
-                env={**os.environ, "PATH": str(directory) + os.pathsep + os.environ["PATH"],
+                env={**{k: v for k, v in os.environ.items() if k not in self.CALLER},
+                     "PATH": str(directory) + os.pathsep + os.environ["PATH"],
                      "CHECKOUT": str(checkout), "GIT_LOG": str(log), "MODE": mode,
                      "UPDATE_MARKER": str(directory / "updated")},
                 capture_output=True, text=True,
@@ -1446,6 +1737,20 @@ class HelperCheckoutUpdateRegression(unittest.TestCase):
             marker = directory / "updated"
             diagnostics = (result, marker.exists(), marker.read_text() if marker.exists() else "", log.read_text() if log.exists() else "", result.stderr)
             return diagnostics
+
+    def test_the_installers_environment_does_not_skip_the_update(self):
+        """install-gh-merge-green.sh runs these tests with GH_MERGE_GREEN_NO_AUTO_UPDATE=1 (its pinned snapshot must
+        not move), and a session may export GH_REPO or GH_HOST. Inheriting them skipped the update under test, so
+        the helper went on to read the PR: cosmic-gray's installer refused every main from 538ade5724 (2026-10-21)
+        with "not green: cannot read manaflow-ai/cmux#42" while a bare run passed."""
+        caller = {"GH_MERGE_GREEN_NO_AUTO_UPDATE": "1", "GH_MERGE_GREEN_HOME": "/nonexistent",
+                  "GH_REPO": "someone/else", "GH_HOST": "github.example.com"}
+        with mock.patch.dict(os.environ, caller):
+            result, marker_exists, marker_content, log, stderr = self.invoke("behind")
+            self.assertEqual(result.returncode, 0, stderr + "\n" + log)
+            self.assertTrue(marker_exists, stderr + "\n" + log)
+            result, marker_exists, marker_content, log, stderr = self.invoke("dirty")
+            self.assertIn("dirty", stderr)  # the update ran and refused; the PR read after it is the fake gh's
 
     def test_clean_main_checkout_fast_forwards_and_reexecutes(self):
         result, marker_exists, marker_content, log, stderr = self.invoke("behind")
@@ -1462,6 +1767,17 @@ class HelperCheckoutUpdateRegression(unittest.TestCase):
         self.assertIn("checkout", stderr)
         self.assertIn("dirty", stderr)
         self.assertIn("REPAIR.md#merging", stderr)
+
+    def test_an_untracked_file_alone_does_not_stop_the_update(self):
+        """cosmic-gray's helper checkout sat 14 h behind main (2026-10-21): its only change was
+        Spotlight's untracked .metadata_never_index. An untracked file can't be lost by a
+        fast-forward (git refuses one that would overwrite it), so only tracked edits block."""
+        result, marker_exists, marker_content, log, stderr = self.invoke("untracked")
+        self.assertEqual(result.returncode, 0, stderr + "\n" + log)
+        self.assertTrue(marker_exists, stderr + "\n" + log)
+        self.assertEqual(marker_content, "updated")
+        self.assertNotIn("dirty", stderr)
+        self.assertIn("merge --ff-only", log)
 
     def test_diverged_checkout_warns_and_does_not_update(self):
         result, marker_exists, marker_content, log, stderr = self.invoke("diverged")
@@ -1806,7 +2122,8 @@ class MergedHeadChecksRegression(unittest.TestCase):
             result = InstalledHelperRegression.run_helper(
                 self, directory, marker, changed_files=tuple(changed_files or pr_files), is_cross_repository=fork,
                 extra_args=((*extra_args, "--trust-fork-head", head) if trust_head else extra_args),
-                full=full, rollup=() if full else InstalledHelperRegression.FAST_GREEN, rollup_head=head)
+                full=full, rollup=() if full else InstalledHelperRegression.FAST_GREEN, rollup_head=head,
+                reviews=reviews_fixture((f"Review (subagent, correctness first): SHIP at {head}", "2026-10-21T05:00:00Z"), head=head))
         finally:
             HEAD = saved[0]
             os.environ["PATH"] = saved[2]
@@ -2034,6 +2351,9 @@ FIXTURE_GH = "#!/usr/bin/env python3\n" + textwrap.dedent(r"""
         Path(os.environ['MERGE_MARKER']).write_text(joined)
     elif a[:2] == ['run', 'view']:
         print(x['logs'][a[a.index('--job') + 1]])
+    elif a[0] == 'api' and any('contents/scripts/ci/check-paths.txt' in arg for arg in a):
+        print('gh: Not Found (HTTP 404)', file=sys.stderr)
+        sys.exit(1)
     elif a[0] == 'api' and any('/contents/' in arg for arg in a):
         print('HTTP/2.0 200')
     else:
@@ -2234,6 +2554,7 @@ class GhMergeGreenRestFallbackTests(unittest.TestCase):
         merge_quota=True,
         fork=False,
         rest_merge_error=False,
+        rest_quota=False,
     ):
         helper = ROOT / "scripts" / "gh-merge-green"
         head_repo = "fork/repo" if fork else "example/repo"
@@ -2275,6 +2596,10 @@ class GhMergeGreenRestFallbackTests(unittest.TestCase):
                       done
                       case "$path" in
                         repos/example/repo/pulls/123)
+                          if [ "{int(rest_quota)}" = 1 ]; then
+                            echo "gh: API rate limit exceeded for user ID 1. (HTTP 403)" >&2
+                            exit 1
+                          fi
                           cat <<'JSON'
                     {{"number":123,"state":"open","head":{{"sha":"{HEAD}","repo":{{"full_name":"{head_repo}"}}}},"base":{{"ref":"main","repo":{{"full_name":"example/repo"}}}},"labels":[]}}
                     JSON
@@ -2358,6 +2683,12 @@ class GhMergeGreenRestFallbackTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("rest merge failed", result.stderr.lower())
         self.assertTrue(any("pulls/123/merge" in call for call in calls))
+
+    def test_quota_error_on_graphql_and_rest_refuses_as_rate_limited(self):
+        result, calls = self.run_rest_fixture(merge_args=("--squash",), rest_quota=True)
+        self.assertEqual(result.returncode, 75, result.stderr)
+        self.assertIn("rate-limited:", result.stderr)
+        self.assertFalse(any("pulls/123/merge" in call for call in calls))
 
     def test_rest_fork_metadata_accepts_explicit_exact_head_trust(self):
         result, calls = self.run_rest_fixture(

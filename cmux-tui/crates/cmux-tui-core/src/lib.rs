@@ -90,6 +90,7 @@ pub use mux::{IDLE_CLOSE_REAP_INTERVAL, IdleTerminalReaper, start_idle_terminal_
 pub use pairing::{PairingChallenge, PairingDecision, PairingError};
 pub use resource_api::{ResourceMachineRequest, ResourceMachineService};
 pub use resource_selector::{ResolvedResourcePath, ResourceSelectors, ResourceTarget};
+pub use shell_integration::AGENT_SHIMS_ENV;
 pub use short_id::assign_short_ids;
 pub use surface::{
     AttachFrame, AttachFrameReceiver, AttachStream, BrowserAttachState, BrowserFrame,

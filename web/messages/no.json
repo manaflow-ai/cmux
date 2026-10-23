@@ -3449,6 +3449,7 @@
     "unsupportedParams": "Denne koblingen inneholder parametere som ikke støttes cmux vil avvise: {params}",
     "conflictingParams": "Denne koblingen inneholder parametere som ikke kan brukes sammen: {params}",
     "invalidParams": "Denne koblingen inneholder ugyldige parameterverdier: {params}",
+    "ignoredParams": "cmux ignorerer parametere den ikke bruker: {params}. Økten åpnes likevel.",
     "fixParams": "Fiks URL-parametrene, og last deretter inn denne siden på nytt.",
     "examplePrefix": "Se en",
     "exampleLink": "eksempel lenke",
@@ -5520,6 +5521,8 @@
     "errorInvalidCode": "Koden er ikke gyldig. Sjekk e-posten og prøv igjen.",
     "errorInvalidTotp": "Tofaktorkoden er ikke gyldig.",
     "errorSignUpNotAllowed": "Nye kontoer kan ikke opprettes akkurat nå.",
+    "errorEmailUnverified": "Denne e-postadressen har allerede en konto, men adressen er ikke bekreftet ennå. Logg inn slik du registrerte deg, og bekreft deretter e-postadressen din for å bruke innloggingskoder.",
+    "useEmailPasswordInstead": "Logg inn med e-post og passord",
     "errorPasskey": "Innlogging med passnøkkel ble ikke fullført. Prøv igjen eller bruk en annen metode.",
     "errorGeneric": "Noe gikk galt. Prøv igjen."
   },

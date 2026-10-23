@@ -45,7 +45,10 @@ concurrency:
 jobs:
   analyze:
     name: Analyze
-    if: ${{ github.repository == 'manaflow-ai/cmux' && contains(fromJSON('["success","failure","timed_out","startup_failure","action_required","cancelled"]'), github.event.workflow_run.conclusion) && (github.event.workflow_run.event == 'pull_request' || github.event.workflow_run.head_branch == 'main') }}
+    # A CI run of a pull request into feat-cmux-next has no fast-guard verdict: that branch's
+    # ci.yml skips `fast-guards` for its pull requests (cmux-next has its own lanes), so its
+    # analysis always ended "no completed verdict" after reading the run's jobs. Skipped here.
+    if: ${{ github.repository == 'manaflow-ai/cmux' && contains(fromJSON('["success","failure","timed_out","startup_failure","action_required","cancelled"]'), github.event.workflow_run.conclusion) && (github.event.workflow_run.event == 'pull_request' || github.event.workflow_run.head_branch == 'main') && !(github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.path == '.github/workflows/ci.yml' && github.event.workflow_run.pull_requests[0].base.ref == 'feat-cmux-next') }}
     # Analysis only reads trusted main history and the Actions/PR APIs. It
     # needs no secret or write token, so use the shared Linux runner pool.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
@@ -75,6 +78,25 @@ jobs:
           permission-contents: read
           permission-issues: write
           permission-pull-requests: write
+
+      # Reads draw on the manaflow-glaeda-route App's own budget, not the GITHUB_TOKEN
+      # budget every workflow shares (it ran out on 2026-10-21); a refused read falls back to
+      # GH_TOKEN (guard_attribution.GitHub). The guard steps it runs never see either token.
+      - name: Mint the glaeda-route token
+        id: glaeda-token
+        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-actions: read
+          permission-contents: read
+          permission-issues: read
+          permission-pull-requests: read
 
       - name: Checkout main with history
         # A red fast guard on main is bisected: main's history, without blobs
@@ -110,6 +132,7 @@ jobs:
         id: analyze
         env:
           GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
+          READ_TOKEN: ${{ steps.cmux-bot-token.outputs.token || steps.glaeda-token.outputs.token }}
         run: python3 scripts/ci/guard_attribution.py analyze --out "$RUNNER_TEMP/guard-report.json"
 
       - name: Upload the report
@@ -145,6 +168,22 @@ jobs:
           permission-contents: read
           permission-issues: write
           permission-pull-requests: write
+
+      # Reads (the PR's comments, the tracking issues) on the App's budget; the comment and
+      # issue writes stay on GH_TOKEN, since pr_status finds the status comment by its author.
+      - name: Mint the glaeda-route token
+        id: glaeda-token
+        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-issues: read
+          permission-pull-requests: read
 
       - name: Checkout main's analyzed head
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -214,6 +253,7 @@ jobs:
       - name: Comment, and open, update or close the tracking issue
         env:
           GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
+          READ_TOKEN: ${{ steps.cmux-bot-token.outputs.token || steps.glaeda-token.outputs.token }}
           FIX_PR: ${{ steps.fix-pr.outputs.url }}
         run: |
           set -euo pipefail

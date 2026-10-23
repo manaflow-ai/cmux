@@ -3449,6 +3449,7 @@
     "unsupportedParams": "이 링크에는 cmux에서 거부할 지원되지 않는 매개변수가 포함되어 있습니다: {params}",
     "conflictingParams": "이 링크에는 함께 사용할 수 없는 매개변수가 포함되어 있습니다: {params}",
     "invalidParams": "이 링크에는 잘못된 매개변수 값이 포함되어 있습니다: {params}",
+    "ignoredParams": "cmux는 사용하지 않는 매개변수를 무시합니다: {params}. 세션은 그대로 열립니다.",
     "fixParams": "URL 매개변수를 수정한 후 이 페이지를 새로고침하세요.",
     "examplePrefix": "참조",
     "exampleLink": "예시 링크",
@@ -5520,6 +5521,8 @@
     "errorInvalidCode": "유효하지 않은 코드입니다. 이메일을 확인하고 다시 시도하세요.",
     "errorInvalidTotp": "유효하지 않은 2단계 인증 코드입니다.",
     "errorSignUpNotAllowed": "지금은 새 계정을 만들 수 없습니다.",
+    "errorEmailUnverified": "이 이메일에는 이미 계정이 있지만 주소가 아직 인증되지 않았습니다. 가입할 때 사용한 방법으로 로그인한 다음 이메일을 인증하면 로그인 코드를 사용할 수 있습니다.",
+    "useEmailPasswordInstead": "이메일과 비밀번호로 로그인",
     "errorPasskey": "패스키 로그인이 완료되지 않았습니다. 다시 시도하거나 다른 방법을 사용하세요.",
     "errorGeneric": "문제가 발생했습니다. 다시 시도하세요."
   },
