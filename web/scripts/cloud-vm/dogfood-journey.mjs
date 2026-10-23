@@ -447,7 +447,6 @@ function summary(outcome) {
       imageVersion: outcome.vm?.imageVersion,
       machineId: outcome.vm?.id,
       attachState: operationState("attach"),
-      privateReachability: Boolean(outcome.transportPath),
       networkState: outcome.privateReachability === true ? "completed" : "unverified",
       transportPath: outcome.transportPath,
       terminalState: operationState("restoredTerminal"),
@@ -522,7 +521,6 @@ try {
   result.listedFields = Object.keys(listed).sort();
   const route = privateRoute(listed) ?? privateRoute(created);
   if (!route) throw new Error("the VM has no private address in create or list");
-  result.privateReachability = true;
 
   const keys = wireGuardKeypair();
   deviceId = `dogfood-${suffix}`;
@@ -592,6 +590,7 @@ try {
     return startLink();
   });
   let localSocket = connected.local_socket;
+  result.privateReachability = true;
   result.transportPath = connected.connection?.transport?.selected_path?.kind ?? null;
 
   // The shell computes the suffix, so the echoed command line never matches.
@@ -741,6 +740,7 @@ try {
     .filter((name) => !result[name].ok);
   if (result.linkDownPauseOk === false) failedProbes.push("linkDownPause");
   await cleanup();
+  if (cleanupState !== "completed") failedProbes.push("cleanup");
   const output = summary({
     ok: failedProbes.length === 0,
     ...(failedProbes.length > 0 ? { stage: failedProbes[0], error: `failed probes: ${failedProbes.join(", ")}` } : {}),
