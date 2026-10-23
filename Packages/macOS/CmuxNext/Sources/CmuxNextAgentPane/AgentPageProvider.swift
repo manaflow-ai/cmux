@@ -33,7 +33,7 @@ public nonisolated struct AgentPageOps {
         var methods = Dictionary(uniqueKeysWithValues: [
             "pane.checkpointAvailability", "pane.framePacing", "pane.painted", "pane.renderRate", "pane.saveLog", "pane.saveFile", "pane.showContextUsage", "pane.showDictation", "pane.setDisplay",
             "pane.edit", "pane.setQuickActions", "tab.open", "run.attach", "tab.typeAhead", "tab.jump",
-            "newTab.remember", "newTab.setTemplate", "newTab.editWidgets", "nowPlaying.command", "importCards.act", "newTab.inputReady", "newTab.touched", "newTab.context", "newTab.warm", "shortcut.edit", "action.run", "file.open", "browser.open",
+            "newTab.remember", "newTab.setTemplate", "newTab.editWidgets", "nowPlaying.command", "newTab.inputReady", "newTab.touched", "newTab.context", "newTab.warm", "shortcut.edit", "action.run", "file.open", "browser.open",
             "project.list", "project.icon", "project.browse", "workspace.chooseFolder", "workspace.useFolder", "chat.folder.choose", "chat.attach.choose", "chat.attach.dropped", "app.action", "chats.open", "chats.openInTerminal", "chats.watch", "chats.page",
             "quick.dismiss", "quick.openInWindow", "quick.startInBackground", "quick.setOnTop", "quick.setCollapsed", "quick.floatingState", "quick.context", "pane.action", "pane.tabState", "pane.tabRowTools", "chat.toolCard.respond", "chat.upload", "chat.sideChat", "chat.subagentPane", "chat.processTerminal", "chat.openTab", "chat.offer.open", "chat.asks.open", "chat.newHere", "chat.unsentDraft", "chat.scrollAnchor", "chat.scrollAnchor.get", "chat.tail", "chat.tail.get", "chat.draftAttachments", "chat.draftAttachments.get", "chat.asks.pending",
             "shell.run", "shell.read", "shell.stop", "harness.update", "harness.restart",
@@ -128,7 +128,7 @@ public final class AgentPageProvider: PageProvider {
 
     /// The value of an ``AgentPaneReply``, or its failure as a ``PageError``. The model's code and
     /// message are kept; its `origin` and `details` travel in the error's details.
-    nonisolated static func value(of reply: [String: Any]) throws -> JSONValue {
+    public nonisolated static func value(of reply: [String: Any]) throws -> JSONValue {
         if reply["ok"] as? Bool == true {
             guard let value = reply["value"] else { return .null }
             guard let json = JSONValue(foundation: value) else {

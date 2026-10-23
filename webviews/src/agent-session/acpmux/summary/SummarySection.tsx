@@ -15,6 +15,7 @@ export function SummarySection<T>({
   lead,
   footer,
   action,
+  keep = false,
 }: {
   title: string;
   items: readonly T[];
@@ -23,10 +24,12 @@ export function SummarySection<T>({
   footer?: React.ReactNode;
   /// A control at the title's end (Sources' Attach files or folders).
   action?: React.ReactNode;
+  /// Draw the section with nothing to list (Sources while its + offers Use tools).
+  keep?: boolean;
 }) {
   const t = useT();
   const [all, setAll] = useState(false);
-  if (items.length === 0 && !lead && !footer) return null;
+  if (items.length === 0 && !lead && !footer && !keep) return null;
   const heading = action ? (
     <div className="acpmux-summary-heading">
       <h3 className="acpmux-summary-title">{title}</h3>

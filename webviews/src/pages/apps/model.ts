@@ -18,10 +18,29 @@ export function parseLayout(value: string | null | undefined): StoreLayout {
   return value === "list" || value === "split" ? value : "grid";
 }
 
+/**
+ * How Discover draws a listing card (`card=` in the route, like `layout=`): `standard` is the
+ * default; `compact` and `artwork` are DEV variants shown in the gallery (design/app-store.md).
+ */
+export type CardStyle = "standard" | "compact" | "artwork";
+
+export function parseCardStyle(value: string | null | undefined): CardStyle {
+  return value === "compact" || value === "artwork" ? value : "standard";
+}
+
+/** A listing's state on its card: not installed, installed and on, or installed and turned off. */
+export type ItemState = "available" | "installed" | "off";
+
+export function itemState(app: { installed: boolean; enabled?: boolean }): ItemState {
+  if (!app.installed) return "available";
+  return app.enabled === false ? "off" : "installed";
+}
+
 /** The page's route from its URL fragment: `#/discover?layout=list&app=<id>`, `#/installed`. */
 export interface StoreRoute {
   tab: StoreTab;
   layout: StoreLayout;
+  card: CardStyle;
   app?: string;
 }
 
@@ -34,6 +53,7 @@ export function parseRoute(hash: string): StoreRoute {
   return {
     tab,
     layout: parseLayout(params.get("layout")),
+    card: parseCardStyle(params.get("card")),
     app: params.get("app") || undefined,
   };
 }

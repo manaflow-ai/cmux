@@ -196,6 +196,13 @@ public final class MessagesLabHomeView: NSView {
         set { controller.onPointerMoved = newValue }
     }
 
+    /// cmux: the field's height changed, so ``fieldTop`` moved without a size change (a long
+    /// draft, an attachment, a send). The host lays out what it keeps above the field.
+    public var onFieldTopChange: (() -> Void)? {
+        get { controller.onFieldTopChange }
+        set { controller.onFieldTopChange = newValue }
+    }
+
     /// cmux: the link chip under `screenPoint` with its pill's frame on screen, or nil (no chip
     /// there, or the transcript is not in a window). The same hit test as a click.
     public func linkChip(atScreenPoint screenPoint: CGPoint) -> HomeLinkChipHit? {

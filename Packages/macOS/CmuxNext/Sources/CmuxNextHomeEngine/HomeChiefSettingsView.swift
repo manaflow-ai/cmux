@@ -18,6 +18,7 @@ import UniformTypeIdentifiers
 /// - Agent: Harness, Model, Effort and (where the harness has a fast tier) Speed rows; "Default"
 ///   names what it runs. The Model menu groups by family (``HomeChiefModelMenu``) and Effort offers
 ///   only the levels the shown model takes.
+/// - Reactions: whether a tapback wakes the Chief, and the classifier that decides (``HomeChiefReactionRows``).
 /// - Appearance: rows other features add (`addAppearanceRow`), hidden while empty.
 /// - Diagnostics: the last turns, where the brain runs, traces and memory,
 ///   behind a closed disclosure.
@@ -59,6 +60,8 @@ public final class HomeChiefSettingsView: NSView {
     let harnessHint = ThemedLabel(wrappingLabelWithString: "")
     /// Why the engine could not be read or set, or a picture could not be used.
     let failure = ThemedLabel(wrappingLabelWithString: "")
+    /// Whether a tapback can wake this Chief, and the classifier that decides (``HomeChiefReactionRows``).
+    let reactionRows = HomeChiefReactionRows(width: HomeChiefSettingsView.width - 2 * HomeChiefSettingsView.inset)
     let appearanceHeader = ThemedLabel(labelWithString: HomeEngineStrings.appearanceSection)
     let appearanceRows = NSStackView()
     let diagnosticsToggle = NSButton()
@@ -108,7 +111,7 @@ public final class HomeChiefSettingsView: NSView {
     public var pictureWindow: () -> NSWindow? = { nil }
 
     /// The harness items the picker offers: the official engines (``ChiefBackend/official``:
-    /// the user's own Claude login, Codex, and UniiChat, acpmux's built-in `unii`); the
+    /// the user's own Claude login, Codex, Muse Code, and UniiChat, acpmux's built-in `unii`); the
     /// CodeRouter route (`claude-cr`) after Claude only when this Chief's acpmux has one
     /// configured. The subrouter pool (`claude-sr`) is never a default item; a current choice
     /// of it still shows (`fill`).
@@ -170,6 +173,12 @@ public final class HomeChiefSettingsView: NSView {
         note.preferredMaxLayoutWidth = Self.width - 2 * Self.inset
         addFullWidth(note)
         stack.setCustomSpacing(Metrics.space4, after: note)
+        // Reactions: whether a tapback wakes this Chief, and the classifier that decides (a416).
+        addFullWidth(Self.sectionHeader(HomeEngineStrings.reactionsSection))
+        reactionRows.onPick = { [weak self] fields in self?.pick(fields) }
+        reactionRows.onResize = { [weak self] in self?.onResize() }
+        addFullWidth(reactionRows)
+        stack.setCustomSpacing(Metrics.space4, after: reactionRows)
         // Appearance: rows other features add; the section shows once it has one.
         appearanceHeader.font = Typography.header
         appearanceHeader.ink = .secondary

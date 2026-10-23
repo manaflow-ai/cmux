@@ -32,7 +32,7 @@ enum TabLifecycle {
             let daemon = ctx.services.daemon(for: focused)
             let selected = ctx.services.paneController(for: focused)?.selectedTab
             let start = cwd ?? NewTerminalStart.uninherited(.window, services: ctx.services, daemon: daemon, besides: selected)
-                ?? NewTerminalStart.folder(of: selected, services: ctx.services) ?? selected?.cwd ?? focused.tabs.first?.cwd
+                ?? NewTerminalStart.inherited(besides: selected, in: focused, services: ctx.services) ?? selected?.cwd ?? focused.tabs.first?.cwd
             ctx.registry.track(Task {
                 _ = try? await windows.createWorkspace(WorkspaceSpawn(cwd: start, keep: keep == true), on: daemon, into: windowID)
                 return nil
@@ -53,20 +53,28 @@ enum TabLifecycle {
             // From the docked agent chat, a tab in the strip (ChatColumnPlacement). Its
             // cwd is the explicit one, else the chat's, else nil for the daemon's resolver (NEW-TERMINAL-INHERITS-CWD).
             // The chat's folder here, not the daemon's: its resolver skips chats (the strip, the dock's respawn).
-            let chatStart = tabCwd ?? NewTerminalStart.folder(of: controller.selectedTab, services: ctx.services)
+            let chatStart = tabCwd ?? NewTerminalStart.inherited(besides: controller.selectedTab, in: pane, services: ctx.services)
             var target: PaneController? = controller
             if invocation.origin == .user {
                 let spawn = SpawnOptions(cwd: chatStart, workspace: ctx.services.workspaceKey(of: pane), keep: keep)
                 target = ChatColumnPlacement.route(from: controller, respawn: .terminal(spawn), services: ctx.services)
             }
+            // A script's tab aimed at Home's dock opens beside it (HomeDockOpens), in its slot or not.
+            let placed = target.flatMap { HomeDockOpens.placing($0.pane, services: ctx.services, focus: true,
+                                                                then: NewTabSlot.placing(slot, services: ctx.services, then: nil)) }
             target?.newTerminalTab(cwd: target === controller ? tabCwd : chatStart, keep: keep, fromSelectedTab: true, daemonResolvesCwd: target !== controller,
-                                   then: NewTabSlot.placing(slot, services: ctx.services, then: nil))
+                                   then: placed)
             return
         }
         let handle = pane.handle
         let start = tabCwd ?? pane.tabs.first?.cwd
         let workspace = ctx.services.workspaceKey(of: pane)
-        ctx.send("new-tab") { _ = try await $0.newTab(in: handle, options: SpawnOptions(cwd: start, workspace: workspace, keep: keep)) }
+        // Home's dock that no window shows opens nothing in itself either: the tab moves beside it, the focus kept.
+        let beside = HomeDockOpens.opensBeside(pane, services: ctx.services)
+        ctx.send("new-tab") { connection in
+            let created = try await connection.newTab(in: handle, options: SpawnOptions(cwd: start, workspace: workspace, keep: keep))
+            if beside { _ = try await connection.moveTabToColumn(created.surface, target: .pane(handle), keepFocus: true) }
+        }
     }
 
     /// `newTab.default` (Cmd-T, the strip's +): a person always gets the New
@@ -256,6 +264,12 @@ enum TabLifecycle {
         let personIsHere = [.cli, .mcp, .script].contains(invocation.origin) && !invocation.allowsViewChange
             && ctx.services.windows.active?.focusedPane?.pane.id == pane.id
         let background = (invocation.besideCaller && invocation.newColumnBeside) || invocation.opensInBackground || personIsHere
+        // A script's tab aimed at Home's dock opens beside it (HomeDockOpens); an agent's beside its
+        // chat is placed by AgentBesidePlacement.
+        if !invocation.besideCaller {
+            agentTab = HomeDockOpens.placing(pane, services: ctx.services, focus: !background,
+                                             target: url == nil ? .addressBar : .content, then: agentTab)
+        }
         switch profileRequest {
         case .cascade: break
         case .explicit(let id):

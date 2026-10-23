@@ -117,6 +117,7 @@ extension HomeChiefSettingsView {
         fill(speed, [("fast", HomeEngineStrings.speedFast)], current: snapshot.speed == "default" ? nil : snapshot.speed,
              defaultTitle: HomeEngineStrings.defaultValue)
         if let row = speed.superview, row.isHidden == shown.offersFast { row.isHidden = !shown.offersFast }
+        reactionRows.show(snapshot)
         stats.stringValue = snapshot.turns.first.map(HomeEngineStrings.lastTurn) ?? HomeEngineStrings.noTurn
         // Which engine answered each recent reply (the trace's turn.end).
         replies.stringValue = snapshot.turns.isEmpty ? ""

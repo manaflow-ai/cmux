@@ -169,9 +169,8 @@ pub(super) async fn check(
         .with_data(serde_json::json!({"reason": "route.origin_refused"})));
     }
     // So is a prompt's provenance (prompt_provenance.rs): no remote text passes as an agent's.
-    // The app pane's reply in place is checked there (`Sender::App`).
+    // Nor does the app pane's: its reply in place is no prompt (`app_reply.rs`).
     if m == method::SESSION_PROMPT
-        && origin != super::Origin::LocalApp
         && crate::prompt_provenance::present(params.pointer("/_meta/acpmux"))
     {
         return Err(crate::prompt_provenance::origin_refused());

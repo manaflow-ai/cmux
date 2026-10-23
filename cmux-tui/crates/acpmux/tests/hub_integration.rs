@@ -1432,6 +1432,8 @@ async fn watchers_get_permission_pending_and_auto_approvals() {
     assert!(c.response(rid).await.0.is_ok());
 }
 
+#[path = "hub_integration/event_log_fds.rs"]
+mod event_log_fds;
 #[path = "hub_integration/handoff.rs"]
 mod handoff;
 #[path = "hub_integration/transcript_events.rs"]

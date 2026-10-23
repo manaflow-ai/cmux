@@ -5,9 +5,10 @@ import Foundation
 public nonisolated struct SidebarGroup: Identifiable, Hashable, Sendable {
     public var id: GroupID
     public var name: String
-    /// The palette token; grey (none) when `custom` is set.
+    /// The palette token; grey when `custom` is set.
     public var color: GroupColor
-    /// A color picked outside the palette, as `#RRGGBB` (cx-25az): it draws instead of `color`.
+    /// A color picked outside the palette, as `#RRGGBB` (cx-25az), or `none` for a group with no
+    /// color (`GroupTint.none`): it draws instead of `color`.
     public var custom: String?
     public var isCollapsed: Bool
     /// Pinned (saved) group: it survives closing its workspaces, like a
@@ -93,7 +94,10 @@ public nonisolated struct SidebarGroup: Identifiable, Hashable, Sendable {
         get { custom.flatMap(GroupTint.init(wire:)) ?? .palette(color) }
         set {
             color = newValue.token
-            if case .custom = newValue { custom = newValue.wire } else { custom = nil }
+            switch newValue {
+            case .custom, .none: custom = newValue.wire
+            case .palette: custom = nil
+            }
         }
     }
 

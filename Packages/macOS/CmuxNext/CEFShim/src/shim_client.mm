@@ -555,18 +555,25 @@ class Client : public CefClient,
     return h.key(h.ctx, browser->GetIdentifier(), (__bridge void*)os_event) != 0;
   }
 
-  // After the renderer: a key the page did not handle. A plain Escape is
-  // reported (a popup panel closes on it), and so is a letter, with or
-  // without Shift, while no editable field has focus (single-key page
-  // shortcuts such as link hints). Everything goes on to Chromium's own
-  // accelerators.
-  bool OnKeyEvent(CefRefPtr<CefBrowser> browser, const CefKeyEvent& event, CefEventHandle) override {
+  // After the renderer: a key the page did not handle. A Command or Control
+  // chord goes to the host first, which runs a shortcut it held back for the
+  // page (cmux Find when the page has no search of its own) and then stops
+  // it here. A plain Escape is reported (a popup panel closes on it), and so
+  // is a letter, with or without Shift, while no editable field has focus
+  // (single-key page shortcuts such as link hints). Everything else goes on
+  // to Chromium's own accelerators.
+  bool OnKeyEvent(CefRefPtr<CefBrowser> browser, const CefKeyEvent& event, CefEventHandle os_event) override {
     constexpr int kEscape = 0x1B;
     constexpr uint32_t kModifiers = EVENTFLAG_SHIFT_DOWN | EVENTFLAG_CONTROL_DOWN | EVENTFLAG_ALT_DOWN |
                                     EVENTFLAG_COMMAND_DOWN;
     constexpr uint32_t kChordModifiers = EVENTFLAG_CONTROL_DOWN | EVENTFLAG_ALT_DOWN | EVENTFLAG_COMMAND_DOWN;
     if (event.type != KEYEVENT_RAWKEYDOWN) {
       return false;
+    }
+    Host& h = host();
+    if (h.unhandled_key && os_event && (event.modifiers & (EVENTFLAG_COMMAND_DOWN | EVENTFLAG_CONTROL_DOWN)) &&
+        h.unhandled_key(h.ctx, browser->GetIdentifier(), (__bridge void*)os_event) != 0) {
+      return true;
     }
     if (event.windows_key_code == kEscape && !(event.modifiers & kModifiers)) {
       Emit(CMUX_SHIM_KEY_UNHANDLED, browser->GetIdentifier(), 0, kEscape);

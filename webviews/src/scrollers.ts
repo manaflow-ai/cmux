@@ -26,6 +26,87 @@ export const SCROLLING_ATTRIBUTE = "data-cmux-scrolling";
 /** How long a scroller stays after the last scroll step (AppKit's overlay fade starts about here). */
 export const SCROLLING_HIDE_MS = 800;
 
+/**
+ * On a scroller whose thin thumb stays drawn the whole time its content overflows, whatever the
+ * macOS setting: the agent chat's transcript (Leo 2026-10-21: "SCROLLBAR IT SHOULD FUCKING SHOW").
+ * The rules come after the legacy ones in `SCROLLER_ROOT_CSS`, and their `:root` prefix outranks
+ * them. The thumb never shows, hides and shows again as rows arrive or the view follows them. Its
+ * lane is always there (`overflow-y: scroll`, on no track; no thumb is drawn while the content
+ * fits), so the content never reflows as it starts to overflow. Its ink is
+ * `--cmux-shown-scroller-ink`: under `SCROLLER_FADE_ATTRIBUTE` it is none at rest and full while
+ * the element scrolls, and `followShownScrollerFade` fades it between the two.
+ */
+export const SHOWN_SCROLLER_ATTRIBUTE = "data-cmux-shown-scroller";
+/** On `<html>` when shown scrollers fade out at rest instead (opt-in: Debug Settings
+    `agentPane.debug.scrollerFade`, the agent theme's `scrollerFade`). */
+export const SCROLLER_FADE_ATTRIBUTE = "data-cmux-scroller-fade";
+/** A shown scroller's full ink, in percent of the text color (`--cmux-scroller-thumb`'s). */
+const SHOWN_INK = 38;
+
+/** A duration custom property's value in ms (`120ms`, `0.18s`); 0 when it is unset or not one. */
+function durationMs(element: Element, property: string): number {
+  const value = element.ownerDocument.defaultView?.getComputedStyle(element).getPropertyValue(property).trim() ?? "";
+  const match = /^(\d*\.?\d+)(ms|s)$/.exec(value);
+  if (!match) return 0;
+  return Number(match[1]) * (match[2] === "s" ? 1000 : 1);
+}
+
+/**
+ * Under `SCROLLER_FADE_ATTRIBUTE`, fades `element`'s shown thumb in when it starts scrolling and out
+ * once it stops (`SCROLLING_ATTRIBUTE`), over `--cmux-scroller-fade-in` and `--cmux-scroller-fade-out`
+ * (0 or unset: at once). The ink steps once per frame from script: WebKit restyles a scrollbar's
+ * parts only when its element's style is resolved again, never on a CSS transition's steps, so a
+ * transition there showed the thumb and hid it with nothing between. Between fades the stylesheet's
+ * ink applies. Returns the stop function.
+ */
+export function followShownScrollerFade(element: HTMLElement): () => void {
+  const view = element.ownerDocument.defaultView;
+  if (!view?.MutationObserver) return () => {};
+  const root = element.ownerDocument.documentElement;
+  /// The ink the stylesheet gives `element` now (none at rest under the fade, else full).
+  const resting = () =>
+    root.hasAttribute(SCROLLER_FADE_ATTRIBUTE) && !element.hasAttribute(SCROLLING_ATTRIBUTE) ? 0 : SHOWN_INK;
+  /// The ink drawn now; a fade starts from it.
+  let ink = resting();
+  let target = ink;
+  let frame = 0;
+  const settle = () => {
+    view.cancelAnimationFrame(frame);
+    ink = target = resting();
+    element.style.removeProperty("--cmux-shown-scroller-ink");
+  };
+  const fade = () => {
+    const to = resting();
+    // Every scroll step marks the element again: a fade already headed there runs on.
+    if (to === target) return;
+    if (!root.hasAttribute(SCROLLER_FADE_ATTRIBUTE)) return settle();
+    target = to;
+    const from = ink;
+    const ms = durationMs(element, to > from ? "--cmux-scroller-fade-in" : "--cmux-scroller-fade-out");
+    view.cancelAnimationFrame(frame);
+    if (ms <= 0) return settle();
+    const start = view.performance.now();
+    const step = (now: number) => {
+      const t = Math.min(1, Math.max(0, (now - start) / ms));
+      if (t >= 1) return settle();
+      // Ease out, as the pane's other fades (--agent-ease-out).
+      ink = from + (to - from) * (1 - (1 - t) * (1 - t));
+      element.style.setProperty("--cmux-shown-scroller-ink", `${ink.toFixed(2)}%`);
+      frame = view.requestAnimationFrame(step);
+    };
+    step(start);
+  };
+  const scrollingMarks = new view.MutationObserver(fade);
+  scrollingMarks.observe(element, { attributes: true, attributeFilter: [SCROLLING_ATTRIBUTE] });
+  const fadeSetting = new view.MutationObserver(fade);
+  fadeSetting.observe(root, { attributes: true, attributeFilter: [SCROLLER_FADE_ATTRIBUTE] });
+  return () => {
+    scrollingMarks.disconnect();
+    fadeSetting.disconnect();
+    settle();
+  };
+}
+
 /** The host's answer; a page without a host (tests, the dev server) gets overlay. */
 export function scrollerStyle(root: Element | null = globalThis.document?.documentElement ?? null): ScrollerStyle {
   return root?.getAttribute("data-scrollers") === "legacy" ? "legacy" : "overlay";
@@ -157,9 +238,24 @@ export const MONACO_SCROLLER_CSS = `
 `;
 
 /**
+ * On a transcript block's sideways scroller while its lines run past its width (an unwrapped diff,
+ * Shell block or call output; conversation/sideways.ts `watchSideways` keeps it current). Such a
+ * block keeps its thin thumb at rest, on no track, whatever the macOS setting: a line cut at the
+ * edge with nothing at rest to say it scrolls read as clipped (Leo 2026-10-21, ask-d900f5acf9:
+ * "doesn't really display properly or even show that there's a horizontal scrollbar"). The thumb
+ * is the root rule's color (`--cmux-scroller-thumb`), in a lane `--cmux-sideways-lane` tall that
+ * the block makes room for (conversation.css `--cv-lane`).
+ */
+export const SIDEWAYS_ATTRIBUTE = "data-cmux-sideways";
+
+/** The thumb's color: the root rule's, or its value where the root rules are not installed. */
+const SIDEWAYS_THUMB = "var(--cmux-scroller-thumb, color-mix(in srgb, currentColor 38%, transparent))";
+
+/**
  * Appended to every @pierre/diffs `unsafeCSS`. The library's code rows have a custom horizontal
  * scrollbar whose thumb shows on hover; here it shows only while the row scrolls
- * (`--cmux-scroller-rest` is unset: nothing at rest).
+ * (`--cmux-scroller-rest` is unset: nothing at rest), except in a transcript block whose rows run
+ * past its edge (`SIDEWAYS_ATTRIBUTE`), where it stays, in the same color while it scrolls.
  */
 export const PIERRE_DIFFS_SCROLLER_CSS = `
 [data-code]::-webkit-scrollbar-thumb,
@@ -169,7 +265,57 @@ export const PIERRE_DIFFS_SCROLLER_CSS = `
 [data-code][${SCROLLING_ATTRIBUTE}]::-webkit-scrollbar-thumb {
   background-color: var(--diffs-bg-context);
 }
+[data-code][${SIDEWAYS_ATTRIBUTE}] {
+  --cmux-scroller-rest: ${SIDEWAYS_THUMB};
+}
+[data-code][${SIDEWAYS_ATTRIBUTE}][${SCROLLING_ATTRIBUTE}]::-webkit-scrollbar-thumb {
+  background-color: var(--cmux-scroller-rest);
+}
 `;
+
+/**
+ * On a transcript block's own sideways box (a Shell block's or a call output's body) from the
+ * moment it is made (its JSX), as `SIDEWAYS_SCROLLER_CSS` is installed with the page's other
+ * scroller rules: the engine picks a scroller's kind (overlay or styled) when it makes it, and
+ * WebKit keeps that kind when the style changes later.
+ */
+export const SIDEWAYS_SCROLLER_ATTRIBUTE = "data-cmux-sideways-scroller";
+
+/**
+ * The page side of `SIDEWAYS_ATTRIBUTE`: such a box's scrollbar is a thin thumb on no track, drawn
+ * whenever it has one (an `overflow: auto` box has one only while its lines run past it), at rest
+ * too. `--cmux-sideways-lane` is its lane's height while it has one. The `:root` prefix outranks
+ * the "Always" rule's hidden thumb (`SCROLLER_ROOT_CSS`).
+ */
+export const SIDEWAYS_SCROLLER_CSS = `
+:root [${SIDEWAYS_SCROLLER_ATTRIBUTE}][${SIDEWAYS_ATTRIBUTE}] {
+  --cmux-sideways-lane: var(--cmux-scroller-size, 8px);
+}
+:root [${SIDEWAYS_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar {
+  width: var(--cmux-scroller-size, 8px);
+  height: var(--cmux-scroller-size, 8px);
+  background: transparent;
+}
+:root [${SIDEWAYS_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-track,
+:root [${SIDEWAYS_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-corner {
+  background: transparent;
+}
+:root [${SIDEWAYS_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-thumb {
+  min-width: 24px;
+  border: 2px solid transparent;
+  border-radius: var(--cmux-scroller-size, 8px);
+  background: ${SIDEWAYS_THUMB} padding-box;
+}
+`;
+
+/** Installs `SIDEWAYS_SCROLLER_CSS` once per document: with the others (`installScrollers`), or by `watchSideways` on a page without them. */
+export function installSidewaysScrollers(document: Document): void {
+  if (document.getElementById("cmux-sideways-scrollers")) return;
+  const style = document.createElement("style");
+  style.id = "cmux-sideways-scrollers";
+  style.textContent = SIDEWAYS_SCROLLER_CSS;
+  (document.head ?? document.documentElement).appendChild(style);
+}
 
 /** Appended to every @pierre/trees `unsafeCSS`: the same rule for the tree's list. */
 export const PIERRE_TREES_SCROLLER_CSS = `
@@ -214,6 +360,36 @@ html[data-scrollers="legacy"] ::-webkit-scrollbar-thumb:hover,
 html[data-scrollers="legacy"] ::-webkit-scrollbar-thumb:active {
   background-color: var(--cmux-scroller-thumb);
 }
+:root [${SHOWN_SCROLLER_ATTRIBUTE}] {
+  --cmux-shown-scroller-ink: 38%;
+  overflow-y: scroll;
+}
+:root [${SHOWN_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar {
+  width: var(--cmux-scroller-size);
+  height: var(--cmux-scroller-size);
+  background: transparent;
+}
+:root [${SHOWN_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-track,
+:root [${SHOWN_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-corner {
+  background: transparent;
+}
+:root [${SHOWN_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-thumb,
+:root [${SHOWN_SCROLLER_ATTRIBUTE}][${SCROLLING_ATTRIBUTE}]::-webkit-scrollbar-thumb {
+  min-height: 24px;
+  border: 2px solid transparent;
+  border-radius: var(--cmux-scroller-size);
+  background: color-mix(in srgb, currentColor var(--cmux-shown-scroller-ink), transparent) padding-box;
+}
+:root[${SCROLLER_FADE_ATTRIBUTE}] [${SHOWN_SCROLLER_ATTRIBUTE}] {
+  --cmux-shown-scroller-ink: 0%;
+}
+:root[${SCROLLER_FADE_ATTRIBUTE}] [${SHOWN_SCROLLER_ATTRIBUTE}][${SCROLLING_ATTRIBUTE}] {
+  --cmux-shown-scroller-ink: 38%;
+}
+:root[${SCROLLER_FADE_ATTRIBUTE}] [${SHOWN_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-thumb:hover,
+:root[${SCROLLER_FADE_ATTRIBUTE}] [${SHOWN_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-thumb:active {
+  background-color: var(--cmux-scroller-thumb);
+}
 `;
 
 /** The attribute of a scrollable card (hover cards, the update card's popover): the shared
@@ -229,7 +405,10 @@ export function scrollEdges(box: { scrollTop: number; clientHeight: number; scro
   above: boolean;
   below: boolean;
 } {
-  return { above: box.scrollTop > 0.5, below: box.scrollTop + box.clientHeight < box.scrollHeight - 0.5 };
+  return {
+    above: box.scrollTop > 0.5,
+    below: box.scrollTop + box.clientHeight < box.scrollHeight - 0.5,
+  };
 }
 
 /**
@@ -314,7 +493,9 @@ export const MINIMAL_SCROLLER_ATTRIBUTE = "data-cmux-minimal-scroller";
  * `auto` rule, since its track is transparent and a box with nothing to scroll draws no thumb.
  * (`scrollbar-gutter: stable` does not do it: WebKit ignores it on a custom scrollbar.) Take
  * `--cmux-scroller-size` out of the scroller's right padding to keep its text width. The track
- * stops `--cmux-minimal-scroller-inset` short of each end, clear of a rounded corner. The `:root`
+ * stops `--cmux-minimal-scroller-inset` short of each end, clear of a rounded corner;
+ * `--cmux-minimal-scroller-inset-end`, when set, replaces it at the bottom end (the composer's
+ * track stops above Send, composerLocation.css). The `:root`
  * prefix outranks the legacy rule's hidden thumb above and the scroller's own `overflow-y`.
  */
 export const MINIMAL_SCROLLER_CSS = `
@@ -328,7 +509,7 @@ export const MINIMAL_SCROLLER_CSS = `
 }
 :root [${MINIMAL_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-track {
   margin-top: var(--cmux-minimal-scroller-inset, 0px);
-  margin-bottom: var(--cmux-minimal-scroller-inset, 0px);
+  margin-bottom: var(--cmux-minimal-scroller-inset-end, var(--cmux-minimal-scroller-inset, 0px));
   background: transparent;
 }
 :root [${MINIMAL_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-corner {
@@ -351,5 +532,6 @@ export function installScrollers(document: Document, timers: ScrollTimers = defa
     style.textContent = SCROLLER_ROOT_CSS + CARD_SCROLLER_CSS + MINIMAL_SCROLLER_CSS + MONACO_SCROLLER_CSS;
     (document.head ?? document.documentElement).appendChild(style);
   }
+  installSidewaysScrollers(document);
   installScrollingMarks(document, timers);
 }
