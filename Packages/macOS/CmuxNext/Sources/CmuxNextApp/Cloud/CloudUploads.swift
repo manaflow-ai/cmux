@@ -9,6 +9,10 @@ import Foundation
 /// from anywhere else on this Mac, and the machine can't start an upload.
 @MainActor
 final class CloudUploads {
+    /// Cloud paste uploads retain an independent abuse guard even though local and peer uploads
+    /// stream up to the native transport's larger limit.
+    nonisolated static let maximumFileBytes = 32 * 1024 * 1024
+    nonisolated static let maximumTotalBytes = 64 * 1024 * 1024
     /// `cmux-pastes` in the temporary folder the upload CLI (a child of this app, with its
     /// environment) resolves: `TMPDIR`. Nil without one (the CLI would look elsewhere): no upload.
     nonisolated static var pastes: URL? {
@@ -48,6 +52,11 @@ final class CloudUploads {
     }
 
     private static func upload(_ files: [AgentPaneUpload], to target: Target, services: AppServices) async -> [String: Any] {
+        let total = files.reduce(into: 0) { $0 += $1.data.count }
+        guard !files.isEmpty, total <= maximumTotalBytes,
+              files.allSatisfy({ $0.data.count <= maximumFileBytes }) else {
+            return AgentPaneReply.failure(code: "upload_refused", message: CloudUploadStrings.refused)
+        }
         guard let socket = await target.machine.daemon.connection?.endpoint?.socketPath, let pastes else {
             return AgentPaneReply.failure(code: "link_error", message: CloudUploadStrings.failed)
         }
