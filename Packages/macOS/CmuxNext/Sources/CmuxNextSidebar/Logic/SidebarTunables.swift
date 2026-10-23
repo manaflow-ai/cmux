@@ -142,12 +142,19 @@ public nonisolated enum SidebarTunables {
         help: "Gives every workspace row a sample agent chat (needs you, working, done, failed or idle), to see the row states without real sessions.",
         default: false, code: "SidebarTunables.laneFixture")
 
+    /// Sample pull requests on every row (`SidebarPullRequestFixture`), for captures on a slot with
+    /// no GitHub. Rows still draw them only with `sidebar.workspaceRow.pullRequest` on.
+    public static let pullRequestFixture = Tunable<Bool>.toggle(
+        "sidebar.pullRequestFixture", .sidebar, "Sample pull requests on rows",
+        help: "Gives every workspace row sample pull requests (failing, merged, open, draft or none) instead of reading GitHub, to see the pull request marks without real ones.",
+        default: false, code: "SidebarTunables.pullRequestFixture")
+
     /// Every row carries its pull requests' badge, with or without the session tree
     /// (`SidebarSessionTreeFeed`), while the row's Pull Request element is on
     /// (`sidebar.workspaceRow.pullRequest`, off by default). On by default; the tree's nesting and keycaps stay opt-in.
     public static let pullRequestBadges = Tunable<Bool>.toggle(
         "sidebar.pullRequestBadges", .sidebar, "Rows show their pull requests",
-        help: "A workspace row shows a badge for the pull requests its agent chats opened or its folder's branch has, colored by their state, even with the session tree off.",
+        help: "A workspace row shows a badge for the pull requests its agent chats opened or its folder's branch has, quiet unless their checks fail, even with the session tree off.",
         default: true, code: "SidebarTunables.pullRequestBadges")
 
     /// The pull requests' hover card on a row's pull request badge (`SidebarPullRequestCard`,
@@ -237,6 +244,7 @@ public nonisolated enum SidebarTunables {
             rowStatus.descriptor,
             pullRequestBadges.descriptor,
             laneFixture.descriptor,
+            pullRequestFixture.descriptor,
             sinceLooked.descriptor,
             slideHoldsContent.descriptor,
             nowLine.descriptor,
