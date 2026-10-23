@@ -118,18 +118,23 @@ public final class PointerHover: NSObject {
     /// window coordinates (`point` nil: outside the window), and where the
     /// real mouse was then. A window with a synthesized pointer ignores the
     /// real one until the real mouse moves (the user takes over) or the
-    /// window closes.
+    /// window closes. `mouse` nil: pinned, the real mouse never takes over
+    /// (a test on a host where other jobs move the real pointer).
     struct DebugPointer {
         var point: NSPoint?
-        var mouse: NSPoint
+        var mouse: NSPoint?
     }
 
     static var debugPointers: [ObjectIdentifier: DebugPointer] = [:]
 
     /// DEBUG: sets `window`'s synthesized pointer (nil: outside the window),
     /// then recomputes every target in the window.
-    public static func setDebugPointer(_ point: NSPoint?, in window: NSWindow) {
-        debugPointers[ObjectIdentifier(window)] = DebugPointer(point: point, mouse: NSEvent.mouseLocation)
+    ///
+    /// - Parameter followsRealMouse: true (`debug.mouse`): the real mouse
+    ///   takes over once it moves. False (tests): the pointer holds until it
+    ///   is set again or the window closes.
+    public static func setDebugPointer(_ point: NSPoint?, in window: NSWindow, followsRealMouse: Bool = true) {
+        debugPointers[ObjectIdentifier(window)] = DebugPointer(point: point, mouse: followsRealMouse ? NSEvent.mouseLocation : nil)
         installKeyObserversIfNeeded()
         refresh(in: window)
     }
@@ -139,7 +144,7 @@ public final class PointerHover: NSObject {
     static func debugPointer(in window: NSWindow) -> NSPoint?? {
         let key = ObjectIdentifier(window)
         guard let entry = debugPointers[key] else { return nil }
-        guard entry.mouse == NSEvent.mouseLocation else {
+        if let mouse = entry.mouse, mouse != NSEvent.mouseLocation {
             // The real mouse moved since: the user's pointer counts again.
             debugPointers[key] = nil
             return nil
