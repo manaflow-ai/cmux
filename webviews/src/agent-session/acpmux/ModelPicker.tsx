@@ -13,6 +13,7 @@ import { agentName } from "./agents";
 import { isDefaultChoice } from "./defaultChoice";
 import { CheckIcon, ChevronIcon, PICKER_LABELS, SearchIcon } from "./ComposerPickers";
 import { Icon } from "./icons/Icon";
+import { usePromptFocus } from "./promptFocus";
 import { currentLanguage, useT } from "./i18n";
 import { useUpdateOffer } from "./HarnessHealthNotice";
 import { CHAT_COLUMN, MODEL_PICKER_MIN_HEIGHT, pickerHeightBounds, type ModelPickerProps } from "./modelPickerLayout";
@@ -310,6 +311,12 @@ export function ModelPicker(props: ModelPickerProps) {
   const menu = useRef<HTMLDivElement>(null);
   const search = useRef<HTMLInputElement>(null);
   const restoreFocus = useRef(false);
+  // A pick hands the keyboard to the composer's prompt, not back to the model button (promptFocus.ts).
+  const toPrompt = useRef(false);
+  const focusPrompt = usePromptFocus();
+  // The compact menu's pick does the same once the menu has closed: while it is open it keeps the
+  // keyboard on its rows, and its close leaves focus where the pick put it (ui/Menu.tsx).
+  const quickPicked = useRef(false);
   const menuId = useId();
   const allHarnesses = useMemo(() => uniqueHarnesses(catalog), [catalog]);
   // A started chat lists its own harness alone. One acpmux has not listed yet (the first open after
@@ -429,13 +436,22 @@ export function ModelPicker(props: ModelPickerProps) {
     // press-drag-release selection.
     let second: number | undefined;
     const first = requestAnimationFrame(() => {
-      second = requestAnimationFrame(() => trigger.current?.focus({ preventScroll: true }));
+      second = requestAnimationFrame(() => {
+        const picked = toPrompt.current;
+        toPrompt.current = false;
+        if (!(picked && focusPrompt())) trigger.current?.focus({ preventScroll: true });
+      });
     });
     return () => {
       cancelAnimationFrame(first);
       if (second !== undefined) cancelAnimationFrame(second);
     };
-  }, [open]);
+  }, [open, focusPrompt]);
+  useEffect(() => {
+    if (quickOpen || !quickPicked.current) return;
+    quickPicked.current = false;
+    focusPrompt();
+  }, [quickOpen, focusPrompt]);
   const show = useCallback(() => {
     setSelectedHarness(harness ?? current?.id);
     setActiveHarness(
@@ -526,6 +542,7 @@ export function ModelPicker(props: ModelPickerProps) {
   const selectModel = (model: ModelChoice) => {
     const owner = owners.get(model);
     if (model.unavailable || !owner?.pickable || loginFor(owner) !== undefined) return;
+    toPrompt.current = true;
     // A typed effort or fast mode, or a model of another harness, lands as one combo.
     const effort = searching ? modelEffort(model, parsed.effort) : undefined;
     const fast = searching ? parsed.fast : undefined;
@@ -831,13 +848,19 @@ export function ModelPicker(props: ModelPickerProps) {
                 ? quickSections(current, props.model, (model) => !model.unavailable).shown
                 : [],
             current: props.model,
-            onModel: (id) => onLand(id),
+            onModel: (id) => {
+              quickPicked.current = true;
+              onLand(id);
+            },
             ...(quickFamilies
               ? {
                   families: {
                     list: quickFamilies,
                     current: current?.id,
-                    onPick: pickQuick,
+                    onPick: (model: QuickModel) => {
+                      quickPicked.current = true;
+                      pickQuick(model);
+                    },
                     ...(onAddAgent ? { onAddHarness: onAddAgent } : {}),
                   },
                 }

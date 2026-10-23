@@ -35,6 +35,7 @@ import {
   type ComposerPermissionAccess,
 } from "./ComposerPickers";
 import { FileSearch } from "./FileSearch";
+import { PromptFocus } from "./promptFocus";
 import { ComposerBox, type ComposerBoxHandle } from "./ComposerBox";
 import { Icon } from "./icons/Icon";
 import { MentionMenu, mentionQuery, mentionResults, useMentionSearch } from "./MentionMenu";
@@ -1686,7 +1687,11 @@ export function Composer({
             )}
           </>
         }
-        chips={<Chips snapshot={snapshot} permissionAccess={permissionAccess} />}
+        chips={
+          <PromptFocus value={focusPrompt}>
+            <Chips snapshot={snapshot} permissionAccess={permissionAccess} />
+          </PromptFocus>
+        }
         // Claude Code ends the quiet row on the context ring. It keeps its place before the chat
         // reports usage (inert, ContextRing), so the first report moves nothing in the row
         // (hq#1957: the composer holds still while a turn runs); the context-usage setting

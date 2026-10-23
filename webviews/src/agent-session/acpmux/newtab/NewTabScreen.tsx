@@ -67,6 +67,7 @@ import { screenSections, type ScreenTemplate } from "./templates";
 import { type Translate, useT } from "../i18n";
 import { ChromeArea } from "../../../ui/HideableChrome";
 import { Popover } from "../../../ui/Popover";
+import { PromptFocus } from "../promptFocus";
 import { useEscapingPopup } from "../../../ui/popupHost";
 import { usePopupHost } from "../../../ui/UiProvider";
 import { UI_ANCHOR_GAP } from "../../../ui/anchor";
@@ -1070,8 +1071,10 @@ export function NewTabScreen(props: Props) {
     </>
   );
   // The composer: in the stage layout at the foot of the page, else at its top.
+  // A model pick puts the keyboard back in the field (promptFocus.ts).
+  const focusField = () => field.current?.focus();
   const composerCard = (
-    <>
+    <PromptFocus value={focusField}>
       {/* One card, the agent composer's (Composer.tsx; Leo 2026-10-13): the field on top, then the
           bar with the agent's model chip, the mic and Send. The location strip with the project the
           chat starts in heads it, as text over the card (ComposerContext, the composer's own; hq#1957
@@ -1163,7 +1166,7 @@ export function NewTabScreen(props: Props) {
           </div>
         )}
       </div>
-    </>
+    </PromptFocus>
   );
   // The stage's widgets, in the user's order (`tabs.newTabWidgets.order`): Projects and Quick
   // Actions are cards (cards next to each other share a column), Recent Chats is the player and the
