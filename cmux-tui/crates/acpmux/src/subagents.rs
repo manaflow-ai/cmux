@@ -216,7 +216,11 @@ mod codex_tests {
     use super::*;
 
     fn subagents(tree: &mut SubagentTree, update: Value) -> Vec<Value> {
-        let mut params = json!({"sessionId": "s1", "update": update});
+        subagents_for(tree, "s1", update)
+    }
+
+    fn subagents_for(tree: &mut SubagentTree, session_id: &str, update: Value) -> Vec<Value> {
+        let mut params = json!({"sessionId": session_id, "update": update});
         tree.annotate(&mut params);
         params
             .pointer("/_meta/acpmux/subagents")
@@ -246,5 +250,48 @@ mod codex_tests {
         );
         assert_eq!(activity[0]["state"], json!("running"));
         assert_eq!(activity[0]["background"], json!(true));
+    }
+
+    /// A Codex root's native thread id may be echoed by a direct child as a legacy
+    /// activity item. It is the root that issued the call, never a child of that
+    /// direct child; later root spawns must remain siblings in the model.
+    #[test]
+    fn codex_root_thread_is_never_inserted_as_a_nested_subagent() {
+        let mut tree = SubagentTree::default();
+        let root = "root-native-thread";
+        let review = "review-thread";
+        let prior_art = "prior-art-thread";
+
+        let first = subagents_for(
+            &mut tree,
+            "acp-root",
+            json!({"sessionUpdate": "tool_call", "toolCallId": "spawn-review",
+                   "rawInput": {"prompt": "Review", "agentsStates": {}},
+                   "_meta": {"codex": {"collaboration": {"tool": "spawnAgent",
+                     "senderThreadId": root, "receiverThreadIds": [review]}}}}),
+        );
+        assert_eq!(first[0]["id"], review);
+        assert_eq!(first[0]["parent"], Value::Null);
+
+        // The child reports an activity item carrying the root's own native id.
+        let echoed = subagents_for(
+            &mut tree,
+            review,
+            json!({"sessionUpdate": "tool_call_update", "toolCallId": "echo-root",
+                   "_meta": {"codex": {"subagent": {"threadId": root,
+                     "path": "/root", "activity": "working"}}}}),
+        );
+        assert!(echoed.is_empty(), "root echo became a child: {echoed:?}");
+
+        let second = subagents_for(
+            &mut tree,
+            root,
+            json!({"sessionUpdate": "tool_call", "toolCallId": "spawn-prior-art",
+                   "rawInput": {"prompt": "Prior art", "agentsStates": {}},
+                   "_meta": {"codex": {"collaboration": {"tool": "spawnAgent",
+                     "senderThreadId": root, "receiverThreadIds": [prior_art]}}}}),
+        );
+        assert_eq!(second[0]["id"], prior_art);
+        assert_eq!(second[0]["parent"], Value::Null);
     }
 }
