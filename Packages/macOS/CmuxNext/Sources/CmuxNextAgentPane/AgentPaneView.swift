@@ -68,8 +68,7 @@ public final class AgentPaneView: NSView {
     public let inputReadiness: PageInputReadiness
     /// Re-pushes the theme when ui.animationSpeed or Reduce Motion changes, so the
     /// page's `--agent-motion-*` fades follow them (AgentPaneTheme.values).
-    /// Each observation ends when its handle is released (``OwnedTask``), on any thread, so the view needs no deinit.
-    private var motionObservation: OwnedTask?, sessionStatusObservation: OwnedTask?
+    private var motionObservation: Task<Void, Never>?, sessionStatusObservation: Task<Void, Never>?
     /// The theme last pushed to the page (I5: a push only when it changed since then; a page load
     /// pushes again with `force`, a page-host replay or a crash forgets it).
     var deliveredThemeEvent: AgentPageEvent?
@@ -81,7 +80,7 @@ public final class AgentPaneView: NSView {
     private lazy var glassFeed = GlassBackdropFeed(host: webView, zoom: { [webView] in webView.pageZoom * webView.magnification }) { [weak self] in
         self?.evaluateScript($0)
     }
-    private var uiScaleObservation: OwnedTask?
+    private var uiScaleObservation: Task<Void, Never>?
     public var zoom: Double = 1 {
         didSet { guard zoom != oldValue else { return }; applyZoom() }
     }
@@ -237,11 +236,11 @@ public final class AgentPaneView: NSView {
         }
         model.onDictation = { [weak self] command in self?.dictation.handle(command) }
         // A frame that grants needs a real gesture in this pane; page script cannot make one.
-        // main-proof: inferred main-actor closure (written in this main-actor init); NSEvent.h: AppKit calls local monitors on
-        // the main thread, and Swift checks the main actor on the closure's entry (SE-0423). The decision reads focus and
-        // bounds before dispatch, so no hop.
         gestureMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
-            self?.monitored(event)
+            // AppKit calls a local monitor on the main thread; anywhere else, no gesture (fail closed).
+            guard Thread.isMainThread else { return event }
+            // main-proof: guarded by Thread.isMainThread above (AppKit calls local monitors on main; the decision must read focus and bounds before dispatch, so no hop)
+            MainActor.assumeIsolated { self?.monitored(event) }
             return event
         }
         installTransport()
@@ -257,7 +256,7 @@ public final class AgentPaneView: NSView {
         Self.logger.info("agent pane webview loading source=\(Self.sourceDescription(source), privacy: .public) bundled=\(Self.bundledPage != nil, privacy: .public)")
         observeMotion()
         observeUIScale()
-        sessionStatusObservation = OwnedTask(AgentPaneSessionStatus.follow(self))
+        sessionStatusObservation = AgentPaneSessionStatus.follow(self)
     }
 
     private static func sourceDescription(_ source: AgentPaneSource) -> String {
@@ -268,12 +267,12 @@ public final class AgentPaneView: NSView {
     }
 
     private func observeMotion() {
-        motionObservation = OwnedTask(Task { [weak self] in
+        motionObservation = Task { [weak self] in
             for await _ in ObservationStream({ (Motion.speed, Motion.web.isEnabled, Motion.indicators.isEnabled, DesignSettings.shared.statusIndicator.animation) }) {
                 guard let self else { return }
                 self.applyTheme()
             }
-        })
+        }
         // Reduce Motion is not observable through Observation.
         reduceMotionObserver = MainActorObservation(NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, center: NSWorkspace.shared.notificationCenter) { [weak self] in
             self?.applyTheme()
@@ -286,12 +285,12 @@ public final class AgentPaneView: NSView {
     private func observeUIScale() {
         guard page == nil else { return }
         applyZoom()
-        uiScaleObservation = OwnedTask(Task { [weak self] in
+        uiScaleObservation = Task { [weak self] in
             for await _ in ObservationStream({ (DesignSettings.shared.uiScale, DesignSettings.shared.interfaceScale, DesignSettings.shared.interfaceScaleEnabled) }) {
                 guard let self else { return }
                 self.applyZoom()
             }
-        })
+        }
     }
 
     func applyZoom() {
@@ -303,6 +302,15 @@ public final class AgentPaneView: NSView {
         webView.pageZoom = Double(DesignSettings.shared.uiScale) * zoom
         glassFeed.refresh() // the zoom moves the art's rect in CSS px
         webView.evaluateJavaScript(DesignSettings.shared.interfaceScaleScript, completionHandler: nil)
+    }
+
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            uiScaleObservation?.cancel()
+            sessionStatusObservation?.cancel()
+        }
     }
 
     @available(*, unavailable)
@@ -348,8 +356,9 @@ public final class AgentPaneView: NSView {
     public func close() {
         popupHostStorage?.hide()
         rateReapply?.cancel()
+        motionObservation?.cancel()
         motionObservation = nil
-        sessionStatusObservation = nil
+        sessionStatusObservation?.cancel()
         reduceMotionObserver = nil
         reduceMotionOverrideObserver = nil
         dictation.close()
