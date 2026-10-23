@@ -152,9 +152,18 @@ export function startTurnFold(
   return fold;
 }
 
-/// Ends `fold`: the thread's state attribute goes. Animations already running finish on their own.
+/// Ends `fold`: the thread's state attribute goes, and so does everything it tracked (the rows as
+/// placed at the toggle, the row elements and animations), so an ended fold the transcript still
+/// points at holds no rows. Animations already running finish on their own; the copies of rows a
+/// close hid drop themselves when theirs end.
 export function endTurnFold(thread: HTMLElement | null, fold: TurnFold | undefined): void {
-  if (!fold || !thread || playing.get(thread) !== fold) return;
+  if (!fold) return;
+  fold.until = 0;
+  fold.moving.clear();
+  fold.animations.clear();
+  fold.startIndex = undefined;
+  fold.startRows = { count: 0, idAt: () => undefined, tops: [] };
+  if (!thread || playing.get(thread) !== fold) return;
   playing.delete(thread);
   thread.removeAttribute(TURN_FOLD_ATTR);
 }
@@ -228,7 +237,9 @@ export function playTurnFold(
     if (reveal) animations.push(play(row.node, [{ opacity: 0 }, { opacity: 1 }]));
     fold.moving.set(row.node, { id: row.id, top, delta, reveal, animations });
   }
-  // Row elements that left the mounted rows.
+  // Row elements that left the mounted rows. Only while a fold plays (its time, about a fifth of a
+  // second, is the only window this runs in) and only in a pass where a row left: the rows below the
+  // line are indexed once for that pass.
   let index: Map<string, number> | undefined;
   const below = rows[0]?.node ?? null;
   for (const [node, row] of fold.moving) {

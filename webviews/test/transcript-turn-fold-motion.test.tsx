@@ -110,6 +110,7 @@ performance.now = () => clock() + skew;
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
+const { endTurnFold, startTurnFold } = await import("../src/agent-session/acpmux/conversation/turnFold");
 
 afterAll(() => {
   performance.now = clock;
@@ -340,5 +341,39 @@ test("a row that mounts mid-fold joins the slide part way, on the fold's clock",
     again.replaceWith(answer);
   } finally {
     await act(async () => root.unmount());
+  }
+});
+
+test("a fold its timer ends lets go of the rows it tracked, and the thread's state goes", () => {
+  const document = dom.window.document;
+  const host = document.createElement("div");
+  host.className = "acpmux-thread";
+  document.body.append(host);
+  const ids = ["a", "b", "c", "d"];
+  for (const [index, id] of ids.entries()) {
+    const article = document.createElement("article");
+    article.className = "acpmux-row";
+    article.dataset.rowId = id;
+    article.setAttribute("aria-posinset", String(index + 1));
+    host.append(article);
+  }
+  try {
+    const fold = startTurnFold(
+      host,
+      "a",
+      true,
+      { count: ids.length, idAt: (index) => ids[index], tops: [0, 20, 40, 60] },
+      "s",
+    );
+    expect(fold).toBeDefined();
+    expect(fold!.moving.size).toBe(3);
+    expect(host.getAttribute("data-turn-fold")).toBe("open");
+    endTurnFold(host, fold);
+    expect(host.hasAttribute("data-turn-fold")).toBe(false);
+    expect(fold!.moving.size).toBe(0);
+    expect(fold!.animations.size).toBe(0);
+    expect(fold!.startRows.count).toBe(0);
+  } finally {
+    host.remove();
   }
 });

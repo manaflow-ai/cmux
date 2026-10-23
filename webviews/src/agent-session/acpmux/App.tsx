@@ -2827,7 +2827,8 @@ export function VirtualTranscript({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- openAt is read once, at the first open
   }, [layout, rows, range.first, height, width, dockSpace, room, lift, sessionId, seekExpired, canLoadOlder]);
   // A toggled "Worked for" plays on each placement pass while it lasts, after the pass above has
-  // held the clicked line in place (turnFold.ts).
+  // held the clicked line in place (turnFold.ts). With no fold playing it returns at once; during one
+  // (the fold token plus FOLD_SETTLE_MS) a pass reads only the mounted rows.
   useLayoutEffect(() => {
     const fold = turnFold.current;
     const node = ref.current;
@@ -2839,8 +2840,11 @@ export function VirtualTranscript({
     settleTurnFold(host, fold, foldGhosts.current);
     turnFold.current = undefined;
   });
+  // Unmounted: the playing fold stops and lets go of its rows, and its copies go.
   useEffect(
     () => () => {
+      settleTurnFold(thread.current, turnFold.current, foldGhosts.current);
+      turnFold.current = undefined;
       for (const ghost of foldGhosts.current) ghost.remove();
       foldGhosts.current.clear();
     },
