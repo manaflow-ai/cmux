@@ -22902,7 +22902,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "timeline",
+      "default" : "compact",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",

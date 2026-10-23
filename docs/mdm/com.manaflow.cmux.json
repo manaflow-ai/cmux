@@ -3345,7 +3345,7 @@
       "type" : "boolean"
     },
     "sidebar.hoverCards.layout" : {
-      "default" : "timeline",
+      "default" : "compact",
       "description" : "What a workspace's hover card shows: its history of prompts and waits, its details, or both.",
       "enum" : [
         "timeline",
