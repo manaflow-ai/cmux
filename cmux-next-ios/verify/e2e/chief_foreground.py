@@ -108,7 +108,7 @@ def main():
         sim.shot(f"after-{away}s")
         sent = None
         if a.send and took is not None:
-            text = f"lrchief{n}{int(t_fg) % 1000}"
+            text = f"{n}0{int(t_fg) % 100000}"
             sim.tap_q(ident="conversation.composer.text")
             sim.softtype(text)
             sim.tap_q(ident="conversation.composer.send")
