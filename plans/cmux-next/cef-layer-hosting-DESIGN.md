@@ -34,8 +34,17 @@ A Chromium page is a borderless child `NSWindow` (fork `CmuxParentViewTracker`,
   disabled by default and cmux does not enable it (`CEFSwitches`). So before fork API 27 every page-window resize
   (each tracker `setFrame` during a split, close or column spring, and the window's live resize) could hold a cmux
   frame for up to 500 ms. `IsWindowInLiveResize` has one reader, that handler, and only for the disabled switch: the
-  API 27 patch's `inLiveResize || timeout > 0` changes nothing in Chromium 154. Not measured yet: the wait itself
-  (`cef-resize-sync-bench.py`, `debug.motion` work `ca.commit`).
+  API 27 patch's `inLiveResize || timeout > 0` changes nothing in Chromium 154. The deadline is checked only between
+  whole UI tasks (`WaitForSingleTaskToRun`), so one long task can pass it.
+  Second wait (review 2): `Synchronize` also calls `OnActivateForTransaction`, so the GPU process starts a CA
+  transaction and holds its commits for every page, and `PostCommitHandler`
+  (`ui/accelerated_widget_mac/ca_transaction_observer.mm`, `content/browser/gpu/ca_transaction_gpu_coordinator.cc`)
+  then waits on the cmux main thread up to `kPostCommitTimeout` (50 ms) for the GPU's `CommitCATransaction` reply.
+  The API 27 patch changes only `PreCommitTimeout` and `IsWindowInLiveResize`, so this post-commit wait still runs on
+  every page-window resize with a deadline of 0, hosted or not: "0 never holds the commit" is false until the fork
+  skips `Synchronize()` in `UpdateWindowGeometry` for a 0 deadline (sent to PL-cef-layer for cmux.33). Not measured
+  yet: either wait (`cef-resize-sync-bench.py`, `debug.motion` work `ca.commit`, which sees only the run-loop
+  commit: not an explicit `CATransaction.flush()` nor AppKit's flushes inside a window live resize).
 
 ## 2. Design
 
@@ -105,10 +114,12 @@ from the display link's target time; no bench yet measures the main-thread wait 
 
 API 27 (`cmux_browser_set_resize_sync`, fork 437ed1cc): an embedded page window's `PreCommitTimeout` is the
 embedder's deadline, 0 by default. While a page is hosted, `CEFLayerHosting` gives it `CEFResizeSyncDeadline`: the
-`browserResize.syncDeadline` tunable (8 ms) capped at half a frame of the window's display (8 ms at 60 Hz, 4 ms at
-120 Hz), because the wait runs on the main thread in every commit of a spring, once for all waiting pages (the
-latest deadline, not a sum). A tunable edit or a display change reaches the fork at the next show or screen
-change, with a call only when the value changed. Open: whether Chromium's frame at the new size (a renderer frame,
+`browserResize.syncDeadline` tunable (8 ms) capped at half the shortest frame of all displays (8 ms with only 60 Hz
+displays, 4 ms once one runs at 120 Hz), because the wait runs on the main thread in every commit of a spring, once
+for all waiting pages (the latest deadline, not a sum), and that one commit carries every cmux window. A tunable
+edit or a display change (`didChangeScreenParametersNotification`) reaches the fork at the next show or display
+change, with a call only when the value changed, recorded only when the fork took it, and sent to a live browser of
+the page window (a closed tab hands it to another). Open: whether Chromium's frame at the new size (a renderer frame,
 then a Views compositor frame driven by BeginFrame) makes that deadline at all during a spring; if it mostly
 misses, the wait buys nothing and the deadline should apply only to discrete resizes and a spring's landing frame.
 `cef-resize-sync-bench.py` measures it (commit time and missed frames, hosting off / on / on with 0, light and
