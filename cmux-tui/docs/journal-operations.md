@@ -16,12 +16,13 @@ loads, so polling is safe. Everything below names a field of that object.
 Every durable write goes through SQLite in WAL mode with `synchronous=NORMAL`:
 a commit is in the WAL (the page cache, which a daemon crash keeps) when it
 returns, in well under a millisecond. One syncer thread
-(`workspace_registry/wal_durability.rs`) then flushes the WAL with one
-F_FULLFSYNC for every commit since its last flush, outside every lock, so no
+(`workspace_registry/wal_durability.rs`) orders the WAL on the drive with
+one F_BARRIERFSYNC after each answered request, outside every lock, so no
 request and no lock holder waits for the disk; `write_path.wal_commits` and
-`wal_synced_commits` show it keeping up. Only a power loss or kernel panic
-inside that one flush can take a commit back, and it also ends every
-terminal the commit described. Producers (agent
+`wal_synced_commits` show it keeping up. The drive-cache flush (F_FULLFSYNC)
+runs once, at close: during the run it stalled every other write to the
+drive. A power loss or kernel panic can take back a tail of commits, and it
+also ends every terminal the tail described. Producers (agent
 hooks, frontends) enqueue into bounded lanes; one writer thread drains both
 lanes into a single transaction, commits, and hands each producer a receipt.
 The writer takes the workspace registry mutex for the commit. Request threads

@@ -1,36 +1,34 @@
-//! SQLite durability off the request path: group F_FULLFSYNC of the WAL and
-//! WAL checkpoints on one syncer thread per database (PL-daemon).
+//! SQLite durability off the request path: one syncer thread per database
+//! orders the WAL on the drive and runs its checkpoints (PL-daemon).
 //!
 //! The daemon's databases (the workspace registry, the conversation store,
 //! the chief registry) run in WAL mode with `synchronous=NORMAL`: a commit's
 //! frames are in the WAL file, in the kernel's page cache, when `COMMIT`
-//! returns. That already survives a crash, kill or restart of the daemon;
-//! SQLite keeps WAL+NORMAL consistent across a power loss too, where a lost
-//! tail of commits is lost whole. Only a power loss or kernel panic can take
-//! an acknowledged commit back, and on such a loss every terminal, host and
-//! shell the commit described is gone as well.
+//! returns. That survives a crash, kill or restart of the daemon. Only a
+//! power loss or kernel panic can take an acknowledged commit back, and such
+//! a loss also ends every terminal, host and shell the commit described.
 //!
 //! So no request waits for the disk. SQLite's WAL hook runs on the
 //! committing thread right after a commit's frames are written and counts
 //! it. Once a request's reply is out (the server's reply funnel), or a
 //! background journal batch committed, the caller asks this syncer to flush;
-//! its thread flushes the WAL file with one F_FULLFSYNC (fdatasync off
-//! macOS) for every commit made so far, outside every lock. It does not
-//! flush after each commit: an F_FULLFSYNC holds the file, so the next
-//! commit of the same create would wait behind it (measured on a fleet mini:
-//! a create's five commits each waited 2-10 ms, new-tab 20.8 -> 35.5 ms
-//! p50). A commit no reply or batch follows (a startup restore, an exit
-//! receipt) is flushed by the next request's flush or at close. Installing the WAL hook also turns off SQLite's automatic
-//! checkpoint, which ran on whichever request crossed 1000 WAL pages: it
-//! copied the WAL into the database and synced it inside the committing
-//! request (30-60 ms tails on create and close replies). The syncer runs that
-//! checkpoint instead, on its own connection, once the WAL passes
-//! [`CHECKPOINT_BYTES`]; a PASSIVE checkpoint never blocks a writer.
+//! its thread issues one F_BARRIERFSYNC of the WAL (see [`flush`]) for every
+//! commit made so far, outside every lock. It does not flush after each
+//! commit, so a create's five commits share one barrier after its reply. A
+//! commit no reply or batch follows (a startup restore, an exit receipt) is
+//! flushed by the next request's flush or at close, where the syncer issues
+//! the one F_FULLFSYNC (drive cache) of the daemon's run.
 //!
-//! Before, each registry commit flushed with `synchronous=FULL` while it held
-//! the registry connection lock: about 4.5 ms per commit on a fleet M4 Pro,
-//! one to three of them on every create and close reply, and every other
-//! request that needed the lock waited behind them.
+//! Installing the WAL hook also turns off SQLite's automatic checkpoint,
+//! which ran on whichever request crossed 1000 WAL pages: it copied the WAL
+//! into the database and synced it inside the committing request. The
+//! syncer runs that checkpoint instead, on its own connection, once the WAL
+//! passes [`CHECKPOINT_BYTES`]; a PASSIVE checkpoint never blocks a writer.
+//!
+//! Before, each registry commit ran `synchronous=FULL` with `fullfsync`
+//! while it held the registry connection lock: about 4.5 ms per commit on a
+//! fleet M4 Pro, one to three of them on every create and close reply, and
+//! every other request that needed the lock waited behind them.
 //!
 //! The thread sleeps on a condition variable while nothing is owed (no
 //! timer, no wakeups at idle).
@@ -104,7 +102,7 @@ impl Drop for SyncerOwner {
         };
         self.0.changed.notify_all();
         if owed {
-            flush(&self.0);
+            sync_wal(&self.0, true);
         }
     }
 }
@@ -259,26 +257,33 @@ fn checkpoint_if_large(shared: &Shared, checkpointer: &mut Option<Connection>) {
     }
 }
 
-/// The checkpoint syncs the database file as the request connections would
-/// have (unit tests skip the device-cache flush, as their registries do).
+/// The checkpoint orders its writes with plain fsyncs, as the WAL flush does
+/// (no drive-cache flush while the daemon runs, see [`flush`]).
 #[cfg(not(test))]
-const CHECKPOINTER_PRAGMAS: &str = "PRAGMA fullfsync=ON; PRAGMA checkpoint_fullfsync=ON;";
+const CHECKPOINTER_PRAGMAS: &str = "PRAGMA fullfsync=OFF; PRAGMA checkpoint_fullfsync=OFF;";
 #[cfg(test)]
 const CHECKPOINTER_PRAGMAS: &str = "PRAGMA fullfsync=OFF;";
 
-/// Flush the WAL file to stable storage. A missing WAL was checkpointed
-/// into the database and removed, which SQLite syncs itself.
-///
-/// Two steps, so a commit landing meanwhile never waits for the slow one: a
-/// plain fsync writes the WAL's pages and metadata to the drive (it holds the
-/// file only that long), then F_FULLFSYNC of a separate empty file
-/// (`<database>-durability`) asks the drive to flush its whole cache, the
-/// WAL's pages with it. An F_FULLFSYNC of the WAL itself held the WAL for
-/// the cache flush too (about 4.5 ms), and the next commit's write waited.
+/// Order the WAL's writes on the drive: F_BARRIERFSYNC (fsync off macOS),
+/// never F_FULLFSYNC while the daemon runs. An F_FULLFSYNC flushes the
+/// drive's whole cache and stalls every other write to it until done, on any
+/// file: with one after each reply, the next request's WAL writes waited for
+/// it (same fleet mini, 40 rounds: registry NORMAL with no full flush answered
+/// a new browser tab in 3.7 ms p50, with a full flush per reply 22-25 ms).
+/// A barrier keeps the WAL's order on the drive, so a power loss loses at
+/// most a tail of commits and never leaves an out-of-order WAL (SQLite's
+/// checksums then stop replay at the first missing frame); the same loss
+/// ends every shell the tail described. The full flush runs once at close
+/// ([`SyncerOwner`]). A missing WAL was checkpointed into the database and
+/// removed, which SQLite syncs itself.
 fn flush(shared: &Shared) {
     if let Some(delay) = shared.slow_flush {
         std::thread::sleep(delay);
     }
+    sync_wal(shared, false);
+}
+
+fn sync_wal(shared: &Shared, full: bool) {
     let wal = match File::options().read(true).write(true).open(&shared.wal_path) {
         Ok(file) => file,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return,
@@ -287,45 +292,29 @@ fn flush(shared: &Shared) {
             return;
         }
     };
-    if let Err(error) = wal.sync_data() {
+    if let Err(error) = drive_sync(&wal, full) {
         eprintln!("cmux-tui: WAL flush failed: {error}");
-        return;
-    }
-    drop(wal);
-    if let Err(error) = flush_drive_cache(shared) {
-        eprintln!("cmux-tui: drive cache flush failed: {error}");
     }
 }
 
-/// F_FULLFSYNC of the database's empty sidecar file: the drive writes its
-/// whole cache to stable storage (as SQLite's `fullfsync=ON` did per
-/// commit). Off macOS, and in unit tests (as their registries,
-/// `REGISTRY_FULLFSYNC_PRAGMA`), the WAL's fsync was already durable.
-fn flush_drive_cache(shared: &Shared) -> std::io::Result<()> {
+/// F_BARRIERFSYNC, or F_FULLFSYNC when `full`, on macOS (each falls back to
+/// fsync where the file system refuses it); fdatasync elsewhere. Unit tests
+/// use a plain fsync, as their registries do (`REGISTRY_FULLFSYNC_PRAGMA`).
+fn drive_sync(file: &File, full: bool) -> std::io::Result<()> {
     #[cfg(all(target_os = "macos", not(test)))]
     {
         use std::os::fd::AsRawFd;
-        use std::os::unix::fs::OpenOptionsExt;
-        let mut path = shared.database_path.as_os_str().to_owned();
-        path.push("-durability");
-        let file = File::options()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .mode(0o600)
-            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
-            .open(PathBuf::from(path))?;
-        // SAFETY: fcntl on an fd this function owns for the call.
-        if unsafe { libc::fcntl(file.as_raw_fd(), libc::F_FULLFSYNC) } == 0 {
+        let command = if full { libc::F_FULLFSYNC } else { libc::F_BARRIERFSYNC };
+        // SAFETY: fcntl on an fd this function borrows for the call.
+        if unsafe { libc::fcntl(file.as_raw_fd(), command) } != -1 {
             return Ok(());
         }
-        Err(std::io::Error::last_os_error())
+        file.sync_data()
     }
     #[cfg(not(all(target_os = "macos", not(test))))]
     {
-        let _ = shared;
-        Ok(())
+        let _ = full;
+        file.sync_data()
     }
 }
 
