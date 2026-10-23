@@ -190,7 +190,7 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextPalette/FrecencyPersistence.swift": {
   "JSON / property-list decode": 1
  },
- "Packages/macOS/CmuxNext/Sources/CmuxNextRemoteBrowser/LocalHost/LocalRemoteBrowserHost.swift": {
+ "Packages/macOS/CmuxNext/Sources/CmuxNextRemote/BrowserHost/LocalRemoteBrowserHost.swift": {
   "process launch": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextRemoteLocalhostService/ActionRegistry+WorkspaceLocalhost.swift": {
