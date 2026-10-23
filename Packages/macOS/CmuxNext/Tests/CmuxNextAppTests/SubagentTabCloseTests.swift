@@ -95,8 +95,18 @@ struct SubagentTabCloseTests {
             window.contentView?.layoutSubtreeIfNeeded()
             // The chats' tools share their panes' tab rows, as a loaded chat page's do.
             for view in [tabs.existingView(chatID), tabs.existingView(key)].compactMap({ $0 }) { view.model.tabRow.report(width: 120) }
-            window.contentView?.layoutSubtreeIfNeeded()
             let strip = controller.view.stripView
+            // The subagent's chat shows in that pane and takes the tab row once the pane lays out again.
+            @MainActor func sharesRow() -> Bool {
+                window.contentView?.layoutSubtreeIfNeeded()
+                guard let view = tabs.existingView(key), let page = view.page, view.window === window, !view.isHiddenOrHasHiddenAncestor else { return false }
+                return page.convert(page.bounds, to: nil).intersects(strip.convert(strip.bounds, to: nil))
+            }
+            try await PinnedPageTests.until(sharesRow, report: {
+                let view = tabs.existingView(key)
+                return "the subagent's chat never shares its tab row: view \(view.map { "in window \($0.window === window), hidden \($0.isHiddenOrHasHiddenAncestor), frame \($0.convert($0.bounds, to: nil))" } ?? "none"), "
+                    + "tools \(view?.model.tabRow.toolsWidth ?? -1), strip \(strip.convert(strip.bounds, to: nil)), \(Self.describe(services))"
+            })
             let point = try Self.closeButton(id, in: strip)
             // A Chromium chat page is a window above the whole window: one over the x leaves a hole there.
             // The subagent's chat shows in that pane and shares its tab row, so its page is over the x.
