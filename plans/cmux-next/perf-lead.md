@@ -99,6 +99,20 @@ palette linear grouping (Aziz 59564e6e), WebKit title coalesce (Aziz ff167aa9).
    views leave the graph; AppKit/immediate rows on typing paths; `perf-profile-split.py` buckets
    prove where time goes before a rewrite.
 
+### Design faults (Lawrence 2026-10-23: "are there other fundamentally wrong things")
+
+| # | Fault | Evidence | Real fix | When |
+|---|---|---|---|---|
+| F1 | Chromium pages are separate child windows over panes | issues 1, 2, 4, 13 | page layer in the cmux window's layer tree (PL-cef-layer) | now |
+| F2 | Chromium's browser process runs in cmux, its pump on cmux's main thread (macOS CEF UI thread = main) | pump passes >= 10 ms; a Chromium CHECK ends all of cmux (cef-out-of-process.md) | browser process in a helper app; pixels through the F1 layer hosting across processes | after F1 |
+| F3 | cmux's own UI pages are React in Chromium renderers | Home starts 3 renderers, 185 MB, ~2 % idle CPU before any browser tab | native Home/chat/settings (a488's AppKit port), never one renderer per cmux page | batch 2 |
+| F4 | Motion = live resize of real frames every frame | 41 ms/frame at 30 panes | layer motion, one content resize at landing (PL-motion-core) | now |
+| F5 | Work follows what exists, not what changed | idle main wakes 27-107/s, 358 KB/s idle disk writes, 368 indicators per Cmd-Tab (fixed), sidebar 17 % CPU ticking at 400 ws | one observer per visible thing; no timers; writes only on new information | batch 2 |
+| F6 | One process per terminal | 392 processes heavy (172 terminal hosts), 8.2 MB per workspace | daemon holds all PTYs in one event loop (pty-holder.md slices 2-5) | batch 2 |
+| F7 | Creates wait for the daemon's echo; stand-ins added per command | terminals instant, browser tabs not | one intent + stand-in path for every create | PL-cef-tab now |
+| F8 | Hidden things keep full cost | hidden Chromium tab 55 MB, Home 793 MB vs ~70 MB floor | discard engines past a grace, keep a record and picture | batch 2 |
+| F9 | Lag regressions land unseen: timings only warn, fleet minis have no lit display (frame checks skipped) | perf-gate.py header | the lead runs the STRESS bench on a GUI host after each landing batch (no CI gate) | now |
+
 ## 4. Workstreams (batch 1)
 
 Each workstream is one subagent in its own worktree, lands on feat-cmux-next (rebase, plain
