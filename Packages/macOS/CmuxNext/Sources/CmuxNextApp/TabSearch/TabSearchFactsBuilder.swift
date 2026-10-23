@@ -7,7 +7,15 @@ import Foundation
 /// state, closed tabs from the closed-items log. Main actor; reads only.
 enum TabSearchFactsBuilder {
     static func facts(_ services: AppServices) -> ControlTabSearchFacts {
-        ControlTabSearchFacts(lastActive: lastActive(services), closing: closing(services), closed: closed(services))
+        let closed = closedFacts(services)
+        return ControlTabSearchFacts(lastActive: lastActive(services), closing: closed.closing, closed: closed.closed)
+    }
+
+    /// The closing and closed tabs alone: what a close, a reopen or a forget moves. A window or
+    /// tab switch moves only ``lastActive(_:)``, so the control snapshot tracks and rebuilds the
+    /// two apart (`ControlSnapshotPublisher.Parts`).
+    static func closedFacts(_ services: AppServices) -> (closing: Set<String>, closed: [ControlClosedTab]) {
+        (closing(services), closed(services))
     }
 
     /// When the user last settled on each tab (the location trail), by tab id.

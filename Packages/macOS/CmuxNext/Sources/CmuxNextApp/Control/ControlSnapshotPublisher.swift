@@ -9,14 +9,19 @@ import os
 /// settles: at most once per display frame, and only the parts whose reads
 /// changed.
 ///
-/// Three parts, each built inside its own Observation tracking, so a change
+/// Four parts, each built inside its own Observation tracking, so a change
 /// of what one part read republishes that part alone (``Parts``): the
 /// topology (every machine's workspaces, O(workspaces + panes)), the
-/// settings root, and the Search Tabs facts (the location trail, closing and
-/// closed tabs). A window switch moves the trail and the window facts, never
-/// a workspace: it costs the trail and O(windows), not every workspace
-/// (perf-lead.md cause 6). Every main-actor work queue frame and a window
-/// closing republish every part.
+/// settings root, the location trail, and the closing and closed tabs of
+/// Search Tabs. A window switch moves the trail and the window facts, never
+/// a workspace or the closed list: it costs the trail and O(windows), not
+/// every workspace (perf-lead.md cause 6). Every main-actor work queue frame
+/// and the close of a window this app's window manager owns republish every
+/// part; any other window closing (a panel, a popup, a hover card) moves at
+/// most the window facts.
+///
+/// The location trail is not observable: its observer republishes the trail
+/// part when it moves (``Parts/trail``).
 ///
 /// Key and activation changes (not observable) move only the window facts
 /// (which window is key, the focus): they republish those, O(windows). When
@@ -28,8 +33,10 @@ import os
 ///
 /// Open (perf-lead.md row 8): a topology change still maps every workspace
 /// through ``ControlWorkspaceInfoCache``, held to one publish per
-/// ``modelChangeInterval``; per-workspace invalidation needs the pane app
-/// facts (selected tab, page tabs) observable first.
+/// ``modelChangeInterval`` (each part keeps its own last publish, so another
+/// part's publish never pushes a held topology back); per-workspace
+/// invalidation needs the pane app facts (selected tab, page tabs, which
+/// window shows a pane) observable first.
 @MainActor
 final class ControlSnapshotPublisher {
     /// The parts of the control snapshot, each tracked and republished on its own.
@@ -39,13 +46,19 @@ final class ControlSnapshotPublisher {
         static let topology = Parts(rawValue: 1 << 0)
         /// The settings root.
         static let settings = Parts(rawValue: 1 << 1)
-        /// The Search Tabs facts (``TabSearchFactsBuilder``).
-        static let tabSearch = Parts(rawValue: 1 << 2)
+        /// When the user last settled on each tab (``TabSearchFactsBuilder/lastActive(_:)``): a
+        /// window or tab switch moves it.
+        static let trail = Parts(rawValue: 1 << 2)
         /// The window facts alone (``windowInfos(_:cache:)``, ``focus(_:)``), O(windows): what a
         /// key or activation notice moves. Implied by `topology`.
         static let windows = Parts(rawValue: 1 << 3)
+        /// The closing and closed tabs of Search Tabs (``TabSearchFactsBuilder/closedFacts(_:)``),
+        /// O(closed history): only a close, a reopen or a forget moves them.
+        static let closedTabs = Parts(rawValue: 1 << 4)
         /// The model parts: what a tracked change or a work queue frame republishes.
-        static let model: Parts = [.topology, .settings, .tabSearch]
+        static let model: Parts = [.topology, .settings, .trail, .closedTabs]
+        /// Each model part on its own.
+        static let modelParts: [Parts] = [.topology, .settings, .trail, .closedTabs]
     }
 
     private let router: ControlRouter
@@ -56,12 +69,15 @@ final class ControlSnapshotPublisher {
     private var pending: Parts = []
     /// A model-change publish waits until then (`modelChanged`); nil publishes on the next frame.
     private var notBefore: ContinuousClock.Instant?
-    private var lastPublish = ContinuousClock.now
+    /// When each model part last published (by raw value): a held part waits from its own publish.
+    private var lastPublish: [UInt8: ContinuousClock.Instant] = [:]
     /// Model changes (agent status ticks reach hundreds a second) publish at most this often:
     /// a topology publish maps every workspace. A read waiting on a write barrier still publishes at once.
     static let modelChangeInterval: Duration = .milliseconds(100)
     private var isStopped = false
     private var observers: [any NSObjectProtocol] = []
+    /// The location trail's observer token (the trail is not observable: it tells its observers).
+    private var trailObserver: Int?
     /// Per-workspace control values kept between publishes (cx-9c8m).
     private let workspaceInfos = ControlWorkspaceInfoCache()
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "control.snapshot")
@@ -82,10 +98,19 @@ final class ControlSnapshotPublisher {
         // or selection is in the snapshot before the next request is read.
         router.workQueue.setAfterFrame { [weak self] in self?.publishNow() }
         let center = NotificationCenter.default
-        // A window that closes leaves the window list: everything.
-        observers.append(center.addObserver(forName: NSWindow.willCloseNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.invalidate(.model, notBefore: nil) } // main-proof: observer on queue: .main
+        // A window of the window manager that closes leaves the window list and takes its
+        // workspaces' panes off screen: everything. Any other window (a hover card, a toast, a
+        // sheet, a panel, a Chromium popup) moves at most the window facts; that path upgrades to
+        // the topology itself when the window list differs from the published one.
+        observers.append(center.addObserver(forName: NSWindow.willCloseNotification, object: nil, queue: .main) { [weak self] notice in
+            let window = notice.object as? NSWindow
+            MainActor.assumeIsolated { // main-proof: observer on queue: .main
+                guard let self else { return }
+                self.invalidate(self.isManaged(window) ? .model : .windows, notBefore: nil)
+            }
         })
+        // The trail moves on a switch or a settled focus: Search Tabs' recency alone, O(trail).
+        trailObserver = services.locationTrail.addObserver { [weak self] in self?.invalidate(.trail, notBefore: nil) }
         for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
                      NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification] {
             observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
@@ -95,11 +120,19 @@ final class ControlSnapshotPublisher {
         publishNow()
     }
 
+    /// Whether `window` is the window of one of the window manager's controllers.
+    private func isManaged(_ window: NSWindow?) -> Bool {
+        guard let window else { return false }
+        return services.windows.controllers.contains { $0.window === window }
+    }
+
     func stop() {
         isStopped = true
         router.workQueue.setAfterFrame(nil)
         observers.forEach(NotificationCenter.default.removeObserver)
         observers.removeAll()
+        if let trailObserver { services.locationTrail.removeObserver(trailObserver) }
+        trailObserver = nil
     }
 
     /// Schedules `parts` on the next frame (coalesced with what is pending); a model part with
@@ -132,7 +165,8 @@ final class ControlSnapshotPublisher {
     /// part on this turn (the store just applied a batch, and the reader expects its write in
     /// the topology and the Search Tabs facts alike); otherwise the next frame publishes `part`.
     private func modelChanged(_ part: Parts) {
-        if router.snapshots.hasWaiters { publishNow() } else { invalidate(part, notBefore: lastPublish + Self.modelChangeInterval) }
+        if router.snapshots.hasWaiters { return publishNow() }
+        invalidate(part, notBefore: lastPublish[part.rawValue].map { $0 + Self.modelChangeInterval })
     }
 
     /// Publishes every part now. Compat intents call this so a CLI read that
@@ -149,7 +183,6 @@ final class ControlSnapshotPublisher {
         var parts = requested
         // The topology carries the window facts.
         if parts.contains(.topology) { parts.remove(.windows) }
-        pending.subtract(parts.contains(.topology) ? parts.union(.windows) : parts)
         let current = router.snapshots.current.topology
         var windowFacts: (windows: [ControlWindowInfo], focus: ControlFocus)?
         if parts.contains(.windows) {
@@ -161,10 +194,12 @@ final class ControlSnapshotPublisher {
                 parts.insert(.topology)
             }
         }
+        // After the upgrade: a held topology goes with this one, not again after its wait.
+        pending.subtract(parts.contains(.topology) ? parts.union(.windows) : parts)
         guard !parts.isEmpty else { return }
         let started = ContinuousClock.now
         if !parts.isDisjoint(with: .model) {
-            lastPublish = started
+            for part in Parts.modelParts where parts.contains(part) { lastPublish[part.rawValue] = started }
             // A model part still pending keeps its wait.
             if pending.isDisjoint(with: .model) { notBefore = nil }
         }
@@ -173,14 +208,17 @@ final class ControlSnapshotPublisher {
         // The settings root itself may be nil (no settings controller): an outer nil is "not built".
         var settings: CmuxNextSettings.JSONValue??
         if parts.contains(.settings) { settings = .some(track(.settings) { services.settings?.snapshot.root }) }
-        var tabSearch: ControlTabSearchFacts?
-        if parts.contains(.tabSearch) { tabSearch = track(.tabSearch) { TabSearchFactsBuilder.facts(services) } }
+        var trail: [String: Date]?
+        if parts.contains(.trail) { trail = track(.trail) { TabSearchFactsBuilder.lastActive(services) } }
+        var closedTabs: (closing: Set<String>, closed: [ControlClosedTab])?
+        if parts.contains(.closedTabs) { closedTabs = track(.closedTabs) { TabSearchFactsBuilder.closedFacts(services) } }
         onPublish(parts)
         if parts == .windows, let windowFacts, windowFacts.windows == current.windows, windowFacts.focus == current.focus { return }
         router.snapshots.publish { snapshot in
             if let topology { snapshot.topology = topology }
             if let settings { snapshot.settings = settings }
-            if let tabSearch { snapshot.tabSearch = tabSearch }
+            if let trail { snapshot.tabSearch.lastActive = trail }
+            if let closedTabs { (snapshot.tabSearch.closing, snapshot.tabSearch.closed) = closedTabs }
             if let windowFacts {
                 snapshot.topology.windows = windowFacts.windows
                 snapshot.topology.focus = windowFacts.focus
