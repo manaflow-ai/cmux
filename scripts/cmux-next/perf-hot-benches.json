@@ -68,7 +68,7 @@
     },
     "launch-first-window": {
       "what": "launch to the first window frame: the launch files read off the main thread and taken by each pane build (#17587)",
-      "bench": "scripts/cmux-next/bench-startup.py --mode warm --mode kept --profile realistic --launch-guard",
+      "bench": "scripts/cmux-next/bench-startup.py --mode warm --mode kept --profile realistic --launch-guard --budget first_window_frame_committed=150",
       "owner": "Performance Lead"
     }
   }

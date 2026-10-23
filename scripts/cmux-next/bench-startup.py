@@ -712,7 +712,11 @@ def main():
                         help="with --launch-guard: kept mode's limit of running terminals in workspaces no visible window shows")
     args = parser.parse_args()
     # The guard measures main-thread stalls too, so a main-thread read no mark reports still fails it.
-    HANG_THRESHOLD_MS = args.hangs or (int(args.max_launch_stall) if args.launch_guard else None)
+    # With the guard the app records every stall the guard judges: a --hangs above
+    # --max-launch-stall would hide the stalls between the two from it.
+    HANG_THRESHOLD_MS = args.hangs
+    if args.launch_guard:
+        HANG_THRESHOLD_MS = min(filter(None, [args.hangs, int(args.max_launch_stall)]), default=None)
     KEPT_SETTLE_S = args.settle
     SEED_FOCUS = args.focus
     SEED_CHAT_PANE = args.chat_pane
