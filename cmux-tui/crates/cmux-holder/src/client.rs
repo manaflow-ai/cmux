@@ -46,6 +46,15 @@ pub enum Event {
     },
 }
 
+/// A terminal a holder started: its pid and the custody dups.
+#[derive(Debug)]
+pub struct Spawned {
+    pub pid: i32,
+    pub master: OwnedFd,
+    /// The ring segment (wire version 4; `None` from an older holder).
+    pub ring: Option<OwnedFd>,
+}
+
 /// Start a holder process serving `socket`, wait until it listens.
 pub fn launch(binary: &Path, socket: &Path, token: &[u8; 32]) -> io::Result<Child> {
     launch_with(binary, socket, token, |_| {})
@@ -119,9 +128,9 @@ impl HolderClient {
         };
         let mut listed = Vec::new();
         while listed.len() < count as usize {
-            let mut frame = client.frame(deadline)?;
+            let frame = client.frame(deadline)?;
             if frame.kind == Kind::Listed as u16 {
-                listed.push(Listed::decode(frame.chan, &frame.payload, frame.fds.pop())?);
+                listed.push(Listed::decode(frame.chan, &frame.payload, frame.fds)?);
             }
         }
         Ok((client, listed))
@@ -147,15 +156,22 @@ impl HolderClient {
     /// Start `request` on channel `chan`. Returns the child's pid and the
     /// daemon's custody dup of the PTY master.
     pub fn spawn(&mut self, chan: u32, request: &SpawnRequest) -> io::Result<(i32, OwnedFd)> {
+        self.spawn_with_ring(chan, request).map(|spawned| (spawned.pid, spawned.master))
+    }
+
+    /// [`Self::spawn`], with the custody dup of the terminal's ring segment
+    /// (wire version 4; `None` from an older holder).
+    pub fn spawn_with_ring(&mut self, chan: u32, request: &SpawnRequest) -> io::Result<Spawned> {
         self.send(Kind::Spawn, chan, &request.encode(), None)?;
         let deadline = Instant::now() + Duration::from_secs(10);
         loop {
-            let mut frame = self.frame(deadline)?;
+            let frame = self.frame(deadline)?;
             match Kind::from_u16(frame.kind) {
                 Some(Kind::Spawned) if frame.chan == chan => {
                     let pid = In(&frame.payload).i32()?;
-                    let fd = frame.fds.pop().ok_or_else(|| io::Error::other("no master fd"))?;
-                    return Ok((pid, fd));
+                    let mut fds = frame.fds.into_iter();
+                    let master = fds.next().ok_or_else(|| io::Error::other("no master fd"))?;
+                    return Ok(Spawned { pid, master, ring: fds.next() });
                 }
                 Some(Kind::Error) if frame.chan == chan => {
                     return Err(io::Error::other(error_message(&frame.payload)));
@@ -177,6 +193,29 @@ impl HolderClient {
     ) -> io::Result<()> {
         let payload = Out::default().i32(pid).u64(base).bytes(id).0;
         self.send(Kind::Adopt, chan, &payload, Some(master))
+    }
+
+    /// Hand a running terminal and its ring segment to this holder (wire
+    /// version 4): the holder continues the dead holder's ring, with every
+    /// byte it read. `base` is where `prologue`'s screen is (the offset the
+    /// daemon parsed), `resume` where a fresh ring would start.
+    pub fn adopt_with_ring(
+        &mut self,
+        chan: u32,
+        id: &[u8; 16],
+        (pid, base, resume): (i32, u64, u64),
+        master: &OwnedFd,
+        ring: &OwnedFd,
+        prologue: &[u8],
+    ) -> io::Result<()> {
+        let payload = Out::default().i32(pid).u64(base).bytes(id).u64(resume).bytes(prologue).0;
+        let frame = wire::encode_flagged(Kind::Adopt, wire::FLAG_RING, chan, &payload);
+        wire::send_all(self.stream.as_raw_fd(), &frame, &[master.as_raw_fd(), ring.as_raw_fd()])
+    }
+
+    /// The wire version the holder's WELCOME settled on.
+    pub fn version(&self) -> u16 {
+        self.version
     }
 
     pub fn attach(&mut self, chan: u32, from: u64) -> io::Result<()> {

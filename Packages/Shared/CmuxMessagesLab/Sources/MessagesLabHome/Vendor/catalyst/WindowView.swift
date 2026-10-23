@@ -2662,10 +2662,10 @@ final class ThreadBackdrop {
         let a0: Float = open ? 0 : Float(1 - ThreadBackdrop.gain), a1: Float = open ? Float(1 - ThreadBackdrop.gain) : 0
         let r0: CGFloat = open ? 0 : ThreadBackdrop.radius, r1: CGFloat = open ? ThreadBackdrop.radius : 0
         tint.opacity = a1
+        // One model write of the blur radius for both paths (the instant one inside its no-actions transaction).
+        if instant { CATransaction.begin(); CATransaction.setDisableActions(true); tint.removeAnimation(forKey: "thread") }
+        blur?.setValue(r1, forKeyPath: "filters.gaussianBlur.inputRadius")
         if instant {
-            CATransaction.begin(); CATransaction.setDisableActions(true)
-            tint.removeAnimation(forKey: "thread")
-            blur?.setValue(r1, forKeyPath: "filters.gaussianBlur.inputRadius")
             blur?.removeAnimation(forKey: "thread")
             CATransaction.commit()
             return
@@ -2678,7 +2678,6 @@ final class ThreadBackdrop {
         if delay > 0 { t.beginTime = CACurrentMediaTime() + delay; t.fillMode = .backwards }
         tint.add(t, forKey: "thread")
         if let blur {
-            blur.setValue(r1, forKeyPath: "filters.gaussianBlur.inputRadius")
             let b = CABasicAnimation(keyPath: "filters.gaussianBlur.inputRadius"); b.fromValue = r0; b.toValue = r1; b.duration = d; b.timingFunction = fn
             if delay > 0 { b.beginTime = CACurrentMediaTime() + delay; b.fillMode = .backwards }
             blur.add(b, forKey: "thread")

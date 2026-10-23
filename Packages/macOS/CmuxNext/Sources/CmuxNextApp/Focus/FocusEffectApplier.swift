@@ -43,8 +43,6 @@ final class FocusEffectApplier: FocusEffectApplying {
 
     func teardown() {
         observers.removeAll()
-        observers.removeAll()
-        overlayPanelObserver = nil
         overlayPanelObserver = nil
     }
 
@@ -307,7 +305,6 @@ final class FocusEffectApplier: FocusEffectApplying {
 
     /// The bubble dismisses when it loses the keys.
     private func overlayPanelDidResignKey() {
-        overlayPanelObserver = nil
         overlayPanelObserver = nil
         overlayPanel = nil
         controller.focus.send(.overlayClosed(.groupEditor))

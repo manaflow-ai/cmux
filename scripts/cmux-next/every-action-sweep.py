@@ -90,7 +90,7 @@ parser.add_argument("--sessions", default="light,stress")
 parser.add_argument("--repeat", type=int, default=3)
 parser.add_argument("--only", default="", help="comma-separated action ids (default: every action)")
 parser.add_argument("--limit", type=int, default=0, help="at most N actions per session (a smoke run)")
-parser.add_argument("--shard", default="", help="K/N: only every N-th action from the K-th (1-based), for N hosts in parallel")
+parser.add_argument("--shard", default="", help="K/N or K1,K2/N: only every N-th action from the K-th (1-based), for N hosts in parallel")
 parser.add_argument("--settle", type=float, default=0.5, help="seconds of frames kept after each commit (animations)")
 parser.add_argument("--no-interactions", action="store_true")
 parser.add_argument("--keep", action="store_true", help="leave the app running")
@@ -1089,7 +1089,7 @@ class Sweep:
                     self.rows[-1]["errors"] = sorted(set(self.rows[-1].get("errors") or []) | {"the app stopped answering"})
                 self.app.relaunch()
                 self.build()
-        if not opts.no_interactions and (not opts.shard or opts.shard.startswith("1/")):
+        if not opts.no_interactions and (not opts.shard or "1" in opts.shard.split("/")[0].split(",")):
             self.run_interactions()
         for action in later:
             row = self.run_action(action)
@@ -1291,7 +1291,8 @@ def misses(row):
 
 def refusal(error):
     """A refusal the sweep's own context or missing arguments caused (the action says what it needs), not an app error."""
-    return error.startswith("unavailable:") or "unavailable" in error.split(":")[0]
+    head = error.split(":")[0]
+    return head in ("unavailable", "disabled", "not_found", "invalid_argument", "invalid_params") or "unavailable" in head
 
 
 def score(row):
@@ -1355,8 +1356,9 @@ def main():
     if only:
         actions = [a for a in actions if a["id"] in only]
     if opts.shard:
-        k, n = (int(x) for x in opts.shard.split("/"))
-        actions = actions[k - 1::n]
+        ks, n = opts.shard.split("/")
+        picks = {int(k) - 1 for k in ks.split(",")}
+        actions = [a for index, a in enumerate(actions) if index % int(n) in picks]
         env["shard"] = opts.shard
     if opts.limit:
         actions = actions[:opts.limit]

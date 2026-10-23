@@ -196,6 +196,7 @@ extension AgentTabStore {
     func rekey(_ key: String, to real: String) {
         guard key != real else { return }
         aliases[key] = real
+        OutboundTab.rekeyed(key, to: real) // a tab on its way out of its pane stays out under its new id
         if remoteCreations[key] != nil || remoteSeeds[key] != nil { remoteAliases[key] = real }
         if let view = views.removeValue(forKey: key) {
             // A page made under the store's id meanwhile (another window) gives way to the one shown.
@@ -215,8 +216,7 @@ extension AgentTabStore {
         adoptions = adoptions.mapValues { $0 == key ? real : $0 }
         if let store = tabStores.removeValue(forKey: key) { tabStores[real] = store }
         if checkpointFocusTab == key { checkpointFocusTab = real }
-        // The provisional alias is removed once the tree settles. Live callbacks
-        // must then name the store tab directly, including conversion and project reads.
+        // The provisional alias goes once the tree settles: live callbacks then name the store tab (conversion, project reads).
         if let view = views[real] { wire(view.model, key: real) }
         seenLive.remove(key)
     }

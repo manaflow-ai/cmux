@@ -1425,6 +1425,7 @@ CLI mapping: verb `apply-layout`; flags `[--workspace <id>] [--name <name>] [--c
 | `paste` field | protocol 7 additive extension |
 | `terminal_id` field | `terminal-input-while-creating-v1` additive extension |
 | `expect_foreground` field | `send-expect-foreground-v1` additive extension |
+| `expect_agent`, `submit` fields | `send-expect-agent-v1` additive extension |
 
 Writes input to a PTY surface. `text`, when present, is UTF-8 encoded and written as bytes. `bytes`, when present, is standard base64 decoded and written as raw bytes. If both are present, v5 writes `text` first and `bytes` second. If neither is present, v5 returns success and writes nothing.
 
@@ -1440,6 +1441,8 @@ Params:
 | `bytes` | `Base64` | default null | Decoded with standard base64 |
 | `paste` | `boolean` | default false | Protocol 7; conditionally wraps the combined non-empty payload when DEC mode 2004 is enabled |
 | `expect_foreground` | `string` | default null | `send-expect-foreground-v1`; needs `surface`; write only while the foreground executable is this one |
+| `expect_agent` | `{session: string}` | default null | `send-expect-agent-v1`; needs `surface`; write only while the terminal's agent is `idle` in `session` |
+| `submit` | `boolean` | default false | `send-expect-agent-v1`; needs `surface`; Return after the payload, in the same request |
 
 With `send-expect-foreground-v1`, `expect_foreground` names the executable the caller saw in the
 foreground (`process-info`'s `foreground_executable`, compared byte for byte). Right before the write the
@@ -1449,6 +1452,15 @@ agent therefore never runs as a shell command after that agent exited. It needs 
 `terminal_id` the request fails with `bad request`. A server without the capability ignores the field.
 The check is best effort: the program can still exit between the read and the write, a window of
 microseconds instead of a client round trip.
+
+With `send-expect-agent-v1`, `expect_agent` makes the write wait for nobody: right before it, the
+server reads the agent record of the surface's own terminal, and unless its state is `idle` and its
+`agent_session_id` equals `expect_agent.session` (required; a surface with no terminal id fails
+too), the request fails with `agent not waiting: ...` and writes nothing. `submit:true` writes Return
+(`\r`) after the payload in the same request, so no input can land between the text and its submit;
+a Return that fails after the text was written says `submit failed after the text was written`. The phone's Feed reply uses
+both, with `expect_foreground` and `paste:true`, so a reply typed where the screen is not in view
+never answers an approval or question, a running turn or a new agent session.
 
 With `terminal-input-while-creating-v1`, `terminal_id` addresses the terminal by its host id. A
 `split`, `new-pane`, `new-pane-right` or `new-tab` that names a caller-minted `terminal_id` makes that id
@@ -8832,10 +8844,14 @@ hook helper sends beside a turn-start event (`session.journal.append` `live_prom
 The daemon keeps it in memory only: it is never journaled, persisted or logged, and a
 daemon restart, a closed terminal or an ended agent session forgets it.
 
-A finished or failed turn's last agent message rides the same way (`live_reply`, at most
-200 characters): the turn's `notification` event carries it as `preview`, the banner text
-the app shows per its Show Previews setting, and the daemon drops it once that event is
-sent. The durable notification row never holds it.
+A finished or failed turn's last agent message rides the same way (`live_reply`), as do
+the error text of a failed tool or turn and, for `live_prompt`, the whole prompt: the hook
+keeps them whole (markdown with its line breaks, at most 4000 characters). The turn's
+`notification` event carries the message as `preview` (folded, at most 200 characters, the
+banner text the app shows per its Show Previews setting) and whole as `message`, the turn's
+prompt as `prompt`, the posting agent's harness session as `session` and the ledger row's id
+as `id` (for the phone's Feed). The daemon drops the message once that event is sent. The
+durable notification row never holds any of them.
 
 `since_ms` is when the agent entered `state` (Unix ms): a report that keeps
 the state keeps it, so a client can show how long an agent has worked or

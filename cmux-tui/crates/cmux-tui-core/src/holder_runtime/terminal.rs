@@ -8,7 +8,7 @@ use std::sync::Arc;
 use cmux_holder::ExitStatus;
 use cmux_pty::ChildKiller;
 
-use super::sink::{SinkEnd, SnapshottingReader};
+use super::sink::{Pending, SinkEnd, SnapshottingReader};
 use super::{HolderService, HolderSink};
 use crate::surface::spawn::LocalLaunch;
 use crate::terminal_end::TerminalEnd;
@@ -25,6 +25,11 @@ pub(crate) struct HolderTerminal {
     /// The daemon's dup of the PTY master: input, resize, and the copy that
     /// keeps the shell alive if the holder dies.
     pub(crate) custody: OwnedFd,
+    /// The daemon's dup of the terminal's ring segment (wire version 4):
+    /// the copy that keeps the output a dying holder read but never sent,
+    /// handed to the next holder. `None` while the terminal runs on an
+    /// older holder.
+    pub(super) ring: std::sync::Mutex<Option<OwnedFd>>,
     pub(crate) sink: Arc<HolderSink>,
     pub(super) service: Arc<HolderService>,
     /// A VT replay of the daemon's parsed screen, handed to a new holder
@@ -33,8 +38,22 @@ pub(crate) struct HolderTerminal {
 }
 
 /// Builds a terminal's VT replay of at most the given bytes, empty when it
-/// does not fit (its surface registers it).
-pub(crate) type Replay = Box<dyn Fn(usize) -> Vec<u8> + Send + Sync>;
+/// does not fit (its surface registers it). It calls the second argument
+/// once while it holds the terminal lock, at the instant the replay shows:
+/// a caller reads there what the parser has not parsed yet
+/// ([`super::HolderSink::pending`]).
+pub(crate) type Replay = Box<dyn Fn(usize, &mut dyn FnMut()) -> Vec<u8> + Send + Sync>;
+
+/// What a new holder gets for a terminal after a holder crash.
+pub(super) struct Adoption {
+    /// Where the prologue's screen is in the holder's offsets.
+    pub(super) base: u64,
+    /// Where the stream to this daemon continues (the newest byte it has).
+    pub(super) resume: u64,
+    pub(super) prologue: Vec<u8>,
+    /// A dup of the ring segment to hand over, when the holder takes one.
+    pub(super) ring: Option<OwnedFd>,
+}
 
 /// The largest prologue handed to a new holder with the master: it must
 /// fit one ADOPT frame (1 MiB) with room to spare.
@@ -60,14 +79,75 @@ impl HolderTerminal {
     }
 
     /// The screen replay (at most `max_bytes`); empty when none is known
-    /// or it does not fit.
+    /// or it does not fit. Called on the reader thread (a snapshot), where
+    /// the parser has parsed every byte it took.
     pub(super) fn prologue(&self, max_bytes: usize) -> Vec<u8> {
-        self.replay
+        self.replay_at(max_bytes, &mut || {})
+    }
+
+    fn replay_at(&self, max_bytes: usize, at_point: &mut dyn FnMut()) -> Vec<u8> {
+        let replay = self.replay.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        match replay.as_ref() {
+            Some(replay) => replay(max_bytes, at_point),
+            None => {
+                at_point();
+                Vec::new()
+            }
+        }
+    }
+
+    /// What a new holder needs to take this terminal over after the old
+    /// holder died (the replay race, holder item 1). The screen replay and
+    /// the bytes the parser has not finished are read at one instant, under
+    /// the terminal lock, so neither a chunk the reader holds nor one still
+    /// queued is lost or played twice:
+    ///
+    /// - `rings` (the new holder takes ring segments) and the terminal has
+    ///   one: the new holder continues the dead holder's ring. The prologue
+    ///   is the screen at the offset the parser confirmed, with the seed the
+    ///   parser has not finished; a restarted daemon then replays the ring
+    ///   from there, and this daemon gets from the newest byte it has the
+    ///   bytes the dead holder read but never sent.
+    /// - otherwise the prologue is the screen plus every byte not parsed
+    ///   yet, at the newest byte received; with `rings` a fresh segment
+    ///   starts there, so the next crash loses nothing either.
+    ///
+    /// `max_bytes` bounds the prologue (one ADOPT frame).
+    pub(super) fn adoption(&self, rings: bool, max_bytes: usize) -> Adoption {
+        let kept = self
+            .ring
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .as_ref()
-            .map(|replay| replay(max_bytes))
-            .unwrap_or_default()
+            .and_then(|segment| segment.try_clone().ok())
+            .filter(|_| rings);
+        // No new output arrives meanwhile (the old link ended), so what is
+        // pending now bounds what is pending at the replay's instant.
+        let estimate = self.sink.pending();
+        let extra = if kept.is_some() { estimate.head.len() } else { estimate.all.len() };
+        let mut pending = None;
+        let mut replay = self.replay_at(max_bytes.saturating_sub(extra), &mut || {
+            pending = Some(self.sink.pending());
+        });
+        let Pending { confirmed, received, head, all } = pending.unwrap_or(estimate);
+        if let Some(ring) = kept {
+            replay.extend_from_slice(&head);
+            return Adoption {
+                base: confirmed,
+                resume: received,
+                prologue: fit(replay, max_bytes),
+                ring: Some(ring),
+            };
+        }
+        replay.extend_from_slice(&all);
+        let replay = fit(replay, max_bytes);
+        let ring = rings
+            .then(|| cmux_holder::ring::create_segment(received, cmux_holder::holder::RING_BYTES))
+            .and_then(Result::ok);
+        if let Some(segment) = ring.as_ref().and_then(|segment| segment.try_clone().ok()) {
+            *self.ring.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(segment);
+        }
+        Adoption { base: received, resume: received, prologue: replay, ring }
     }
 
     pub(crate) fn is_detached(&self) -> bool {
@@ -88,6 +168,13 @@ impl HolderTerminal {
             }
         }
     }
+}
+
+/// `prologue`, or a lone CAN when it does not fit one ADOPT frame (only a
+/// seed bigger than the frame that the parser has not finished): the live
+/// screen keeps everything, a later restart starts from the ring.
+fn fit(prologue: Vec<u8>, max_bytes: usize) -> Vec<u8> {
+    if prologue.len() <= max_bytes { prologue } else { vec![super::sink::CANCEL] }
 }
 
 /// The local-runtime launch of `terminal`: output from the holder's stream,
@@ -114,6 +201,7 @@ pub(crate) fn holder_local_launch(
                 terminal.service.snapshot(terminal.chan, base, &replay);
             }
         }),
+        terminal_id: crate::terminal_host::TerminalId::from_bytes(terminal.id).to_hex(),
     };
     Ok(LocalLaunch {
         master,

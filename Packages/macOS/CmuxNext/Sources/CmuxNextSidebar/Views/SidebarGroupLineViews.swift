@@ -133,7 +133,8 @@ final class SidebarGroupLineViews {
     }
 }
 
-/// One members' line: a rounded bar in its group's header color.
+/// One members' line: Chrome's (Leo 2026-10-19), a flat-ended 2 pt bar in its header bar's exact color.
+/// Square ends need no mask or drawn image, so the line keeps its shape in every frame of the rows' spring.
 final class GroupLineView: NSView {
     var color: GroupTint = .palette(.grey) {
         didSet { if color != oldValue { needsDisplay = true } }
@@ -146,7 +147,7 @@ final class GroupLineView: NSView {
     init() {
         super.init(frame: .zero)
         wantsLayer = true
-        layer?.cornerCurve = .continuous
+        layer?.cornerRadius = 0 // flat ends, never round caps (Leo 2026-10-19)
     }
 
     @available(*, unavailable)
@@ -161,22 +162,20 @@ final class GroupLineView: NSView {
         needsDisplay = true
     }
 
-    override func layout() {
-        super.layout()
-        layer?.cornerRadius = bounds.width / 2
-    }
-
     override func updateLayer() {
-        let themed = observedThemed()
+        let look = observedLook()
         performWithTheme {
-            let line = color.lineColor(themed: themed)
+            // Under the solid band, the band's rest color (Leo 2026-10-19: bar and line are one color);
+            // the quieter looks keep the dot's color.
+            let line = look.style == .band ? color.lineFill(themed: look.themed) : color.lineColor(themed: look.themed)
             layer?.backgroundColor = line.withAlphaComponent(line.alphaComponent * strength).cgColor
         }
     }
 
-    /// Reads `sidebar.groupColors` and repaints once when it changes; one observation at a time.
-    private func observedThemed() -> Bool {
-        let read = { SidebarGroupPalette.tunable.value == .theme }
+    /// Reads `sidebar.groupHeader` and `sidebar.groupColors` and repaints once when either changes; one
+    /// observation at a time.
+    private func observedLook() -> (style: SidebarGroupHeaderStyle, themed: Bool) {
+        let read = { (SidebarGroupHeaderStyle.tunable.value, SidebarGroupPalette.tunable.value == .theme) }
         guard !observesPalette else { return read() }
         observesPalette = true
         return withObservationTracking(read) { [weak self] in

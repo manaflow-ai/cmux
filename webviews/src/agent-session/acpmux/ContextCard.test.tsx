@@ -1,8 +1,7 @@
 // The context ring's hover card (Leo 2026-10-21, after Claude's and Codex's): resting on the ring,
 // or focusing it from the keyboard, shows a glass card with no click. It reads "23% used · 111k /
-// 475k", draws the window as a thin stacked bar (setup, then conversation, over the free track,
-// in the Inspector Context meter's colors) and ends on "Details ›", which opens the Inspector at
-// its Context section. The ring itself never takes a hover pill.
+// 475k tokens used", and ends on "Details ›" when the chat has a Context section. A reported Claude
+// breakdown uses the fuller card; the ring itself never takes a hover pill.
 import { afterEach, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -98,31 +97,25 @@ test("resting the pointer on the ring shows the card without a click", async () 
   expect(card()).not.toBeNull();
 });
 
-test("keyboard focus opens the card at once, with the context line and a stacked bar", async () => {
+test("keyboard focus opens the compact tooltip at once", async () => {
   const ring = await mount({ used: 111_000, size: 475_000, setup: 20_000 });
   await act(async () => ring.focus());
   await wait();
   const shown = card();
   expect(shown).not.toBeNull();
   expect(shown!.textContent).toContain(translate("context.title"));
-  const line = shown!.querySelector(".acpmux-context-card-line")!.textContent;
-  expect(line).toContain("23%");
-  expect(line).toMatch(/111K/i);
-  expect(line).toMatch(/475K/i);
-  const segments = [...shown!.querySelectorAll<HTMLElement>(".acpmux-context-card-bar [data-segment]")];
-  expect(segments.map((segment) => segment.dataset.segment)).toEqual(["setup", "conversation"]);
-  // 20k and 91k of 475k.
-  expect(parseFloat(segments[0].style.width)).toBeCloseTo(4.2, 1);
-  expect(parseFloat(segments[1].style.width)).toBeCloseTo(19.2, 1);
+  expect(shown!.querySelector(".acpmux-context-card-compact-percent")!.textContent).toContain("23%");
+  expect(shown!.querySelector(".acpmux-context-card-compact-tokens")!.textContent).toMatch(/111K/i);
+  expect(shown!.querySelector(".acpmux-context-card-compact-tokens")!.textContent).toMatch(/475K/i);
+  expect(shown!.querySelector(".acpmux-context-card-bar")).toBeNull();
 });
 
-test("without a setup split the bar is one used segment", async () => {
+test("the compact tooltip does not expose an inferred setup split", async () => {
   const ring = await mount({ used: 60_000, size: 200_000 });
   await act(async () => ring.focus());
   await wait();
-  const segments = [...card()!.querySelectorAll<HTMLElement>(".acpmux-context-card-bar [data-segment]")];
-  expect(segments.map((segment) => segment.dataset.segment)).toEqual(["used"]);
-  expect(parseFloat(segments[0].style.width)).toBeCloseTo(30, 1);
+  expect(card()!.querySelector(".acpmux-context-card-bar")).toBeNull();
+  expect(card()!.querySelector(".acpmux-context-card-parts")).toBeNull();
 });
 
 test("the card shows no plan-limits section when the harness reports none", async () => {
