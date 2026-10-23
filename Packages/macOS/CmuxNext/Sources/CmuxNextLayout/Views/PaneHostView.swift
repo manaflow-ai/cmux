@@ -178,7 +178,12 @@ final class PaneHostView: NSView, RestingPlacement {
         layoutClip()
     }
 
+    /// Clip and content layouts this host ran, cumulative (PaneMotionWorkTests: a pane that only
+    /// moves lays out nothing).
+    private(set) var clipLayouts = 0
+
     private func layoutClip() {
+        clipLayouts += 1
         var style = LayoutStyle()
         style.panePadding = padding
         style.paneCornerRadius = cornerRadius

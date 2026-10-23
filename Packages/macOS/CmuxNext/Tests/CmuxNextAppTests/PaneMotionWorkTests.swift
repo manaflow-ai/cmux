@@ -34,4 +34,30 @@ struct PaneMotionWorkTests {
         #expect(worstOverlay <= Self.movedPanes, "a frame placed \(worstOverlay) rings of 31 panes; the split moves \(Self.movedPanes)")
         #expect(worstClips <= Self.movedPanes, "a frame computed \(worstClips) strip clips of 31 panes; the split moves \(Self.movedPanes)")
     }
+
+    /// New Column at 30 panes: the strip camera moves every pane sideways at its size. A pane that
+    /// only moves lays out no clip and no content on any frame (no strip layout, no terminal resize).
+    @Test func panesThatOnlyMoveLayOutNothing() async throws {
+        let harness = PaneMotionBench.Harness(PaneMotionBench.grid(6, 5), focused: PaneID("p0-0"))
+        _ = await harness.frame()
+        let screen = try #require(harness.root.screenViews.values.first)
+        let hosts = screen.subviews.compactMap { $0 as? PaneHostView }
+        let sizes = Dictionary(uniqueKeysWithValues: hosts.map { (ObjectIdentifier($0), $0.frame.size) })
+        let before = Dictionary(uniqueKeysWithValues: hosts.map { (ObjectIdentifier($0), $0.clipLayouts) })
+        var origins = Set<ObjectIdentifier>()
+        let start = Dictionary(uniqueKeysWithValues: hosts.map { (ObjectIdentifier($0), $0.frame.origin) })
+        // The new column takes focus, as New Column's does: the camera reveals it and every pane slides.
+        harness.model.apply(screens: PaneMotionBench.grid(6, 5, extraColumn: true))
+        harness.model.focus(PaneID("p6-0"), notify: false)
+        var moving = true, frames = 0
+        while moving, frames < 240 {
+            moving = await harness.frame().moving
+            frames += 1
+            for host in hosts where host.frame.origin != start[ObjectIdentifier(host)] { origins.insert(ObjectIdentifier(host)) }
+        }
+        let still = hosts.filter { $0.frame.size == sizes[ObjectIdentifier($0)] && origins.contains(ObjectIdentifier($0)) }
+        let laidOut = still.reduce(0) { $0 + $1.clipLayouts - (before[ObjectIdentifier($1)] ?? 0) }
+        #expect(!still.isEmpty, "New Column moved no pane at its size")
+        #expect(laidOut == 0, "\(still.count) panes that only moved laid out \(laidOut) times over \(frames) frames")
+    }
 }
