@@ -82,9 +82,9 @@ export function ForkButton({ onFork }: { onFork(): unknown }) {
       ? `${t("turn.fork")}…`
       : state === "done"
         ? `${t("turn.fork")} ✓`
-      : state === "failed"
-        ? t("notice.forkFailed")
-        : t("turn.fork");
+        : state === "failed"
+          ? t("notice.forkFailed")
+          : t("turn.fork");
   const fork = () => {
     if (inFlight.current) return;
     inFlight.current = true;
