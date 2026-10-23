@@ -14,6 +14,7 @@ import { loadLastChips, rememberLastChips } from "./chipMemory";
 import type { AcpmuxSnapshot } from "./model";
 import type { SpeedSection } from "./EffortPicker";
 import { type SpeedTiers, useSpeedToggle } from "./FastToggle";
+import { pendingSpeed } from "./pendingSpeed";
 import { type StringKey, useT } from "./i18n";
 import { ModelPicker } from "./ModelPicker";
 import { AgentOptionsMenu } from "./AgentOptionsMenu";
@@ -358,9 +359,10 @@ export function ComposerPickers({
           onPick: (value) => onEffort(effort?.id ?? "effort", value === "on" ? "ultracode" : "xhigh"),
         }
       : undefined;
-  const fastOption = snapshot.summary?.configOptions?.find(
-    (option) => option.id === "fast-mode" || /fast[ _-]?mode/i.test(option.name ?? ""),
-  );
+  const fastOption =
+    snapshot.summary?.configOptions?.find(
+      (option) => option.id === "fast-mode" || /fast[ _-]?mode/i.test(option.name ?? ""),
+    ) ?? pendingSpeed(snapshot);
   const fastOn =
     fastOption?.options.find((option) => /^(on|true|enabled)$/i.test(option.value)) ?? fastOption?.options[1];
   const fastOff =
@@ -391,6 +393,7 @@ export function ComposerPickers({
           current: fastOption.currentValue,
           off: fastMode.offValue,
           tiers: fastOption.options.map((option) => option.value).filter((value) => value !== fastMode.offValue),
+          names: Object.fromEntries(fastOption.options.map((option) => [option.value, option.name ?? option.value])),
           onPick: fastMode.onPick,
         }
       : undefined;

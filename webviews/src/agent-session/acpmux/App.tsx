@@ -63,6 +63,7 @@ import { rememberRecentFolders } from "./newtab/recentProject";
 import { rememberStartedProject } from "./newtab/startedProject";
 import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
 import { PageDots } from "./newtab/PageDots";
+import { useSessionCommands } from "./newtab/useSessionCommands";
 import { editedPageWidgets, editNewTabWidgets, shownPageWidgets } from "./newtab/pageWidgets";
 import { screenTemplate, shownTemplate } from "./newtab/templates";
 import { newTabPageSubmit } from "./newtab/pageSubmit";
@@ -7075,6 +7076,13 @@ function AcpmuxPane() {
     !snapshot.sessionId &&
     snapshot.rows.length === 0 &&
     (handshaken || hostError === undefined);
+  const commandSession = showNewTab ? switchView.intent?.sessionId : undefined;
+  const commandRevision = clientSnapshot.sessions.find((session) => session.sessionId === commandSession);
+  const readSessionCommands = useCallback(
+    (sessionId: string) => directClient.current?.sessionCommands(sessionId) ?? Promise.resolve([]),
+    [],
+  );
+  const pendingCommands = useSessionCommands(commandSession, commandRevision, readSessionCommands);
   const inspectorHiddenSurface = quick || showNewTab;
   inspectorHiddenSurfaceRef.current = inspectorHiddenSurface;
   useEffect(() => {
@@ -8207,6 +8215,11 @@ function AcpmuxPane() {
             />
           ) : showNewTab && shownTemplate(newTab) !== "classic" ? (
             <NewTabScreen
+              onCommands={(harness, cwd) => {
+                void callNative("chat.new", { harness, ...(cwd ? { cwd } : {}), deferred: true }).catch(
+                  () => undefined,
+                );
+              }}
               key={newTabGeneration}
               environments={preview}
               onConnect={connectMachine}
@@ -8235,7 +8248,7 @@ function AcpmuxPane() {
                     ),
                 })
               }
-              snapshot={newTabSnapshot}
+              snapshot={commandSession ? { ...newTabSnapshot, commands: pendingCommands ?? [] } : newTabSnapshot}
               omnibar={newTab.omnibar}
               location={newTab.location}
               lastAgent={newTab.lastAgent}
