@@ -224,7 +224,7 @@ public final class FrameScheduler: NSObject {
         if clients.isEmpty { pause() } else { armStall() }
     }
 
-    private func deliver(timestamp: CFTimeInterval?, refreshInterval: Double?) {
+    private func deliver(timestamp: CFTimeInterval?, refreshInterval: Double?) { // perf-hot: 0.5ms frame-tick (every frame)
         frames &+= 1
         let now = timestamp ?? CACurrentMediaTime()
         let elapsed = lastTimestamp.map { now - $0 } ?? (1.0 / 60.0)

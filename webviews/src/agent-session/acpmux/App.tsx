@@ -63,7 +63,8 @@ import { rememberRecentFolders } from "./newtab/recentProject";
 import { rememberStartedProject } from "./newtab/startedProject";
 import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
 import { PageDots } from "./newtab/PageDots";
-import { editedPageWidgets, editNewTabWidgets, shownPageWidgets } from "./newtab/pageWidgets";
+import { useSessionCommands } from "./newtab/useSessionCommands";
+import { editNewTabWidgets, shownPageWidgets, withWidgetEdit } from "./newtab/pageWidgets";
 import { screenTemplate, shownTemplate } from "./newtab/templates";
 import { newTabPageSubmit } from "./newtab/pageSubmit";
 import { holdNewTabAttachments } from "./newtab/remoteAttachmentDraft";
@@ -221,6 +222,7 @@ import { IncomingMessageLine, IncomingNotice } from "./conversation/IncomingMess
 import type { IncomingMessage } from "./conversation/incomingMessage";
 import { CompactionNote, FailoverNote, PolicyUnenforcedNote } from "./conversation/CompactionNote";
 import { AgentPairNote } from "./conversation/AgentPairNote";
+import { installGutterSelect, type HeldRow } from "./conversation/gutterSelect";
 import { SessionStartNote } from "./conversation/SessionStartNote";
 import {
   SessionCwdContext,
@@ -340,7 +342,7 @@ import { type HarnessHealth, HarnessHealthNotice, type UpdateOffer, UpdateOfferC
 import { Notice, NoticeSlot } from "./NoticeSlot";
 import { type ForumRule, forumRules, RulesNotice } from "./RulesNotice";
 import { type SignIn, SignInContext, signedOutHarnesses, useSignIn } from "./signIn";
-import { type ChatAccounts, ChatAccountsContext, readChatAccounts } from "./chatAccounts";
+import { type ChatAccounts, ChatAccountsContext, ownRouteOf, readChatAccounts } from "./chatAccounts";
 import { HostError } from "./HostError";
 import { SHELL_ROW, ShellRuns, shellContextAttachments, withShellRows } from "./shell/shellRuns";
 import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
@@ -381,6 +383,7 @@ import { HandoffReviewMessage } from "./handoff/ReviewMessage";
 import { handoffStrings } from "./handoff/strings";
 import type { HandoffReviewInput } from "./handoff/review";
 import { continueTargets, mergedCommands, resolveHarnessTarget, type CmuxCommand } from "./cmuxCommands";
+import { canContinueIn, reviewingHandoff } from "./handoff/continueIn";
 import { importedPrompt, parseImportedSession } from "./importSession";
 import { useCheckpoints } from "./checkpoints/controller";
 import { PermissionPanel } from "./permissions/Panel";
@@ -1999,8 +2002,17 @@ export function VirtualTranscript({
   // because the transcript virtualizes rows and can unmount either end while the reader moves.
   const [activeRowId, setActiveRowId] = useState(rows[0]?.id);
   const [transcriptRange, setTranscriptRange] = useState<TranscriptRange | undefined>();
+  /// The end rows of a selection a drag from the margin makes (gutterSelect.ts): they stay mounted
+  /// while it lasts, so the selection keeps its ends when the view scrolls them out (at most two).
+  /// Each with how far from the last row it was, which older history paging in above it keeps.
+  const [heldRows, setHeldRows] = useState<{ session: string; rows: (HeldRow & { fromEnd: number })[] } | undefined>();
+  /// The chat a hold is for: a hold from another chat (sessions reuse row ids) mounts nothing.
+  const heldSession = useRef("");
+  /// Ends a margin drag and lets its held rows go (gutterSelect.ts `release`).
+  const gutterRelease = useRef<(() => void) | undefined>(undefined);
   const pendingFocus = useRef<string | undefined>(undefined);
   const sessionKey = sessionId ?? "";
+  heldSession.current = sessionKey;
   // Keep the key in state so a StrictMode render cannot consume the session transition before the
   // reset effect commits. The keyed values below make the first new-session paint fresh as well.
   const [selectionSessionKey, setSelectionSessionKey] = useState(sessionKey);
@@ -2013,6 +2025,9 @@ export function VirtualTranscript({
       setSelectionSessionKey(sessionKey);
       setActiveRowId(rows[0]?.id);
       setTranscriptRange(undefined);
+      // A margin drag, or the selection it left, belongs to the chat it was made in.
+      gutterRelease.current?.();
+      setHeldRows(undefined);
       pendingFocus.current = undefined;
       return;
     }
@@ -2101,6 +2116,8 @@ export function VirtualTranscript({
         registry: NativeRegistry;
         first: number;
         last: number;
+        /// Rows mounted outside that range because a margin drag's selection holds them (at most two).
+        held: readonly number[];
       }
     | undefined
   >(undefined);
@@ -2352,6 +2369,12 @@ export function VirtualTranscript({
             kept = Math.min(kept, index);
             found += 1;
           }
+        // A held row (a margin drag's selection end) is mounted far from that range: looked up itself.
+        for (const index of last.held)
+          if ((index < from || index >= to) && rows[index] && changed.has(rows[index]!.id)) {
+            kept = Math.min(kept, index);
+            found += 1;
+          }
         if (found < changed.size) kept = 0;
       }
     }
@@ -2379,6 +2402,7 @@ export function VirtualTranscript({
       registry,
       first: last?.first ?? 0,
       last: last?.last ?? 0,
+      held: last?.held ?? [],
     };
     return { layout, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };
   }, [estimated, drawn, registry, rows, sessionId, width]);
@@ -2478,22 +2502,54 @@ export function VirtualTranscript({
   // of building them in its own frame. A jump past them mounts only what it shows.
   const warmTop = useDeferredValue(renderScroll.top);
   const warm = visibleLayoutRange(layout, warmTop - height * WARM_VIEWPORTS, height * (1 + 2 * WARM_VIEWPORTS));
+  const scrolledRanges = mergeRowRanges(warm.last < range.first || warm.first > range.last ? ahead : [...ahead, warm]);
+  // A held row (gutterSelect.ts) is at its index, or as far from the end as it was when older history
+  // pages in above it. At most two, so this reads two rows. Only when rows came in at both ends at once
+  // is it looked for by id; the effect below then keeps where it was found (or drops a row that is
+  // gone), so the next render reads it directly again.
+  const held = heldRows?.session === sessionKey && !sessionChanged ? heldRows.rows : [];
+  const heldAt = held.map(({ id, index, fromEnd }) =>
+    rows[index]?.id === id
+      ? index
+      : rows[rows.length - fromEnd]?.id === id
+        ? rows.length - fromEnd
+        : rows.findIndex((row) => row.id === id),
+  );
+  const heldIndices = heldAt.filter((index) => index >= 0);
+  // Where the moved rows were found, so the writeback runs again if rows move again before it commits.
+  const heldMoved = held.some((each, at) => heldAt[at] !== each.index) ? `${rows.length}:${heldAt.join(",")}` : "";
+  useEffect(() => {
+    if (!heldMoved) return;
+    setHeldRows(
+      (current) =>
+        current && {
+          session: current.session,
+          rows: current.rows.flatMap((each) => {
+            const at = rowsRef.current.findIndex((row) => row.id === each.id);
+            return at < 0 ? [] : [{ ...each, index: at, fromEnd: rowsRef.current.length - at }];
+          }),
+        },
+    );
+  }, [heldMoved]);
   // The row whose line a fold holds stays mounted while the hold lasts: a body that shrank under
   // the old offset (Show less on a long prompt) would otherwise drop the row, and the hold with it,
   // before the hold puts the line back (foldAnchor.ts).
-  const heldAt = Number(foldAnchor.current?.toggle.closest(".acpmux-row")?.getAttribute("aria-posinset")) - 1;
-  const held = heldAt >= 0 && heldAt < rows.length ? [{ first: heldAt, last: heldAt + 1 }] : [];
-  const mountedRanges = mergeRowRanges([
-    ...(warm.last < range.first || warm.first > range.last ? ahead : [...ahead, warm]),
-    ...held,
-  ]);
+  const foldAt = Number(foldAnchor.current?.toggle.closest(".acpmux-row")?.getAttribute("aria-posinset")) - 1;
+  if (foldAt >= 0 && foldAt < rows.length && !heldIndices.includes(foldAt)) heldIndices.push(foldAt);
+  const mountedRanges =
+    heldIndices.length === 0
+      ? scrolledRanges
+      : mergeRowRanges([...scrolledRanges, ...heldIndices.map((index) => ({ first: index, last: index + 1 }))]);
   // Find highlights only need repainting when the query/target, row content, or mounted DOM
   // window changes. Keep this signature primitive so scroll and layout state updates that leave
   // the mounted rows alone do not walk every text node in the transcript again.
   const mountedRangeKey = mountedRanges.map(({ first, last }) => `${first}:${last}`).join(",");
+  // The scrolled rows only: a held row far from the view would widen every drawn-height search
+  // (`measured`) to the rows between them. The held rows are looked up by index instead.
   if (lastPlaced.current) {
-    lastPlaced.current.first = mountedRanges[0]?.first ?? 0;
-    lastPlaced.current.last = mountedRanges.at(-1)?.last ?? 0;
+    lastPlaced.current.first = scrolledRanges[0]?.first ?? 0;
+    lastPlaced.current.last = scrolledRanges.at(-1)?.last ?? 0;
+    lastPlaced.current.held = heldIndices;
   }
   // A session can reuse row ids. Until the reset effect commits, render the new session as a
   // fresh transcript so a stale focus or range never flashes on its first paint.
@@ -3311,6 +3367,23 @@ export function VirtualTranscript({
     // The chat's own transcript only (a replay's sits in its own screen).
     const main = node?.closest(".acpmux-stage")?.parentElement?.closest<HTMLElement>(".acpmux-main");
     const removeWheel = node && main ? installWheelPassThrough(node, main) : undefined;
+    // A drag from the empty margins either side of the column selects text (gutterSelect.ts); the
+    // view it scrolls past an edge is the reader's scroll.
+    // A chat change ends any drag first (`gutterRelease`, below), so a hold is always this chat's.
+    const gutter =
+      node && thread.current
+        ? installGutterSelect(node, thread.current, reader, (held) =>
+            setHeldRows(
+              held
+                ? {
+                    session: heldSession.current,
+                    rows: held.map((row) => ({ ...row, fromEnd: rowsRef.current.length - row.index })),
+                  }
+                : undefined,
+            ),
+          )
+        : undefined;
+    gutterRelease.current = gutter?.release;
     return () => {
       clearTimeout(settle.current);
       for (const name of inputs) node?.removeEventListener(name, reader);
@@ -3318,6 +3391,8 @@ export function VirtualTranscript({
       node?.removeEventListener(ANCHORED_COLLAPSE_EVENT, holdAsked);
       for (const name of releases) node?.removeEventListener(name, release);
       removeWheel?.();
+      gutterRelease.current = undefined;
+      gutter?.remove();
     };
   }, []);
   // A turn's footer (TurnFooter) shows for the turn the reader points at: anywhere after its prompt
@@ -3643,6 +3718,11 @@ export function NewTabComposerChips({ snapshot, cwd }: { snapshot: AcpmuxSnapsho
   return <DefaultComposerChips snapshot={snapshot} cwd={cwd} startsChat />;
 }
 
+/// The chat's own composer chips, as the pane draws them under a chat (tests drive them directly).
+export function ChatComposerChips({ snapshot }: { snapshot: AcpmuxSnapshot }) {
+  return <DefaultComposerChips snapshot={snapshot} />;
+}
+
 /// The host closes a New Tab page (`AgentPaneView.discardUnsentChat`).
 const NEW_TAB_CLOSE_EVENT = "acpmux-newtab-close";
 
@@ -3711,6 +3791,18 @@ function DefaultComposerChips({
         void callNative("chat.effort", { configId, value });
       }}
       onHarness={(harness, model) => void callNative("chat.new", { harness, ...(model ? { model } : {}), ...inFolder })}
+      // A started chat forks to another harness through Continue In… (Leo 2026-10-22: "need to be
+      // able to switch to different harnesses, can expose as fork"): the chat menu's own path, its
+      // review in this tab, then the new chat in a tab of its own. Not while a turn or queue runs.
+      {...(!startsChat && snapshot.canHandoff
+        ? {
+            fork: {
+              to: (harness: string) => void callNative("chat.handoff.prepare", { harness }).catch(() => undefined),
+              // Continue In…'s own check: no fork while a review is open or no harness can take it.
+              ready: canContinueIn(snapshot),
+            },
+          }
+        : {})}
       {...(cwd ? { folder: cwd } : {})}
       // Sent from the pick's own handler: the host's Enable confirmation needs the gesture.
       onHarnessEnable={(folder, id) => void callNative("chat.harness.enable", { folder, id }).catch(() => undefined)}
@@ -4153,11 +4245,7 @@ function AcpmuxPane() {
   const loginCommand = chatLoginCommand(catalog, snapshot.summary?.harness, harnessHealth);
   // A new chat centers its composer under the hero.
   const handoff = snapshot.handoff?.record;
-  const reviewing =
-    !!handoff &&
-    handoff.target.sessionId === snapshot.sessionId &&
-    ["draft", "starting"].includes(handoff.state) &&
-    !snapshot.handoff?.receipt;
+  const reviewing = reviewingHandoff(snapshot);
   // Until the chat's handoff is read the pane draws no review (reviews are rare): the composer and
   // a new chat's hero stay, and a review that arrives takes their place (Leo 2026-10-19: the
   // composer left for the read on every open, switch and reconnect).
@@ -4170,14 +4258,8 @@ function AcpmuxPane() {
   startFolderRef.current = startFolder;
   /// The folder question, while the chat it was asked for is still the one shown.
   const pendingFolder = folderAsk && folderAsk.sessionId === snapshot.sessionId ? folderAsk : undefined;
-  const continueAvailable =
-    !!snapshot.canHandoff &&
-    !!snapshot.handoff?.ready &&
-    !snapshot.isWorking &&
-    !snapshot.queue.length &&
-    !snapshot.handoff?.busy &&
-    !reviewing &&
-    continueTargets(catalog, snapshot.summary?.harness).length > 0;
+  // `snapshot.catalog` is `catalog` (the snapshot above carries the fetched one).
+  const continueAvailable = canContinueIn(snapshot);
   /// Takes acpmux's trust refusal of a prompt (useFolderTrustAsk.ts): the question shows for the
   /// folder it named, and `again` sends the held prompt after Trust.
   const trustRefused = useRef<((error: unknown, again?: () => void) => boolean) | undefined>(undefined);
@@ -4908,8 +4990,12 @@ function AcpmuxPane() {
         name: catalog.find((entry) => entry.id === (snapshot.summary?.harness ?? ""))?.name,
       },
       switchModel: () => void openPicker(translate(PICKER_LABELS.model)),
+      // A failure's cmux CodeRouter action: only this Mac's acpmux lists and binds a chat's routes.
+      ...(chatAccounts && snapshot.sessionId ? { ownRoute: ownRouteOf(chatAccounts, snapshot.sessionId) } : {}),
     }),
     [
+      chatAccounts,
+      snapshot.sessionId,
       stableBranches,
       forkable,
       forkSeq,
@@ -6817,14 +6903,7 @@ function AcpmuxPane() {
     />
   );
   const handoffTargets = continueTargets(composerSnapshot.catalog, snapshot.summary?.harness);
-  const canContinue =
-    !!snapshot.canHandoff &&
-    !!snapshot.handoff?.ready &&
-    !snapshot.isWorking &&
-    !snapshot.queue.length &&
-    !snapshot.handoff?.busy &&
-    !reviewing &&
-    handoffTargets.length > 0;
+  const canContinue = continueAvailable;
   const ignoreFailure = (result: Promise<unknown>) => void result.catch(() => undefined);
   // The header's tools and "..." menu run app actions on this chat's tab.
   // A quick action names its mode; the App toggles the split it opened (header/quickActions.ts).
@@ -7150,6 +7229,13 @@ function AcpmuxPane() {
     !snapshot.sessionId &&
     snapshot.rows.length === 0 &&
     (handshaken || hostError === undefined);
+  const commandSession = showNewTab ? switchView.intent?.sessionId : undefined;
+  const commandRevision = clientSnapshot.sessions.find((session) => session.sessionId === commandSession);
+  const readSessionCommands = useCallback(
+    (sessionId: string) => directClient.current?.sessionCommands(sessionId) ?? Promise.resolve([]),
+    [],
+  );
+  const pendingCommands = useSessionCommands(commandSession, commandRevision, readSessionCommands);
   const inspectorHiddenSurface = quick || showNewTab;
   inspectorHiddenSurfaceRef.current = inspectorHiddenSurface;
   useEffect(() => {
@@ -8248,14 +8334,17 @@ function AcpmuxPane() {
           data-summary={summaryCard.column ? "inline" : "popover"}
         >
           {!harnessesOpen && showNewTab && !newTab.history && (
-            // The page's dots, under it: the composer's two looks, then with the style dots on (on
-            // Minimal a widget, off by default: newtab/pageWidgets.ts) the page's other styles
-            // (newtab/PageDots.tsx); a pick shows in place at once.
+            // The page's dots, under it: Claude Minimal, Claude Minimal with the quick actions, Codex
+            // Minimal (newtab/tabDots.ts, from the look and Minimal's actions widget), then with the
+            // style dots on (on Minimal a widget, off by default: newtab/pageWidgets.ts) the page's
+            // other styles (newtab/PageDots.tsx); a pick shows in place at once.
             <PageDots
               template={shownTemplate(newTab)}
               styleDots={shownPageWidgets(shownTemplate(newTab), newTab.pageWidgets).has("styleDots")}
+              actions={shownPageWidgets("minimal", newTab.pageWidgets).has("actions")}
               callNative={callNative}
               show={(next) => setNewTab((current) => current && { ...current, template: next })}
+              showWidgets={(done) => setNewTab((current) => current && withWidgetEdit(current, done))}
               onCancel={() => window.dispatchEvent(new Event(FOCUS_LOCATION_EVENT))}
             />
           )}
@@ -8282,6 +8371,11 @@ function AcpmuxPane() {
             />
           ) : showNewTab && shownTemplate(newTab) !== "classic" ? (
             <NewTabScreen
+              onCommands={(harness, cwd) => {
+                void callNative("chat.new", { harness, ...(cwd ? { cwd } : {}), deferred: true }).catch(
+                  () => undefined,
+                );
+              }}
               key={newTabGeneration}
               environments={preview}
               onConnect={connectMachine}
@@ -8304,13 +8398,10 @@ function AcpmuxPane() {
               onEditWidgets={(edit) =>
                 editNewTabWidgets(edit, {
                   callNative,
-                  show: (done) =>
-                    setNewTab(
-                      (current) => current && { ...current, pageWidgets: editedPageWidgets(current.pageWidgets, done) },
-                    ),
+                  show: (done) => setNewTab((current) => current && withWidgetEdit(current, done)),
                 })
               }
-              snapshot={newTabSnapshot}
+              snapshot={commandSession ? { ...newTabSnapshot, commands: pendingCommands ?? [] } : newTabSnapshot}
               omnibar={newTab.omnibar}
               location={newTab.location}
               lastAgent={newTab.lastAgent}

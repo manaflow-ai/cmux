@@ -17,7 +17,8 @@ import PackageDescription
 //     macOS 14 floor: Mutex, Atomic; any module may import it; plans/cmux-next/macos-floor.md)
 //   CmuxNextWakeups -> system frameworks only (the only sanctioned wakeup primitives:
 //     FrameScheduler, DemandTimer, Backoff, WakeupLedger; plans/cmux-next/idle-wakeups.md)
-//   CmuxNextDesign -> CmuxTheme, CCmuxAppFFI (cmux-motion curves and color mix), Icons (OverflowButton's glyph); CmuxNextActions -> system frameworks only; CmuxNextDaemon -> Wakeups
+//   CmuxNextDesign -> CmuxTheme, CCmuxAppFFI (cmux-motion curves and color mix), Icons (OverflowButton's glyph); CmuxNextActions -> Signposts; CmuxNextDaemon -> Wakeups
+//   CmuxNextSignposts -> system frameworks only (always-on os_signpost intervals, the one name catalog, CommitBoundary)
 //   CmuxNextIcons -> system frameworks only (the cmux icon pack, catalog, renderer and Icon view)
 //   CmuxNextChiefMemory -> Design (the built-in Memory Inspector: model and view; the App supplies its daemon-backed source)
 //   CmuxNextSettings -> Design, Actions (cmux.json load/watch/apply, SettingsSchema)
@@ -1141,6 +1142,12 @@ let package = Package(
             dependencies: ["CmuxNextErrorJournal"],
             swiftSettings: daemonSwiftSettings
         ),
+        // Always-on signpost intervals, one name catalog for Debug and Release benches
+        // (plans/cmux-next/architecture-refactor-DESIGN.md section 7).
+        .target(
+            name: "CmuxNextSignposts",
+            swiftSettings: daemonSwiftSettings
+        ),
         .target(
             name: "CmuxNextWakeups",
             dependencies: ["CmuxNextCompat"],
@@ -1210,6 +1217,7 @@ let package = Package(
         ),
         .target(
             name: "CmuxNextActions",
+            dependencies: ["CmuxNextSignposts"],
             resources: [
                 .process("AccountsActions.xcstrings"),
                 .process("ActionCatalog.xcstrings"),
@@ -1256,6 +1264,7 @@ let package = Package(
         .target(
             name: "CmuxNextTerminal",
             dependencies: [
+                "CmuxNextActions",
                 "CmuxNextCompat",
                 "CmuxNextWakeups",
                 "CmuxNextProcessEnvironment",
@@ -1545,7 +1554,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextActionsTests",
-            dependencies: ["CmuxNextActions"],
+            dependencies: ["CmuxNextActions", "CmuxNextSignposts"],
             swiftSettings: uiSwiftSettings
         ),
     ] + [appFFI]

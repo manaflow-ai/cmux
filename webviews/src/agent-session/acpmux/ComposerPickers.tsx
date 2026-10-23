@@ -13,6 +13,7 @@ import {
 import { loadLastChips, rememberLastChips } from "./chipMemory";
 import type { AcpmuxSnapshot } from "./model";
 import type { SpeedSection } from "./EffortPicker";
+import { pendingSpeed } from "./pendingSpeed";
 import { type StringKey, useT } from "./i18n";
 import { ModelPicker } from "./ModelPicker";
 import { AgentOptionsMenu } from "./AgentOptionsMenu";
@@ -29,8 +30,9 @@ import { rememberPick } from "./lastPick";
 import { defaultModel } from "./harnessSwitch";
 import { catalogRow } from "./catalogRow";
 import { harnessProfiles } from "./harnessProfiles";
-import { useStartMode } from "./startMode";
+import { type KeptStartMode, useStartMode } from "./startMode";
 import type { PickerCatalog } from "./modelCatalogData";
+import { catalogProfiles } from "./pickerProfiles";
 import { useModelCatalogState } from "./modelCatalogHost";
 import { focusWithRing } from "../../ui/focusWithRing";
 import { AnchoredCard } from "../../ui/Tooltip";
@@ -48,7 +50,14 @@ import { usePopupHost } from "../../ui/UiProvider";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import { isMousePress } from "../../ui/pressRelease";
 import { focusAfterEscape } from "../../ui/escapeFocus";
-import { type ModeIconName, RECOMMENDED_BADGE, type ShownMode, harnessModeMenu, shownModes } from "./harnessModes";
+import {
+  type ModeIconName,
+  RECOMMENDED_BADGE,
+  type ShownMode,
+  harnessModeMenu,
+  highestMode,
+  shownModes,
+} from "./harnessModes";
 
 /// Picker copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 export const PICKER_LABELS = {
@@ -144,6 +153,9 @@ type Props = {
   /// row of that harness was picked: the switch carries it, so the new chat starts on that model
   /// and draws it at once, also before it opens (a New Tab's deferred switch).
   onHarness?(harness: string, model?: string): void;
+  /// Forks a started chat into a new chat on another harness (see ModelPickerProps.fork): with it,
+  /// a started chat's model menu keeps the whole harness rail, each other harness a Fork to row.
+  fork?: { to(harness: string): void; ready: boolean };
   /// The folder a pick is remembered for (lastPick.ts), when the chat has none yet (a New Tab's).
   folder?: string;
   /// The pointer or keyboard rests on a harness row (undefined: it left them), for a prewarm hint.
@@ -184,6 +196,16 @@ export type ComposerPermissionAccess = {
 /// skips approvals) and a Plan/Build toggle. Each control shows only when the agent offers it.
 /// The row draws no context ring (hq#1957 item 15 compact row): the running state shows on
 /// Send/Stop alone.
+/// A speed tier's name, as the bolt named it before its rows moved into the model menu (#24488): the
+/// agent's first fast tier (Codex's `priority`) is Fast, its ultrafast tier Ultrafast (by value, or a
+/// name that says so), and any other tier keeps the agent's name for it, else its value.
+function speedTierName(option: { value: string; name?: string }, t: (key: StringKey) => string): string {
+  if (/^(priority|fast|on|true|enabled)$/i.test(option.value)) return t("picker.tierFast");
+  if ([option.value, option.name ?? ""].some((text) => /^ultra[-_ ]?fast$/i.test(text.trim())))
+    return t("picker.tierUltrafast");
+  return option.name ?? option.value;
+}
+
 export function ComposerPickers({
   snapshot,
   permissionAccess,
@@ -191,6 +213,7 @@ export function ComposerPickers({
   onMode,
   onEffort,
   onHarness,
+  fork,
   onHarnessHint,
   onHarnessEnable,
   onAddAgent,
@@ -219,8 +242,10 @@ export function ComposerPickers({
   // Once a chat has a message its harness is fixed (Leo 2026-10-13): the picker lists that
   // harness's models only, with no harness rail and no Add harness… (Leo 2026-10-19: a rail of one
   // harness, then Add harness…, read as an offer to switch), and another harness is Continue In…,
-  // never a pick. Debug Settings' "Allow switching harness in a started chat" (`harnessSwitch`)
-  // keeps the whole rail and its switch.
+  // never a pick. Where the chat can fork (`fork`), the compact menu keeps the whole rail again
+  // (Leo 2026-10-22: "why did you guys even remove the fucking harness model picker"), its other
+  // harnesses Fork to rows. Debug Settings' "Allow switching harness in a started chat"
+  // (`harnessSwitch`) keeps the whole rail and its switch.
   const locked = !harnessSwitch && !!summary?.harness && ((summary.turnCount ?? 0) > 0 || snapshot.rows.length > 0);
   const allEntries: ModelPickerProps["catalog"] = pickerCatalog
     ? [
@@ -242,9 +267,12 @@ export function ComposerPickers({
       ]
     : snapshot.catalog;
   // A harness acpmux has not listed yet (the first open after launch) keeps the whole list rather
-  // than an empty picker.
-  const ownEntries = locked ? allEntries.filter((entry) => entry.id === summary?.harness) : [];
+  // than an empty picker. A chat that can fork keeps every harness: the picker offers the others as
+  // Fork to, never as a switch in place (Leo 2026-10-22: "can expose as fork").
+  const ownEntries = locked && !fork ? allEntries.filter((entry) => entry.id === summary?.harness) : [];
   const pickerEntries = ownEntries.length > 0 ? ownEntries : allEntries;
+  // The profiles each catalog harness folded into its one entry: its accounts in the model menu.
+  const profiles = pickerCatalog ? catalogProfiles(snapshot.catalog, pickerCatalog.harnesses) : undefined;
   const switchHarness = locked ? undefined : onHarness;
   // An agent's own default remains an internal sentinel. The picker omits it
   // instead of exposing a separate "Default" row.
@@ -363,25 +391,37 @@ export function ComposerPickers({
           onPick: (value) => onEffort(effort?.id ?? "effort", value === "on" ? "ultracode" : "xhigh"),
         }
       : undefined;
-  const fastOption = snapshot.summary?.configOptions?.find(
-    (option) => option.id === "fast-mode" || /fast[ _-]?mode/i.test(option.name ?? ""),
-  );
+  const fastOption =
+    snapshot.summary?.configOptions?.find(
+      (option) => option.id === "fast-mode" || /fast[ _-]?mode/i.test(option.name ?? ""),
+    ) ?? pendingSpeed(snapshot);
   const fastOn =
     fastOption?.options.find((option) => /^(on|true|enabled)$/i.test(option.value)) ?? fastOption?.options[1];
   const fastOff =
     fastOption?.options.find((option) => /^(off|false|disabled)$/i.test(option.value)) ?? fastOption?.options[0];
-  // An option with a tier past Fast (Codex's Ultrafast) gets a second checkbox row in the model menu.
-  // The row reads Ultrafast only where the tier says so; another agent's tier keeps the agent's name.
+  // A second Codex profile ("codex-work") is still the Codex family.
+  const codex = /codex/i.test(summary?.family ?? "") || /codex/i.test(summary?.harness ?? "");
+  // An option with a tier past Fast (Codex's Ultrafast) gets a second checkbox row in the model menu,
+  // named by speedTierName: Ultrafast only where the tier says so, else the agent's name for it.
   const ultraOption =
     fastOn && fastOff
       ? fastOption?.options.find((option) => option.value !== fastOff.value && option.value !== fastOn.value)
       : undefined;
   const ultraTier = ultraOption?.value;
-  const ultraLabel = ultraOption
-    ? [ultraOption.value, ultraOption.name ?? ""].some((text) => /^ultra[ _-]?fast$/i.test(text.trim()))
-      ? t("picker.tierUltrafast")
-      : (ultraOption.name ?? ultraOption.value)
-    : "";
+  const ultraLabel = ultraOption ? speedTierName(ultraOption, t) : "";
+  // The full picker's Fast mode row names the running tier: Codex's by its tier name (its
+  // `priority` reads Fast), any harness's tier past Fast by the second row's name.
+  const runningTier = fastOption?.options.find(
+    (option) => option.value === fastOption.currentValue && option.value !== fastOff?.value,
+  );
+  const currentLabel =
+    runningTier === undefined
+      ? undefined
+      : runningTier.value === ultraTier
+        ? ultraLabel
+        : codex
+          ? speedTierName(runningTier, t)
+          : undefined;
   const fastMode: FastModeControl | undefined =
     fastOption && fastOn && fastOff && fastOn.value !== fastOff.value
       ? {
@@ -391,7 +431,7 @@ export function ComposerPickers({
           offValue: fastOff.value,
           onLabel: fastOn.name ?? fastOn.value,
           offLabel: fastOff.name ?? fastOff.value,
-          ...(ultraTier !== undefined && fastOption.currentValue === ultraTier ? { currentLabel: ultraLabel } : {}),
+          ...(currentLabel !== undefined ? { currentLabel } : {}),
           onPick: (value: string) => onEffort(fastOption.id, value),
         }
       : undefined;
@@ -402,9 +442,7 @@ export function ComposerPickers({
   const fastRunning = fastMode !== undefined && fastModeToggle(fastMode).on;
   // Codex's fast tier is a small bolt inside the model button, before the model's name, while it runs
   // (Leo 2026-10-21: "THE BOLT DOESN'T GO THERE", of a bolt in the box by the mic); its toggle is the
-  // menu's Fast mode row. Claude Code draws no bolt anywhere: its menu row alone says it. A second
-  // Codex profile ("codex-work") is still the Codex family.
-  const codex = /codex/i.test(summary?.family ?? "") || /codex/i.test(summary?.harness ?? "");
+  // menu's Fast mode row. Claude Code draws no bolt anywhere: its menu row alone says it.
   const fastBolt = codex && fastOffered && fastRunning;
   const model = models.find((choice) => choice.id === summary?.model);
   const effortName = efforts.find((choice) => choice.id === effort?.currentValue)?.name;
@@ -660,7 +698,24 @@ export function ComposerPickers({
   // never the mode this harness's last chat showed; nothing when it sets none. A chat on another
   // machine (a peer, the cloud) starts in what that machine decides: none until it reports.
   const local = fresh && snapshot.origin !== "remote" && snapshot.origin !== "peer";
-  const startMode = useStartMode(chipHarness, folder ?? summary?.cwd, awaiting && local && modes.length === 0);
+  const asksStart = awaiting && local && modes.length === 0;
+  const startAnswer = useStartMode(chipHarness, folder ?? summary?.cwd, asksStart);
+  // Before acpmux has ever answered for this harness here (a first New Tab), the chip names the
+  // harness's highest permission level, the level acpmux starts a chat in when the person chose
+  // none (hub/start_mode.rs); acpmux's answer, which carries a saved choice, then replaces it.
+  const highest =
+    asksStart && startAnswer === undefined
+      ? highestMode(summary?.family ?? snapshot.catalog.find((entry) => entry.id === chipHarness)?.family, chipHarness)
+      : undefined;
+  // The access chip holds its place from the first frame of a chat that has not reported its modes
+  // (Leo 2026-10-23, the New Tab: "why is this thing still not showing on the very beginning ... It
+  // keeps switching around"): with no mode to name (acpmux sets none, has not answered, or the
+  // chat is another machine's) it is the inert "Mode" chip, which the session's own replaces in
+  // place, so nothing in the row moves when the harness, its model or its modes arrive.
+  const startMode: KeptStartMode | undefined =
+    startAnswer ??
+    (highest ? { modeId: highest.id, name: highest.name } : undefined) ??
+    (awaiting && modes.length === 0 ? MODE_PLACEHOLDER : undefined);
   // Another folder's answer (acpmux has not answered for this one yet) only holds the chip's
   // place: this folder's profile or preset may start the chat in another mode, so it names none.
   // The harness's own menu names the start mode as it names the mode once the chat reports it.
@@ -811,6 +866,8 @@ export function ComposerPickers({
             if (effort) onEffort(effort.id, value);
           }}
           onHarness={switchHarness}
+          {...(locked && fork ? { fork } : {})}
+          {...(profiles ? { profiles } : {})}
           onCombo={combo}
           onHarnessHint={onHarnessHint}
           onHarnessEnable={onHarnessEnable}
@@ -903,6 +960,9 @@ export function ComposerPickers({
   );
   return chips;
 }
+
+/// No start mode to name: the access chip holds its place as "Mode" (a borrowed answer's face).
+const MODE_PLACEHOLDER: KeptStartMode = { modeId: "", borrowed: true };
 
 /// The mode a chat will start in, before it reports its modes: the access chip's face (AccessMenu),
 /// inert until the session's own replaces it in place. `modeId` is read from storage: only a

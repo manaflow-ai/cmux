@@ -331,10 +331,10 @@ test("a tier past Fast that is not Ultrafast is a row under Fast mode with the a
   await act(async () => ultraRow()!.click());
   await settle();
   expect(sent).toEqual(["fast-mode=turbo"]);
-  const unnamed: Option[] = [{ value: "standard" }, { value: "fast" }, { value: "priority" }];
+  const unnamed: Option[] = [{ value: "standard" }, { value: "fast" }, { value: "flex" }];
   await render(snapshot({ options: unnamed, current: "fast" }, codex));
   await open();
-  expect(rows().slice(-2)).toEqual(["Fast mode", "priority"]);
+  expect(rows().slice(-2)).toEqual(["Fast mode", "flex"]);
   // Codex's own tier, named or not, reads Ultrafast in the app's words.
   const named: Option[] = [{ value: "standard" }, { value: "fast" }, { value: "ultrafast", name: "ultra fast" }];
   await render(snapshot({ options: named, current: "fast" }, codex));
@@ -378,6 +378,39 @@ test("Codex: the full picker's Fast mode row is on while Ultrafast runs, names i
   await act(async () => row.click());
   await settle();
   expect(sent).toEqual(["fast-mode=standard", "fast-mode=standard", "fast-mode=fast"]);
+});
+
+// #24488 made Fast and Ultrafast direct choices of the speed control; with the bolt button gone they
+// are the model menu's rows: from off, one click on Ultrafast picks it.
+test("Codex exposes Fast and Ultrafast as direct choices", async () => {
+  sent.length = 0;
+  await render(snapshot({ options: threeTier, current: "standard" }, codex));
+  await open();
+  expect(rows().slice(-2)).toEqual(["Fast mode", "Ultrafast"]);
+  await act(async () => ultraRow()!.click());
+  await settle();
+  expect(sent).toEqual(["fast-mode=ultrafast"]);
+});
+
+// #24488 named Codex's tiers on the bolt (`priority` is Fast, `ultrafast` Ultrafast, else the
+// agent's name); the full picker's Fast mode row names the running tier the same way. Claude's
+// two-state option keeps its own On.
+test("the full picker names the running tier as the bolt did: Codex's priority is Fast", async () => {
+  sent.length = 0;
+  const codexTiers: Option[] = [{ value: "default" }, { value: "priority" }, { value: "ultrafast" }];
+  await render(snapshot({ options: codexTiers, current: "priority" }, codex));
+  let row = await openFullPicker();
+  expect(row.getAttribute("aria-pressed")).toBe("true");
+  expect(row.lastElementChild!.textContent).toBe("Fast");
+  await render(snapshot({ options: codexTiers, current: "ultrafast" }, codex));
+  row = await openFullPicker();
+  expect(row.lastElementChild!.textContent).toBe("Ultrafast");
+  await act(async () => row.click());
+  await settle();
+  expect(sent).toEqual(["fast-mode=default"]);
+  await render(snapshot({ options: twoState, current: "on" }, claude));
+  row = await openFullPicker();
+  expect(row.lastElementChild!.textContent).toBe("On");
 });
 
 test("Claude: with a tier past Fast, any tier on checks the row, and a click goes back to off", async () => {
