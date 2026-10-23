@@ -455,9 +455,9 @@ if ! awk '
   exit 1
 fi
 
-# Nightly distribution verification runs no bundle code. The signed-app and
-# final-DMG jobs retain static artifact checks and gate publication, while
-# runtime behavior stays in the path-routed daemon/app integration lane.
+# Nightly distribution verification launches no app or CLI. The signed-app and
+# final-DMG jobs retain deterministic artifact and sidecar protocol checks and
+# gate publication, while app behavior stays in the path-routed integration lane.
 if ! awk '
   /^  verify-signed-nightly:/ { job="verify"; next }
   /^  verify-final-dmg-nightly:/ { job="verify-dmg"; dmg_job=1; next }
@@ -466,12 +466,11 @@ if ! awk '
   job == "verify" && /^    environment:/ { verify_env=1 }
   job == "verify" && /secrets\./ { verify_secret=1 }
   job == "verify" && /verify-diff-sidecar-artifact\.sh/ { sidecar=1 }
-  job == "verify" && /--static-only/ { static_sidecar=1 }
   job == "verify-dmg" && /^      - name: Verify final DMG artifact$/ { dmg=1 }
   job == "verify-dmg" && /verify-dmg-artifact\.sh/ { static_dmg=1 }
   job == "publish" && /needs: .*verify-final-dmg-nightly/ { dmg_gated=1 }
   job == "publish" && /needs: .*verify-signed-nightly/ { gated=1 }
-  END { exit !(sidecar && static_sidecar && static_dmg && gated && dmg_job && dmg && dmg_gated && !verify_env && !verify_secret) }
+  END { exit !(sidecar && static_dmg && gated && dmg_job && dmg && dmg_gated && !verify_env && !verify_secret) }
 ' "$WORKFLOW_FILE"; then
   echo "FAIL: nightly must use secret-free static verification jobs that gate publication, with no runtime smoke"
   exit 1
@@ -621,8 +620,8 @@ if grep -Eq 'Smoke launch signed app|Smoke bundled CLI|smoke-launch-macos-app|sm
   exit 1
 fi
 if ! grep -Fq './scripts/ci/verify-dmg-artifact.sh "$DMG_RELEASE" stable --require-stapled-app' "$RELEASE_WORKFLOW_FILE" \
-   || ! grep -Fq -- '--static-only' "$RELEASE_WORKFLOW_FILE"; then
-  echo "FAIL: release must retain static DMG and sidecar verification"
+   || ! grep -Fq 'verify-diff-sidecar-artifact.sh' "$RELEASE_WORKFLOW_FILE"; then
+  echo "FAIL: release must retain static DMG and sidecar protocol verification"
   exit 1
 fi
 

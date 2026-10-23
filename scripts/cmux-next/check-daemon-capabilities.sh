@@ -61,7 +61,31 @@ else
 fi
 
 if [[ "$static_only" = true ]]; then
-  echo "check-daemon-capabilities: static source checks passed; runtime daemon probe is reserved for integration tests"
+  # install-cmux-tui-client.sh and bundle-cmux-tui.sh generate this manifest
+  # directly from the exact binary (`__daemon-capabilities --json`). Validate
+  # that signed artifact's advertised static set without starting a daemon.
+  manifest="$(dirname "$binary")/daemon-capabilities.json"
+  [[ -f "$manifest" ]] || {
+    echo "check-daemon-capabilities: $manifest is missing; regenerate it from the installed binary" >&2
+    exit 1
+  }
+  python3 - "$manifest" "$capabilities" <<'PY'
+import json
+import sys
+
+manifest_path, required_path = sys.argv[1:]
+manifest = json.load(open(manifest_path, encoding="utf-8"))
+served = set(manifest.get("cmuxTui") or [])
+if not served:
+    raise SystemExit(f"check-daemon-capabilities: {manifest_path} has no cmuxTui capability list")
+required = json.load(open(required_path, encoding="utf-8"))
+needed = set(required.get("required", [])) | set(required.get("optional", []))
+missing = sorted(needed - served)
+if missing:
+    raise SystemExit("check-daemon-capabilities: the bundled static capability manifest is missing " + ", ".join(missing))
+print(f"check-daemon-capabilities: static bundled manifest serves all {len(needed)} needed capabilities ({len(served)} served)")
+PY
+  echo "check-daemon-capabilities: runtime daemon probe is reserved for integration tests"
   exit 0
 fi
 

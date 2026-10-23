@@ -2990,9 +2990,9 @@ jobs:
             fi
           fi
           if [ "$NIGHTLY_VARIANT" = "universal" ]; then
-            ./scripts/verify-diff-sidecar-artifact.sh "$APP/Contents/Resources/bin/cmux-diff-sidecar" --archs "arm64 x86_64" --static-only
+            ./scripts/verify-diff-sidecar-artifact.sh "$APP/Contents/Resources/bin/cmux-diff-sidecar" --archs "arm64 x86_64"
           else
-            ./scripts/verify-diff-sidecar-artifact.sh "$APP/Contents/Resources/bin/cmux-diff-sidecar" --archs "$NIGHTLY_VARIANT" --static-only
+            ./scripts/verify-diff-sidecar-artifact.sh "$APP/Contents/Resources/bin/cmux-diff-sidecar" --archs "$NIGHTLY_VARIANT"
           fi
 
       - name: Package prepared app for signing
@@ -4022,15 +4022,15 @@ jobs:
 
 
       # sign-cmux-bundle.sh ran the static sidecar checks while the keychain
-      # existed. Recheck the signed artifact without launching bundle code.
-      - name: Verify signed diff sidecar static contract
+      # existed. Recheck the signed sidecar's deterministic transport contract
+      # after the keychain is gone; this does not launch the app.
+      - name: Verify signed diff sidecar protocol contract
         run: |
           set -euo pipefail
           ./scripts/verify-diff-sidecar-artifact.sh \
             "$CHANNEL_APP_PATH/Contents/Resources/bin/cmux-diff-sidecar" \
             --archs "$(lipo -archs "$CHANNEL_APP_PATH/Contents/MacOS/cmux")" \
-            --require-signed \
-            --static-only
+            --require-signed
 
 
       - name: Verify signed app SSH daemon contract

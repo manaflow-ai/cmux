@@ -517,7 +517,7 @@ jobs:
             [[ "$(readlink "build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/$alias")" == cmux ]] || {
               echo "bin/$alias is not a symlink to cmux" >&2; exit 1; }
           done
-          ./scripts/verify-diff-sidecar-artifact.sh "$DIFF_SIDECAR" --static-only
+          ./scripts/verify-diff-sidecar-artifact.sh "$DIFF_SIDECAR"
           [[ "$SDK_VERSION" == 26.* ]]
 
       - name: Verify bundled Ghostty theme picker helper
@@ -630,8 +630,7 @@ jobs:
           ./scripts/verify-diff-sidecar-artifact.sh \
             "$app/Contents/Resources/bin/cmux-diff-sidecar" \
             --archs "$(lipo -archs "$app/Contents/MacOS/cmux")" \
-            --require-signed \
-            --static-only
+            --require-signed
 
 
       # The helper re-seal and the DMG need the identity again. This step
