@@ -18,9 +18,12 @@ struct AttentionPalettePage {
     static let pageID = "attention"
 
     /// Binds the action and routes every Go to (this page's and the agent pages') through the
-    /// user's jump, ``AppServices/revealTab(_:intent:)``.
+    /// user's jump on the row's own machine, ``AppServices/revealTab(_:onMachine:intent:)``.
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
-        AgentPaneAttentionTabs.shared.onOpen = { [weak services = context.services] id in services?.revealTab(id) ?? false }
+        AgentPaneAttentionTabs.shared.onOpen = { [weak services = context.services] key in
+            guard let services, let (machine, tab) = AttentionTabsWatch.split(key) else { return false }
+            return services.revealTab(tab, onMachine: machine)
+        }
         // An open page follows the marks: a cleared mark's row goes, a new one comes.
         AgentPaneAttentionTabs.shared.onChange = { [weak services = context.services] in
             guard let model = services?.palette.model, model.currentPageID == pageID else { return }

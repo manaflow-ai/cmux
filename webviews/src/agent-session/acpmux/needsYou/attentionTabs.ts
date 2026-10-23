@@ -8,6 +8,7 @@
 import { useSyncExternalStore } from "react";
 
 export type AttentionTab = {
+  /// The host's key for the tab (its machine and tab id); the page only echoes it back to Go to.
   tabId: string;
   /// The agent's one line: what the person must do in the tab.
   reason: string;
@@ -38,9 +39,17 @@ export function parseAttentionTabs(value: unknown): AttentionTab[] {
     const entry = raw as Record<string, unknown>;
     const tabId = text(entry.tabId);
     const reason = text(entry.reason).trim();
+    // `atMs` is the daemon's whole, nonnegative epoch ms: anything else is no mark, as on the host.
+    const atMs = entry.atMs;
     if (entry.kind !== "tab" || !tabId || !reason) continue;
-    const atMs = typeof entry.atMs === "number" && Number.isFinite(entry.atMs) ? entry.atMs : 0;
-    parsed.push({ tabId, reason, workspaceTitle: text(entry.workspaceTitle), tabTitle: text(entry.tabTitle), atMs });
+    if (typeof atMs !== "number" || !Number.isSafeInteger(atMs) || atMs < 0) continue;
+    parsed.push({
+      tabId,
+      reason,
+      workspaceTitle: text(entry.workspaceTitle),
+      tabTitle: text(entry.tabTitle),
+      atMs,
+    });
   }
   return parsed.sort((a, b) => b.atMs - a.atMs);
 }

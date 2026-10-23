@@ -19,7 +19,7 @@ final class AttentionTabsWatch {
         // task-owner: AppServices.attentionTabsWatch; cancelled in deinit, and it returns once the services are gone
         task = Task { [weak services] in
             for await marked in ObservationStream({ [weak services] in
-                services.map { AttentionTabsWatch.items(in: $0.machines.allWorkspaces.map(\.0)) } ?? []
+                services.map { AttentionTabsWatch.items(in: $0.machines.allWorkspaces.map { ($0.0, machine: $0.1.machineID) }) } ?? []
             }) {
                 guard services != nil else { return }
                 AgentPaneAttentionTabs.shared.items = marked
@@ -30,22 +30,34 @@ final class AttentionTabsWatch {
     // cx-t7hu: nonisolated; the task is a Sendable let, so cancelling needs no main-actor hop.
     nonisolated deinit { task.cancel() }
 
-    /// The marked tabs of `workspaces`, newest mark first: the agent's reason, the workspace and
-    /// tab titles the person knows them by (never an id), and when it was marked.
-    static func items(in workspaces: [WorkspaceModel]) -> [AgentPaneAttentionTabs.Item] {
+    /// The marked tabs of `workspaces` (each with the id of the machine that holds it), newest
+    /// mark first: the agent's reason, the workspace and tab titles the person knows them by (never
+    /// an id), and when it was marked. Each row's key is ``key(machine:tab:)``.
+    static func items(in workspaces: [(WorkspaceModel, machine: String)]) -> [AgentPaneAttentionTabs.Item] {
         var items: [AgentPaneAttentionTabs.Item] = []
-        for workspace in workspaces {
+        for (workspace, machine) in workspaces {
             for screen in workspace.screens {
                 for pane in screen.panes {
                     for tab in pane.tabs {
                         guard let attention = tab.attention else { continue }
                         items.append(AgentPaneAttentionTabs.Item(
-                            tabId: tab.id, reason: attention.reason, workspaceTitle: workspace.displayName,
+                            tabId: key(machine: machine, tab: tab.id), reason: attention.reason, workspaceTitle: workspace.displayName,
                             tabTitle: tab.displayTitle, atMs: attention.atMs))
                     }
                 }
             }
         }
         return items.sorted { $0.atMs > $1.atMs }
+    }
+
+    /// A marked tab's row key (`Item.tabId`, what a page's Go to sends back): its machine and its
+    /// tab id, since tabs on two machines can share an id. A tab id holds no `/`.
+    static func key(machine: String, tab: String) -> String { "\(machine)/\(tab)" }
+
+    /// The machine and tab id of row key `key`; nil for a key that names no machine.
+    static func split(_ key: String) -> (machine: String, tab: String)? {
+        guard let slash = key.lastIndex(of: "/") else { return nil }
+        let machine = String(key[..<slash]), tab = String(key[key.index(after: slash)...])
+        return machine.isEmpty || tab.isEmpty ? nil : (machine, tab)
     }
 }
