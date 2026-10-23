@@ -56,7 +56,9 @@ import Testing
         #expect(SidebarGroupLineLayout.tunable.defaultValue == .edge, "the line at the header bar's left edge is the default")
         #expect(SidebarStyle.groupBarWidth == 2)
         #expect(SidebarStyle.groupLineCut == 6)
-        #expect(SidebarStyle.groupBarX >= 4 && SidebarStyle.groupBarX <= 5, "about 4 to 5 pt inside the header: \(SidebarStyle.groupBarX)")
+        let inset = SidebarStyle.groupLineCornerInset
+        #expect(inset >= 4 && inset <= 5, "about 4 to 5 pt inside the header: \(inset)")
+        #expect(inset + SidebarStyle.groupBarWidth == SidebarStyle.rowCornerRadius, "the line's right edge is off the corner arc's end")
     }
 
     /// The line keeps the rail's x (its members' less `groupRailReach`) in every layout; the header's bar starts there
@@ -83,7 +85,7 @@ import Testing
             case .edge, .joined:
                 #expect(head.minX == line.minX, "\(layout): the bar starts at \(head.minX), the line at \(line.minX)")
             case .inside:
-                #expect(head.minX == max(0, line.minX - SidebarStyle.groupBarX) && head.minX < line.minX,
+                #expect(head.minX == max(0, line.minX - SidebarStyle.groupLineCornerInset) && head.minX < line.minX,
                         "inside: the bar starts at \(head.minX), the line at \(line.minX)")
             }
             #expect(head.minX >= 0, "\(layout): the bar runs off the list at \(head.minX)")

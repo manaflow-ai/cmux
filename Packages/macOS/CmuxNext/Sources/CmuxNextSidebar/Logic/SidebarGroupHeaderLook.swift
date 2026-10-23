@@ -63,7 +63,7 @@ public nonisolated enum SidebarGroupLineLayout: String, Sendable, CaseIterable, 
     /// left"): as `edge`, with no cut, the bar's bottom-left corner square: bar and line read as one L.
     case joined
     /// Chrome's corner (Leo 2026-10-19: the line about 4 to 5 pt inside the header's left edge): the header reaches
-    /// `SidebarStyle.groupBarX` further left, so the line runs out from under its rounded corner, a cut below.
+    /// `SidebarStyle.groupLineCornerInset` further left, so the line runs out from under its rounded corner, a cut below.
     case inside
 
     public var tunableTitle: String {

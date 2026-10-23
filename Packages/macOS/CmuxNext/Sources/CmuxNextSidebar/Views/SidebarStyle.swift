@@ -138,9 +138,12 @@ enum SidebarStyle {
     static var groupLineCut: CGFloat { Metrics.space3 }
     /// The Debug `sidebar.groupLineLayout` choice.
     static var groupLineLayout: SidebarGroupLineLayout { SidebarGroupLineLayout.tunable.value }
-    /// How much further left than its rail a group header's bar reaches: `inside`, the line sits this far in from
-    /// the bar's left edge, under its rounded corner (never past the list's edge, `SidebarListView.railReach(for:)`).
-    static var groupHeaderOverhang: CGFloat { groupLineLayout == .inside ? groupBarX : 0 }
+    /// How far inside a header's left edge Chrome sets its line (Leo 2026-10-19: about 4 to 5 pt): the line's right
+    /// edge meets the end of the bar's corner arc.
+    static var groupLineCornerInset: CGFloat { max(0, rowCornerRadius - groupBarWidth) }
+    /// How much further left than its rail a group header's bar reaches: `inside`, the corner inset, so the line sits
+    /// under the bar's rounded corner (never past the list's edge, `SidebarListView.railReach(for:)`).
+    static var groupHeaderOverhang: CGFloat { groupLineLayout == .inside ? groupLineCornerInset : 0 }
     /// The quiet group headers' color dot, in the header's leading corner (cx-25az).
     static var groupDotSize: CGFloat { max(6, (Metrics.sidebarRowHeight * 0.28).rounded()) }
     static var headerFont: NSFont { Typography.header }
