@@ -149,6 +149,13 @@ public final class CEFEngine: BrowserEngine {
         CEFSpareWindow.shared.prepare(runtime: .shared)
     }
 
+    /// Runs when a pane took the spare Chromium window, so the caller can make
+    /// the next one at an idle moment (`prepareSpareWindow`). Nil: none.
+    public var onSpareWindowTaken: (@MainActor () -> Void)? {
+        get { CEFSpareWindow.shared.onTaken }
+        set { CEFSpareWindow.shared.onTaken = newValue }
+    }
+
     /// Returns once the framework load that `preload` started ended (at once
     /// when none runs).
     public func libraryLoadEnded() async {
