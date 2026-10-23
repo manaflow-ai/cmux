@@ -208,6 +208,7 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
     ) -> SubrouterCodexProviderEvidence {
         let argvEvidence = providerEvidence(in: launchArguments, launcher: launcher)
         guard argvEvidence == .absent else { return argvEvidence }
+        if selectsCodexProfile(launchArguments) { return .ambiguous }
         let config = Self.readCapturedConfigToml(
             environment: environment,
             verificationHome: verificationHome
@@ -224,19 +225,71 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
             return .absent
         }
         var providers: Set<String> = []
+        var multilineDelimiter: String?
         for rawLine in configToml.split(whereSeparator: \Character.isNewline) {
-            let line = stripTomlComment(String(rawLine)).trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !line.isEmpty, !line.hasPrefix("#"), !line.hasPrefix("[") else { continue }
-            if let provider = modelProviderAssignment(in: line) {
-                providers.insert(provider)
-            } else if line.hasPrefix("model_provider") {
+            let raw = String(rawLine)
+            // Text inside a multi-line string is opaque: it is neither a key
+            // nor a table header.
+            if let delimiter = multilineDelimiter {
+                if Self.occurrences(of: delimiter, in: raw) % 2 == 1 { multilineDelimiter = nil }
+                continue
+            }
+            let line = stripTomlComment(raw).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !line.isEmpty, !line.hasPrefix("#") else { continue }
+            // Top-level keys end at the first table header (`[t]` or `[[t]]`).
+            if line.hasPrefix("[") { break }
+            for delimiter in ["\"\"\"", "\'\'\'"] where Self.occurrences(of: delimiter, in: line) % 2 == 1 {
+                multilineDelimiter = delimiter
+            }
+            let key = line.split(separator: "=", maxSplits: 1).first
+                .map { $0.trimmingCharacters(in: .whitespaces) } ?? ""
+            let bareKey = key.trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+            // A selected profile can override the top-level provider.
+            if bareKey == "profile" { return .ambiguous }
+            guard bareKey == "model_provider" else { continue }
+            // In the file the value must be a plain quoted TOML string: an
+            // unquoted value, a quoted key or an escape is never proof.
+            let value = line.split(separator: "=", maxSplits: 1).last
+                .map { $0.trimmingCharacters(in: .whitespaces) } ?? ""
+            let quoted = value.count >= 2
+                && ((value.first == "\"" && value.last == "\"") || (value.first == "'" && value.last == "'"))
+            guard key == "model_provider", quoted, !value.dropFirst().dropLast().contains("\\"),
+                  let provider = modelProviderAssignment(in: line) else {
                 return .ambiguous
             }
+            providers.insert(provider)
         }
         guard providers.count == 1, let provider = providers.first else {
             return providers.isEmpty ? .absent : .ambiguous
         }
         return .provider(provider)
+    }
+
+    private static func occurrences(of needle: String, in text: String) -> Int {
+        text.components(separatedBy: needle).count - 1
+    }
+
+    /// Whether captured argv selects a Codex profile (`--profile`, `-p`,
+    /// `--profile=`, or `-c profile=`), whose own provider can override the
+    /// top-level one in the config.
+    private func selectsCodexProfile(_ arguments: [String]) -> Bool {
+        var index = 0
+        while index < arguments.count {
+            let argument = arguments[index]
+            if argument == "--" { return false }
+            if argument == "--profile" || argument == "-p" || argument.hasPrefix("--profile=") {
+                return true
+            }
+            if (argument == "-c" || argument == "--config"), index + 1 < arguments.count,
+               arguments[index + 1].trimmingCharacters(in: .whitespaces).hasPrefix("profile=") {
+                return true
+            }
+            if argument.hasPrefix("-c=profile=") || argument.hasPrefix("--config=profile=") {
+                return true
+            }
+            index += 1
+        }
+        return false
     }
 
     /// Retains a canonical, non-secret routing proof when prompt sanitization
