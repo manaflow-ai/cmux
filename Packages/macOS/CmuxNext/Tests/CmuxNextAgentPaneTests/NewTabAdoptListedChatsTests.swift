@@ -46,8 +46,9 @@ struct NewTabAdoptListedChatsTests {
         let view = try #require(AgentPaneView(model: model, source: .bundled(file)))
         let scripts = Scripts()
         view.evaluateScript = { scripts.all.append($0) }
-        let saved = AgentPaneNewTab.warmed
-        defer { AgentPaneNewTab.warmed = saved }
+        // Another machine's page: its `newTab.warm` sets the flag under test but never writes the
+        // process-wide `AgentPaneNewTab.warmed`, which NewTabWarmSnapshotTests reads in parallel.
+        model.remoteChat = true
 
         // A spare that has not listed its chats yet: the adoption carries them for its first frame.
         view.adoptNewTab(Self.page(cwd: "first-folder"))
