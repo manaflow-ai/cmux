@@ -794,6 +794,7 @@ async fn peer_scratch(params: &Value) -> Result<String, RpcError> {
         RpcError::invalid_params(format!("the peer's scratch folder could not be made: {why}"))
     };
     made.map_err(|e| failed(e.to_string()))?.map_err(|e| failed(e.to_string()))?;
+    crate::config::private_state_dir(&dir).map_err(|e| failed(e.to_string()))?;
     canonical_dir(&dir.to_string_lossy()).await.ok_or_else(|| folder_refused("cwd"))
 }
 
@@ -815,7 +816,9 @@ fn peer_scratch_root() -> Result<PathBuf, RpcError> {
         let mut builder = std::fs::DirBuilder::new();
         #[cfg(unix)]
         std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
-        builder.create(&root).map(|_| root).map_err(|e| format!("{}: {e}", root.display()))
+        builder.create(&root).map_err(|e| format!("{}: {e}", root.display())).and_then(|_| {
+            crate::config::private_state_dir(&root).map(|_| root).map_err(|e| e.to_string())
+        })
     })
     .clone()
     .map_err(|e| {
