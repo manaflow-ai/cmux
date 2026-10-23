@@ -11,39 +11,49 @@
 //! alone (`fork_watch`: a kqueue `NOTE_FORK` knote on the shell's pid), so
 //! no other process on the host, and no other test of the run, changes the
 //! count: the tests run in any fleet step, beside anything. The shell starts
-//! behind a gate (`/bin/sh` waits for a line, then execs the shell), so the
-//! watch is in place before the shell runs. That count is the shell's own
-//! forks: a command substitution whose subshell forks again counts once, and
-//! a count of 0 is exact (every fork of a descendant starts with one of the
-//! shell). Elsewhere (Linux) the count is the gap in the system PID counter
-//! (PIDs are handed out in sequence), which every process forks into; other
-//! processes only make a gap larger, so each count is the minimum over reps,
-//! and nextest runs these tests one at a time with every test thread (group
-//! `fork-count-alone` in `cmux-tui/.config/nextest.toml`).
+//! behind a gate (Apple's /bin/bash waits for a line, then execs the shell),
+//! so the watch is on the pid before the shell runs; the shell's exec, which
+//! the watch must see after the gate opens, shows it watches the right pid.
+//! The kernel's count is the shell's own forks, not its children's, and the
+//! kqueue merges forks that come between two reads into one event: a count
+//! of 0 is exact (every fork of a descendant starts with one of the shell),
+//! a count above 0 is a lower bound. So the macOS checks are the budget-0
+//! ones (zsh, fish, bash 5.3), and their verdict is exact when the control
+//! counts 0 (each test prints both counts in a `FORK-COUNT` line). Elsewhere
+//! (Linux) the count is the gap in the system PID counter (PIDs are handed
+//! out in sequence), which every process forks into, the shell's
+//! descendants included; other processes only make a gap larger, so each
+//! count is the minimum over reps, and nextest runs these tests one at a
+//! time with every test thread (group `fork-count-alone` in
+//! `cmux-tui/.config/nextest.toml`, Linux only).
 //!
 //! The integrated shell may fork no more than the same shell without the
 //! integration: 0 at startup, and per command 0, except on bash 4.4-5.2,
-//! whose only pre-command hook is Ghostty's PS0 command substitution (1 fork
-//! of the shell, whose subshell forks once more for the history read: 1 on
-//! macOS, 2 in the PID gap). A control minimum that only one rep reached is
-//! host noise, not a baseline, and fails the test ("unstable baseline")
-//! instead of hiding forks; the kernel's count does not vary, so on macOS it
-//! never happens. bash runs in three homes: no PROMPT_COMMAND, a string one
-//! and an array one (the integration reads its type at startup).
+//! whose only pre-command hook is Ghostty's PS0 command substitution (a
+//! fork of the shell, whose subshell forks once more for the history read:
+//! 2 per command in the PID gap). Only Linux checks that budget: the
+//! kernel's count would see 1 and miss every fork inside the PS0 subshell.
+//! A control minimum that only one rep reached is host noise, not a
+//! baseline, and fails the test ("unstable baseline") instead of hiding
+//! forks; on macOS other processes do not change the control (a control
+//! above 0 can still vary, by merged events). bash runs in
+//! three homes: no PROMPT_COMMAND, a string one and an array one (the
+//! integration reads its type at startup).
 //!
 //! It needs ghostty-next 72578da or later: before it, Ghostty's ghostty.bash
 //! forks once per command on bash 5.3 (`cmd=$(builtin history 1)`) and once
 //! at startup when .bashrc sets PROMPT_COMMAND (`$(builtin declare -p
 //! PROMPT_COMMAND)`), on every bash.
 //!
-//! A shell that is not installed skips its test, and so does bash older than
-//! 4.4 (Ghostty uses bash-preexec there). A skip prints a `FORK-COUNT-SKIP`
-//! line, which the nextest config keeps in the output of a passing test, so
-//! a step log shows what did not run. Linux CI has bash 5.2 and no zsh or
-//! fish; the AWS Macs have only /bin/zsh (Apple's /bin/bash 3.2 gets no
-//! integration); bash 5.3 and fish need Homebrew. `CMUX_FORK_COUNT_REQUIRE`
-//! turns a skip into a failure: a comma list of `zsh`, `fish`, `bash`, and
-//! `bash5.3` (an integrated bash 5.3 or later must run). On the fleet:
+//! Which shells run. On macOS all three, on every host: the system's
+//! /bin/zsh, and bash 5.3 and fish 4.9.3 from `scripts/ci/pinned-shell.sh`
+//! (sha256-pinned; bash compiled and fish unpacked once per host into
+//! ~/Library/Caches/cmux/pinned-shells, which needs the network and a C
+//! compiler on the first run). A shell it cannot get fails the test: the
+//! guard never passes without the shell it checks. Elsewhere a shell that is
+//! not installed skips its test with a `FORK-COUNT-SKIP` line (Linux CI has
+//! bash 5.2 and no zsh or fish), and so does bash older than 4.4 (Ghostty
+//! uses bash-preexec there). On the fleet:
 //!
 //! ```text
 //! cmux-ci run --class isolated --script scripts/ci/cmux-tui-rust-check.sh \
@@ -67,18 +77,33 @@ const MAX_REPS: usize = 6;
 const COMMANDS: usize = 12;
 /// Reps a control minimum must reach to count as the baseline.
 const STABLE_REPS: usize = 2;
-/// Whether `CMUX_FORK_COUNT_REQUIRE` names `what`.
-fn required(what: &str) -> bool {
-    std::env::var("CMUX_FORK_COUNT_REQUIRE")
-        .is_ok_and(|list| list.split(',').any(|item| item.trim() == what))
-}
 
-/// Skips the test, or fails it when `CMUX_FORK_COUNT_REQUIRE` names `what`.
+/// Skips the test where its shell is not installed (never on macOS, where
+/// `shell_path` always has one).
 fn skip(what: &str, why: &str) {
-    assert!(!required(what), "{why}, and CMUX_FORK_COUNT_REQUIRE requires {what}");
     eprintln!("FORK-COUNT-SKIP {what}: {why}");
 }
 
+/// A pinned shell build (`scripts/ci/pinned-shell.sh`, cached per host).
+#[cfg(target_os = "macos")]
+fn pinned(name: &str) -> PathBuf {
+    let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../scripts/ci/pinned-shell.sh");
+    let output = std::process::Command::new("/bin/bash")
+        .arg(&script)
+        .arg(name)
+        .output()
+        .unwrap_or_else(|error| panic!("{}: {error}", script.display()));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    eprint!("{stderr}");
+    assert!(
+        output.status.success(),
+        "{name}: {} failed, so the shell under test cannot run: {stderr}",
+        script.display()
+    );
+    PathBuf::from(String::from_utf8(output.stdout).unwrap().trim())
+}
+
+#[cfg(not(target_os = "macos"))]
 fn find(candidates: &[&str]) -> Option<PathBuf> {
     candidates.iter().map(PathBuf::from).find(|path| path.is_file())
 }
@@ -102,6 +127,12 @@ fn probe_pid() -> u32 {
     pid
 }
 
+/// How the counts were taken, for the `FORK-COUNT` line.
+#[cfg(target_os = "macos")]
+const COUNTED_BY: &str = "the kernel's count of the shell's own forks (exact at 0)";
+#[cfg(not(target_os = "macos"))]
+const COUNTED_BY: &str = "the PID gap, minimum of the reps";
+
 /// Forks a reading of the fork count itself adds to the next window: the
 /// kernel's count costs none, a PID probe is one process.
 #[cfg(target_os = "macos")]
@@ -109,17 +140,15 @@ const READ_COST: u32 = 0;
 #[cfg(not(target_os = "macos"))]
 const READ_COST: u32 = 1;
 
-/// Forks per command of Ghostty's PS0 hook on bash 4.4-5.2: its command
-/// substitution, and the history read that subshell forks. The kernel's
-/// count sees only the first (the shell's own fork).
-#[cfg(target_os = "macos")]
-const BASH_PS0_FORKS: u32 = 1;
+/// Forks per command of Ghostty's PS0 hook on bash 4.4-5.2, in the PID gap:
+/// its command substitution, and the history read that subshell forks.
 #[cfg(not(target_os = "macos"))]
 const BASH_PS0_FORKS: u32 = 2;
 
-/// The gate a shell starts behind on macOS: `/bin/sh` waits for a line and
-/// then becomes the shell (`exec` keeps the pid), so the fork watch is on
-/// the pid before the shell runs.
+/// The gate a shell starts behind on macOS: Apple's /bin/bash waits for a
+/// line and then becomes the shell (`exec` keeps the pid), so the fork watch
+/// is on the pid before the shell runs. Not /bin/sh: that is a shim that
+/// execs /bin/bash on its own, an exec the watch could take for the shell's.
 #[cfg(target_os = "macos")]
 const GATE: &str = "read -r go && exec \"$@\"";
 
@@ -129,6 +158,9 @@ struct Session {
     output: Vec<u8>,
     #[cfg(target_os = "macos")]
     watch: super::fork_watch::ForkWatch,
+    /// The watch's exec count before the gate opened.
+    #[cfg(target_os = "macos")]
+    gate_execs: u32,
 }
 
 impl Session {
@@ -138,9 +170,9 @@ impl Session {
     fn start(command: &[String], env: &[(String, String)], cwd: &Path) -> (Self, u32) {
         #[cfg(target_os = "macos")]
         let mut pty_command = {
-            let mut gated = cmux_pty::PtyCommand::new("/bin/sh");
+            let mut gated = cmux_pty::PtyCommand::new("/bin/bash");
             gated.args(
-                ["-c", GATE, "sh"].map(String::from).into_iter().chain(command.iter().cloned()),
+                ["-c", GATE, "gate"].map(String::from).into_iter().chain(command.iter().cloned()),
             );
             gated
         };
@@ -164,10 +196,13 @@ impl Session {
         #[cfg(target_os = "macos")]
         let (session, start) = {
             let watch = super::fork_watch::ForkWatch::new(pty.pid());
-            let mut session = Self { pty, output: Vec::new(), watch };
+            // The spawn returned after the gate's own exec, so nothing has
+            // exec'd since the watch started; the gate forks nothing.
+            let gate = watch.counts();
+            let mut session = Self { pty, output: Vec::new(), watch, gate_execs: gate.execs };
             // Opens the gate.
             session.write(b"\n");
-            (session, 0)
+            (session, gate.forks)
         };
         #[cfg(not(target_os = "macos"))]
         let session = Self { pty, output: Vec::new() };
@@ -178,8 +213,12 @@ impl Session {
     #[cfg(target_os = "macos")]
     fn forks(&self) -> u32 {
         let counts = self.watch.counts();
-        // The gate's exec into the shell: the watch saw the shell start.
-        assert!(counts.execs >= 1, "the shell started before its fork watch");
+        // The gate's exec into the shell, after the gate opened: the watch
+        // is live on the shell's pid (a watch on another pid sees no exec).
+        assert!(
+            counts.execs > self.gate_execs,
+            "the fork watch saw no exec after the gate opened: it does not watch the shell"
+        );
         counts.forks
     }
 
@@ -400,6 +439,12 @@ fn assert_no_extra_forks(
             continue;
         };
         if startup_min <= control_startup && typing_min <= control_typing + budget {
+            eprintln!(
+                "FORK-COUNT {name}: {startup_min} forks to the first prompt (control \
+                 {control_startup}), {typing_min} for {} commands (control {control_typing}, \
+                 budget {budget}); {COUNTED_BY}",
+                lines.len()
+            );
             fs::remove_dir_all(&base).unwrap();
             return;
         }
@@ -413,9 +458,30 @@ fn assert_no_extra_forks(
     panic!("{name}: {verdict} ({MAX_REPS} reps)");
 }
 
+/// The shell a test runs: on macOS always one, the system's zsh and the
+/// pinned bash 5.3 and fish.
+#[cfg(target_os = "macos")]
+fn shell_path(shell: Shell) -> Option<PathBuf> {
+    Some(match shell {
+        Shell::Zsh => PathBuf::from("/bin/zsh"),
+        Shell::Bash => pinned("bash-5.3"),
+        Shell::Fish => pinned("fish-4.9.3"),
+    })
+}
+
+/// The shell a test runs, or `None` where it is not installed.
+#[cfg(not(target_os = "macos"))]
+fn shell_path(shell: Shell) -> Option<PathBuf> {
+    match shell {
+        Shell::Zsh => find(&["/bin/zsh", "/usr/bin/zsh"]),
+        Shell::Bash => find(&["/usr/local/bin/bash", "/usr/bin/bash", "/bin/bash"]),
+        Shell::Fish => find(&["/usr/local/bin/fish", "/usr/bin/fish"]),
+    }
+}
+
 #[test]
 fn fork_count_zsh_forks_nothing() {
-    let Some(zsh) = find(&["/bin/zsh", "/usr/bin/zsh"]) else {
+    let Some(zsh) = shell_path(Shell::Zsh) else {
         return skip("zsh", "zsh is not installed");
     };
     assert_no_extra_forks("zsh", Shell::Zsh, &zsh, "", 0);
@@ -423,8 +489,7 @@ fn fork_count_zsh_forks_nothing() {
 
 #[test]
 fn fork_count_fish_forks_nothing() {
-    let Some(fish) = find(&["/opt/homebrew/bin/fish", "/usr/local/bin/fish", "/usr/bin/fish"])
-    else {
+    let Some(fish) = shell_path(Shell::Fish) else {
         return skip("fish", "fish is not installed");
     };
     assert_no_extra_forks("fish", Shell::Fish, &fish, "", 0);
@@ -432,14 +497,12 @@ fn fork_count_fish_forks_nothing() {
 
 /// bash forks nothing at startup with any PROMPT_COMMAND, and nothing per
 /// command on bash 5.3 (Ghostty's `$(builtin history 1)` before 72578da forks
-/// once); bash 4.4-5.2 forks `BASH_PS0_FORKS` per command (Ghostty's PS0
-/// command substitution and the history read in it), and no more.
+/// once): red at ghostty-next 5555f42 on every Mac. On Linux, bash 4.4-5.2
+/// forks `BASH_PS0_FORKS` per command (Ghostty's PS0 command substitution
+/// and the history read in it), and no more.
 #[test]
 fn fork_count_bash_forks_nothing_at_startup_or_per_command_on_bash_5_3() {
-    // Apple's /bin/bash gets no integration (see detect_shell).
-    let Some(bash) = find(&["/opt/homebrew/bin/bash", "/usr/local/bin/bash", "/usr/bin/bash"])
-    else {
-        skip("bash5.3", "an integrated bash is not installed");
+    let Some(bash) = shell_path(Shell::Bash) else {
         return skip("bash", "an integrated bash is not installed");
     };
     let version = std::process::Command::new(&bash)
@@ -449,17 +512,22 @@ fn fork_count_bash_forks_nothing_at_startup_or_per_command_on_bash_5_3() {
     let version = String::from_utf8_lossy(&version.stdout).into_owned();
     let mut parts = version.split(' ').map(|part| part.parse::<u32>().unwrap_or(0));
     let (major, minor) = (parts.next().unwrap_or(0), parts.next().unwrap_or(0));
-    let bash_5_3 = (major, minor) >= (5, 3);
-    if !bash_5_3 {
-        skip("bash5.3", &format!("{} is bash {major}.{minor}, not 5.3 or later", bash.display()));
-    }
-    if (major, minor) < (4, 4) {
-        return skip(
-            "bash",
-            &format!("bash {major}.{minor} is older than 4.4 (Ghostty uses bash-preexec)"),
-        );
-    }
-    let budget = if bash_5_3 { 0 } else { BASH_PS0_FORKS };
+    #[cfg(target_os = "macos")]
+    let budget = {
+        assert_eq!((major, minor), (5, 3), "{} is not the pinned bash 5.3", bash.display());
+        0
+    };
+    #[cfg(not(target_os = "macos"))]
+    let budget = {
+        // Apple's /bin/bash 3.2 is not here (macOS takes the pinned bash).
+        if (major, minor) < (4, 4) {
+            return skip(
+                "bash",
+                &format!("bash {major}.{minor} is older than 4.4 (Ghostty uses bash-preexec)"),
+            );
+        }
+        if (major, minor) >= (5, 3) { 0 } else { BASH_PS0_FORKS }
+    };
     eprintln!("{}: bash {major}.{minor}, budget {budget} per command", bash.display());
     for (home, bashrc_extra) in [
         ("plain", ""),

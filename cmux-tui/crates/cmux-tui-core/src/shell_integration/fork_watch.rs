@@ -1,18 +1,20 @@
 //! The forks of one process, counted by the kernel for that process alone
 //! (macOS). A kqueue `EVFILT_PROC` knote with `NOTE_FORK` fires in the
 //! parent at the end of each `fork` and each `posix_spawn` of a new process
-//! (xnu `fork` and `posix_spawn` both `proc_knote(parent, NOTE_FORK)`), so no
-//! other process on the host, and no other test of the run, changes the
-//! count. The fork-count tests use it in place of the system PID counter,
-//! which every process on the host advances.
+//! (fish 4 runs external commands with `posix_spawn`); the tests below check
+//! both on the macOS that runs them. No other process on the host, and no
+//! other test of the run, changes the count. The fork-count tests use it in
+//! place of the system PID counter, which every process on the host
+//! advances.
 //!
 //! It counts the process's own forks, not its children's: a command
 //! substitution whose subshell forks again counts once. Every fork of a
-//! descendant starts with a fork of the shell, so a count of 0 is exact.
-//! Two forks between two reads of the kqueue merge into one event, so a
-//! count above 0 is a lower bound; one thread waits in `kevent` with no
-//! timeout and reads each event as it fires, so the forks of one command
-//! (each a whole `fork` syscall apart) are read one at a time.
+//! descendant starts with a fork of the process, so a count of 0 is exact.
+//! A count above 0 is a lower bound: the knote is `EV_CLEAR`, and forks that
+//! come between two reads of the kqueue merge into one event. One thread
+//! waits in `kevent` with no timeout and reads each event as it fires, but
+//! nothing makes the scheduler run it between two forks of the process, so
+//! a count above 0 never proves the process forked no more.
 
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::sync::mpsc::{Receiver, channel};
@@ -93,8 +95,9 @@ pub(super) struct ForkWatch {
 }
 
 impl ForkWatch {
-    /// Starts counting `pid`'s forks and execs. `pid` must be a child of
-    /// this process that has not been reaped.
+    /// Starts counting `pid`'s forks and execs. `pid` is a live process this
+    /// user may watch (a child, or this process itself); an exited one fails
+    /// the `kevent` registration.
     pub(super) fn new(pid: u32) -> Self {
         // SAFETY: kqueue takes no arguments; the fd is checked below.
         let raw = unsafe { libc::kqueue() };
@@ -178,4 +181,90 @@ fn counts_the_forks_of_its_process_and_not_of_others() {
     }
     drop(stdin);
     child.wait().unwrap();
+}
+
+/// Set for the child run of `posix_spawn_helper`.
+const SPAWN_HELPER_ENV: &str = "CMUX_FORK_WATCH_SPAWN_HELPER";
+/// What the helper prints after each spawn.
+const SPAWNED: &str = "fork-watch-spawned";
+
+/// `posix_spawn`s /usr/bin/true and reaps it.
+fn posix_spawn_true() {
+    let path = c"/usr/bin/true";
+    let argv = [path.as_ptr().cast_mut(), std::ptr::null_mut()];
+    let envp = [std::ptr::null_mut::<libc::c_char>()];
+    let mut pid: libc::pid_t = 0;
+    // SAFETY: `path`, `argv` and `envp` are NUL-terminated and outlive the
+    // call; no file actions or attributes.
+    let result = unsafe {
+        libc::posix_spawn(
+            &mut pid,
+            path.as_ptr(),
+            std::ptr::null(),
+            std::ptr::null(),
+            argv.as_ptr(),
+            envp.as_ptr(),
+        )
+    };
+    assert_eq!(result, 0, "posix_spawn: {}", std::io::Error::from_raw_os_error(result));
+    let mut status = 0;
+    // SAFETY: `pid` is the child just spawned, reaped once here.
+    assert_eq!(unsafe { libc::waitpid(pid, &mut status, 0) }, pid);
+}
+
+/// The child side of `counts_posix_spawn_of_its_process`, which runs it
+/// with `--ignored` and `SPAWN_HELPER_ENV` set: `posix_spawn`s one process
+/// per input line and says so. Without the variable (`--run-ignored`) it
+/// does nothing.
+#[test]
+#[ignore = "the child side of counts_posix_spawn_of_its_process"]
+fn posix_spawn_helper() {
+    use std::io::BufRead;
+    if std::env::var_os(SPAWN_HELPER_ENV).is_none() {
+        return;
+    }
+    for line in std::io::stdin().lock().lines() {
+        line.unwrap();
+        posix_spawn_true();
+        println!("{SPAWNED}");
+    }
+}
+
+/// xnu posts `NOTE_FORK` for `posix_spawn` too. The watched process is this
+/// test binary run again as `posix_spawn_helper`, in its own process, so no
+/// other test of a `cargo test` run spawns into the count; it spawns
+/// nothing before its first input line. Each window holds one spawn, so a
+/// merged event cannot hide one.
+#[test]
+fn counts_posix_spawn_of_its_process() {
+    use std::io::{BufRead, BufReader, Write};
+    let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "shell_integration::fork_watch::posix_spawn_helper",
+            "--ignored",
+            "--nocapture",
+            "--test-threads=1",
+        ])
+        .env(SPAWN_HELPER_ENV, "1")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let watch = ForkWatch::new(child.id());
+    let mut stdin = child.stdin.take().unwrap();
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+    assert_eq!(watch.counts().forks, 0);
+    for expected in 1..=3 {
+        stdin.write_all(b"go\n").unwrap();
+        // The test harness prints its own lines around the helper's.
+        let mut said = String::new();
+        while said.trim_end() != SPAWNED {
+            said.clear();
+            assert_ne!(stdout.read_line(&mut said).unwrap(), 0, "the spawn helper exited");
+        }
+        assert_eq!(watch.counts().forks, expected, "posix_spawn {expected} was not counted");
+    }
+    drop(stdin);
+    assert!(child.wait().unwrap().success());
 }
