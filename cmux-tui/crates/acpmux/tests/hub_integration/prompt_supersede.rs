@@ -42,9 +42,12 @@ fn hub_env(env: Value) -> Arc<Hub> {
 }
 
 /// A hub whose log lives in `dir`, so a second one there is the same daemon restarted.
+/// The restart does not continue the turn it cut (`autoResumeDelaysMs: []`,
+/// `restart_resume.rs`): its `until-cancel` prompt would run again ahead of the queue.
 fn durable_hub(dir: &Path) -> Arc<Hub> {
     let mut cfg = config();
     cfg.store.mode = StoreMode::Local;
+    cfg.auto_resume_delays_ms = Some(Vec::new());
     let store = acpmux::store::open(&cfg.store, dir).unwrap();
     Hub::new(cfg, store)
 }
