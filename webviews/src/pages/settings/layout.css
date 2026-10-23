@@ -203,8 +203,8 @@
   margin-bottom: 12px;
 }
 
-/* The part before a glass card's rows (Look's characters) keeps clear of their hairline. */
-.group.ui-glass > :not(.rows):has(+ .rows) {
+/* Look's characters keep clear of the Bubble Style row's hairline. */
+.group.chief-pet.ui-glass > :not(.rows):has(+ .rows) {
   margin-bottom: 16px;
 }
 
