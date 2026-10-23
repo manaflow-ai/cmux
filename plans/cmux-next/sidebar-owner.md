@@ -41,6 +41,7 @@ Enforced (Oct 23, Lawrence: "ensure this will always be true, and future agents 
 | Minimal rows | Name plus one state mark (spinner, unread dot, needs-you dot). No times, PR badge, status words or Now line by default. | Lawrence 10-21 |
 | Heights | Group headers, workspace rows and band rows have one height at each density. | Lawrence 10-19, 10-22 |
 | Performance | Terminal typing stays smooth while the sidebar rearranges (p95 frame under 8 ms). | Lawrence 11215 |
+| Archived rows | An archived workspace, group or link stays in its group (or its section), last, and draws dimmed: its ink, icon and group bar at `SidebarStyle.archivedAlpha` (0.45). Row height, insets, rail and controls do not change. Unarchive restores it. plans/cmux-next/archiving-DESIGN.md. | Aziz 2026-10-23 ("archiving moves the item to the end of its group (or root, if ungrouped) and shows it dimmed; unarchive restores it") |
 
 Default picked (title x): the 10-21 commit c779988d57d reserved an empty icon slot on every row so that
 rows with and without a favicon line up ("weird spacing"). On 11405 Lawrence asked for the text to sit

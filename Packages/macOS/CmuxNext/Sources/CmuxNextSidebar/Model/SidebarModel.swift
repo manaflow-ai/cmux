@@ -423,6 +423,7 @@ public final class SidebarModel {
             let old = SidebarRowIndex.workspace(at: path, in: storedSections)
             row.rowState = old.rowState
             row.machineID = old.machineID
+            row.isArchived = old.isArchived // the document's, set by `arrange`; the feed does not know it
             guard row != old else { continue }
             guard !movesRows(from: old, to: row) else { return false }
             for path in paths {

@@ -77,6 +77,8 @@ final class WorkspaceRowView: SidebarRowView {
     var hasSubtitle = false, isExpanded = false, timeText: String?
     /// An idle workspace nobody named: its name reads in the secondary ink (`SidebarTunables.quietUnnamedRows`).
     var isQuiet = false
+    /// Archived in the sidebar document: the row draws dimmed (`SidebarStyle.archivedAlpha`).
+    var isArchived = false
     var iconKind: WorkspaceIcon?
     /// Selected but not active (the active row paints the selection fill).
     var isSecondarySelected = false {
@@ -255,6 +257,8 @@ final class WorkspaceRowView: SidebarRowView {
         title.stringValue = ws.title
         lastTitle = ws.title
         isQuiet = tunables.quietUnnamedRows && ws.isUnnamed && !ws.unread.isUnread && ws.activity == .idle && !ws.agentWorking
+        isArchived = ws.isArchived
+        icon.alphaValue = isArchived ? SidebarStyle.archivedAlpha : 1
         let arrival = priorTitle?.isEmpty == true && !ws.title.isEmpty && !isPlaceholderRow
             && tunables.workspaceTitleMotion != .instant && Motion.sidebar.animatesMovement
         if arrival {
