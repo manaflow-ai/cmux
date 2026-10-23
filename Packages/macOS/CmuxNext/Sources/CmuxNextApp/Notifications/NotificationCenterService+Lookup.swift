@@ -186,7 +186,7 @@ extension NotificationCenterService {
         }
         // An agent's "needs you here" mark (tab-attention-v1) rings until Dismiss Highlight hides
         // that request; a new request (a newer `at_ms`) rings again.
-        guard let attention = tab.attention, attention.atMs >= (dismissedAttention[tab.id] ?? 0) else { return nil }
+        guard let attention = tab.attention, tab.attentionRingHiddenThrough.map({ attention.atMs > $0 }) ?? true else { return nil }
         return Self.markRingBase | Self.attentionRingBase | (attention.atMs & ~(Self.markRingBase | Self.attentionRingBase))
     }
 
@@ -237,7 +237,7 @@ extension NotificationCenterService {
         for tab in tabs where tab.markedUnread && dismissedMarks[tab.id] != tab.markedUnreadGeneration {
             dismissedMarks[tab.id] = tab.markedUnreadGeneration
         }
-        for tab in tabs { if let attention = tab.attention { dismissedAttention[tab.id] = attention.atMs &+ 1 } }
+        for tab in tabs { if let attention = tab.attention { tab.attentionRingHiddenThrough = attention.atMs } }
         guard newest > (dismissedHighlights[workspace.id] ?? 0) else { return }
         dismissedHighlights[workspace.id] = newest
         note("highlight dismissed workspace=\(workspace.id) through=\(newest)")
