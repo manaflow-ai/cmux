@@ -77,22 +77,15 @@ await requireBrowserLane("agent-status-colors.test.ts", async () => {
           `</body></html>`,
       );
       const actual = await page.evaluate(() => {
-        const color = (selector: string) =>
-          getComputedStyle(document.querySelector(selector)!).color;
-        const canvas = document
-          .createElement("canvas")
-          .getContext("2d", { willReadFrequently: true })!;
+        const color = (selector: string) => getComputedStyle(document.querySelector(selector)!).color;
+        const canvas = document.createElement("canvas").getContext("2d", { willReadFrequently: true })!;
         const luminance = (value: string) => {
           canvas.fillStyle = value;
           canvas.fillRect(0, 0, 1, 1);
-          const channels = Array.from(canvas.getImageData(0, 0, 1, 1).data.slice(0, 3)).map(
-            (channel) => {
-              const normalized = channel / 255;
-              return normalized <= 0.04045
-                ? normalized / 12.92
-                : ((normalized + 0.055) / 1.055) ** 2.4;
-            },
-          );
+          const channels = Array.from(canvas.getImageData(0, 0, 1, 1).data.slice(0, 3)).map((channel) => {
+            const normalized = channel / 255;
+            return normalized <= 0.04045 ? normalized / 12.92 : ((normalized + 0.055) / 1.055) ** 2.4;
+          });
           return 0.2126 * channels[0]! + 0.7152 * channels[1]! + 0.0722 * channels[2]!;
         };
         const colors = {
@@ -111,15 +104,11 @@ await requireBrowserLane("agent-status-colors.test.ts", async () => {
         };
         return {
           colors,
-          ratios: Object.fromEntries(
-            Object.entries(colors).map(([key, value]) => [key, ratio(value)]),
-          ),
+          ratios: Object.fromEntries(Object.entries(colors).map(([key, value]) => [key, ratio(value)])),
         };
       });
       const rgb = (hex: string) => {
-        const channels = [0, 2, 4].map((offset) =>
-          Number.parseInt(hex.slice(offset + 1, offset + 3), 16),
-        );
+        const channels = [0, 2, 4].map((offset) => Number.parseInt(hex.slice(offset + 1, offset + 3), 16));
         return `rgb(${channels.join(", ")})`;
       };
       expect(actual.colors.add).toBe(rgb(green));
