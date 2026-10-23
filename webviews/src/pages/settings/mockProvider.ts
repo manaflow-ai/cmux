@@ -23,6 +23,10 @@ import {
   type ChannelSwitch,
   type ChannelsState,
   type AccountsState,
+  type DevicesRelay,
+  type DevicesRun,
+  type DevicesRunResult,
+  type DevicesState,
   type HarnessesRun,
   type HarnessesState,
   type IntegrationsRun,
@@ -383,6 +387,8 @@ export class MockSettingsProvider {
         return { added };
       },
       "cmux.settings.accounts.run": (params) => this.runAccounts(params as AccountsRun),
+      "cmux.settings.devices.state": () => this.devices,
+      "cmux.settings.devices.run": (params) => this.runDevices(params as unknown as DevicesRun),
       "cmux.settings.harnesses.state": () => this.harnesses,
       "cmux.settings.harnesses.run": (params) => {
         const run = params as HarnessesRun;
@@ -464,6 +470,8 @@ export class MockSettingsProvider {
       "cmux.chief.backend.doctor",
       "cmux.settings.harnesses.state",
       "cmux.settings.harnesses.run",
+      "cmux.settings.devices.state",
+      "cmux.settings.devices.run",
       "cmux.settings.integrations.state",
       "cmux.settings.integrations.run",
       "cmux.settings.theme.set",
@@ -516,6 +524,110 @@ export class MockSettingsProvider {
       ctx.signal.addEventListener("abort", () => this.agents.listeners.delete(listener));
     });
     provide("cmux.settings.harnesses.changed", (ctx) => this.track(this.harnessesChanged, ctx));
+    provide("cmux.settings.devices.changed", (ctx) => this.track(this.devicesChanged, ctx));
+  }
+
+  /** Settings > Devices as the app serves it (texts already localized). */
+  devices: DevicesState = mockDevicesState();
+  /** Devices gestures the page sent (relay secrets included, so tests can check what was sent). */
+  readonly deviceRuns: DevicesRun[] = [];
+  private readonly devicesChanged = new Set<EventSourceContext>();
+
+  /** Replaces the Devices part and tells the page, like the app's observation push. */
+  setDevices(devices: DevicesState): void {
+    this.devices = devices;
+    for (const ctx of this.devicesChanged) ctx.emit(devices);
+  }
+
+  /** What the app's devices model does to the state (enough for the page and the gallery). A
+   * relay's secret is never part of the state: only `hasSecret` says this Mac holds one. */
+  private runDevices(run: DevicesRun): DevicesRunResult {
+    this.deviceRuns.push(run);
+    const state = this.devices;
+    const device = (id: string) => [state.thisDevice, ...state.others].find((row) => row?.id === id);
+    const result: DevicesRunResult = { ok: true };
+    switch (run.action) {
+      case "refresh":
+      case "openPermission":
+        return result;
+      case "signIn":
+        this.setDevices({ ...state, signIn: null, status: { text: "Connecting…", tone: "attention" } });
+        return result;
+      case "rename": {
+        if (!device(run.id)) return { error: "That device is no longer on your account." };
+        const rename = <T extends { id: string; name: string }>(row: T): T =>
+          row.id === run.id ? { ...row, name: run.name } : row;
+        this.setDevices({
+          ...state,
+          thisDevice: state.thisDevice && rename(state.thisDevice),
+          others: state.others.map(rename),
+        });
+        return result;
+      }
+      case "remove":
+        if (state.thisDevice?.id === run.id) {
+          this.setDevices({
+            ...state,
+            thisDevice: null,
+            sharing: null,
+            signIn: "Sign In Again",
+            status: { text: "Not signed in", tone: "neutral" },
+          });
+        } else this.setDevices({ ...state, others: state.others.filter((row) => row.id !== run.id) });
+        return result;
+      case "setAccess":
+        this.setDevices({
+          ...state,
+          others: state.others.map((row) => (row.id === run.id ? { ...row, access: run.scope } : row)),
+        });
+        return result;
+      case "setSharing":
+        if (state.sharing) this.setDevices({ ...state, sharing: { ...state.sharing, on: run.on } });
+        return result;
+      case "saveRelay": {
+        const draft = run.relay;
+        if (draft.urls.length === 0) return { error: "Add at least one relay URL." };
+        const hasSecret = Boolean(draft.secret || (draft.username && draft.password));
+        const modeText = draft.mode === "static" ? "Username and password" : "Shared secret";
+        const existing = state.relays.find((relay) => relay.id === draft.id);
+        if (!existing && !hasSecret) return { error: "Enter the relay's secret." };
+        const saved = {
+          id: draft.id ?? `relay-${state.relays.length + 1}`,
+          name: draft.name,
+          urls: draft.urls,
+          mode: draft.mode,
+          modeText,
+          enabled: draft.enabled,
+          priority: draft.priority,
+          hasSecret: hasSecret || (existing?.hasSecret ?? false),
+          checking: false,
+          check: existing?.check ?? null,
+        };
+        this.setDevices({
+          ...state,
+          relays: existing
+            ? state.relays.map((relay) => (relay.id === saved.id ? saved : relay))
+            : [...state.relays, saved],
+        });
+        return result;
+      }
+      case "checkRelay": {
+        const relay = state.relays.find((row) => row.id === run.id);
+        const urls = run.relay?.urls ?? relay?.urls ?? [];
+        const text = `Reached ${urls[0] ?? "the relay"} in 38 ms (TURN allocation succeeded).`;
+        if (relay)
+          this.setDevices({
+            ...state,
+            relays: state.relays.map((row): DevicesRelay =>
+              row.id === relay.id ? { ...row, check: { tone: "success", text } } : row,
+            ),
+          });
+        return { ok: true, text };
+      }
+      case "deleteRelay":
+        this.setDevices({ ...state, relays: state.relays.filter((relay) => relay.id !== run.id) });
+        return result;
+    }
   }
 
   /** Settings > Updates' channels; null: the host has no updater. */
@@ -634,6 +746,8 @@ export class MockSettingsProvider {
 
   /** The app's live lists (spaces, machines, browser profiles) as the host serves them. */
   host: HostLists = {
+    // The mock stands in for a DEV build (gallery, tests): the Development category shows.
+    dev_build: true,
     rooms: [
       { id: "default", title: "Default", subtitle: null, active: true },
       { id: "work", title: "Work", subtitle: null, active: false },
@@ -1024,5 +1138,210 @@ export function createMockClient(options: MockOptions = {}): {
       page.close();
       providerSession.close();
     },
+  };
+}
+
+/** Settings > Devices with this Mac, an iPhone and a second Mac, two relays and a short history. */
+export function mockDevicesState(): DevicesState {
+  const removeConfirm = (name: string) => ({
+    title: `Remove ${name}?`,
+    body: `${name} signs out of your devices and can no longer reach Mac Screen on this Mac.`,
+    confirm: "Remove",
+  });
+  return {
+    available: true,
+    status: { text: "Connected", tone: "success" },
+    signIn: null,
+    error: null,
+    labels: {
+      thisDeviceSection: "This Mac",
+      thisDeviceBadge: "This Mac",
+      othersSection: "Other Devices",
+      noOthers: "No other devices yet. Sign in to cmux on another device to see it here.",
+      fingerprint: "Fingerprint",
+      rename: "Rename…",
+      renameTitle: "Rename Device",
+      nameField: "Name",
+      save: "Save",
+      cancel: "Cancel",
+      remove: "Remove…",
+      access: "Mac Screen access",
+      accessOptions: [
+        { value: "none", title: "No access" },
+        { value: "ask", title: "Ask each time" },
+        { value: "view", title: "View only" },
+        { value: "full", title: "Full control" },
+      ],
+      sharingSection: "Mac Screen on This Mac",
+      sharingToggle: "Allow Mac Screen on this Mac",
+      sharingDetail: "Your devices can see or control this Mac.",
+      openSettings: "Open System Settings",
+      allowed: "Allowed",
+      relaysSection: "Relays",
+      relaysEmpty: "No relays. Devices connect directly when they can.",
+      relaysHelp: "Used when your devices cannot connect directly.",
+      addRelay: "Add Relay…",
+      editRelay: "Edit…",
+      deleteRelay: "Delete",
+      deleteRelayTitle: "Delete this relay?",
+      deleteRelayBody: "Your devices stop using it. Its secret is removed from this Mac.",
+      checkRelay: "Check Relay",
+      relayOff: "Off",
+      relayName: "Name",
+      relayURLs: "URLs",
+      relayURLsHelp: "One per line, or separated by commas (turn: or turns:).",
+      relayMode: "Credentials",
+      modeOptions: [
+        { value: "shared_secret", title: "Shared secret" },
+        { value: "static", title: "Username and password" },
+      ],
+      relaySecret: "Shared secret",
+      relaySecretKeep: "Leave empty to keep the saved secret",
+      relayUsername: "Username",
+      relayPassword: "Password",
+      relayEnabled: "Use this relay",
+      relayPriority: "Priority",
+      relayPriorityHelp: "Lower numbers are tried first.",
+      historySection: "History",
+      historyEmpty: "No Mac Screen activity yet.",
+      historyColumns: {
+        time: "Time",
+        event: "Event",
+        device: "Device",
+        host: "Host",
+        scope: "Access",
+        detail: "Detail",
+        duration: "Duration",
+      },
+      refresh: "Refresh",
+      copy: "Copy",
+    },
+    thisDevice: {
+      id: "dev-mac-studio",
+      name: "Studio Mac",
+      platform: "Mac",
+      fingerprint: "1A2B 3C4D 5E6F 7081 92A3 B4C5",
+      fingerprintFull: "1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809",
+      online: true,
+      presence: "Online",
+      thisDevice: true,
+      sharesText: "Shares Mac Screen",
+      access: null,
+      removeConfirm: {
+        title: "Remove this Mac?",
+        body: "This Mac leaves your devices. You can sign in again later.",
+        confirm: "Remove",
+      },
+    },
+    others: [
+      {
+        id: "dev-iphone",
+        name: "Aziz's iPhone",
+        platform: "iPhone",
+        fingerprint: "9F8E 7D6C 5B4A 3928 1706 F5E4",
+        fingerprintFull: "9f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0",
+        online: true,
+        presence: "Online",
+        thisDevice: false,
+        sharesText: null,
+        access: "full",
+        removeConfirm: removeConfirm("Aziz's iPhone"),
+      },
+      {
+        id: "dev-macbook",
+        name: "MacBook Pro",
+        platform: "Mac",
+        fingerprint: null,
+        fingerprintFull: null,
+        online: false,
+        presence: "Offline · seen 5 minutes ago",
+        thisDevice: false,
+        sharesText: "Shares Mac Screen",
+        access: "ask",
+        removeConfirm: removeConfirm("MacBook Pro"),
+      },
+    ],
+    sharing: {
+      on: true,
+      busy: false,
+      permissions: [
+        {
+          id: "screenRecording",
+          title: "Screen Recording",
+          detail: "Lets your devices see this Mac's screen.",
+          granted: true,
+        },
+        {
+          id: "accessibility",
+          title: "Accessibility",
+          detail: "Lets Full control use the mouse and keyboard.",
+          granted: false,
+        },
+      ],
+    },
+    relays: [
+      {
+        id: "relay-1",
+        name: "cmux TURN",
+        urls: ["turns:turn.example.com:443?transport=tcp", "turn:turn.example.com:3478"],
+        mode: "shared_secret",
+        modeText: "Shared secret",
+        enabled: true,
+        priority: 0,
+        hasSecret: true,
+        checking: false,
+        check: { tone: "success", text: "Reached in 41 ms" },
+      },
+      {
+        id: "relay-2",
+        name: "Office coturn",
+        urls: ["turn:10.0.4.2:3478"],
+        mode: "static",
+        modeText: "Username and password",
+        enabled: false,
+        priority: 10,
+        hasSecret: false,
+        checking: false,
+        check: null,
+      },
+    ],
+    history: [
+      {
+        id: "h3",
+        time: "Oct 19, 2026 at 4:12 PM",
+        event: "ended",
+        eventText: "Ended",
+        tone: "neutral",
+        device: "Aziz's iPhone",
+        host: "Studio Mac",
+        scope: "Full control",
+        detail: "",
+        duration: "22m 27s",
+      },
+      {
+        id: "h2",
+        time: "Oct 19, 2026 at 3:50 PM",
+        event: "started",
+        eventText: "Started",
+        tone: "success",
+        device: "Aziz's iPhone",
+        host: "Studio Mac",
+        scope: "Full control",
+        detail: "Through cmux TURN",
+        duration: "",
+      },
+      {
+        id: "h1",
+        time: "Oct 18, 2026 at 9:03 AM",
+        event: "denied",
+        eventText: "Denied",
+        tone: "danger",
+        device: "MacBook Pro",
+        host: "Studio Mac",
+        scope: "View only",
+        detail: "Declined on this Mac",
+        duration: "",
+      },
+    ],
   };
 }
