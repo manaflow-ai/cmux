@@ -3,7 +3,7 @@ import Foundation
 /// Stash (`stash-v1`; cmux-tui/spec/resource-operations-v2.json `stash.*`):
 /// browser tabs closed into one named group, restored or deleted later, and
 /// OneTab exports imported as groups. Callers check
-/// `DaemonCapabilities.stash` first.
+/// `DaemonCapability.stash` first.
 extension StateResourceClient {
     /// Where `stash.restore` reopens pages.
     public enum StashTarget: String, Sendable {
@@ -78,7 +78,7 @@ extension StateResourceClient {
 
     /// Closes workspaces `workspaces` whole (every tab, ending their terminals) into one stash
     /// named `name` (else the workspace's name for one, none for several). Needs
-    /// `DaemonCapabilities.stashWorkspaces`.
+    /// `DaemonCapability.stashWorkspaces`.
     @discardableResult
     public func stashWorkspaces(_ workspaces: [ResourceID], name: String? = nil) async throws -> StashCreated {
         var params: [String: JSONValue] = ["workspaces": Self.ids(workspaces)]

@@ -32,7 +32,7 @@ final class IconAssetImages {
     func image(_ icon: String, owner: DaemonService?) -> SidebarFavicon? {
         guard let value = IconValue(wire: icon), Self.isAsset(value) else { return nil }
         if let image = images[icon] { return image }
-        guard !requested.contains(icon), let owner, owner.supports(DaemonCapabilities.iconAssets),
+        guard !requested.contains(icon), let owner, owner.supports(DaemonCapability.iconAssets.rawValue),
               let connection = owner.connection else { return nil }
         requested.insert(icon)
         Task { [weak self] in
