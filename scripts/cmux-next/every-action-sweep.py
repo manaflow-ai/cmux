@@ -58,6 +58,9 @@ Fleet (an owned mini's console; the allowlisted entry builds the tagged app at t
     --artifact artifacts/split-spring/report.json --arg=--suite=every-action [--arg=--sessions=light,stress]
   (also artifacts/split-spring/every-action.md in a second step with that --artifact)
 
+On the fleet pass --vdisplay=120 to split-spring.sh: a 1920x1080 120 Hz virtual display, so frames are judged at
+full ProMotion refresh and the STRESS grid (4 columns) fits; a 1024x768 console refuses the splits.
+
 Usage: every-action-sweep.py --app APP --tag TAG --out DIR [--json PATH] [--sessions light,stress] [--repeat 3]
        [--only id,id] [--limit N] [--shard K/N] [--settle 0.5] [--no-interactions] [--keep]
 A sharded run (--shard K/N) times the interactions in shard 1 only; merge the shards' JSON with
@@ -1315,7 +1318,9 @@ def main():
     report = {"env": env, "sessions": []}
     report_path = opts.json or os.path.join(OUT, "every-action.json")
     try:
-        for name in [s for s in opts.sessions.split(",") if s]:
+        for index, name in enumerate([s for s in opts.sessions.split(",") if s]):
+            if index:
+                app.relaunch()  # each session starts from a fresh app: STRESS is exactly perf-stress-session's shape
             sweep = Sweep(app, name, stress_module)
             sweep.run(actions)
             report["sessions"].append({"name": name, "summary": sweep.summary, "validity": sweep.validity, "idle": sweep.idle,
