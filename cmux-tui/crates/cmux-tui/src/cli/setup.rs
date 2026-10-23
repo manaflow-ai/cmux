@@ -154,7 +154,7 @@ const TASKS: &[Task] = &[
         check: &["cmux setup machine SSH_TARGET --dry-run", "cmux setup status"],
         apply: &["cmux setup machine SSH_TARGET [--name NAME]"],
         person: Some("key-only ssh to the machine: adding a key there or fixing ssh config"),
-        prompt: "Add my machine HOST as an agent machine (a Mac on my tailnet such as `studio`, or an ssh host such as `ubuntu@build-1`): run `cmux setup machine HOST`, then `cmux acp host doctor` with the peer name it reports and `--json`. If ssh refuses, give me the command to try; never ask for my password. Tell me the undo.",
+        prompt: "Add my machine HOST as an agent machine (a Mac on my tailnet such as `studio`, or an ssh host such as `ubuntu@build-1`): run `cmux setup machine HOST`, then run `cmux acp host doctor <name> --json`, where <name> is the `name` that result reports. If ssh refuses, give me the command to try; never ask for my password. Tell me the undo.",
     },
     Task {
         id: "host_update",

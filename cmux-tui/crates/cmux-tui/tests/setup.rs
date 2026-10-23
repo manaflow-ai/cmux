@@ -608,7 +608,9 @@ fn cmux_setup_list_gives_a_chief_prompt_per_task_and_the_page_matches() {
     }
     let machine = list["tasks"].as_array().unwrap().iter().find(|t| t["id"] == "machine").unwrap();
     assert!(
-        machine["prompt"].as_str().unwrap().contains("`cmux acp host doctor` with the peer name"),
+        machine["prompt"].as_str().unwrap().contains(
+            "`cmux acp host doctor <name> --json`, where <name> is the `name` that result reports"
+        ),
         "{machine}"
     );
 

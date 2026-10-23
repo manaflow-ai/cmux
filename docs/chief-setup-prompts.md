@@ -27,7 +27,7 @@ What only you can do: the harness's own sign-in (OAuth in a browser) and install
 ## Add an ssh machine as an agent peer, or update or repair one
 
 ```text
-Add my machine HOST as an agent machine (a Mac on my tailnet such as `studio`, or an ssh host such as `ubuntu@build-1`): run `cmux setup machine HOST`, then `cmux acp host doctor` with the peer name it reports and `--json`. If ssh refuses, give me the command to try; never ask for my password. Tell me the undo.
+Add my machine HOST as an agent machine (a Mac on my tailnet such as `studio`, or an ssh host such as `ubuntu@build-1`): run `cmux setup machine HOST`, then run `cmux acp host doctor <name> --json`, where <name> is the `name` that result reports. If ssh refuses, give me the command to try; never ask for my password. Tell me the undo.
 ```
 
 What only you can do: key-only ssh to the machine: adding a key there or fixing ssh config.
