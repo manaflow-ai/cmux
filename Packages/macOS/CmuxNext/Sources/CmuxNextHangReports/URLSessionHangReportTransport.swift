@@ -58,10 +58,13 @@ public nonisolated struct URLSessionHangReportTransport: HangReportTransport {
     }
 }
 
-/// Refuses every redirect, so the 3xx answer itself comes back.
+/// Refuses every redirect, so the 3xx answer itself comes back. The selector is spelled out: an
+/// optional requirement whose Swift signature drifts between SDKs would otherwise stop matching
+/// silently, and the redirect would be followed.
 private final class NoRedirects: NSObject, URLSessionTaskDelegate, Sendable {
+    @objc(URLSession:task:willPerformHTTPRedirection:newRequest:completionHandler:)
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
-                    newRequest request: URLRequest) async -> URLRequest? {
-        nil
+                    newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
+        completionHandler(nil)
     }
 }
