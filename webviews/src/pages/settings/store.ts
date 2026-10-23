@@ -456,6 +456,12 @@ export class SettingsStore {
     await this.refreshHost();
   }
 
+  /** Settings > Devices: remove a device from every store that lets it in, then re-read the host lists. */
+  async removeDevice(id: string): Promise<void> {
+    await this.request("cmux.settings.devices.remove", { id });
+    await this.refreshHost();
+  }
+
   /** Settings > Mobile: answer a phone's pairing request, then re-read the host lists. */
   async answerPair(id: string, allow: boolean): Promise<void> {
     await this.request("cmux.settings.mobile.answer_pair", { id, allow });
@@ -466,6 +472,13 @@ export class SettingsStore {
   async allowPhonesAgain(): Promise<void> {
     await this.request("cmux.settings.mobile.allow_again", {});
     await this.refreshHost();
+  }
+
+  /** Updates > Web UI: Check Now or Roll Back, then re-read the host lists; false when the host refused. */
+  async runWebUpdates(action: "check" | "rollback"): Promise<boolean> {
+    const reply = await this.request(`cmux.settings.web_updates.${action}` as const, {});
+    await this.refreshHost();
+    return reply.ok;
   }
 
   /** Settings > Chief > Voice input: turn the message box's mic on or off, then re-read the host lists. */

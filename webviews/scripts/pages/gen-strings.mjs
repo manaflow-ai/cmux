@@ -148,9 +148,9 @@ export const PAGES = {
           ),
       },
       {
-        // Machines > Add Server… (u3849): the palette action's own title.
-        file: `${sources}/CmuxNextActions/ServerActions.xcstrings`,
-        keys: () => ["action.server.addServer"],
+        // Machines > Add Device… (add-device-DESIGN.md): the palette action's own title, until the host lists arrive.
+        file: `${sources}/CmuxNextActions/RemoteActions.xcstrings`,
+        keys: () => ["action.device.add"],
       },
     ],
   },
@@ -272,6 +272,8 @@ export const PAGES = {
                 "message.sending",
                 "message.sent",
                 "message.delivered",
+                // The recipient chip's tooltip, the full id behind its name (MessageCard.tsx).
+                "message.recipientId",
               ].includes(key),
           ),
       },
