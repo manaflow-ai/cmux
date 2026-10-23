@@ -4096,7 +4096,7 @@ jobs:
         if: env.TRACK == 'nightly-next'
         id: visual-smoke
         continue-on-error: true
-        run: ./scripts/cmux-next/visual-smoke/gate.sh "$CHANNEL_APP_PATH" "$RUNNER_TEMP/visual-smoke" "the signed app; nothing is published"
+        run: ./scripts/cmux-next/visual-smoke/gate.sh "$CHANNEL_APP_PATH" "$RUNNER_TEMP/visual-smoke" "the signed app; advisory only"
 
       - name: Record visual smoke advisory failure
         if: always() && env.TRACK == 'nightly-next' && steps.visual-smoke.outcome == 'failure'
