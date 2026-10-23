@@ -16,10 +16,10 @@ final class CEFHostView: NSView {
         }
     }
     private var windowObserver: (any NSObjectProtocol)?
-    /// The shown page's own background (`CEFTab.pageBackdropColor`). While
-    /// the window live-resizes, this view fills with it instead of the pane
-    /// ground: the page window's gap shows this view until Chromium's frame
-    /// at the new size arrives (`CEFTab+ResizeBackdrop`).
+    /// The shown page's own background (`CEFTab.pageBackdropColor`). This
+    /// view fills with it instead of the pane ground: the page window's gap
+    /// shows this view until Chromium's frame at a new size arrives
+    /// (`CEFTab+ResizeBackdrop`), on any resize of the page.
     var pageBackdrop: CGColor? {
         didSet { if pageBackdrop != oldValue { updateBackground() } }
     }
@@ -71,8 +71,11 @@ final class CEFHostView: NSView {
 
     /// Until Chromium's page window shows its first frame, the page area
     /// follows the shared pane ground. It stays clear over Liquid Glass so
-    /// the window backdrop remains visible. During a live resize it takes
-    /// the page's own background (`pageBackdrop`). Under a see-through page
+    /// the window backdrop remains visible. Once the page's own background is
+    /// known (`pageBackdrop`) it takes that: the host shows only in the gap
+    /// beside the page's last frame while the page lays out at a new size,
+    /// which happens on every pane resize (a split, a divider drag, a sidebar
+    /// slide), not only in a window live resize. Under a see-through page
     /// (`pageSeeThrough`) it paints nothing, so the page shows what a WebKit
     /// page shows.
     private func updateBackground() {
@@ -80,7 +83,7 @@ final class CEFHostView: NSView {
             layer?.backgroundColor = nil
             return
         }
-        if inLiveResize, let pageBackdrop {
+        if let pageBackdrop {
             layer?.backgroundColor = pageBackdrop
             return
         }
