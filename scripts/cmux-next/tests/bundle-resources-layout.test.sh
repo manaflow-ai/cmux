@@ -5,7 +5,7 @@
 #     by its name, except the target's exact membership exceptions (a folder listed
 #     as an exception still has its files copied);
 #   - "Bundle Ghostty resources" (bundle-ghostty-resources.sh) puts the directories
-#     ghostty/, terminfo/, shell-integration/ and cmux-cli-path/ there.
+#     ghostty/, terminfo/ and cmux-cli-path/ there.
 # Xcode runs the Resources phase first; the fleet's Linux builder (swift-linux-builder
 # assemble.py) runs it after the script phases, and a flat file replaces a directory
 # of the same name. When a flat resource is named like one of those directories, a
@@ -58,7 +58,7 @@ phase() {  # <build dir>
   local src="$TMP/src"
   if [[ ! -d "$src" ]]; then
     mkdir -p "$src/Resources"
-    for path in Resources/ghostty Resources/terminfo-overlay Resources/shell-integration Resources/cmux-cli-path; do
+    for path in Resources/ghostty Resources/terminfo-overlay Resources/cmux-cli-path; do
       [[ -e "$ROOT/$path" ]] && ln -s "$ROOT/$path" "$src/$path"
     done
   fi
@@ -76,7 +76,7 @@ check() {  # <order> <Contents/Resources>
   [[ -f "$res/terminfo/78/xterm-ghostty" ]] || { echo "FAIL ($1): no terminfo/78/xterm-ghostty in the bundle" >&2; fail=1; }
   # Every directory the script phases put in Resources stays a directory.
   local dir
-  for dir in ghostty terminfo shell-integration cmux-cli-path bin libexec; do
+  for dir in ghostty terminfo cmux-cli-path bin libexec; do
     [[ ! -e "$res/$dir" || -d "$res/$dir" ]] || { echo "FAIL ($1): $dir is a flat file, not a directory" >&2; fail=1; }
   done
 }

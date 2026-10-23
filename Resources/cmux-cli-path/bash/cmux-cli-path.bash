@@ -16,6 +16,24 @@ if [ -n "${CMUX_CLI_BASH_ENV-}" ]; then
   [ -r "$__cmux_cli_next_env" ] && builtin source "$__cmux_cli_next_env"
   builtin unset __cmux_cli_next_env
 fi
+# Ghostty's preexec hook reads the command line with `cmd=$(builtin history 1)`:
+# a fork before every command. bash 5.3 captures a builtin's output in the shell
+# itself with `${ ...; }`, which Ghostty already uses there to run this hook from
+# PS0, so the hook costs no process. Older bash has no fork-free capture and
+# keeps Ghostty's hook. Defined through eval so an older bash never parses the
+# 5.3 syntax. This layer runs over Ghostty's script in both spawn paths (the
+# app's and the daemon's cli_path::wrap). Drop it once ghostty-next's
+# ghostty.bash reads the history this way; scripts/cmux-next/shell-integration-bench.py
+# counts the forks.
+if [[ "$-" == *i* ]] && (( BASH_VERSINFO[0] > 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] >= 3) )) \
+  && builtin declare -F __ghostty_preexec_hook >/dev/null; then
+  builtin eval '__ghostty_preexec_hook() {
+    builtin local cmd
+    cmd=${ LC_ALL=C HISTTIMEFORMAT= builtin history 1; }
+    cmd="${cmd#*[[:digit:]][* ] }"
+    [[ -n "$cmd" ]] && __ghostty_preexec "$cmd"
+  }'
+fi
 if [[ "$-" == *i* && -n "${CMUX_BUNDLED_CLI_PATH-}" && -x "${CMUX_BUNDLED_CLI_PATH}" ]]; then
   __cmux_cli_dir="${CMUX_BUNDLED_CLI_PATH%/*}"
   __cmux_cli_rest=":${PATH}:"
@@ -54,9 +72,13 @@ if [[ "$-" == *i* && -n "${CMUX_TUI_AGENT_SHIMS-}" && -z "${_cmux_tui_agent_shim
     builtin return "$ret"
   }
   _cmux_tui_agent_shims_first || builtin true
+  # bash runs the entries of an array PROMPT_COMMAND from 5.1 on (before, only
+  # its first element, which the string branch extends); `@a` reads the type
+  # without the fork of `$(declare -p)`.
   if [[ -n "${bash_preexec_imported-}${__bp_imported-}" ]]; then
     precmd_functions+=(_cmux_tui_agent_shims_first)
-  elif [[ $(builtin declare -p PROMPT_COMMAND 2>/dev/null) == "declare -a"* ]]; then
+  elif (( BASH_VERSINFO[0] > 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] >= 1) )) \
+    && [[ ${PROMPT_COMMAND@a} == *a* ]]; then
     PROMPT_COMMAND+=("_cmux_tui_agent_shims_first 2>/dev/null")
   elif [[ -z "${PROMPT_COMMAND-}" ]]; then
     PROMPT_COMMAND="_cmux_tui_agent_shims_first 2>/dev/null"

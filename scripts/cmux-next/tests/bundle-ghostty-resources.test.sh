@@ -23,9 +23,12 @@ env -i PATH=/usr/bin:/bin TARGET_BUILD_DIR="$TMP/build" UNLOCALIZED_RESOURCES_FO
   || { cat "$TMP/log" >&2; echo "FAIL: the phase failed" >&2; exit 1; }
 bundled="$TMP/build/app.app/Contents/Resources/ghostty/shell-integration"
 [[ -d "$bundled" ]] || { cat "$TMP/log" >&2; echo "FAIL: no bundled shell integration" >&2; exit 1; }
-# cmux's own scripts (Resources/shell-integration) go to a separate
-# <Resources>/shell-integration, so this tree is Ghostty's alone.
+# This tree is Ghostty's alone, and the classic app's scripts
+# (Resources/shell-integration), which no cmux-next shell sources, are not
+# shipped at all.
 fail=0
+[[ ! -e "$TMP/build/app.app/Contents/Resources/shell-integration" ]] \
+  || { echo "FAIL: the classic Resources/shell-integration is bundled" >&2; fail=1; }
 diff -r "$source_tree" "$bundled" >"$TMP/diff" 2>&1 || { cat "$TMP/diff" >&2; echo "FAIL: bundled shell integration differs from ghostty-next" >&2; fail=1; }
 # The layers that keep the bundled `cmux` first on PATH (BundledCLIEnvironment).
 diff -r "$ROOT/Resources/cmux-cli-path" "$TMP/build/app.app/Contents/Resources/cmux-cli-path" >"$TMP/diff2" 2>&1 \

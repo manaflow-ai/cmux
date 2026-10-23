@@ -1999,7 +1999,6 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
         BUNDLED_APP_PATH="$TAG_APP_STAGING_PATH"
       fi
       set_plist_env "$INFO_PLIST" CMUX_BUNDLED_CLI_PATH "$BUNDLED_APP_PATH/Contents/Resources/bin/cmux"
-      set_plist_env "$INFO_PLIST" CMUX_SHELL_INTEGRATION_DIR "$BUNDLED_APP_PATH/Contents/Resources/shell-integration"
       set_plist_env "$INFO_PLIST" CMUX_PORT "$CMUX_DEV_PORT"
       set_plist_env "$INFO_PLIST" CMUX_PORT_END "$CMUX_DEV_PORT_END"
       set_plist_env "$INFO_PLIST" CMUX_PORT_RANGE "$CMUX_DEV_PORT_RANGE"
@@ -2248,7 +2247,6 @@ if [[ "$LAUNCH" -eq 1 ]]; then
     CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD=1
     CMUXTERM_REPO_ROOT="$PWD"
     CMUX_BUNDLED_CLI_PATH="$CLI_PATH"
-    CMUX_SHELL_INTEGRATION_DIR="$APP_PATH/Contents/Resources/shell-integration"
     CMUX_PORT="$CMUX_DEV_PORT"
     CMUX_PORT_END="$CMUX_DEV_PORT_END"
     CMUX_PORT_RANGE="$CMUX_DEV_PORT_RANGE"

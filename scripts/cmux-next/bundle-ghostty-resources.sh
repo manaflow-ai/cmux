@@ -11,7 +11,11 @@
 #   Resources/ghostty/{themes,terminfo}             (checked in),
 #   Resources/cmux-themes (cmux's own themes, added to ghostty/themes),
 #   Resources/terminfo-overlay, ghostty-next/src/shell-integration,
-#   Resources/shell-integration.
+#   Resources/cmux-cli-path.
+# Not Resources/shell-integration: that is the classic app's integration
+# (report_pwd, git and PR watchers, per-path-part checks, #21977), which no
+# cmux-next shell sources; cmux-next's shells get Ghostty's integration under
+# the cmux-cli-path layer (GhosttyShellIntegration, BundledCLIEnvironment).
 set -euo pipefail
 
 dest="${TARGET_BUILD_DIR:?}/${UNLOCALIZED_RESOURCES_FOLDER_PATH:?}"
@@ -59,9 +63,8 @@ if [[ -d "$SRCROOT/Resources/terminfo-overlay" ]]; then
   rsync -a "$SRCROOT/Resources/terminfo-overlay/" "$dest/terminfo/"
 fi
 
-if [[ -d "$SRCROOT/Resources/shell-integration" ]]; then
-  sync_dir "$SRCROOT/Resources/shell-integration" "$dest/shell-integration"
-fi
+# An older build of this phase copied the classic integration here.
+rm -rf "$dest/shell-integration"
 # Keeps the bundled `cmux` first on PATH after the user's startup files
 # (BundledCLIEnvironment.swift).
 if [[ -d "$SRCROOT/Resources/cmux-cli-path" ]]; then
