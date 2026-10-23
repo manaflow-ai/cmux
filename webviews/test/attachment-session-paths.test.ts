@@ -43,9 +43,9 @@ for (const [name, type] of [
     expect(taken.attachments[0]).toMatchObject({
       kind: "link",
       name,
-      mimeType: expect.stringMatching(new RegExp(`^${type}(?:;|$)`)),
       size: file.size,
     });
+    expect(taken.attachments[0]?.mimeType).toMatch(new RegExp(`^${type}(?:;|$)`));
     const blocks = promptBlocks("inspect", taken.attachments);
     expect(blocks).toContainEqual({
       type: "resource_link",
