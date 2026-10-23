@@ -38,7 +38,7 @@ public final class ControlRouter: Sendable {
 
     /// True in DEBUG builds only: release builds serve no `debug.*` method.
     public static var debugMethodsAllowed: Bool {
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         true
         #else
         false

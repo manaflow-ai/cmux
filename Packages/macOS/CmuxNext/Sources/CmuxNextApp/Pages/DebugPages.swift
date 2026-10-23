@@ -34,7 +34,7 @@ import Foundation
 // The control router's deadline bounds every action.
 extension AppControl {
     func registerPageDebugMethods(_ services: AppServices) {
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         service?.router.register([
             .async("debug.page") { [weak services] call in await DebugPages.handle(call.params, services: services) },
         ])
@@ -42,7 +42,7 @@ extension AppControl {
     }
 }
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 enum DebugPages {
     /// Hidden pages `call` made (kept alive for later calls).
     @MainActor private static var made: [PageWebView] = []

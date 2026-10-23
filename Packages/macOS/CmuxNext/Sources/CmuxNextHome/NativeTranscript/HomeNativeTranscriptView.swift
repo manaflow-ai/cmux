@@ -218,7 +218,7 @@ public final class HomeNativeTranscriptView: NSView {
     nonisolated public override var isFlipped: Bool { true }
     public override var acceptsFirstResponder: Bool { true }
 
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// The first-run panel is on screen (capture scenes settle on it).
     public var debugFirstRunShown: Bool { !firstRun.isHiddenOrHasHiddenAncestor && firstRun.window != nil }
     /// The first-run panel's listed agents, most urgent first.
