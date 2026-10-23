@@ -412,6 +412,7 @@
         "CmuxVNC"
       ],
       "reads": [
+        ".git/config",
         "Native/OptChat/optchat-chief/inspector/index.html",
         "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity/",
         "Resources/cmux-themes/",
