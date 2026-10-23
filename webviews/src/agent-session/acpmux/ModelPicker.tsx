@@ -15,7 +15,13 @@ import { CheckIcon, ChevronIcon, PICKER_LABELS, SearchIcon } from "./ComposerPic
 import { Icon } from "./icons/Icon";
 import { currentLanguage, useT } from "./i18n";
 import { useUpdateOffer } from "./HarnessHealthNotice";
-import { CHAT_COLUMN, MODEL_PICKER_MIN_HEIGHT, pickerHeightBounds, type ModelPickerProps } from "./modelPickerLayout";
+import {
+  CHAT_COLUMN,
+  MODEL_PICKER_MIN_HEIGHT,
+  fastModeToggle,
+  pickerHeightBounds,
+  type ModelPickerProps,
+} from "./modelPickerLayout";
 import { curatedSections, modelSections } from "./modelSections";
 import { effortWords, fitsQuery, modelEffort, parseQuery } from "./modelQuery";
 import { registerPicker } from "./pickerOpeners";
@@ -1200,18 +1206,15 @@ export function ModelPicker(props: ModelPickerProps) {
             )}
             {fastMode && (
               <div className="flex-none border-t-[0.5px] border-edge p-1.5">
+                {/* On is any tier past off (Codex's Ultrafast too); a click turns the running tier off. */}
                 <button
                   type="button"
                   className={`acpmux-mp-fast ${modelRow} ${rowFill(false)} justify-between`}
-                  aria-pressed={fastMode.currentValue === fastMode.onValue}
-                  onClick={() =>
-                    fastMode.onPick(fastMode.currentValue === fastMode.onValue ? fastMode.offValue : fastMode.onValue)
-                  }
+                  aria-pressed={fastModeToggle(fastMode).on}
+                  onClick={() => fastMode.onPick(fastModeToggle(fastMode).next)}
                 >
                   <span>{fastMode.name}</span>
-                  <span className="text-detail text-dim">
-                    {fastMode.currentValue === fastMode.onValue ? fastMode.onLabel : fastMode.offLabel}
-                  </span>
+                  <span className="text-detail text-dim">{fastModeToggle(fastMode).label}</span>
                 </button>
               </div>
             )}

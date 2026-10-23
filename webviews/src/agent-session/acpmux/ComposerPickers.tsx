@@ -17,7 +17,13 @@ import { type StringKey, useT } from "./i18n";
 import { ModelPicker } from "./ModelPicker";
 import { AgentOptionsMenu } from "./AgentOptionsMenu";
 import { extraConfigOptions } from "./agentOptions";
-import type { CatalogRefreshState, ModelCombo, ModelPickerProps } from "./modelPickerLayout";
+import {
+  fastModeToggle,
+  type CatalogRefreshState,
+  type FastModeControl,
+  type ModelCombo,
+  type ModelPickerProps,
+} from "./modelPickerLayout";
 import { topModelsFor } from "./topModels";
 import { rememberPick } from "./lastPick";
 import { defaultModel } from "./harnessSwitch";
@@ -364,7 +370,19 @@ export function ComposerPickers({
     fastOption?.options.find((option) => /^(on|true|enabled)$/i.test(option.value)) ?? fastOption?.options[1];
   const fastOff =
     fastOption?.options.find((option) => /^(off|false|disabled)$/i.test(option.value)) ?? fastOption?.options[0];
-  const fastMode =
+  // An option with a tier past Fast (Codex's Ultrafast) gets a second checkbox row in the model menu.
+  // The row reads Ultrafast only where the tier says so; another agent's tier keeps the agent's name.
+  const ultraOption =
+    fastOn && fastOff
+      ? fastOption?.options.find((option) => option.value !== fastOff.value && option.value !== fastOn.value)
+      : undefined;
+  const ultraTier = ultraOption?.value;
+  const ultraLabel = ultraOption
+    ? [ultraOption.value, ultraOption.name ?? ""].some((text) => /^ultra[ _-]?fast$/i.test(text.trim()))
+      ? t("picker.tierUltrafast")
+      : (ultraOption.name ?? ultraOption.value)
+    : "";
+  const fastMode: FastModeControl | undefined =
     fastOption && fastOn && fastOff && fastOn.value !== fastOff.value
       ? {
           name: fastOption.name ?? t("picker.fastModeSection"),
@@ -373,15 +391,15 @@ export function ComposerPickers({
           offValue: fastOff.value,
           onLabel: fastOn.name ?? fastOn.value,
           offLabel: fastOff.name ?? fastOff.value,
+          ...(ultraTier !== undefined && fastOption.currentValue === ultraTier ? { currentLabel: ultraLabel } : {}),
           onPick: (value: string) => onEffort(fastOption.id, value),
         }
       : undefined;
   // Fast mode is offered where the running model honors it, or while it is still on.
   const fastOffered =
     fastMode !== undefined && (catalogModel?.fast !== false || fastMode.currentValue !== fastMode.offValue);
-  // On is any tier past off.
-  const fastRunning =
-    fastMode !== undefined && fastMode.currentValue !== undefined && fastMode.currentValue !== fastMode.offValue;
+  // On is any tier past off (fastModeToggle, which the full picker's Fast mode row reads too).
+  const fastRunning = fastMode !== undefined && fastModeToggle(fastMode).on;
   // Codex's fast tier is a small bolt inside the model button, before the model's name, while it runs
   // (Leo 2026-10-21: "THE BOLT DOESN'T GO THERE", of a bolt in the box by the mic); its toggle is the
   // menu's Fast mode row. Claude Code draws no bolt anywhere: its menu row alone says it. A second
@@ -741,18 +759,8 @@ export function ComposerPickers({
       : undefined;
   // Fast mode is one checkbox row of the menu, after Account (Leo 2026-10-20, as Claude Code's), for
   // every harness that offers it. On is any tier past off; a click turns it off, or on at the
-  // option's first tier. An option with a tier past that one (Codex's Ultrafast) gets a second
-  // checkbox row under it: checked while that tier runs; on picks it, off steps back to Fast. The
-  // row reads Ultrafast only where the tier says so; another agent's tier keeps the agent's name.
-  const ultraOption = fastOption?.options.find(
-    (option) => option.value !== fastMode?.offValue && option.value !== fastMode?.onValue,
-  );
-  const ultraTier = ultraOption?.value;
-  const ultraLabel = ultraOption
-    ? [ultraOption.value, ultraOption.name ?? ""].some((text) => /^ultra[ _-]?fast$/i.test(text.trim()))
-      ? t("picker.tierUltrafast")
-      : (ultraOption.name ?? ultraOption.value)
-    : "";
+  // option's first tier (fastModeToggle). A tier past that one (ultraTier, Codex's Ultrafast) is a
+  // second checkbox row under it: checked while that tier runs; on picks it, off steps back to Fast.
   const quickFast: QuickMenuExtras["fast"] =
     fastMode && fastOffered
       ? {

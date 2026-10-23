@@ -11,6 +11,8 @@
 //   - an option with a tier past Fast (Codex's Ultrafast) adds an Ultrafast checkbox row under Fast
 //     mode, checked while that tier runs: on picks it, off steps back to Fast; a two-state option
 //     has no such row; a tier past Fast that is not Ultrafast keeps the agent's name for it;
+//   - the full picker's Fast mode row reads the same on/off: on (and named) while Ultrafast runs, and
+//     a click turns the running tier off;
 //   - neither draws an effort control of its own (#20946 brought one back): only the model button
 //     names the effort;
 //   - the button never says Fast in words;
@@ -338,6 +340,44 @@ test("a tier past Fast that is not Ultrafast is a row under Fast mode with the a
   await render(snapshot({ options: named, current: "fast" }, codex));
   await open();
   expect(rows().slice(-2)).toEqual(["Fast mode", "Ultrafast"]);
+});
+
+// Codex review of #24151 at 9da89d36: the full picker's Fast mode row read only the first tier as on,
+// so with Codex's Ultrafast running it said off and a click picked Fast. It reads the same on/off as
+// the menu's row (fastModeToggle): Ultrafast is on, named, and a click turns it off.
+/// The full picker, as More models' shortcut (Cmd-Ctrl-M) opens it.
+async function openFullPicker() {
+  await act(async () =>
+    dom.window.dispatchEvent(
+      new dom.window.KeyboardEvent("keydown", { key: "m", metaKey: true, ctrlKey: true, bubbles: true }),
+    ),
+  );
+  await settle();
+  return dom.window.document.querySelector<HTMLElement>(".acpmux-mp .acpmux-mp-fast")!;
+}
+test("Codex: the full picker's Fast mode row is on while Ultrafast runs, names it, and a click turns it off", async () => {
+  sent.length = 0;
+  await render(snapshot({ options: threeTier, current: "ultrafast" }, codex));
+  let row = await openFullPicker();
+  expect(row.getAttribute("aria-pressed")).toBe("true");
+  expect(row.textContent).toContain("Ultrafast");
+  await act(async () => row.click());
+  await settle();
+  expect(sent).toEqual(["fast-mode=standard"]);
+
+  await render(snapshot({ options: threeTier, current: "fast" }, codex));
+  row = await openFullPicker();
+  expect(row.getAttribute("aria-pressed")).toBe("true");
+  await act(async () => row.click());
+  await settle();
+  expect(sent).toEqual(["fast-mode=standard", "fast-mode=standard"]);
+
+  await render(snapshot({ options: threeTier, current: "standard" }, codex));
+  row = await openFullPicker();
+  expect(row.getAttribute("aria-pressed")).toBe("false");
+  await act(async () => row.click());
+  await settle();
+  expect(sent).toEqual(["fast-mode=standard", "fast-mode=standard", "fast-mode=fast"]);
 });
 
 test("Claude: with a tier past Fast, any tier on checks the row, and a click goes back to off", async () => {
