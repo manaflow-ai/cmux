@@ -25,7 +25,7 @@ extension DaemonHistoryClient {
     /// The step's location as the relay's JSON, encoded on the global executor: every settled pane
     /// focus move reports a step, and the codec must not run between the move and its frame (a515).
     @concurrent static func place(_ location: HistoryTrailLocation) async throws -> JSONValue {
-        if pthread_main_np() != 0 { await DebugSwitchWork.note("trail_encodes") }
+        if pthread_main_np() != 0 { await DebugPaneFocus.noteMainWork("trail_encodes") }
         return try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(location))
     }
 

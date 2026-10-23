@@ -106,9 +106,7 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
         }
         if event.type == .keyDown, let keyDownInterceptor, keyDownInterceptor(event, keyWindow ?? event.window) { return }
         if event.type == .leftMouseDown || event.type == .leftMouseUp {
-            DebugInputCommit.dispatching(event, in: event.window.flatMap { Self.accessibilityWindow(for: $0) } ?? mainWindow) {
-                BenchSpans.measure(event.type == .leftMouseDown ? "app.sendEvent.down" : "app.sendEvent.up") { super.sendEvent(event) }
-            }
+            DebugWorkspaceSwitch.inputCommit.dispatching(event, in: event.window.flatMap { Self.accessibilityWindow(for: $0) } ?? mainWindow) { BenchSpans.measure(event.type == .leftMouseDown ? "app.sendEvent.down" : "app.sendEvent.up") { super.sendEvent(event) } }
         } else {
             super.sendEvent(event)
         }

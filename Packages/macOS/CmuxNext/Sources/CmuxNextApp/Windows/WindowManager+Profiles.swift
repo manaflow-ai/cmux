@@ -16,7 +16,8 @@ extension WindowManager {
     /// workspace created in it.
     func switchProfile(_ profile: ProfileID, in state: WindowState) { // perf-hot: 1ms workspace-switch (every space switch)
         guard profile != state.profileID else { return }
-        if DebugWorkspaceSwitch.timer.isRecording, let controller = controller(for: state.id) { DebugWorkspaceSwitch.began(controller) }
+        let window = controller(for: state.id)
+        DebugWorkspaceSwitch.began(window)
         let machines = services.machines
         let members = registry.members(of: state.id)
         var visible = WindowProfiles.visible(members, profile: profile, machines: machines)
@@ -27,28 +28,22 @@ extension WindowManager {
                 visible = adoptable
             }
         }
+        let remembered = state.profileWorkspaces[profile].flatMap { visible.contains($0) ? $0 : nil }
+        state.enterProfile(profile)
         guard !visible.isEmpty else {
             // Nothing to show there yet: the window enters the profile with
             // a new workspace (no empty window, REWRITE.md round 1). It is
             // claimed before the create command, so the switch shows it as
             // soon as the daemon mirrors it.
-            state.enterProfile(profile)
             recordSaver.stateDidChange(state)
             Task { [services] in await createWorkspace(into: state.id); withExtendedLifetime(services) {} }
             return
         }
-        let remembered = state.profileWorkspaces[profile].flatMap { visible.contains($0) ? $0 : nil }
-        guard let controller = controller(for: state.id) else {
-            state.enterProfile(profile)
-            return select(remembered ?? visible.first, in: state)
-        }
-        state.enterProfile(profile)
-        // The room's colors, then its workspace, in this turn (I6), as a workspace switch swaps its
-        // content: no frame shows the new room's sidebar over the old room's workspace, and the
-        // window's room and show observers find both applied.
-        controller.applyRoomTheme()
+        // The room's colors, then its workspace, in this turn (I6), as a workspace switch swaps its content: no frame
+        // shows the new room's sidebar over the old room's workspace; the window's room and show observers find both applied.
+        window?.applyRoomTheme()
         select(remembered ?? visible.first, in: state)
-        controller.showWorkspace(requested: state.workspaceID)
+        window?.showWorkspace(requested: state.workspaceID)
     }
 
     /// Next (+1) or previous (-1) profile of the local daemon, clamped at

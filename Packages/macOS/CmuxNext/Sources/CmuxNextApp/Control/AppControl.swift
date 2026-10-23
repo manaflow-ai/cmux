@@ -93,13 +93,13 @@ final class AppControl {
             // Launch, palette-open and terminal-creation spans (bench-stalls.py).
             .mainActor("debug.timings") { call in .value(DebugTimings.handle(call.params)) },
             // Each tab switch's own time: intent to shown, and to the next frame (perf-gate.py).
-            .mainActor("debug.tab_switch") { call in .value(DebugSwitchWork.handle(call.params, .tabSwitch, key: "switches")) },
+            .mainActor("debug.tab_switch") { call in .value(DebugTabSwitch.timer.handle(call.params, key: "switches")) },
             // Each pane focus move's own time: intent to settled, and to the next frame (perf-gate.py pane_focus).
             .mainActor("debug.pane_focus") { call in .value(DebugPaneFocus.handle(call.params)) },
             // Each workspace switch's own time: input to shown content, and to its commit (perf-budgets.py).
-            .mainActor("debug.workspace_switch") { call in .value(DebugSwitchWork.handle(call.params, .workspaceSwitch, key: "switches")) },
+            .mainActor("debug.workspace_switch") { call in .value(DebugWorkspaceSwitch.timer.handle(call.params, key: "switches")) },
             // Any key or click: input to the commit its dispatch left open (switch-bench.py: space switch, group collapse).
-            .mainActor("debug.input_commit") { call in .value(DebugSwitchWork.handle(call.params, .input, key: "inputs")) },
+            .mainActor("debug.input_commit") { call in .value(DebugWorkspaceSwitch.inputCommit.timer.handle(call.params, key: "inputs")) },
             // Each new workspace's own time: the press to its sidebar row drawn, and the walks between (perf-gate.py).
             .mainActor("debug.new_workspace") { call in .value(SidebarNewRowTimer.shared.timer.handle(call.params, key: "creates")) },
             // Work per layout change: pane snapshots, applies, topology sends (bench_pane_scale.py).
