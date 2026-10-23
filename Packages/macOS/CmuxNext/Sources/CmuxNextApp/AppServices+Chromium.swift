@@ -15,9 +15,11 @@ extension AppServices {
         let preference = cache.browserTabs.preference
         chromiumWarmup.start(defaultIsChromium: { preference.defaultEngine == .chromium }, pagesPending: { [weak cache] in cache?.pendingBrowsers.isEmpty == false })
         chromiumLikelyObservations.append(Task { [weak self] in
-            // A Chromium tab in any window, restored or created elsewhere (while Chromium is the
-            // default engine, the launch warm start covers every tab: ChromiumWarmup.start).
-            for await reason in ObservationStream({ Self.likelyFromTabs(machines) }) {
+            // A Chromium tab in any window, restored or created elsewhere. While Chromium is the
+            // default engine the launch warm start covers every tab (ChromiumWarmup.start), so the
+            // walk of every tab, which tracks every tab and re-runs on any tab change, is skipped:
+            // only the default engine is read (pl-o-all, O(all) observers).
+            for await reason in ObservationStream({ preference.defaultEngine == .chromium ? nil : Self.likelyFromTabs(machines) }) {
                 guard let reason else { continue }
                 self?.chromiumWarmup.chromiumLikely(reason)
                 return
