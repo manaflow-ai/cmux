@@ -408,6 +408,58 @@ class RuleTests(Fixture):
         self.commit("generic classes in a test target and Sources")
         self.assertEqual(self.refused(), [("generic-class-deinit", ["Wait.swift: final class Once<T> {"])])
 
+    def test_the_generic_class_rule_reads_generic_context_and_refuses_an_isolated_deinit(self):
+        # 6bf522e6cdd fixed ObservedMap.Slot by hand: a non-generic class nested in a generic one is
+        # generic by context, and the rule only read `class Name<`. An `isolated deinit` is the
+        # isolated deinit the compiler crashes on, so it is no fix.
+        self.write(f"{KIT}/Cache.swift",
+                   "@MainActor final class Cache<Key, Value> {\n"
+                   "    final class Slot {\n        var value: Value?\n    }\n"
+                   "    nonisolated deinit {}\n}\n")
+        self.write(f"{KIT}/Box.swift",
+                   "@MainActor final class Box<T> {\n    var value: T?\n    isolated deinit { flush() }\n}\n")
+        self.write(f"{KIT}/Store.swift",
+                   "struct Store<Item> {\n    var items: [Item]\n}\n"
+                   "extension Store {\n    final class Reader {\n        var item: Item?\n    }\n}\n")
+        self.write(f"{KIT}/Tree.swift", "func walk<Node>(_ node: Node) {\n    final class Visit {\n"
+                   "        var node: Node?\n    }\n}\n")
+        self.commit("classes generic by context, and an isolated deinit")
+        self.assertEqual(sorted(self.refused()[0][1]), [
+            "Box.swift: @MainActor final class Box<T> {",
+            "Cache.swift: final class Slot {",
+            "Store.swift: final class Reader {",
+            "Tree.swift: final class Visit {",
+        ])
+
+    def test_the_generic_class_rule_reads_an_extension_of_a_generic_type_in_another_file(self):
+        self.rebase_on({f"{KIT}/Ledger.swift": "struct Ledger<Entry> {\n    var entries: [Entry]\n}\n"})
+        self.write(f"{KIT}/Ledger+Cursor.swift",
+                   "extension Ledger {\n    final class Cursor {\n        var entry: Entry?\n    }\n}\n")
+        self.commit("a class in an extension of a generic type declared in an unchanged file")
+        self.assertEqual(self.refused(), [("generic-class-deinit", ["Ledger+Cursor.swift: final class Cursor {"])])
+
+    def test_the_generic_class_rule_passes_nonisolated_or_plain_deinits_and_non_generic_context(self):
+        self.write(f"{KIT}/Cache.swift",
+                   "@MainActor final class Cache<Key, Value> {\n"
+                   "    final class Slot {\n        var value: Value?\n        nonisolated deinit {}\n    }\n"
+                   "    nonisolated final class Entry {\n        var key: Key?\n    }\n"
+                   "    deinit {}\n}\n")
+        self.write(f"{KIT}/Plain.swift", "final class Plain {\n    final class Inner {\n        var x = 0\n    }\n}\n"
+                   "extension Plain {\n    final class Other {\n        var y = 0\n    }\n}\n"
+                   "final class Holder<T> {\n    class func make() -> Holder { Holder() }\n    class var name: String { \"\" }\n"
+                   "    nonisolated deinit {}\n}\n")
+        self.write(f"{KIT}/Box.swift", "final class Box<T> { var value: T?; nonisolated deinit {} }\n")
+        self.commit("the right patterns")
+        self.assertEqual(self.refused(), [])
+
+    def test_making_an_outer_type_generic_counts_its_nested_classes(self):
+        self.rebase_on({f"{KIT}/Pool.swift": "final class Pool {\n    final class Lease {\n        var id = 0\n    }\n"
+                                             "    nonisolated deinit {}\n}\n"})
+        self.write(f"{KIT}/Pool.swift", "final class Pool<Resource> {\n    final class Lease {\n        var id = 0\n    }\n"
+                   "    nonisolated deinit {}\n}\n")
+        self.commit("Pool becomes generic")
+        self.assertEqual(self.refused(), [("generic-class-deinit", ["Pool.swift: final class Lease {"])])
+
     def test_other_rules_do_not_read_test_targets(self):
         self.write("Packages/macOS/CmuxNext/Tests/CmuxNextFooTests/Fake.swift",
                    "final class Fake {\n    static let shared = Fake()\n}\n")
