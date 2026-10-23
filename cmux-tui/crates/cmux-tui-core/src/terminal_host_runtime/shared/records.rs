@@ -488,6 +488,7 @@ pub(crate) fn next_exit_persistence_retry_delay(delay: Duration) -> Duration {
     delay.saturating_mul(2).min(HOST_EXIT_PERSIST_RETRY_MAX)
 }
 
+#[cfg(test)]
 pub(crate) fn write_json_record(path: &Path, record: &impl Serialize) -> anyhow::Result<()> {
     write_json_record_syncing_dir(path, record, true)
 }
