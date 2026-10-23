@@ -8,7 +8,9 @@ public import Foundation
 /// window, about 80-160 ms each on a fast Mac; architecture.md 5a, the one allowed
 /// exception) do not land in the middle of user input.
 ///
-/// - A few seconds after launch, for a user who opened a Chromium tab in the
+/// - A few seconds after launch, while Chromium is the default engine
+///   (`browser.defaultEngine`), Chromium starts at the next idle moment
+///   (`Reason.launch`); otherwise, for a user who opened a Chromium tab in the
 ///   last 7 days (`ChromiumUseRecord`), the framework is mapped on a
 ///   background thread (`CEFEngine.preload`, no Chromium code runs).
 /// - When a Chromium tab is likely, `CefInitialize` runs at the next idle
@@ -22,11 +24,13 @@ public import Foundation
 ///   Split Browser, New Browser Workspace), or switching the default to
 ///   Chromium. While new browser tabs default to Chromium, the pointer on
 ///   the "+" button, a New Tab key (Cmd-T) and the palette opening are
-///   signals too (`tabSignal`), and so is launch itself for a user who opened
-///   a Chromium tab in the last 7 days (`Reason.launch`). Otherwise CEF stays
-///   lazy: a user who never browses never pays for it (AppServices+Chromium).
+///   signals too (`tabSignal`), and so is launch itself (`Reason.launch`).
+///   With WebKit as the default engine CEF stays lazy: a user who never opens
+///   a Chromium tab never pays for it (AppServices+Chromium).
 /// - Once Chromium runs, the next idle moment builds a spare Chromium window
-///   (`CEFEngine.prepareSpareWindow`), so the first tab joins a live window.
+///   (`CEFEngine.prepareSpareWindow`), so the first tab joins a live window,
+///   and so does every later take of it: each pane's first Chromium tab
+///   joins a live window instead of building one on the key's turn.
 ///   In a macOS 26 VM `CefInitialize` and the first window each held the main
 ///   thread for about 0.8 s (os-smoke, 2026-10-18): two idle steps, none at
 ///   the first tab.
@@ -40,8 +44,7 @@ public final class ChromiumWarmup {
         case browserTab
         /// The default engine was just switched to Chromium.
         case defaultEngine
-        /// New browser tabs default to Chromium and this app opened a
-        /// Chromium tab within `Policy.recentUse`: start it after launch,
+        /// New browser tabs default to Chromium: start it after launch,
         /// before any tab asks.
         case launch
         /// First-tab signals while new browser tabs default to Chromium
@@ -112,15 +115,27 @@ public final class ChromiumWarmup {
         guard !launchTimer.isScheduled, isAvailable else { return }
         self.defaultIsChromium = defaultIsChromium
         self.pagesPending = pagesPending
+        // Every take of the spare window makes the next one at the next idle moment, so each
+        // pane's first Chromium tab joins a live window (CEFSpareWindow, PL-cef-tab).
+        engine.onSpareWindowTaken = { [weak self] in self?.spareTaken() }
         launchTimer.schedule(after: policy.launchPreloadDelay) { @MainActor [weak self] in
-            guard let self else { return }
+            guard let self, !stopped else { return }
+            // While new browser tabs open in Chromium, any browser tab is a Chromium tab: start it
+            // at the first idle moment after launch, so no Cmd-Shift-L pays CefInitialize.
+            if self.defaultIsChromium() { return chromiumLikely(.launch) }
             // task-owner: one launch check per process; reads one small file off the main thread
             Task { [weak self] in
                 guard let self, await engine.usedRecently(within: policy.recentUse), !stopped else { return }
                 engine.preload()
-                if self.defaultIsChromium() { chromiumLikely(.launch) }
             }
         }
+    }
+
+    /// A pane took the spare Chromium window: the next idle moment makes another, unless a
+    /// warm start already waits for one (it ends with the spare).
+    private func spareTaken() {
+        guard !stopped, engine.isRunning, !waiting else { return }
+        warmStarted()
     }
 
     /// A first-tab signal (`Reason.newTabButton`, `.newTabKey`,
@@ -158,7 +173,10 @@ public final class ChromiumWarmup {
     private func warmStarted() {
         guard !stopped, engine.isRunning else { return }
         waitForIdle { [weak self] in
-            guard let self, !pagesPending() else { return }
+            guard let self else { return }
+            // A page being made builds its own window: the spare waits for the next idle moment
+            // instead of never coming (it raced that window, os-smoke 2026-10-18).
+            if pagesPending() { return warmStarted() }
             engine.prepareSpareWindow()
         }
     }
