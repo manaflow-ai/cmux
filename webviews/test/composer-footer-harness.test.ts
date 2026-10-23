@@ -15,8 +15,10 @@
 //     `no-harness-installed`);
 //   - while a switch is starting, the row names the target harness; a new chat with none picked
 //     names the installed harness the model button draws;
-//   - at 410 px the row reads the harness's mark, the mode's glyph, the model's family, then the
-//     ring, and no two items overlap.
+//   - at 410 px the row reads the harness, the mode, the model, then the ring, each whole while the
+//     row has room for it, and no two items overlap. The quiet row takes no composer-width step
+//     (#24151, composerRowFit.ts paneWidth): it gives up a name only when its measured room runs out,
+//     and a 410 px pane leaves it about 60 px spare, so every name shows there.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
@@ -232,11 +234,11 @@ await requireBrowserLane("composer-footer-harness.test.ts", async () => {
     await page.close();
   });
 
-  for (const [variant, mark, family] of [
-    ["footer-harness", "claude", "Opus"],
-    ["footer-harness-codex", "openai", "GPT-6"],
+  for (const [variant, mark, harness, model] of [
+    ["footer-harness", "claude", "Claude Code", "Opus 5.5"],
+    ["footer-harness-codex", "openai", "Codex", "GPT-6 Astra"],
   ] as const) {
-    test(`at 410 px the row reads ${mark}'s mark, the mode's glyph, "${family}", the ring; no items overlap`, async () => {
+    test(`at 410 px the row reads ${mark}'s mark and name, the mode, "${model}", the ring; no items overlap`, async () => {
       const page = await open(variant, 410);
       const row = await page.evaluate(measure);
       const footBox = await page.$eval(".acpmux-composer-foot", (foot) => {
@@ -246,8 +248,8 @@ await requireBrowserLane("composer-footer-harness.test.ts", async () => {
       expect(row[0]?.className).toContain("acpmux-foot-harness");
       expect(row[0]?.mark).toBe(mark);
       expect(row[0]!.markWidth).toBeGreaterThan(10);
-      // Left to right: the harness's mark alone, the mode's glyph alone, the model's family (drawn
-      // from its data-label), then the context ring.
+      // Left to right: the harness's mark and name, the mode's glyph and name, the model's name, then
+      // the context ring: the row has room for each (above).
       const unit = (className: string) =>
         ["acpmux-foot-harness", "acpmux-access", "acpmux-model", "acpmux-context"].find((name) =>
           className.split(" ").includes(name),
@@ -258,13 +260,14 @@ await requireBrowserLane("composer-footer-harness.test.ts", async () => {
         "acpmux-model",
         "acpmux-context",
       ]);
-      expect(row.slice(0, 2).map((item) => item.text)).toEqual(["", ""]);
+      expect(row[0]!.text).toBe(harness);
+      expect(row[1]!.text.length, "the mode keeps its name").toBeGreaterThan(2);
       const shownModel = await page.$$eval(".acpmux-composer-foot .acpmux-model [data-fit-part]", (parts) =>
         parts
           .filter((part) => getComputedStyle(part).visibility === "visible")
           .map((part) => part.textContent?.trim() || (part as HTMLElement).dataset.label),
       );
-      expect(shownModel).toEqual([family]);
+      expect(shownModel).toEqual([model]);
       for (let index = 1; index < row.length; index++)
         expect(row[index]!.left).toBeGreaterThanOrEqual(row[index - 1]!.right - 0.5);
       expect(row[0]!.left).toBeGreaterThanOrEqual(footBox.left - 0.5);
