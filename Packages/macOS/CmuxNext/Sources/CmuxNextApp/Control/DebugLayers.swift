@@ -133,6 +133,7 @@ enum DebugLayers {
             "divider_areas_in_window": .array(layer.dividerAreas.map { rect($0.rect) }),
             "sidebar_resize_area_in_window": layer.sidebarResizeArea.map { rect($0.rect) } ?? .null,
             "divider_catchers_in_window": .array(layer.catchers.framesInWindow.sorted { $0.key < $1.key }.map { rect($0.value) }),
+            "divider_catcher_updates": .number(Double(layer.catchers.panelUpdates)),
             "reorders": .number(Double(layer.reorderCount)),
             "child_window_violations": .array(ChildWindowPolicy.violations.map(JSONValue.string)),
             "pages_in_sync": .bool(pagesInSync),

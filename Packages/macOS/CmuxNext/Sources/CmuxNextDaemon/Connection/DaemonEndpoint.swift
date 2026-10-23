@@ -383,17 +383,10 @@ public struct DaemonCapabilities: Sendable {
     public static let sidebarDoc = "sidebar-doc-v1"
     /// The client orders rows from the sidebar document only, so the daemon
     /// sends no `workspace_placement` restatement (cmux-tui
-    /// state/placement_shift.rs). Echoed only when this build orders rows
-    /// from the document (`echoesPlacementShift`), never advertised alone.
+    /// state/placement_shift.rs). Echoed only by a connection whose
+    /// configuration says this build orders rows from the document
+    /// (``DaemonConnectionConfiguration/echoesPlacementShift``), never advertised alone.
     public static let placementShift = "placement-shift-v1"
-    /// Set once at launch, before the first connection, by the App when this
-    /// build has the sidebar document mirror (its rows come from the document,
-    /// never from `workspace_placement`).
-    public static var echoesPlacementShift: Bool {
-        get { placementShiftEcho.withLock { $0 } }
-        set { placementShiftEcho.withLock { $0 = newValue } }
-    }
-    private static let placementShiftEcho = OSAllocatedUnfairLock(initialState: false)
     /// `palette_usage.get|record|import`: the user's palette usage history
     /// and learned picks, owned by the daemon (plans/cmux-next/palette-ranking.md 5.3).
     public static let paletteUsage = "palette-usage-v1"
@@ -516,9 +509,16 @@ public struct DaemonCapabilities: Sendable {
     }
 
     /// What a connection echoes in `set-client-info`.
-    public static func handshakeCapabilities(_ advertised: [String], resolvesShellIntegration: Bool) -> [String] {
+    ///
+    /// - Parameters:
+    ///   - advertised: The capabilities the connection advertises.
+    ///   - resolvesShellIntegration: The connection resolves Ghostty's shell integration itself.
+    ///   - echoesPlacementShift: This build orders sidebar rows from the sidebar document only
+    ///     (the App passes `SidebarMirror.isLinked` from its composition root).
+    public static func handshakeCapabilities(_ advertised: [String], resolvesShellIntegration: Bool,
+                                             echoesPlacementShift: Bool = false) -> [String] {
         // The document path echoes `placement-shift-v1` together with `sidebar-doc-v1`.
-        let document = Self.echoesPlacementShift && advertised.contains(sidebarDoc) ? [placementShift] : []
+        let document = echoesPlacementShift && advertised.contains(sidebarDoc) ? [placementShift] : []
         return (resolvesShellIntegration ? advertised + [terminalFrontendShellIntegration] : advertised) + document
     }
 }

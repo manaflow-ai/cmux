@@ -114,11 +114,11 @@ struct Terminal {
     strikes: Vec<Instant>,
 }
 
-/// One frame waiting for the link, with the descriptor it passes.
+/// One frame waiting for the link, with the descriptors it passes.
 struct OutFrame {
     chan: u32,
     bytes: Vec<u8>,
-    fd: Option<OwnedFd>,
+    fds: Vec<OwnedFd>,
     /// Bytes of it the socket already took.
     written: usize,
 }
@@ -129,6 +129,8 @@ struct Link {
     reader: wire::Reader,
     /// The daemon acknowledges what it parsed (wire version 2).
     credit: bool,
+    /// The daemon takes ring segments (wire version 4, [`wire::FLAG_RING`]).
+    rings: bool,
     /// The frame the socket took part of: it finishes first.
     current: Option<OutFrame>,
     /// Small frames, written before `bulk`.
@@ -142,10 +144,10 @@ struct Link {
 }
 
 impl Link {
-    fn push(&mut self, chan: u32, bytes: Vec<u8>, fd: Option<OwnedFd>) {
+    fn push(&mut self, chan: u32, bytes: Vec<u8>, fds: Vec<OwnedFd>) {
         self.out_bytes += bytes.len();
         let urgent = bytes.len() <= URGENT_FRAME_BYTES && !self.bulk_per_chan.contains_key(&chan);
-        let frame = OutFrame { chan, bytes, fd, written: 0 };
+        let frame = OutFrame { chan, bytes, fds, written: 0 };
         if urgent {
             self.urgent.push_back(frame);
         } else {
@@ -532,6 +534,7 @@ impl Holder {
             stream: pending.stream,
             reader: pending.reader,
             credit: version >= 2,
+            rings: version >= 4,
             current: None,
             urgent: VecDeque::new(),
             bulk: VecDeque::new(),
@@ -621,14 +624,14 @@ impl Holder {
                 Ok(())
             }
             Some(Kind::Ping) => {
-                self.queue(Kind::Pong, 0, &frame.payload, None);
+                self.queue(Kind::Pong, 0, &frame.payload, Vec::new());
                 Ok(())
             }
             _ => Err((error_code::UNKNOWN_KIND, "unknown kind".to_string())),
         };
         if let Err((code, message)) = result {
             let payload = Out::default().u16(raw_kind).u16(code).bytes(message.as_bytes()).0;
-            self.queue(Kind::Error, chan, &payload, None);
+            self.queue(Kind::Error, chan, &payload, Vec::new());
         }
         true
     }
@@ -649,9 +652,11 @@ impl Holder {
         Ok(version.min(wire::VERSION))
     }
 
-    /// WELCOME the new link with every terminal and a master dup of each.
+    /// WELCOME the new link with every terminal, a master dup of each and,
+    /// for a daemon of wire version 4, a dup of its ring segment.
     fn welcome(&mut self, version: u16) {
-        let listed: Vec<(u32, Vec<u8>, Option<OwnedFd>)> = self
+        let rings = version >= 4;
+        let listed: Vec<(u32, Vec<u8>, Vec<OwnedFd>)> = self
             .terminals
             .iter()
             .map(|(chan, terminal)| {
@@ -663,14 +668,15 @@ impl Holder {
                     end: terminal.ring.end(),
                     exited: terminal.ended(),
                     master: None,
+                    ring: None,
                 };
-                (*chan, listed.encode(), terminal.master.try_clone().ok())
+                (*chan, listed.encode(), terminal.descriptors(rings))
             })
             .collect();
         let welcome = Out::default().u16(version).u32(listed.len() as u32).0;
-        self.queue(Kind::Welcome, 0, &welcome, None);
-        for (chan, payload, master) in listed {
-            self.queue(Kind::Listed, chan, &payload, master);
+        self.queue(Kind::Welcome, 0, &welcome, Vec::new());
+        for (chan, payload, fds) in listed {
+            self.queue_flagged(Kind::Listed, ring_flag(&fds), chan, &payload, fds);
         }
     }
 
@@ -682,13 +688,15 @@ impl Holder {
             .map_err(|error| (error_code::BAD_PAYLOAD, error.to_string()))?;
         let spawned = pty::spawn(&request, self.child_open_file_limit)
             .map_err(|error| (error_code::SPAWN_FAILED, error.to_string()))?;
-        let custody = spawned
-            .master
-            .try_clone()
-            .map_err(|error| (error_code::SPAWN_FAILED, error.to_string()))?;
         let terminal = Terminal::new(request.id, spawned.master, spawned.pid, true, 0);
+        let rings = self.link.as_ref().is_some_and(|link| link.rings);
+        let fds = terminal.descriptors(rings);
+        if fds.is_empty() {
+            return Err((error_code::SPAWN_FAILED, "no custody dup of the master".to_string()));
+        }
         self.terminals.insert(chan, terminal);
-        self.queue(Kind::Spawned, chan, &Out::default().i32(spawned.pid).0, Some(custody));
+        let payload = Out::default().i32(spawned.pid).0;
+        self.queue_flagged(Kind::Spawned, ring_flag(&fds), chan, &payload, fds);
         Ok(())
     }
 
@@ -701,12 +709,30 @@ impl Holder {
         let (Ok(pid), Ok(base), Ok(id)) = parsed else {
             return Err((error_code::BAD_PAYLOAD, "short adopt".to_string()));
         };
-        let Some(master) = frame.fds.pop() else {
+        let with_ring = frame.flags & wire::FLAG_RING != 0;
+        let resume = if with_ring {
+            input.u64().map_err(|_| (error_code::BAD_PAYLOAD, "short adopt".to_string()))?
+        } else {
+            base
+        };
+        // The master first, then the ring segment.
+        let mut fds = std::mem::take(&mut frame.fds).into_iter();
+        let Some(master) = fds.next() else {
             return Err((error_code::BAD_PAYLOAD, "adopt carried no descriptor".to_string()));
         };
         pty::set_nonblocking(master.as_raw_fd());
-        let mut terminal = Terminal::new(id, master, pid, false, base);
+        // The dead holder's ring, with every byte it read: the daemon
+        // re-attaches from where it is and gets the bytes nobody sent. A
+        // segment that is not a ring (never from a sane daemon) starts a
+        // fresh ring where the stream continues.
+        let ring = with_ring
+            .then(|| fds.next())
+            .flatten()
+            .and_then(|segment| Ring::adopt(segment).ok())
+            .unwrap_or_else(|| Ring::new(resume, RING_BYTES));
+        let mut terminal = Terminal::with_ring(id, master, pid, false, ring);
         terminal.prologue = input.rest().to_vec();
+        terminal.prologue_base = base;
         self.terminals.insert(frame.chan, terminal);
         Ok(())
     }
@@ -747,7 +773,7 @@ impl Holder {
         terminal.exit_sent = false;
         if let Some(link) = self.link.as_mut() {
             for frame in frames {
-                link.push(chan, frame, None);
+                link.push(chan, frame, Vec::new());
             }
         }
         Ok(())
@@ -832,22 +858,24 @@ impl Holder {
         }
     }
 
-    /// Read the master (non-blocking) into the ring: at most the
-    /// terminal's room, and at most [`READ_PER_TURN`] per wakeup.
+    /// Read the master (non-blocking) straight into the ring: at most the
+    /// terminal's room, and at most [`READ_PER_TURN`] per wakeup. Each read
+    /// is in the ring (a shared segment the daemon keeps a dup of) the
+    /// moment it returns, so a holder crash loses no byte it read.
     fn read_terminal(&mut self, chan: u32) -> ReadEnd {
         let Some(terminal) = self.terminals.get_mut(&chan) else { return ReadEnd::Eof };
-        let mut buf = [0u8; 64 * 1024];
         let mut read = 0;
         loop {
-            let len = buf.len().min(terminal.room()).min(READ_PER_TURN - read);
+            let len = (64 * 1024).min(terminal.room()).min(READ_PER_TURN - read);
             if len == 0 {
                 return ReadEnd::Stopped;
             }
-            // SAFETY: reads into a live buffer of at least `len` bytes.
-            let n =
-                unsafe { libc::read(terminal.master.as_raw_fd(), buf.as_mut_ptr().cast(), len) };
+            let master = terminal.master.as_raw_fd();
+            let n = terminal.ring.read_with(len, |room| {
+                // SAFETY: reads into a live slice of the ring of `room.len()` bytes.
+                unsafe { libc::read(master, room.as_mut_ptr().cast(), room.len()) }
+            });
             if n > 0 {
-                terminal.ring.push(&buf[..n as usize]);
                 read += n as usize;
                 continue;
             }
@@ -993,7 +1021,7 @@ impl Holder {
                 let oldest = terminal.ring.oldest();
                 if sent < oldest {
                     let gap = Out::default().u64(sent).u64(oldest).0;
-                    link.push(*chan, wire::encode(Kind::Gap, *chan, &gap), None);
+                    link.push(*chan, wire::encode(Kind::Gap, *chan, &gap), Vec::new());
                     sent = oldest;
                 }
                 let limit = terminal.send_limit(credit).min(terminal.ring.end());
@@ -1008,7 +1036,7 @@ impl Holder {
                     let offset = from.to_le_bytes();
                     let frame =
                         wire::encode_parts(Kind::Data, 0, *chan, &[&offset[..], head, tail]);
-                    link.push(*chan, frame, None);
+                    link.push(*chan, frame, Vec::new());
                     allowed -= len;
                     budget = budget.saturating_sub(len);
                     sent = from + len as u64;
@@ -1017,7 +1045,7 @@ impl Holder {
                 if sent >= terminal.ring.end() && !terminal.exit_sent && terminal.ended() {
                     let (kind, code) = terminal.status.unwrap_or(ExitStatus::Unobserved).encode();
                     let payload = Out::default().u8(kind).i32(code).u64(terminal.ring.end()).0;
-                    link.push(*chan, wire::encode(Kind::Exit, *chan, &payload), None);
+                    link.push(*chan, wire::encode(Kind::Exit, *chan, &payload), Vec::new());
                     terminal.exit_sent = true;
                 }
             }
@@ -1027,9 +1055,20 @@ impl Holder {
         }
     }
 
-    fn queue(&mut self, kind: Kind, chan: u32, payload: &[u8], fd: Option<OwnedFd>) {
+    fn queue(&mut self, kind: Kind, chan: u32, payload: &[u8], fds: Vec<OwnedFd>) {
+        self.queue_flagged(kind, 0, chan, payload, fds);
+    }
+
+    fn queue_flagged(
+        &mut self,
+        kind: Kind,
+        flags: u16,
+        chan: u32,
+        payload: &[u8],
+        fds: Vec<OwnedFd>,
+    ) {
         if let Some(link) = self.link.as_mut() {
-            link.push(chan, wire::encode(kind, chan, payload), fd);
+            link.push(chan, wire::encode_flagged(kind, flags, chan, payload), fds);
         }
     }
 
@@ -1043,16 +1082,17 @@ impl Holder {
                 link.current = link.next();
             }
             let Some(frame) = link.current.as_mut() else { return true };
-            // The descriptor goes with the frame's first byte.
-            let fd = frame.fd.as_ref().filter(|_| frame.written == 0).map(AsRawFd::as_raw_fd);
-            match wire::send_with_fds(
-                link.stream.as_raw_fd(),
-                &frame.bytes[frame.written..],
-                fd.as_slice(),
-            ) {
+            // The descriptors go with the frame's first byte.
+            let fds: Vec<RawFd> = if frame.written == 0 {
+                frame.fds.iter().map(AsRawFd::as_raw_fd).collect()
+            } else {
+                Vec::new()
+            };
+            match wire::send_with_fds(link.stream.as_raw_fd(), &frame.bytes[frame.written..], &fds)
+            {
                 Ok(n) => {
                     if n > 0 {
-                        frame.fd = None;
+                        frame.fds.clear();
                     }
                     frame.written += n;
                     link.out_bytes -= n;
@@ -1070,12 +1110,24 @@ impl Holder {
 
 impl Terminal {
     fn new(id: [u8; 16], master: OwnedFd, pid: libc::pid_t, own_child: bool, base: u64) -> Self {
+        Self::with_ring(id, master, pid, own_child, Ring::new(base, RING_BYTES))
+    }
+
+    /// A terminal whose output continues `ring` (a dead holder's segment).
+    fn with_ring(
+        id: [u8; 16],
+        master: OwnedFd,
+        pid: libc::pid_t,
+        own_child: bool,
+        ring: Ring,
+    ) -> Self {
+        let base = ring.end();
         Self {
             id,
             master,
             pid,
             own_child,
-            ring: Ring::new(base, RING_BYTES),
+            ring,
             status: None,
             eof: false,
             exit_sent: false,
@@ -1088,6 +1140,14 @@ impl Terminal {
             prologue_base: base,
             strikes: Vec::new(),
         }
+    }
+
+    /// Dups for a daemon: the master, then (with `rings`, when the ring is
+    /// shared) the ring segment. Empty when the master cannot be dup'd.
+    fn descriptors(&self, rings: bool) -> Vec<OwnedFd> {
+        let Ok(master) = self.master.try_clone() else { return Vec::new() };
+        let ring = rings.then(|| self.ring.segment().and_then(|fd| fd.try_clone().ok())).flatten();
+        std::iter::once(master).chain(ring).collect()
     }
 
     /// The child ended (or, adopted, cannot be waited for) and no more
@@ -1137,6 +1197,11 @@ impl Terminal {
         self.strikes.iter().filter(|at| now.saturating_duration_since(**at) < STRIKE_WINDOW).count()
             >= POISON_STRIKES
     }
+}
+
+/// [`wire::FLAG_RING`] when `fds` carries a ring segment after the master.
+fn ring_flag(fds: &[OwnedFd]) -> u16 {
+    if fds.len() > 1 { wire::FLAG_RING } else { 0 }
 }
 
 fn pollfd(fd: RawFd, events: libc::c_short) -> libc::pollfd {

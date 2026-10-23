@@ -85,6 +85,7 @@ export async function mountSettingsPage(state: SettingsPageVariant, context: Sta
   if (state.accounts) mock.provider.accounts = structuredClone(state.accounts);
   if (state.agents) mock.provider.agents.state = { ...mock.provider.agents.state, ...structuredClone(state.agents) };
   if (state.harnesses) mock.provider.harnesses = structuredClone(state.harnesses);
+  if (state.devices) mock.provider.devices = structuredClone(state.devices);
   if (state.integrations) mock.provider.integrations = structuredClone(state.integrations);
   window.addEventListener("pagehide", mock.close, { once: true });
   const client: SettingsClient = {

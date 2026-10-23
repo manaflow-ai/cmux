@@ -47,6 +47,7 @@ members = [
     "crates/cmux-panic-log",
     "crates/cmux-pty",
     "crates/cmux-holder",
+    "crates/cmux-holder-v3",
     "crates/cmux-remote-protocol",
     "crates/cmux-remote-transcript",
     "crates/cmux-build-identity",

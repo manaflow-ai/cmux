@@ -4,6 +4,7 @@ import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextBrowserHistory
 import CmuxNextDaemon
+import CmuxNextMacScreen
 import CmuxNextNowPlaying
 import CmuxNextSettings
 import CmuxNextTabs
@@ -26,6 +27,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
             nowPlaying.follow(services)
             sidebarNowPlaying.follow(sessions: { [weak self] in self?.services.map { s in s.cache.pageRequests.media.sessions(in: s.cache).map { NowPlayingSession(tab: $0.entry.tab.id, media: $0.media) } } ?? [] },
                                      tab: { [weak self] id in self?.services?.cache.browsers.values.first { $0.tab.id == id }?.tab })
+            sidebarNowPlaying.allowsPictureInPicture = { [weak self] in PictureInPictureHandlers.isEnabled(self?.services) }
             // A popup panel's page gets the same rows, acting for its opener's tab.
             services?.popups.hitItems = { [weak self] target, openerKey in self?.hitItems(for: target, tab: openerKey) ?? [] }
             // A popup window's omnibar suggests from its page's profile, as a tab's does.
@@ -267,6 +269,11 @@ final class BrowserPageRequests: BrowserTabDelegate {
     /// browser profile. Shift-Return opens a new window with a new
     /// workspace that holds the tab (cmux windows hold workspaces).
     func openFromOmnibar(_ url: URL, _ disposition: OmnibarDisposition, page: any BrowserTab) {
+        // A pairing link (or a search for one) never loads anywhere: Mac Screen says why.
+        if let refusal = MacScreenPages.pairingLinkRefusal(for: url.absoluteString) {
+            services?.registry.refuse(refusal)
+            return
+        }
         switch disposition {
         case .currentTab:
             // The host's own pages and routed chrome:// pages, as a plain Return does.

@@ -26,6 +26,9 @@ public typealias DaemonCommandBody = @Sendable (isolated DaemonConnection) async
 public final class DaemonService {
     /// `local`, or the Cloud machine id (`vm-…`).
     public let machineID: String
+    /// Its connections echo `placement-shift-v1` (this build orders sidebar rows from the
+    /// sidebar document; ``DaemonConnectionConfiguration/echoesPlacementShift``).
+    let echoesPlacementShift: Bool
     public let store = DaemonStore()
     /// Set while an administrator turned this machine's feature off: no endpoint, no re-attach.
     public let policyBlock = PolicyBlock()
@@ -68,8 +71,12 @@ public final class DaemonService {
     /// drawn from the launch snapshot attach as soon as it exists).
     @ObservationIgnored var connectionWaiters: [CheckedContinuation<Void, Never>] = []
 
-    public init(machineID: String = "local") {
+    /// - Parameters:
+    ///   - machineID: `local`, or the remote machine's id.
+    ///   - echoesPlacementShift: The App passes `SidebarMirror.isLinked`; tests leave it off.
+    public init(machineID: String = "local", echoesPlacementShift: Bool = false) {
         self.machineID = machineID
+        self.echoesPlacementShift = echoesPlacementShift
         retryWake = RetryWake(owner: "DaemonService.retry \(machineID)")
         // The local daemon's kept tabs restart at its first connect (`relaunchKeptLayoutIfNeeded`).
         keptTabRestarts = isLocal ? .expected : .none
@@ -160,7 +167,8 @@ public final class DaemonService {
         showLaunchSnapshot(session: launcher.configuration.session, stateDirectory: launcher.configuration.stateDirectory)
         let configuration = Self.localConfiguration(terminalEnvironment: terminalEnvironmentProvider,
                                                     resolvesShellIntegration: resolvesShellIntegration,
-                                                    installKey: launcher.configuration.installKey, retryWake: retryWake)
+                                                    installKey: launcher.configuration.installKey,
+                                                    echoesPlacementShift: echoesPlacementShift, retryWake: retryWake)
         var first: (@Sendable () async -> DaemonPrestart.Outcome)?
         if let prestart {
             // Cancelling the startup (shutdown) cancels the attempt too.
@@ -266,14 +274,15 @@ public final class DaemonService {
         monitor.start(queue: DispatchQueue(label: "com.cmuxterm.next.daemon.path.\(machineID)"))
         pathMonitor = monitor
         let clock = startupClock
-        runTask = Task { [weak self, scheduler, logger] in
+        var configuration = DaemonConnection.Configuration(retryWake: wake, terminalEnvironment: nil, sessionEvents: true)
+        configuration.echoesPlacementShift = echoesPlacementShift
+        runTask = Task { [weak self, scheduler, logger, configuration] in
             weak let weakSelf = self
             var ends = RetryPacer(.firstConnect)
             // wakeup-allow: each iteration runs a connection to its end, then waits in RetryPacer
             while !Task.isCancelled {
                 let connected = await DaemonStartup.shared.connect(wake: wake, clock: clock) {
-                    DaemonConnection(configuration: DaemonConnection.Configuration(retryWake: wake, terminalEnvironment: nil,
-                                                                                    sessionEvents: true)) {
+                    DaemonConnection(configuration: configuration) {
                         DaemonEndpoint(socketPath: try await endpoint(), bridge: bridge)
                     }
                 } onFailure: { error in

@@ -20,8 +20,11 @@ pub const MAX_PAYLOAD: usize = 1 << 20;
 /// Wire version this build speaks. Version 2 adds [`Kind::Ack`] flow
 /// control; a version 1 peer gets none. Version 3 adds
 /// [`Kind::Snapshot`] and [`Kind::Detach`]; a daemon sends them only to a
-/// holder that speaks it.
-pub const VERSION: u16 = 3;
+/// holder that speaks it. Version 4 adds the shared output ring
+/// ([`FLAG_RING`], `crate::ring`): [`Kind::Spawned`], [`Kind::Listed`] and
+/// [`Kind::Adopt`] may carry the ring's segment as a second descriptor, so a
+/// holder crash loses no byte the holder read.
+pub const VERSION: u16 = 4;
 /// Oldest wire version this build still serves.
 pub const MIN_VERSION: u16 = 1;
 /// Output a holder sends one terminal past the offset its daemon last
@@ -49,7 +52,12 @@ pub enum Kind {
     Spawned = 4,
     /// d->h: take over a running terminal: `pid i32, base u64, id [u8; 16]`,
     /// then its prologue (a VT replay of its screen at `base`, may be
-    /// empty), plus its master.
+    /// empty), plus its master. With [`FLAG_RING`] (version 4) `resume
+    /// u64` comes before the prologue and the ring's segment is a second
+    /// descriptor: the holder continues that ring (its offsets and the bytes
+    /// a dead holder read), `base` is the offset the daemon parsed and
+    /// confirmed (where the prologue's screen is), and `resume` is where its
+    /// stream continues (a fresh ring starts there if the segment is bad).
     Adopt = 5,
     /// d->h: stream output from `offset u64` (a [`Kind::Gap`] first when it
     /// rolled out); with [`FLAG_WITH_PROLOGUE`], the prologue first.
@@ -123,9 +131,16 @@ impl Kind {
         })
     }
 
-    /// Descriptors a frame of this kind carries.
+    /// Descriptors a frame of this kind carries without [`FLAG_RING`].
     pub fn descriptors(self) -> usize {
         matches!(self, Kind::Spawned | Kind::Adopt | Kind::Listed) as usize
+    }
+
+    /// Descriptors a frame of this kind with these header flags carries:
+    /// one more with [`FLAG_RING`] (the ring's segment, after the master).
+    pub fn descriptors_with(self, flags: u16) -> usize {
+        let base = self.descriptors();
+        base + (base > 0 && flags & FLAG_RING != 0) as usize
     }
 }
 
@@ -144,6 +159,11 @@ pub const FLAG_WITH_PROLOGUE: u16 = 1;
 /// [`Kind::Data`] flag: these bytes are the prologue (a VT replay of the
 /// screen when this holder adopted the terminal), not ring output.
 pub const FLAG_PROLOGUE: u16 = 1;
+/// [`Kind::Spawned`], [`Kind::Listed`] and [`Kind::Adopt`] flag (version
+/// 4): the frame carries the terminal's ring segment as a second descriptor,
+/// after the master. Sent only on a link whose version is at least 4, so an
+/// older peer never gets a descriptor it does not expect.
+pub const FLAG_RING: u16 = 2;
 
 /// Encode a frame header and payload.
 pub fn encode(kind: Kind, chan: u32, payload: &[u8]) -> Vec<u8> {
@@ -283,7 +303,7 @@ impl Reader {
             self.buf.clear();
             self.start = 0;
         }
-        let wanted = Kind::from_u16(kind).map_or(0, Kind::descriptors);
+        let wanted = Kind::from_u16(kind).map_or(0, |kind| kind.descriptors_with(flags));
         let fds = (0..wanted).filter_map(|_| self.fds.pop_front()).collect();
         Ok(Some(Frame { kind, flags, chan, payload, fds }))
     }
