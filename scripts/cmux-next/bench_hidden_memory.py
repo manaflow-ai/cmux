@@ -9,6 +9,10 @@ so its own renderer, with a --heap-mb array standing in for a real site's heap) 
 and shows the front tab again, so every bench tab is hidden well inside the 30 minute
 `browser.hibernation` timeout. No neighbors (`keepNeighborTabsAwake` 0).
 
+Then it opens --parked workspaces, each showing one Chromium bench page (its pane's shown tab,
+as the STRESS session's "10 other workspaces with Chromium pages"), and goes back to the first
+workspace: those pages are hidden in parked workspaces. They count in the live check too.
+
 Then it waits (up to --wait s) for the hidden live pages to come down to the budget the app
 reports (`debug.surfaces` hibernation `page_budget`; --budget on a build that reports none,
 default 4), samples the footprint again and wakes --wakes hibernated tabs, reading each wake's
@@ -23,11 +27,13 @@ PASS when all hold:
 
 On a build before the budget (e.g. 415ee799b49) every bench page stays live until the timeout:
 live = all 18, the delta ~1 GB against a bound of ~410 MB, so it FAILS; with the budget it passes.
+On a build where a pane's shown tab is out of the budget (before the parked-fronts fix) every
+parked workspace keeps its page until the timeout: live = budget + --parked, so it FAILS.
 Printed too: per_tab_mb, the delta over the tabs opened after the sample.
 
 Usage (a fleet GUI mini, never a laptop; a DEV build, it reads debug.surfaces):
   bench_hidden_memory.py --app BUNDLE [--chromium 12] [--webkit 6] [--heap-mb 20]
-      [--live-page-mb 90] [--max-mb-per-tab 3] [--budget 4] [--wait 300] [--wakes 4] [--out FILE.json]
+      [--parked 6] [--live-page-mb 90] [--max-mb-per-tab 3] [--budget 4] [--wait 300] [--wakes 4] [--out FILE.json]
 Prints PERF-HIDDEN lines and exits 0 on PASS, 1 on FAIL.
 """
 from __future__ import annotations
@@ -57,6 +63,7 @@ def main() -> int:
     parser.add_argument("--chromium", type=int, default=12)
     parser.add_argument("--webkit", type=int, default=6)
     parser.add_argument("--heap-mb", type=int, default=20)
+    parser.add_argument("--parked", type=int, default=6, help="workspaces left with a Chromium page in front")
     parser.add_argument("--live-page-mb", type=float, default=90, help="allowance per page the budget keeps live")
     parser.add_argument("--max-mb-per-tab", type=float, default=3, help="allowance per further hidden tab")
     parser.add_argument("--budget", type=int, default=4, help="the budget when the build reports none")
@@ -69,7 +76,7 @@ def main() -> int:
     if sys.platform != "darwin":
         raise SystemExit("bench-hidden-memory: macOS only (run it on a fleet mini)")
     bh._Handler.heap_mb = args.heap_mb
-    count = max(args.chromium, args.webkit, 1)
+    count = max(args.chromium + args.parked, args.webkit, 1)
     ports = [bh.serve() for _ in range(count)]
     config = bm.merged({"browser": {"hibernation": "moderate", "keepNeighborTabsAwake": 0}}, json.loads(args.config))
     bundle = os.path.realpath(args.app)
@@ -115,11 +122,23 @@ def main() -> int:
         for engine, index in plan:
             open_bench(engine, index)
         app.run("tab.focus", target=front)
+        # Parked workspaces: each shows one Chromium page (its pane's shown tab), then the first
+        # workspace (the front tab's) shows again.
+        for index in range(args.parked):
+            made = app.run("workspace.newAtBottom")
+            if not any(str(item).startswith("ws_") for item in made.get("created", [])):
+                print(f"   workspace.newAtBottom: {made.get('error') or made}", file=sys.stderr)
+                continue
+            app.run("workspace.selectLast")
+            open_bench("chromium", args.chromium + index)
+        if args.parked:
+            app.run("workspace.selectFirst")
+            app.run("tab.focus", target=front)
         opened_at = time.monotonic()
         status = bh.hibernation(sock)
         budget = status.get("page_budget")
         budget = args.budget if budget is None else int(budget)
-        print(f"PERF-HIDDEN opened={len(tabs)} budget={budget} reported_budget={status.get('page_budget') is not None}", flush=True)
+        print(f"PERF-HIDDEN opened={len(tabs)} parked={args.parked} budget={budget} reported_budget={status.get('page_budget') is not None}", flush=True)
         # Agent grace (30 s after the last script call), the minute a page over the budget stays
         # hidden, then the planner's pace (2 pages per 5 s).
         done = bh.wait_for(lambda: len(live_hidden(sock, tabs)) <= budget, args.wait, 1)

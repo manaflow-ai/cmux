@@ -54,13 +54,29 @@ import Testing
     }
 
     /// What each pane shows, also in a parked workspace or an off-screen column, is what a
-    /// switch shows again: it stays out of the budget (the timeout and memory pressure still apply).
-    @Test func eachPanesShownTabStaysOutOfTheBudget() {
-        let candidates = (0..<6).map { page("front\($0)", minutes: 5, front: true) } + [page("back", minutes: 5)]
-        let plan = HibernationPlanner.plan(.fallback, pressure: .normal, candidates: candidates, warmPages: 0)
-        #expect(plan.due == ["back"])
-        let timedOut = HibernationPlanner.plan(.fallback, pressure: .normal, candidates: [page("front", minutes: 31, front: true)], warmPages: 0)
+    /// switch shows again: it is the most valuable page and goes for the budget only after every
+    /// other hidden page (the timeout and memory pressure still apply as to any page).
+    @Test func eachPanesShownTabGoesLastForTheBudget() {
+        let candidates = (0..<3).map { page("front\($0)", minutes: 20, front: true) } + [page("back", minutes: 5)]
+        let plan = HibernationPlanner.plan(.fallback, pressure: .normal, candidates: candidates, warmPages: 3)
+        #expect(plan.due == ["back"], "a parked pane's shown tab went before a tab nobody shows")
+        let timedOut = HibernationPlanner.plan(.fallback, pressure: .normal, candidates: [page("front", minutes: 31, front: true)], warmPages: 1)
         #expect(timedOut.due == ["front"], "the timeout no longer applied to a shown tab of a parked pane")
+    }
+
+    /// The red row of the STRESS session's parked workspaces: each workspace left with a Chromium
+    /// page in front kept that renderer (55 MB) for the whole 30 minute timeout, because a pane's
+    /// shown tab was out of the budget: hidden-page memory grew O(workspaces), 10 parked
+    /// workspaces ~550 MB, 150 several GB. Shown tabs count in the budget now, ranked last: past
+    /// it the workspaces left longest ago let their page go after a minute; the most recently left
+    /// keep theirs, so a switch back to them still shows a live page.
+    @Test func parkedWorkspacesShownTabsCountInTheBudget() {
+        let fronts = (0..<10).map { page("ws\($0)", minutes: 2 + Double($0), front: true) }
+        let plan = HibernationPlanner.plan(.fallback, pressure: .normal, candidates: fronts, warmPages: 4)
+        #expect(plan.due == ["ws9", "ws8"], "the workspaces left longest ago did not let their page go, or all went at once")
+        #expect(plan.nextCheck == HibernationPlanner.Pace.normal.interval)
+        let kept = HibernationPlanner.plan(.fallback, pressure: .normal, candidates: Array(fronts.prefix(4)), warmPages: 4)
+        #expect(kept.due.isEmpty, "the most recently left workspaces lost their live page")
     }
 
     /// A page the probe just kept (it plays, or holds the person's form input) is live for a
