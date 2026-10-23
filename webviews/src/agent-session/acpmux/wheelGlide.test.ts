@@ -362,7 +362,9 @@ class StandInWheel extends Event {
   wheelDeltaY?: number;
   constructor(type: string, init: Record<string, unknown> = {}) {
     super(type, init);
-    Object.assign(this, init);
+    // Event's own fields (cancelable, bubbles) come from the init above and are read-only.
+    for (const key of ["deltaX", "deltaY", "deltaMode", "ctrlKey", "metaKey", "shiftKey", "altKey", "wheelDeltaY"])
+      if (key in init) (this as unknown as Record<string, unknown>)[key] = init[key];
   }
 }
 

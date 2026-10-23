@@ -16,7 +16,6 @@ import { chromium, webkit, type Browser, type BrowserType, type Page } from "pla
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { papercutPane } from "./support/papercutChat";
 import { installPaintedFrames } from "./support/paintedFrames";
-import { MOTION_MS } from "../src/motion/scale.generated";
 
 await requireBrowserLane("agent-pane-wheel-glide.test.ts", async () => {
   setDefaultTimeout(300_000);
@@ -86,10 +85,6 @@ await requireBrowserLane("agent-pane-wheel-glide.test.ts", async () => {
     frames: number;
     maxStep: number;
     glideMs: number;
-    /// How far the view ran ahead of the glide's own ease, at its most: share of the distance covered
-    /// by a frame, less the ease at that frame's time from the wheel (two frames' grace). A jump is far
-    /// ahead in its one frame; a glide never is, however few of its frames a loaded host paints.
-    ahead: number;
     prevented: boolean[];
   };
 
@@ -113,17 +108,13 @@ await requireBrowserLane("agent-pane-wheel-glide.test.ts", async () => {
         tops: [content()],
         times: [performance.now()],
         prevented: [] as boolean[],
-        heardAt: [] as number[],
       };
       const page = window as unknown as { wheelGlideRecord: typeof record; wheelGlideHeard?: boolean };
       page.wheelGlideRecord = record;
       // Once per page, reading the record of the moment: a bubbling listener on the window runs after
       // the transcript's own.
       if (!page.wheelGlideHeard)
-        addEventListener("wheel", (event) => {
-          page.wheelGlideRecord.prevented.push(event.defaultPrevented);
-          page.wheelGlideRecord.heardAt.push(performance.now());
-        });
+        addEventListener("wheel", (event) => page.wheelGlideRecord.prevented.push(event.defaultPrevented));
       page.wheelGlideHeard = true;
       let held = 0;
       window.cmuxAfterPaint((time) => {
@@ -149,7 +140,7 @@ await requireBrowserLane("agent-pane-wheel-glide.test.ts", async () => {
       () =>
         (
           window as unknown as {
-            wheelGlideRecord: { tops: number[]; times: number[]; prevented: boolean[]; heardAt: number[] };
+            wheelGlideRecord: { tops: number[]; times: number[]; prevented: boolean[] };
           }
         ).wheelGlideRecord,
     );
@@ -163,25 +154,8 @@ await requireBrowserLane("agent-pane-wheel-glide.test.ts", async () => {
       frames: steps.filter((step) => Math.abs(step) >= 0.5).length,
       maxStep: Math.max(...steps.map(Math.abs)),
       glideMs: first < 0 ? 0 : Math.round(times[arrived]! - times[first]!),
-      ahead: aheadOfEase(tops, times, record.heardAt[0]),
       prevented: record.prevented,
     };
-  }
-
-  /// The most a frame's share of the whole move runs ahead of the glide's ease at that frame's time
-  /// from the wheel, with two frames' grace (the glide starts one frame along, and a frame's time can
-  /// come before the input it paints) and 5% for rounding; -1 when nothing moved.
-  function aheadOfEase(tops: number[], times: number[], wheelAt: number | undefined): number {
-    const total = Math.abs(tops.at(-1)! - tops[0]!);
-    if (wheelAt === undefined || total < 1) return -1;
-    const frame = 1000 / 60;
-    let ahead = -1;
-    for (let index = 1; index < tops.length; index += 1) {
-      const progress = Math.min(1, Math.max(0, (times[index]! - wheelAt + 2 * frame) / MOTION_MS.standard));
-      const share = Math.abs(tops[index]! - tops[0]!) / total;
-      ahead = Math.max(ahead, share - (1 - (1 - progress) ** 3) - 0.05);
-    }
-    return ahead;
   }
 
   /// Dispatches macOS WebKit's wheel notches (`deltaY` each) on the row under the middle of the
@@ -209,17 +183,17 @@ await requireBrowserLane("agent-pane-wheel-glide.test.ts", async () => {
     );
 
   /// A glide: the page took the notch, and the view covered the whole distance over two or more
-  /// frames, never ahead of the glide's ease for the time since the wheel, from its first move to its
-  /// rest in at least 100 ms (the glide runs 180 ms, the motion scale's standard step; the engine's
-  /// own wheel step lands in one frame in Chromium and two or three in WPE). A loaded host paints few
-  /// of the glide's frames: the ease at each painted frame's time tells a glide from a jump where a
-  /// count of frames or a step's size does not.
+  /// frames with no frame taking more than 80% of it, from its first move to its rest in at least
+  /// 100 ms (the glide runs 180 ms, the motion scale's standard step; the engine's own wheel step is
+  /// one frame of all of it in Chromium, two or three in WPE). A loaded host paints few of the glide's
+  /// frames: cmux10 painted two, the bigger 75% of the notch. Reading the ease at each painted frame's
+  /// time flaked there (a 1 s stall put a 75% frame 20% ahead of it), so the bound is per frame.
   function expectGlide(result: Motion, distance: number) {
     expect(result.prevented.length).toBeGreaterThan(0);
     expect(result.prevented.every(Boolean)).toBe(true);
     expect(Math.abs(result.moved - distance)).toBeLessThan(2);
     expect(result.frames).toBeGreaterThanOrEqual(2);
-    expect(result.ahead).toBeLessThanOrEqual(0);
+    expect(result.maxStep).toBeLessThanOrEqual(0.8 * Math.abs(distance));
     expect(result.glideMs).toBeGreaterThanOrEqual(100);
   }
 
