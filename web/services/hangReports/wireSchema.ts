@@ -2,9 +2,13 @@ import * as Either from "effect/Either";
 import * as Schema from "effect/Schema";
 
 /**
- * Wire format schema 1 of an opt-in cmux NEXT hang report. The bounds and
+ * Wire format schema 2 of an opt-in cmux NEXT hang report. The bounds and
  * patterns mirror the client's allow-list builder (hang-reports-DESIGN.md
- * section 4). The Swift client encodes with JSONEncoder, which omits nil
+ * section 4). Schema 2 has schema 1's fields; it marks a client with the
+ * review 1 and 2 privacy fixes (Data-volume and `..` image paths are "other",
+ * no redirects, per-Mac consent). Schema 1 is refused (400, which the client
+ * treats as final and drops from its outbox), so reports an older Nightly
+ * queued under the old image rules are never stored. The Swift client encodes with JSONEncoder, which omits nil
  * optionals, so every nullable field accepts the key absent or `null`, and
  * every array and `metrics` may be absent (read as empty).
  */
@@ -33,7 +37,10 @@ const CLIENT_VERSION = String.raw`[0-9]{1,6}(?:\.[0-9]{1,6}){0,3}`;
 const APP_VERSION_PATTERN = new RegExp(`^(?:${CLIENT_VERSION}|\\d{1,6}(?:\\.\\d{1,6}){0,2}-[a-z]{1,16}(?:\\.\\d{1,20})?)$`);
 const APP_BUILD_PATTERN = new RegExp(`^(?:${CLIENT_VERSION}|\\d{1,20}(?:\\.\\d{1,6}){0,2})$`);
 const OS_VERSION_PATTERN = new RegExp(`^${CLIENT_VERSION}$`);
-const CHIP_PATTERN = /^[A-Za-z0-9 ()._+-]{1,48}$/;
+// Closed sets, exactly what the client's HardwareClass can send: a free-text
+// chip (a name, a host) or an odd memory size is refused, never stored.
+const CHIP_PATTERN = /^(?:Apple M[0-9]{1,2}(?: (?:Pro|Max|Ultra))?|Intel|other)$/;
+export const MEMORY_SIZES_GB = [4, 8, 16, 18, 24, 32, 36, 48, 64, 96, 128, 192, 256, 512] as const;
 const INTERVAL_NAME_PATTERN = /^[a-z0-9_.-]{1,48}$/;
 
 const COUNT_BUCKETS = ["0", "1", "2-5", "6-10", "11-30", "31-100", "101+"] as const;
@@ -104,9 +111,12 @@ const Interval = Schema.Struct({
   hitchMsPerS: optionalNullable(msPerS),
 });
 
-/** Schema 1 of the hang report body. Decode with ``decodeHangReport``. */
+/** The wire schema the server accepts (the Swift client's `HangReport.schemaVersion`). */
+export const HANG_REPORT_SCHEMA = 2;
+
+/** Schema 2 of the hang report body. Decode with ``decodeHangReport``. */
 export const HangReportSchema = Schema.Struct({
-  schema: Schema.Literal(1),
+  schema: Schema.Literal(HANG_REPORT_SCHEMA),
   reportId: Uuid,
   installId: Uuid,
   day: Schema.String.pipe(Schema.pattern(DAY_PATTERN), Schema.filter(isCalendarDay, { message: () => "not a calendar day" })),
@@ -120,7 +130,7 @@ export const HangReportSchema = Schema.Struct({
     arch: Schema.Literal("arm64", "x86_64", "other"),
     chip: Schema.String.pipe(Schema.pattern(CHIP_PATTERN)),
     cores: Schema.Number.pipe(Schema.int(), Schema.between(1, 1024)),
-    memoryGB: Schema.Number.pipe(Schema.int(), Schema.between(1, 16_384)),
+    memoryGB: Schema.Literal(...MEMORY_SIZES_GB),
   }),
   counts: Schema.Struct({
     windows: CountBucket,
@@ -135,7 +145,7 @@ export const HangReportSchema = Schema.Struct({
   intervals: optionalArray(Interval, MAX_INTERVALS),
 });
 
-/** A decoded, bounded schema 1 report. Absent arrays decode as empty. */
+/** A decoded, bounded schema 2 report. Absent arrays decode as empty. */
 export type HangReport = Schema.Schema.Type<typeof HangReportSchema>;
 export type HangReportFrame = Schema.Schema.Type<typeof Frame>;
 export type HangReportBucket = Schema.Schema.Type<typeof Bucket>;

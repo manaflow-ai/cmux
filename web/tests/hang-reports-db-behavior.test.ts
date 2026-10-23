@@ -1,5 +1,9 @@
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { sql } from "drizzle-orm";
+import { Pool } from "pg";
 import * as Effect from "effect/Effect";
 import * as Redacted from "effect/Redacted";
 
@@ -43,7 +47,7 @@ function row(reportId: string, installId = INSTALL): HangReportRow {
     cores: 14,
     memoryGb: 48,
     counts: { windows: "1", workspaces: "2-5", panes: "2-5", tabs: "6-10" },
-    payload: { schema: 1, hangs: [] },
+    payload: { schema: 2, hangs: [] },
   };
 }
 
@@ -88,6 +92,44 @@ describe("hang_reports repository", () => {
     expect(rows.map((value) => value.report_id)).toEqual([recent]);
   });
 });
+
+describe("hang_reports migration", () => {
+  // Production's table was created by hand and is owned by `postgres`; the migrator's role only
+  // has DML grants and may have no CREATE on the schema. Replaying the file there (its journal
+  // has no row for it) must be a no-op: CREATE INDEX checks table ownership, and CREATE TABLE IF
+  // NOT EXISTS checks schema CREATE, before IF NOT EXISTS, so either fails with 42501 and rolls
+  // back every later migration.
+  dbTest("replays as a role that does not own hang_reports", async () => {
+    const pool = new Pool({ connectionString: databaseURL, max: 1 });
+    const client = await pool.connect();
+    try {
+      await client.query("begin");
+      await client.query("create role cmux_hang_reports_replay nologin");
+      // USAGE only: no CREATE on the schema, no ownership of the table.
+      await client.query("grant usage on schema public to cmux_hang_reports_replay");
+      await client.query("set local role cmux_hang_reports_replay");
+      for (const statement of migrationStatements("20261023120000_hang_reports")) await client.query(statement);
+      const indexes = await client.query<{ indexname: string }>(
+        "select indexname from pg_indexes where tablename = 'hang_reports' order by indexname",
+      );
+      expect(indexes.rows.map((value) => value.indexname)).toEqual([
+        "hang_reports_install_day_idx",
+        "hang_reports_pkey",
+        "hang_reports_received_at_idx",
+      ]);
+    } finally {
+      // The role and grant go with the rollback.
+      await client.query("rollback");
+      client.release();
+      await pool.end();
+    }
+  });
+});
+
+function migrationStatements(name: string): string[] {
+  const file = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "db", "migrations", name, "migration.sql");
+  return readFileSync(file, "utf8").split("--> statement-breakpoint").map((value) => value.trim()).filter(Boolean);
+}
 
 function isLocalDatabase(url: string): boolean {
   try {

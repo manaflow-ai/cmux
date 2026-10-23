@@ -10,7 +10,7 @@ export type HangReportInvalidReason =
   | "leak_ip_address"
   | "leak_token";
 
-/** The body is not a valid schema 1 report (HTTP 400). */
+/** The body is not a valid schema 2 report (HTTP 400; schema 1 included). */
 export class HangReportInvalid extends Data.TaggedError("HangReportInvalid")<{
   readonly reason: HangReportInvalidReason;
 }> {}

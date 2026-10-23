@@ -21,7 +21,7 @@ import { setSpanAttributes, withApiRouteSpan } from "../../../services/telemetry
 import { jsonResponse } from "../../../services/vms/routeHelpers";
 
 /*
- * Anonymous opt-in hang reports from cmux NEXT Nightly (schema 1).
+ * Anonymous opt-in hang reports from cmux NEXT Nightly (schema 2; schema 1 refused).
  *
  * Privacy: this handler never reads a client address header
  * (x-forwarded-for, x-real-ip, or similar) or the user agent, never logs or
