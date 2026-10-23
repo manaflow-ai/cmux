@@ -110,11 +110,16 @@ final class WindowManager {
 
     /// The registry's recency (the window order, saved as `WindowRecord.order`) follows each order and key change.
     func windowDidOrder(_ window: NSWindow, inFront: Bool) {
+        if inFront { eventDidBringForward(window) }
         guard !keepsOrder, let id = controllers.first(where: { $0.window === window })?.state.id else { return }
         registry.apply { if inFront { $0.activate(id) } else { $0.moveToBack(id) }; return WindowRegistry.Changes() }
     }
 
+    /// The window actions without an explicit target act in: during an input event's dispatch the
+    /// window the event came from (`dispatching(eventFrom:_:)`), else the key window's, else the
+    /// last active one.
     var active: WindowController? {
+        if let origin = eventOriginWindow { return origin }
         if let key = services.keyWindowSource(), let controller = owner(of: key) { return controller }
         return lastActive ?? controllers.first
     }
