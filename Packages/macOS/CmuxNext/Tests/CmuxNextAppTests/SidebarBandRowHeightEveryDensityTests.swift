@@ -44,11 +44,16 @@ import Testing
         let label = "\(density.rawValue)/\(minimal ? "minimal" : "full"): band row \(band), group header \(header), workspace row \(row)"
         print("BANDHEIGHTS|\(label)")
         #expect(abs(header - row) <= 0.5, "\(label)")
-        #expect(abs(band - row) <= 0.5, "a band row (Home, pinned) differs from a workspace row: \(label)")
+        // A band row (Home, App Store, a pinned link) is one line: as tall as a one-line workspace row. In
+        // Expanded, workspace rows and group headers take two lines (SidebarLayoutMetrics.rowStep); band rows
+        // stay one line, the same height as compact's.
+        let oneLine = minimal ? SidebarLayoutMetrics.standard.minimal.rowHeight : SidebarLayoutMetrics.standard.rowHeight
+        let expected = density == .expanded && !minimal ? oneLine : row
+        #expect(abs(band - expected) <= 0.5, "a band row (Home, pinned) differs from a one-line workspace row: \(label)")
         // Every list item the band placed (not a header, tile or app) is that one height.
         for placed in sidebar.aboveRegion.layoutResult.rows {
             guard case .item = placed.kind else { continue }
-            #expect(abs(placed.frame.height - row) <= 0.5, "\(label): a band item is \(placed.frame.height)")
+            #expect(abs(placed.frame.height - expected) <= 0.5, "\(label): a band item is \(placed.frame.height)")
         }
     }
 }
