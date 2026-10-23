@@ -114,8 +114,8 @@ enum SidebarStyle {
     }
     /// How much of the header's ink the member count takes: lighter than the name.
     static let groupHeaderCountInkAlpha: CGFloat = 0.7
-    /// The members' bar: 3 pt at the 32 pt row, scaled; at the members' leading edge.
-    static var groupBarWidth: CGFloat { max(2, (Metrics.sidebarRowHeight * 0.1).rounded()) }
+    /// The members' line: 2 pt, as Chrome's (Leo 2026-10-19), at every density.
+    static var groupBarWidth: CGFloat { Metrics.space1 }
     static var groupBarX: CGFloat { (Metrics.sidebarRowHeight * 0.12).rounded() }
     /// One nesting step: a nested group's rows move in this far per level below the top.
     static var groupGutter: CGFloat { groupBarX + groupBarWidth + Metrics.space1 }
@@ -133,6 +133,14 @@ enum SidebarStyle {
     /// every level and density (Lawrence 2026-10-23: "the bar, left side, should be aligned with the
     /// header part left side"), while the header's name keeps the rows' text column.
     static var groupRailReach: CGFloat { Metrics.space1 + groupBarWidth }
+    /// The cut between a header's bar and its members' line: Chrome's (Leo 2026-10-19: "chrome has a neat little
+    /// cut line"). A `joined` line has none.
+    static var groupLineCut: CGFloat { Metrics.space3 }
+    /// The Debug `sidebar.groupLineLayout` choice.
+    static var groupLineLayout: SidebarGroupLineLayout { SidebarGroupLineLayout.tunable.value }
+    /// How much further left than its rail a group header's bar reaches: `inside`, the line sits this far in from
+    /// the bar's left edge, under its rounded corner (never past the list's edge, `SidebarListView.railReach(for:)`).
+    static var groupHeaderOverhang: CGFloat { groupLineLayout == .inside ? groupBarX : 0 }
     /// The quiet group headers' color dot, in the header's leading corner (cx-25az).
     static var groupDotSize: CGFloat { max(6, (Metrics.sidebarRowHeight * 0.28).rounded()) }
     static var headerFont: NSFont { Typography.header }

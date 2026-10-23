@@ -33,6 +33,7 @@ Enforced (Oct 23, Lawrence: "ensure this will always be true, and future agents 
 | --- | --- | --- |
 | Row close (X) | The original close: a small x at the row's trailing end, shown on hover, in its rounded box. Not the top-right "dog-ear" fold. | Lawrence 11405 ("revert styling back to original, for the X button") |
 | Group rail | The rail's left edge is the group header pill's left edge, at every depth, every density, light and dark. | Lawrence 11240, 11371, 11405 |
+| Group rail shape | Chrome's line on that edge: 2 pt, flat ends, the header bar's own color, a 6 pt cut below the header, down to the last member's bottom. Debug `sidebar.groupLineLayout`: `edge` (default, the row above), `joined` (no cut, the bar's bottom-left corner square: one L, band header only), `inside` (the header reaches 4 pt further left, the line under its corner). Members never move. | Leo 2026-10-23 ("WTF HAPPENED TO FOLLOWING CHROME"; asks ask-5b16be6ee9, ask-40133bf821, ask-7e10ebd553), #24513 |
 | Row text | As far left as it originally was. A row with no icon starts its title at the row inset; no empty icon slot pushes it right. A top-level group's rows keep the ungrouped rows' left edge. Only nested groups step in. | Lawrence 11405 ("text needs to be as left as possible (how it originally was)"); #23975 |
 | Home unread | A blue dot, the same dot as other unread rows. No count badge. | Lawrence 11384 |
 | Drag and reorder | The lifted row follows the pointer and a gap opens where it drops. No stray blue line during the drag, and nothing stays after a drop or a cancel. | Lawrence 11405 |
@@ -152,6 +153,10 @@ the fleet driven through `updateDrag` with frames recorded at each step (no fram
 the gap, no row left out of place after drop or cancel).
 
 ## Open work (Oct 23)
+
+- #24513 (Leo's lane, held): the group rail's Chrome shape above, on Lawrence's rail reach (ab905adeadd). Takes back
+  only the rail's round caps, its 3 pt width (Lawrence's `groupRailReach` follows: 4 pt) and its swatch color under
+  the band header; the rail's x and the members' x are base's.
 
 - Base red, not ours: `SidebarPinnedRowWidthTests` fails on feat-cmux-next before these changes (36 issues: the group
   header sits 4 pt off the pinned rows since the a579 height commits). Next for the owner.
