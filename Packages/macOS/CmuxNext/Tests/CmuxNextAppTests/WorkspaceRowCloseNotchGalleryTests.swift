@@ -10,10 +10,10 @@ import Testing
 /// themes. Written as PNGs under `close-notch-gallery/` in the package and bundled to
 /// `close-notch-gallery.tar` for `cmux-ci run --artifact`.
 ///
-/// Hosted preview entry point (no local native build):
+/// Hosted preview entry point (no local native build): a managed fleet script runs
 /// `CMUX_TEST_REQUIRE_GUI=1 CMUX_SOURCE_SHA=<40-char-sha> swift test --skip-build --filter WorkspaceRowCloseNotchGalleryTests`
-/// from `Packages/macOS/CmuxNext`, with `close-notch-gallery.tar` returned as the artifact. The manifest
-/// and contact sheet inside the archive make the exact matrix easy to inspect without guessing a filename.
+/// from `Packages/macOS/CmuxNext` and returns `close-notch-gallery.tar` as its artifact. The manifest and
+/// contact sheet inside the archive make the exact matrix easy to inspect without guessing a filename.
 @MainActor @Suite(.serialized) struct WorkspaceRowCloseNotchGalleryTests {
     static let titles = ["Release checklist", "a workspace whose name runs to the end of its row", "Notes"]
 
