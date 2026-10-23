@@ -138,3 +138,39 @@ fn a_refusal_is_the_notes_reason() {
     assert_eq!(cloud_machines(&mut stream), Err("Cloud is turned off".to_owned()));
     app.join().unwrap();
 }
+
+#[test]
+fn a_reply_with_no_machines_list_is_a_failed_read_not_an_empty_one() {
+    for result in [json!({}), json!({"machines": null}), json!({"machines": "vm-brave-otter"})] {
+        let (socket, app) = fake_app(json!({"ok": true, "result": result}));
+        let mut stream = super::super::app::connect(&socket).unwrap();
+        let read = cloud_machines(&mut stream);
+        let messages = &crate::localization::catalog().app_control;
+        assert_eq!(read, Err(messages.cloud_machines_malformed.to_owned()), "{result}");
+        app.join().unwrap();
+    }
+}
+
+#[test]
+fn an_app_that_trickles_its_reply_costs_machine_list_at_most_the_deadline() {
+    let dir = cmux_unix_socket::short_test_dir("cmux-cloud");
+    let socket = dir.path().join("app.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    // Each byte comes well inside the per-read timeout, so only the whole
+    // read's deadline stops the wait for a line that never ends.
+    std::thread::spawn(move || {
+        let Ok((mut stream, _)) = listener.accept() else { return };
+        for _ in 0..40 {
+            std::thread::sleep(Duration::from_millis(100));
+            if stream.write_all(b" ").is_err() {
+                return;
+            }
+        }
+        drop(dir);
+    });
+    let started = std::time::Instant::now();
+    let merged = merge(&global_for(socket), json!([local_row()]));
+    let waited = started.elapsed();
+    assert_eq!(merged, json!([local_row()]));
+    assert!(waited < CLOUD_READ_TIMEOUT * 2, "machine list waited {waited:?}");
+}

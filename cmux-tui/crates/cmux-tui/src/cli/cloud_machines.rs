@@ -16,14 +16,17 @@
 //! at all (a Linux or headless host), there are none to list and no note.
 
 use std::os::unix::net::UnixStream;
+use std::path::PathBuf;
+use std::sync::mpsc;
 use std::time::Duration;
 
 use serde_json::{Map, Value, json};
 
 use super::{GlobalArgs, OutputMode};
 
-/// How long the best-effort `cloud.machines` read may take: a short
-/// main-actor read, so a slow app costs `machine list` at most this.
+/// How long the best-effort `cloud.machines` read may take, from connect to
+/// reply: a short main-actor read, so a slow app costs `machine list` at
+/// most this.
 const CLOUD_READ_TIMEOUT: Duration = Duration::from_secs(1);
 
 /// The daemon's `machine.list` result with the app's Cloud machines added.
@@ -31,9 +34,7 @@ pub(super) fn merge(global: &GlobalArgs, result: Value) -> Value {
     if global.app_socket.is_none() && !app_found() {
         return result;
     }
-    let cloud = super::app::socket_path(global)
-        .and_then(|socket| super::app::connect(&socket))
-        .and_then(|mut stream| cloud_machines(&mut stream));
+    let cloud = super::app::socket_path(global).and_then(read_by_deadline);
     let (merged, note) = merge_rows(result, cloud);
     if let Some(reason) = note
         && global.output != OutputMode::Quiet
@@ -52,12 +53,33 @@ fn app_found() -> bool {
         .is_some()
 }
 
-/// The app's `cloud.machines` rows, or why there are none to add.
+/// The app's `cloud.machines` rows from `socket`, read on a helper thread
+/// so the whole read (connect included, and a reply that trickles in) ends
+/// by [`CLOUD_READ_TIMEOUT`]. A read still running then is left behind, and
+/// the command's exit ends it.
+fn read_by_deadline(socket: PathBuf) -> Result<Vec<Value>, String> {
+    let (sender, receiver) = mpsc::channel();
+    std::thread::Builder::new()
+        .name("cmux-cloud-machines".into())
+        .spawn(move || {
+            let cloud =
+                super::app::connect(&socket).and_then(|mut stream| cloud_machines(&mut stream));
+            let _ = sender.send(cloud);
+        })
+        .map_err(|error| error.to_string())?;
+    receiver.recv_timeout(CLOUD_READ_TIMEOUT).unwrap_or_else(|_| {
+        let messages = &crate::localization::catalog().app_control;
+        Err(messages.timeout.replace("{seconds}", &CLOUD_READ_TIMEOUT.as_secs().to_string()))
+    })
+}
+
+/// The app's `cloud.machines` rows, or why there are none to add. A reply
+/// with no `machines` list is a failed read, not an empty one.
 pub(super) fn cloud_machines(stream: &mut UnixStream) -> Result<Vec<Value>, String> {
     match super::app::request(stream, "cloud.machines", json!({}), CLOUD_READ_TIMEOUT)? {
-        Ok(reply) => {
-            Ok(reply.get("machines").and_then(Value::as_array).cloned().unwrap_or_default())
-        }
+        Ok(reply) => reply.get("machines").and_then(Value::as_array).cloned().ok_or_else(|| {
+            crate::localization::catalog().app_control.cloud_machines_malformed.to_owned()
+        }),
         Err(error) => Err(error
             .get("message")
             .and_then(Value::as_str)
