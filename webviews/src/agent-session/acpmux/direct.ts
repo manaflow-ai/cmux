@@ -66,7 +66,6 @@ import { WORKSPACE_CONTEXT } from "./workspaceContext";
 import { promptSurfaceMeta } from "./surfaces/promptSurface";
 import { BOOKMARKS_KIND, bookmarksHeard } from "./threadMinimap/bookmarks";
 import { type StartMode, startModeChanged } from "./startMode";
-import { taskGoal } from "./goal";
 import { sameSessionStart, sessionStartOf } from "./conversation/sessionStart";
 import { reduceAgentPair } from "./conversation/agentPairs";
 import { pasteRanges } from "./conversation/promptCollapse";
@@ -991,7 +990,6 @@ export class AcpmuxDirectClient {
   /// names the options it runs now), then each newer config update. A replayed update before it is
   /// history and never takes the current options back (a chat moved from Low to High).
   private configSeq = 0;
-  private goalSeq = 0;
   private queue: QueuedPrompt[] = [];
   /// Prompts that left the queue without running (snapshot `queueWithdrawn`), the last QUEUE_WITHDRAWN_KEPT.
   private queueWithdrawn: readonly string[] = [];
@@ -1538,7 +1536,6 @@ export class AcpmuxDirectClient {
     this.clockOffset = undefined;
     this.summary = undefined;
     this.configSeq = 0;
-    this.goalSeq = 0;
     this.usage = undefined;
     this.turnTokens = undefined;
     this.usageFromSeq = Infinity;
@@ -2327,7 +2324,6 @@ export class AcpmuxDirectClient {
     )
       void this.fetchCommands(sessionId, generation, result.lastSeq).catch(() => {});
     this.summary = detail;
-    this.goalSeq = Object.hasOwn(detail, "goal") && typeof result?.lastSeq === "number" ? result.lastSeq : 0;
     this.configSeq = Array.isArray(detail.configOptions) && typeof result?.lastSeq === "number" ? result.lastSeq : 0;
     this.queue = [];
     // The reads the chat draws with, at once rather than one after another: each is a round trip,
@@ -2872,15 +2868,6 @@ export class AcpmuxDirectClient {
       update?.sessionUpdate === SESSION_INFO_KIND
         ? contextBreakdownOf(update?._meta?.acpmux?.contextBreakdown)
         : undefined;
-    if (
-      update?.sessionUpdate === SESSION_INFO_KIND &&
-      Object.hasOwn(update._meta ?? {}, "goal") &&
-      this.summary &&
-      (!event.seq || event.seq >= this.goalSeq)
-    ) {
-      this.summary = { ...this.summary, goal: taskGoal(update._meta.goal) };
-      if (event.seq) this.goalSeq = event.seq;
-    }
     if (breakdown && this.summary) this.summary = { ...this.summary, contextBreakdown: breakdown };
     // An update that carries only the breakdown has nothing more to draw.
     if (breakdown && update.title === undefined && Object.keys(update._meta ?? {}).every((key) => key === "acpmux"))
@@ -3544,7 +3531,6 @@ export class AcpmuxDirectClient {
             turnCount: summary.turnCount,
             usage: this.usage,
             contextBreakdown: contextBreakdownOf(summary.contextBreakdown),
-            goal: taskGoal(summary.goal),
             host: text(summary.host),
             peer: text(summary.peer),
             hostKind: hostKind(summary.hostKind),

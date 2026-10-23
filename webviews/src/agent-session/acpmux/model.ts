@@ -504,7 +504,6 @@ export type AcpmuxSnapshot = {
     usage?: { used: number; size: number; setup?: number };
     /// What the context holds by category, as Claude Code's /context reports it.
     contextBreakdown?: AcpmuxContextBreakdown;
-    goal?: import("./goal").TaskGoal;
     host?: string;
     peer?: string;
     hostKind?: "local" | "cloud";
