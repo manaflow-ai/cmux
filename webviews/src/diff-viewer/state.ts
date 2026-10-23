@@ -5,7 +5,7 @@ import { deferredDiffReason } from "../deferred-diffs";
 import { fileName, fileStats, type DiffItem, type FileTreeSource, type StreamMetrics } from "../diff-stream";
 import { collapsedFileKey } from "../collapsed-files";
 import { defaultDiffFileFilter, type DiffFileFilter } from "../file-filter";
-import { type DiffViewerOptions } from "../pierre-options";
+import { type DiffViewerOptions, type DrawnDiffOptions } from "../pierre-options";
 import { createDiffViewerStatus } from "../status";
 import {
   type ViewedChange,
@@ -494,11 +494,12 @@ function initialDiffViewerLayout(payload: Record<string, any>): DiffViewerLayout
 }
 
 function parseDiffViewerLayout(value: unknown): DiffViewerLayout | null {
-  return value === "split" || value === "unified" ? value : null;
+  return value === "split" || value === "unified" || value === "auto" ? value : null;
 }
 
-/// The viewer width two readable split sides need. Below it the viewer draws unified, as GitHub
-/// does, and keeps the stored preference for a wider pane.
+/// The viewer width two readable split sides need. The auto layout draws split at this width and
+/// up, unified below it (cx-7tsus: split in a narrow pane wrapped or clipped every line), and
+/// changes as the pane is resized. An explicit split or unified layout is drawn at every width.
 export const SPLIT_MIN_WIDTH = 760;
 
 /** Whether a split diff fits the viewer; an unmeasured viewer counts as wide. */
@@ -506,11 +507,17 @@ export function splitFits(viewerWidth: number): boolean {
   return viewerWidth === 0 || viewerWidth >= SPLIT_MIN_WIDTH;
 }
 
-/** The options the viewer draws with: unified while a split preference does not fit. */
-export function renderedDiffOptions(state: Pick<AppState, "options" | "viewerWidth">): DiffViewerOptions {
+/** The options the viewer draws with: the auto layout resolved for the viewer's width. */
+export function renderedDiffOptions(state: Pick<AppState, "options" | "viewerWidth">): DrawnDiffOptions {
   return drawnDiffOptions(state.options, splitFits(state.viewerWidth));
 }
 
-export function drawnDiffOptions(options: DiffViewerOptions, fits: boolean): DiffViewerOptions {
-  return options.layout === "split" && !fits ? { ...options, layout: "unified" } : options;
+export function drawnDiffOptions(options: DiffViewerOptions, fits: boolean): DrawnDiffOptions {
+  const { layout } = options;
+  return { ...options, layout: layout === "auto" ? (fits ? "split" : "unified") : layout };
+}
+
+/** The layout after `layout` on the layout button: unified, then split, then auto. */
+export function nextDiffViewerLayout(layout: DiffViewerLayout): DiffViewerLayout {
+  return layout === "unified" ? "split" : layout === "split" ? "auto" : "unified";
 }

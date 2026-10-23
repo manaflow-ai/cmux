@@ -39,7 +39,8 @@ export type DiffViewerOptions = {
    * (diff-viewer/RichPreviewSheet.tsx). Not saved: it lasts for the tab.
    */
   richPreview: boolean;
-  layout: "split" | "unified";
+  /** `auto` draws split while the viewer is wide enough for two readable sides, unified below. */
+  layout: "split" | "unified" | "auto";
   lineNumbers: boolean;
   showBackgrounds: boolean;
   wordDiffs: boolean;
@@ -49,10 +50,13 @@ export type DiffViewerOptions = {
 /** How many unchanged lines one press of a gap's chevron shows (Load full files). */
 export const EXPANSION_LINE_COUNT = 20;
 
+/** The options a diff is drawn with: `auto` resolved to the layout the viewer width allows. */
+export type DrawnDiffOptions = Omit<DiffViewerOptions, "layout"> & { layout: "split" | "unified" };
+
 /** Height of a file header row; also the virtualizer's header metric. */
 export const DIFF_FILE_HEADER_HEIGHT = 38;
 
-export function codeViewOptions(options: DiffViewerOptions, appearance: DiffViewerAppearance): CodeViewOptions<any> {
+export function codeViewOptions(options: DrawnDiffOptions, appearance: DiffViewerAppearance): CodeViewOptions<any> {
   return {
     layout: { paddingTop: 0, gap: 1, paddingBottom: 0 },
     itemMetrics: { diffHeaderHeight: DIFF_FILE_HEADER_HEIGHT },

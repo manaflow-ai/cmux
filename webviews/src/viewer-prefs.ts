@@ -40,7 +40,7 @@ export function sanitizeViewerPrefs(raw: unknown): ViewerPrefs {
   }
   const source = raw as Record<string, unknown>;
   const prefs: ViewerPrefs = {};
-  if (source.layout === "split" || source.layout === "unified") {
+  if (source.layout === "split" || source.layout === "unified" || source.layout === "auto") {
     prefs.layout = source.layout;
   }
   if (source.diffIndicators === "bars" || source.diffIndicators === "classic" || source.diffIndicators === "none") {

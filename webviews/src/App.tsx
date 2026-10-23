@@ -226,7 +226,7 @@ export function App({ config, initialStatus }: ConfigProps) {
     if (openFromLineClick(click, item.fileDiff, openFile, linesMatchDisk(source)) === "top")
       dispatch({ type: "set-copy-feedback", message: label("openFileAtTop") });
   });
-  // A split preference draws unified while the viewer is too narrow for two readable sides.
+  // The auto layout draws unified while the viewer is too narrow for two readable sides.
   const fits = splitFits(state.viewerWidth);
   const drawnOptions = useMemo(() => drawnDiffOptions(state.options, fits), [state.options, fits]);
   const renderedCodeViewOptions = useMemo(() => {
