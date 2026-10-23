@@ -324,6 +324,7 @@ impl Hub {
             }),
             remote: Some(RemoteRef { peer: peer.to_owned(), summary }),
             update_line: Default::default(),
+            summary: Default::default(),
         });
     }
 
@@ -457,6 +458,7 @@ impl Hub {
                                 summary: removed.unwrap_or_else(|| json!({"sessionId": mux_id})),
                             }),
                             update_line: Default::default(),
+                            summary: Default::default(),
                         });
                         return;
                     }
@@ -493,6 +495,7 @@ impl Hub {
                         }),
                         remote: Some(RemoteRef { peer: peer.clone(), summary }),
                         update_line: Default::default(),
+                        summary: Default::default(),
                     });
                 }
                 // A prompt this daemon forwarded was taken (`outbox.rs` `PeerAccepts`).
@@ -523,6 +526,7 @@ impl Hub {
                             }),
                             remote: Some(RemoteRef { peer: peer.clone(), summary: Value::Null }),
                             update_line: Default::default(),
+                            summary: Default::default(),
                         });
                     }
                 }
@@ -613,6 +617,7 @@ impl Hub {
                         record: Arc::new(record),
                         remote: Some(RemoteRef { peer: peer.clone(), summary }),
                         update_line: Default::default(),
+                        summary: Default::default(),
                     });
                 }
             }
