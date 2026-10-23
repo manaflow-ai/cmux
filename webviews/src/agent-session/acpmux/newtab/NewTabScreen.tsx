@@ -1285,7 +1285,11 @@ export function NewTabScreen(props: Props) {
                 under the greeting (screen.css .nt-headline-slot). A greeting set to false in
                 cmux.json (`headlineOff`) keeps no slot while the headline is off: the composer
                 stays where it sat for those who had turned the greeting off. */}
-            {minimal && (headline || !props.headlineOff) ? <div className="nt-headline-slot">{headline}</div> : headline}
+            {minimal && (headline || !props.headlineOff) ? (
+              <div className="nt-headline-slot">{headline}</div>
+            ) : (
+              headline
+            )}
             {composerCard}
             {props.notice}
             {environmentPanel}
