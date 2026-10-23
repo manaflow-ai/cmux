@@ -7,7 +7,7 @@ extension ChatColumnPlacement {
     /// What a person's new tab from `controller`'s pane becomes.
     @MainActor static func resolve(from controller: PaneController, services: AppServices) -> ChatColumnPlacement {
         guard let content = controller.workspace,
-              content.daemon.supports(DaemonCapabilities.shared.dockColumnRole),
+              content.daemon.supports(DaemonCapabilities.dockColumnRole),
               let screen = content.layoutModel.screen(containing: controller.layoutPaneID) else { return .here }
         let columns = columns(of: screen, containing: controller.layoutPaneID)
         // A zoomed screen maps to its zoomed pane alone (LayoutMapping).
@@ -47,7 +47,7 @@ extension ChatColumnPlacement {
             PaneHandlers.focus(target, in: content)
             return strip
         case .dockChat:
-            guard let respawn, controller.daemon.supports(DaemonCapabilities.shared.tabColumnRespawn),
+            guard let respawn, controller.daemon.supports(DaemonCapabilities.tabColumnRespawn),
                   let chat = controller.pane.tabs.first else { return controller }
             // The new tab left in the pane takes focus, not the docked chat. The chat stays where it
             // shows; only the pane with the new tab comes in, from the right (as AgentBesidePlacement).
