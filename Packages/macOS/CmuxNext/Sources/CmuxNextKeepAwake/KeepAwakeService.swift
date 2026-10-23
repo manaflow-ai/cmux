@@ -52,10 +52,11 @@ public final class KeepAwakeService {
     /// Some local agent runs a turn: an acpmux session (with or without a tab
     /// showing it) or a tab's agent hooks or OSC 7501 `working` record.
     /// Other machines' agents run there and keep that machine awake.
+    /// Reads only the tabs that carry a status fact (`DaemonStore.statusFactTabs`), never every tab
+    /// of the tree: a tab added, closed or moved without one does not wake the observation.
     static func agentsWorking(_ store: DaemonStore) -> Bool {
         if AgentTurnStateStore.shared.hasWorkingSession { return true }
-        let tabs = store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs)
-        return StatusMapping.shared.isWorking(tabs: tabs)
+        return StatusMapping.shared.isWorking(tabs: store.statusFactTabs.all)
     }
 
     private func apply() {
