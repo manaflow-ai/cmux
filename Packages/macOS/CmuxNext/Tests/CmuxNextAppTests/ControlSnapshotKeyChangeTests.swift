@@ -32,24 +32,33 @@ import Testing
 
     /// Display frames the test runs by hand, so nothing publishes behind its back.
     private final class ManualFrames: ControlFrameSource {
+        // `scheduleFrame` is a nonisolated requirement of a Sendable protocol, so the hand-off list
+        // cannot be main-actor state; the lock guards only that append and the swap in `run`.
         private let pending = OSAllocatedUnfairLock<[@MainActor @Sendable () -> Void]>(initialState: [])
 
         func scheduleFrame(_ work: @escaping @MainActor @Sendable () -> Void) {
             pending.withLock { $0.append(work) }
         }
 
-        /// Runs every scheduled frame, and the ones those schedule, until none is left (a model
-        /// publish held by the publisher's interval reschedules itself until it goes).
+        /// Runs one display frame: the frames scheduled so far. A frame scheduled while it runs
+        /// (a publish held by the publisher's interval looks again each frame) waits for the next
+        /// call, so a held publish never spins: it goes once the test's clock passes its wait.
         @MainActor func run() {
-            while true {
-                let work = pending.withLock { list in
-                    defer { list = [] }
-                    return list
-                }
-                if work.isEmpty { return }
-                for frame in work { frame() }
+            let work = pending.withLock { list in
+                defer { list = [] }
+                return list
             }
+            for frame in work { frame() }
         }
+    }
+
+    /// The publisher's clock: it moves only when the test moves it, so a held model publish waits
+    /// for the test, not for real time.
+    @MainActor private final class TestClock {
+        var now = ContinuousClock.now
+
+        /// Moves past the publisher's model-change interval: every held part is due.
+        func passTheInterval() { now = now + ControlSnapshotPublisher.modelChangeInterval + .milliseconds(1) }
     }
 
     /// The window the test says AppKit made key (`AppServices.keyWindowSource`): the host's own
@@ -78,12 +87,13 @@ import Testing
     }
 
     private static func publisher(_ services: AppServices, frames: ManualFrames, notices: NotificationCenter,
-                                  rebuilds: Rebuilds) -> (ControlRouter, ControlSnapshotPublisher) {
+                                  clock: TestClock, rebuilds: Rebuilds) -> (ControlRouter, ControlSnapshotPublisher) {
         let identity = ControlIdentity(version: "1.0", build: "1", bundleID: "com.cmuxterm.app.debug.test", tag: "test",
                                        processID: getpid())
         let router = ControlRouter(identity: identity, executor: NoActions())
-        return (router, ControlSnapshotPublisher(router: router, services: services, frames: frames,
-                                                 notices: notices, onPublish: { [rebuilds] in rebuilds.note($0) }))
+        return (router, ControlSnapshotPublisher(router: router, services: services, frames: frames, notices: notices,
+                                                 now: { [clock] in clock.now },
+                                                 onPublish: { [rebuilds] in rebuilds.note($0) }))
     }
 
     /// A connected local daemon with workspaces `k0` and `k1`, one terminal each.
@@ -126,9 +136,10 @@ import Testing
 
         let frames = ManualFrames()
         let rebuilds = Rebuilds()
+        let clock = TestClock()
         // The publisher hears this test's notices only, and nothing else hears them.
         let center = NotificationCenter()
-        let (router, publisher) = Self.publisher(services, frames: frames, notices: center, rebuilds: rebuilds)
+        let (router, publisher) = Self.publisher(services, frames: frames, notices: center, clock: clock, rebuilds: rebuilds)
         publisher.start()
         defer { publisher.stop() }
         await Self.settle(frames)
@@ -168,6 +179,9 @@ import Testing
             #expect(router.snapshots.current.tabSearch.lastActive == TabSearchFactsBuilder.lastActive(services),
                     "the trail moved and the snapshot kept the old recency")
         }
+        // A topology change the switches caused would be held, not gone: let every wait end.
+        clock.passTheInterval()
+        await Self.settle(frames)
         #expect(rebuilds.topology == before,
                 "a window switch rebuilt every workspace's control facts (\(rebuilds.topology - before) topology publishes)")
         #expect(rebuilds.closedTabs == closedBefore,
@@ -180,9 +194,10 @@ import Testing
         services.keyWindowSource = { [key] in key.window }
         let frames = ManualFrames()
         let rebuilds = Rebuilds()
+        let clock = TestClock()
         // The publisher hears this test's notices only, and nothing else hears them.
         let center = NotificationCenter()
-        let (_, publisher) = Self.publisher(services, frames: frames, notices: center, rebuilds: rebuilds)
+        let (_, publisher) = Self.publisher(services, frames: frames, notices: center, clock: clock, rebuilds: rebuilds)
         publisher.start()
         defer { publisher.stop() }
         await Self.settle(frames)
@@ -200,6 +215,8 @@ import Testing
             center.post(name: NSWindow.didResignKeyNotification, object: panel)
             await Self.settle(frames)
         }
+        clock.passTheInterval()
+        await Self.settle(frames)
         #expect(rebuilds.topology == before,
                 "a key or activation notice rebuilt every workspace's control facts (\(rebuilds.topology - before) topology publishes)")
     }
@@ -210,9 +227,10 @@ import Testing
         let services = try Self.services()
         let frames = ManualFrames()
         let rebuilds = Rebuilds()
+        let clock = TestClock()
         // The publisher hears this test's notices only, and nothing else hears them.
         let center = NotificationCenter()
-        let (_, publisher) = Self.publisher(services, frames: frames, notices: center, rebuilds: rebuilds)
+        let (_, publisher) = Self.publisher(services, frames: frames, notices: center, clock: clock, rebuilds: rebuilds)
         publisher.start()
         defer { publisher.stop() }
         await Self.settle(frames)
@@ -225,7 +243,66 @@ import Testing
             center.post(name: NSWindow.willCloseNotification, object: popup)
             await Self.settle(frames)
         }
+        clock.passTheInterval()
+        await Self.settle(frames)
         #expect(rebuilds.topology == before,
                 "a window no controller owns closed and every workspace's control facts were rebuilt (\(rebuilds.topology - before) topology publishes)")
+    }
+
+    /// Under load a topology publish is held most of the time (agent status ticks, printing
+    /// terminals). A window switch and the trail move it brings publish the window facts and the
+    /// trail on the next frame and leave the held topology waiting: before, the trail's plain
+    /// invalidate cancelled the hold and a key change flushed it, so each switch paid for every
+    /// workspace on its own frame.
+    @Test func aHeldTopologyWaitsThroughAWindowSwitchAndATrailMove() async throws {
+        let services = try Self.services()
+        let ids = services.machines.local.store.workspaces.map(\.id)
+        try #require(ids.count == 2)
+        let a = try #require(services.windows.openWindow(workspaces: [ids[0]], frame: CGRect(x: 100, y: 100, width: 900, height: 600)))
+        let b = try #require(services.windows.openWindow(workspaces: [ids[1]], frame: CGRect(x: 160, y: 160, width: 900, height: 600)))
+        defer {
+            for controller in [a, b] {
+                controller.teardown()
+                controller.window?.close()
+            }
+        }
+        let key = KeyWindow()
+        services.keyWindowSource = { [key] in key.window }
+        let frames = ManualFrames()
+        let rebuilds = Rebuilds()
+        let clock = TestClock()
+        let center = NotificationCenter()
+        let (router, publisher) = Self.publisher(services, frames: frames, notices: center, clock: clock, rebuilds: rebuilds)
+        publisher.start()
+        defer { publisher.stop() }
+        await Self.settle(frames)
+        let before = rebuilds.topology
+
+        // A tracked read of the topology changes (the store applied a batch) right after the
+        // start's publish: the topology is held for the interval.
+        let store = services.daemon.store
+        store.appliedSequence &+= 1
+        await Self.settle(frames)
+        #expect(rebuilds.topology == before, "a model change inside the interval published the topology at once")
+
+        // Inside the interval: B becomes key, then the switch settles on B's page (the trail).
+        let window = try #require(b.window)
+        key.window = window
+        b.windowDidBecomeKey(Notification(name: NSWindow.didBecomeKeyNotification, object: window))
+        center.post(name: NSWindow.didBecomeKeyNotification, object: window)
+        await Self.settle(frames)
+        #expect(router.snapshots.current.topology.focus.windowID == b.state.id, "the window facts waited for the topology")
+        #expect(rebuilds.topology == before, "a key change flushed the held topology (every workspace on the switch's frame)")
+        services.locationTrail.pageDidShow(.home, title: "Home", in: b)
+        await Self.settle(frames)
+        #expect(router.snapshots.current.tabSearch.lastActive == TabSearchFactsBuilder.lastActive(services),
+                "the trail waited for the held topology")
+        #expect(rebuilds.topology == before, "a trail move cancelled the topology's hold (every workspace on the switch's frame)")
+
+        // The wait ends: the held topology goes once, with the change it was held for.
+        clock.passTheInterval()
+        await Self.settle(frames)
+        #expect(rebuilds.topology == before + 1, "the held topology never went (\(rebuilds.topology - before) publishes)")
+        #expect(router.snapshots.current.topology.daemonSequence == store.appliedSequence)
     }
 }

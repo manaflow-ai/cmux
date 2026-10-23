@@ -64,6 +64,9 @@ final class ControlSnapshotPublisher {
     private let router: ControlRouter
     private unowned let services: AppServices
     private let frames: any ControlFrameSource
+    /// The time the model-change interval counts in (`ContinuousClock.now` in the app; a test
+    /// moves its own instant, so a held part goes when the test says, with no real waiting).
+    private let now: @MainActor () -> ContinuousClock.Instant
     private var isScheduled = false
     /// What the scheduled frame publishes.
     private var pending: Parts = []
@@ -88,10 +91,12 @@ final class ControlSnapshotPublisher {
     private let notices: NotificationCenter
 
     init(router: ControlRouter, services: AppServices, frames: any ControlFrameSource,
-         notices: NotificationCenter, onPublish: @escaping (Parts) -> Void = { _ in }) {
+         notices: NotificationCenter, now: @escaping @MainActor () -> ContinuousClock.Instant = { .now },
+         onPublish: @escaping (Parts) -> Void = { _ in }) {
         self.router = router
         self.services = services
         self.frames = frames
+        self.now = now
         self.notices = notices
         self.onPublish = onPublish
     }
@@ -156,7 +161,7 @@ final class ControlSnapshotPublisher {
             // A held model publish waits, unless a key change is pending: then both go now, so
             // the published focus resolves in the published workspaces.
             if !parts.contains(.windows), !parts.isDisjoint(with: .model), let wait = self.notBefore,
-               ContinuousClock.now < wait, !self.router.snapshots.hasWaiters {
+               self.now() < wait, !self.router.snapshots.hasWaiters {
                 self.pending = []
                 return self.invalidate(parts, notBefore: wait)
             }
@@ -200,9 +205,9 @@ final class ControlSnapshotPublisher {
         // After the upgrade: a held topology goes with this one, not again after its wait.
         pending.subtract(parts.contains(.topology) ? parts.union(.windows) : parts)
         guard !parts.isEmpty else { return }
-        let started = ContinuousClock.now
+        let started = ContinuousClock.now, publishedAt = now()
         if !parts.isDisjoint(with: .model) {
-            for part in Parts.modelParts where parts.contains(part) { lastPublish[part.rawValue] = started }
+            for part in Parts.modelParts where parts.contains(part) { lastPublish[part.rawValue] = publishedAt }
             // A model part still pending keeps its wait.
             if pending.isDisjoint(with: .model) { notBefore = nil }
         }
