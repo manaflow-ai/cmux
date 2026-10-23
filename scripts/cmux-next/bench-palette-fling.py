@@ -12,7 +12,10 @@ on every frame that hover is on the row under that pointer.
 Each run launches the tagged build the way bench-stalls.py does, from an empty session (the tag's
 saved daemon session is removed first), optionally builds STRESS (perf-stress-session.py, in a
 1600 x 1000 window), opens the Command Palette (Cmd-Shift-P's action) and runs --flings flings of
---frames refreshes at each --px speed.
+--seconds each at each --px speed. A fling is timed, not counted in frames: a fixed frame count
+took 2 s at 60 Hz and longer on any build with long frames (the case this bench exists to catch),
+past the control router's 2 s deadline, so the call timed out and the fling measured nothing.
+`frames` in each reply is how many intervals really ran.
 
 Per session and speed:
   p50_ms / p95_ms / max_ms   main-thread frame intervals while the list scrolls
@@ -56,10 +59,11 @@ def load(name, file):
 
 
 bench = load("bench_stalls", "bench-stalls.py")
+stress_shape = load("stress_standard", "stress-standard.py")
 
 
-def fling(run, frames, px, pointer):
-    message = run.call("debug.palette.fling", {"frames": frames, "px": px, "pointer": pointer})
+def fling(run, seconds, px, pointer):
+    message = run.call("debug.palette.fling", {"seconds": seconds, "px": px, "pointer": pointer})
     error = message.get("error") if isinstance(message, dict) else repr(message)
     if error:
         return {"error": f"debug.palette.fling: {error}"}
@@ -75,7 +79,7 @@ def fling(run, frames, px, pointer):
 
 
 def palette_open(run):
-    reply = run.call("debug.palette.fling", {"frames": 1, "px": 0})
+    reply = run.call("debug.palette.fling", {"seconds": 0, "px": 0})
     result = reply.get("result") if isinstance(reply, dict) else None
     return isinstance(result, dict) and "error" not in result
 
@@ -93,10 +97,12 @@ def one_run(tag, opts):
         run.wait_launch_settled()
         if opts.stress:
             module = load("perf_stress_session", "perf-stress-session.py")
-            stress = module.Stress(module.socket_rpc(run.socket)).build()
+            builder = module.Stress(module.socket_rpc(run.socket))
+            stress = builder.build()
             print(f"STRESS-SESSION {json.dumps(stress)}", flush=True)
-            session["stress_standard"] = (stress.get("workspaces") == 60 and (stress.get("measured_panes") or 0) >= 12
-                                          and not stress.get("refusals"))
+            session["stress_standard"], refusals = stress_shape.check(module, builder, stress)
+            if refusals:
+                session["stress_refusals"] = refusals[:10]
         run.action("app command-palette")
         deadline = time.monotonic() + 10
         while time.monotonic() < deadline and not palette_open(run):
@@ -104,7 +110,7 @@ def one_run(tag, opts):
         results = []
         for px in opts.px:
             for index in range(opts.flings):
-                reply = fling(run, opts.frames, px, opts.pointer)
+                reply = fling(run, opts.seconds, px, opts.pointer)
                 reply.update(session, px=px, fling=index + 1)
                 results.append(reply)
         return results
@@ -117,7 +123,8 @@ def main():
     parser.add_argument("--tag", action="append", required=True)
     parser.add_argument("--runs", type=int, default=3)
     parser.add_argument("--flings", type=int, default=4, help="flings per speed per launch")
-    parser.add_argument("--frames", type=int, default=120, help="refreshes per fling (at most 180)")
+    parser.add_argument("--seconds", type=float, default=1.0,
+                        help="how long each fling scrolls (at most 1.5, inside the 2 s control deadline)")
     parser.add_argument("--px", type=float, action="append", help="points per refresh (default 24 and 60)")
     parser.add_argument("--pointer", type=float, default=0.5, help="pointer place, fraction of the list's height")
     parser.add_argument("--stress", action="store_true", help="build the STRESS session before opening the palette")
