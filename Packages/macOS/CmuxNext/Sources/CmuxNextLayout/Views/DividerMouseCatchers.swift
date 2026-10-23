@@ -28,9 +28,8 @@ public final class DividerMouseCatchers {
         self.window = window
     }
 
-    /// Window numbers of the panels shown: they pass divider hover through.
-    public var windowNumbers: Set<Int> { Set(panels.values.filter { $0.isVisible }.map(\.windowNumber)) }
-
+    /// Window numbers of the panels shown that take the mouse: they pass divider hover through.
+    public var windowNumbers: Set<Int> { Set(panels.values.filter { $0.isVisible && !$0.ignoresMouseEvents }.map(\.windowNumber)) }
     /// Frames of the panels shown, in window coordinates (`debug.layers`).
     public var framesInWindow: [String: CGRect] {
         panels.compactMapValues { $0.parent === window ? window.convertFromScreen($0.frame) : nil }
@@ -38,7 +37,14 @@ public final class DividerMouseCatchers {
 
     /// Shows one panel per area (window coordinates), or none when `active`
     /// is false (no page window is visible).
-    public func update(_ areas: [LayoutMouseArea], active: Bool) {
+    ///
+    /// - Parameters:
+    ///   - areas: The hit areas to cover, in window coordinates.
+    ///   - active: False hides every panel (no page window is visible).
+    ///   - passThrough: Ids of areas whose panels stay in place but let the
+    ///     mouse through to the page under them: a layout motion moved their
+    ///     dividers away, and the panels follow only when it lands.
+    public func update(_ areas: [LayoutMouseArea], active: Bool, passThrough: Set<String> = []) {
         let wanted = active && window.isVisible ? areas : []
         let ids = Set(wanted.map(\.id))
         for (id, panel) in panels where !ids.contains(id) {
@@ -51,6 +57,9 @@ public final class DividerMouseCatchers {
             let panel = panels[area.id] ?? makePanel(id: area.id)
             panels[area.id] = panel
             panel.catcher.resizesColumns = area.resizesColumns
+            // A window server property set only when a motion starts and lands, never per frame.
+            let ignores = passThrough.contains(area.id)
+            if panel.ignoresMouseEvents != ignores { panel.ignoresMouseEvents = ignores }
             let frame = window.convertToScreen(area.rect)
             if panel.frame != frame {
                 panel.setFrame(frame, display: false)

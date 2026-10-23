@@ -52,6 +52,11 @@ final class WindowOverlayLayer {
     private(set) var sidebarResizeArea: LayoutMouseArea?
     /// What the catcher panels cover: the divider areas, the sidebar's resize band last.
     private(set) var catcherAreas: [LayoutMouseArea] = []
+    /// Catcher areas of a root in a layout motion: they stay where its dividers were at rest and
+    /// let the mouse through to the page under them until the motion lands (`updateInteractiveRects`).
+    private(set) var catcherPassThrough: Set<String> = []
+    /// Each live root's divider areas (window coordinates) at its last moment at rest.
+    private var restingDividerAreas: [ObjectIdentifier: [LayoutMouseArea]] = [:]
     static let sidebarResizeAreaID = "sidebar.resize"
     let catchers: DividerMouseCatchers
     private var observers: [any NSObjectProtocol] = []
@@ -253,24 +258,43 @@ final class WindowOverlayLayer {
 
     private func updateInteractiveRects() {
         var rects: [CGRect] = []
+        var dividers: [LayoutMouseArea] = []
         var areas: [LayoutMouseArea] = []
+        var passThrough: Set<String> = []
+        var resting: [ObjectIdentifier: [LayoutMouseArea]] = [:]
         for plane in planes {
-            guard let root = plane.home as? LayoutRootView, root.window === window else { continue }
+            // A parked or hidden root takes no events and runs no frames: none of its areas count.
+            guard let root = plane.home as? LayoutRootView, root.window === window, root.isLive else { continue }
             rects += root.interactiveOverlayRects.map { root.convert($0, to: nil) }
-            areas += root.dividerMouseAreas.map { area in
+            let rootAreas = root.dividerMouseAreas.map { area in
                 var area = area
                 area.rect = root.convert(area.rect, to: nil)
                 return area
             }
+            dividers += rootAreas
+            let key = ObjectIdentifier(root)
+            // A spring (or a momentum strip scroll) moves this root's dividers on every display
+            // frame until it lands: its catcher panels (one window move each, a new panel for a new
+            // divider) follow once, at the landing, which the root reports even when no rect
+            // changes then (`isInLayoutMotion`). Meanwhile they stay at rest and let the mouse
+            // through, so a click on the page under a divider that moved away reaches the page.
+            // Only this root's catchers wait: another root's still follow its dividers.
+            if root.isInLayoutMotion {
+                let kept = restingDividerAreas[key] ?? []
+                resting[key] = kept
+                areas += kept
+                passThrough.formUnion(kept.map(\.id))
+            } else {
+                resting[key] = rootAreas
+                areas += rootAreas
+            }
         }
-        dividerAreas = areas
+        restingDividerAreas = resting
+        dividerAreas = dividers
         if let sidebarResizeArea { areas.append(sidebarResizeArea) }
-        // A spring moves the dividers on every display frame until it lands: the catcher panels
-        // (one window move each, a new panel for a new divider) follow once, at the landing,
-        // which the root reports even when no rect changes then (`isInLayoutMotion`).
-        let springing = planes.contains { ($0.home as? LayoutRootView)?.isInLayoutMotion == true }
-        if areas != catcherAreas, !springing {
+        if areas != catcherAreas || passThrough != catcherPassThrough {
             catcherAreas = areas
+            catcherPassThrough = passThrough
             syncCatchers()
         }
         guard rects != interactiveRects else { return }
@@ -371,7 +395,7 @@ final class WindowOverlayLayer {
         }
         // A modal or dimming overlay blocks the whole window: no divider takes the mouse under it.
         let blocked = WindowOverlayHost.existingHost(for: window)?.blocksWholeWindow == true
-        catchers.update(catcherAreas, active: placement == .overlayWindow && !blocked)
+        catchers.update(catcherAreas, active: placement == .overlayWindow && !blocked, passThrough: catcherPassThrough)
         // The panels pass hover through to the layout, and moving them under
         // a still pointer sends no event: the layout recomputes now (cx-ww20).
         for plane in planes {
