@@ -12,9 +12,17 @@ use super::*;
 use crate::no_panic::JsonExt;
 use std::path::{Path, PathBuf};
 
-/// The largest workflow journal read for its agent counts (a run has at most
-/// 1,000 agents, two short lines each).
+/// The most of a workflow journal one progress line reads (a run has at most 1,000 agents, two
+/// short lines each): a line longer than this is passed over.
 const JOURNAL_BYTES: u64 = 4 << 20;
+
+/// How far a workflow journal was read, and its agents counted so far.
+#[derive(Clone, Copy, Debug, Default)]
+pub(super) struct JournalTally {
+    offset: u64,
+    done: usize,
+    started: usize,
+}
 
 impl Translator {
     /// A Workflow call's tool result: its launch. The run's name and summary
@@ -94,11 +102,20 @@ impl Translator {
         if let Some(action) = action {
             update.set("action", json!(action));
         }
-        // Off the stdout loop: a big run's journal is megabytes, read on every progress line.
+        // Off the stdout loop, and only what the run appended since the last progress line: a
+        // big run's journal is megabytes, and it was read whole on every one.
         let dir = workflow.flatten();
         let counts = match dir {
             Some(dir) => {
-                tokio::task::spawn_blocking(move || journal_counts(&dir)).await.ok().flatten()
+                let journals = self.journals.clone();
+                tokio::task::spawn_blocking(move || {
+                    let mut tallies = journals.lock().unwrap_or_else(|e| e.into_inner());
+                    let tally = tallies.entry(dir.clone()).or_default();
+                    journal_counts(&dir, tally)
+                })
+                .await
+                .ok()
+                .flatten()
             }
             None => None,
         };
@@ -143,19 +160,26 @@ pub(super) fn stop_reply(acp: &str, ok: bool, resp: &Value) -> Message {
     Message::err(id, RpcError::internal(why))
 }
 
-/// How many of a workflow run's agents returned and how many started, from
-/// the `journal.jsonl` in its transcript dir.
-fn journal_counts(dir: &Path) -> Option<(usize, usize)> {
-    use std::io::Read;
+/// How many of a workflow run's agents returned and how many started, from the `journal.jsonl`
+/// in its transcript dir: the complete lines past `tally`'s offset are counted into it. A journal
+/// shorter than the offset was replaced and is counted again from its start.
+fn journal_counts(dir: &Path, tally: &mut JournalTally) -> Option<(usize, usize)> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut file = std::fs::File::open(dir.join("journal.jsonl")).ok()?;
+    if file.metadata().ok()?.len() < tally.offset {
+        *tally = JournalTally::default();
+    }
+    file.seek(SeekFrom::Start(tally.offset)).ok()?;
     let mut bytes = Vec::new();
-    std::fs::File::open(dir.join("journal.jsonl"))
-        .ok()?
-        .take(JOURNAL_BYTES)
-        .read_to_end(&mut bytes)
-        .ok()?;
-    // A cut at the limit may split a character; the lines before it still count.
-    let text = String::from_utf8_lossy(&bytes);
-    let (mut done, mut started) = (0, 0);
+    file.take(JOURNAL_BYTES).read_to_end(&mut bytes).ok()?;
+    // Complete lines only: the run may be writing the last one. A line longer than the read is
+    // passed over, so the count never stops there.
+    let end = match bytes.iter().rposition(|&b| b == b'\n') {
+        Some(at) => at + 1,
+        None if bytes.len() as u64 == JOURNAL_BYTES => bytes.len(),
+        None => 0,
+    };
+    let text = String::from_utf8_lossy(bytes.get(..end).unwrap_or_default());
     for line in text.lines() {
         match serde_json::from_str::<Value>(line)
             .ok()
@@ -163,10 +187,11 @@ fn journal_counts(dir: &Path) -> Option<(usize, usize)> {
             .and_then(|v| v.get("type"))
             .and_then(Value::as_str)
         {
-            Some("started") => started += 1,
-            Some("result") => done += 1,
+            Some("started") => tally.started += 1,
+            Some("result") => tally.done += 1,
             _ => {}
         }
     }
-    Some((done, started))
+    tally.offset += end as u64;
+    Some((tally.done, tally.started))
 }
