@@ -439,6 +439,7 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           catch: unreachable
         })
         if (!r.ok) {
+          if (r.code === "owner.unreachable") return yield* new OwnerUnreachable({ code: "owner.unreachable", message: r.message, retryable: true })
           if (r.code === "selector.not_found" || r.code === "validation.invalid" || r.code === "cloud.machine.not_found" || r.code === "cloud.machine.not_bound" || r.code === "unknown_message") return yield* new BadRequest({ code: r.code, message: r.message })
           return yield* new Forbidden({ code: "auth.forbidden", message: r.message })
         }

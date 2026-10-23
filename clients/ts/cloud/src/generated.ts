@@ -2437,6 +2437,20 @@ export interface CloudOps {
       readonly network: ServerNetworkBinding
     }
   }
+  /** Discover the configured Native origin and canonical team tenant for an active client install with read and mutate-own grants. Verify the requested mesh or select the tenant's sole mesh. This read creates no tenant, mesh, device or serving grant and returns no service credential. */
+  readonly "host.network.target": {
+    readonly params: {
+      readonly mesh?: NativeMeshId
+    }
+    readonly result: {
+      readonly team: TeamId
+      readonly tenant: NativeTenantId
+      readonly project: string
+      readonly origin: string
+      readonly mesh: NativeMeshId
+      readonly ipv4_cidr: string
+    }
+  }
   /** Remove a host from the team directory (its owner or a team admin). */
   readonly "host.remove": {
     readonly params: {
@@ -3735,6 +3749,7 @@ export const cloudOpMeta = {
   "home.settings.set": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "host.enroll": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
   "host.network.bind": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-own" },
+  "host.network.target": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "host.remove": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
   "host.replica.purge": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
   "inbox.archive": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },

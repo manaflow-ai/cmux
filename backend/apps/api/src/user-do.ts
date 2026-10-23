@@ -474,12 +474,12 @@ export class UserDO extends OwnerDO<UserState> {
     return inst.public_jwk as JsonWebKey
   }
   /** Public identity only, pinned to the calling client's exact current grant. */
-  async deviceKey(entity: string, install: string, grant: string): Promise<JsonWebKey | null> {
+  async deviceKey(entity: string, install: string, grant: string, required: "read" | "mutate-own" = "mutate-own"): Promise<JsonWebKey | null> {
     const engine = this.existing()
     if (!engine || engine.stream !== `user:${entity}`) return null
     const state = engine.currentState, inst = state.installs[install], held = state.grants[grant]
-    if (!state.user || !inst || !["mac", "ios", "cli"].includes(inst.kind) || inst.revoked_at !== null || inst.grant !== grant
-      || !held || held.revoked_at !== null || (held.expires_at !== null && held.expires_at <= Date.now()) || !held.op_classes.includes("mutate-own")) return null
+    if ((required !== "read" && required !== "mutate-own") || !state.user || !inst || !["mac", "ios", "cli"].includes(inst.kind) || inst.revoked_at !== null || inst.grant !== grant
+      || !held || held.revoked_at !== null || (held.expires_at !== null && held.expires_at <= Date.now()) || !held.op_classes.includes("mutate-own") || !held.op_classes.includes(required)) return null
     return inst.public_jwk as JsonWebKey
   }
   /** For other owners (TeamDO): is this install active, and what does its grant allow? */

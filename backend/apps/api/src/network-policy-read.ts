@@ -35,7 +35,7 @@ type Failure = { readonly ok: false; readonly code: string; readonly message: st
 export type NetworkRead = { readonly ok: true } | Failure
 
 /** Bound responses even when the trusted service sends an unexpected policy. */
-const policyBody = async (response: Response): Promise<Record<string, unknown> | null> => {
+export const networkBody = async (response: Response): Promise<Record<string, unknown> | null> => {
   const reader = response.body?.getReader()
   if (!reader) return null
   const chunks: Uint8Array[] = []
@@ -74,7 +74,7 @@ export const verifyNetworkIdentity = async (
     if (response.status === 401 || response.status === 403) return fail("auth.forbidden", "the network proof was refused")
     if (response.status === 409) return fail("validation.invalid", "sign a fresh network proof", true)
     if (!response.ok) return fail("owner.unreachable", "network identity verification is unavailable", true)
-    const policy = await policyBody(response)
+    const policy = await networkBody(response)
     if (!policy) return fail("owner.unreachable", "network identity verification is unavailable", true)
     if (policy.tenantId !== identity.tenant || policy.meshId !== identity.mesh || policy.deviceId !== identity.device
       || policy.wgPublicKey !== identity.wg || policy.installPublicKey !== identity.point) return fail("auth.forbidden", "the network identity does not match this install")

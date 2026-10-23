@@ -95,6 +95,7 @@ pub mod op_names {
     pub const HOME_SETTINGS_SET: &str = "home.settings.set";
     pub const HOST_ENROLL: &str = "host.enroll";
     pub const HOST_NETWORK_BIND: &str = "host.network.bind";
+    pub const HOST_NETWORK_TARGET: &str = "host.network.target";
     pub const HOST_REMOVE: &str = "host.remove";
     pub const HOST_REPLICA_PURGE: &str = "host.replica.purge";
     pub const INBOX_ARCHIVE: &str = "inbox.archive";
@@ -303,6 +304,7 @@ pub mod op_names {
         HOME_SETTINGS_SET,
         HOST_ENROLL,
         HOST_NETWORK_BIND,
+        HOST_NETWORK_TARGET,
         HOST_REMOVE,
         HOST_REPLICA_PURGE,
         INBOX_ARCHIVE,
@@ -514,6 +516,7 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "home.settings.set" => visitor.visit::<HomeSettingsSetOp>(),
         "host.enroll" => visitor.visit::<HostEnrollOp>(),
         "host.network.bind" => visitor.visit::<HostNetworkBindOp>(),
+        "host.network.target" => visitor.visit::<HostNetworkTargetOp>(),
         "host.remove" => visitor.visit::<HostRemoveOp>(),
         "host.replica.purge" => visitor.visit::<HostReplicaPurgeOp>(),
         "inbox.archive" => visitor.visit::<InboxArchiveOp>(),
