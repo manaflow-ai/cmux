@@ -77,6 +77,9 @@ public final class LayoutRootView: NSView {
     /// syncs it once, before this turn's frame (`setNeedsOverlaySync`).
     var overlayIsStale = false
     var overlayFlushScheduled = false
+    /// Pane rings and dims the overlay syncs placed, cumulative (PaneMotionWorkTests: per frame it
+    /// is the panes that moved, not every pane).
+    var overlayHostsPlaced = 0
 
     /// A split or a pane close is springing on some screen: the panes it resizes change size every
     /// frame, and their terminals keep their grids (the PTY resizes once, at rest) until it lands
