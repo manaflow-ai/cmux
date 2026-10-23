@@ -437,14 +437,15 @@ public final class PaletteController {
             return shortcutRecorder.handle(PaletteShortcutRecorder.shortcut(for: event), keyCode: event.keyCode, event: event)
         }
         if Self.inputMethodOwns(event) { return false }
+        let caret = Self.caret(in: event.window)
         guard let command = PaletteKeyMap.command(
             for: event,
             actionsMenuOpen: model.actionsMenu != nil,
             queryIsEmpty: model.query.isEmpty,
             registry: registry,
             hierarchical: model.currentPageIsHierarchical,
-            caretAtEnd: Self.caret(in: event.window).atEnd,
-            caretAtStart: Self.caret(in: event.window).atStart,
+            caretAtEnd: caret.atEnd,
+            caretAtStart: caret.atStart,
             selectedTogglesInPlace: model.selectedItem?.primary.togglesInPlace == true
         ) else { return false }
         return model.handle(command)
