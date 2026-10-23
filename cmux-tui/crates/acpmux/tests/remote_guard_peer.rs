@@ -104,7 +104,7 @@ async fn a_proven_peer_with_no_folder_gets_a_scratch_folder_named_after_the_sess
     let id = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}"));
     let cwd = hub.resolve(id).unwrap().meta().cwd.clone();
     let scratch_root = cwd.parent().unwrap();
-    assert!(scratch_root.starts_with(std::env::temp_dir()), "{r}");
+    assert!(scratch_root.starts_with(std::fs::canonicalize(std::env::temp_dir()).unwrap()), "{r}");
     assert!(
         scratch_root.file_name().unwrap().to_string_lossy().starts_with("acpmux-peer-scratch-"),
         "{r}"
