@@ -158,6 +158,29 @@ grid without reason (plans/cmux-next/ghostty-next.md section 6):
 - A preview (a Home list thumbnail, a tab switcher) attaches with
   `counts_override: false`.
 
+A phone or tablet view never gets a PTY grid larger than its own unless it
+lists `host-grid-view-v1` in `set-client-info` (it shows a larger grid itself,
+by letterbox or pan). No phone build does yet: each renders the PTY's output
+into its own grid, so a wider PTY overprints and cuts its rows. While such a
+view is attached with a reported size and counts (a preview with
+`counts_override: false` does not), the daemon caps the grid it applies, per
+dimension, at that size, under every policy and whoever is active. Under the
+default `latest` a Mac that was active last therefore keeps its own grid only
+up to the phone's size while the phone shows the terminal; it gets it back when
+the phone releases its size, its size lease ends, or it leaves (after the
+departed-view hold below). The published size state stays the engine's
+decision, as during a hold, so a Mac's size chip can name itself as the owner
+while the PTY is the phone's size (known limitation: the cap is not in the
+size state yet). The cap also applies under `fixed` and to a phone deferring
+under `priority`. When such a phone's link drops, the departed-view hold keeps
+the capped grid for its 30 seconds. A relayed phone is capped unless its relay
+lists the capability, so a relay lists it only when every leaf it forwards
+shows a larger grid. An old phone that recorded an overrule under an older
+daemon may reattach claiming the Mac's size as its own (it then shows the
+garbled screen until the app is relaunched); current phones never claim a Mac
+size larger than their grid. This is the daemon applying the engine's decision
+late, so the fixtures do not change.
+
 Rotation, split view and pinch report once, at the end of the transition or
 gesture. The fixtures "phone grid walkthrough", "a preview attach with counts
 off never shrinks the grid" and "a hidden phone stops counting and counts

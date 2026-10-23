@@ -140,9 +140,9 @@ public final class BrowserToolbarButtonsView: NSStackView {
 
     /// Pops `menu` up under `button` (under More when the button is
     /// collapsed, at the top of the view when the toolbar is hidden) on the
-    /// next run-loop turn, so a CLI or palette caller returns first. `themed` draws its rows in the
-    /// cmux NEXT menu look in the toolbar's theme (`NSMenu.themeRows(in:)`; the downloads and device
-    /// menus). A chosen themed row runs once the menu has closed, after `popUp` returns.
+    /// next run-loop turn, so a CLI or palette caller returns first. `themed` opens it in the
+    /// toolbar's light or dark look (`NSMenu.themeRows(in:)`; the downloads and device menus), a
+    /// standard macOS menu.
     public func present(_ menu: NSMenu, from button: BrowserToolbarButton, themed: Bool = false) {
         refresh()
         if themed { menu.themeRows(in: themeScope.fullStrength) }

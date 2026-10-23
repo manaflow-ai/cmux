@@ -144,6 +144,25 @@ in-memory state is applied; the journal append is a best-effort, non-blocking, c
 record wins when the queue is full, so the journal ends consistent, never torn); recovery = last journal state plus the
 holder's live terminals, with the A3 reconcile notice. Target: every daemon op < 2 ms p95 send to reply, creates included.
 
+### Daemon and acpmux targets (lead, 2026-10-23; Lawrence: "don't have disk stuff on the hot path")
+
+| # | Rule | Status |
+|---|---|---|
+| D1 | No I/O on any request path: no disk write or fsync, process-table scan, child process (git, sh), DNS or network. The request path changes memory and answers; I/O runs in background workers | disk syncs off (batch 1); journal best effort (decided); process scans and discovery-file writes on create: to check |
+| D2 | One writer, readers never wait: one event loop owns the state; subscribers and status queries read an immutable snapshot | open |
+| D3 | One connection per app, multiplexed streams; no per-terminal identify/set-client-info handshake; local output through a shared-memory ring (0 copies) | designed: [app-daemon-connection-DESIGN.md](app-daemon-connection-DESIGN.md) (PL-conn, cmux-4f); slices 1-5 |
+| D4 | Binary framing; no base64-in-JSON output (G5/G8 agreed format) | open |
+| D5 | Bounded queue per connection; a slow client is isolated and gets a fresh snapshot on overflow, never an unbounded backlog ([#20999](https://github.com/manaflow-ai/cmux/issues/20999), [#21000](https://github.com/manaflow-ai/cmux/issues/21000)) | open |
+| D6 | Event driven: 0 wakeups and 0 polling at idle; child exits via kqueue EVFILT_PROC ([#23087](https://github.com/manaflow-ai/cmux/issues/23087)) | open |
+| D7 | Fast start: snapshot plus journal tail, no full replay; hidden workspaces load on first open | open |
+| D8 | Client-minted ids and idempotent operations everywhere, so retries and best-effort durability stay correct | new rows/columns done; rest open |
+| A1 | acpmux: streaming tokens coalesced per frame to the app; transcript writes are background appends, never one sync write per token | audit |
+| A2 | acpmux: WebSocket handshake async, never blocking other sessions ([#21019](https://github.com/manaflow-ai/cmux/issues/21019)) | audit |
+| A3 | acpmux: no process per tool call (classic [#11520](https://github.com/manaflow-ai/cmux/issues/11520)) | audit |
+| T | Every daemon and acpmux op < 2 ms p95 send to reply, light and STRESS; 0 idle CPU | creates 20-23 ms p50 today |
+
+Owners: D1-D8 cmux-b6 PL-daemon (speed) with PL-holder (cmux-4f) for the holder side; A1-A3 an acpmux audit (cmux-4f, read only) whose fixes go to the code's owner. Every fix meets the brief's REVIEW AND FIX STANDARD and gets the deep review (cmux-next-deep-review).
+
 ## 4. Workstreams (batch 1)
 
 Each workstream is one subagent in its own worktree, lands on feat-cmux-next (rebase, plain
