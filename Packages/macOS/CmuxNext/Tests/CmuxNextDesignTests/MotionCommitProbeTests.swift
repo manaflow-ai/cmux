@@ -7,7 +7,7 @@ import Testing
 /// PL-cef-layer slice 1: no bench measured that wait, so a resize sync that cost a frame per motion
 /// frame could not be told from one that cost nothing.
 @MainActor
-@Suite struct MotionCommitProbeTests {
+@Suite(.serialized) struct MotionCommitProbeTests {
     final class FakeClock {
         var time: CFTimeInterval = 100
     }
@@ -45,5 +45,19 @@ import Testing
         MotionTrace.stop()
         MotionTrace.record(MotionCommitProbe.workName, milliseconds: 9)
         #expect(MotionTrace.work[MotionCommitProbe.workName] == [7])
+    }
+
+    /// Review 2: the probe was a static of `MotionTrace` (global run-loop observers on a package type). The
+    /// `debug.motion` handler owns it now: `start` adds its observers, `stop` removes them, and a recording without
+    /// one adds none.
+    @Test func theDebugMotionHandlerStartsAndStopsItsOwnProbe() {
+        let probe = MotionCommitProbe(record: { _ in })
+        _ = MotionDebug.handle(["action": "start"], windows: [], commitProbe: probe)
+        #expect(probe.isRunning)
+        _ = MotionDebug.handle(["action": "read"], windows: [], commitProbe: probe)
+        #expect(probe.isRunning)
+        _ = MotionDebug.handle(["action": "stop"], windows: [], commitProbe: probe)
+        #expect(!probe.isRunning)
+        #expect(!MotionTrace.isEnabled)
     }
 }

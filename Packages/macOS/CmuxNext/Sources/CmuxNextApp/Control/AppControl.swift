@@ -19,6 +19,8 @@ final class AppControl {
     private let frameProbe = DebugFrameProbe()
     private let mainCPUProbe = DebugMainCPUProbe()
     private let terminalDisplayProbe = DebugTerminalDisplayProbe()
+    /// `debug.motion`'s Core Animation commit timer (`ca.commit`), owned here, not by a static.
+    private let motionCommitProbe = MotionCommitProbe()
     private(set) var service: ControlService?
     private var publisher: ControlSnapshotPublisher?
     private(set) var errorJournal: ErrorJournalService?
@@ -89,7 +91,9 @@ final class AppControl {
             // Main-thread time in Ghostty's display passes (bench-terminal-resize.py).
             .mainActor("debug.terminal_display") { [probe = terminalDisplayProbe] call in .value(probe.handle(call.params)) },
             // Measured animation spans (plans/cmux-next/motion.md).
-            .mainActor("debug.motion") { [weak services] call in .value(DebugMotion.handle(call.params, services)) },
+            .mainActor("debug.motion") { [weak services, probe = motionCommitProbe] call in
+                .value(DebugMotion.handle(call.params, services, commitProbe: probe))
+            },
             // Launch, palette-open and terminal-creation spans (bench-stalls.py).
             .mainActor("debug.timings") { call in .value(DebugTimings.handle(call.params)) },
             // Each tab switch's own time: intent to shown, and to the next frame (perf-gate.py).

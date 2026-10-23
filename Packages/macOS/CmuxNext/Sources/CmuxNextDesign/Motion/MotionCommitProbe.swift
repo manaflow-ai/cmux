@@ -16,7 +16,15 @@ import QuartzCore
 /// Commits under ``floorMilliseconds`` are run-loop passes with nothing to commit and are not
 /// recorded, so an idle stretch does not fill the trace. The observers exist only while
 /// recording (DEBUG builds' `debug.motion start` to `stop`).
-final class MotionCommitProbe {
+///
+/// Not measured: commits outside the run-loop observer, which Chromium's pre- and post-commit
+/// waits also hold: an explicit `CATransaction.flush()` (`Motion+Popup`) and the flushes AppKit
+/// makes inside a window's live resize. A bench of the window's live resize reads its frames, not
+/// `ca.commit`.
+///
+/// The `debug.motion` handler owns the probe (`AppControl` makes one and passes it to
+/// ``MotionDebug/handle(_:windows:samplers:commitProbe:)``); no type holds one statically.
+public final class MotionCommitProbe {
     /// The `MotionTrace.work` name of the commits.
     static let workName = "ca.commit"
     /// One before Core Animation's commit observer (order 2,000,000).
@@ -31,6 +39,11 @@ final class MotionCommitProbe {
     private let record: (Double) -> Void
     private let now: () -> CFTimeInterval
 
+    /// A probe that adds each commit to ``MotionTrace`` work ``workName`` while it records.
+    public convenience init() {
+        self.init { MotionTrace.record(MotionCommitProbe.workName, milliseconds: $0) }
+    }
+
     /// - Parameters:
     ///   - now: the clock (`CACurrentMediaTime`); tests pass fixed times.
     ///   - record: gets the duration of each commit in ms (`MotionTrace` adds it to its work).
@@ -39,8 +52,11 @@ final class MotionCommitProbe {
         self.record = record
     }
 
+    /// Whether the observers are on the main run loop.
+    public var isRunning: Bool { !observers.isEmpty }
+
     /// Adds the two observers to the main run loop (no effect while they exist).
-    func start() {
+    public func start() {
         guard observers.isEmpty else { return }
         commitStart = nil
         let activities = CFRunLoopActivity.beforeWaiting.rawValue | CFRunLoopActivity.exit.rawValue
@@ -59,7 +75,7 @@ final class MotionCommitProbe {
     }
 
     /// Removes the observers.
-    func stop() {
+    public func stop() {
         for observer in observers { CFRunLoopObserverInvalidate(observer) }
         observers.removeAll()
         commitStart = nil
