@@ -7,7 +7,7 @@ Paste one of these into Chief, or any agent chat in cmux. Each one runs a `cmux 
 ## Set up this Mac
 
 ```text
-Set up this Mac for agents: run `cmux setup status`, then run the `fix` it names for each check that needs one (harnesses installed and signed in, the cmux MCP server for Claude Code and Codex, this folder's trust). Keep each undo, and tell me only what I must do myself.
+Set up this Mac for agents: run `cmux setup status`, then run the `fix` it names for the harness, MCP and folder trust checks only. For the Cloud machine, Tailscale and other machines, list what it found and ask me before you change anything. Keep each undo, and tell me only what I must do myself.
 ```
 
 ## Trust a folder so agents start in it without asking
@@ -27,7 +27,7 @@ What only you can do: the harness's own sign-in (OAuth in a browser) and install
 ## Add an ssh machine as an agent peer, or update or repair one
 
 ```text
-Add my machine HOST as an agent machine (a Mac on my tailnet such as `studio`, or an ssh host such as `ubuntu@build-1`): run `cmux setup machine HOST`, then `cmux acp host doctor NAME --json` with the peer name it reports. If ssh refuses, give me the command to try; never ask for my password. Tell me the undo.
+Add my machine HOST as an agent machine (a Mac on my tailnet such as `studio`, or an ssh host such as `ubuntu@build-1`): run `cmux setup machine HOST`, then `cmux acp host doctor` with the peer name it reports and `--json`. If ssh refuses, give me the command to try; never ask for my password. Tell me the undo.
 ```
 
 What only you can do: key-only ssh to the machine: adding a key there or fixing ssh config.
@@ -57,7 +57,7 @@ What only you can do: signing in to cmux, and allowing the new machine on the ca
 ## Serve this machine to the person's other machines over Tailscale
 
 ```text
-Let my other machines reach this one over Tailscale: run `cmux setup tailnet`, tell me the one Tailscale step it names for me (install, start, sign in or approve), and run it again once I have done it. If it asks for my tailnet login, ask me. Tell me the undo.
+Let my other machines reach this one over Tailscale, for my own Tailscale login only: run `cmux setup tailnet`, tell me the one Tailscale step it names for me (install, start, sign in or approve), and run it again once I have done it. If it asks for my tailnet login, ask me. Tell me the undo.
 ```
 
 What only you can do: installing Tailscale, signing in to it (`tailscale up`, a browser sign-in), and an admin approving the device when the tailnet requires it.
@@ -73,7 +73,7 @@ What only you can do: installing the cmux iPhone app (TestFlight invite while it
 ## Add another machine with one pasted line (a single-use pairing ticket)
 
 ```text
-Give me one line to paste on my other machine so it can use this one: run `cmux host ticket new --json` and give me its `install_command` (or its `join_command` when cmux is already installed there). If its `url` starts with ws://, tell me what to forward first. It works once, within 15 minutes; tell me how to revoke it.
+Give me one line to paste on my other machine MACHINE so it can use this one: run `cmux host ticket new --label MACHINE --json` and give me its `install_command` (or its `join_command` when cmux is already installed there). If its `url` starts with ws://, tell me what to forward first. It works once, within 15 minutes; tell me how to revoke it.
 ```
 
 What only you can do: pasting the line on the other machine.
