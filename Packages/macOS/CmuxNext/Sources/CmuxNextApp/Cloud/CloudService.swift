@@ -295,21 +295,24 @@ final class CloudService {
 
     // MARK: Machine list
 
-    /// Bumped by each ``refresh()`` and by ``dropAllMachines()``: a list that
-    /// comes back after a newer refresh started, or after the account's
-    /// machines were dropped (sign-out, another account), is stale.
+    /// Bumped by each ``refresh()``, by ``dropAllMachines()`` and by a create
+    /// or delete here: a list that comes back after a newer refresh started,
+    /// after the account's machines were dropped (sign-out, another account),
+    /// or after this app added or removed a machine, is stale.
     @ObservationIgnored private var listGeneration = 0
 
     /// Fetches `/api/vm` and reconciles sessions: new live machines connect,
     /// gone machines disconnect, records update in place. A stale list (see
-    /// `listGeneration`) changes nothing, so it can neither bring back a
-    /// signed-out account's machines nor mark the store loaded with an
-    /// older answer than the latest refresh's.
+    /// `listGeneration`), or one fetched for another user or team than the
+    /// one signed in when it lands, changes nothing: it can neither bring back
+    /// a signed-out account's machines, nor undo a create or delete it did not
+    /// see, nor mark the store loaded with an older answer than the latest.
     func refresh() async {
         guard auth.isSignedIn, unavailableReason == nil else { return }
         lastRefresh = .now
         listGeneration += 1
         let generation = listGeneration
+        let account = listAccount
         do {
             let list: [CloudMachine]
             let limits: CloudMachineLimits?
@@ -321,13 +324,13 @@ final class CloudService {
                 list = listed.machines
                 limits = listed.limits
             }
-            guard listGeneration == generation, auth.isSignedIn else { return }
+            guard listGeneration == generation, auth.isSignedIn, listAccount == account else { return }
             machines.cloudLimits = limits
             lastError = nil
             reconcile(list)
             hasLoadedMachines = true
         } catch {
-            guard listGeneration == generation, auth.isSignedIn else { return }
+            guard listGeneration == generation, auth.isSignedIn, listAccount == account else { return }
             lastError = String(describing: error)
             logger.error("machine list failed: \(String(describing: error), privacy: .public)")
         }
@@ -338,6 +341,10 @@ final class CloudService {
         if let last = lastRefresh, last.duration(to: .now) < age { return }
         await refresh()
     }
+
+    /// Whom a machine list is for: the signed-in user and the team the API
+    /// client sends (``CloudAuth/teamID``).
+    private var listAccount: [String?] { [auth.user?.id, auth.teamID] }
 
     private func reconcile(_ list: [CloudMachine]) {
         // A list that arrives after Cloud was turned off connects nothing.
@@ -419,11 +426,15 @@ final class CloudService {
         logger.info("created machine \(machine.id, privacy: .public)")
         if let existing = machines.session(machine.id) { return existing }
         guard let session = addSession(machine) else { throw ActionFailure(message: CloudStrings.noClient) }
+        // A list in flight was asked before this machine existed.
+        listGeneration += 1
         return session
     }
 
     func deleteMachine(_ machineID: String) async throws {
         try await api.deleteMachine(machineID)
+        // A list in flight was asked while this machine still existed.
+        listGeneration += 1
         creations.machineRemoved(machineID)
         machines.remove(machineID)?.disconnect()
         logger.info("deleted machine \(machineID, privacy: .public)")
