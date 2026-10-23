@@ -106,9 +106,12 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     let tableWidths: (any MarkdownTableWidthStoring)?
     /// Where the markdown page's viewer comments live between opens (nil: none are kept).
     /// ``FilePageProvider+Comments.swift``.
-    let comments: (any MarkdownTableWidthStoring)?
+    let comments: (any MarkdownCommentStoring)?
     /// Sends the page a changed comment list (the service sets it: the `comments` page command).
     var onCommentsChanged: ((JSONValue) -> Void)?
+    /// The newest persisted comment mutation already published to this page. A later callback can
+    /// finish parsing before an older one, so stale mutations must not overwrite the page.
+    private var latestCommentsSequence = 0
     /// The table the page last reported under a right-click (its index), for the native menu's
     /// Reset Column Widths; nil when the right-click was outside every table.
     var contextTable: Int?
@@ -122,7 +125,7 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     /// the document read only whoever opened it (a chat transcript).
     init(kind: FilePageKind, file: URL?, userChose: Bool = true, readOnly: Bool = false, host: any FilePageHosting,
          clock: any Clock<Duration> = ContinuousClock(), libraries: URL?, images: any RemoteImageFetching,
-         tableWidths: (any MarkdownTableWidthStoring)? = nil, comments: (any MarkdownTableWidthStoring)? = nil) {
+         tableWidths: (any MarkdownTableWidthStoring)? = nil, comments: (any MarkdownCommentStoring)? = nil) {
         self.kind = kind
         self.tableWidths = tableWidths
         self.comments = comments
