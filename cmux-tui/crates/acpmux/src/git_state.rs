@@ -17,11 +17,8 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct WorktreeOrigin {
-    /// The session's `cwd` this was read for.
     pub cwd: PathBuf,
-    /// The worktree's top folder (`cwd` or a folder above it).
     pub root: PathBuf,
-    /// The repository's common git directory.
     pub common_dir: PathBuf,
     /// The branch checked out there: `None` on a detached HEAD, which comes back at `head`.
     #[serde(default, skip_serializing_if = "Option::is_none")]

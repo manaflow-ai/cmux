@@ -102,6 +102,9 @@ impl Hub {
                     if found.cwd == expected.cwd
                         && found.root == expected.root
                         && found.common_dir == expected.common_dir
+                        && (found.branch == expected.branch
+                            || found.head == expected.head
+                                && (found.branch.is_none() || expected.branch.is_none()))
             )
         })
         .await
