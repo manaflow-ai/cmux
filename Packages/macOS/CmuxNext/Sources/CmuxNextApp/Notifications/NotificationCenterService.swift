@@ -36,6 +36,8 @@ final class NotificationCenterService {
     var dismissedMarks: [String: UInt64] = [:]
     /// The marked tabs at the last change, for their banners (`+Attention`); nil before the first list.
     @ObservationIgnored var attentionSeen: [AgentPaneAttentionTabs.Item]?
+    /// The Needs you banners this launch posted and has not withdrawn: only these may Show.
+    @ObservationIgnored var attentionBanners: Set<String> = []
     @ObservationIgnored weak var services: AppServices?
     /// Bumped when a window's settled focus changes: the viewed-tab rules
     /// (`followViewedProgramStatus`) re-read which tabs are viewed.

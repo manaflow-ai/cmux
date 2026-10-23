@@ -43,6 +43,10 @@ extension NotificationCenterService {
         let changes = Self.attentionChanges(previous: attentionSeen, current: items)
         attentionSeen = items
         desktop.withdraw(changes.withdraw)
+        attentionBanners.subtract(changes.withdraw)
+        // A banner left in Notification Center by an earlier launch is not in this set, so its
+        // Show opens nothing even when its request is still the tab's live mark.
+        attentionBanners.formUnion(changes.post.map(Self.attentionBannerID))
         guard desktopPostingEnabled else { return }
         for item in changes.post { postAttention(item) }
     }
@@ -87,12 +91,12 @@ extension NotificationCenterService {
     }
 
     /// A Needs you banner's Show (or click): the tab, as a user's jump (``AgentPaneAttentionTabs/open(_:)``),
-    /// only while the banner's own request is the tab's live mark. A banner from an earlier launch,
-    /// or one a newer request on the tab replaced, opens nothing.
+    /// only for a banner this launch posted whose request is still the tab's live mark. A banner
+    /// from an earlier launch, or one a newer request on the tab replaced, opens nothing.
     func showAttention(banner: String) -> Bool {
         guard let tab = Self.attentionTab(banner: banner) else { return false }
         let shared = AgentPaneAttentionTabs.shared
-        guard shared.items.contains(where: { Self.attentionBannerID($0) == banner }) else {
+        guard attentionBanners.contains(banner), shared.items.contains(where: { Self.attentionBannerID($0) == banner }) else {
             note("attention banner \(banner): its request is gone")
             return true
         }

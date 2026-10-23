@@ -71,6 +71,24 @@ struct AttentionBannerTests {
         #expect(!service.showAttention(banner: "cmux-notification-3"), "other banners keep their own path")
     }
 
+    /// A banner left in Notification Center by an earlier launch, whose request is still the tab's
+    /// live mark after the restart: this launch posted nothing for it, so its Show opens nothing.
+    @Test func anEarlierLaunchsBannerOpensNothingEvenWhileItsMarkIsLive() {
+        _ = NSApplication.shared
+        let shared = AgentPaneAttentionTabs.shared
+        let (items, onOpen) = (shared.items, shared.onOpen)
+        defer { shared.items = items; shared.onOpen = onOpen }
+        var shown: [String] = []
+        shared.onOpen = { id in shown.append(id); return true }
+        let live = Self.item(AttentionTabsWatch.key(machine: "local", tab: "tab_1"), at: 1_000)
+        shared.items = [live]
+        let restarted = NotificationCenterService()
+        restarted.desktopPostingEnabled = false
+        restarted.attentionMarksChanged(shared.items)
+        #expect(restarted.showAttention(banner: NotificationCenterService.attentionBannerID(live)))
+        #expect(shown.isEmpty, "an earlier launch's banner went to the tab")
+    }
+
     /// Tabs on this Mac and on an SSH machine share an id (a forked machine keeps its tab ids),
     /// in workspaces of their own. Muting the SSH machine's workspace silences only its tab's
     /// banner: each row's key sends the policy to the tab on its own machine.
