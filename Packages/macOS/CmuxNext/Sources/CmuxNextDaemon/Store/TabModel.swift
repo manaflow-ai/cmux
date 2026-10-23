@@ -244,7 +244,7 @@ public final class TabModel: Identifiable {
         remote = s.remote
         conversation = s.conversation
         app = s.app
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         // A traced new terminal's tab reached the store (its `tab-added`, or a resync's snapshot).
         if NewTerminalTrace.shared.isArmed, let terminal = s.terminalID {
             NewTerminalTrace.shared.tabAdded(terminal: terminal.rawValue, surface: s.surface.rawValue)

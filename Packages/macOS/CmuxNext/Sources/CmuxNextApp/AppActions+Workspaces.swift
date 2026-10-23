@@ -50,7 +50,7 @@ extension AppActions {
         services.pages.register(HomeChannelsPageTab.make(services))
         // The docked Home's tab (HomeDockTab): the Messages or Channels view (the sidebar's Home or Channels entry).
         services.pages.register(HomeDockTab(services: services))
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         services.pages.register(DebugHomeNativeFixture(openPanel: services.openPanel))
         #endif
         registry.bind("home.channels") { _ = HomeChannelsPageTab.open(services) }

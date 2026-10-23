@@ -81,7 +81,7 @@ final class AppControl {
         ])
         // Diagnostics for tagged DEV builds; a release build registers no debug.* method
         // (ControlRouter drops them too: Configuration.allowsDebugMethods).
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         service.router.register(DebugHibernationControl.methods(services))
         service.router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }])
         service.router.register([
@@ -214,7 +214,7 @@ final class AppControl {
             },
         ])
         #endif
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         // Deliberately blocks the main thread (watchdog and bench self-test).
         service.router.register([
             .mainActor("debug.home.drive") { [weak services] call in
@@ -337,14 +337,6 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugSidebarRows.report(call.params, services: services))
             },
-            .mainActor("debug.sidebar_nested_fixture") { [weak services] call in
-                guard let services else { return .value(.null) }
-                return .value(DebugSidebarNestedFixture.show(call.params, services: services))
-            },
-            .mainActor("debug.sidebar_group_drag") { [weak services] call in
-                guard let services else { return .value(.null) }
-                return .value(DebugSidebarGroupDrag.run(call.params, services: services))
-            },
             .mainActor("debug.sidebar_wheel") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugSidebarWheel.post(call.params, services: services))
@@ -352,16 +344,6 @@ final class AppControl {
             .mainActor("debug.sidebar_rename") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugKey.beginSidebarRename(call.params, services: services))
-            },
-            // `debug.view_key {view, key, modifiers?, window?}`: a real key-down/up into a
-            // named view made first responder; `debug.focus_ring`: the sidebar's ring (cx-tupd).
-            .mainActor("debug.view_key") { [weak services] call in
-                guard let services else { return .value(.null) }
-                return .value(DebugViewKey.send(call.params, services: services))
-            },
-            .mainActor("debug.focus_ring") { [weak services] call in
-                guard let services else { return .value(.null) }
-                return .value(DebugViewKey.focusRingReport(call.params, services: services))
             },
             // CEF's own DevTools wait is 5 s (CEFRuntime.devToolsTimeout); the 2 s
             // control-plane deadline cut off replies that arrive between 2 and 5 s.
@@ -470,6 +452,30 @@ final class AppControl {
                 return .value(["stalled_ms": .number(Double(milliseconds))])
             },
         ])
+        // Sidebar fixtures and the sidebar focus ring live in CmuxNextSidebar behind DEBUG only, so a bench
+        // build (CMUX_BENCH_HOOKS without DEBUG) registers these routes in DEBUG builds alone.
+        #if DEBUG
+        service.router.register([
+            .mainActor("debug.sidebar_nested_fixture") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugSidebarNestedFixture.show(call.params, services: services))
+            },
+            .mainActor("debug.sidebar_group_drag") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugSidebarGroupDrag.run(call.params, services: services))
+            },
+            // `debug.view_key {view, key, modifiers?, window?}`: a real key-down/up into a
+            // named view made first responder; `debug.focus_ring`: the sidebar's ring (cx-tupd).
+            .mainActor("debug.view_key") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugViewKey.send(call.params, services: services))
+            },
+            .mainActor("debug.focus_ring") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugViewKey.focusRingReport(call.params, services: services))
+            },
+        ])
+        #endif
         #endif
         let publisher = ControlSnapshotPublisher(router: service.router, services: services, frames: frames)
         self.publisher = publisher
