@@ -158,6 +158,12 @@ class Fixture(unittest.TestCase):
     def refused(self, *args):
         return [(r.id, [f"{h.path.rsplit('/', 1)[-1]}: {h.text.strip()}" for h in hits]) for r, hits in self.check(*args)[0]]
 
+    def rebase_on(self, files, message="more base debt"):
+        for relative, text in files.items():
+            self.write(relative, text)
+        self.commit(message)
+        self.base = self.git("rev-parse", "HEAD").stdout.strip()
+
     def report(self, skip, refusals):
         os.environ[guardrails.SKIP_ENV] = skip
         try:
@@ -1809,6 +1815,48 @@ class WarningTests(Fixture):
         _, warnings = self.check()
         self.assertFalse(any("removes a perf-hot marker" in w for _, w in warnings), warnings)
         self.assertTrue(any(kind == "perf-hot" for kind, _ in warnings), warnings)
+
+    # ChordTracker.step and KeyBindingTable.step (feat-cmux-next): the signature runs over two lines and the marker
+    # trails the line with the body's `{`.
+    WRAPPED = ("import Foundation\nstruct Chords {\n    var armed = 0\n"
+               "    mutating func step(_ key: Int, window: Int, focus: Int? = nil,\n"
+               "                       first: (Int) -> Int?, canArm: () -> Bool) -> Int { // perf-hot: 0.5ms key-dispatch\n"
+               "        armed += key\n        return armed\n    }\n}\n")
+
+    def test_a_marker_after_a_wrapped_signature_marks_its_function(self):
+        self.rebase_on({f"{KIT}/Chords.swift": self.WRAPPED}, "a wrapped hot signature")
+        self.write(f"{KIT}/Chords.swift", self.WRAPPED.replace("armed += key", "armed += key * 2"))
+        self.commit("changes the hot body")
+        hot = [w for kind, w in self.check()[1] if kind == "perf-hot"]
+        self.assertEqual(len(hot), 1, hot)
+        self.assertIn("Chords.swift:4:", hot[0])
+        self.assertIn("mutating func step", hot[0])
+        self.assertIn("bench-typing.py", hot[0])
+
+    def test_a_marker_that_marks_no_declaration_warns(self):
+        self.write(f"{KIT}/Router.swift", HOT.replace("        count = 0\n", "        count = 0 // perf-hot: 2ms key-dispatch\n"))
+        self.commit("a marker on a statement")
+        hot = [w for kind, w in self.check()[1] if kind == "perf-hot"]
+        self.assertTrue(any("Router.swift:8:" in w and "marks no declaration" in w for w in hot), hot)
+
+    def test_codebase_health_counts_the_markers_the_guardrails_resolve(self):
+        spec = importlib.util.spec_from_file_location("cmux_next_codebase_health", SOURCE / "scripts/cmux-next/codebase-health.py")
+        health = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(health)
+        chords, router = f"{KIT}/Chords.swift", f"{KIT}/Router.swift"
+        texts = {chords: self.WRAPPED,
+                 router: HOT.replace("        count = 0\n", "        count = 0 // perf-hot: 2ms key-dispatch\n")}
+
+        def resolved():
+            """(path, declaration line) per marker, None for a marker that marks no declaration."""
+            found = [(m.path, m.declaration) for m in health.perf_hot_markers(guardrails, texts) if m.pid == "key-dispatch"]
+            return sorted(found, key=lambda entry: (entry[0], -1 if entry[1] is None else entry[1]))
+
+        self.assertEqual(resolved(), [(chords, 4), (router, None), (router, 4)],
+                         "Chords' wrapped step() and Router's dispatch() are marked; the statement marker marks nothing")
+        texts[router] = HOT.replace(" // perf-hot: 2ms key-dispatch", "").replace(
+            "        count = 0\n", "        count = 0 // perf-hot: 2ms key-dispatch\n")
+        self.assertEqual(resolved(), [(chords, 4), (router, None)], "a marker on a statement marks nothing")
 
     def test_touching_an_owned_area_names_the_owner_and_doc(self):
         self.write(f"{KIT}/Sidebar/Row.swift", "struct R {}\n")
