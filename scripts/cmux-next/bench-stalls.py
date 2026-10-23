@@ -102,8 +102,10 @@ def stop_tag(tag, app_pid):
 
 
 class Run:
-    def __init__(self, tag, threshold_ms, scratch):
+    def __init__(self, tag, threshold_ms, scratch, extra_env=None):
         self.tag = tag
+        # Launch variables a caller adds (bench-page-cadence.py: the STRESS window frame).
+        self.extra_env = dict(extra_env or {})
         self.socket = f"/tmp/cmux-debug-{tag}.sock"
         if os.path.realpath(self.socket) in {"/tmp/cmux-debug.sock", "/private/tmp/cmux-debug.sock"}:
             raise SystemExit("refusing the default socket")
@@ -130,6 +132,7 @@ class Run:
             "CMUX_NEXT_TEST_WINDOW_SCREEN": "last",
             "CMUX_NEXT_CONFIG_FILE": os.path.join(self.scratch, "cmux.json"),
             "CMUX_NEXT_HANG_THRESHOLD_MS": str(self.threshold_ms),
+            **self.extra_env,
         }
         self.started = time.monotonic()
         process = subprocess.Popen([app_binary(self.tag)], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
