@@ -8217,6 +8217,7 @@ function AcpmuxPane() {
               {...(newTab.widgets ? { widgets: true } : {})}
               pageWidgets={shownPageWidgets(shownTemplate(newTab), newTab.pageWidgets)}
               {...(newTab.allChats === false ? { allChats: false } : {})}
+              {...(newTab.weather ? { weather: newTab.weather } : {})}
               onEditWidgets={(edit) =>
                 editNewTabWidgets(edit, {
                   callNative,
