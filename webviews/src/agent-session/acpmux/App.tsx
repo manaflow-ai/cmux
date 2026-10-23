@@ -68,6 +68,7 @@ import { PageDots } from "./newtab/PageDots";
 import { editedPageWidgets, editNewTabWidgets, shownPageWidgets } from "./newtab/pageWidgets";
 import { screenTemplate, shownTemplate } from "./newtab/templates";
 import { newTabPageSubmit } from "./newtab/pageSubmit";
+import { holdNewTabAttachments } from "./newtab/remoteAttachmentDraft";
 import { isAgentHome, projectLabel, recentLocalFolders, sessionTitle, type AcpmuxSessionEntry } from "./sessionList";
 import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
 import { PromptMarksSession } from "./threadMinimap/promptMarks";
@@ -7070,7 +7071,10 @@ function AcpmuxPane() {
       void (async () => {
         // A chat on another machine starts only with a send (cx-k21v): with no text, the folder
         // waits for the first send.
-        if (folder && !text && directClient.current?.startsOnSend) return setProjectDraft(folder);
+        if (folder && !text && directClient.current?.startsOnSend) {
+          heldBack.current = holdNewTabAttachments(heldBack.current, attachments);
+          return setProjectDraft(folder);
+        }
         const started = folder ? await callNative("chat.new", { cwd: folder }) : undefined;
         // A chat the person started here with a prompt makes its project the default.
         if (started && text && !directClient.current?.startsOnSend) rememberStartedProject(folder, callNative);
