@@ -4,7 +4,7 @@
 // which is every pane narrower than about 816 px. Now it stays: in a narrow pane it draws a minimal
 // rail inside the page edge at rest, clear of the text, and the full wave (the Dock magnify, the
 // card) while the pointer or keyboard focus is on it.
-import { afterAll, afterEach, expect, test } from "bun:test";
+import { afterAll, afterEach, expect, jest, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
@@ -216,6 +216,62 @@ test("keyboard focus on a narrow rail's row shows the full wave too", async () =
   }
 });
 
+const card = () => document.querySelector<HTMLElement>(".acpmux-minimap__card");
+const advance = (ms: number) => act(async () => void jest.advanceTimersByTime(ms));
+/// Hovers row `index` until its preview card opens (Codex's 250 ms), then moves the pointer into the
+/// card, which keeps it open.
+async function holdCard(index: number) {
+  await enter(index);
+  await advance(300);
+  expect(card()?.textContent).toContain(`Question ${index}`);
+  await pointer("pointerout", tick(index), { relatedTarget: card() });
+  await advance(1_000);
+  expect(card()?.textContent).toContain(`Question ${index}`);
+}
+
+// The card is part of the full wave: with the pointer on it, the narrow rail stays expanded and
+// keeps the magnify around the prompt it previews, not 6 px ticks in a 36 px glass box (#24525
+// review round 1).
+test("with the pointer on its card, a narrow rail keeps the full wave around the previewed prompt", async () => {
+  paneWidth = 360;
+  const view = await mount(12);
+  jest.useFakeTimers();
+  try {
+    await holdCard(5);
+    const box = railBox()!;
+    expect(box.rail.hasAttribute("data-expanded")).toBe(true);
+    expect(box.width).toBe(36);
+    expect(ticks().map((_, index) => Math.round(length(index)))).toEqual([6, 6, 10, 14, 20, 26, 20, 14, 10, 6, 6, 6]);
+    expect(tick(5).getAttribute("data-tone")).toBe("active");
+    // Off the card, and not back on the rail: minimal again.
+    await pointer("pointerout", card()!, { relatedTarget: document.body });
+    await advance(600);
+    expect(railBox()!.rail.hasAttribute("data-expanded")).toBe(false);
+    expect(lengths().every((px) => px > 0 && px < 6)).toBe(true);
+  } finally {
+    jest.useRealTimers();
+    await view.unmount();
+  }
+});
+
+// The wide rail keeps #24058's card-held look: its ticks ease back to rest as the pointer leaves the
+// rail for the card, and the prompt the card previews stays lit.
+test("with the pointer on its card, a wide rail keeps its ticks at rest and the previewed prompt lit", async () => {
+  const view = await mount(12);
+  jest.useFakeTimers();
+  try {
+    await holdCard(5);
+    const box = railBox()!;
+    expect(box.rail.hasAttribute("data-narrow")).toBe(false);
+    expect({ left: box.left, width: box.width }).toEqual({ left: 16, width: 36 });
+    expect(ticks().map((_, index) => Math.round(length(index)))).toEqual(Array(12).fill(6));
+    expect(tick(5).getAttribute("data-tone")).toBe("active");
+  } finally {
+    jest.useRealTimers();
+    await view.unmount();
+  }
+});
+
 test("a wide pane keeps the rail as it was: 16 px in, 36 px rows, 6 px ticks", async () => {
   const view = await mount(12);
   try {
@@ -242,6 +298,12 @@ test("the narrow rail's change of look obeys Reduce Motion and ends on its own",
   expect(css).not.toMatch(/acpmux-minimap[^{]*\{[^}]*animation[^}]*infinite/);
   // ...and not at all under Reduce Motion, from the system or the rail's own read of it.
   expect(css).toMatch(/\.acpmux-minimap__rail\[data-reduce\]\[data-narrow\]::before\s*\{[^}]*transition:\s*none/);
-  const reduce = /@media \(prefers-reduced-motion: reduce\)\s*\{([\s\S]*?)\n\}/.exec(css)?.[1] ?? "";
-  expect(reduce).toMatch(/\.acpmux-minimap__rail\[data-narrow\]::before/);
+  // The system's Reduce Motion rule has the base rule's specificity, so it wins only from after it
+  // in the sheet (#24525 review round 1: it came first, and the base transition won).
+  const base = css.search(/\.acpmux-minimap__rail\[data-narrow\]::before\s*\{[^}]*content:/);
+  expect(base).toBeGreaterThan(-1);
+  const overrides = [...css.matchAll(/@media \(prefers-reduced-motion: reduce\)\s*\{([\s\S]*?)\n\}/g)]
+    .filter((match) => /\.acpmux-minimap__rail\[data-narrow\]::before\s*\{[^}]*transition:\s*none/.test(match[1]!))
+    .map((match) => match.index!);
+  expect(overrides.some((at) => at > base)).toBe(true);
 });
