@@ -207,7 +207,9 @@ struct ClickableCursorTrackerTests {
         #expect(host.cursors == [NSCursor.pointingHand, NSCursor.arrow])
         #expect(ClickableCursorTracker.owner == nil)
 
+        // Clips its subviews, as the tab bar's scroll view (its clip view) does.
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 100))
+        container.clipsToBounds = true
         let clipped = Host(in: container)
         clipped.tracker.pointerEntered()
         container.frame.size.width = 5
