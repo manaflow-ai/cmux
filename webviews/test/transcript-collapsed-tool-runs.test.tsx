@@ -194,7 +194,13 @@ test("an edit waiting for its permission keeps its row in an ended turn's folded
 });
 
 test("an edit waiting for its permission next to finished edits keeps its row", () => {
-  const items = [read("src/a.ts"), command("ls"), edit("src/b.ts"), edit("src/a.ts", { status: "pending" }), edit("src/c.ts")];
+  const items = [
+    read("src/a.ts"),
+    command("ls"),
+    edit("src/b.ts"),
+    edit("src/a.ts", { status: "pending" }),
+    edit("src/c.ts"),
+  ];
   const ended = turnView(
     [
       row("u4", "user", { text: "Edit them" }),
