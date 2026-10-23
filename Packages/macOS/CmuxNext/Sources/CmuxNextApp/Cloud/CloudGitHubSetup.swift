@@ -120,12 +120,20 @@ nonisolated enum CloudGitHubSetup {
             // Detached from the exec (its own session, when setsid exists) so the sign-in
             // outlives it; git then uses gh as its credential helper.
             #"$s nohup sh -c \#(signInScript) \#(signInMarker) "$d" </dev/null >"$log" 2>&1 &"#,
-            "i=0; code=",
-            #"while [ $i -lt 60 ]; do code=$(sed -n 's/.*one-time code: \([A-Z0-9][A-Z0-9]*-[A-Z0-9][A-Z0-9]*\).*/\1/p' "$log" 2>/dev/null | head -n 1); [ -n "$code" ] && break; sleep 0.25; i=$((i+1)); done"#,
-            #"if [ -n "$code" ]; then echo "cmux-gh: pending $code"; else echo 'cmux-gh: failed'; fi"#,
+            readCodeCommand,
         ]
         return lines.joined(separator: "\n")
     }
+
+    /// Waits up to 15 s for gh's one-time code in `$log` and prints `cmux-gh: pending <code>`, or
+    /// `cmux-gh: failed`. Once the code is read the log is unlinked: gh keeps writing to the open
+    /// file, but the code no longer sits on the machine's disk for anything else to read. A log
+    /// with no code stays, for diagnosing the failed start.
+    static let readCodeCommand = [
+        "i=0; code=",
+        #"while [ $i -lt 60 ]; do code=$(sed -n 's/.*one-time code: \([A-Z0-9][A-Z0-9]*-[A-Z0-9][A-Z0-9]*\).*/\1/p' "$log" 2>/dev/null | head -n 1); [ -n "$code" ] && break; sleep 0.25; i=$((i+1)); done"#,
+        #"if [ -n "$code" ]; then rm -f "$log"; echo "cmux-gh: pending $code"; else echo 'cmux-gh: failed'; fi"#,
+    ].joined(separator: "\n")
 
     /// The detached sign-in's `$0`: the stop below signals only a shell whose command line has it.
     static let signInMarker = "cmux-gh-login"

@@ -288,6 +288,19 @@ struct CloudGitHubSetupTests {
         #expect(world.leftFiles.isEmpty)
     }
 
+    /// The code is printed once and the log that held it is gone, so it does not stay on the
+    /// machine's disk.
+    @Test func readingTheCodeRemovesTheLogThatHeldIt() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-gh-code-\(UUID().uuidString.prefix(8))")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let log = root.appendingPathComponent("gh-login.log")
+        try Data("! First copy your one-time code: AB12-CD34\nOpen this URL to continue\n".utf8).write(to: log)
+        let ran = try Self.sh("log=\(CloudGitHubSetup.shellQuote(log.path))\n" + CloudGitHubSetup.readCodeCommand, home: root.path, extra: [:])
+        #expect(ran.output == "cmux-gh: pending AB12-CD34\n")
+        #expect(!FileManager.default.fileExists(atPath: log.path), "the code stayed on disk")
+    }
+
     // MARK: Helpers
 
     nonisolated struct FakeGit: MarkdownGitRunning {
