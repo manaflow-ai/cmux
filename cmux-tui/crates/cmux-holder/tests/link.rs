@@ -71,8 +71,14 @@ fn eight_threads_spawn_at_once_and_each_terminal_gets_only_its_own_output() {
     )
     .unwrap();
     let (lost_tx, lost_rx): (Sender<()>, _) = channel();
-    let (link, listed) =
-        HolderLink::connect(&socket, &TOKEN, Box::new(move || drop(lost_tx.send(())))).unwrap();
+    let (link, listed) = HolderLink::connect(
+        &socket,
+        &TOKEN,
+        Box::new(move || {
+            let _ = lost_tx.send(());
+        }),
+    )
+    .unwrap();
     assert!(listed.is_empty());
 
     let spawned: Vec<(u32, Arc<Collect>, OwnedFd)> = std::thread::scope(|scope| {

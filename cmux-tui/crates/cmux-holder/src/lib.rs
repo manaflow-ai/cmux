@@ -148,26 +148,6 @@ impl ExitStatus {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn spawn_request_round_trips() {
-        let request = SpawnRequest {
-            id: [7; 16],
-            cols: 80,
-            rows: 24,
-            px_w: 640,
-            px_h: 384,
-            cwd: b"/tmp".to_vec(),
-            argv: vec![b"/bin/sh".to_vec(), b"-l".to_vec()],
-            env: vec![b"TERM=xterm-256color".to_vec()],
-        };
-        assert_eq!(SpawnRequest::decode(&request.encode()).unwrap(), request);
-    }
-}
-
 /// Run a holder process: `--socket PATH`, the owner token as 64 hex
 /// characters on stdin, `ready` on stdout once it listens. Returns only on a
 /// startup error.
@@ -235,4 +215,24 @@ fn parse_token(hex: &str) -> Option<[u8; 32]> {
 
 fn invalid(message: &str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidInput, message.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn spawn_request_round_trips() {
+        let request = SpawnRequest {
+            id: [7; 16],
+            cols: 80,
+            rows: 24,
+            px_w: 640,
+            px_h: 384,
+            cwd: b"/tmp".to_vec(),
+            argv: vec![b"/bin/sh".to_vec(), b"-l".to_vec()],
+            env: vec![b"TERM=xterm-256color".to_vec()],
+        };
+        assert_eq!(SpawnRequest::decode(&request.encode()).unwrap(), request);
+    }
 }

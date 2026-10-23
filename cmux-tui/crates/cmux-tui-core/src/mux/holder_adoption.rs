@@ -52,7 +52,7 @@ impl Mux {
         else {
             return Ok(false);
         };
-        let Some(id) = crate::terminal_host::TerminalId::from_hex(&terminal.terminal_id) else {
+        let Some(id) = TerminalId::from_hex(&terminal.terminal_id) else {
             return Ok(false);
         };
         if terminal.lifecycle != TerminalLifecycle::Running
@@ -75,7 +75,7 @@ impl Mux {
             opts: options.clone(),
             mux: Arc::downgrade(self),
             host_root,
-            identity: crate::terminal_host_runtime::TerminalHostIdentity {
+            identity: TerminalHostIdentity {
                 terminal_id: terminal.terminal_id.clone(),
                 incarnation: incarnation.clone(),
             },

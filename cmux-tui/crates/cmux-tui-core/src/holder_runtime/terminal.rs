@@ -84,6 +84,7 @@ pub(crate) fn holder_local_launch(
         command,
         cwd,
         supports_clear_history_key_fallback: true,
+        holder: Some(terminal.clone()),
     })
 }
 

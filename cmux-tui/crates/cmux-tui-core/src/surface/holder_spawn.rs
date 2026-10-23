@@ -7,7 +7,7 @@ use std::os::unix::ffi::OsStringExt;
 
 use cmux_holder::SpawnRequest;
 
-use super::spawn::{LocalLaunch, LocalSpawn};
+use super::spawn::LocalSpawn;
 use super::*;
 use crate::holder_runtime::{HolderService, HolderTerminal, holder_local_launch};
 use crate::terminal_host_runtime::TerminalHostIdentity;
@@ -17,7 +17,7 @@ pub(crate) struct HolderSpawn {
     pub(crate) id: SurfaceId,
     pub(crate) opts: SurfaceOptions,
     pub(crate) mux: Weak<Mux>,
-    pub(crate) host_root: std::path::PathBuf,
+    pub(crate) host_root: PathBuf,
     /// The registry-reserved terminal id; `None` mints one.
     pub(crate) terminal_id: Option<crate::terminal_host::TerminalId>,
     pub(crate) terminal_public_id: Option<TerminalPublicId>,
@@ -32,7 +32,7 @@ pub(crate) struct HolderAdoption {
     pub(crate) id: SurfaceId,
     pub(crate) opts: SurfaceOptions,
     pub(crate) mux: Weak<Mux>,
-    pub(crate) host_root: std::path::PathBuf,
+    pub(crate) host_root: PathBuf,
     pub(crate) identity: TerminalHostIdentity,
     pub(crate) terminal_public_id: Option<TerminalPublicId>,
     pub(crate) resource_identity: Option<TabResourceIdentity>,
@@ -150,9 +150,7 @@ impl Surface {
         spawn: LocalSpawn,
         (command, cwd): (Vec<String>, Option<String>),
     ) -> anyhow::Result<Arc<Surface>> {
-        let mut launch: LocalLaunch = holder_local_launch(terminal, command, cwd)?;
-        launch.holder = Some(terminal.clone());
-        Self::spawn_local(spawn, launch)
+        Self::spawn_local(spawn, holder_local_launch(terminal, command, cwd)?)
     }
 }
 
