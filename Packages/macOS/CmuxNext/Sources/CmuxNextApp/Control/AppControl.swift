@@ -18,9 +18,6 @@ final class AppControl {
     private let frames = FrameBatcher(owner: "Control.frames")
     private let frameProbe = DebugFrameProbe()
     private let mainCPUProbe = DebugMainCPUProbe()
-    #if DEBUG
-    private let actionPerf = DebugActionPerf()
-    #endif
     private(set) var service: ControlService?
     private var publisher: ControlSnapshotPublisher?
     private(set) var errorJournal: ErrorJournalService?
@@ -82,13 +79,10 @@ final class AppControl {
         // Diagnostics for tagged DEV builds; a release build registers no debug.* method
         // (ControlRouter drops them too: Configuration.allowsDebugMethods).
         #if DEBUG
-        actionPerf.install(registry: registry) { [weak services] in services?.windows.controllers.compactMap(\.window) ?? [] }
         service.router.register(DebugHibernationControl.methods(services))
         service.router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }])
         service.router.register([
             .mainActor("debug.frames") { [probe = frameProbe] call in .value(probe.handle(call.params)) },
-            // Per action run from any entrypoint: began, handler ms, its Core Animation commit (every-action-sweep.py).
-            .mainActor("debug.action_perf") { [probe = actionPerf] call in .value(probe.handle(call.params)) },
             // Main-thread CPU per frame against a 120 Hz frame (anim-perf-terminal.py).
             .mainActor("debug.main_cpu") { [probe = mainCPUProbe] call in .value(probe.handle(call.params)) },
             // Measured animation spans (plans/cmux-next/motion.md).
