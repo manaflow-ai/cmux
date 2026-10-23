@@ -23,7 +23,7 @@
     {
       "id": "page-strings",
       "generator": "webviews/scripts/pages/gen-strings.mjs",
-      "outputs": ["webviews/src/**/generated/strings.json", "webviews/src/pages/home-channels/generated/pane-strings.json"],
+      "outputs": ["webviews/src/**/generated/strings.json", "webviews/src/pages/home-channels/generated/pane-strings.json", "webviews/src/pages/changelog/generated/pane-strings.json"],
       "status": "build"
     },
     {
