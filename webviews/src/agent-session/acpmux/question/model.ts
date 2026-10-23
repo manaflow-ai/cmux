@@ -86,8 +86,17 @@ export type Answer = {
   answeredAtMs?: number;
 };
 
+/// Why an ask ended unanswered, when its record says: `skipped`, the person declined it (Skip sent
+/// the ask's reject option); `stopped`, acpmux cancelled it without an answer (the turn was stopped,
+/// or the chat closed or restarted) on an ask whose Skip would have sent the reject option instead.
+/// Absent when the record can't tell the two apart.
+export type CancelReason = "skipped" | "stopped";
+
 /// Where the ask stands. Only the owner moves it out of `pending`; clients render it.
-export type State = { kind: "pending" } | { kind: "answered"; answer: Answer } | { kind: "cancelled" };
+export type State =
+  | { kind: "pending" }
+  | { kind: "answered"; answer: Answer }
+  | { kind: "cancelled"; reason?: CancelReason };
 
 /// One ask: one to four items, the source that decides the answer's shape, and its state.
 export type AgentQuestion = {
@@ -168,6 +177,15 @@ export const isPending = (question: AgentQuestion): boolean => question.state.ki
 
 /// The first item's prompt, for notifications, previews and search.
 export const questionSummary = (question: AgentQuestion): string => question.items[0]?.prompt ?? "";
+
+/// The catalog key of the line an unanswered ask leaves (its `{prompt}` is `questionSummary`): how it
+/// ended when the record says (`CancelReason`), else "Not answered". The card and Copy read the same.
+export const cancelledKey = (
+  question: AgentQuestion,
+): "question.skipped" | "question.stopped" | "question.cancelled" => {
+  const reason = question.state.kind === "cancelled" ? question.state.reason : undefined;
+  return reason === "skipped" ? "question.skipped" : reason === "stopped" ? "question.stopped" : "question.cancelled";
+};
 
 // MARK: Mapping a permission request (AgentQuestion+Permission.swift)
 
