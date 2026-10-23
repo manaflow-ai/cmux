@@ -45,13 +45,6 @@ public nonisolated final class AgentActivityLineConnection: @unchecked Sendable 
     /// descriptor and read source do not outlive it and the owner's deinit has no body. No callback
     /// runs. Nothing else can touch the fields now: every `queue` block holds `self` strongly and
     /// the read source holds it weakly.
-    deinit {
-        if let source {
-            source.cancel()
-        } else if descriptor >= 0 {
-            Darwin.close(descriptor)
-        }
-    }
 
     public func start(send: Data, onLine: @escaping @Sendable (Data) -> Void, onClose: @escaping @Sendable () -> Void) {
         queue.async { [self] in
