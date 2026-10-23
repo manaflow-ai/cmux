@@ -33,9 +33,18 @@ import Foundation
     private(set) var tabGroupsByID: [TabGroupID: TabGroupModel] = [:]
     /// Indexed tabs the intent overlay shows (``isOverlayTab(id:surface:)``).
     private(set) var provisionalTabCount = 0
-    /// The indexed tabs that carry a status fact: noted as each tab record is keyed, dropped as
-    /// it is unkeyed. One object for the store's life (``rebuild(_:)`` keeps it).
+    /// The indexed tabs that carry a status fact: noted as each tab record is keyed, dropped when
+    /// the outermost write that unkeyed it ends without keying it again (`released`). One object
+    /// for the store's life (``rebuild(_:)`` keeps it).
     private(set) var statusFactTabs = StatusFactTabs()
+    /// How deep the index writes running now nest (`insert` of a workspace inserts its screens,
+    /// panes and tabs; every insert first removes the record).
+    private var writeDepth = 0
+    /// Tab records the running writes unkeyed and have not keyed again. A reindex (a rename, a
+    /// tab or workspace changed) drops and keys the same record in one write: it never touches
+    /// ``statusFactTabs``, so a title tick wakes no reader of it. The outermost write drops the
+    /// rest when it ends.
+    private var released: [ObjectIdentifier: TabModel] = [:]
     /// An order-free digest of which tab sits in which pane and which panes
     /// are listed (XOR of one hash per indexed tab and its pane, and one per
     /// listed pane id): a remove and re-add of the same tab in the same pane,
@@ -105,15 +114,29 @@ import Foundation
 
     /// Indexes `workspaces` only (snapshot apply; the one O(tree) write).
     mutating func rebuild(_ workspaces: [WorkspaceModel]) {
-        let statusFactTabs = statusFactTabs
+        var released: [ObjectIdentifier: TabModel] = [:]
         for case let tab as TabModel in entries.values.lazy.map(\.record) {
             tab.statusFactTabs = nil
-            statusFactTabs.drop(tab)
+            released[ObjectIdentifier(tab)] = tab
         }
+        let statusFactTabs = statusFactTabs
         self = StoreIndex()
         self.statusFactTabs = statusFactTabs
+        self.released = released
+        beginWrite()
+        defer { endWrite() }
         for workspace in workspaces { insert(workspace) }
         tabOrderChanged = true
+    }
+
+    private mutating func beginWrite() { writeDepth += 1 }
+
+    /// Ends one write; the outermost one drops the tab records it unkeyed and did not key again.
+    private mutating func endWrite() {
+        writeDepth -= 1
+        guard writeDepth == 0, !released.isEmpty else { return }
+        for tab in released.values { statusFactTabs.drop(tab) }
+        released = [:]
     }
 
     /// The order of tabs in a pane, or of the workspaces, changed.
@@ -151,24 +174,32 @@ import Foundation
     }
 
     mutating func insert(_ workspace: WorkspaceModel) {
+        beginWrite()
+        defer { endWrite() }
         remove(workspace)
         add(workspace, .workspace(handle: workspace.handle, key: workspace.key, id: workspace.id, resource: workspace.resourceID), parent: nil)
         for screen in workspace.screens { insert(screen, in: workspace) }
     }
 
     mutating func insert(_ screen: ScreenModel, in workspace: WorkspaceModel) {
+        beginWrite()
+        defer { endWrite() }
         remove(screen)
         add(screen, .screen(handle: screen.handle, resource: screen.resourceID), parent: workspace)
         for pane in screen.panes { insert(pane, in: screen) }
     }
 
     mutating func insert(_ pane: PaneModel, in screen: ScreenModel) {
+        beginWrite()
+        defer { endWrite() }
         remove(pane)
         add(pane, .pane(handle: pane.handle, id: pane.id, resource: pane.resourceID, groups: pane.tabGroups), parent: screen)
         for tab in pane.tabs { insert(tab, in: pane) }
     }
 
     mutating func insert(_ tab: TabModel, in pane: PaneModel) {
+        beginWrite()
+        defer { endWrite() }
         remove(tab)
         add(tab, .tab(surface: tab.surface, id: tab.id, terminal: tab.terminalID, resource: tab.resourceID,
                       terminalResource: tab.terminalResourceID), parent: pane)
@@ -176,6 +207,8 @@ import Foundation
 
     /// Drops `record` (a workspace, screen, pane or tab) and its subtree.
     mutating func remove(_ record: AnyObject) {
+        beginWrite()
+        defer { endWrite() }
         remove(id: ObjectIdentifier(record))
     }
 
@@ -233,6 +266,7 @@ import Foundation
             if let terminalResource { tabsByTerminalResource[terminalResource] = tab }
             if Self.isOverlayTab(id: id, surface: surface) { provisionalTabCount += 1 }
             tab.statusFactTabs = statusFactTabs
+            released[ObjectIdentifier(tab)] = nil
             statusFactTabs.note(tab)
         }
     }
@@ -278,7 +312,7 @@ import Foundation
             if Self.isOverlayTab(id: id, surface: surface) { provisionalTabCount -= 1 }
             if let tab = record as? TabModel {
                 tab.statusFactTabs = nil
-                statusFactTabs.drop(tab)
+                released[ObjectIdentifier(tab)] = tab
             }
             recordsBySurface[surface]?.removeAll { $0 == ObjectIdentifier(record) }
             if recordsBySurface[surface]?.isEmpty == true { recordsBySurface[surface] = nil }
