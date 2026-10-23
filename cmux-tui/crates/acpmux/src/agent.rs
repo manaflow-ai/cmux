@@ -222,7 +222,7 @@ impl ChildAgent {
         let mut cmd = harness_command(name, profile, cwd, command_line, session)?;
         #[cfg(windows)]
         cmd.creation_flags(crate::job::AGENT_FLAGS);
-        let mut child = cmd.spawn().map_err(|e| spawn_error(name, e))?;
+        let mut child = cmd.spawn().map_err(|e| spawn_error(&format!("spawn agent {name}"), e))?;
         #[cfg(windows)]
         let job = {
             let contained = child
@@ -1087,10 +1087,11 @@ async fn end_still_running(procs: Vec<crate::agent_host::tree::Started>) {
             .await;
 }
 
-/// The error of an agent that did not start. Out of descriptors, the bare
-/// "Too many open files (os error 24)" read like the agent's fault (cmux16,
-/// 2026-10-22): say it is the daemon's, with its limit and what to do.
-fn spawn_error(name: &str, e: std::io::Error) -> anyhow::Error {
+/// The error of an agent (or its agent host) that did not start; `what` says which, e.g.
+/// "spawn agent claude". Out of descriptors, the bare "Too many open files (os error 24)"
+/// read like the agent's fault (cmux16, 2026-10-22): say it is the daemon's, with its limit
+/// and what to do.
+pub(crate) fn spawn_error(what: &str, e: std::io::Error) -> anyhow::Error {
     #[cfg(unix)]
     if matches!(e.raw_os_error(), Some(libc::EMFILE | libc::ENFILE)) {
         let mut lim = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
@@ -1100,16 +1101,26 @@ fn spawn_error(name: &str, e: std::io::Error) -> anyhow::Error {
             String::new()
         };
         return anyhow!(
-            "spawn agent {name}: the acpmux daemon is out of open files{limit}; \
+            "{what}: the acpmux daemon is out of open files{limit}; \
              `acpmux daemon shutdown` stops it and the next acpmux command starts it again: {e}"
         );
     }
-    anyhow::Error::new(e).context(format!("spawn agent {name}"))
+    anyhow::Error::new(e).context(what.to_owned())
 }
 
 #[cfg(all(test, unix))]
 mod spawn_error_tests {
     use super::*;
+
+    #[test]
+    fn out_of_descriptors_says_it_is_the_daemon_and_what_to_do() {
+        let error = spawn_error("start host", std::io::Error::from_raw_os_error(libc::EMFILE));
+        let text = format!("{error:#}");
+        assert!(text.starts_with("start host: the acpmux daemon is out of open files"), "{text}");
+        assert!(text.contains("acpmux daemon shutdown"), "{text}");
+        let other = spawn_error("start host", std::io::Error::from_raw_os_error(libc::ENOENT));
+        assert!(format!("{other:#}").starts_with("start host: "), "{other:#}");
+    }
 
     #[tokio::test]
     async fn direct_spawn_failure_does_not_expose_harness_argv() {

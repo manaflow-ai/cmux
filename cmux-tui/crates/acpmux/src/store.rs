@@ -974,38 +974,46 @@ impl Store for LocalStore {
     }
 
     fn append(&self, id: &str, record: &EventRecord) -> Result<()> {
-        let mut writers = self.writers.lock_or_recover();
-        let mut evicted = None;
-        if !writers.open.contains_key(id) {
-            if writers.open.len() >= OPEN_LOGS
-                && let Some(oldest) =
-                    writers.open.iter().min_by_key(|(_, w)| w.used).map(|(k, _)| k.clone())
-            {
-                evicted = writers.open.remove(&oldest).map(|w| (oldest, w));
+        // The least recently written log is closed before this one opens, so the cache never
+        // holds more than `OPEN_LOGS`; its sync runs off the lock.
+        let mut writers = loop {
+            let mut writers = self.writers.lock_or_recover();
+            if writers.open.contains_key(id) || writers.open.len() < OPEN_LOGS {
+                break writers;
             }
+            let oldest = writers.open.iter().min_by_key(|(_, w)| w.used).map(|(k, _)| k.clone());
+            let evicted = oldest.and_then(|k| writers.open.remove(&k).map(|w| (k, w)));
+            drop(writers);
+            match evicted {
+                Some((oldest, w)) => w.close(&oldest),
+                None => break self.writers.lock_or_recover(),
+            }
+        };
+        if !writers.open.contains_key(id) {
             let writer = self.open_writer(id)?;
             writers.open.insert(id.to_owned(), writer);
         }
         writers.clock += 1;
         let clock = writers.clock;
+        let full = writers.open.get(id).is_some_and(|w| w.written >= self.segment_bytes);
+        if full && let Some(old) = writers.open.remove(id) {
+            // The full segment closes before the next one opens (rare: once per segment).
+            let index = old.index + 1;
+            old.close(id);
+            let path = self.dir(id).join("events").join(format!("{index:06}.ndjson"));
+            let file = open_private_append(&path)?;
+            writers
+                .open
+                .insert(id.to_owned(), SegmentWriter { index, file, written: 0, used: clock });
+        }
         let Some(w) = writers.open.get_mut(id) else {
             anyhow::bail!("no segment writer for session {id}");
         };
         w.used = clock;
-        if w.written >= self.segment_bytes {
-            let index = w.index + 1;
-            let path = self.dir(id).join("events").join(format!("{index:06}.ndjson"));
-            let file = open_private_append(&path)?;
-            *w = SegmentWriter { index, file, written: 0, used: clock };
-        }
         let mut line = serde_json::to_string(record)?;
         line.push('\n');
         w.file.write_all(line.as_bytes())?;
         w.written += line.len() as u64;
-        drop(writers);
-        if let Some((oldest, w)) = evicted {
-            w.close(&oldest);
-        }
         Ok(())
     }
 
