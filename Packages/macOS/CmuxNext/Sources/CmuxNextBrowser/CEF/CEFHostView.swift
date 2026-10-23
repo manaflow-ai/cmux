@@ -211,7 +211,7 @@ final class CEFHostView: NSView {
 
     /// Tells the tracker about moves AppKit does not report (layer
     /// transforms, manual frame animation in an ancestor).
-    func postGeometryChange() {
+    func postGeometryChange() { // perf-hot: 0.2ms cef-geometry (each post makes the fork re-place one page window)
         Self.trackerStats.geometryPosts += 1
         NotificationCenter.default.post(name: CEFHostView.geometryDidChange, object: self)
     }

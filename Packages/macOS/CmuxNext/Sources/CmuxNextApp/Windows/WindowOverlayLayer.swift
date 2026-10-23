@@ -330,7 +330,7 @@ final class WindowOverlayLayer {
         WindowOverlayHost.existingHost(for: window)?.reassertOrder()
     }
 
-    private func parentGeometryDidChange() {
+    private func parentGeometryDidChange() { // perf-hot: 1ms cef-geometry (every window move or resize; posts to every changed page)
         guard layoutDepth == 0 else {
             geometryAfterLayout = true
             return
@@ -359,7 +359,7 @@ final class WindowOverlayLayer {
     }
 
     /// Click-catching panels over divider hit areas while pages show.
-    private func syncCatchers() {
+    private func syncCatchers() { // perf-hot: 1ms cef-geometry (one window move per divider catcher panel)
         if catchers.onHover == nil {
             catchers.onHover = { [weak self] id, hovered in
                 if id == Self.sidebarResizeAreaID {
