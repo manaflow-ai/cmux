@@ -9,7 +9,7 @@ function host(chunkSize = 4) {
     if (method === "chat.upload.begin") {
       const token = String(uploads.size);
       uploads.set(token, { name: String(params.name), size: Number(params.size), offset: 0, data: "" });
-      return { token, size: params.size, chunkSize };
+      return { token, size: params.size, chunkSize, ...(params.batch ? { batchToken: "selected-files" } : {}) };
     }
     const upload = uploads.get(String(params.token))!;
     if (method === "chat.upload.chunk") {
@@ -21,7 +21,7 @@ function host(chunkSize = 4) {
     }
     if (method === "chat.upload.finish") {
       expect(upload.offset).toBe(upload.size);
-      return { path: `/session/${params.token}/${upload.name}` };
+      return { path: `/session/${String(params.token)}/${upload.name}` };
     }
     return {};
   };
@@ -81,6 +81,9 @@ test("a selected batch keeps every file, including repeated names and more than 
   expect(await uploadToMachine(files, native.call)).toEqual({
     paths: files.map((_, index) => `/session/${index}/notes.txt`),
   });
+  const begins = native.calls.filter(([method]) => method === "chat.upload.begin").map(([, params]) => params);
+  expect(begins[0]?.batch).toEqual(files.map(({ name, size }) => ({ name, size })));
+  expect(begins.slice(1).every((params) => params.batchToken === "selected-files")).toBe(true);
 });
 
 test("an invalid acknowledgement cancels staging and never finishes or falls back", async () => {
