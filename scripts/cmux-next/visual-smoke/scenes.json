@@ -21,11 +21,11 @@
   },
   "scenes": {
     "home": {
-      "what": "Home after launch: the left sidebar, the Home Chief chat and its composer, and Home's New Tab",
+      "what": "Home after launch: the left sidebar, the Chief conversation list, Chief welcome pane and composer, and Home's New Tab",
       "regions": {
         "sidebar": {"box": [0.01, 0.08, 0.17, 0.75], "min_edge": 0.006, "what": "the sidebar's Home, App Store and workspace rows"},
-        "chief": {"box": [0.33, 0.1, 0.6, 0.88], "min_edge": 0.02, "what": "the Home Chief chat column"},
-        "composer": {"box": [0.33, 0.93, 0.6, 1.0], "what": "the Home composer under the Chief chat"},
+        "chief": {"box": [0.58, 0.14, 0.96, 0.58], "min_edge": 0.02, "what": "the Home Chief welcome pane"},
+        "composer": {"box": [0.58, 0.9, 0.98, 1.0], "what": "the Home composer under the Chief pane"},
         "new_tab": {"box": [0.61, 0.1, 0.99, 0.35], "what": "Home's New Tab page: its folder picker and Ask anything field"}
       }
     },

@@ -27,7 +27,10 @@ struct Scratch(PathBuf);
 
 impl Scratch {
     fn new(tag: &str) -> Self {
-        let dir = std::env::temp_dir().join(format!("acpmux-media-{tag}-{}", uuid::Uuid::now_v7()));
+        // Short, so a socket bound inside stays under SUN_LEN (104 bytes on macOS) under a long
+        // TMPDIR. The tail of a v7 UUID is its random part.
+        let id = uuid::Uuid::now_v7().simple().to_string();
+        let dir = std::env::temp_dir().join(format!("am-{tag}-{}", &id[20..]));
         std::fs::create_dir_all(dir.join("root/out")).unwrap();
         std::fs::create_dir_all(dir.join("outside")).unwrap();
         std::fs::write(dir.join("root/out/clip.mp4"), mp4(1, 64)).unwrap();
@@ -207,8 +210,12 @@ fn a_file_swapped_for_a_symlink_is_never_followed() {
             }
         })
         .unwrap();
-    never_outside(read_all(&opened), &mp4(1, 64));
-    assert_eq!(read_all(&opened).unwrap(), mp4(1, 64));
+    // The unlink moves the opened file's ctime unless it lands in the same clock tick, so the
+    // read keeps the opened bytes or is refused as changed, never the link's target.
+    match read_all(&opened) {
+        Ok(bytes) => assert_eq!(bytes, mp4(1, 64)),
+        Err(e) => assert_eq!(reason(&e), "media.changed", "{}", e.message),
+    }
 }
 
 /// Race: the folder `out` becomes a symlink out of the root, after the root is opened and after
@@ -240,6 +247,37 @@ fn a_parent_swapped_for_a_symlink_out_of_the_root_is_refused() {
         }
     });
     never_outside(opened.and_then(|o| read_all(&o)), &mp4(1, 64));
+}
+
+/// Race: once `out` is open it is moved out of the root, so the file opened in it was never
+/// below the root: its `..` chain no longer reaches the root.
+#[test]
+fn a_folder_moved_out_of_the_root_during_the_walk_is_refused() {
+    let s = Scratch::new("moved");
+    let e = s
+        .open("out/clip.mp4", &mut |step| {
+            if step == Step::Dir(0) {
+                std::fs::rename(s.root().join("out"), s.at("away")).unwrap();
+            }
+        })
+        .err()
+        .unwrap();
+    assert_eq!(reason(&e), "media.outside", "{}", e.message);
+}
+
+/// The file is rewritten in place at the same size and its mtime set back: ctime still moves,
+/// so the next range is refused.
+#[test]
+fn a_rewrite_with_its_mtime_set_back_is_refused() {
+    let s = Scratch::new("mtime");
+    let clip = s.root().join("out/clip.mp4");
+    let opened = s.open("out/clip.mp4", &mut |_| {}).unwrap();
+    let mtime = std::fs::metadata(&clip).unwrap().modified().unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(10));
+    std::fs::write(&clip, mp4(5, 64)).unwrap();
+    std::fs::File::options().write(true).open(&clip).unwrap().set_modified(mtime).unwrap();
+    let e = read_range(&opened.file, &opened.identity, 0, 32).err().unwrap();
+    assert_eq!(reason(&e), "media.changed", "{}", e.message);
 }
 
 /// Race: the file is replaced by another inode between the open and the first range, and between
@@ -328,6 +366,16 @@ fn a_root_swapped_after_its_resolve_is_refused() {
 fn a_folder_on_another_mount_than_the_root_is_refused() {
     let e = open_in(&[PathBuf::from("/")], "dev/null", None, &mut |_| {}).err().unwrap();
     assert_eq!(reason(&e), "media.mount", "{}", e.message);
+}
+
+/// A bind mount keeps the device, so the mount is named by its id too, and an open folder has one.
+#[test]
+#[cfg(target_os = "linux")]
+fn a_folder_names_its_mount_id() {
+    let s = Scratch::new("mount");
+    let (_, id) = super::sys::mount(&std::fs::File::open(s.root()).unwrap()).unwrap();
+    let (_, proc_id) = super::sys::mount(&std::fs::File::open("/proc").unwrap()).unwrap();
+    assert_ne!(id, proc_id);
 }
 
 /// A FIFO opens without blocking and is refused, a socket never opens, and a device is no file.
