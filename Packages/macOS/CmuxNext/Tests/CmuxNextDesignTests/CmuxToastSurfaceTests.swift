@@ -108,12 +108,98 @@ struct CmuxToastSurfaceTests {
         let before = toast.convert(toast.bounds, to: nil).minY
 
         composer.frame.size.height = 160
-        // What `cmuxToastAvoidanceDidChange` runs, read in the same turn: in this offscreen
-        // window the slide is gone by the next run loop pass.
+        // What `CmuxToastAvoidance.avoidanceChanged(in:)` runs a turn later, here in the same turn:
+        // in this offscreen window the slide is gone by the next run loop pass.
         host.reanchor(in: window)
         #expect(toast.convert(toast.bounds, to: nil).minY >= before + 99, "the toast moved clear of the composer")
         #expect(toast.layer?.animation(forKey: "transform.translation.y") != nil, "the toast jumped there in one frame")
         handle.dismiss()
+    }
+
+    /// An avoided view that changes in one window moves only that window's toasts: the one host
+    /// that shows toasts in every window re-reads the avoided views of that window alone, and a
+    /// window that never showed a toast does no work (the app-wide notice woke every host for
+    /// every window).
+    @Test func anAvoidanceChangeInOneWindowMovesOnlyThatWindowsToasts() async throws {
+        let host = CmuxToastOverlayHost()
+        let center = CmuxToastCenter(host: host)
+        func window() throws -> (NSWindow, AvoidedView) {
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.borderless],
+                                  backing: .buffered, defer: false)
+            let composer = AvoidedView(frame: NSRect(x: 100, y: 0, width: 400, height: 60))
+            try #require(window.contentView).addSubview(composer)
+            return (window, composer)
+        }
+        let (windowA, composerA) = try window()
+        let (windowB, composerB) = try window()
+        let (quiet, _) = try window()
+        let handles = [center.show(CmuxToast(id: "a", message: "Saved"), in: windowA),
+                       center.show(CmuxToast(id: "b", message: "Saved"), in: windowB)]
+        let toastA = try #require(Self.toastViews(in: windowA).first)
+        let toastB = try #require(Self.toastViews(in: windowB).first)
+        let beforeA = toastA.convert(toastA.bounds, to: nil).minY
+        let beforeB = toastB.convert(toastB.bounds, to: nil).minY
+
+        // Both composers grow; only window A says so.
+        composerA.frame.size.height = 160
+        composerB.frame.size.height = 160
+        let move = try #require(CmuxToastAvoidance.avoidanceChanged(in: windowA), "window A's host was not reached")
+        await move.value
+        #expect(toastA.convert(toastA.bounds, to: nil).minY >= beforeA + 99, "window A's toast stayed under its composer")
+        #expect(toastB.convert(toastB.bounds, to: nil).minY == beforeB, "window B's toast moved for window A's change")
+        let quietWorked = CmuxToastAvoidance.avoidanceChanged(in: quiet) != nil
+        #expect(!quietWorked, "a window with no toast host did work")
+
+        // Window B's own change moves window B's toast.
+        await CmuxToastAvoidance.avoidanceChanged(in: windowB)?.value
+        #expect(toastB.convert(toastB.bounds, to: nil).minY >= beforeB + 99)
+        handles.forEach { $0.dismiss() }
+    }
+
+    /// Each window's change reaches the host that shows toasts there, not another host.
+    @Test func anAvoidanceChangeReachesOnlyTheHostOfItsWindow() async throws {
+        let hostA = CmuxToastOverlayHost()
+        let hostB = CmuxToastOverlayHost()
+        let centers = [CmuxToastCenter(host: hostA), CmuxToastCenter(host: hostB)]
+        let windows = (0..<2).map { _ in
+            NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.borderless],
+                     backing: .buffered, defer: false)
+        }
+        let composers = try windows.map { window in
+            let composer = AvoidedView(frame: NSRect(x: 100, y: 0, width: 400, height: 60))
+            try #require(window.contentView).addSubview(composer)
+            return composer
+        }
+        let handles = zip(centers, windows).map { $0.show(CmuxToast(id: "t", message: "Saved"), in: $1) }
+        let toasts = try windows.map { try #require(Self.toastViews(in: $0).first) }
+        let before = toasts.map { $0.convert($0.bounds, to: nil).minY }
+
+        composers.forEach { $0.frame.size.height = 160 }
+        await CmuxToastAvoidance.avoidanceChanged(in: windows[0])?.value
+        #expect(toasts[0].convert(toasts[0].bounds, to: nil).minY >= before[0] + 99, "host A did not move its toast")
+        #expect(toasts[1].convert(toasts[1].bounds, to: nil).minY == before[1], "host B woke for window A's change")
+        handles.forEach { $0.dismiss() }
+    }
+
+    /// Two hosts that show toasts in the same window both move them: a later host does not take
+    /// the window from an earlier one (the app-wide notice reached every host).
+    @Test func anAvoidanceChangeMovesTheToastsOfEveryHostInItsWindow() async throws {
+        let hosts = [CmuxToastOverlayHost(), CmuxToastOverlayHost()]
+        let centers = hosts.map { CmuxToastCenter(host: $0) }
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        let composer = AvoidedView(frame: NSRect(x: 100, y: 0, width: 400, height: 60))
+        try #require(window.contentView).addSubview(composer)
+        let handles = centers.enumerated().map { $1.show(CmuxToast(id: "t\($0)", message: "Saved"), in: window) }
+        let toasts = try ["t0", "t1"].map { id in try #require(Self.toastViews(in: window).first { $0.toast.id == id }) }
+        let before = toasts.map { $0.convert($0.bounds, to: nil).minY }
+
+        composer.frame.size.height = 160
+        let move = try #require(CmuxToastAvoidance.avoidanceChanged(in: window), "no host was reached")
+        await move.value
+        #expect(toasts[0].convert(toasts[0].bounds, to: nil).minY >= before[0] + 99, "the first host's toast stayed under the composer")
+        #expect(toasts[1].convert(toasts[1].bounds, to: nil).minY >= before[1] + 99, "the second host's toast stayed under the composer")
+        handles.forEach { $0.dismiss() }
     }
 
     /// A fourth toast pushes the oldest out: it fades above the stack, clear of the toast that
