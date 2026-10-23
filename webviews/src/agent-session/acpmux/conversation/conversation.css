@@ -2413,8 +2413,11 @@ a.cv-sha:focus-visible {
   background: none;
   box-shadow: none;
 }
+/* A cut output shows eight whole lines: the box (border-box) is eight lines, its 8px top padding
+   and the lane under them (`--cv-lane`, below) tall, the lane added to the cut, never taken out of
+   it (Codex review of #23967). */
 .cv-tool-output__box > .cv-tool-output[data-preview="cut"] {
-  max-height: calc(8 * 18px);
+  max-height: calc(8 * 18px + 8px + var(--cv-lane));
 }
 /* Wrap lines (and the hover-actions experiment's Copy) in its corner, on hover or focus. */
 .cv-tool-output__actions {
