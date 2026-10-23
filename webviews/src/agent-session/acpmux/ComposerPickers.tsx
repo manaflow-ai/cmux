@@ -36,7 +36,7 @@ import {
   isEffortOption,
   isFastModeOption,
 } from "./heldOptions";
-import { type KeptStartMode, useStartMode } from "./startMode";
+import { type KeptStartMode, type StartMode, useStartMode } from "./startMode";
 import type { PickerCatalog } from "./modelCatalogData";
 import { catalogProfiles } from "./pickerProfiles";
 import { useModelCatalogState } from "./modelCatalogHost";
@@ -741,20 +741,14 @@ export function ComposerPickers({
       ...(harnessProfiles.get(chipHarness)?.modes?.availableModes ?? []).map((choice) => choice.id),
       ...(startMode && !startMode.borrowed ? [startMode.modeId] : []),
     ]);
-  // The chip names a mode whenever one is likely, never "Mode" on this Mac (Lucas 2026-10-24:
-  // "always show the bypass permissions or whatever the mode is meant to be"): another folder's
-  // answer names its mode, and with no answer at all the harness's highest level, the level acpmux
-  // starts a chat in when nothing is saved. This folder's answer replaces either in place when it
-  // differs. A chat on another machine says "Mode" until it reports: that machine decides.
-  const shownStart: { modeId: string; name?: string } | undefined = startMode?.borrowed
+  // The chip names a mode whenever one is likely, not a bare "Mode" (Lucas 2026-10-24: "always
+  // show the bypass permissions or whatever the mode is meant to be"): another folder's answer names
+  // its mode until this folder's own replaces it in place. "Mode" stays for acpmux answering that it
+  // sets none here (the harness's own mode applies) and for a chat on another machine.
+  const shownStart: StartMode | undefined = startMode?.borrowed
     ? startMode.modeId
       ? startMode
-      : local
-        ? highestMode(
-            summary?.family ?? snapshot.catalog.find((entry) => entry.id === chipHarness)?.family,
-            chipHarness,
-          )
-        : undefined
+      : undefined
     : startMode;
   const startModeName = shownStart
     ? (pendingMenu?.rows.find((row) => row.id === shownStart.modeId)?.name ??
