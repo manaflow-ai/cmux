@@ -1,10 +1,9 @@
 import CmuxNextDesign
 import SwiftUI
 
-/// Labs dogfood for the no-wake reports target. Agent notices already present
-/// in the feed are projected here as a human-only basket; selecting Reply sends
-/// a new addressed message through the host callback and never mutates the
-/// incoming report.
+/// Labs dogfood for the no-wake reports target. Durable mailbox rows are
+/// projected here as a human-only basket; selecting Reply sends a new
+/// addressed message through the host callback and never mutates the report.
 struct ReportsBasketView: View {
     let model: FeedModel
     let onReply: (@MainActor (String, String) -> Void)?
@@ -12,11 +11,7 @@ struct ReportsBasketView: View {
     @State private var selected: String?
     @State private var draft = ""
 
-    private var reports: [FeedItem] {
-        model.visibleItems
-            .filter { $0.poster.kind == .agent || $0.poster.kind == .harness }
-            .sorted { $0.createdAt > $1.createdAt }
-    }
+    private var reports: [FeedReport] { model.reports }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -65,7 +60,7 @@ struct ReportsBasketView: View {
                 ReportsBasketDetail(item: report, draft: $draft, onSend: {
                     let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
                     guard !text.isEmpty else { return }
-                    onReply?(report.poster.identity ?? report.id, text)
+                    onReply?(report.sender, text)
                     draft = ""
                 })
             } else {
@@ -83,7 +78,7 @@ struct ReportsBasketView: View {
 }
 
 private struct ReportsBasketRow: View {
-    let item: FeedItem
+    let item: FeedReport
     let selected: Bool
     let select: () -> Void
     @Environment(\.feedColors) private var colors
@@ -95,13 +90,11 @@ private struct ReportsBasketRow: View {
                     .foregroundStyle(colors.secondary).padding(.top, 2)
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
-                        Text(item.poster.displayLabel).font(.system(size: 12, weight: .medium))
+                        Text(item.sender).font(.system(size: 12, weight: .medium))
                         Spacer()
                         Text(item.createdAt, style: .time).font(.system(size: 10))
                             .foregroundStyle(colors.tertiary)
                     }
-                    Text(item.title).font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(colors.primary).lineLimit(1)
                     Text(item.body).font(.system(size: 11)).foregroundStyle(colors.secondary).lineLimit(2)
                 }
             }
@@ -114,7 +107,7 @@ private struct ReportsBasketRow: View {
 }
 
 private struct ReportsBasketDetail: View {
-    let item: FeedItem
+    let item: FeedReport
     @Binding var draft: String
     let onSend: () -> Void
     @Environment(\.feedColors) private var colors
@@ -122,8 +115,8 @@ private struct ReportsBasketDetail: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 5) {
-                Text(item.title).font(.system(size: 16, weight: .semibold))
-                Text("From \(item.poster.displayLabel) · \(item.createdAt, style: .date) \(item.createdAt, style: .time)")
+                Text(item.sender).font(.system(size: 16, weight: .semibold))
+                Text("From \(item.sender) · \(item.createdAt, style: .date) \(item.createdAt, style: .time)")
                     .font(.system(size: 11)).foregroundStyle(colors.tertiary)
             }
             .padding(18)

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextFeed
@@ -20,6 +21,11 @@ final class FeedService {
     private let github: GitHubFeedSource
     private let showcase: Bool
     private let auth: CloudAuth
+    private let acpmuxEnvironment: AcpmuxEnvironment?
+    private let reportsClient = AcpmuxMailboxClient()
+    private var reportsTask: Task<Void, Never>?
+    private var reportsCursor: UInt64 = 0
+    private var reportRows: [String: FeedReport] = [:]
     private var started = false
     /// The account the mirror belongs to; a sign-out or another account resets it.
     private var account: String?
@@ -39,9 +45,10 @@ final class FeedService {
         auth.configuration.ownerAPIBaseURL(environment: environment)
     }
 
-    init(auth: CloudAuth, showcase: Bool = false) {
+    init(auth: CloudAuth, showcase: Bool = false, acpmuxEnvironment: AcpmuxEnvironment? = nil) {
         self.auth = auth
         self.showcase = showcase
+        self.acpmuxEnvironment = acpmuxEnvironment
         apiBaseURL = Self.apiBaseURL(auth: auth)
         // The answer's device label is the owner's record (the install); this name is only the overlay's.
         source = CloudFeedSource(apiBaseURL: apiBaseURL, device: "Mac") { [auth] in
@@ -96,6 +103,7 @@ final class FeedService {
         if account != nil {
             source.reset(reason: "signed out")
             github.resetDetails()
+            resetReports()
             started = false
         }
         account = user
@@ -112,6 +120,7 @@ final class FeedService {
         account = auth.user?.id
         started = true
         model.start()
+        startReportsIfNeeded()
         if auth.isSignedIn { source.setPresence(active: NSApp.isActive) }
     }
 
@@ -135,6 +144,7 @@ final class FeedService {
 
     func stop() {
         accountWatch?.cancel()
+        resetReports()
         model.stop()
         github.stop()
         github.resetDetails()
@@ -165,6 +175,61 @@ final class FeedService {
     }
 
     private var githubEnabled = false
+
+    private static let reportsRecipient = "reports:leo"
+
+    private func resetReports() {
+        reportsTask?.cancel()
+        reportsTask = nil
+        reportsCursor = 0
+        reportRows.removeAll()
+        model.replaceReports([])
+    }
+
+    /// Reads the quiet reports alias without creating a model attachment. The
+    /// mailbox wait is event-driven; quiet delivery notifies this reader but
+    /// never wakes the sender's ACP turn.
+    private func startReportsIfNeeded() {
+        guard reportsTask == nil, let socketPath = acpmuxEnvironment?.socketPath else { return }
+        let client = reportsClient
+        reportsTask = Task { [weak self] in
+            guard let self else { return }
+            while !Task.isCancelled {
+                do {
+                    let page = try await client.wait(
+                        socketPath: socketPath,
+                        recipient: Self.reportsRecipient,
+                        after: self.reportsCursor
+                    )
+                    applyReports(page)
+                } catch is CancellationError {
+                    return
+                } catch {
+                    // The daemon may not be running yet or may be handing off.
+                    // Retry with a bounded delay; the next mailbox wait remains
+                    // the normal event-driven path.
+                    try? await ContinuousClock().sleep(for: .seconds(5))
+                }
+            }
+        }
+    }
+
+    private func applyReports(_ page: AcpmuxMailboxPage) {
+        for message in page.messages {
+            reportRows[message.id] = FeedReport(
+                id: message.id,
+                sender: message.sender,
+                body: message.body,
+                createdAt: message.createdAt
+            )
+        }
+        if let nextCursor = page.nextCursor {
+            reportsCursor = max(reportsCursor, nextCursor)
+        } else if let last = page.messages.last {
+            reportsCursor = max(reportsCursor, last.seq)
+        }
+        model.replaceReports(Array(reportRows.values))
+    }
 
     private func observe(_ event: FeedSourceEvent) {
         switch event {

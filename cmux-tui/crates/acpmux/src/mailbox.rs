@@ -5,7 +5,7 @@
 //! message, while a changed payload is rejected. Delivery state is scoped to
 //! the recipient so one agent cannot acknowledge another agent's message.
 
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -182,21 +182,16 @@ impl Mailbox {
     }
 
     pub fn send(&self, input: SendInput) -> std::result::Result<SendResult, MailboxError> {
-        self.send_inner(input, true)
+        self.send_inner(input)
     }
 
-    /// Append a message but do not notify session waiters. Reports baskets use
-    /// this path: the durable row is visible to a human cursor, never injected
-    /// into a model turn by the mailbox itself.
+    /// Append a message without injecting it into a model turn. The notify is
+    /// only a mailbox-reader wakeup; report readers use a non-session alias.
     pub fn deliver_quiet(&self, input: SendInput) -> std::result::Result<SendResult, MailboxError> {
-        self.send_inner(input, false)
+        self.send_inner(input)
     }
 
-    fn send_inner(
-        &self,
-        input: SendInput,
-        notify: bool,
-    ) -> std::result::Result<SendResult, MailboxError> {
+    fn send_inner(&self, input: SendInput) -> std::result::Result<SendResult, MailboxError> {
         validate(&input)?;
         let mut inner = self
             .inner
@@ -250,9 +245,7 @@ impl Mailbox {
         persist_state(inner.path.as_ref(), &candidate)?;
         inner.state = candidate;
         drop(inner);
-        if notify {
-            self.notify.notify_waiters();
-        }
+        self.notify.notify_waiters();
         Ok(SendResult { message, receipt, outcome: SendOutcome::Created })
     }
 
@@ -632,16 +625,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn quiet_delivery_is_persisted_without_waking_waiters() {
+    async fn quiet_delivery_wakes_reports_waiters_without_model_injection() {
         let b = Mailbox::memory();
         let waiter = b.clone();
         let task =
-            tokio::spawn(async move { waiter.wait("reports:leo", 0, 10, 20).await.unwrap() });
+            tokio::spawn(async move { waiter.wait("reports:leo", 0, 10, 1_000).await.unwrap() });
         tokio::task::yield_now().await;
         b.deliver_quiet(input("report-1", "reports:leo", "one")).unwrap();
         let page = task.await.unwrap();
-        assert!(page.rows.is_empty(), "quiet delivery must not wake a session waiter");
-        assert_eq!(b.page("reports:leo", 0, 10).unwrap().rows[0].message.body, "one");
+        assert_eq!(page.rows[0].message.body, "one");
+        assert_eq!(page.rows[0].message.recipient, "reports:leo");
     }
 
     #[tokio::test]

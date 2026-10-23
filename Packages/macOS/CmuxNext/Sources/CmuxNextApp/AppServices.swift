@@ -68,7 +68,11 @@ final class AppServices {
     let machineAsks = SidebarAsks()
     private(set) lazy var cloud: CloudService = CloudService(machines: machines, isDebugBuild: ControlService.isDebugBuild)  // first read in init (no IUO)
     /// The feed mirror (`FeedDO`), started once the cmux account is signed in.
-    private(set) lazy var feed: FeedService = FeedService(auth: cloud.auth, showcase: environment.showcase)  // first read in init (no IUO)
+    private(set) lazy var feed: FeedService = FeedService(
+        auth: cloud.auth,
+        showcase: environment.showcase,
+        acpmuxEnvironment: QuitAgents.environment(self)
+    )  // first read in init (no IUO)
     var showcase = ShowcaseState()
     /// The wide Inbox page, backed by `feed.model`.
     private(set) lazy var feedPage = FeedPageService(services: self)

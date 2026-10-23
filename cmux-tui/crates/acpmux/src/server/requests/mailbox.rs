@@ -7,7 +7,7 @@
 
 use super::*;
 use crate::mailbox::{MailboxError, SendInput};
-use crate::session_identity::{LOCAL_HOST_ID, SessionReceipt};
+use crate::session_identity::{SessionReceipt, LOCAL_HOST_ID};
 use serde_json::Value;
 use std::collections::BTreeMap;
 
@@ -26,11 +26,7 @@ pub(super) async fn handle(
                 conn.mailbox_receipt(&sender_id).ok_or_else(|| detached("deliver", &sender_id))?;
             let sender = validate_binding("sender", &sender_id, &sender_receipt, &sender_bound)?;
             let target = required_string(params, "target")?;
-            if !target.starts_with("reports:") {
-                return Err(RpcError::invalid_params(
-                    "mailbox deliver target must start with reports:",
-                ));
-            }
+            validate_report_recipient(&target)?;
             let body = params
                 .get("body")
                 .and_then(Value::as_str)
@@ -78,15 +74,21 @@ pub(super) async fn handle(
             )
         }
         crate::rpc::method::MUX_MAIL_READ | crate::rpc::method::MUX_MAIL_WAIT => {
-            let (recipient_id, recipient_receipt) = identity_params(params, "recipient")?;
-            let bound = conn.mailbox_receipt(&recipient_id).ok_or_else(|| {
-                detached(
-                    if method == crate::rpc::method::MUX_MAIL_WAIT { "wait" } else { "read" },
-                    &recipient_id,
-                )
-            })?;
-            let recipient =
-                validate_binding("recipient", &recipient_id, &recipient_receipt, &bound)?;
+            // The app reads the human reports alias. It is local-only and has
+            // no session receipt because it is not an agent mailbox.
+            let recipient = if let Some(report_recipient) = report_recipient(params) {
+                validate_report_recipient(report_recipient)?;
+                report_recipient.to_owned()
+            } else {
+                let (recipient_id, recipient_receipt) = identity_params(params, "recipient")?;
+                let bound = conn.mailbox_receipt(&recipient_id).ok_or_else(|| {
+                    detached(
+                        if method == crate::rpc::method::MUX_MAIL_WAIT { "wait" } else { "read" },
+                        &recipient_id,
+                    )
+                })?;
+                validate_binding("recipient", &recipient_id, &recipient_receipt, &bound)?
+            };
             let after = params.get("after").and_then(Value::as_u64).unwrap_or(0);
             let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(50) as usize;
             let page = if method == crate::rpc::method::MUX_MAIL_WAIT {
@@ -136,6 +138,21 @@ fn required_string(params: &Value, name: &str) -> Result<String, RpcError> {
         .map(str::to_owned)
         .filter(|s| !s.trim().is_empty())
         .ok_or_else(|| RpcError::invalid_params(format!("{name} is required")))
+}
+
+fn report_recipient(params: &Value) -> Option<&str> {
+    params
+        .get("recipient")
+        .and_then(Value::as_str)
+        .filter(|recipient| recipient.starts_with("reports:"))
+}
+
+fn validate_report_recipient(recipient: &str) -> Result<(), RpcError> {
+    if recipient.strip_prefix("reports:").is_some_and(|person| !person.trim().is_empty()) {
+        Ok(())
+    } else {
+        Err(RpcError::invalid_params("mailbox reports recipient must be reports:<person>"))
+    }
 }
 
 fn parse_metadata(params: &Value) -> Result<BTreeMap<String, Value>, RpcError> {
@@ -255,7 +272,10 @@ fn map_error(error: MailboxError) -> RpcError {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_metadata, require_local_origin, validate_binding};
+    use super::{
+        parse_metadata, report_recipient, require_local_origin, validate_binding,
+        validate_report_recipient,
+    };
     use crate::mailbox::{Mailbox, MailboxError, SendInput};
     use crate::server::Origin;
     use crate::session_identity::SessionReceipt;
@@ -334,5 +354,16 @@ mod tests {
         let error = parse_metadata(&json!({"metadata": "invalid"}))
             .expect_err("metadata must be an object");
         assert!(error.message.contains("metadata must be an object"));
+    }
+
+    #[test]
+    fn reports_alias_is_detected_and_validated() {
+        let params = json!({"recipient": "reports:leo"});
+        assert_eq!(report_recipient(&params), Some("reports:leo"));
+        assert!(validate_report_recipient("reports:leo").is_ok());
+        for invalid in ["reports:", "reports:   ", "agent"] {
+            assert!(validate_report_recipient(invalid).is_err(), "{invalid} must be rejected");
+        }
+        assert_eq!(report_recipient(&json!({"recipient": "agent"})), None);
     }
 }
