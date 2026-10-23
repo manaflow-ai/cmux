@@ -2383,7 +2383,14 @@ export class AcpmuxDirectClient {
 
   /// Read commands for a deferred chat without selecting or attaching it.
   async sessionCommands(sessionId: string): Promise<SlashCommand[]> {
-    const result = await this.typed("_acpmux/events", { sessionId, limit: 1, kinds: [COMMANDS_KIND] });
+    // `_acpmux/events` scans oldest-first unless `beforeSeq` is present. Use the protocol's
+    // highest safe cursor so the one-row backwards page is the latest publication.
+    const result = await this.typed("_acpmux/events", {
+      sessionId,
+      beforeSeq: Number.MAX_SAFE_INTEGER,
+      limit: 1,
+      kinds: [COMMANDS_KIND],
+    });
     const event = records(result?.events).at(-1);
     return (event && commandsFromUpdate(sessionUpdate(event))) || [];
   }
