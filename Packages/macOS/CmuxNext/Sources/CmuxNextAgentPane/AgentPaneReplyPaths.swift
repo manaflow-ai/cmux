@@ -50,7 +50,7 @@ nonisolated struct AgentPaneReplyPaths {
     static func isImagePath(_ text: String) -> Bool {
         let path = text.lowercased().hasPrefix("file://")
             ? URL(string: text)?.path(percentEncoded: false) ?? text
-            : text.split(separator: "?", maxSplits: 1).first.map(String.init) ?? text
+            : text.split(maxSplits: 1, whereSeparator: { $0 == "?" || $0 == "#" }).first.map(String.init) ?? text
         return imageExtensions.contains(URL(fileURLWithPath: path).pathExtension.lowercased())
     }
 
@@ -72,6 +72,10 @@ nonisolated struct AgentPaneReplyPaths {
             guard let url = URL(string: path), url.isFileURL, url.host(percentEncoded: false).map({ $0.isEmpty || $0 == "localhost" }) ?? true
             else { return nil }
             path = url.path(percentEncoded: false)
+        } else {
+            // The page strips URL query and fragment text before asking the native host to
+            // inspect or load a reply image. Keep native path resolution in lockstep with it.
+            path = path.split(maxSplits: 1, whereSeparator: { $0 == "?" || $0 == "#" }).first.map(String.init) ?? path
         }
         if path == "~" || path.hasPrefix("~/") {
             path = home + path.dropFirst()
@@ -128,8 +132,12 @@ nonisolated struct AgentPaneReplyPaths {
 
     func resolve(_ text: String) -> Resolved? { resolve(text, inside: roots) }
 
-    /// Resolves a local reply image with the chat's read-only image roots. The caller has already
-    /// established that the source is an image by its extension; ordinary paths never use these
-    /// roots, so `/tmp` and home images do not widen the path-chip gate.
-    func resolveImage(_ text: String) -> Resolved? { resolve(text, inside: roots + imageRoots) }
+    /// Resolves a local reply image with the chat's read-only image roots. Enforce the extension at
+    /// this boundary as well as at the page call site: `image.load` is a native RPC and its `src`
+    /// is untrusted. Ordinary paths never use these roots, so `/tmp` and home images do not widen
+    /// the path-chip gate.
+    func resolveImage(_ text: String) -> Resolved? {
+        guard Self.isImagePath(text) else { return nil }
+        return resolve(text, inside: roots + imageRoots)
+    }
 }

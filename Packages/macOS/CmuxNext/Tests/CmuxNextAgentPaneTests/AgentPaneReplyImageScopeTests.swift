@@ -31,6 +31,8 @@ struct AgentPaneReplyImageScopeTests {
         #expect(paths.resolveImage(tmp.appendingPathComponent("sidebar.png").path)?.place == .root)
         #expect(paths.resolveImage(home.appendingPathComponent("sidebar.png").path)?.place == .root)
         #expect(paths.resolveImage("/var/tmp/sidebar.png")?.place == .outside)
+        #expect(paths.resolveImage(tmp.appendingPathComponent("sidebar.dat").path) == nil)
+        #expect(paths.resolveImage(tmp.appendingPathComponent("sidebar.png#preview").path)?.place == .root)
     }
 
     @Test func aLargeRGBAImageBecomesABoundedVisibleSRGBPNG() async throws {

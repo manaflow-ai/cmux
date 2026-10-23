@@ -126,7 +126,9 @@ nonisolated struct AgentPaneReplyImages {
               nativeTypes[type] != nil || decodedTypes.contains(type),
               let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
               let width = properties[kCGImagePropertyPixelWidth] as? Int, let height = properties[kCGImagePropertyPixelHeight] as? Int,
-              width > 0, height > 0, width.multipliedReportingOverflow(by: height).partialValue <= maximumPixels
+              width > 0, height > 0,
+              !width.multipliedReportingOverflow(by: height).overflow,
+              width.multipliedReportingOverflow(by: height).partialValue <= maximumPixels
         else { return .failure(.imageFailed) }
         if !reencode, let mime = nativeTypes[type] {
             // Decode once, so a file that is not really this type is refused.

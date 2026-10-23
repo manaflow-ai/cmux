@@ -111,8 +111,11 @@ extension AgentPaneModel {
     /// its `image.load` request is handled by the remote wire.
     func replyPaths() -> AgentPaneReplyPaths {
         let base = sessionRoots().first ?? primaryRoot()
-        let imageRoots = remoteChat ? [] : [base, "/tmp", replyLinks.home].compactMap { $0 }
-        return AgentPaneReplyPaths(roots: fileOpenRoots(), imageRoots: imageRoots, home: replyLinks.home, base: base)
+        let local = !remoteChat
+        let imageRoots = local ? [base, "/tmp", replyLinks.home].compactMap { $0 } : []
+        // A remote chat's path spelling belongs to its host. Never retain this Mac's workspace
+        // roots as a fallback: a same-named local file must not be read or opened here.
+        return AgentPaneReplyPaths(roots: local ? fileOpenRoots() : [], imageRoots: imageRoots, home: replyLinks.home, base: local ? base : nil)
     }
 
     /// The reply for one reply link request.
