@@ -6,7 +6,7 @@
 import { createContext } from "react";
 import type { Translate } from "../i18n";
 import type { AcpmuxActivity } from "../model";
-import { losesNumbers, oneLine, peelEnvelope, printable } from "./toolResult";
+import { losesNumbers, oneLine, peelEnvelope, printable, toolResult } from "./toolResult";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
@@ -261,21 +261,24 @@ function deepClean(value: unknown, depth = 0): unknown {
   return value;
 }
 
-/// An MCP response as a value: a `{content: [{type: "text", text}]}` result unwrapped to its texts.
+/// An MCP response as a value: an envelope that says only text unwrapped to its texts.
 function mcpValue(output: string | undefined): unknown {
   if (!output) return undefined;
   const parsed = parseJSON(output);
   if (parsed === undefined) return output;
   const peeled = oneLine(output) ? peelEnvelope(parsed) : undefined;
-  if (!peeled) return parsed;
-  // What it holds nested too deep to indent: the output as it came (toolResult.ts does the same).
-  if (!peeled.rest.every(printable)) return output;
+  if (!peeled || peeled.rest.length) return parsed;
   const texts = peeled.texts.filter((text) => text.trim());
-  // An envelope with no text: what it holds besides, or, empty, the JSON it is.
-  if (!texts.length) return peeled.rest.length === 0 ? parsed : peeled.rest.length === 1 ? peeled.rest[0] : peeled.rest;
-  if (!peeled.rest.length) return texts.length === 1 ? texts[0] : texts;
-  // Text, then what it holds besides (structured content, an error's data, a block that is not text) as JSON.
-  return [...texts, ...peeled.rest.map((rest) => JSON.stringify(deepClean(rest), null, 2))].join("\n\n");
+  if (!texts.length) return parsed;
+  return texts.length === 1 ? texts[0] : texts;
+}
+
+/// Whether the output is an envelope that holds more than text (structured content, an error's data, a block that is
+/// not text).
+function holdsMore(output: string): boolean {
+  if (!oneLine(output)) return false;
+  const parsed = parseJSON(output);
+  return parsed !== undefined && Boolean(peelEnvelope(parsed)?.rest.length);
 }
 
 /// A value as the opened call shows it: text as itself, anything else as indented JSON.
@@ -295,6 +298,9 @@ export function prettyOutput(output: string | undefined): string | undefined {
   // JSON holding a number a double would change (a 64-bit ID) shows as it came, never parsed and
   // rounded, as toolResult.ts shows it.
   if (output && parseJSON(output) !== undefined && losesNumbers(output)) return output.replace(/\n$/, "");
+  // An envelope that holds more than text reads exactly as the tool row reads it: its text, then
+  // each other part as the JSON it is, never cleaned or parsed again (toolResult.ts).
+  if (output && holdsMore(output)) return toolResult(output, cleanText).text || undefined;
   return prettyValue(mcpValue(output));
 }
 

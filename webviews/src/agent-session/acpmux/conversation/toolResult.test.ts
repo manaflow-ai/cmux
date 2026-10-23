@@ -122,6 +122,27 @@ test("an envelope whose other parts a double would change, or nest too deep, sho
   expect(prettyOutput(nested)).toBe(nested);
 });
 
+test("the opened MCP call reads an envelope that holds more than text exactly as the row does", () => {
+  for (const output of [
+    JSON.stringify({ content: [], structuredContent: {} }),
+    JSON.stringify({
+      content: [
+        { type: "audio", mimeType: "audio/wav", data: "UklG" },
+        { type: "resource_link", uri: "file:///a" },
+      ],
+    }),
+    JSON.stringify({
+      content: [{ type: "text", text: "Saved" }],
+      structuredContent: { raw: '{"id":9007199254740993}' },
+    }),
+    JSON.stringify({ error: { code: -32000, message: "Failed", data: { body: '{"nested":true}' } } }),
+  ]) {
+    expect(prettyOutput(output)).toBe(toolResult(output, cleanText).text);
+  }
+  const raw = { content: [{ type: "text", text: "Saved" }], structuredContent: { raw: '{"id":9007199254740993}' } };
+  expect(prettyOutput(JSON.stringify(raw))).toContain(JSON.stringify(raw.structuredContent.raw));
+});
+
 test("an envelope with nothing to read stays JSON", () => {
   for (const value of [
     { content: [], isError: false },
