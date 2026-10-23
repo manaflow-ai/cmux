@@ -24605,7 +24605,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Team Picker…",
+      "title" : "Switch Active Team…",
       "title_key" : "action.openTeamPicker",
       "title_table" : "ActionCatalog"
     },
