@@ -56,7 +56,7 @@ extension NSView {
         // (appearance.colorTransition); a change to or from a material applies at once.
         if let layer, layer.backgroundColor != fill {
             if fill != nil, layer.backgroundColor != nil, window?.isVisible == true {
-                ColorTransition.current.animate(layer, to: fill)
+                ColorTransition.current(for: themeScope.store).animate(layer, to: fill)
             } else {
                 layer.removeAnimation(forKey: ColorTransition.layerKey)
                 layer.backgroundColor = fill

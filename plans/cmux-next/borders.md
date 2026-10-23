@@ -22,7 +22,7 @@ and alignment do not move (lines keep their space and draw clear; the
 
 `Borders` (CmuxNextDesign) reads the Debug Settings override, else
 `DesignSettings.shared.borders`; reading it in an observed scope tracks
-the setting. `AppServices.observeBorders()` calls `ThemeStore.shared.repaintAll()`
+the setting. `AppServices.observeBorders()` calls `themeStore.repaintAll()`
 on a change, so open windows repaint live. `Borders` is a value (`Borders(mode:)`, the pure rule); `Borders.current` is the live one.
 
 ## What `none` removes, and the replacements

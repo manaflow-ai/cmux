@@ -1,5 +1,5 @@
 public import AppKit
-import CmuxNextDesign
+public import CmuxNextDesign
 
 /// The floating glass panel that carries the permission card, top center
 /// of the screen, over every app (System Settings included).
@@ -12,8 +12,11 @@ public final class PermissionRequestPanel: NSPanel {
     public let card: PermissionRequestCardView
     private let surface: OverlaySurfaceView
 
-    /// - Parameter card: the card to carry.
-    public init(card: PermissionRequestCardView) {
+    /// - Parameters:
+    ///   - card: the card to carry.
+    ///   - theme: the scope it draws in: the app's root (`AppServices.themeRoot`), as it belongs
+    ///     to no room.
+    public init(card: PermissionRequestCardView, theme: ThemeScope) {
         self.card = card
         surface = Glass.makeOverlayPanel(content: nil)
         super.init(contentRect: NSRect(x: 0, y: 0, width: PermissionRequestCardView.width, height: 120),
@@ -32,7 +35,7 @@ public final class PermissionRequestPanel: NSPanel {
         card.translatesAutoresizingMaskIntoConstraints = true
         card.autoresizingMask = [.width, .height]
         surface.contentView.addSubview(card)
-        ThemeScope.app.store.adopt(self)
+        theme.adopt(self)
     }
 
     override public var canBecomeKey: Bool { true }
