@@ -25,9 +25,9 @@ public nonisolated struct HangSample: Codable, Sendable, Equatable {
     /// Main-thread CPU time during the stall (watchdog stalls); nil when not measured.
     public var cpuMs: Int?
     /// Innermost first, at most ``maxFrames``.
-    public var frames: [HangFrame]
+    public var frames: [HangReportFrame]
 
-    public init(source: Source, kind: Kind, durationMs: Int, cpuMs: Int? = nil, frames: [HangFrame]) {
+    public init(source: Source, kind: Kind, durationMs: Int, cpuMs: Int? = nil, frames: [HangReportFrame]) {
         self.source = source
         self.kind = kind
         self.durationMs = max(0, durationMs)

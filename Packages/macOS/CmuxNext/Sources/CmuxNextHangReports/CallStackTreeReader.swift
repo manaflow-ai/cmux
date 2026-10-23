@@ -9,7 +9,7 @@ public import Foundation
 /// heaviest root, following the heaviest caller (largest `sampleCount`) at each level.
 public nonisolated struct CallStackTreeReader: Sendable {
     /// One frame as MetricKit wrote it. Its text is untrusted: only ``ImageClassifier`` turns it
-    /// into a ``HangFrame``.
+    /// into a ``HangReportFrame``.
     public struct RawFrame: Sendable, Equatable {
         public var binaryName: String?
         public var binaryUUID: String?

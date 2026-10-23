@@ -1,5 +1,5 @@
 /// The watchdog's findings since the last report: a histogram of finished stalls and the stacks
-/// of the longest ones (already reduced to ``HangFrame``s, so the aggregate can be saved and sent
+/// of the longest ones (already reduced to ``HangReportFrame``s, so the aggregate can be saved and sent
 /// after a relaunch).
 public nonisolated struct StallAggregate: Codable, Sendable, Equatable {
     /// Histogram edges in milliseconds: buckets are `[50, 100)`, `[100, 250)`, ...,

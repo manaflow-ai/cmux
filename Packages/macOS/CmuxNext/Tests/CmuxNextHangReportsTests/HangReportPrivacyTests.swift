@@ -52,23 +52,23 @@ struct HangReportPrivacyTests {
         // Innermost first: the input method (other), AppKit, our binary, GhosttyKit.
         #expect(metricKit.frames == [
             .other,
-            HangFrame(image: "AppKit", uuid: HangReportFixtures.appKitUUID, offset: 123_456),
-            HangFrame(image: "cmux NEXT Nightly", uuid: HangReportFixtures.appUUID, offset: 777),
-            HangFrame(image: "GhosttyKit", uuid: HangReportFixtures.ghosttyUUID, offset: 55),
+            HangReportFrame(image: "AppKit", uuid: HangReportFixtures.appKitUUID, offset: 123_456),
+            HangReportFrame(image: "cmux NEXT Nightly", uuid: HangReportFixtures.appUUID, offset: 777),
+            HangReportFrame(image: "GhosttyKit", uuid: HangReportFixtures.ghosttyUUID, offset: 55),
         ])
         let watchdog = try #require(report.hangs.first { $0.source == .watchdog })
         #expect(watchdog.frames == [
             .other,
-            HangFrame(image: "AppKit", uuid: HangReportFixtures.appKitUUID, offset: 0x2000),
-            HangFrame(image: "cmux NEXT Nightly", uuid: HangReportFixtures.appUUID, offset: 0x300),
+            HangReportFrame(image: "AppKit", uuid: HangReportFixtures.appKitUUID, offset: 0x2000),
+            HangReportFrame(image: "cmux NEXT Nightly", uuid: HangReportFixtures.appUUID, offset: 0x300),
             .other, .other,
         ])
     }
 
     @Test func onlyAllowlistedIntervalsAreSent() {
         let (report, _) = report()
-        #expect(report.intervals.map(\.category) == ["perf.motion"])
-        #expect(report.intervals.first?.name == "frame")
+        #expect(report.intervals.map(\.category) == ["motion"])
+        #expect(report.intervals.first?.name == "motion.frame")
         #expect(report.intervals.first?.count == 1_200)
     }
 
@@ -96,6 +96,15 @@ struct HangReportPrivacyTests {
         #expect(report.app == HangReport.App(version: "0", build: "0", channel: "dev"))
         #expect(report.os.version == "0")
         #expect(report.day == "1970-01-01")
+        let body = try HangReport.encoder.encode(report)
+        #expect(PrivacyLeakScanner(forbiddenTerms: HangReportFixtures.forbiddenTerms).findings(in: body).isEmpty)
+    }
+
+    @Test func aNightlyRunIDBuildNumberIsKept() throws {
+        var context = HangReportFixtures.context()
+        context.app = HangReport.App(version: "0.70.0", build: "2123456789012", channel: "nightly")
+        let report = HangReportFixtures.builder().build(context: context, watchdog: StallAggregate(), metricKit: [])
+        #expect(report.app.build == "2123456789012")
         let body = try HangReport.encoder.encode(report)
         #expect(PrivacyLeakScanner(forbiddenTerms: HangReportFixtures.forbiddenTerms).findings(in: body).isEmpty)
     }

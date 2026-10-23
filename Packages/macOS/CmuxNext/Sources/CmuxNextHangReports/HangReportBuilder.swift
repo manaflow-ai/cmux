@@ -59,14 +59,14 @@ public nonisolated struct HangReportBuilder: Sendable {
     }
 
     /// Frames of a watchdog sample (return addresses, innermost first).
-    public func frames(addresses: [UInt]) -> [HangFrame] {
+    public func frames(addresses: [UInt]) -> [HangReportFrame] {
         addresses.prefix(HangSample.maxFrames).map { address in
             classifier.frame(image: resolver.image(containing: UInt64(address)), address: UInt64(address))
         }
     }
 
     /// Frames of a MetricKit call stack tree.
-    func frames(_ callStackTree: Data) -> [HangFrame] {
+    func frames(_ callStackTree: Data) -> [HangReportFrame] {
         var loaded: [String: LoadedImage?] = [:]
         return reader.stack(callStackTree).map { raw in
             let uuid = raw.binaryUUID?.uppercased()
@@ -129,9 +129,15 @@ public nonisolated struct HangReportBuilder: Sendable {
         version.range(of: #"^[0-9]{1,6}(\.[0-9]{1,6}){0,3}$"#, options: .regularExpression) != nil ? version : "0"
     }
 
+    /// A build number: a version, or one run of up to 20 digits (NIGHTLY's `CFBundleVersion` is the
+    /// CI run id plus the attempt, about 13 digits); else `0`.
+    static func safeBuild(_ build: String) -> String {
+        build.range(of: #"^[0-9]{1,20}$"#, options: .regularExpression) != nil ? build : safeVersion(build)
+    }
+
     static func safeApp(_ app: HangReport.App) -> HangReport.App {
         let channels = ["nightly", "dev", "rc", "release"]
-        return HangReport.App(version: safeVersion(app.version), build: safeVersion(app.build),
+        return HangReport.App(version: safeVersion(app.version), build: safeBuild(app.build),
                               channel: channels.contains(app.channel) ? app.channel : "dev")
     }
 }

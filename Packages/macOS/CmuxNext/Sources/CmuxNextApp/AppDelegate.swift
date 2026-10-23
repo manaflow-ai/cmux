@@ -58,6 +58,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             services.quit.terminateFromSignal()
         }, forceExit: { [weak self] in
             self?.services?.crashRecovery.applicationWillTerminate()
+            AppProcessRoot.shared.hangReports?.applicationWillTerminate()
             self?.services?.home.applicationWillTerminate()
             exit(0)
         })
@@ -94,25 +95,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let services = AppServices(environment: environment)
         AppProcessRoot.shared.adopt(services)
         self.services = services
-        // A main-thread hang still running after 2 s goes to crash reporting with its stack.
-        let reporter = services.crashReporting.reporter
-        control.watchdog.onHang = { reporter.reportHang(duration: $0.duration, addresses: $0.addresses, otherThreads: $0.otherThreads.map { ($0.name, $0.addresses) }) }
-        // And to a file per hang (~/Library/Logs/<bundle id>/hangs), listed in Debug Settings > Hangs.
-        control.watchdog.episodes = HangFileTunables.recorder(bundleID: Bundle.main.bundleIdentifier)
-        // Shorter lag spikes (250 ms and up, rate-limited) go there too, once they end.
-        let lagSpikes = LagSpikeReporter(reporter: reporter)
-        lagSpikes.setContextProvider {
-            // The watchdog's run-loop observer on the main run loop reads it; never off main.
-            guard Thread.isMainThread else { return [:] }
-            return MainActor.assumeIsolated { // main-proof: checked Thread.isMainThread above
-                let windows = NSApp.windows
-                return ["windows": String(windows.count), "visible_windows": String(windows.filter(\.isVisible).count),
-                        "app_active": NSApp.isActive ? "yes" : "no"]
-            }
-        }
-        control.watchdog.onStall = { record in
-            lagSpikes.noteStall(duration: record.duration, cpu: record.cpu, addresses: record.addresses)
-        }
+        // Hangs, lag spikes and opt-in hang reports (WatchdogReporting); the controller lives with the process.
+        AppProcessRoot.shared.adopt(hangReports: WatchdogReporting.install(control.watchdog, services: services))
         services.quit.watchdog = control.watchdog
         DebugTimings.markReveal(services.launchReveal)
         // Debug Settings overrides (DEV and NIGHTLY only) before any window lays out.
@@ -271,6 +255,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             )
         )
         settings.start(announcingDiagnostics: true)
+        AppProcessRoot.shared.hangReports?.start(settings: settings, asks: services.machineAsks, firstWindow: { [firstFrame] in await firstFrame.opened() })
         ChatSettingsPush.start(settings: settings, socketPath: QuitAgents.environment(services)?.socketPath)
         KeepAwakeService.shared.start(settings: settings, store: services.daemon.store)
         services.mobile.follow(settings, launch: services.environment.launch)
@@ -421,6 +406,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         services?.crashRecovery.applicationWillTerminate()
+        AppProcessRoot.shared.hangReports?.applicationWillTerminate()
         ComputerUseHelperDaemon.shared.applicationWillTerminate()
         services?.viewers.diffPages.terminate()
         services?.viewers.markdownPages.terminate()

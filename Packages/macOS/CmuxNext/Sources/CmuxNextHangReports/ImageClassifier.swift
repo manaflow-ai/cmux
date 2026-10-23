@@ -6,7 +6,7 @@ public import Foundation
 /// in ``ownNamePrefixes``) or Apple's (loaded from `/System/` or `/usr/lib/`, or, for a name with
 /// no loaded image, a framework or library of that exact name in those folders). The name sent is
 /// the last path component, and only when it matches ``namePattern`` and holds none of
-/// ``forbiddenTerms``. Every other image is ``HangFrame/other``: no name, UUID or offset.
+/// ``forbiddenTerms``. Every other image is ``HangReportFrame/other``: no name, UUID or offset.
 ///
 /// ```swift
 /// let classifier = ImageClassifier(appBundlePath: Bundle.main.bundlePath,
@@ -45,22 +45,22 @@ public nonisolated struct ImageClassifier: Sendable {
         self.systemImageExists = systemImageExists
     }
 
-    /// The frame for an address in `image` (from ``ImageResolving``), or ``HangFrame/other``.
-    public func frame(image: LoadedImage?, address: UInt64) -> HangFrame {
+    /// The frame for an address in `image` (from ``ImageResolving``), or ``HangReportFrame/other``.
+    public func frame(image: LoadedImage?, address: UInt64) -> HangReportFrame {
         guard let image, image.contains(address) else { return .other }
         return frame(image: image, offset: address - image.base)
     }
 
-    /// The frame at `offset` into a loaded image, or ``HangFrame/other``.
-    public func frame(image: LoadedImage, offset: UInt64) -> HangFrame {
+    /// The frame at `offset` into a loaded image, or ``HangReportFrame/other``.
+    public func frame(image: LoadedImage, offset: UInt64) -> HangReportFrame {
         guard owner(path: image.path) != .other, let name = sendableName(image.path) else { return .other }
-        return HangFrame(image: name, uuid: image.uuid, offset: offset)
+        return HangReportFrame(image: name, uuid: image.uuid, offset: offset)
     }
 
     /// The frame of a MetricKit call stack frame: `loaded` is the image with its UUID in this
     /// process (nil when none matches, for example after an update), `name` MetricKit's
     /// `binaryName`.
-    public func frame(metricKitName name: String?, uuid: String?, offset: UInt64?, loaded: LoadedImage?) -> HangFrame {
+    public func frame(metricKitName name: String?, uuid: String?, offset: UInt64?, loaded: LoadedImage?) -> HangReportFrame {
         guard let uuid, Self.isUUID(uuid), let offset else { return .other }
         if let loaded { return frame(image: loaded, offset: offset) }
         guard let name, !name.isEmpty else { return .other }
@@ -70,7 +70,7 @@ public nonisolated struct ImageClassifier: Sendable {
             : Self.ownNamePrefixes.contains { name.hasPrefix($0) } ? .ours
             : systemImageExists(name) ? .apple : .other
         guard owner != .other, let sent = sendableName(name) else { return .other }
-        return HangFrame(image: sent, uuid: uuid.uppercased(), offset: offset)
+        return HangReportFrame(image: sent, uuid: uuid.uppercased(), offset: offset)
     }
 
     /// Who `path` belongs to.

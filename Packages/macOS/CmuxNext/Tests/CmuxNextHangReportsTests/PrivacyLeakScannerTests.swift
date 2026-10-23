@@ -10,7 +10,7 @@ struct PrivacyLeakScannerTests {
     private func findings(planting value: String, at key: String = "image") -> [PrivacyLeakScanner.Finding] {
         var report = HangReportFixtures.builder().build(context: HangReportFixtures.context(), watchdog: StallAggregate(), metricKit: [])
         report.hangs = [HangSample(source: .watchdog, kind: .stall, durationMs: 300,
-                                   frames: [HangFrame(image: key == "image" ? value : "AppKit", uuid: key == "uuid" ? value : nil, offset: 1)])]
+                                   frames: [HangReportFrame(image: key == "image" ? value : "AppKit", uuid: key == "uuid" ? value : nil, offset: 1)])]
         return scanner.findings(in: (try? HangReport.encoder.encode(report)) ?? Data())
     }
 
