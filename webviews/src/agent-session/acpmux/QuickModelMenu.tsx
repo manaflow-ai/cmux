@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AgentMark } from "../shared/AgentMark";
 import type { ChatAccountList, ChatAccounts } from "./chatAccounts";
 import type { Choice } from "./ComposerPickers";
@@ -87,6 +87,72 @@ function filtered(families: QuickFamily[], query: string): (QuickModel & { hint:
 
 const rowValue = (model: Pick<QuickModel, "family" | "id">) => `${model.family}\u0000${model.id}`;
 
+/// What one rail tab's unfiltered list draws, in rows and separators (the group label is in every
+/// tab). The menu opens above its chip, so a taller or shorter tab moved the rail under the pointer;
+/// the list keeps the tallest tab's height for the whole opening (QuickMenuSpacer).
+export type TabExtent = { rows: number; separators: number };
+
+/// Mirrors the unfiltered `list` in QuickModelMenu row for row: keep the two in step.
+export function tabExtent(
+  family: QuickFamily,
+  menu: Pick<QuickMenu, "account" | "fast" | "update"> & { families: QuickFamilies; levels: number },
+): TabExtent {
+  const chat = family.id === menu.families.current;
+  const models = Math.min(family.models.length, FILTER_ROWS);
+  let rows = models || 1;
+  let separators = 1;
+  if (family.note && family.logIn) rows += 1;
+  if (chat && menu.levels > 1) {
+    rows += 1;
+    separators += 1;
+  }
+  if (family.more.length > 0 || menu.families.onAddHarness) rows += 1;
+  if (chat && menu.account) rows += 1;
+  if (chat && menu.fast) {
+    rows += 1;
+    separators += 1;
+  }
+  if (menu.update) {
+    rows += 1;
+    separators += 1;
+  }
+  return { rows, separators };
+}
+
+/// One row of any tab, for the width probe: its label, its secondary value, and whether it opens a
+/// submenu (a chevron), shows a number key, or shows the chosen model's check (wider: it has its own
+/// leading padding).
+export type ProbeRow = { label: string; value?: string; sub?: boolean; shortcut?: boolean; check?: boolean };
+
+/// The tallest tab's rows and separators, unseen in the list's grid cell under the real rows, so
+/// switching tabs or typing never changes the menu's height while it is open. `widths` is every
+/// tab's rows at no height: the cell is as wide as the widest tab, so its width holds too.
+function QuickMenuSpacer({ rows, separators, widths }: TabExtent & { widths: ProbeRow[] }) {
+  return (
+    <div className="acpmux-quick-spacer" aria-hidden="true" inert>
+      <div className="acpmux-quick-probe">
+        {widths.map((row, index) => (
+          <div key={index} className={`ui-menu-item acpmux-quick-item${row.sub ? " acpmux-quick-sub" : ""}`}>
+            <span className="acpmux-menu-label">{row.label}</span>
+            {row.value && <span className="acpmux-quick-value">{row.value}</span>}
+            {row.check && <span className="ui-menu-check">✓</span>}
+            {row.sub && <span className="ui-submenu-chevron" />}
+            {row.shortcut && <span className="ui-menu-shortcut">9</span>}
+          </div>
+        ))}
+      </div>
+      <div className="ui-menu-group-label">{"\u00a0"}</div>
+      {/* A separator after each of the first rows: back to back, their margins would collapse. */}
+      {Array.from({ length: rows }, (_, index) => (
+        <Fragment key={index}>
+          <div className="ui-menu-item acpmux-quick-item" />
+          {index < separators && <div className="ui-separator" />}
+        </Fragment>
+      ))}
+    </div>
+  );
+}
+
 /// What the composer hands the model picker for its compact menu; the picker adds the models.
 export type QuickMenuExtras = Pick<QuickMenu, "effort" | "account" | "fast">;
 
@@ -139,6 +205,12 @@ export function QuickModelMenu({
   // re-render with the same filter (a streaming reply hands over new families) keeps the row the
   // keyboard moved to, so Enter picks it.
   const popup = useRef<HTMLDivElement | null>(null);
+  // Another tab or filter starts at its top: the held height keeps a tall tab's scroll range, which
+  // could leave a short tab's rows above the view.
+  const body = useRef<HTMLDivElement | null>(null);
+  const toTop = () => {
+    if (body.current) body.current.scrollTop = 0;
+  };
   const focusedFor = useRef<string | undefined>(undefined);
   useLayoutEffect(() => {
     const node = popup.current;
@@ -170,6 +242,11 @@ export function QuickModelMenu({
     } else if (!(row.family === families.current && row.id === current)) families.onPick(row);
   };
   const activeAccount = accounts.list?.accounts.find((choice) => choice.id === accounts.list?.active);
+  const accountValue = accounts.switchFailed
+    ? t("picker.accountSwitchFailed")
+    : accounts.list
+      ? (activeAccount?.name ?? t("picker.harnessLogin"))
+      : undefined;
   const keyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.metaKey || event.ctrlKey || event.altKey || event.nativeEvent.isComposing) return;
     // Only the menu's own keys, not a submenu's (React carries those up through the portal).
@@ -183,6 +260,7 @@ export function QuickModelMenu({
       if (next) {
         event.preventDefault();
         setTab(next.id);
+        toTop();
       }
       return;
     }
@@ -195,16 +273,66 @@ export function QuickModelMenu({
     } else if (families && event.key === "Backspace" && query) {
       event.preventDefault();
       setQuery(query.slice(0, -1));
+      toTop();
     } else if (event.key.length === 1 && (/\S/.test(event.key) || (families && query))) {
       event.preventDefault();
       // Typing filters the list in place, Claude Code style; without a rail it searches the full picker.
-      if (families) setQuery(query + event.key);
-      else {
+      if (families) {
+        setQuery(query + event.key);
+        toTop();
+      } else {
         onOpenChange(false);
         onMore(event.key);
       }
     }
   };
+  const tallest = (families?.list ?? []).reduce<TabExtent>(
+    (most, family) => {
+      const extent = tabExtent(family, {
+        families: families!,
+        levels: levels.length,
+        account,
+        fast,
+        update: menu.update,
+      });
+      return { rows: Math.max(most.rows, extent.rows), separators: Math.max(most.separators, extent.separators) };
+    },
+    // A typed filter: up to FILTER_ROWS matches from every searched tab (or its one note row), no
+    // separators. It can be taller than any one tab's list.
+    {
+      rows: Math.max(
+        1,
+        Math.min(
+          FILTER_ROWS,
+          (families?.list ?? [])
+            .filter((family) => !family.starred && !family.note)
+            .reduce((count, family) => count + family.models.length + family.more.length, 0),
+        ),
+      ),
+      separators: 0,
+    },
+  );
+  // Every tab's unfiltered rows, for the width the menu holds while open.
+  const widths: ProbeRow[] = families
+    ? [
+        ...families.list.flatMap((family): ProbeRow[] => [
+          ...family.models
+            .slice(0, FILTER_ROWS)
+            .map((model) =>
+              family.id === families.current && model.id === current
+                ? { label: model.name, check: true }
+                : { label: model.name, shortcut: true },
+            ),
+          ...(family.note && family.models.length === 0 ? [{ label: family.note }] : []),
+          ...(family.note && family.logIn ? [{ label: t("harness.logIn") }] : []),
+        ]),
+        ...(effort && levels.length > 1 ? [{ label: t("effort.title"), value: level?.name, sub: true }] : []),
+        { label: t("picker.moreModels"), sub: true },
+        ...(account ? [{ label: t("picker.account"), value: accountValue, sub: true }] : []),
+        ...(fast ? [{ label: t("picker.fastMode") }] : []),
+        ...(menu.update ? [{ label: menu.update.text, value: t("harness.update") }] : []),
+      ]
+    : [];
   const currentValue = families ? rowValue({ family: families.current ?? "", id: current ?? "" }) : (current ?? "");
   const list = (
     <>
@@ -310,18 +438,7 @@ export function QuickModelMenu({
         <Submenu
           className="acpmux-quick-item acpmux-quick-sub"
           popupClassName="acpmux-quick-menu"
-          label={
-            <QuickRowLabel
-              label={t("picker.account")}
-              value={
-                accounts.switchFailed
-                  ? t("picker.accountSwitchFailed")
-                  : accounts.list
-                    ? (activeAccount?.name ?? t("picker.harnessLogin"))
-                    : undefined
-              }
-            />
-          }
+          label={<QuickRowLabel label={t("picker.account")} value={accountValue} />}
         >
           <AccountRows
             list={accounts.list}
@@ -389,6 +506,7 @@ export function QuickModelMenu({
                   onClick={() => {
                     setTab(family.id);
                     setQuery("");
+                    toTop();
                   }}
                 >
                   {family.starred ? (
@@ -403,7 +521,10 @@ export function QuickModelMenu({
                 </button>
               ))}
             </fieldset>
-            <div className="acpmux-quick-body">{list}</div>
+            <div className="acpmux-quick-body" ref={body}>
+              <div className="acpmux-quick-list">{list}</div>
+              <QuickMenuSpacer {...tallest} widths={widths} />
+            </div>
           </div>
         ) : (
           list
