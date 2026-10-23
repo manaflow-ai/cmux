@@ -19,8 +19,8 @@ Ghostty files with cmux-tui's agent shims appended, as shell_integration.rs writ
 same layer, as the daemon wraps it when it knows the app's bundled CLI; layout `daemon-bare` is that
 daemon-integrated shell with no layer and no bundled CLI (a daemon started outside the app, or one
 whose `<Resources>/cmux-cli-path` is missing: cli_path::wrap then leaves the injection alone). The
-daemon layouts rebuild the daemon's scripts from this checkout (daemon_integration mirrors
-shell_integration.rs SCRIPTS); the guard on what the daemon really writes is cmux-tui-core's
+daemon layouts rebuild the daemon's scripts from this checkout (daemon_integration reads the file list
+and order from shell_integration.rs SCRIPTS, so they cannot drift); the guard on what the daemon really writes is cmux-tui-core's
 shell_integration/fork_count_tests.rs, which materializes SCRIPTS and counts the same forks. Each
 shell has an empty HOME whose only startup file sets a plain prompt, so the integration is the only
 code that differs from the control: the same shell, same flags, without the integration env.
@@ -84,6 +84,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SHIMS_SRC = ROOT / "cmux-tui/crates/cmux-tui-core/src/shell_integration"
+SCRIPTS_RS = ROOT / "cmux-tui/crates/cmux-tui-core/src/shell_integration.rs"
+GHOSTTY_NEXT_INTEGRATION = ROOT / "ghostty-next/src/shell-integration"
 PROMPT = b"@@P@@ "
 BARRIER = b"^"
 KILL_LINE = b"\x15"
@@ -336,22 +338,39 @@ def integrated_env(base: dict[str, str], shell: Shell, layout: Layout, shims: Pa
     return env
 
 
+def scripts_rs_entries() -> dict[str, list[Path]]:
+    """shell_integration.rs SCRIPTS: each script's path and the files it concatenates, in order,
+    as checkout paths (the daemon embeds them with include_str!)."""
+    source = SCRIPTS_RS.read_text()
+    match = re.search(r"const SCRIPTS: &\[Script\] = &\[(.*?)\n\];", source, re.S)
+    if not match:
+        raise BenchError(f"no `const SCRIPTS` array in {SCRIPTS_RS}")
+    scripts: dict[str, list[Path]] = {}
+    for block in match.group(1).split("Script {")[1:]:
+        path = re.search(r'path:\s*"([^"]+)"', block)
+        parts = re.findall(r'include_str!\(\s*"([^"]+)"\s*,?\s*\)', block)
+        if not path or not parts:
+            raise BenchError(f"cannot read a SCRIPTS entry in {SCRIPTS_RS}: {block.strip()[:120]}")
+        scripts[path.group(1)] = [Path(os.path.normpath(SCRIPTS_RS.parent / part)) for part in parts]
+    if not scripts:
+        raise BenchError(f"SCRIPTS in {SCRIPTS_RS} is empty")
+    return scripts
+
+
 def daemon_integration(ghostty: Path, dest: Path) -> Path:
-    """The scripts the cmux-tui daemon materializes, rebuilt from this checkout: keep in step with
-    shell_integration.rs SCRIPTS (fork_count_tests.rs runs the real ones)."""
-    files = {
-        "zsh/.zshenv": [ghostty / "zsh/.zshenv"],
-        "zsh/ghostty-integration": [ghostty / "zsh/ghostty-integration", SHIMS_SRC / "agent-shims.zsh"],
-        "bash/ghostty.bash": [ghostty / "bash/ghostty.bash", SHIMS_SRC / "agent-shims.bash"],
-        "bash/bash-preexec.sh": [ghostty / "bash/bash-preexec.sh"],
-        "fish/vendor_conf.d/ghostty-shell-integration.fish":
-            [ghostty / "fish/vendor_conf.d/ghostty-shell-integration.fish"],
-        "fish/vendor_conf.d/cmux-tui-agent-shims.fish": [SHIMS_SRC / "cmux-tui-agent-shims.fish"],
-    }
-    for rel, parts in files.items():
+    """The scripts the cmux-tui daemon materializes, rebuilt from this checkout's SCRIPTS, with
+    ghostty-next's files taken from `ghostty` (ghostty-next itself, or an app bundle's copy)."""
+    for rel, parts in scripts_rs_entries().items():
         target = dest / rel
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text("".join(part.read_text() for part in parts))
+        text = []
+        for part in parts:
+            if part.is_relative_to(GHOSTTY_NEXT_INTEGRATION):
+                part = ghostty / part.relative_to(GHOSTTY_NEXT_INTEGRATION)
+            if not part.is_file():
+                raise BenchError(f"{rel}: {part} (from shell_integration.rs SCRIPTS) is missing")
+            text.append(part.read_text())
+        target.write_text("".join(text))
     return dest
 
 
@@ -549,7 +568,7 @@ def main() -> int:
                 return 2
         # The daemon embeds ghostty-next's files (shell_integration.rs SCRIPTS); with --app and
         # no ghostty-next checkout, the bundle's copy of them.
-        ghostty_source = args.ghostty_integration or ROOT / "ghostty-next/src/shell-integration"
+        ghostty_source = args.ghostty_integration or GHOSTTY_NEXT_INTEGRATION
         if not (ghostty_source / "bash/ghostty.bash").is_file():
             ghostty_source = app_integration
         ghostty_source = ghostty_source.resolve()
@@ -564,7 +583,11 @@ def main() -> int:
                     print(f"note: no cmux-tui agent shims at {SHIMS_SRC}; {name} layout skipped")
                     continue
                 if daemon_scripts is None:
-                    daemon_scripts = daemon_integration(ghostty_source, tmp / "daemon-integration")
+                    try:
+                        daemon_scripts = daemon_integration(ghostty_source, tmp / "daemon-integration")
+                    except BenchError as error:
+                        print(f"error: {error}", file=sys.stderr)
+                        return 2
                 integration = daemon_scripts
                 if name == "daemon-bare":
                     layer = cli = None
