@@ -203,7 +203,7 @@ chmod +x "$tmp/fake-dump.sh"
 mkdir -p "$tmp/exports/plans/cmux-next" "$tmp/patchdir" "$tmp/repo"
 echo patch > "$tmp/patchdir/webviews-fmt.patch"
 repair_args() { # [env...]
-  env GRAPH=true STRINGS=false SDK=true SHORTCUTS=false APPHOST=false ACTIONS=true SETTINGS=true \
+  env GRAPH=true STRINGS=false SDK=true CAPABILITIES=true SHORTCUTS=false APPHOST=false ACTIONS=true SETTINGS=true \
     EXPORTS_VERIFIED=true SETTINGS_VERIFIED=true RATCHETS=true CLOUD=false FMT=false \
     EXPORTS_DIR="$tmp/exports" WEBVIEWS_PATCH="$tmp/patchdir/webviews-fmt.patch" \
     CMUX_BASE_AUTOFIX_SCRIPT="$tmp/fake-autofix.sh" CMUX_BASE_AUTOFIX_DUMP="$tmp/fake-dump.sh" FAKE_ARGS="$tmp/args" "$@" \
@@ -211,7 +211,7 @@ repair_args() { # [env...]
   tr '\n' ' ' < "$tmp/args"
 }
 first="$(repair_args)"
-for want in "--generated $tmp/exports" --package-dump --sdk --docs-shortcuts --app-host --ratchets \
+for want in "--generated $tmp/exports" --package-dump --sdk --capabilities --docs-shortcuts --app-host --ratchets \
   "--webviews-fmt-patch $tmp/patchdir/webviews-fmt.patch" --no-fmt; do
   [[ " $first" == *" $want "* ]] || fail "the first round does not pass $want: $first"
 done

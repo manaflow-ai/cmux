@@ -9,6 +9,7 @@ name: cmux-next base autofix
 # (cmux-tui/bindings/codegen/generate.py), the docs shortcuts copy of the
 # action catalog export (web/scripts/export-docs-shortcuts.ts), the app-host
 # generated files (cmux-tui/crates/cmux-app-host/tools/gen-cmux-global.ts), the namespace
+# daemon capability export (scripts/cmux-next/check-daemon-capabilities-fresh.py), the
 # ratchet's stale rows (scripts/lint-namespace-types-ratchet.txt), the cloud
 # wire clients from the committed cloud catalog (backend/packages/protocol),
 # webviews formatting (vp fmt in the read-only webviews-fmt job), and cargo fmt
@@ -56,6 +57,7 @@ on:
       - cmux-tui/**
       - Native/OptChat/**
       - Packages/**
+      - plans/cmux-next/daemon-capabilities.json
       - webviews/src/**
       - webviews/scripts/pages/**
       - webviews/test/**
@@ -91,6 +93,8 @@ on:
       - scripts/cmux-next/base-autofix-changed.sh
       - scripts/cmux-next/base-autofix-settings-landed.sh
       - scripts/cmux-next/autofix-areas.sh
+      - scripts/cmux-next/check-daemon-capabilities-fresh.py
+      - scripts/cmux-next/tests/daemon-capabilities-fresh.test.sh
       - scripts/cmux-next/pr-autofix-apply.sh
       - scripts/cmux-next/base-autofix-frozen.txt
       - scripts/cmux-next/ci-target-graph.py
@@ -522,7 +526,8 @@ jobs:
           name: action-exports
           path: ${{ runner.temp }}/action-exports
 
-      # scripts/cmux-next/base-autofix-repair.sh turns the areas into base-autofix.sh's repairs (it dumps
+      # scripts/cmux-next/base-autofix-repair.sh turns the areas into base-autofix.sh's repairs (including
+      # the source-derived daemon capability export; it dumps
       # the package manifest for the CI target graph in the Swift 6.2 container); the push step runs
       # it again on a moved tip.
       - name: Repair
@@ -530,6 +535,7 @@ jobs:
           GRAPH: ${{ steps.areas.outputs.graph }}
           STRINGS: ${{ steps.areas.outputs.strings }}
           SDK: ${{ steps.areas.outputs.sdk }}
+          CAPABILITIES: ${{ steps.areas.outputs.capabilities }}
           SHORTCUTS: ${{ steps.areas.outputs.shortcuts }}
           APPHOST: ${{ steps.areas.outputs.apphost }}
           ACTIONS: ${{ steps.areas.outputs.actions }}
@@ -574,6 +580,7 @@ jobs:
           GRAPH: ${{ steps.areas.outputs.graph }}
           STRINGS: ${{ steps.areas.outputs.strings }}
           SDK: ${{ steps.areas.outputs.sdk }}
+          CAPABILITIES: ${{ steps.areas.outputs.capabilities }}
           SHORTCUTS: ${{ steps.areas.outputs.shortcuts }}
           APPHOST: ${{ steps.areas.outputs.apphost }}
           ACTIONS: ${{ steps.areas.outputs.actions }}
