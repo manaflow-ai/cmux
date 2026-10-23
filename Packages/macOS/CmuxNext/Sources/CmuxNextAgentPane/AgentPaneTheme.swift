@@ -17,7 +17,6 @@ enum AgentPaneTheme {
     /// after a drag ends.
     static func values(_ tokens: ThemeTokens, motion: MotionPolicy = Motion.web.policyIgnoringLiveResize,
                        surface: SurfaceKind = .agentPane) -> [String: any Sendable] {
-        AgentPaneTunables.followCodexToolRuns()
         let page = pageColor(tokens, surface: surface)
         var opaquePage = tokens.contentBackground
         opaquePage.alpha = 1
@@ -112,24 +111,26 @@ enum AgentPaneTheme {
         return "rgba(\(channel(color.red)), \(channel(color.green)), \(channel(color.blue)), \(alpha))"
     }
 
-    /// The script that applies `tokens` to a loaded page.
-    static func script(_ tokens: ThemeTokens, surface: SurfaceKind = .agentPane) -> String? {
+    /// The script that applies `tokens` to a loaded page; `store` is the pane's scope's
+    /// (``webTheme(_:surface:store:backgrounds:)``).
+    static func script(_ tokens: ThemeTokens, surface: SurfaceKind = .agentPane, store: ThemeStore?) -> String? {
         guard let data = try? JSONSerialization.data(withJSONObject: values(tokens, surface: surface), options: [.sortedKeys]),
               let json = String(data: data, encoding: .utf8) else { return nil }
         // The shared web theme first (`--cmux-*`, the page background), then
         // the pane's own bridge.
-        return webTheme(tokens, surface: surface).applyScript + "window.cmuxAcpmuxBridge?.applyTheme(\(json));"
+        return webTheme(tokens, surface: surface, store: store).applyScript + "window.cmuxAcpmuxBridge?.applyTheme(\(json));"
     }
 
     /// The shared web theme of `surface`. The New Tab page is transparent (the page background
     /// rule paints nothing) unless `appearance.surfaces.newTabPage` gives it a background: its
     /// pane backs it with the window's own background, as it backs a terminal (cx-tcju).
-    @MainActor static func webTheme(_ tokens: ThemeTokens, surface: SurfaceKind,
+    /// `store` is the pane's scope's (`themeScope.store`): the app theme and the color transition.
+    @MainActor static func webTheme(_ tokens: ThemeTokens, surface: SurfaceKind, store: ThemeStore?,
                                     backgrounds: SurfaceBackgrounds = ThemeScope.app.surfaceBackgrounds) -> WebTheme {
         var backgrounds = backgrounds
         if surface == .newTabPage, backgrounds[.newTabPage] == nil {
             backgrounds.overrides[.newTabPage] = SurfaceBackground(color: tokens.surfaceBackground.withAlpha(0))
         }
-        return WebTheme(tokens, surface: surface, backgrounds: backgrounds)
+        return WebTheme(tokens, surface: surface, backgrounds: backgrounds, store: store)
     }
 }

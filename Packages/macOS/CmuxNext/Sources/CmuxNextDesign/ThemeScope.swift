@@ -23,8 +23,12 @@ public final class ThemeScope {
     ///
     /// The one ambient theme root: `Palette` and the other static design lookups fall back to it
     /// outside ``performWithTheme`` (like `NSAppearance.current`), so it cannot be passed to them.
-    /// It makes the app's ``ThemeStore``; the composition root reads it once and hands that store to
-    /// the App's owners (`AppServices.themeStore`).
+    /// It makes the app's ``ThemeStore``; the composition root (AppDelegate) reads it once and
+    /// injects it (`AppServices.themeRoot`, `.themeStore`).
+    ///
+    /// Debt, not an accepted exception (lead 2026-10-23): it goes when Palette takes an explicit
+    /// theme context. Until then no new line outside CmuxNextDesign names it (guardrails rule
+    /// `ambient-theme-root`), and codebase-health counts it with the singletons.
     public static let app = ThemeScope(root: ThemeStore(publishesGlobally: true))  // singleton-allow: the ambient theme root static Palette lookups fall back to
 
     /// The store this scope's tree derives from: the root's, inherited by every child.
