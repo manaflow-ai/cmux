@@ -47,12 +47,10 @@ final class DaemonPaletteUsageStore: PaletteUsageStore {
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    // Each handle here is Sendable and stops from any thread: a release off main cleans up too.
     nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            recorder?.cancel()
-            fetching?.cancel()
-        }
+        recorder?.cancel()
+        fetching?.cancel()
     }
 
     private enum Owner {
