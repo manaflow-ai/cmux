@@ -30,6 +30,8 @@ public struct ProvisionalPane: Sendable, Hashable {
     /// Set when the pane opens as a new scrolling column after the target's column (New Column,
     /// `new-pane-right`) instead of splitting the target.
     public private(set) var column: ProvisionalColumn?
+    /// Set when the pane opens as a new row below the target's row (New Row, `new-row`).
+    public private(set) var row: ProvisionalRow?
 
     /// A fresh provisional pane with new client-minted ids.
     @MainActor public init() {
@@ -42,6 +44,12 @@ public struct ProvisionalPane: Sendable, Hashable {
     @MainActor public init(columnWidth width: Double, widths: [ColumnID: Double] = [:], treeWidth: Double? = nil) {
         self.init(tab: nil)
         column = ProvisionalColumn(paneHandle: handle, width: width, widths: widths, treeWidth: treeWidth)
+    }
+
+    /// A fresh provisional terminal pane that opens as a new row of `height` permille (New Row).
+    @MainActor public init(rowHeight height: Int) {
+        self.init(tab: nil)
+        row = ProvisionalRow(paneHandle: handle, height: height)
     }
 
     /// A provisional pane holding `tab`, a new conversation tab (an agent chat or the New Tab page)

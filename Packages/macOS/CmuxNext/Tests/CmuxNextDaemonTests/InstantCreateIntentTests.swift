@@ -205,6 +205,50 @@ struct InstantCreateIntentTests {
         #expect(store.mirrorViolations.isEmpty)
     }
 
+    // MARK: New Row
+
+    /// New Row (`new-row` with client-minted ids, `row-client-keys-v1`): in the intent's turn a
+    /// split-tree screen shows one column of two rows, the tree at full height and the new
+    /// pane's row below at its height; a refusal takes it out exactly.
+    @Test func newRowShowsItsRowInTheIntentsTurn() throws {
+        let store = Self.store()
+        let provisional = ProvisionalPane(rowHeight: 400)
+        let transaction = ClientTransactionID.generate()
+        store.intend(.splitPane(pane: Self.pane, direction: .down, ratio: 0.5, provisional: provisional), transaction: transaction)
+        let screen = try #require(store.workspace(id: Self.baseKey.rawValue)?.screens.first)
+        #expect(screen.panes.map(\.handle) == [Self.pane, provisional.handle])
+        #expect(screen.layout.paneIDs.contains(provisional.handle))
+        let column = try #require(screen.columns.first)
+        #expect(screen.columns.count == 1)
+        #expect(column.rows.map(\.layout.paneIDs) == [[Self.pane], [provisional.handle]], "New Row split the pane instead")
+        #expect(column.rows.map(\.height) == [1000, 400])
+        store.rejectIntent(transaction)
+        let after = try #require(store.workspace(id: Self.baseKey.rawValue)?.screens.first)
+        #expect(after.columns.isEmpty && after.panes.map(\.handle) == [Self.pane])
+        #expect(store.mirrorViolations.isEmpty)
+    }
+
+    /// New Row in a column that has rows: the new row goes right below the pane's row.
+    @Test func newRowGoesBelowThePanesRow() throws {
+        let store = DaemonStore()
+        let other = PaneID(rawValue: 5)
+        var tree = Self.base
+        tree.screens[0].layout = .split(id: nil, resourceID: nil, direction: .down, ratio: 0.5, a: .leaf(Self.pane), b: .leaf(other))
+        tree.screens[0].panes.append(PaneSnapshot(id: other, tabs: [TabSnapshot(surface: SurfaceID(rawValue: 6))]))
+        tree.screens[0].columns = [ColumnSnapshot(id: ColumnID(rawValue: 1), width: 1, layout: tree.screens[0].layout,
+                                                  rows: [RowSnapshot(id: RowID(rawValue: 1), height: 500, layout: .leaf(Self.pane)),
+                                                         RowSnapshot(id: RowID(rawValue: 2), height: 500, layout: .leaf(other))])]
+        store.apply(snapshot: DaemonTree(workspaceRevision: 1, workspaces: [tree]))
+        let provisional = ProvisionalPane(rowHeight: 300)
+        store.intend(.splitPane(pane: Self.pane, direction: .down, ratio: 0.5, provisional: provisional), transaction: .generate())
+        let screen = try #require(store.workspace(id: Self.baseKey.rawValue)?.screens.first)
+        let column = try #require(screen.columns.first)
+        #expect(column.rows.map(\.layout.paneIDs) == [[Self.pane], [provisional.handle], [other]])
+        #expect(column.rows.map(\.height) == [500, 300, 500])
+        #expect(column.layout.paneIDs.contains(provisional.handle))
+        #expect(store.mirrorViolations.isEmpty)
+    }
+
     /// A conversation tab's split (`conversation-tab-split-v1`): the daemon's `pane-added`, carrying
     /// the split's transaction, names the split's tab before the `layout-changed` that places the
     /// pane. In between the screen stays split, the daemon's pane where the provisional one was
