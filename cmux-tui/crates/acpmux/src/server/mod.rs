@@ -403,6 +403,10 @@ pub struct WsAuth {
 /// is the local app (`local_app.rs`); after it, it is remote-origin.
 const FIRST_FRAME: std::time::Duration = std::time::Duration::from_secs(10);
 
+/// How long a connection's HTTP request head and WebSocket upgrade may take, each: the same
+/// 5 s the request head's peek has always had.
+const HANDSHAKE: std::time::Duration = std::time::Duration::from_secs(5);
+
 /// The largest WebSocket frame or message a connection reads. The app's agent pane sends a frame
 /// of up to 32 MiB (`AcpmuxPaneMethods.maximumFrameBytes`); a prompt with a few screenshots is
 /// past tungstenite's 16 MiB frame default, which ended the read with no log line and reset the
@@ -460,12 +464,7 @@ pub async fn serve_ws_with(
         let peer_auth = auth.peer.clone();
         tokio::spawn(async move {
             let mut head = [0u8; 4096];
-            let n = match tokio::time::timeout(
-                std::time::Duration::from_secs(5),
-                stream.peek(&mut head),
-            )
-            .await
-            {
+            let n = match tokio::time::timeout(HANDSHAKE, stream.peek(&mut head)).await {
                 Ok(Ok(n)) => n,
                 _ => return,
             };
@@ -521,16 +520,21 @@ pub async fn serve_ws_with(
                 *record_admitted.lock().unwrap_or_else(|e| e.into_inner()) = proof.map_err(refuse)?;
                 Ok(resp)
             };
-            let ws = match tokio_tungstenite::accept_hdr_async_with_config(
+            // A client that stalls mid-upgrade gets the same deadline as the peek above: it
+            // never holds this task and its descriptor without end.
+            let upgrade = tokio_tungstenite::accept_hdr_async_with_config(
                 stream,
                 callback,
                 Some(ws_config()),
-            )
-            .await
-            {
-                Ok(ws) => ws,
-                Err(e) => {
+            );
+            let ws = match tokio::time::timeout(HANDSHAKE, upgrade).await {
+                Ok(Ok(ws)) => ws,
+                Ok(Err(e)) => {
                     tracing::warn!("ws handshake from {peer} rejected: {e}");
+                    return;
+                }
+                Err(_) => {
+                    tracing::warn!("ws handshake from {peer} did not finish in {HANDSHAKE:?}");
                     return;
                 }
             };
