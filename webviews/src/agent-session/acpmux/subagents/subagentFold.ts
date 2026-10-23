@@ -1,3 +1,4 @@
+import type { Translate } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { childRows, type ChildEntry } from "./childRows";
 
@@ -38,6 +39,9 @@ export type Subagent = {
   /// The id Claude Code's Agent call answered with (`agentId: …`), which a SendMessage to it
   /// names (conversation/agentNames.ts).
   agentId?: string;
+  /// Nothing has named it yet (no name, task or description in what this fold read): `name` is
+  /// empty and its rows call it by its kind, else "Subagent" (``subagentName``), never by an id.
+  unnamed?: boolean;
   /// Where the harness says it works, from the call that started it: Claude's Agent call asked for
   /// a worktree of its own (`isolation: "worktree"`), the folder that call named (`cwd`), and the
   /// worktree and branch its result reports (`worktreePath:`, `worktreeBranch:`). The Inspector's
@@ -46,6 +50,12 @@ export type Subagent = {
   cwd?: string;
   worktree?: { path: string; branch?: string };
 };
+
+/// What a subagent is called in a row: its name; for one nothing named, its kind (Claude's
+/// subagent_type, "Explore"), else "Subagent". Never an id, short or raw: ids go in a tooltip.
+export function subagentName(agent: Pick<Subagent, "name" | "unnamed" | "kind">, t: Translate): string {
+  return agent.unnamed ? (agent.kind ?? t("subagents.unnamed")) : agent.name;
+}
 
 /// Why a subagent was stopped: the person stopped it (Stop on the turn, or on the subagent), or a
 /// prompt sent with Send now interrupted its turn.
@@ -108,8 +118,11 @@ export class SubagentFold {
     if (owner) {
       // What it does now is its newest call: a later update of an older call (its end) keeps it.
       const call = typeof update?.toolCallId === "string" ? update.toolCallId : undefined;
-      // A nested subagent's Agent call says its agentId and worktree too.
-      if (call && this.spawnCalls.has(call)) this.readSpawnCall(call, update);
+      // A nested subagent's Agent call says its agentId, worktree and description too.
+      if (call && this.spawnCalls.has(call)) {
+        this.readSpawnCall(call, update);
+        this.readDescription(call, update);
+      }
       // A call met first through its update (a harness that sends no tool_call) is new too.
       const tool = update?.sessionUpdate === "tool_call" || update?.sessionUpdate === "tool_call_update";
       if (tool && call && (update.sessionUpdate === "tool_call" || !this.calls.has(`${owner.id}\u0000${call}`))) {
@@ -131,6 +144,7 @@ export class SubagentFold {
     const call = typeof update?.toolCallId === "string" ? update.toolCallId : undefined;
     if (call && this.spawnCalls.has(call)) {
       this.readSpawnCall(call, update);
+      this.readDescription(call, update);
       return true;
     }
     // Codex's own bookkeeping between its subagents (`wait` for them, `closeAgent`): the group
@@ -227,11 +241,12 @@ export class SubagentFold {
     let agent = this.agents.get(change.id);
     if (!agent) {
       const parent = typeof change.parent === "string" ? change.parent : null;
-      const name = text(change.name) ?? text(change.task) ?? change.id;
+      const name = text(change.name) ?? text(change.task);
       agent = {
         id: change.id,
         parent,
-        name,
+        name: name ?? "",
+        ...(name === undefined && { unnamed: true }),
         task: text(change.task),
         kind: text(change.kind),
         prompt: text(change.prompt),
@@ -247,7 +262,9 @@ export class SubagentFold {
         this.groupOf.set(agent.id, this.open);
       } else this.record(parent, { event, spawned: agent.id });
     } else {
-      agent.name = text(change.name) ?? agent.name;
+      // A real name replaces one made from its id; a task names one nothing named yet.
+      const name = text(change.name) ?? (agent.unnamed ? text(change.task) : undefined);
+      if (name) this.rename(agent, name);
       agent.task = text(change.task) ?? agent.task;
       agent.kind = text(change.kind) ?? agent.kind;
       agent.prompt = text(change.prompt) ?? agent.prompt;
@@ -325,6 +342,22 @@ export class SubagentFold {
       }
     }
     if (changed) this.touch(agent);
+  }
+
+  /// Names a subagent nothing named from its spawning call's input (Claude's Agent `description`).
+  private readDescription(call: string, update: any): void {
+    const id = this.spawnedBy.get(call);
+    const agent = id ? this.agents.get(id) : undefined;
+    const name = agent?.unnamed ? (text(update?.rawInput?.description) ?? text(update?.rawInput?.name)) : undefined;
+    if (agent && name) {
+      this.rename(agent, name);
+      this.touch(agent);
+    }
+  }
+
+  private rename(agent: Subagent, name: string): void {
+    agent.name = name;
+    delete agent.unnamed;
   }
 
   private touch(agent: Subagent): void {
