@@ -56,6 +56,11 @@
       "bench": "scripts/cmux-next/pane-perf-terminal.py with a Chromium page (debug.cef geometry posts per frame)",
       "owner": "PL-motion-cef"
     },
+    "cmd-tab": {
+      "what": "app activation (Cmd-Tab back): become/resign key notices to committed frame, including the hover refresh",
+      "bench": "scripts/cmux-next/activation-perf.py (observers_ms per become)",
+      "owner": "PL-switch"
+    },
     "new-tab": {
       "what": "new terminal or Chromium tab to its first frame",
       "bench": "scripts/cmux-next/instant-new-surfaces-bench.py",
