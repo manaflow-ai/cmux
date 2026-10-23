@@ -2,6 +2,7 @@
 //! Failed recovery leaves cwd unchanged; the ordinary folder check keeps the prompt retryable.
 use crate::git_state::{GitState, WorktreeOrigin, linked_worktree};
 use crate::hub::{Hub, Session};
+use crate::rpc::RpcError;
 use crate::subsession_worktree::{add_without_config, git_by};
 use serde_json::json;
 use std::path::Path;
@@ -35,26 +36,38 @@ pub(in crate::hub) fn origin_of(cwd: &Path, git: &GitState) -> Option<Option<Wor
 }
 
 impl Hub {
-    pub(super) async fn revive_folder(&self, session: &Arc<Session>, one: &tokio::sync::Mutex<()>) {
+    pub(super) async fn revive_folder(
+        &self,
+        session: &Arc<Session>,
+        one: &tokio::sync::Mutex<()>,
+    ) -> Result<(), RpcError> {
         let meta = session.meta();
         if meta.remote_origin {
-            return;
+            return Ok(());
         }
         let cwd = meta.cwd.clone();
         if tokio::fs::try_exists(&cwd).await.unwrap_or(true) {
+            if let Some(origin) = meta.worktree.as_ref()
+                && !self.recorded_worktree_is_here(&cwd, origin).await
+            {
+                return Err(folder_missing(&meta));
+            }
             let read = tokio::task::spawn_blocking(move || origin_of(&cwd, &GitState::read(&cwd)));
             if let Ok(Ok(Some(found))) = tokio::time::timeout(Duration::from_secs(2), read).await {
                 session.meta.lock().unwrap_or_else(|e| e.into_inner()).worktree = found;
                 self.save_meta(session);
             }
-            return;
+            return Ok(());
         }
         let Some(origin) = meta.worktree.filter(|w| w.cwd == cwd) else {
-            return;
+            return Ok(());
         };
         let _one = one.lock().await;
         if tokio::fs::try_exists(&cwd).await.unwrap_or(true) {
-            return;
+            if self.recorded_worktree_is_here(&cwd, &origin).await {
+                return Ok(());
+            }
+            return Err(folder_missing(&meta));
         }
         let job = origin.clone();
         let result = tokio::task::spawn_blocking(move || recreate(&job)).await;
@@ -63,6 +76,9 @@ impl Hub {
                 self.append(session, "mux", "worktree_recreated", json!({
                     "cwd": cwd, "root": origin.root, "branch": origin.branch, "from": from, "at": at
                 }));
+                if self.recorded_worktree_is_here(&cwd, &origin).await {
+                    return Ok(());
+                }
             }
             result => {
                 self.append(
@@ -75,7 +91,34 @@ impl Hub {
                 );
             }
         }
+        Err(folder_missing(&meta))
     }
+
+    async fn recorded_worktree_is_here(&self, cwd: &Path, origin: &WorktreeOrigin) -> bool {
+        let expected = origin.clone();
+        let cwd = cwd.to_owned();
+        tokio::task::spawn_blocking(move || {
+            matches!(
+                origin_of(&cwd, &GitState::read(&cwd)),
+                Some(Some(found)) if found == expected
+            )
+        })
+        .await
+        .unwrap_or(false)
+    }
+}
+
+fn folder_missing(meta: &crate::store::SessionMeta) -> RpcError {
+    RpcError::internal(format!(
+        "session.folder_missing: the folder of {} ({}) could not be recreated; retry after the worktree is back",
+        meta.name,
+        meta.cwd.display()
+    ))
+    .with_data(json!({
+        "reason": "session.folder_missing",
+        "folder": meta.cwd,
+        "retryable": true,
+    }))
 }
 
 fn recreate(w: &WorktreeOrigin) -> Result<(&'static str, String), String> {

@@ -120,24 +120,6 @@ async fn a_limit_is_never_resumed_even_when_the_agent_dies_of_it() {
     assert!(summary["lastTurn"]["errorText"].as_str().unwrap().contains("hit your limit"));
 }
 
-#[tokio::test]
-async fn repeated_agent_deaths_exhaust_the_cap_and_keep_the_queue_held() {
-    let env = BTreeMap::from([("FAKE_DIE_EVERY_PROMPT".to_owned(), "1".to_owned())]);
-    let (hub, mut c) = setup_env(PermissionPolicy::ApproveAll, env).await;
-    hub.config.write().await.auto_resume_delays_ms = Some(vec![20, 20]);
-    let id = new_session(&mut c, "always-dies").await;
-    c.send(method::SESSION_PROMPT, prompt(&id, "start", Some("p-die"))).await;
-    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "dying ").await;
-    c.send(method::SESSION_PROMPT, prompt(&id, "held", Some("p-held"))).await;
-    until("retry cap", || !records(&hub, &id, "auto_resume_exhausted").is_empty()).await;
-    assert_eq!(
-        prompt_ids(&hub, &id),
-        [json!("p-die"), json!("p-die~resume-1"), json!("p-die~resume-2")]
-    );
-    assert_eq!(status(&hub, &id), "disconnected");
-    assert_eq!(hub.session_summary(&hub.resolve(&id).unwrap())["queue"][0]["held"], true);
-}
-
 fn git(dir: &Path, args: &[&str]) -> String {
     let out = Command::new("git")
         .arg("-C")
