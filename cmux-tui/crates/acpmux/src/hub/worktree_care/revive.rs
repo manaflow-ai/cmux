@@ -68,15 +68,33 @@ impl Found {
 /// The worktree record for `cwd` in the state `git` read there (blocking).
 pub(in crate::hub) fn origin_of(cwd: &Path, git: &GitState) -> Found {
     let Some((root, common_dir)) = linked_worktree(cwd) else {
-        // Gone as this read it (a reclaim deleting it now) is not a folder that stopped being a
-        // worktree: the record that brings it back stays.
-        return if cwd.is_dir() { Found::NotLinked } else { Found::Unread };
+        // Not linked only when that is what is there: a main checkout's `.git` folder, or none
+        // above it. Gone as this read it (a reclaim deleting it now), or a `.git` file that
+        // could not be read, is not a folder that stopped being a worktree: the record that
+        // brings it back stays.
+        return if cwd.is_dir() && !in_linked_worktree(cwd) {
+            Found::NotLinked
+        } else {
+            Found::Unread
+        };
     };
     if git.branch.is_none() && git.head.is_none() {
         return Found::Unread;
     }
     let (branch, head) = (git.branch.clone(), git.head.clone());
     Found::Linked(WorktreeOrigin { cwd: cwd.to_path_buf(), root, common_dir, branch, head })
+}
+
+/// Whether the nearest `.git` at or above `cwd` is a file (a linked worktree's, or a
+/// submodule's), read or not.
+fn in_linked_worktree(cwd: &Path) -> bool {
+    let Ok(dir) = std::fs::canonicalize(cwd) else {
+        return true;
+    };
+    match dir.ancestors().map(|d| d.join(".git")).find_map(|g| std::fs::symlink_metadata(&g).ok()) {
+        Some(m) => !m.is_dir(),
+        None => false,
+    }
 }
 
 /// The line the session's next prompt starts with, once (`run_prompt`).
@@ -300,6 +318,22 @@ fn recreate(w: &WorktreeOrigin) -> Result<(&'static str, String), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_unreadable_dot_git_file_keeps_the_record() {
+        let dir = std::env::temp_dir().join(format!("acpmux-revive-unread-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (plain, linked) = (dir.join("plain"), dir.join("linked"));
+        std::fs::create_dir_all(&plain).unwrap();
+        std::fs::create_dir_all(&linked).unwrap();
+        // A `.git` file whose `gitdir:` leads nowhere: unreadable, not "no worktree".
+        std::fs::write(linked.join(".git"), "gitdir: /acpmux-never-made\n").unwrap();
+        let git = GitState::default();
+        assert!(matches!(origin_of(&linked, &git), Found::Unread));
+        assert!(matches!(origin_of(&plain, &git), Found::NotLinked));
+        assert!(matches!(origin_of(&dir.join("gone"), &git), Found::Unread));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn a_mount_top_is_a_bare_root_by_its_device() {
