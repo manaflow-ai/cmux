@@ -7,7 +7,6 @@
 
 use super::test_pty::TestPty;
 use super::*;
-use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
 /// Line 1 of every prompt: padded close to the 40-column start width, so a
@@ -30,18 +29,14 @@ fn temp_base(name: &str) -> PathBuf {
 
 /// Reads until `needle` arrived (if any) and the shell then wrote nothing
 /// for `quiet`. The quiet period is the bounded end of a redraw.
-fn read_until_quiet(
-    received: &Receiver<Vec<u8>>,
-    needle: Option<&[u8]>,
-    quiet: Duration,
-) -> Vec<u8> {
+fn read_until_quiet(pty: &mut TestPty, needle: Option<&[u8]>, quiet: Duration) -> Vec<u8> {
     let deadline = Instant::now() + Duration::from_secs(30);
     let mut output = Vec::new();
     loop {
         let found =
             needle.is_none_or(|needle| output.windows(needle.len()).any(|window| window == needle));
         let wait = if found { quiet } else { deadline.saturating_duration_since(Instant::now()) };
-        match received.recv_timeout(wait) {
+        match pty.recv_timeout(wait) {
             Ok(chunk) => output.extend_from_slice(&chunk),
             Err(_) if found => return output,
             Err(_) => {
@@ -66,7 +61,7 @@ fn narrow_and_count_line_one(name: &str, launched: ShellLaunch, base: &Path) {
     let mut pty = TestPty::spawn(size(cols), command);
     let mut term =
         ghostty_vt::Terminal::new(cols, rows, 100_000, ghostty_vt::Callbacks::default()).unwrap();
-    term.vt_write(&read_until_quiet(&pty.received, Some(b"> "), Duration::from_millis(500)));
+    term.vt_write(&read_until_quiet(&mut pty, Some(b"> "), Duration::from_millis(500)));
     let count = |term: &mut ghostty_vt::Terminal| {
         let text = term.plain_text().unwrap();
         (text.matches("LINE-ONE").count(), text)
@@ -76,12 +71,11 @@ fn narrow_and_count_line_one(name: &str, launched: ShellLaunch, base: &Path) {
         cols = narrower;
         pty.spawned.master.resize(size(cols)).unwrap();
         term.resize(cols, rows, 8, 16).unwrap();
-        term.vt_write(&read_until_quiet(&pty.received, None, Duration::from_millis(700)));
+        term.vt_write(&read_until_quiet(&mut pty, None, Duration::from_millis(700)));
         let (copies, text) = count(&mut term);
         assert_eq!(copies, 1, "{name}: line 1 after narrowing to {cols} columns:\n{text}");
     }
     pty.write_quietly(b"exit\n");
-    let _ = pty.spawned.child.kill();
     drop(pty);
     let _ = fs::remove_dir_all(base);
 }

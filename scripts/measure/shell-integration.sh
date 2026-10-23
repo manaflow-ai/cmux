@@ -11,7 +11,9 @@
 #   host     host, macOS, arch, load, the shells' versions, the ghostty-next pin.
 #   guard    the fork-count and prompt-redraw tests through scripts/ci/cmux-tui-rust-check.sh, with
 #            CMUX_FORK_COUNT_REQUIRE=zsh,fish,bash5.3 set here (the controller does not pass that
-#            variable to a step), so a missing shell fails instead of skipping.
+#            variable to a step), so a missing shell fails instead of skipping. Nothing else of the
+#            step forks during the run: nextest runs the fork counts alone, and the check's PTY
+#            sampler starts no process (pty_watch_start).
 #   bench    the bench on this checkout, layouts app, daemon, daemon-bare; zsh, fish and Homebrew
 #            bash 5.3 required.
 #   bash52   (default on) the bench on bash 5.2.37 built from the sha256-pinned GNU tarball: the
@@ -49,8 +51,12 @@ record() {  # record NAME RC: prints the step verdict (rc 2: no verdict) and kee
 }
 
 bash53=/opt/homebrew/bin/bash
-fish="$(command -v fish || true)"
-[[ -n "$fish" ]] || fish=/opt/homebrew/bin/fish
+# The fork guard's own fish candidates (fork_count_fish_forks_nothing), so a fish it cannot find
+# gives no verdict here instead of a red guard.
+fish=/opt/homebrew/bin/fish
+for candidate in /opt/homebrew/bin/fish /usr/local/bin/fish /usr/bin/fish; do
+  if [[ -x "$candidate" ]]; then fish="$candidate"; break; fi
+done
 bash_version() { "$1" -c 'printf "%s.%s" "${BASH_VERSINFO[0]}" "${BASH_VERSINFO[1]}"' 2>/dev/null; }
 echo "SHELL-INTEGRATION-HOST host=$(scutil --get ComputerName 2>/dev/null || hostname) sha=$(git rev-parse HEAD) \
 ghostty_next=$(git -C ghostty-next rev-parse HEAD) macos=$(sw_vers -productVersion) arch=$(uname -m) \
