@@ -12,7 +12,7 @@ public final class AgentPaneSuggestedTasks {
     public static let shared = AgentPaneSuggestedTasks()
     /// The pages pushed so far, held weakly, for the pushes on a change.
     private let views = NSHashTable<AgentPaneView>.weakObjects()
-    private var observation: Task<Void, Never>?
+    private var observation: OwnedTask?
     /// `sessions.promptSuggestions`, read through Observation (the App reads its settings snapshot).
     public var setting: @MainActor () -> Bool = { SessionSettings.promptSuggestionsDefault } {
         // Written now, not only by the observation: a daemon started before its first pass
@@ -59,21 +59,15 @@ public final class AgentPaneSuggestedTasks {
         view.deliver([.suggestedTasks(on)], scripts: [Self.script(on)])
     }
 
-    // Same shape as AgentPaneView's (cx-t7hu): not an isolated deinit.
-    nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated { observation?.cancel() }
-    }
-
     private func follow() {
         guard observation == nil else { return }
         // task-owner: app-lifetime; event-driven (Observation on the setting and the tunable key)
-        observation = Task { [weak self] in
+        observation = OwnedTask(Task { [weak self] in
             for await on in ObservationStream({ [weak self] in self?.isOn ?? false }) {
                 guard let self else { return }  // a released instance never writes the shared flag
                 Self.forNextDaemon.set(on)
                 for view in views.allObjects { send(to: view) }
             }
-        }
+        })
     }
 }
