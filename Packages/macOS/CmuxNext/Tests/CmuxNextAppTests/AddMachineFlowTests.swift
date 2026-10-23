@@ -468,6 +468,7 @@ import Testing
         #expect(fresh.destination == "big-red.tail1.ts.net")
         #expect(!offlinePeer.isPickable && AddMachineCandidateList.badge(offlinePeer) == AddMachineStrings.candidateOffline)
         #expect(HostCandidate(name: "w", dnsName: "w.ts.net", ip: "", os: "", online: true, alreadyPeer: true, peerURL: "ws://10.0.0.9:47811").destination == "w.ts.net")
+        #expect(!HostCandidate(name: "w", dnsName: "w.ts.net", ip: "", os: "", online: true, alreadyPeer: true, peerURL: "ws://10.0.0.9:47811").isPickable)
         // A URL acpmux refuses (a path) is not a peer target: the row falls back to its own name.
         #expect(HostCandidate(name: "u", dnsName: "", ip: "", os: "", online: true, alreadyPeer: true, peerURL: "ssh://leo@u.ts.net/x").peerSSHTarget == nil)
     }
