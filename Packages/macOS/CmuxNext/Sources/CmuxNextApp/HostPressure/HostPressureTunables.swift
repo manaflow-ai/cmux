@@ -22,6 +22,19 @@ enum HostPressureForce: String, Sendable, CaseIterable, TunableChoice {
     }
 }
 
+/// The indicator's look (design versions for the gallery; `gauge` is the default).
+enum HostPressureIndicatorStyle: String, Sendable, CaseIterable, TunableChoice {
+    case gauge, triangle, load
+
+    var tunableTitle: String {
+        switch self {
+        case .gauge: "Gauge, a triangle at critical"
+        case .triangle: "Triangle at both levels"
+        case .load: "Gauge with the load against its limit"
+        }
+    }
+}
+
 /// Debug Settings of the host pressure indicator (DEV and NIGHTLY; Release and RC never activate
 /// the store, so they keep the defaults). English developer text, as every Debug Settings section.
 enum HostPressureTunables {
@@ -40,5 +53,16 @@ enum HostPressureTunables {
         help: "With the indicator on, shows it at this level with sample numbers (the cosmic-gray incident: load 146 on 12 performance cores, memory pressure warn, swap growing), whatever the host is at. Off follows the host.",
         default: .off, code: "HostPressureTunables.force")
 
-    static var all: [TunableDescriptor] { [enabled.descriptor, force.descriptor] }
+    static let style = Tunable<HostPressureIndicatorStyle>.choice(
+        "hostPressure.style", section, "Indicator look",
+        help: "The top-row indicator's design version: a gauge (a triangle at critical; the default), a triangle at both levels, or the gauge with the load against its limit (9.6 / 12).",
+        default: .gauge, code: "HostPressureTunables.style")
+
+    /// The critical banner, a new dev surface: off by default (cmux#22662), and inert while off.
+    static let banner = Tunable<Bool>.toggle(
+        "hostPressure.banner", section, "Critical banner",
+        help: "Off by default. With the indicator on, at critical a banner names acpmux's reasons and offers Show Details. Off: the indicator only.",
+        default: false, code: "HostPressureTunables.banner")
+
+    static var all: [TunableDescriptor] { [enabled.descriptor, force.descriptor, style.descriptor, banner.descriptor] }
 }
