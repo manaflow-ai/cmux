@@ -82,7 +82,7 @@ await requireBrowserLane("agent-pane-wheel-glide.test.ts", async () => {
 
   type Motion = { moved: number; frames: number; maxStep: number; glideMs: number; prevented: boolean[] };
 
-  /// What `fire` does to the transcript, read once per painted frame until it has held for 6: how
+  /// What `fire` does to the transcript's content, read once per painted frame until it has held for 6: how
   /// far it moved, over how many frames, its biggest move in one frame, how long it took from its
   /// first move to where it came to rest (frame times, so a loaded runner's skipped frames do not
   /// matter), and whether the page took each wheel event (defaultPrevented, read after every
@@ -90,7 +90,15 @@ await requireBrowserLane("agent-pane-wheel-glide.test.ts", async () => {
   async function motion(page: Page, fire: () => Promise<void>): Promise<Motion> {
     await page.evaluate(() => {
       const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-      const record = { tops: [scroller.scrollTop], times: [performance.now()], prevented: [] as boolean[] };
+      // Where the content is, not the offset: rows above that measure while the view moves change the
+      // offset to keep the reader's place, and nothing on screen moves for them. The row under the
+      // middle is found again by its id each frame (the list may draw it anew).
+      const box = scroller.getBoundingClientRect();
+      const id = (
+        document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2)!.closest(".acpmux-row") as HTMLElement
+      ).dataset.rowId!;
+      const content = () => -scroller.querySelector(`[data-row-id="${id}"]`)!.getBoundingClientRect().top;
+      const record = { tops: [content()], times: [performance.now()], prevented: [] as boolean[] };
       const page = window as unknown as { wheelGlideRecord: typeof record; wheelGlideHeard?: boolean };
       page.wheelGlideRecord = record;
       // Once per page, reading the record of the moment: a bubbling listener on the window runs after
@@ -100,7 +108,7 @@ await requireBrowserLane("agent-pane-wheel-glide.test.ts", async () => {
       page.wheelGlideHeard = true;
       let held = 0;
       window.cmuxAfterPaint((time) => {
-        const top = scroller.scrollTop;
+        const top = content();
         held = top === record.tops.at(-1) ? held + 1 : 0;
         record.tops.push(top);
         record.times.push(time);
@@ -219,6 +227,39 @@ await requireBrowserLane("agent-pane-wheel-glide.test.ts", async () => {
           expect([setup, result.prevented]).toEqual([setup, [false]]);
           await page.close();
         }
+      });
+
+      // The wheel over Jump to latest reaches the transcript as a copy (wheelPassThrough.ts) that keeps
+      // the wheel's modifiers, so a modified notch there is read as it would be over the transcript.
+      test("a notch over Jump to latest reaches the transcript with its modifiers", async () => {
+        current = browsers.get(name);
+        const page = await open();
+        await page.locator(".acpmux-jump-latest[data-shown]").waitFor();
+        const copies = await page.evaluate(() => {
+          const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+          const seen: { shift: boolean; alt: boolean; meta: boolean; legacy: number }[] = [];
+          scroller.addEventListener("wheel", (event) =>
+            seen.push({
+              shift: event.shiftKey,
+              alt: event.altKey,
+              meta: event.metaKey,
+              legacy: (event as WheelEvent & { wheelDeltaY: number }).wheelDeltaY,
+            }),
+          );
+          const jump = document.querySelector(".acpmux-jump-latest")!;
+          for (const modifiers of [{ shiftKey: true }, { altKey: true }, { metaKey: true }]) {
+            // wheelDeltaY is WebKit and Chromium legacy, not in WheelEventInit's type.
+            const init = { deltaY: -100.006103515625, wheelDeltaY: 300, bubbles: true, cancelable: true, ...modifiers };
+            jump.dispatchEvent(new WheelEvent("wheel", init as WheelEventInit));
+          }
+          return seen;
+        });
+        expect(copies).toEqual([
+          { shift: true, alt: false, meta: false, legacy: 300 },
+          { shift: false, alt: true, meta: false, legacy: 300 },
+          { shift: false, alt: false, meta: true, legacy: 300 },
+        ]);
+        await page.close();
       });
 
       if (name === "chromium")
