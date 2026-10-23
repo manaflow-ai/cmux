@@ -68,6 +68,9 @@ public final class ObservedMap<Key: Hashable & Sendable, Value: Equatable> {
         return slots.compactMap { key, slot in slot.value.map { (key, $0) } }
     }
 
+    /// Sets the value of `key` (nil removes it), as the subscript does.
+    public func set(_ value: Value?, forKey key: Key) { self[key] = value }
+
     /// Removes and returns the value of `key`.
     @discardableResult
     public func removeValue(forKey key: Key) -> Value? {
