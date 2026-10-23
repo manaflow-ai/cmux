@@ -154,7 +154,11 @@ public final class AgentPaneView: NSView {
             webView = page.webKitView
             inputReadiness = page.inputReadiness
             dictation = AgentPaneDictation(send: { [weak provider] update in
-                if let event = AgentPageEvent.dictation(update) { provider?.publish(event) }
+                if let event = AgentPageEvent.dictation(update), provider?.publish(event) == false {
+                    // The page host reports bounded replay backpressure; reconnecting the acpmux
+                    // transport resyncs the chat while the provider's replay state restores chrome.
+                    if let connection = model.transport.connection { model.transport.close(connection: connection) }
+                }
             })
         } else {
             let configuration = WKWebViewConfiguration()
@@ -454,7 +458,9 @@ public final class AgentPaneView: NSView {
         if let pageEvents {
             guard let event = AgentPageEvent.theme(tokens, surface: surface), force || event != deliveredThemeEvent else { return }
             deliveredThemeEvent = event
-            pageEvents.publish(event)
+            if !pageEvents.publish(event), let connection = model.transport.connection {
+                model.transport.close(connection: connection)
+            }
         } else {
             if let script = AgentPaneTheme.script(tokens, surface: surface), force || script != deliveredThemeScript {
                 deliveredThemeScript = script
@@ -468,7 +474,10 @@ public final class AgentPaneView: NSView {
     /// Sends a push to the page: events on the page host, scripts on the old host (only built there).
     func deliver(_ events: [AgentPageEvent], scripts: @autoclosure () -> [String]) {
         if let pageEvents {
-            for event in events { pageEvents.publish(event) }
+            for event in events where !pageEvents.publish(event) {
+                if let connection = model.transport.connection { model.transport.close(connection: connection) }
+                break
+            }
         } else {
             for script in scripts() { evaluateScript(script) }
         }
