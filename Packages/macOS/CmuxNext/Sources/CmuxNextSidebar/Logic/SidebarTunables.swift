@@ -252,6 +252,8 @@ public nonisolated enum SidebarTunables {
             SidebarCloseNotch.tunable.descriptor,
             SidebarGroupHeaderStyle.tunable.descriptor,
             SidebarGroupPalette.tunable.descriptor,
+            SidebarInsertMotion.nudgeDistance.descriptor,
+            SidebarInsertMotion.tunable.descriptor,
             SidebarRowBadgeStackCap.tunable.descriptor,
             SidebarRowBadgeStyle.tunable.descriptor,
             simulatePendingUpdate.descriptor,

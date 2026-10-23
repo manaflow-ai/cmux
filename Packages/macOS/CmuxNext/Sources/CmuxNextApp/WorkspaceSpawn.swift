@@ -34,6 +34,11 @@ struct WorkspaceSpawn: Sendable {
     /// `afterCurrent` after the session's active workspace, not the window's),
     /// so a batch that must keep its order names a slot.
     var placesBySetting = true
+    /// False: under `top` and `bottom`, `workspaces.newPlacement` places it as if the window showed
+    /// no workspace, so a section's own New Workspace goes to the section's top (its end under
+    /// `bottom`), never into the group of the window's current workspace. `afterCurrent` still
+    /// places it after the current one.
+    var placesFromCurrent = true
     /// Runs once the daemon reports the workspace and its window lists it
     /// (after the slot is applied), with the window's sidebar.
     var onListed: (@MainActor @Sendable (String, SidebarBridge) -> Void)?
@@ -154,7 +159,8 @@ struct WorkspaceSpawner {
         guard daemon.connection != nil else { return { throw DaemonError.notConnected } }
         let key = WorkspaceKey.generate()
         let daemon = daemon, services = windows.services, machine = MachineID(daemon.machineID)
-        let rule = spawn.slot == nil && spawn.placesBySetting ? NewWorkspacePlacements.rule(for: windowID, in: windows) : nil
+        var rule = spawn.slot == nil && spawn.placesBySetting ? NewWorkspacePlacements.rule(for: windowID, in: windows) : nil
+        if !spawn.placesFromCurrent, rule?.placement != .afterCurrent { rule?.current = nil }
         // Only a create with a row names itself here; another keeps the daemon's own numbering.
         let name = spawn.name ?? windowID.map { _ in
             SidebarMapping.nextWorkspaceName(in: daemon.store, reserved: PendingWorkspaceRows.shared.reservedNames(on: machine) { services.workspace(id: $0) != nil })
