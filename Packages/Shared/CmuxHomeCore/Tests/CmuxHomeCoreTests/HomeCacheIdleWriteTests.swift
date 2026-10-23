@@ -29,7 +29,7 @@ import Testing
     @Test func anUnchangedSnapshotIsNotWrittenAgain() throws {
         let cache = Self.cache()
         let view = HomeClientViewCache(cache: cache, writeDelay: .zero, clock: ContinuousClock())
-        view.ownerSnapshot = { HomeCacheSnapshot() }
+        view.ownerState = { HomeCacheState() }
         view.setDraft("hello", for: Self.austin)
         let written = try Self.identity(cache)
         for _ in 0..<5 { view.setDraft("hello", for: Self.austin) }

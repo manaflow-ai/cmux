@@ -17,9 +17,9 @@ import Testing
     @Test func aDraftIsWrittenWithTheOwnerStateAndEmptyTextClearsIt() throws {
         let cache = Self.cache()
         let view = HomeClientViewCache(cache: cache, writeDelay: .zero, clock: ContinuousClock())
-        var owner = HomeCacheSnapshot()
-        owner.drafts = [Self.austin: "owner snapshots never carry drafts"]
-        view.ownerSnapshot = { owner }
+        var owner = HomeCacheState()
+        owner.drafts = [Self.austin: "owner state never carries drafts"]
+        view.ownerState = { owner }
         view.setDraft("hello", for: Self.austin)
         #expect(try #require(cache.load()).drafts == [Self.austin: "hello"])
         view.setDraft("", for: Self.austin)
