@@ -17,6 +17,7 @@ mod frame_producer;
 mod geometry;
 #[cfg(unix)]
 mod holder_spawn;
+mod host_launch;
 mod host_state;
 mod input;
 mod metadata;
@@ -35,6 +36,7 @@ mod terminal_stream;
 pub use color_overrides::apply_terminal_color_overrides;
 #[cfg(unix)]
 pub(crate) use holder_spawn::{HolderAdoption, HolderSpawn};
+pub(crate) use host_launch::HostLaunch;
 pub use host_state::{TerminalHostConnectionState, TerminalHostFallback};
 // Hosted (unix) code and the unit tests are the only callers.
 use clear_history::LOCAL_PASTE_WRITE_TIMEOUT;
