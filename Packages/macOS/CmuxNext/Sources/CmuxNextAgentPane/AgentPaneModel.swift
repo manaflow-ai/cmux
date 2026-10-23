@@ -250,7 +250,7 @@ public final class AgentPaneModel {
     public func respond(to request: AgentPaneRequest) async -> [String: Any] {
         switch request {
         // Boot traffic, and a request the host refused (it changed nothing), leave it untouched.
-        case .ready, .reconnect, .framePacing, .renderRate, .checkpointAvailability, .painted, .newTabInputReady, .newTabContext, .newTabWarm, .unsupported,
+        case .ready, .reconnect, .uiPointerReport, .framePacing, .renderRate, .checkpointAvailability, .painted, .newTabInputReady, .newTabContext, .newTabWarm, .unsupported,
              .transportOpen, .transportSend, .transportClose, .transportGesture, .transportGestureRelease, .chatsPage, .quickFloatingState, .quickContext,
              .tabRowTools, .projectIcon, .environment(.list): break
         case .reply(let reply) where reply.isPassive: break
@@ -259,6 +259,7 @@ public final class AgentPaneModel {
             userTouched = true
         }
         switch request {
+        case .uiPointerReport: return AgentPaneReply.success()
         case .ready, .reconnect:
             return await AgentPaneHandshakeReply.reply(to: request, in: self)
         case .persistSession(let id): adoptSession(id); return AgentPaneReply.success()

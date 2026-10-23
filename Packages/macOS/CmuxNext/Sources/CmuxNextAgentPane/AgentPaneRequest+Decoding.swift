@@ -30,6 +30,11 @@ extension AgentPaneRequest {
         }
         let params = object["params"] as? [String: Any]
         switch method {
+        case "uiPointer.report":
+            guard let params, JSONSerialization.isValidJSONObject(params),
+                  let data = try? JSONSerialization.data(withJSONObject: params),
+                  let text = String(data: data, encoding: .utf8) else { self = .unsupported(method); return }
+            self = .uiPointerReport(text)
         case "ready":
             self = params?["reconnect"] as? Bool == true ? .reconnect : .ready
         case "chat.missing":
