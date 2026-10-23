@@ -148,9 +148,9 @@ export const PAGES = {
           ),
       },
       {
-        // Machines > Add Server… (u3849): the palette action's own title.
-        file: `${sources}/CmuxNextActions/ServerActions.xcstrings`,
-        keys: () => ["action.server.addServer"],
+        // Machines > Add Device… (add-device-DESIGN.md): the palette action's own title, until the host lists arrive.
+        file: `${sources}/CmuxNextActions/RemoteActions.xcstrings`,
+        keys: () => ["action.device.add"],
       },
     ],
   },
@@ -254,7 +254,7 @@ export const PAGES = {
         keys: (all) =>
           all.filter(
             (key) =>
-              /^(tools|shell|code|image|media|markdown|duration|chip)\./.test(key) ||
+              /^(tools|shell|code|image|media|markdown|duration|chip|message\.channel)\./.test(key) ||
               [
                 "changes.noLineChanges",
                 "link.openPath",
@@ -266,6 +266,14 @@ export const PAGES = {
                 "message.noText",
                 "message.self",
                 "message.unknown",
+                // A sent message's line and status (MessageCard.tsx), which Channels draws too.
+                "message.sentTo",
+                "message.sendingTo",
+                "message.sending",
+                "message.sent",
+                "message.delivered",
+                // The recipient chip's tooltip, the full id behind its name (MessageCard.tsx).
+                "message.recipientId",
               ].includes(key),
           ),
       },

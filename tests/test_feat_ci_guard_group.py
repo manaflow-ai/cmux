@@ -6,7 +6,11 @@ tests/test_preflight_trust.py and every workflow lint) but skips pull requests i
 feat-cmux-next, and ci-guards.yml's routed matrix leaves the group to it. So nothing ran it
 for the branch: test_preflight_trust.py errored in all five tests there unseen (#23006).
 """
+import os
 from pathlib import Path
+import shutil
+import subprocess
+import tempfile
 import unittest
 
 import yaml
@@ -103,6 +107,61 @@ class TheBaseCheckoutLeavesTheHeadClean(unittest.TestCase):
         exclude = run.index("/.guard-base/")
         self.assertIn(".git/info/exclude", run[exclude:exclude + 80])
         self.assertLess(exclude, run.index("scripts/ci/guards-local.sh"))
+
+
+class APushRunsEveryRoutedGroup(unittest.TestCase):
+    """A product-only change (Packages/, webviews/, cmux-tui/ ...) routes no extra group on a pull request
+    (detect_linux_guard_changes.FEAT_PRODUCT_AREAS), so a guard such a change breaks would stay unseen. A push
+    to feat-cmux-next runs every routed group, judged against the previous tip, so the red shows on the push
+    that caused it. The "Changed files" step writes no routing list for a push, and keeps the base."""
+
+    def run_step(self, event: str) -> tuple[bool, str]:
+        workflow = yaml.safe_load((WORKFLOWS / "cmux-next-guards.yml").read_text(encoding="utf-8"))
+        step = next(s for s in workflow["jobs"]["ci-guard-group"]["steps"] if s.get("name") == "Changed files")
+        with tempfile.TemporaryDirectory(prefix="guard-push-") as temp:
+            root = Path(temp)
+            repo, runner_temp, bin_dir = root / "repo", root / "runner", root / "bin"
+            for directory in (repo, runner_temp, bin_dir):
+                directory.mkdir()
+            env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+
+            def git(*args: str) -> str:
+                return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.com",
+                                       "-c", "commit.gpgsign=false", *args], cwd=repo, env=env, check=True,
+                                      capture_output=True, text=True).stdout.strip()
+
+            git("init", "--quiet")
+            (repo / "a.txt").write_text("a\n", encoding="utf-8")
+            git("add", "-A")
+            git("commit", "--quiet", "-m", "base")
+            before = git("rev-parse", "HEAD")
+            (repo / "Packages").mkdir()
+            (repo / "Packages" / "x.swift").write_text("x\n", encoding="utf-8")
+            git("add", "-A")
+            git("commit", "--quiet", "-m", "head")
+            # The push path fetches the previous tip; this repository already has it.
+            real_git = shutil.which("git")
+            (bin_dir / "git").write_text(
+                f'#!/bin/sh\n[ "$1" = fetch ] && exit 0\nexec "{real_git}" "$@"\n', encoding="utf-8")
+            (bin_dir / "git").chmod(0o755)
+            output = runner_temp / "github_output"
+            subprocess.run(["bash", "-eo", "pipefail", "-c", step["run"]], cwd=repo, check=True,
+                           capture_output=True, text=True,
+                           env={**env, "PATH": f"{bin_dir}:{env['PATH']}", "EVENT_NAME": event,
+                                "BEFORE": before if event == "push" else "", "RUNNER_TEMP": str(runner_temp),
+                                "GITHUB_OUTPUT": str(output)})
+            listed = (runner_temp / "changed-files.txt").is_file()
+            outputs = output.read_text(encoding="utf-8") if output.is_file() else ""
+            self.assertIn(f"base={before}", outputs)
+            return listed, outputs
+
+    def test_a_push_writes_no_routing_list_but_keeps_its_base(self):
+        listed, _ = self.run_step("push")
+        self.assertFalse(listed, "a push must run every routed group (no changed-files list)")
+
+    def test_a_pull_request_is_routed_by_its_changed_files(self):
+        listed, _ = self.run_step("pull_request")
+        self.assertTrue(listed)
 
 
 class TheRoutedGroupsHaveTheirTools(unittest.TestCase):

@@ -26,7 +26,7 @@
 use std::path::PathBuf;
 
 /// Live while held. `on_change` returns true when it needs no more events.
-pub(super) struct DirWatch {
+pub(crate) struct DirWatch {
     #[cfg(target_os = "macos")]
     kq: std::sync::Arc<std::os::fd::OwnedFd>,
     #[cfg(target_os = "linux")]
@@ -57,7 +57,7 @@ impl DirWatch {
     /// Watches every directory of `dirs` that can be opened (a missing one
     /// is skipped with a warning). None when no directory is watched.
     #[cfg(target_os = "macos")]
-    pub(super) fn start(
+    pub(crate) fn start(
         dirs: &[PathBuf],
         mut on_change: impl FnMut() -> bool + Send + 'static,
     ) -> Option<Self> {
@@ -80,7 +80,14 @@ impl DirWatch {
             tracing::warn!("the host cannot watch its record: kevent: {e}");
             return None;
         }
-        let fflags = libc::NOTE_WRITE | libc::NOTE_DELETE | libc::NOTE_RENAME | libc::NOTE_REVOKE;
+        // NOTE_EXTEND and NOTE_ATTRIB: a watched file (the harness profile
+        // watch) that is truncated or grows without a NOTE_WRITE.
+        let fflags = libc::NOTE_WRITE
+            | libc::NOTE_EXTEND
+            | libc::NOTE_ATTRIB
+            | libc::NOTE_DELETE
+            | libc::NOTE_RENAME
+            | libc::NOTE_REVOKE;
         let mut files = Vec::new();
         for dir in dirs {
             // O_EVTONLY: the open descriptor never keeps the volume from unmounting.
@@ -119,7 +126,7 @@ impl DirWatch {
     }
 
     #[cfg(target_os = "linux")]
-    pub(super) fn start(
+    pub(crate) fn start(
         dirs: &[PathBuf],
         mut on_change: impl FnMut() -> bool + Send + 'static,
     ) -> Option<Self> {
@@ -188,7 +195,7 @@ impl DirWatch {
     }
 
     #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-    pub(super) fn start(
+    pub(crate) fn start(
         dirs: &[PathBuf],
         mut on_change: impl FnMut() -> bool + Send + 'static,
     ) -> Option<Self> {

@@ -66,12 +66,36 @@ await requireBrowserLane("thread-minimap-motion.test.ts", async () => {
     await page.evaluate((shown) => (window as unknown as { __showRows(rows: unknown): void }).__showRows(shown), rows);
     await page.waitForSelector(".acpmux-minimap__tick");
     // To the top, where the later prompts are below and still mounted.
-    await page.evaluate(async () => {
+    await page.evaluate(() => {
       document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop = 0;
-      await new Promise((resolve) => setTimeout(resolve, 300));
     });
+    await settled(page);
     return page;
   }
+
+  /// Until no animation is left running and the transcript has held its scroll position over three
+  /// painted frames.
+  const settled = (page: Page) =>
+    page.evaluate(async () => {
+      const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      const finite = () =>
+        document.getAnimations().filter((animation) => animation.effect?.getComputedTiming().endTime !== Infinity);
+      for (let tries = 0; tries < 20; tries++) {
+        await Promise.all(finite().map((animation) => animation.finished.catch(() => undefined)));
+        await new Promise<void>((resolve) => {
+          let last = -1;
+          let still = 0;
+          window.cmuxAfterPaint(() => {
+            still = node.scrollTop === last ? still + 1 : 0;
+            last = node.scrollTop;
+            if (still < 2) return true;
+            resolve();
+            return false;
+          });
+        });
+        if (finite().every((animation) => animation.playState !== "running")) return;
+      }
+    });
 
   /// Samples, after every painted frame for `ms` from now, the tick's bar width and the transcript's
   /// offset, with the time.
@@ -191,7 +215,9 @@ await requireBrowserLane("thread-minimap-motion.test.ts", async () => {
     });
     const point = await tickPoint(page, target);
     await page.mouse.move(point.x, point.y);
-    await page.waitForTimeout(400);
+    // The hover settles: the tick grown and, after the hover delay, its preview card open.
+    await page.locator(".acpmux-minimap__card").waitFor({ timeout: 5_000 });
+    await settled(page);
     const sampling = sample(page, 900);
     // The click, while the target's row is mounted (an unmounted one jumps at once, by design).
     const mounted = await page.evaluate((index) => {
@@ -231,11 +257,54 @@ await requireBrowserLane("thread-minimap-motion.test.ts", async () => {
     await page.close();
   });
 
+  /// The flash's keyframe colors' alpha, read off the landing animation on the clicked prompt's bubble.
+  async function landingAlphas(page: Page, index: number): Promise<number[]> {
+    return page.evaluate(async (index) => {
+      document.querySelector<HTMLElement>(`[data-tick="${index}"]`)!.click();
+      await window.cmuxPaintFrame();
+      await window.cmuxPaintFrame();
+      const bubble = document.querySelector<HTMLElement>(`.acpmux-row[data-row-id="t${index}-user"] .cv-user__bubble`)!;
+      const animation = bubble.getAnimations().find((entry) => entry.id === "acpmux-landing");
+      const frames = (animation?.effect as KeyframeEffect | null)?.getKeyframes() ?? [];
+      // Resolve each color through a probe, so color-mix() and named colors come back as rgb()/color().
+      const probe = document.createElement("div");
+      document.body.append(probe);
+      const alphas = frames.map((frame) => {
+        probe.style.backgroundColor = String(frame.backgroundColor ?? "");
+        const color = getComputedStyle(probe).backgroundColor;
+        const alpha = /\/\s*([\d.]+)\s*\)$/.exec(color)?.[1] ?? /^rgba\([^)]*,\s*([\d.]+)\)$/.exec(color)?.[1];
+        return alpha === undefined ? 1 : Number(alpha);
+      });
+      probe.remove();
+      return alphas;
+    }, index);
+  }
+
+  // Leo 2026-10-20: the prompt bubble is glass, never opaque, not even while it flashes.
+  test("the landing flash stays glass: every frame is translucent", async () => {
+    const page = await open(false);
+    const alphas = await landingAlphas(page, 9);
+    expect(alphas.length).toBe(3);
+    for (const alpha of alphas) expect(alpha).toBeLessThan(1);
+    await page.close();
+  });
+
+  // Reduce Transparency makes the bubble opaque (glass.css), and its flash with it: no frame lets the
+  // backdrop through.
+  test("under Reduce Transparency every frame of the landing flash is opaque", async () => {
+    const page = await open(false);
+    await page.evaluate(() => document.documentElement.setAttribute("data-reduce-transparency", ""));
+    const alphas = await landingAlphas(page, 9);
+    expect(alphas.length).toBe(3);
+    for (const alpha of alphas) expect(alpha).toBe(1);
+    await page.close();
+  });
+
   test("under Reduce Motion the tick, the scroll and the highlight do not animate", async () => {
     const page = await open(true);
     const point = await tickPoint(page, 9);
     await page.mouse.move(point.x, point.y);
-    await page.waitForTimeout(50);
+    await page.evaluate(() => window.cmuxPaintFrame().then(() => window.cmuxPaintFrame()));
     const hovered = await page.evaluate(() => {
       const css = getComputedStyle(document.querySelector<HTMLElement>('[data-tick="9"] .acpmux-minimap__bar')!);
       return { duration: css.transitionDuration, width: 26 * new DOMMatrixReadOnly(css.transform).a };

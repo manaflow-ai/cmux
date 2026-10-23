@@ -15,8 +15,14 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
 
+#[path = "setup/browser_import.rs"]
+mod browser_import;
 #[path = "setup/cloud_machine.rs"]
 mod cloud_machine;
+#[path = "setup/notifications.rs"]
+mod notifications;
+#[path = "setup/tailnet.rs"]
+mod tailnet;
 
 struct World {
     home: PathBuf,
@@ -72,11 +78,21 @@ while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do shift; done
 shift
 host=$1
 script=$2
+# acpmux runs every remote script as `exec /bin/sh -c '<script>'` (hosts.rs ssh_argv).
+case "$script" in "exec /bin/sh -c '"*)
+  script=$(printf '%s\n' "$script" | sed -e "1s|^exec /bin/sh -c '||" -e "\$s|'\$||" -e "s|'\\\\''|'|g");;
+esac
 case "$host" in *unreachable*)
   echo "ssh: connect to host $host port 22: Connection refused" >&2
   exit 255;;
 esac
 case "$script" in
+  # `acp host update`'s probe (c9e045f2e48): this machine's own `uname -sm`,
+  # so the update pushes this binary, then a daemon on an older build.
+  *ACPMUX_UNAME=*)
+    printf 'ACPMUX_UNAME=%s\n\nACPMUX_PROBE\n{"pid":1,"build":"0000000 2026-01-01"}\n\nACPMUX_PROBE\n\nACPMUX_PROBE\n' "$(uname -sm)";;
+  # Its wait for the restarted daemon: one answers.
+  "i=0; while :; do s="*) echo '{"pid":2,"build":"fake-new"}';;
   *--version*) echo "acpmux 0.0.0-fake";;
   *"cat ~/.acpmux/config.json"*) echo '{}';;
   "uname -s") echo Linux;;
@@ -872,7 +888,9 @@ fn cmux_setup_harness_an_agent_hands_the_person_the_sign_in_and_checks_again() {
             &json!("harness"),
             &json!("mcp"),
             &json!("computer_use"),
-            &json!("cloud_machine")
+            &json!("cloud_machine"),
+            &json!("notifications"),
+            &json!("browser_import")
         ],
         "{status}"
     );

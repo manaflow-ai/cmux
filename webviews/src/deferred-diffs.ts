@@ -1,33 +1,23 @@
 /**
  * Generated and large files start collapsed with a "Load diff" affordance
- * (GitHub "Files changed" parity). Generated = a path the local repository
- * marks `linguist-generated` or `-diff` in `.gitattributes` (computed by the
- * Rust sidecar for typed sessions) or a well-known lockfile; large = a patch
- * with at least LARGE_DIFF_CHANGED_LINES changed lines or at least
+ * (GitHub "Files changed" parity). Generated = what the shared file-kind
+ * classifier calls generated (fileKinds.ts): a path the local repository marks
+ * `linguist-generated` or `-diff` in `.gitattributes` (computed by the Rust
+ * sidecar for typed sessions), a lockfile, tool output such as `*.min.js`,
+ * `project.pbxproj` or a `generated/` tree, or a translation catalog. Large =
+ * a patch with at least LARGE_DIFF_CHANGED_LINES changed lines or at least
  * LARGE_DIFF_PATCH_BYTES of patch text.
  */
+import { fileKind } from "./fileKinds";
+
 export type DeferredDiffReason = "generated" | "large";
 
 export const LARGE_DIFF_CHANGED_LINES = 2_000;
 export const LARGE_DIFF_PATCH_BYTES = 400 * 1024;
 
-export const WELL_KNOWN_LOCKFILES: ReadonlySet<string> = new Set([
-  "bun.lock",
-  "bun.lockb",
-  "package-lock.json",
-  "yarn.lock",
-  "pnpm-lock.yaml",
-  "Cargo.lock",
-  "Package.resolved",
-  "go.sum",
-  "Gemfile.lock",
-  "poetry.lock",
-  "uv.lock",
-]);
-
-export function isWellKnownLockfile(path: string): boolean {
-  const slash = path.lastIndexOf("/");
-  return WELL_KNOWN_LOCKFILES.has(slash >= 0 ? path.slice(slash + 1) : path);
+/** True when the viewer opens this file collapsed because nobody wrote it by hand. */
+export function isGeneratedDiffPath(path: string, generatedPaths: ReadonlySet<string>): boolean {
+  return fileKind(path, generatedPaths) === "generated";
 }
 
 export function deferredDiffReason(input: {
@@ -36,7 +26,7 @@ export function deferredDiffReason(input: {
   patchBytes: number;
   generatedPaths: ReadonlySet<string>;
 }): DeferredDiffReason | undefined {
-  if (input.generatedPaths.has(input.path) || isWellKnownLockfile(input.path)) {
+  if (isGeneratedDiffPath(input.path, input.generatedPaths)) {
     return "generated";
   }
   if (input.changedLines >= LARGE_DIFF_CHANGED_LINES || input.patchBytes >= LARGE_DIFF_PATCH_BYTES) {

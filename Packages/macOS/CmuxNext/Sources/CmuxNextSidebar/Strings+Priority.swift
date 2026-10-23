@@ -15,6 +15,10 @@ extension Strings {
     static var priorityEmpty: String {
         String(localized: "sidebar.priority.empty", defaultValue: "No agent chats right now", bundle: .module)
     }
+    /// A working row's second line: what its agent does right now (`WorkspaceRowContent.now`).
+    static func rowNow(_ step: String) -> String {
+        String(localized: "sidebar.row.now", defaultValue: "Now: \(step)", bundle: .module)
+    }
     static var priorityNeedsYou: String { String(localized: "sidebar.priority.state.needsYou", defaultValue: "Needs you", bundle: .module) }
     static var priorityDone: String { String(localized: "sidebar.priority.state.done", defaultValue: "Done", bundle: .module) }
     static var priorityFailed: String { String(localized: "sidebar.priority.state.failed", defaultValue: "Failed", bundle: .module) }

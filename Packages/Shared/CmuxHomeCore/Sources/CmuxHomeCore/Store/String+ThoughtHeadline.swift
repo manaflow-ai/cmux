@@ -12,8 +12,10 @@ extension String {
     /// Codex title their reasoning summaries), else its last sentence, as plain text of at most
     /// ``thoughtHeadlineLimit`` characters. Nil for a thought with no words.
     public var thoughtHeadline: String? {
+        // A line of only rule marks (`*****`, `---`, `* * *`) has no words: it neither heads the
+        // thought nor ends it, so a heading above it still names the thought.
         let lines = split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
+            .filter { line in line.contains { !"*-_".contains($0) && !$0.isWhitespace } }
         let heading = lines.last { $0.count > 4 && $0.hasPrefix("**") && $0.hasSuffix("**") }
         let raw: String
         if let heading {

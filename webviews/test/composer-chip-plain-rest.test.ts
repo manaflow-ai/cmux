@@ -45,6 +45,16 @@ await requireBrowserLane("composer-chip-plain-rest.test.ts", async () => {
     await vite?.close();
   });
 
+  /** Resolves once nothing on the page is easing: no transition or animation left to run (a
+   *  looping one never ends). */
+  const eased = (page: Page) =>
+    page.waitForFunction(() =>
+      document
+        .getAnimations()
+        .every(
+          (animation) => animation.playState !== "running" || animation.effect?.getTiming().iterations === Infinity,
+        ),
+    );
   const open = async (entry: string, variant: string): Promise<Page> => {
     const page = await browser!.newPage({ viewport: { width: 760, height: 600 } });
     for (;;) {
@@ -62,7 +72,7 @@ await requireBrowserLane("composer-chip-plain-rest.test.ts", async () => {
     await page.evaluate(() => document.fonts.ready);
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await page.mouse.move(1, 1);
-    await page.waitForTimeout(250);
+    await eased(page);
     return page;
   };
   const look = (page: Page, selector: string) =>
@@ -126,7 +136,8 @@ await requireBrowserLane("composer-chip-plain-rest.test.ts", async () => {
         if (fine) {
           const box = (await page.locator(chip).first().boundingBox())!;
           await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-          await page.waitForTimeout(300);
+          await page.waitForFunction((chip) => document.querySelector(chip)?.matches(":hover"), chip);
+          await eased(page);
           const hover = await look(page, chip);
           expect(hover.filled, "hover draws a background").toBe(true);
           expect(hover.radius, "the pill shape").toBeGreaterThanOrEqual(hover.height / 2 - 0.5);

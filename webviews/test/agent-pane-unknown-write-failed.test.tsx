@@ -5,12 +5,14 @@
 // the same file: Claude Code's Write fails until the file is read, and the retry is the change.
 //
 // So it does once the turn's checkpoint has loaded: no checkpoint file covers a file a failed call
-// named, wherever it is.
+// named, wherever it is. A counted file whose path only ends the same way is another file (a
+// monorepo's docs/notes.txt beside its notes.txt), so it hides no failed row.
 //
 // Before: the failed Write dropped off the card ("Edited 0 files" with no row), and an Edit after
 // it to the same file lost its counts.
 import { expect, test } from "bun:test";
 import {
+  FOLDER,
   NOTES,
   PLAN,
   activity,
@@ -123,4 +125,95 @@ test("once the checkpoint loads, a failed Write under a path alias of the reposi
   expect(dom.text(".acpmux-edited-sub")).toBe("+1-1");
   expect(rows()).toEqual([]);
   expect(dom.host().querySelector(".acpmux-edited-failed")).toBeNull();
+});
+
+test("once the checkpoint loads, a failed Write deeper in the repository stays beside a counted file of its name", async () => {
+  // A monorepo: the failed Write is docs/notes.txt, the counted edit the root's notes.txt.
+  const nested = `${FOLDER}/docs/notes.txt`;
+  const row = activity("turn-f9", [
+    await translatorWrite("write-9", nested, "failed"),
+    await editWithDiff("edit-5", NOTES, "step 1\n", "step one\n"),
+  ]);
+  await dom.render(
+    await editedCard(
+      row,
+      checkpoint([{ path: "notes.txt", additions: 1, deletions: 1, patch: "@@ -1 +1 @@\n-step 1\n+step one\n" }]),
+    ),
+  );
+  expect(dom.text(".acpmux-edited-title > div")).toBe("Edited 2 files");
+  expect(rows()).toEqual([
+    [NOTES, "+1-1"],
+    [nested, "failed"],
+  ]);
+});
+
+test("once the checkpoint loads, a failed Write outside the repository stays beside a counted file of its name", async () => {
+  const elsewhere = "/Users/you/notes/notes.txt";
+  const row = activity("turn-f10", [
+    await translatorWrite("write-10", elsewhere, "failed"),
+    await editWithDiff("edit-6", NOTES, "step 1\n", "step one\n"),
+  ]);
+  await dom.render(
+    await editedCard(
+      row,
+      checkpoint([{ path: "notes.txt", additions: 1, deletions: 1, patch: "@@ -1 +1 @@\n-step 1\n+step one\n" }]),
+    ),
+  );
+  expect(dom.text(".acpmux-edited-title > div")).toBe("Edited 2 files");
+  expect(rows()).toEqual([
+    [NOTES, "+1-1"],
+    [elsewhere, "failed"],
+  ]);
+});
+
+test("once the checkpoint loads, a failed Write the agent named from ~ lists no row beside the edit that followed", async () => {
+  const path = "~/src/uploader/notes.txt";
+  const row = activity("turn-f11", [
+    await translatorWrite("write-11", path, "failed"),
+    await editWithDiff("edit-7", path, "step 1\n", "step one\n"),
+  ]);
+  await dom.render(
+    await editedCard(
+      row,
+      checkpoint([{ path: "notes.txt", additions: 1, deletions: 1, patch: "@@ -1 +1 @@\n-step 1\n+step one\n" }]),
+    ),
+  );
+  expect(dom.text(".acpmux-edited-title > div")).toBe("Edited notes.txt");
+  expect(rows()).toEqual([]);
+  expect(dom.host().querySelector(".acpmux-edited-failed")).toBeNull();
+});
+
+test("once the checkpoint loads, a failed Write retried through a folder link the repository's name doesn't match lists once", async () => {
+  // The agent works in a link (~/work/current) to the repository git names by its real path, so only
+  // the later Edit's suffix match ties the path to the checkpoint's notes.txt.
+  const path = "/Users/you/work/current/notes.txt";
+  const row = activity("turn-f12", [
+    await translatorWrite("write-12", path, "failed"),
+    await editWithDiff("edit-8", path, "step 1\n", "step one\n"),
+  ]);
+  await dom.render(
+    await editedCard(
+      row,
+      checkpoint([{ path: "notes.txt", additions: 1, deletions: 1, patch: "@@ -1 +1 @@\n-step 1\n+step one\n" }]),
+    ),
+  );
+  expect(dom.text(".acpmux-edited-title > div")).toBe("Edited notes.txt");
+  expect(rows()).toEqual([]);
+  expect(dom.host().querySelector(".acpmux-edited-failed")).toBeNull();
+});
+
+test("once the checkpoint loads, a failed Write in the repository stays beside an edited file of its name outside it", async () => {
+  const outside = "/tmp/scratch/notes.txt";
+  const row = activity("turn-f13", [
+    await translatorWrite("write-13", NOTES, "failed"),
+    await editWithDiff("edit-9", PLAN, "a\n", "b\n"),
+    await editWithDiff("edit-10", outside, "step 1\n", "step one\n"),
+  ]);
+  await dom.render(
+    await editedCard(
+      row,
+      checkpoint([{ path: "plan.md", additions: 1, deletions: 1, patch: "@@ -1 +1 @@\n-a\n+b\n" }]),
+    ),
+  );
+  expect(rows()).toContainEqual([NOTES, "failed"]);
 });

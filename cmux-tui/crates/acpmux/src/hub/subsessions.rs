@@ -12,6 +12,10 @@
 //! - Width: a session has at most `maxChildren` open children (not closed).
 //!   Depth: a session is started at depth `parent.depth + 1` only when that
 //!   is at most the parent's `maxDepth`.
+//! - Running: at most `maxRunning` children run a turn at once; a start or a
+//!   message past it waits its turn, queued (`subsession_runs.rs`). It also
+//!   takes a workspace's value (`_acpmux/subsession/limits {workspaceId}`)
+//!   between an ancestor's override and the settings.
 //! - A session's limit is its own override (`SessionMeta::subsession_limits`),
 //!   else its nearest ancestor's override, else the settings
 //!   (`agents.subsessions.maxChildren`, `agents.subsessions.maxDepth`, read
@@ -25,11 +29,38 @@
 //!   the index lock before the session is created, so concurrent starts
 //!   never pass the limit.
 //!
-//! What a child may do is never wider than its parent: it runs the parent's permission policy; on
-//! the same harness family it starts in the parent's current mode (the start gate's inherit rule),
-//! on another family in the person's default start mode only when the parent runs with full access,
-//! else in that harness's own (asking) mode. What the tools read back of a child (its title, last
-//! reply, error and running prompt) is masked (`secret_scan`).
+//! What a child may do is never wider than its parent
+//! (`subsession_guard.rs`):
+//! - Its folder is resolved once (a path that does not resolve is refused);
+//!   that folder is what is checked and what the session (or its worktree)
+//!   gets, and a child that reports another folder is closed. It must be
+//!   inside the parent's folder or one the person trusted in cmux: the
+//!   trust walk reads every folder up to `/`, and an untrusted one refuses
+//!   unless the person's own nearer `trusted` decision ended the walk.
+//!   Claude Code's or Codex's trust, or an agent-home folder, counts only
+//!   for a parent in full access.
+//! - It runs the parent's effective permission policy (one the parent does
+//!   not name is the daemon default, which the child follows as its parent
+//!   does; one acpmux cannot parse is `ask`).
+//! - On the same harness family it starts in the parent's current mode (the
+//!   start gate's inherit rule), on another family in the person's default
+//!   start mode only when the parent runs with full access. A child that
+//!   still asks less than the parent, on the reviewed lists, is moved to an
+//!   asking mode or closed: OpenCode's `build`, a Codex mode that decides
+//!   when to ask, a harness's own default that skips approvals.
+//! - A folder profile, or a profile whose command skips the permission
+//!   checks or the sandbox, starts only from a parent in full access (or as
+//!   the parent's own harness).
+//! - Every refusal after the session exists closes it.
+//! - A message (`send`) never reaches a session that asks less than its
+//!   sender, child or parent: checked when it is sent and again when it
+//!   runs (a queued one, `turns.rs`).
+//!
+//! A family lives on one daemon: there is no start on another host. What
+//! the tools read back of a family member (its title, last reply, capped
+//! at [`MAX_REPLY_CHARS`], error, running prompt and what it does now) is masked (`secret_scan`),
+//! the reply and the prompt before their cut, and only the caller's descendants and its own parent
+//! are read. A start or a message never attaches, so the receiver's unread mark stays.
 //!
 //! A chat the person starts from a suggested task (`offers.rs`) becomes the offering chat's
 //! sub-session too ([`Hub::offer_link`]), so the agent that suggested it reads and waits on it with
@@ -51,6 +82,9 @@ use std::collections::BTreeSet;
 pub const SETTING_ENABLED: &str = "agents.subsessions.enabled";
 pub const SETTING_MAX_CHILDREN: &str = "agents.subsessions.maxChildren";
 pub const SETTING_MAX_DEPTH: &str = "agents.subsessions.maxDepth";
+pub const SETTING_MAX_RUNNING: &str = "agents.subsessions.maxRunning";
+/// `maxRunning`'s default and ceiling until the catalog has its row.
+const MAX_RUNNING_FALLBACK: NumberSetting = NumberSetting { default: 16, max: 1000 };
 pub const SETTING_ANSWER_QUESTIONS: &str = "agents.subsessions.answerQuestions";
 /// The settings catalog source of those keys: their defaults and ranges have
 /// one definition, shared with the app's Settings.
@@ -70,6 +104,7 @@ pub struct Catalog {
     pub answer_questions: bool,
     pub max_children: NumberSetting,
     pub max_depth: NumberSetting,
+    pub max_running: NumberSetting,
 }
 
 /// The catalog, parsed once from the embedded source.
@@ -103,6 +138,7 @@ fn parse_catalog(source: &str) -> Option<Catalog> {
         answer_questions: row(SETTING_ANSWER_QUESTIONS)?["default"].as_bool()?,
         max_children: number(SETTING_MAX_CHILDREN)?,
         max_depth: number(SETTING_MAX_DEPTH)?,
+        max_running: number(SETTING_MAX_RUNNING).unwrap_or(MAX_RUNNING_FALLBACK),
     })
 }
 
@@ -250,6 +286,8 @@ pub enum Source {
     Session,
     /// An ancestor's override.
     Inherited,
+    /// The session's workspace's (`subsession_runs.rs`).
+    Workspace,
     Settings,
     Default,
 }
@@ -259,6 +297,7 @@ impl Source {
         match self {
             Self::Session => "session",
             Self::Inherited => "inherited",
+            Self::Workspace => "workspace",
             Self::Settings => "settings",
             Self::Default => "default",
         }
@@ -272,6 +311,8 @@ pub struct Effective {
     pub max_children_source: Source,
     pub max_depth: u32,
     pub max_depth_source: Source,
+    pub max_running: u32,
+    pub max_running_source: Source,
 }
 
 /// Who changes a session's limits.
@@ -324,11 +365,7 @@ impl Drop for KeptWorktree {
     }
 }
 
-pub(super) fn refused(reason: &str, message: String, data: Value) -> RpcError {
-    let mut data = data;
-    data["reason"] = json!(reason);
-    RpcError::invalid_params(message).with_data(data)
-}
+pub(super) use super::subsession_guard::refusal as refused;
 
 /// A short name from the request or the prompt: lowercase words joined by
 /// dashes, at most [`MAX_SHORT_NAME`] characters.
@@ -370,6 +407,7 @@ impl Hub {
     pub fn subsession_effective(&self, m: &SessionMeta) -> Effective {
         let mut children: Option<(u32, Source)> = None;
         let mut depth: Option<(u32, Source)> = None;
+        let mut running: Option<(u32, Source)> = None;
         let mut limits = m.subsession_limits.clone();
         let mut parent = m.subsession.as_ref().map(|l| l.started_by.clone());
         let mut source = Source::Session;
@@ -384,7 +422,11 @@ impl Hub {
             if depth.is_none() {
                 depth = limits.max_depth.map(|n| (n.clamp(1, catalog().max_depth.max), source));
             }
-            if children.is_some() && depth.is_some() {
+            if running.is_none() {
+                running =
+                    limits.max_running.map(|n| (n.clamp(1, catalog().max_running.max), source));
+            }
+            if children.is_some() && depth.is_some() && running.is_some() {
                 break;
             }
             let Some(id) = parent.take() else { break };
@@ -414,7 +456,26 @@ impl Hub {
         );
         let (max_depth, max_depth_source) =
             pick(depth, SETTING_MAX_DEPTH, catalog().max_depth.max, catalog().max_depth.default);
-        Effective { max_children, max_children_source, max_depth, max_depth_source }
+        // The workspace's value sits between the family's overrides and the settings.
+        let running = running.or_else(|| {
+            let ws = m.workspace_id.as_deref()?;
+            let n = self.subsession_runs.workspace_limit(ws)?;
+            Some((n.clamp(1, catalog().max_running.max), Source::Workspace))
+        });
+        let (max_running, max_running_source) = pick(
+            running,
+            SETTING_MAX_RUNNING,
+            catalog().max_running.max,
+            catalog().max_running.default,
+        );
+        Effective {
+            max_children,
+            max_children_source,
+            max_depth,
+            max_depth_source,
+            max_running,
+            max_running_source,
+        }
     }
 
     /// The summary's `subsessionLimits` for `m`.
@@ -425,6 +486,11 @@ impl Hub {
             "maxChildrenSource": e.max_children_source.as_str(),
             "maxDepth": e.max_depth,
             "maxDepthSource": e.max_depth_source.as_str(),
+            "maxRunning": e.max_running,
+            "maxRunningSource": e.max_running_source.as_str(),
+            // Its sub-sessions running a turn now, and the ones waiting for a slot.
+            "running": self.subsession_runs.running(&m.id),
+            "queued": self.subsession_runs.waiting(&m.id),
         })
     }
 
@@ -577,35 +643,36 @@ impl Hub {
         let short = self.subsessions.claim_name(&parent.id, &base);
         let name = self.unique_name(&format!("{}/{short}", pm.name));
         let harness = req.harness.clone().unwrap_or_else(|| pm.harness.clone());
-        if let Some(cwd) = &req.cwd
-            && !(cwd.is_absolute() && cwd.is_dir())
-        {
-            return Err(RpcError::invalid_params(format!(
-                "cwd {} must be an absolute path to an existing folder",
-                cwd.display()
-            )));
-        }
-        let mut cwd = req.cwd.clone().unwrap_or_else(|| pm.cwd.clone());
-        // A folder nobody answered the trust question for waits on a card in the parent's chat
-        // instead of failing (`trust_wait.rs`).
-        let decided = self.ensure_folder_trusted(parent, &cwd, &harness, &short).await?;
+        let asked = req.cwd.clone().unwrap_or_else(|| pm.cwd.clone());
+        let folder = super::subsession_guard::resolved_folder(&asked)?;
+        // The harness, then the folder: one nobody answered the trust question for waits on a
+        // card in the parent's chat instead of failing (`subsession_guard.rs`, `trust_wait.rs`).
+        let model = req.model.as_deref();
+        let decided =
+            self.subsession_place_check(parent, pm, &folder, &harness, model, &short).await?;
+        let mut cwd = folder.clone();
         let worktree = if req.worktree {
-            let mut kept = self.subsession_worktree(pm, &cwd, &short).await?;
+            let mut kept = self.subsession_worktree(pm, &folder, &short).await?;
             kept.source_decided = decided;
-            cwd = kept.made.cwd.clone();
+            cwd = std::fs::canonicalize(&kept.made.cwd).unwrap_or_else(|_| kept.made.cwd.clone());
             Some(kept)
         } else {
             None
         };
-        let parent_mode = crate::web_modes::mode_of(pm);
-        let parent_full = parent_mode
-            .as_deref()
-            .is_some_and(|m| super::start_mode::FULL_ACCESS_MODES.contains(&m));
-        let policy = pm.permission_policy.as_deref().and_then(|p| p.parse().ok());
+        // The caller's own policy. A caller that names none runs the daemon
+        // default, and so does its child: the default as the child's own
+        // would narrow it (`policy_mode.rs`) and start the child of a caller
+        // in full access in an asking mode. A child harness default laxer
+        // than the caller's is held to the caller's (`hold_subsession`).
+        let policy = if pm.permission_policy.is_some() {
+            Some(self.effective_policy(pm).await)
+        } else {
+            None
+        };
         let request = NewRequest {
             harness: Some(harness),
             name: Some(name),
-            cwd: Some(cwd),
+            cwd: Some(cwd.clone()),
             policy,
             model: req.model.clone(),
             remote: pm.remote_origin,
@@ -622,44 +689,12 @@ impl Hub {
             ..Default::default()
         };
         let probe = self.new_session(request).await?;
-        // The parent's rules above its policy (which can deny) and the MCP
-        // servers the user turned off apply to the child too.
+        // From here every refusal closes the child: it never runs unchecked.
+        if let Err(e) = self.settle_subsession(parent, pm, &probe, &cwd, req.name.as_deref()).await
         {
-            let mut m = probe.meta.lock().unwrap_or_else(|e| e.into_inner());
-            m.permission_rules = pm.permission_rules.clone();
-            // Titled by its name, else by its prompt and then a generated title (`titles.rs`).
-            super::titles::title_subsession(&mut m, req.name.as_deref());
-            for row in &pm.tools.off {
-                if !m.tools.off.contains(row) {
-                    m.tools.off.push(row.clone());
-                }
-            }
+            return Err(self.close_refused(&probe, e).await);
         }
-        self.save_meta(&probe);
         let cm = probe.meta();
-        let same_family = crate::web_modes::family_of(&cm) == crate::web_modes::family_of(pm);
-        // A parent still in full access after `sessions.allowFullAccess` was turned off: its child
-        // starts as a cross-family child would, at the person's start level, which is not full access.
-        let capped = parent_mode.as_deref().is_some_and(super::start_mode::is_full_access)
-            && !super::start_mode::full_access_allowed();
-        let inherit = same_family && !capped;
-        let mode = if inherit {
-            parent_mode.clone()
-        } else if parent_full || capped {
-            self.start_mode(&probe).await
-        } else {
-            None
-        };
-        if let Some(mode) = mode {
-            let params = json!({"_meta": {"acpmux": {(super::person::START_MODE_FIELD): mode}}});
-            // The inherit rule (or the person's default under a full-access
-            // parent) grants it; a refusal ends the new session.
-            if inherit {
-                self.start_in_mode(false, Some(&parent.id), &params, &probe, false).await?;
-            } else if let Err(e) = self.set_mode(&probe, &mode).await {
-                tracing::warn!(session = %probe.id, "sub-session start mode skipped: {}", e.message);
-            }
-        }
         let accepted =
             self.send_family_prompt(parent, &probe, &req.prompt, None, false, false).await;
         let accepted = match accepted {
@@ -682,6 +717,9 @@ impl Hub {
             "harness": cm.harness,
             "mode": crate::web_modes::mode_of(&probe.meta()),
             "turnId": accepted.get("turnId"),
+            // Its parent runs as many sub-sessions as `maxRunning` allows: its first prompt
+            // waits for a run slot (`subsession_runs.rs`).
+            "waitsForSlot": accepted["waitsForSlot"].as_bool().unwrap_or(false),
             "session": row,
         });
         if let Some(kept) = &worktree {
@@ -751,8 +789,14 @@ impl Hub {
             provenance["fromShortName"] = json!(link.short_name);
         }
         let (tx, rx) = tokio::sync::oneshot::channel::<Value>();
+        // An agent a remote device drove (its turn, or its last one, is a Web
+        // turn) prompts under the remote floor, and so does a prompt to a
+        // session whose last turn was one: a family prompt never runs, or
+        // lets the receiver run, below the floor (`remote_floor.rs`).
+        let web = Self::web_turn(from) || Self::web_turn(to);
         let stop = self.interrupt_once_queued(to, interrupt);
         let opts = PromptOptions {
+            control: if web { Control::Web } else { Control::Local },
             prompt_id: Some(prompt_id.unwrap_or_else(|| format!("sub-{}", uuid::Uuid::now_v7()))),
             on_accepted: Some(Box::new(move |v| {
                 stop(&v);
@@ -780,7 +824,15 @@ impl Hub {
 
     /// One family row for the tools: the session's place, state and last reply.
     pub fn subsession_row(&self, s: &Session, with_reply: bool) -> Value {
-        let summary = self.session_summary(s);
+        let mut summary = self.session_summary(s);
+        // Masked before their cut (`TurnInfo::masked_preview`, `doing`), for `turn` and `doing`.
+        if let Some(t) = s.turn().filter(|t| summary["turn"]["turnId"] == t.turn_id.as_str()) {
+            summary["turn"]["prompt"] = json!(t.masked_preview);
+            t.doing.mask_into(&mut summary["turn"]);
+        }
+        if summary["waitingPrompt"].is_string() {
+            summary["waitingPrompt"] = json!(super::subsession_send::masked_waiting_prompt(s));
+        }
         let pick = |k: &str| summary.get(k).cloned().unwrap_or(Value::Null);
         let mut row = json!({
             "sessionId": s.id,
@@ -797,6 +849,8 @@ impl Hub {
             "lastTurn": pick("lastTurn"),
             "pendingPermissions": pick("pendingPermissions"),
             "queued": pick("queued"),
+            // Its prompt waits for a run slot of its parent (`subsession_runs.rs`): not done yet.
+            "waitsForSlot": summary["waitsForSlot"].as_bool().unwrap_or(false),
             // Non-null from the moment a prompt is accepted to its turn's end.
             "turn": pick("turn"),
             // working, input, failed, lost or idle, and since when (`views::lane`).
@@ -817,15 +871,15 @@ impl Hub {
                 row[key] = json!(crate::secret_scan::mask(text));
             }
         }
-        if let Some(text) = row["lastTurn"]["errorText"].as_str() {
-            row["lastTurn"]["errorText"] = json!(crate::secret_scan::mask(text));
-        }
-        // The running turn's prompt is the child's text too (a parent may have pasted a key into
-        // it, or named a file whose name is one), and what it does now is a tool call's title,
-        // often a command with its arguments.
-        for key in ["prompt", "activity", "planStep"] {
-            if let Some(text) = row["turn"][key].as_str() {
-                row["turn"][key] = json!(crate::secret_scan::mask(text));
+        // The last turn's text, and the running turn's again (a turn that changed between the
+        // two reads above): a parent may have pasted a key into it, and what it does now is a
+        // tool call's title, often a command with its arguments.
+        let turn_text = ["/turn/prompt", "/turn/activity", "/turn/planStep"];
+        for pointer in ["/lastTurn/errorText", "/lastTurn/prompt"].into_iter().chain(turn_text) {
+            if let Some(slot) = row.pointer_mut(pointer)
+                && let Some(text) = slot.as_str()
+            {
+                *slot = json!(crate::secret_scan::mask(text));
             }
         }
         row
@@ -857,6 +911,9 @@ impl Hub {
                 "openChildren": self.subsessions.open_count(&caller.id),
                 "maxChildren": e.max_children,
                 "maxDepth": e.max_depth,
+                "maxRunning": e.max_running,
+                "running": self.subsession_runs.running(&caller.id),
+                "queued": self.subsession_runs.waiting(&caller.id),
             },
         })
     }
@@ -938,6 +995,10 @@ impl Hub {
         close: bool,
     ) -> Result<Value, RpcError> {
         if !close {
+            // A start or message still waiting for a run slot is stopped too: it never runs.
+            if self.waits_for_slot(&target.meta()) {
+                self.withdraw_family_prompts(target, "stopped");
+            }
             if target.turn().is_some() {
                 self.cancel(target).await?;
             }
@@ -956,6 +1017,8 @@ impl Hub {
         }
         let mut closed = Vec::new();
         for s in order.iter().rev() {
+            // A family prompt still queued would take a run slot later and open it again.
+            self.withdraw_family_prompts(s, "closed");
             if s.meta().status != SessionStatus::Closed {
                 self.kill(s, false).await?;
                 closed.push(Value::String(s.id.clone()));
@@ -972,10 +1035,13 @@ impl Hub {
         target: &Session,
         max_children: Option<Option<u32>>,
         max_depth: Option<Option<u32>>,
+        max_running: Option<Option<u32>>,
     ) -> Result<Value, RpcError> {
         let tm = target.meta();
         let ceiling = match actor {
-            LimitsActor::Person => (catalog().max_children.max, catalog().max_depth.max),
+            LimitsActor::Person => {
+                (catalog().max_children.max, catalog().max_depth.max, catalog().max_running.max)
+            }
             LimitsActor::Session(caller) => {
                 if !self.subsession_is_ancestor(caller, &tm) {
                     return Err(refused(
@@ -986,7 +1052,7 @@ impl Hub {
                 }
                 let cm = self.resolve(caller)?.meta();
                 let e = self.subsession_effective(&cm);
-                (e.max_children, e.max_depth)
+                (e.max_children, e.max_depth, e.max_running)
             }
         };
         let check = |v: Option<Option<u32>>, max: u32, what: &str| -> Result<(), RpcError> {
@@ -1001,17 +1067,30 @@ impl Hub {
         };
         check(max_children, ceiling.0, "maxChildren")?;
         check(max_depth, ceiling.1, "maxDepth")?;
+        check(max_running, ceiling.2, "maxRunning")?;
+        let changed = max_children.is_some() || max_depth.is_some() || max_running.is_some();
+        // Nothing to set: only reads the limits (the CLI's `acpmux session limits NAME`).
+        if !changed {
+            let limits = self.subsession_limits_value(&tm);
+            return Ok(json!({"sessionId": target.id, "subsessionLimits": limits}));
+        }
         {
             let mut m = target.meta.lock().unwrap_or_else(|e| e.into_inner());
-            let SubsessionLimits { max_children: c, max_depth: d } = &mut m.subsession_limits;
+            let SubsessionLimits { max_children: c, max_depth: d, max_running: r } =
+                &mut m.subsession_limits;
             if let Some(v) = max_children {
                 *c = v;
             }
             if let Some(v) = max_depth {
                 *d = v;
             }
+            if let Some(v) = max_running {
+                *r = v;
+            }
         }
         self.save_meta(target);
+        // A raised limit starts waiting sub-sessions now; a lowered one stops none.
+        self.subsession_runs.wake();
         let limits = self.subsession_limits_value(&target.meta());
         self.append(target, "mux", RECORD_KIND, json!({"event": "limits", "limits": limits}));
         Ok(json!({"sessionId": target.id, "subsessionLimits": limits}))

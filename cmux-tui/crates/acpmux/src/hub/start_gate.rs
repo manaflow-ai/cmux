@@ -395,6 +395,19 @@ impl Hub {
         adopting: bool,
     ) -> Result<(), RpcError> {
         let Some((start, bound)) = self.bound_start(params, s).await else { return Ok(()) };
+        // A start mode that would not ask, on a chat whose narrower policy needs one that does
+        // (`policy_mode.rs`): the chat keeps its policy's mode and starts anyway.
+        let wanted = json!({"modeId": start.mode});
+        if let Err(e) = self.refuse_wider_mode(s, method::SESSION_SET_MODE, &wanted).await {
+            tracing::warn!(session = %s.id, mode = %start.mode, "start mode skipped: {}", e.message);
+            self.append(
+                s,
+                "mux",
+                "start_default_skipped",
+                json!({"modeId": start.mode, "error": e.message}),
+            );
+            return Ok(());
+        }
         let checked = if person {
             Ok(StartGrant::Person)
         } else {
@@ -417,5 +430,38 @@ impl Hub {
             return Err(e);
         }
         Ok(())
+    }
+
+    /// A bare "agent process closed" from a process that died while it
+    /// started (`initialize`, `session/new`): the same error with the last
+    /// stderr line that says why, once the inbound loop has taken what the
+    /// process printed. Any other error is returned as is.
+    pub(super) async fn explain_start_failure(session: &Session, mut e: RpcError) -> RpcError {
+        if e.message != "agent process closed" {
+            return e;
+        }
+        let last = || {
+            session
+                .stderr_tail
+                .lock()
+                .unwrap()
+                .iter()
+                .rev()
+                .map(|l| l.trim().to_owned())
+                .find(|l| super::exit_reason::explains_exit(l))
+        };
+        Self::drain_inbound(session).await;
+        let mut found = last();
+        if found.is_none() {
+            // The stderr reader can trail stdout's close by a moment: one
+            // bounded wait for its last lines, then the bare error.
+            tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+            Self::drain_inbound(session).await;
+            found = last();
+        }
+        if let Some(line) = found {
+            e.message = format!("agent process closed ({}): {line}", session.meta().harness);
+        }
+        e
     }
 }

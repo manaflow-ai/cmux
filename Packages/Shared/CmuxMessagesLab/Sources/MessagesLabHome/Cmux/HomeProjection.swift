@@ -81,6 +81,13 @@ final class HomeProjection: @preconcurrency ChatIntents {
     /// Prepared attachments in the field by content hash (the chips are
     /// MessagesLab's draft; a removed chip's entry is ignored).
     private var drafts: [String: LocalAttachment] = [:]
+    /// The last launch's attachments are going back in the field: each one
+    /// is not written back on its own, the whole field is once they are in.
+    private var restoringDraftAttachments = false
+    /// Return was pressed while they were still going back: the send goes once the last one is
+    /// in, in the thread it was held for (nil: the open view), so none is left out of it.
+    private var sendWhenRestored = false
+    private var restoredSendThread: (root: MessageID?, parent: MessageID?)?
 
     /// What the projection shows, as HomeStore said it (shared with the harness).
     private(set) var core: ProjectionCore
@@ -185,6 +192,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         guard let store = controller.store else {
             install(items: items, summary: summary, typing: typing, hasOlder: newHasOlder)
             restoreDraft()
+            restoreDraftAttachments()
             // Replies already running when the view opens show as their streams at once.
             if let store = controller.store { for a in core.streams(streams, state: store.state) { controller.dispatch(a) } }
             return
@@ -318,6 +326,16 @@ final class HomeProjection: @preconcurrency ChatIntents {
     /// A chosen avatar picture (the Home Chief's), over the initials.
     var pictureOverride: NSImage? { didSet { controller.host.paneHeader.picture = pictureOverride } }
 
+    /// Chosen sender avatars by participant id (each Chief's, as Home's row draws it), beside a
+    /// group's bubbles over the initials; a new value redraws those bubbles.
+    var senderAvatars: [String: Participant.Avatar] {
+        get { core.avatars }
+        set {
+            guard !stopped, let action = core.setAvatars(newValue) else { return }
+            controller.dispatch(action)
+        }
+    }
+
     private func applyHeader() {
         controller.host.paneHeader.title = HomeMapping.title(shownSummary, me: me)
         controller.host.paneHeader.initials = initialsOverride ?? HomeMapping.initials(shownSummary, me: me)
@@ -342,6 +360,11 @@ final class HomeProjection: @preconcurrency ChatIntents {
     /// `deferred`: the thread (root, parent) a held send was made in (`refresh`); nil reads the open view.
     private func send(thread deferred: (root: MessageID?, parent: MessageID?)?) -> String? {
         guard let store = controller.store else { return noteSend("refused: transcript_not_ready") }
+        if restoringDraftAttachments {
+            sendWhenRestored = true
+            restoredSendThread = deferred
+            return noteSend("waiting_for_attachments: sends once the last launch's attachments are back in the field")
+        }
         // A stream update held for the next frame (HomeStreamPacer) shows first: the send lands after the reply's newest text.
         if !stopped { streamPacer.flush { refresh() } }
         let draft = store.state.ui.draft
@@ -411,6 +434,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
             controller.dispatch(.setDraft(""))
         }
         homeStore.setDraft("", for: conversation)
+        homeStore.setDraftAttachments([], for: conversation)
         for a in attachments {
             media.useLocal(a.files, for: a.ref.hash)
             drafts[a.ref.hash] = nil
@@ -500,6 +524,38 @@ final class HomeProjection: @preconcurrency ChatIntents {
         // In the field's text at the caret (Draft+InlineMarks.swift); at the end when the field
         // does not show this draft's text yet.
         controller.dispatch(.attachAt(HomeMapping.attachment(attachment.ref, picture: media.asset(hash), progress: nil), controller.composeCaret()))
+        saveDraftAttachments()
+    }
+
+    /// The field's attachments into HomeStore's cache, beside its text: they come back after a relaunch.
+    private func saveDraftAttachments() {
+        guard !stopped, !restoringDraftAttachments else { return }
+        homeStore.setDraftAttachments(draftAttachments, for: conversation)
+    }
+
+    /// The field's attachments from the last launch (HomeStore's cache), once, into a field
+    /// without any, after its text.
+    private func restoreDraftAttachments() {
+        guard let store = controller.store, store.state.ui.draft.attachments.isEmpty else { return }
+        let kept = homeStore.draftAttachments(for: conversation)
+        guard !kept.isEmpty else { return }
+        restoringDraftAttachments = true
+        // task-owner: one restore; ends when the last chip is in the field, or when the view stops
+        // (the cache still holds the draft, and a held send stays unsent with it)
+        Task { [weak self] in
+            for attachment in kept {
+                guard let self, !self.stopped else { return }
+                await self.media.prepare(attachment)
+                self.restoreDraft(attachment)
+            }
+            guard let self, !self.stopped else { return }
+            self.restoringDraftAttachments = false
+            self.saveDraftAttachments()
+            guard self.sendWhenRestored else { return }
+            self.sendWhenRestored = false
+            _ = self.send(thread: self.restoredSendThread)
+            self.restoredSendThread = nil
+        }
     }
 
     /// The field's attachments, in order.
@@ -510,6 +566,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
     func removeDraft(_ hash: String) {
         drafts[hash] = nil
         controller.dispatch(.removeDraftAttachment(hash))
+        saveDraftAttachments()
     }
 
     /// Each shown attachment part gets its picture and upload state:
@@ -623,6 +680,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         if sendNotice == CmuxStrings.threadRootNotReady { sendNotice = nil }  // the user moved on
         let text = controller.store?.state.ui.draft.plainText ?? ""  // without the attachment marks
         homeStore.setDraft(text, for: conversation)
+        saveDraftAttachments()  // Delete or a cut can take a chip with the text
         // My typing dots for the other members (HomeStore+Typing); off once the field is empty.
         homeStore.composing(text, in: conversation)
         onDraftTextChange()
@@ -791,6 +849,9 @@ struct ProjectionCore {
     var media: HomeMapping.Media = { _ in nil }
     /// Link previews already fetched (`LinkPreviews.cached`); none in the harness.
     var links: HomeMapping.Links = { _ in nil }
+    /// Chosen sender avatars by participant id (`setAvatars`).
+    private(set) var avatars: [String: Participant.Avatar] = [:]
+    private var installed = false
     /// The running replies on screen, in begin order (`streams(_:state:)`, MessagesLab ask 11).
     var shownStreams: [ShownStream] = []
     /// Whole messages (default) or the growing stream bubbles (`HomeReplyDisplay`).
@@ -806,12 +867,22 @@ struct ProjectionCore {
         shown = items
         shownStreams = [] // a new projection store has no stream: the next update begins them again
         self.summary = summary
+        installed = true
         let roots = HomeMapping.roots(in: items, aliases: aliases, summary: summary, media: media, links: links)
         let conv = Conversation(id: id.rawValue, title: HomeMapping.title(summary, me: me),
-                                participants: HomeMapping.participants(summary, me: me),
+                                participants: HomeMapping.participants(summary, me: me, avatars: avatars),
                                 messages: items.map { HomeMapping.message($0, aliases: aliases, me: me, summary: summary, media: media, links: links, roots: roots) },
                                 cmuxGroup: summary?.kind(me: me) == .group)
         return (conv, HomeMapping.window(items))
+    }
+
+    /// New chosen avatars by participant id (the host's Chief avatars, again after a swap): the
+    /// action that redraws the senders with them; nil when they are the ones shown, or before the
+    /// install (which maps them).
+    mutating func setAvatars(_ new: [String: Participant.Avatar]) -> Action? {
+        guard new != avatars else { return nil }
+        avatars = new
+        return installed ? .cmuxSetParticipants(HomeMapping.participants(summary, me: me, avatars: new)) : nil
     }
 
     /// The actions from the shown snapshot to this one.

@@ -53,9 +53,19 @@ public final class AgentPriorityChats {
         self.archiveRequest = archive
     }
 
+    /// The chats as they are now, built once for everything that reads them at one change (the
+    /// rows, the next wake, the prune): every lane, each one's machine tag, the Red CI ones and
+    /// the other machines they came from.
+    public struct Snapshot {
+        public let lanes: [AgentActivityLane]
+        let tags: [String: String]
+        public let failingChecks: Set<String>
+        let machines: [SidebarPriorityMachine]
+    }
+
     /// Every lane of every store, then of every other machine's tree, this Mac's first when an id
     /// repeats (a peer's chat that its machine's tree shows too), and each one's machine tag.
-    func chats() -> (lanes: [AgentActivityLane], tags: [String: String]) {
+    public func snapshot() -> Snapshot {
         var seen = Set<String>()
         var tags: [String: String] = [:]
         let localTag = machines.local()
@@ -63,26 +73,38 @@ public final class AgentPriorityChats {
         for lane in lanes {
             tags[lane.id] = lane.peer.map { machines.peer($0) ?? $0 } ?? localTag
         }
-        for machine in machines.remote() {
+        let remote = machines.remote()
+        for machine in remote {
             for lane in machine.lanes() where seen.insert(lane.id).inserted {
                 lanes.append(lane)
                 tags[lane.id] = machine.name ?? localTag
             }
         }
-        return (lanes, tags)
+        return Snapshot(lanes: lanes, tags: tags, failingChecks: failingChecks, machines: remote)
     }
 
     /// Every chat the view ranks.
-    public var lanes: [AgentActivityLane] { chats().lanes }
+    public var lanes: [AgentActivityLane] { snapshot().lanes }
 
     /// Every watched store and every other machine's tree is live: `lanes` is every chat, not a
     /// gap, so a chat missing from it may lose its marks.
-    public var complete: Bool {
-        stores.allSatisfy { $0.live || $0.socketPath == nil } && machines.remote().allSatisfy(\.live)
+    public var complete: Bool { complete(machines.remote()) }
+
+    /// `complete` for the machines a `Snapshot` came from.
+    public func complete(_ snapshot: Snapshot) -> Bool { complete(snapshot.machines) }
+
+    private func complete(_ remote: [SidebarPriorityMachine]) -> Bool {
+        stores.allSatisfy { $0.live || $0.socketPath == nil } && remote.allSatisfy(\.live)
     }
 
     public func lane(_ id: String) -> AgentActivityLane? {
         stores.lazy.compactMap { $0.lanes[id] }.first ?? lanes.first { $0.id == id }
+    }
+
+    /// The id of the tab that shows the chat on the other machine whose row it is (the first
+    /// machine whose tree shows it, as `snapshot` takes it); nil when no machine's tree does.
+    public func remoteTab(showing id: String) -> String? {
+        machines.remote().lazy.compactMap { $0.tab(showing: id) }.first
     }
 
     /// The chats with a pull request whose checks fail (Red CI). Only this Mac's and the Chief
@@ -96,8 +118,12 @@ public final class AgentPriorityChats {
     /// The rows as the Priority view ranks them now, Red CI included and each named by its
     /// machine, so a row's menu and the palette read the state the row shows.
     public func entries(now: Date = Date()) -> [SidebarPriorityEntry] {
-        let all = chats()
-        return ranking.entries(all.lanes, marks: marks.state, now: now, failingChecks: failingChecks) { all.tags[$0.id] }
+        entries(snapshot(), now: now)
+    }
+
+    /// The rows of `snapshot`.
+    public func entries(_ snapshot: Snapshot, now: Date = Date()) -> [SidebarPriorityEntry] {
+        ranking.entries(snapshot.lanes, marks: marks.state, now: now, failingChecks: snapshot.failingChecks) { snapshot.tags[$0.id] }
     }
 
     /// The chat's row, nil when the view does not list it (archived, snoozed, idle too long).

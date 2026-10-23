@@ -115,7 +115,7 @@ impl Hub {
         }
     }
 
-    async fn transfer_watch(&self, session: &Arc<Session>, transfer_id: &str) {
+    async fn transfer_watch(self: &Arc<Self>, session: &Arc<Session>, transfer_id: &str) {
         let dir = transfers_dir().join(transfer_id);
         // A commit closes the chat (its `moving` stays); an abort clears `moving`.
         while session.moving().as_deref() == Some(transfer_id)
@@ -148,7 +148,7 @@ impl Hub {
 
     /// Ends a move its client left; false when only the target could tell how, and did not.
     async fn end_stalled_move(
-        &self,
+        self: &Arc<Self>,
         session: &Arc<Session>,
         transfer_id: &str,
         dir: &Path,

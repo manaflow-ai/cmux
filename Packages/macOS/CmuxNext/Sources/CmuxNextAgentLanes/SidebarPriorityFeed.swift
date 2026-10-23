@@ -68,16 +68,20 @@ public final class SidebarPriorityFeed {
         return Task { [self, weak view] in
             for await panel in ObservationStream({ self.panel() }) {
                 view?.showPriority(panel)
-                scheduleNextChange()
+                // The chats the rows were built from (`panel`), else (the view not installed) built now.
+                let built = self.built ?? chats.snapshot()
+                self.built = nil
+                scheduleNextChange(built)
                 // A store is empty while its watch is down or not up yet (a machine's tree while it
                 // is not connected): pruning then would drop the marks of every chat it reports, so
                 // prune only while every one is live.
-                if chats.complete { marks.prune(keeping: Set(lanes.map(\.id))) }
+                if chats.complete(built) { marks.prune(keeping: Set(built.lanes.map(\.id))) }
             }
         }
     }
 
-    var lanes: [AgentActivityLane] { chats.lanes }
+    /// The chats the last `panel` built, for that change's next wake and prune.
+    private var built: AgentPriorityChats.Snapshot?
 
     /// What the sidebar shows now; nil while the view is not installed. Read inside an observation
     /// scope. With the bell off only the rows that need the person are kept (for the bell's dot), so
@@ -86,7 +90,9 @@ public final class SidebarPriorityFeed {
         guard settings.enabled() else { return nil }
         let shown = settings.shown(), state = marks.state
         _ = clock.ticks
-        let entries = chats.entries(now: Date())
+        let built = chats.snapshot()
+        self.built = built
+        let entries = chats.entries(built, now: Date())
         return SidebarPriorityPanel(entries: shown ? entries : entries.filter(\.needsAttention), shown: shown,
                                     collapsed: state.collapsed, shortcut: hooks.shortcut())
     }
@@ -104,22 +110,19 @@ public final class SidebarPriorityFeed {
 
     /// Wakes at the next change no lane or mark makes (a snooze end, an idle chat aging out), and
     /// again after it: a wake that leaves the rows as they were (the bell off) emits nothing.
-    private func scheduleNextChange() {
+    private func scheduleNextChange(_ built: AgentPriorityChats.Snapshot) {
         let now = Date()
-        guard let next = ranking.nextChange(lanes, marks: marks.state, now: now, failingChecks: failingChecks) else {
+        guard let next = ranking.nextChange(built.lanes, marks: marks.state, now: now, failingChecks: built.failingChecks) else {
             return nextChange.cancel()
         }
         // Rounded up and a little late, so the wake never lands just before the change.
         let milliseconds = Int64((max(1, next.timeIntervalSince(now)) * 1000).rounded(.up)) + 50
         nextChange.schedule(after: .milliseconds(milliseconds)) { @MainActor [weak self] in
-            self?.clock.ticks += 1
-            self?.scheduleNextChange()
+            guard let self else { return }
+            clock.ticks += 1
+            scheduleNextChange(chats.snapshot())
         }
     }
-
-    /// The chats with a pull request whose checks fail (Red CI), as the session tree's pull request
-    /// reads last answered (`AgentPriorityChats.failingChecks`): no GitHub read of its own.
-    private var failingChecks: Set<String> { chats.failingChecks }
 }
 
 /// Bumped at each time-only change of the Priority rows; observed, so a bump redraws.

@@ -113,9 +113,15 @@ public final class HomeNativeTranscriptView: NSView {
     /// Automation (DEBUG socket): the transcript is this much narrower than this view (a pane's width
     /// change, as a divider drag or a live resize makes it). Zero in the product.
     public var debugTranscriptWidthTrim: CGFloat = 0 { didSet { needsLayout = true } }
+    /// A click on a header panel toggle (``setHeaderPanels(_:)``), by its id.
+    public var onHeaderPanel: (String) -> Void = { _ in }
+    /// The header's top-right panel toggles (HomeNativeTranscriptView+HeaderPanels.swift).
+    let headerPanels = HomeHeaderPanelBar()
     private var observers: [any NSObjectProtocol] = []
     /// The window's typing hold for the compose field's cursor rects (HomeCursorRectHold).
     private var cursorHold: HomeCursorRectHold?
+    /// Debug Settings > Home > Avatar and name over the chat, when this conversation opened (off: no header).
+    private let showsHeader = HomeTunables.chatHeader.value
 
     /// - Parameter diagrams: draws Mermaid fences as diagrams (the app's ``OndineMermaidRenderer``); nil keeps them as text.
     public init(store: HomeStore, conversation: ConversationID, me: ParticipantID, diagrams: (any HomeDiagramRendering)? = nil) {
@@ -237,6 +243,17 @@ public final class HomeNativeTranscriptView: NSView {
         set { transcript.avatarPicture = newValue }
     }
 
+    /// Each Chief's avatar by participant id (``HomeChiefAvatar/bubbleAvatars(for:own:fallback:)``),
+    /// beside a group's bubbles; a new value redraws them.
+    public func setChiefBubbleAvatars(_ avatars: [String: HomeChiefAvatar]) {
+        transcript.setSenderAvatars(avatars.mapValues {
+            switch $0 {
+            case .picture(let url): .picture(url)
+            case .text(let text): .text(text)
+            }
+        })
+    }
+
     /// The name pill's VoiceOver help.
     public func setNamePillHelp(_ help: String) { transcript.setNamePillHelp(help) }
 
@@ -338,7 +355,7 @@ public final class HomeNativeTranscriptView: NSView {
             if resized { transcript.layoutSubtreeIfNeeded() }
         }
         // Every pass: the field can grow (a multi-line draft) without a size
-        // change, and the first-run panel fits its agent rows above it.
+        // change, and the first-run panel fits its agent rows above it, under the header.
         let top = transcript.headerHeight
         let panel = CGRect(x: 0, y: top, width: bounds.width, height: max(0, transcript.fieldTop - top))
         if firstRun.frame != panel { firstRun.frame = panel }
@@ -436,9 +453,9 @@ public final class HomeNativeTranscriptView: NSView {
         let active = performWithTheme { HomeThemePalette.resolveInScope(active: true, style: style, accentOverride: accent) }
         let measured = performWithTheme { HomeThemePalette.usesMessagesBlueInScope(style: style, accentOverride: accent) }
         transcript.applyTheme(active: active, measuredAccent: measured)
-        // The header: a thin glass band over the transcript and a glass name pill, as
-        // Messages on macOS 26 (HeaderGlass.swift).
-        transcript.setHeaderGlass()
+        // No header by default: the rows start at the top and fade out there. Debug Settings brings back
+        // the thin glass band and glass name pill, as Messages on macOS 26 (HeaderGlass.swift).
+        if showsHeader { transcript.setHeaderGlass() } else { transcript.setBareTop() }
         performWithTheme {
             firstRun.applyColors(primary: Palette.textPrimary, secondary: Palette.textSecondary, tertiary: Palette.textTertiary, fill: Palette.elevatedBackground,
                                  hover: Palette.hoverFill, border: Palette.separator, attention: Palette.attention,

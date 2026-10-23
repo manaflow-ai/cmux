@@ -46,6 +46,9 @@ impl Hub {
         // An interrupt stops the running turn only once the message is accepted, so a message the
         // agent pair guard holds never cancels it (`Hub::interrupt_once_queued`).
         let (steer, interrupt) = (deliver == Delivery::NextStep, deliver == Delivery::Interrupt);
+        // Never to a session that asks less than the sender (`subsession_guard.rs`); a queued
+        // one is checked again when it runs (`turns.rs`).
+        self.receiver_check(caller, target).await?;
         let accepted =
             self.send_family_prompt(caller, target, text, prompt_id, steer, interrupt).await?;
         Ok(sent_reply(target, &accepted))
@@ -92,12 +95,16 @@ impl Delivery {
 }
 
 /// `send_message`'s answer: how the text went (`delivery`: `started` a turn,
-/// `next_step` into the running one, or `queued` behind it at `position`),
+/// `next_step` into the running one, `queued` behind it at `position`, or
+/// `waiting_for_slot` of its parent's run slots),
 /// and the receiver's queue, so the sender knows when it will be read.
 fn sent_reply(target: &Session, accepted: &Value) -> Value {
     let queued = accepted["queued"].as_bool().unwrap_or(false);
     let delivery = if accepted["steer"].as_bool().unwrap_or(false) {
         "next_step"
+    } else if accepted["waitsForSlot"].as_bool().unwrap_or(false) {
+        // No turn runs: its parent's run slots are all taken (`subsession_runs.rs`).
+        "waiting_for_slot"
     } else if queued {
         "queued"
     } else {
@@ -138,6 +145,20 @@ pub(super) fn family_role(from: &SessionMeta, to: &SessionMeta) -> &'static str 
 /// only when the person turned that on (`subsession_answer.rs`, the row's
 /// `questions`); otherwise the person answers it too.
 pub(super) fn waiting_on(s: &Session) -> Option<(&'static str, Option<String>)> {
+    waiting_cut(s, short_text)
+}
+
+/// The question prompt [`waiting_on`] reads, masked before its cut
+/// (`session::masked_preview`): the sub-session tools' `doing` quotes it.
+pub(super) fn masked_waiting_prompt(s: &Session) -> Option<String> {
+    waiting_cut(s, super::session::masked_preview).and_then(|w| w.1)
+}
+
+/// [`waiting_on`], its question prompt cut to 120 characters by `cut`.
+fn waiting_cut(
+    s: &Session,
+    cut: fn(&str, usize) -> String,
+) -> Option<(&'static str, Option<String>)> {
     let pending = s.pending_permissions();
     let question = pending.iter().find(|(_, r)| super::questions::needs_person(r));
     match (question, pending.first()) {
@@ -145,7 +166,7 @@ pub(super) fn waiting_on(s: &Session) -> Option<(&'static str, Option<String>)> 
             let prompt = super::questions::question(r)
                 .and_then(|q| q.pointer("/items/0/prompt"))
                 .and_then(Value::as_str)
-                .map(|p| short_text(p, 120));
+                .map(|p| cut(p, 120));
             Some(("question", prompt))
         }
         (None, Some(_)) => Some(("permission", None)),

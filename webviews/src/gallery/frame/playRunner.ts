@@ -472,6 +472,9 @@ export async function runPlay(
     const element = find(target);
     const action: PlayAction =
       kind === "click" ? "click" : kind === "contextmenu" ? "context-menu" : kind === "hover" ? "hover" : "press-drag";
+    // Trusted input lands at the target's on-screen point, so bring it into view first, as a person
+    // would, and before measuring, so the scroll is not counted as an anchor move or layout shift.
+    if (window.top?.cmuxGalleryInput) element.scrollIntoView({ block: "nearest", inline: "nearest" });
     await measured(`${kind} ${describeTarget(target)}`, action, element, anchors, checks, async () => {
       if (window.top?.cmuxGalleryInput) await window.top.cmuxGalleryInput({ kind, ...pageCenter(element) });
       else synthetic(element, kind);

@@ -53,6 +53,9 @@ export function guessProjectRepo(cwd: string): ProjectRepo | undefined {
     [/\/conductor\/workspaces\/([^/]+)\/([^/]+)$/, (m) => ({ name: m[1]!, branch: m[2]! })],
     [/\/\.codex\/worktrees\/[^/]+\/([^/]+)$/, (m) => ({ name: m[1]! })],
     [/\/([^/]+)\/(?:\.worktrees|\.claude\/worktrees)\/([^/]+)$/, (m) => ({ name: m[1]!, branch: m[2]! })],
+    // Lane checkouts: `checkouts/<repo>/<branch>` (a branch's `/` written `--`) and `<repo>-worktrees/<lane>`.
+    [/\/checkouts\/([^/]+)\/([^/]+)$/, (m) => ({ name: m[1]!, branch: m[2]!.replaceAll("--", "/") })],
+    [/\/([^/]+)-worktrees\/([^/]+)$/, (m) => ({ name: m[1]!, branch: m[2]! })],
   ];
   for (const [pattern, read] of patterns) {
     const match = path.match(pattern);
@@ -86,28 +89,89 @@ export function folderRepo(folder: RepoFolder): ProjectRepo | undefined {
   return folder.repo ?? guessProjectRepo(folder.id);
 }
 
-/// The folders grouped by repository, each group where its newest folder was. A folder in no
-/// repository is a group of its own; one whose name is a guessed repository's joins it as that
-/// repository's main checkout (`~/Projects/cmux` with `~/.cmux/worktrees/cmux/*`).
+/// The home folder itself (`/Users/me`, `/home/me`): where a shell starts, not a project.
+export function isHomeFolder(path: string): boolean {
+  return /^\/(?:Users|home)\/[^/]+$/.test(trim(path));
+}
+
+/// A lane's or agent's scratch folder: Spotlight-hidden `.noindex` checkouts, caches, temp folders
+/// and the lane mirrors (`.wt-mirrors/<owner>/<repo>.git`). Never a project row of its own; it shows
+/// only folded under a repository it is known to belong to. Judged by where it lives, never by its
+/// name alone: `~/leo--feature` is an ordinary folder, and a lane checkout under `checkouts/<repo>/`
+/// is placed under its repository by `guessProjectRepo`.
+export function isScratchFolder(path: string): boolean {
+  return /\/[^/]+\.noindex(?:\/|$)|\/\.wt-mirrors\/|\/\.cache\/|^\/(?:private\/)?tmp\/|^\/(?:private\/)?var\/folders\//.test(
+    trim(path),
+  );
+}
+
+/// One repository however many clones hold it: its GitHub `owner/name`, else its main checkout.
+const repoKey = (repo: ProjectRepo) => (repo.github ? "\u0000github:" + repo.github.toLowerCase() : repo.root);
+
+/// The folders grouped by repository, each group where its newest folder was (Leo 2026-10-21: the
+/// New Tab picker listed cmux twice, as "cmux · ~/Projects" with 19 branches and with 63, then
+/// each lane's checkout as a project). Every clone and worktree of one GitHub repository is one row.
+/// A folder the host said nothing about joins the repository whose checkout holds it, else the one
+/// its worktree path names (`~/.cmux/worktrees/cmux/x`, `checkouts/cmux/x`: the host's repository
+/// of that name when there is one), else a guessed one whose name is its own as the main checkout
+/// (`~/Projects/cmux`), else it is a row of its own. A lane's scratch folder in no repository, and
+/// the home folder, are left out unless current. The members carry their repository as resolved.
 export function groupByRepo<T extends RepoFolder>(folders: readonly T[], current?: string): RepoGroup<T>[] {
-  const repos = new Map(folders.map((folder) => [folder.id, folderRepo(folder)]));
-  const guessed = new Set([...repos.values()].flatMap((repo) => (repo?.root.startsWith(GUESSED) ? [repo.root] : [])));
+  const known = folders.flatMap((folder) => (folder.repo ? [folder.repo] : []));
+  // Each name's repository, or null when two repositories share it: a guess can't tell which.
+  const byName = new Map<string, ProjectRepo | null>();
+  for (const repo of known) {
+    const name = repo.name.toLowerCase();
+    const seen = byName.get(name);
+    byName.set(name, seen === undefined || (seen && repoKey(seen) === repoKey(repo)) ? repo : null);
+  }
+  // The checkouts the host named: a worktree's own top with its branch, and its main checkout.
+  const checkouts = known.flatMap((repo): [string, ProjectRepo][] => {
+    const { branch: _branch, ...main } = repo;
+    return [
+      [trim(repo.top ?? repo.root), repo],
+      [trim(repo.root), { ...main, top: repo.root }],
+    ];
+  });
+  const resolve = (folder: T): ProjectRepo | undefined => {
+    if (folder.repo) return folder.repo;
+    const id = trim(folder.id);
+    const holder = checkouts
+      .filter(([top]) => id === top || id.startsWith(top + "/"))
+      .sort(([a], [b]) => b.length - a.length)[0];
+    if (holder) return holder[1];
+    const guess = guessProjectRepo(folder.id);
+    const named = guess && byName.get(guess.name.toLowerCase());
+    if (!guess || !named) return guess;
+    const { top: _top, branch: _branch, ...repo } = named;
+    return { ...repo, ...(guess.branch ? { branch: guess.branch } : {}) };
+  };
+  const resolved = folders.flatMap((folder): T[] => {
+    const repo = resolve(folder);
+    if (folder.id !== current && (isHomeFolder(folder.id) || (!repo && isScratchFolder(folder.id)))) return [];
+    return [repo && repo !== folder.repo ? { ...folder, repo } : folder];
+  });
+  const guessed = new Set(
+    resolved.flatMap((folder) => (folder.repo?.root.startsWith(GUESSED) ? [folder.repo.root] : [])),
+  );
   const keyOf = (folder: T): string => {
-    const repo = repos.get(folder.id);
-    if (repo) return repo.root;
-    const named = GUESSED + folder.label.toLowerCase();
-    return guessed.has(named) ? named : folder.id;
+    if (folder.repo) return repoKey(folder.repo);
+    // Only a guessed repository takes a folder by its name: a folder the host said nothing about
+    // is no checkout of a repository it knows (`~/Projects/site/web` is not acme/web).
+    const label = folder.label.toLowerCase();
+    return guessed.has(GUESSED + label) ? GUESSED + label : folder.id;
   };
   const groups = new Map<string, T[]>();
-  for (const folder of folders) {
+  for (const folder of resolved) {
     const key = keyOf(folder);
     groups.set(key, [...(groups.get(key) ?? []), folder]);
   }
   return [...groups].map(([key, members]) => {
-    const repo = members.map((member) => repos.get(member.id)).find(Boolean);
+    const repo = members.map((member) => member.repo).find(Boolean);
     const lead =
       members.find((member) => member.id === current) ??
-      members.find((member) => trim(member.id) === key || !repos.get(member.id)) ??
+      members.find((member) => member.repo && isMainCheckout(member)) ??
+      members.find((member) => !member.repo) ??
       members[0]!;
     return {
       key,
@@ -117,6 +181,29 @@ export function groupByRepo<T extends RepoFolder>(folders: readonly T[], current
       members,
     };
   });
+}
+
+/// One project per repository for a picker that lists no worktrees (the New Tab hero and
+/// environment card): each group's lead, so lane checkouts and scratch folders never fill it.
+export function projectRows<T extends { cwd: string; label: string; repo?: ProjectRepo }>(
+  projects: readonly T[],
+  current?: string,
+): T[] {
+  const folders = projects.map((project) => ({
+    id: project.cwd,
+    label: project.label,
+    ...(project.repo ? { repo: project.repo } : {}),
+    project,
+  }));
+  return groupByRepo(folders, current).map((group) => group.lead.project);
+}
+
+/// The projects in the order they were last used: those a chat used, newest chat first, then the
+/// rest in the order given.
+export function byRecentUse<T extends { cwd: string }>(projects: readonly T[], recent: readonly string[]): T[] {
+  const rank = new Map(recent.map((cwd, index) => [trim(cwd), index]));
+  const order = (project: T) => rank.get(trim(project.cwd)) ?? recent.length;
+  return [...projects].sort((a, b) => order(a) - order(b));
 }
 
 /// What a worktree row is called: its branch, else its folder's name. A folder inside a checkout
