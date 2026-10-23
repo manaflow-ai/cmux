@@ -24,6 +24,17 @@ nonisolated enum NotificationActionCatalog: ActionCatalogGroup {
                 category: .notifications, symbol: "bell.badge", surfaces: [.palette, .keyboard, .menu],
                 cliName: "notification jump-to-latest-unread", mainMenu: .window
             ),
+            // Go to What Needs Me (tab-attention-v1): the tabs agents marked as needing the person,
+            // in a palette page that jumps to the chosen one (Leo 2026-10-22). No default key, so
+            // no Ghostty-reserved key; the palette and Window menu reach it.
+            ActionDescriptor(
+                id: "attention.goTo",
+                title: String(localized: "action.attention.goTo", defaultValue: "Go to What Needs Me", bundle: .module),
+                keywords: ["needs you", "attention", "waiting", "agent", "action", "login", "approve", "tab"],
+                category: .notifications, symbol: "hand.raised", surfaces: [.palette, .keyboard, .menu],
+                mainMenu: .window,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.focusMove), contextMenuExemption: .focusMove)
+            ),
             // Classic's Jump to Last Prompt (hq#1870 P1 7); classic's ⇧⌘B is the bookmarks bar here.
             ActionDescriptor(
                 id: "jumpToLastPrompt",

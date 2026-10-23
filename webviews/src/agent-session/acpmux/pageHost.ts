@@ -13,6 +13,7 @@ import { setDeviceChats } from "./newtab/deviceChats";
 import { setToolCards } from "./toolCards/toolCardStore";
 import { setRecentlyClosed } from "./newtab/recentlyClosed";
 import { setNowPlaying } from "./newtab/nowPlaying";
+import { setAttentionTabs } from "./needsYou/attentionTabs";
 import { setImportCards } from "./importCards";
 import { setHeaderState } from "./header/headerState";
 import { setTabRow } from "./header/tabRow";
@@ -110,6 +111,9 @@ export function applyHostEvent(event: HostEvent): void {
     case "nowPlaying":
       // Direct, like recentlyClosed: a push before the New Tab screen mounts is kept.
       return setNowPlaying(event.value);
+    case "attentionTabs":
+      // Direct, like nowPlaying: a push before the header mounts is kept.
+      return setAttentionTabs(event.value);
     case "importCards":
       // Direct, like nowPlaying: a push before the New Tab screen mounts is kept.
       return setImportCards(event.value);
