@@ -994,8 +994,8 @@ export function ComposerPickers({
           </button>
         </ContextMenu>
       )}
-      {/* The harness's other settings (Codex's collaboration mode, a custom harness's own
-          options): each config option no chip above owns, picked like the effort level. */}
+      {/* A custom harness's other settings: each config option no chip above owns, picked like the
+          effort level. Codex's collaboration mode stays on its command/mode paths. */}
       <AgentOptionsMenu options={extraConfigOptions(summary)} onPick={(configId, value) => onEffort(configId, value)} />
     </div>
   );
