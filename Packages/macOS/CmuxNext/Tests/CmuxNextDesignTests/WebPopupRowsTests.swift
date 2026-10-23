@@ -6,7 +6,7 @@ import Testing
 /// updates keep their existing rebuild behavior.
 @MainActor @Suite struct WebPopupRowsTests {
     @Test func aTooltipLabelUpdateKeepsItsNativeRowView() throws {
-        let rows = WebPopupRows(onPick: {}, onHover: {})
+        let rows = WebPopupRows(onPick: { _ in }, onHover: { _ in })
         rows.plain = true
         let first = WebPopupHost.Item(id: "0", label: "needs_you_prior_art · Running · 2m40s · shell action",
                                       shortcut: nil, checked: false, disabled: false, separator: false)
@@ -25,7 +25,7 @@ import Testing
     }
 
     @Test func anUnchangedMenuUpdateKeepsSeparatorAndRowViews() throws {
-        let rows = WebPopupRows(onPick: {}, onHover: {})
+        let rows = WebPopupRows(onPick: { _ in }, onHover: { _ in })
         let items = [
             WebPopupHost.Item(id: "0", label: "First", shortcut: nil, checked: false, disabled: false, separator: false),
             WebPopupHost.Item(id: "1", label: "", shortcut: nil, checked: false, disabled: false, separator: true),
@@ -41,7 +41,7 @@ import Testing
     }
 
     @Test func aPlainModeChangeRebuildsIdenticalItems() throws {
-        let rows = WebPopupRows(onPick: {}, onHover: {})
+        let rows = WebPopupRows(onPick: { _ in }, onHover: { _ in })
         let item = WebPopupHost.Item(id: "0", label: "Same", shortcut: nil, checked: false, disabled: false, separator: false)
         rows.plain = true
         rows.update([item], highlighted: nil)
