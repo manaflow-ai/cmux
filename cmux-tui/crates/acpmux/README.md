@@ -179,8 +179,13 @@ turn keeps running. `run --retries N` retries only agent-internal errors that pr
 Agents spawned by acpmux get `ACPMUX_ENV=1`, `ACPMUX_SESSION_ID`, `ACPMUX_SESSION_NAME` and
 `ACPMUX_SOCKET`, and `@` names that session (`acpmux last @`), so an agent can drive its own
 session and siblings. The event log carries `turn_started` and `turn_result`
-(`completed|cancelled|failed`); a daemon that restarts mid-turn writes
-`turn_result failed outcome_unknown` so nobody replays a prompt that may have run. A turn a
+(`completed|cancelled|failed`). An agent under its agent host outlives a daemon restart and the
+new daemon adopts its turn. When the agent ended with the daemon, the new daemon writes
+`turn_result failed outcome_unknown`, so nobody replays a prompt that may have run, and queues
+one continuation first in the chat's queue: a prompt that quotes the cut turn's prompt and what
+was steered into it and tells the agent to check what finished and continue
+(`auto_resume_scheduled` with `reason` `daemon_restart`; `hub/restart_resume.rs`). It runs once,
+before what waited behind the cut turn, across further crashes too. A turn a
 connection error cut off ("stream disconnected", a refused or reset connection, a 502/503/504)
 goes on by itself: after `autoResumeDelaysMs` (default 10 s, 1 min, 5 min, 20 min; `[]` turns it
 off) the chat gets one prompt telling the agent to check what finished and continue, with prompt
