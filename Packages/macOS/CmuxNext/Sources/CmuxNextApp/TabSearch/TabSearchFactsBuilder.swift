@@ -6,7 +6,7 @@ import Foundation
 /// recency from the location trail, closing tabs from the strips' visible
 /// state, closed tabs from the closed-items log. Main actor; reads only.
 enum TabSearchFactsBuilder {
-    static func facts(_ services: AppServices) -> ControlTabSearchFacts {
+    static func facts(_ services: AppServices, cache: ControlWorkspaceInfoCache? = nil) -> ControlTabSearchFacts {
         ControlTabSearchFacts(lastActive: lastActive(services), closing: closing(services), closed: closed(services))
     }
 

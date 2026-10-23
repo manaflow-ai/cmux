@@ -61,6 +61,11 @@ public final class ControlWorkspaceInfoCache {
     /// Workspaces a topology pass looked up, rebuilt or applied app facts
     /// to, since the cache was made (tests read the per-publish delta).
     private(set) var workspaceVisits = 0
+    /// Tabs in the lists the last publish mapped (``ControlTopology/tabCount`` of their
+    /// workspaces), kept as entries change instead of walking every tab.
+    public var tabCount: Int { 0 }
+    /// Memo values built (not reused) since the cache was made (tests read the per-publish delta).
+    private(set) var memoBuilds = 0
 
     public init() {}
 
@@ -298,6 +303,7 @@ public final class ControlWorkspaceInfoCache {
             return value
         }
         if let old = memos[slot] { forget(old.generation) }
+        memoBuilds += 1
         nextGeneration += 1
         let generation = nextGeneration
         memoGenerations.withLock { _ = $0.live.insert(generation) }

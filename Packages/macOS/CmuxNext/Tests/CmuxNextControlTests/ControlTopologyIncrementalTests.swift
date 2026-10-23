@@ -91,4 +91,21 @@ struct ControlTopologyIncrementalTests {
         store.apply(.titleChanged(surface: SurfaceID(rawValue: Self.count + 1), title: "new"))
         #expect(Self.topology(store, cache: cache) == Self.topology(store, cache: nil))
     }
+
+    /// The kept tab count equals a full walk of the published topology, through a tab change,
+    /// a list change and a new workspace's tab.
+    @Test func theKeptTabCountMatchesTheTopology() {
+        let store = Self.store()
+        let cache = ControlWorkspaceInfoCache()
+        #expect(cache.tabCount == 0)
+        #expect(Self.topology(store, cache: cache).tabCount == cache.tabCount)
+        #expect(cache.tabCount == Int(Self.count))
+        store.apply(.titleChanged(surface: 7, title: "changed"))
+        #expect(Self.topology(store, cache: cache).tabCount == cache.tabCount)
+        var ids = Array(1...Self.count).filter { $0 != 3 }
+        ids.append(Self.count + 1)
+        store.apply(snapshot: Self.tree(ids))
+        #expect(Self.topology(store, cache: cache).tabCount == cache.tabCount)
+        #expect(cache.tabCount == ids.count)
+    }
 }
