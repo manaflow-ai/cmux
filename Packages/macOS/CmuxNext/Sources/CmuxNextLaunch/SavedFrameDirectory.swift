@@ -57,7 +57,7 @@ public final class SavedFrameDirectory: Sendable {
     private enum TakeStep: Sendable {
         case frame(SavedFrame?)
         case decode(URL, scale: Int)
-        case wait(lane: Int)
+        case join(lane: Int)
     }
 
     /// Starts listing and decoding `url`'s frames now, on background lanes.
@@ -131,7 +131,7 @@ public final class SavedFrameDirectory: Sendable {
                 state.entries?[key] = entry
                 return .decode(entry.file, scale: entry.scale)
             case .decoding(let lane):
-                return .wait(lane: lane)
+                return .join(lane: lane)
             }
         }
         switch next {
@@ -140,7 +140,7 @@ public final class SavedFrameDirectory: Sendable {
         case .decode(let file, let scale):
             markOnce()
             return Self.decode(file, scale: scale, maximumBytes: maximumBytes)
-        case .wait(let lane):
+        case .join(let lane):
             markOnce()
             // concurrency-allow: waits for the one decode block running on this lane (enqueued before the lane's next), not a lock on state; dispatch_sync donates the caller's QoS
             lanes[lane].sync {}

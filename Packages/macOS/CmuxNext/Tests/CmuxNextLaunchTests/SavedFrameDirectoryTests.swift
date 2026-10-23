@@ -21,7 +21,8 @@ import Testing
                                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
         context.setFillColor(CGColor(red: 0.2, green: 0.4, blue: 0.6, alpha: 1))
         context.fill(CGRect(x: 0, y: 0, width: 8, height: 6))
-        return try #require(NSBitmapImageRep(cgImage: try #require(context.makeImage())).representation(using: .png, properties: [:]))
+        let image = try #require(context.makeImage())
+        return try #require(NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]))
     }
 
     /// A directory saved with `files`.

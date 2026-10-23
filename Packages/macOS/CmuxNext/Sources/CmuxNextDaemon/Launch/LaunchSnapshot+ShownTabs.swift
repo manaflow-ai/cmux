@@ -27,7 +27,7 @@ extension LaunchSnapshot {
         return (shown?.panes ?? []).compactMap { pane -> String? in
             let chosen = pane.resourceID.flatMap { selected[$0.rawValue] }
             let tab = chosen.flatMap { id in pane.tabs.first { $0.tabResourceID?.rawValue == id } }
-                ?? (pane.tabs.indices.contains(pane.activeTab) ? pane.tabs[pane.activeTab] : pane.tabs.first)
+                ?? pane.tabs[checked: pane.activeTab] ?? pane.tabs.first
             return tab?.tabResourceID?.rawValue
         }
     }
