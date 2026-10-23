@@ -16,10 +16,14 @@ final class CEFHostView: NSView {
         }
     }
     private var windowObserver: (any NSObjectProtocol)?
-    /// The shown page's own background (`CEFTab.pageBackdropColor`). While
-    /// the window live-resizes, this view fills with it instead of the pane
-    /// ground: the page window's gap shows this view until Chromium's frame
-    /// at the new size arrives (`CEFTab+ResizeBackdrop`).
+    /// The shown page's own background (`CEFTab.pageBackdropColor`). Once it
+    /// is known this view fills with it instead of the pane ground: whenever
+    /// the host grows (a window live resize, a divider drag, a sidebar slide,
+    /// a split or close spring), the page window's gap shows this view until
+    /// Chromium's frame at the new size arrives (`CEFTab+ResizeBackdrop`). A
+    /// page resize no longer holds the app's commit for that frame
+    /// (`CEFSwitches`), so the gap shows on every resize, not only in a
+    /// window live resize. At rest the page window covers this view.
     var pageBackdrop: CGColor? {
         didSet { if pageBackdrop != oldValue { updateBackground() } }
     }
@@ -59,26 +63,20 @@ final class CEFHostView: NSView {
     override func viewWillStartLiveResize() {
         super.viewWillStartLiveResize()
         liveResizeWillStart?()
-        updateBackground()
     }
 
-    override func viewDidEndLiveResize() {
-        super.viewDidEndLiveResize()
-        updateBackground()
-    }
-
-    /// Until Chromium's page window shows its first frame, the page area
-    /// follows the shared pane ground. It stays clear over Liquid Glass so
-    /// the window backdrop remains visible. During a live resize it takes
-    /// the page's own background (`pageBackdrop`). Under a see-through page
-    /// (`pageSeeThrough`) it paints nothing, so the page shows what a WebKit
-    /// page shows.
+    /// Until the shown page's background is known (`pageBackdrop`: before
+    /// the first real page), the page area follows the shared pane ground. It
+    /// stays clear over Liquid Glass so the window backdrop remains visible.
+    /// Then it takes the page's own background, so a resize gap reads as more
+    /// page. Under a see-through page (`pageSeeThrough`) it paints nothing, so
+    /// the page shows what a WebKit page shows.
     private func updateBackground() {
         if pageSeeThrough {
             layer?.backgroundColor = nil
             return
         }
-        if inLiveResize, let pageBackdrop {
+        if let pageBackdrop {
             layer?.backgroundColor = pageBackdrop
             return
         }
