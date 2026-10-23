@@ -188,9 +188,14 @@ pub(super) fn get_host_size_policy(
 /// `set-host-size-policy {policy: {mode, order?}}`.
 pub(super) fn set_host_size_policy(
     mux: &Arc<Mux>,
+    client: u64,
     mode: String,
     order: Option<Vec<String>>,
 ) -> anyhow::Result<Value> {
+    anyhow::ensure!(
+        mux.may_set_host_size_policy(client),
+        "forbidden: only the cmux app or a phone's lane may change this Mac's terminal sizing policy"
+    );
     let Some(mode) = HostSizeMode::parse(&mode) else {
         anyhow::bail!("bad request: unknown mode {mode:?}; use smallest, mac, latest or priority");
     };
@@ -514,5 +519,36 @@ pub(super) fn paired_surface_size(
         (Some(cols), Some(rows)) => Ok(Some((cols.max(1), rows.max(1)))),
         (None, None) => Ok(None),
         _ => anyhow::bail!("{command} cols and rows must be supplied together"),
+    }
+}
+
+impl Mux {
+    /// Whether `client`'s views are this Mac's own for the host sizing
+    /// policy (`mac` token, Prefer This Mac), decided only from what the
+    /// daemon verified about the connection (fail closed): the in-process
+    /// frontend, or a local Unix connection with no link peer record that is
+    /// neither a phone's lane spliced by cmux-mobile-host (its peer at
+    /// accept) nor marked `remote` in its client info. A WebSocket, a remote
+    /// entry stream, a link peer or an unregistered id is never this Mac.
+    pub(crate) fn is_this_mac_connection(&self, client: u64) -> bool {
+        if client == 0 {
+            return true;
+        }
+        if !self.control_clients.is_unix(client) || self.is_remote_client(client) {
+            return false;
+        }
+        !super::origin_gate::is_mobile_host_lane(self, client)
+            && !self.client_sizing_identity(client).remote
+    }
+
+    /// Whether `client` may write the Mac's host sizing policy: the
+    /// verified cmux app (origin `user`) or a phone's lane spliced by this
+    /// build's cmux-mobile-host. Any other connection (an agent or a script
+    /// on this Mac, another machine) may read it but not change it.
+    pub(crate) fn may_set_host_size_policy(&self, client: u64) -> bool {
+        super::origin_gate::is_user(self, client)
+            || (self.control_clients.is_unix(client)
+                && !self.is_remote_client(client)
+                && super::origin_gate::is_mobile_host_lane(self, client))
     }
 }

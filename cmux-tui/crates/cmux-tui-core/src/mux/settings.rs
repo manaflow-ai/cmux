@@ -92,8 +92,8 @@ impl Mux {
         let host_policy = host_policy_after(&store, &applied.changes);
         emit_changes(self, applied.changes);
         drop(store);
-        if let Some(policy) = host_policy {
-            self.adopt_host_size_policy(policy);
+        if let Some((policy, revision)) = host_policy {
+            self.adopt_host_size_policy(policy, revision);
         }
         applied.result
     }
@@ -106,11 +106,12 @@ impl Mux {
 }
 
 /// The host sizing policy the store now holds, when `changes` touched it.
-fn host_policy_after(store: &ConfigStore, changes: &[Change]) -> Option<HostSizePolicy> {
+/// With the store revision it was read at (adopted in revision order).
+fn host_policy_after(store: &ConfigStore, changes: &[Change]) -> Option<(HostSizePolicy, u64)> {
     changes
         .iter()
         .any(|change| touches_host_policy(&change.keys))
-        .then(|| host_policy_from_state(store.state()))
+        .then(|| (host_policy_from_state(store.state()), store.state().revision()))
 }
 
 fn emit_changes(mux: &Mux, changes: impl IntoIterator<Item = Change>) {
@@ -129,9 +130,12 @@ fn open_owner(mux: &Arc<Mux>, paths: SettingsPaths) -> SettingsOwner {
     )));
     let watcher = watch.then(|| start_watcher(Arc::downgrade(mux), &store)).flatten();
     // The host sizing policy follows the file from its first read.
-    let host_policy = store.lock().ok().map(|store| host_policy_from_state(store.state()));
-    if let Some(policy) = host_policy {
-        mux.adopt_host_size_policy(policy);
+    let host_policy = store
+        .lock()
+        .ok()
+        .map(|store| (host_policy_from_state(store.state()), store.state().revision()));
+    if let Some((policy, revision)) = host_policy {
+        mux.adopt_host_size_policy(policy, revision);
     }
     SettingsOwner { store, _watcher: watcher }
 }
@@ -147,8 +151,8 @@ fn start_watcher(mux: Weak<Mux>, store: &Arc<Mutex<ConfigStore>>) -> Option<Watc
         let host_policy = host_policy_after(&store, &change);
         emit_changes(&mux, change);
         drop(store);
-        if let Some(policy) = host_policy {
-            mux.adopt_host_size_policy(policy);
+        if let Some((policy, revision)) = host_policy {
+            mux.adopt_host_size_policy(policy, revision);
         }
     })
     .ok()

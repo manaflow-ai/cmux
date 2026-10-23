@@ -128,7 +128,7 @@ nor a workspace default follows it. The daemon expands it into an engine
 policy for each terminal from that terminal's participants, again on every
 attach, detach, identity change and settings change, so the reducer and the
 fixtures are unchanged: `mac` becomes `priority` over this host's own views
-(a desktop device kind on a connection not marked `remote`), and `priority`
+(a desktop device kind on a local connection the daemon verified: not a link, WebSocket or remote-entry peer, not a phone lane accepted from the bundled cmux-mobile-host, not marked `remote`), and `priority`
 becomes `priority` over the views each token names. With no listed view
 counting, `priority-fallback` picks the latest active one. Only views that
 claim a size count, so a phone that stops showing a terminal drops out of the

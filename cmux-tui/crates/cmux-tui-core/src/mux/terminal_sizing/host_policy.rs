@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 use crate::sizing_policy::TerminalSizingMode;
 
 /// The daemon serves `get-host-size-policy` and `set-host-size-policy`.
@@ -139,8 +140,8 @@ impl HostSizePolicy {
 impl Mux {
     /// `(priority_key, is_this_mac, device_id)` of each participant of
     /// `runtime`, in attach order. A relay sub-view is never this Mac; a
-    /// view is this Mac when its device kind is a desktop and its connection
-    /// is not a phone's lane (`remote` in its sizing identity).
+    /// view is this Mac when its device kind is a desktop and the daemon
+    /// verified its connection is local (`Mux::is_this_mac_connection`).
     fn host_policy_participants(
         &self,
         sizing: &ClientSizingState,
@@ -156,7 +157,7 @@ impl Mux {
                 let member = entry.members.get(&row.participant.id);
                 let mac = row.participant.device_kind.is_desktop()
                     && member.is_some_and(|member| {
-                        member.view.is_none() && !self.client_sizing_identity(member.client).remote
+                        member.view.is_none() && self.is_this_mac_connection(member.client)
                     });
                 (
                     row.participant.id.clone(),
@@ -174,11 +175,39 @@ impl Mux {
         if sizing.host_policy.is_none() || sizing.terminal_size_policies.contains_key(&runtime) {
             return false;
         }
-        let Some(entry) = sizing.terminal_sizing.get(&runtime) else { return false };
-        let placement = entry.placements.iter().next().copied().unwrap_or(runtime);
-        !self
-            .surface_workspace(placement)
-            .is_some_and(|workspace| sizing.workspace_size_policies.contains_key(&workspace))
+        self.workspace_default_of(sizing, runtime, runtime).is_none()
+    }
+
+    /// The workspace default a terminal follows: the one of `placement`'s
+    /// workspace, else of any other placement's (a terminal shown in two
+    /// workspaces keeps either's default; the host policy never replaces
+    /// it). The same rule for `resolved_size_policy` and the host policy.
+    pub(in crate::mux) fn workspace_default_of(
+        &self,
+        sizing: &ClientSizingState,
+        runtime: SurfaceId,
+        placement: SurfaceId,
+    ) -> Option<TerminalSizingPolicy> {
+        let default_of = |surface: SurfaceId| {
+            self.surface_workspace(surface)
+                .and_then(|workspace| sizing.workspace_size_policies.get(&workspace).cloned())
+        };
+        default_of(placement).or_else(|| self.runtime_placements(runtime).into_iter().find_map(default_of))
+    }
+
+    /// Every live placement of terminal `runtime` (each view of it in any
+    /// workspace), the runtime's own surface included.
+    pub(in crate::mux) fn runtime_placements(&self, runtime: SurfaceId) -> Vec<SurfaceId> {
+        self.with_state(|state| {
+            let mut placements = state
+                .surfaces
+                .values()
+                .filter(|surface| surface.terminal_runtime_id() == Some(runtime))
+                .map(|surface| surface.id)
+                .collect::<Vec<_>>();
+            placements.sort_unstable();
+            placements
+        })
     }
 
     /// The host policy expanded for `runtime`'s current participants, or
@@ -218,7 +247,7 @@ impl Mux {
     /// The host policy in effect: the settings owner's, else the default
     /// (only before the owner has read the settings file).
     pub fn host_size_policy(&self) -> HostSizePolicy {
-        self.client_sizing.lock().unwrap().host_policy.clone().unwrap_or_default()
+        self.client_sizing.lock().recover_poison().host_policy.clone().unwrap_or_default()
     }
 
     /// The participant ids of `surface`'s terminal that are this Mac's views.
@@ -227,7 +256,7 @@ impl Mux {
         else {
             return Vec::new();
         };
-        let sizing = self.client_sizing.lock().unwrap();
+        let sizing = self.client_sizing.lock().recover_poison();
         self.host_policy_participants(&sizing, runtime)
             .into_iter()
             .filter_map(|(id, _, mac, _)| mac.then_some(id))
@@ -237,8 +266,16 @@ impl Mux {
     /// Adopts the host policy the settings file holds and re-applies it to
     /// every terminal that follows it. Called by the settings owner when it
     /// opens and on every change of either key; a no-op when unchanged.
-    pub(crate) fn adopt_host_size_policy(&self, policy: HostSizePolicy) {
-        let mut sizing = self.client_sizing.lock().unwrap();
+    /// `revision` is the settings store revision the policy was read at:
+    /// a policy from an older revision than the adopted one is dropped, so
+    /// two changes adopted out of order (each adopts after the store lock is
+    /// released) still leave the newest in effect.
+    pub(crate) fn adopt_host_size_policy(&self, policy: HostSizePolicy, revision: u64) {
+        let mut sizing = self.client_sizing.lock().recover_poison();
+        if sizing.host_policy_revision.is_some_and(|adopted| revision < adopted) {
+            return;
+        }
+        sizing.host_policy_revision = Some(revision);
         if sizing.host_policy.as_ref() == Some(&policy) {
             return;
         }
@@ -271,8 +308,8 @@ impl Mux {
                 anyhow::bail!("bad request: invalid order token {token:?}; use mac or device:<id>");
             }
         }
-        // The person's own preference, from their phone or this Mac's app
-        // (any local client may already set a terminal's policy).
+        // The person's own preference: the caller checked it is the verified
+        // app or a phone's lane (`Mux::may_set_host_size_policy`).
         let meta = cmux_config::WriteMeta {
             origin: cmux_config::Origin::App,
             idempotency_key: None,

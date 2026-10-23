@@ -4760,6 +4760,13 @@ Params: required `policy:object{mode,order?}`. `order`: at most 32 tokens,
 each `mac` or `device:` followed by 1 to 128 of `[A-Za-z0-9_.:-]`; omitted
 keeps the stored order. A bad mode or token is refused with `bad request`.
 
+Only the verified cmux app (origin `user`) and a connection the daemon
+accepted from the `cmux-mobile-host` executable beside its own (a phone's
+lane) may write it; any other connection gets `forbidden`. "This host's own
+views" are desktop-kind views on the in-process frontend or on a local Unix
+connection with no link peer record, not accepted from that executable and
+not marked `remote` in `set-client-info`.
+
 Result: `object{policy:object{mode,order}}`.
 
 ```json

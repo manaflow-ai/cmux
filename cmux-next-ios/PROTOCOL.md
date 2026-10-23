@@ -1102,14 +1102,42 @@ policy changes. An unknown mode reads as the default.
 
 ### Who is "this Mac"
 
-A participant is one of this Mac's views when its device kind is a desktop
-kind (`mac`, `tui`, `linux`, `windows`) and its connection is not relayed for
-a remote device. cmux-mobile-host marks every phone connection it splices:
-it rewrites the phone's `set-client-info` to carry `remote: true` and the
-link's own device id as `device_id` (a phone cannot choose either, so it can
-neither pose as this Mac nor as another phone in the order). The daemon
-keeps `remote` with the connection's sizing identity and never publishes it
-in `size-state`.
+The daemon decides it from what it verified about each connection, failing
+closed. A participant is one of this Mac's views only when its device kind is
+a desktop kind (`mac`, `tui`, `linux`, `windows`) and its connection is the
+in-process frontend or a local Unix connection that:
+
+- has no `cmux link` peer record (a WebSocket, a remote-entry stream or a
+  link peer is never this Mac, whatever it says it is);
+- was not accepted from this build's bundled `cmux-mobile-host`. At accept
+  the daemon reads the socket peer's executable from its kernel PID
+  (`proc_pidpath`, `/proc/<pid>/exe`) and compares its real path with the
+  `cmux-mobile-host` beside the daemon's own executable
+  (`Contents/Resources/bin/`);
+- is not marked `remote`. cmux-mobile-host (and the Mac app's Swift
+  `DaemonLanePolicy` splice) rewrite every phone's `set-client-info` to carry
+  `remote: true` and the link's own device id as `device_id`, so a phone can
+  neither pose as this Mac nor as another phone in the order. The mark is
+  sticky and never published in `size-state`.
+
+### Who may change it
+
+`set-host-size-policy` is accepted only from the verified cmux app (origin
+`user`, `client-hello` with its proof) and from a connection accepted from
+the bundled `cmux-mobile-host` (a phone's lane; hostd lets only the Mac
+owner's paired phones in). Every other connection (an agent or a script on
+this Mac, the CLI, another machine) may read the policy but gets
+`forbidden` when it writes. The write is stored as the app's own (both keys
+are person-only settings).
+
+Residual risk: the hostd check trusts the executable path, so another
+process of the same user that runs the bundled `cmux-mobile-host` binary
+itself counts as a phone lane. That binary only forwards lines from an
+authenticated phone link through its own allowlist, so such a process gains
+nothing it could not already do with the same user's access to the settings
+file. The Mac app's Swift phone splice (`DaemonLaneSplice`) connects from the
+app process without `client-hello`, so a phone on that path can read the
+policy but not change it.
 
 ### Commands (cmux-tui daemon, `host-size-policy-v1` in `identify`)
 

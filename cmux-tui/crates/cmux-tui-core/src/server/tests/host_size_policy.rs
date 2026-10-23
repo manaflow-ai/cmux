@@ -82,9 +82,12 @@ impl Rig {
         let view = self.connection(via);
         let mut info = info;
         info["cmd"] = json!("set-client-info");
-        info["capabilities"] = json!([SHARED_SIZING_CAPABILITY]);
+        // As the real phone and Mac do: a phone that renders a larger host
+        // grid lists `host-grid-view-v1`, so the daemon's handheld ceiling
+        // (PR #24638) does not cap the PTY at it.
+        info["capabilities"] = json!([SHARED_SIZING_CAPABILITY, HOST_GRID_VIEW_CAPABILITY]);
         self.run(&view, info).unwrap();
-        attach_test_view(&self.mux, client, self.surface.id, &view.writer);
+        attach_test_view(&self.mux, view.client, self.surface.id, &view.writer);
         self.claim(&view, size);
         view
     }

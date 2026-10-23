@@ -163,7 +163,7 @@ pub(super) fn handle_command_with_cancellation(
         Command::GetSizeState { surface } => cmd_sizing::get_size_state(mux, client, surface),
         Command::GetHostSizePolicy { surface } => cmd_sizing::get_host_size_policy(mux, surface),
         Command::SetHostSizePolicy { policy } => {
-            cmd_sizing::set_host_size_policy(mux, policy.mode, policy.order)
+            cmd_sizing::set_host_size_policy(mux, client, policy.mode, policy.order)
         }
         Command::ReloadConfig => cmd_server::reload_config(mux),
         Command::SetWindowTitle { title } => cmd_server::set_window_title(mux, title),

@@ -138,6 +138,8 @@ pub(super) struct ClientSizingState {
     /// The host sizing policy (`host-size-policy-v1`) from the settings
     /// owner; `None` until the owner read the settings file.
     pub(super) host_policy: Option<host_policy::HostSizePolicy>,
+    /// The settings revision `host_policy` was read at.
+    pub(super) host_policy_revision: Option<u64>,
 }
 
 /// Host participant id of one client's view of one terminal placement. The
