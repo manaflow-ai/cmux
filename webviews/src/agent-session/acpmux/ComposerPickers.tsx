@@ -776,9 +776,15 @@ export function ComposerPickers({
       : undefined;
 
   // The quiet row starts with the harness (ComposerHarness.tsx): the one a switch is starting, else
-  // the one the chips draw, marked and named as the model button's rail names it.
+  // the chat's, else the one the chips draw while acpmux lists it as installed, marked and named as
+  // the model button's rail names it. The chips' fallback is the picker's first entry, which can be
+  // a bundled catalog harness acpmux does not have: with none installed the row names none, and the
+  // model button's place says Add harness instead (picksModel below).
   const switchTarget = snapshot.switching?.phase === "failed" ? undefined : snapshot.switching;
-  const footHarness = switchTarget?.harness ?? chipHarness;
+  const footHarness =
+    switchTarget?.harness ??
+    harness ??
+    (chipHarness && snapshot.catalog.some((entry) => entry.id === chipHarness) ? chipHarness : undefined);
   const footEntry = footHarness ? snapshot.catalog.find((entry) => entry.id === footHarness) : undefined;
   const footPicker =
     footHarness === chipHarness
@@ -796,7 +802,7 @@ export function ComposerPickers({
     snapshot.catalog.length > 0 || Boolean(harness) || Boolean(pickerCatalog?.harnesses.length && !harnessesListed);
   const chips = (
     <div className="acpmux-chips">
-      {harnessMark && harnessName && (
+      {picksModel && harnessMark && harnessName && (
         <ComposerHarness
           mark={harnessMark}
           name={harnessName}

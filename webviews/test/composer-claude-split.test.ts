@@ -162,8 +162,8 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
             mode: !!card.querySelector(".acpmux-access"),
           },
           // The row starts with the harness's mark and name (ComposerHarness.tsx, Leo 2026-10-21).
-          harnessMark: rect(root.querySelector(".acpmux-composer-foot .acpmux-harness .agent-mark")),
-          harness: text(root.querySelector(".acpmux-composer-foot .acpmux-harness-name")),
+          harnessMark: rect(root.querySelector(".acpmux-composer-foot .acpmux-foot-harness .agent-mark")),
+          harness: text(root.querySelector(".acpmux-composer-foot .acpmux-foot-harness-name")),
           mode: text(root.querySelector(".acpmux-composer-foot .acpmux-mode-text")),
           // The mode button leads with its symbol, then its name (Leo 2026-10-21: Codex's "(!) Full access").
           modeSymbol: rect(root.querySelector(".acpmux-composer-foot .acpmux-access-trigger > svg:first-child")),

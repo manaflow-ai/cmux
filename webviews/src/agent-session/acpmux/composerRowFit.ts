@@ -191,7 +191,8 @@ function show(bar: HTMLElement, step: number): void {
  *  while its unit (`data-fit-title-unit`) is in its icon form. */
 function nameIcons(bar: HTMLElement, forms: Forms): void {
   for (const wrapper of bar.querySelectorAll<HTMLElement>("[data-fit-title]")) {
-    const button = wrapper.querySelector<HTMLElement>(".acpmux-picker-button");
+    // The footer's fixed harness is text, not a button (ComposerHarness.tsx): its face takes the tooltip.
+    const button = wrapper.querySelector<HTMLElement>(".acpmux-picker-button, .acpmux-foot-harness-face");
     const name = wrapper.dataset.fitTitle ?? "";
     if (!button) continue;
     const iconOnly = forms[wrapper.dataset.fitTitleUnit as FitUnit] === "icon";

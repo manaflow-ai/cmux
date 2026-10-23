@@ -1165,32 +1165,38 @@
    at the left"), as Claude Code's footer starts with its project: its mark and name in the row's
    secondary ink, no capsule. A chat that can still switch harness gets the soft pill on hover (a
    click opens the model button's menu, whose rail switches); a started chat's harness is fixed, so
-   its item is text alone and answers no pointer. Only the quiet row draws it: the box's own row
-   (the other footer look) and the New Tab card's pickers already lead with the model's mark. */
-.acpmux-harness { display: none; }
-.acpmux-composer-foot .acpmux-harness {
+   its item is text alone (no button) and answers no pointer. Only the quiet row draws it
+   (ComposerFoot's InQuietRow): the box's own row and the New Tab card's pickers already lead with
+   the model's mark. */
+.acpmux-composer-foot .acpmux-foot-harness {
   display: inline-flex;
   align-items: center;
   order: -2;
   margin-inline-end: auto;
 }
 /* With a mode beside it, the mode holds the row's free space after the left pair. */
-.acpmux-composer-foot .acpmux-harness:has(~ .acpmux-access) { margin-inline-end: 0; }
+.acpmux-composer-foot .acpmux-foot-harness:has(~ .acpmux-access) { margin-inline-end: 0; }
 /* The row's control text: its size and the composer's family, as the mode's and the model's (a
-   button here would otherwise draw in the engine's control font). */
-.acpmux-composer-foot .acpmux-harness .acpmux-picker-button {
+   button here would otherwise draw in the engine's control font). The fixed harness's face is a
+   span, so it takes the chip's box here itself: the same height and insets as the button. */
+.acpmux-composer-foot .acpmux-foot-harness .acpmux-foot-harness-face {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--acpmux-row-icon-gap);
+  min-width: 0;
+  height: 28px;
+  padding-inline: var(--acpmux-row-inset);
+  overflow: clip;
+  white-space: nowrap;
   color: var(--agent-muted);
   font-family: inherit;
   font-size: var(--text-control);
-  font-weight: 400;
+  font-weight: var(--weight-regular);
   cursor: default;
 }
-.acpmux-composer-foot .acpmux-harness .acpmux-picker-button .agent-mark { flex: none; }
-.acpmux-composer-foot .acpmux-harness[data-inert] .acpmux-picker-button,
-.acpmux-composer-foot .acpmux-harness[data-inert] .acpmux-picker-button:hover {
-  background: none;
-  color: var(--agent-muted);
-}
+.acpmux-composer-foot .acpmux-foot-harness-face > * { flex: none; }
+.acpmux-composer-foot .acpmux-foot-harness-face [data-fit-part] { display: block; white-space: nowrap; }
 /* As Claude desktop's footer: the mode's name, the model and the effort as text alone (the plain
    look already drops the shield and the chevrons). The mode in the soft tone; the model and the
    effort one muted label, as every composer's model chip is. */

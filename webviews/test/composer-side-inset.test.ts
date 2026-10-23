@@ -91,7 +91,11 @@ await requireBrowserLane("composer-side-inset.test.ts", async () => {
     page.evaluate((box) => {
       const card = document.querySelector(box)!.getBoundingClientRect();
       // A started chat's harness item is text, not a button (ComposerHarness.tsx), yet it leads the row.
-      const controls = [...document.querySelectorAll(".acpmux-composer-foot :is(button, .acpmux-picker-button)")]
+      const controls = [
+        ...document.querySelectorAll(
+          ".acpmux-composer-foot :is(button, .acpmux-picker-button, .acpmux-foot-harness-face)",
+        ),
+      ]
         .map((button) => button.getBoundingClientRect())
         .filter((rect) => rect.width > 0);
       const rows = [...document.querySelectorAll(".acpmux-scroll .acpmux-row")]

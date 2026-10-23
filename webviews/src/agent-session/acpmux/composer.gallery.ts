@@ -514,7 +514,7 @@ export default agentPaneEntry({
         summary: { sessionId: "", cwd: CWD, harness: "claude", model: "claude-opus-5-5", effort: "high" },
       }),
       play: async (ctx) => {
-        const item = { selector: ".acpmux-composer-foot .acpmux-harness button" };
+        const item = { selector: ".acpmux-composer-foot .acpmux-foot-harness button" };
         await ctx.waitFor(() => ctx.document.querySelector(item.selector));
         await ctx.click(item);
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-menu"));
