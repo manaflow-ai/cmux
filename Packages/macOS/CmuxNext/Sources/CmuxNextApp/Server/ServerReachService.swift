@@ -274,7 +274,7 @@ final class ServerReachService {
         }
         session.close()
         logger.info("server \(session.reach.name, privacy: .public) removed")
-        guard let sessionID, sessionID != machines.local.identity?.sessionID, machines.local.supports(DaemonCapabilities.profiles), let home = machines.local.connection else { return }
+        guard let sessionID, sessionID != machines.local.identity?.sessionID, machines.local.supports(DaemonCapability.profiles.rawValue), let home = machines.local.connection else { return }
         do {
             _ = try await home.forgetSession(sessionID, force: true)
         } catch {
