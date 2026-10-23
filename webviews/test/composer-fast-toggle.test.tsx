@@ -1,21 +1,14 @@
 // l10n-allow-file: test fixtures.
-// Fast mode per harness (Leo 2026-10-21, of a bolt in the box by the mic: "THE BOLT DOESN'T GO
-// THERE"). At the composer's boundary: the real composer with the real chips, a stand-in mic, and a
-// host that records what the pane sends.
-//   - no harness draws a speed control in the box or the row: the bolt button is gone;
-//   - the model button's menu ends on a Fast mode checkbox for Claude and Codex alike, checked while
-//     any tier past off runs, and a click sends the option's on or off value;
-//   - Codex: while a fast tier runs, a small outline bolt sits inside the model button, before the
-//     model's name, and the button's tooltip says Fast Mode; off, no bolt;
-//   - Claude: no bolt anywhere, on or off;
-//   - an option with a tier past Fast (Codex's Ultrafast) adds an Ultrafast checkbox row under Fast
-//     mode, checked while that tier runs: on picks it, off steps back to Fast; a two-state option
-//     has no such row; a tier past Fast that is not Ultrafast keeps the agent's name for it;
-//   - the full picker's Fast mode row reads the same on/off: on (and named) while Ultrafast runs, and
-//     a click turns the running tier off;
+// Fast mode per harness (Leo 2026-10-21: "the lightning (fast mode) symbol: REMOVE it for Claude, where
+// Fast mode lives inside the menu. KEEP it for Codex"). At the composer's boundary: the real composer
+// with the real chips, a stand-in mic, and a host that records what the pane sends.
+//   - Claude: the composer draws no bolt; the model button's menu ends on a Fast mode checkbox,
+//     checked while any tier past off runs, and a click sends the option's on or off value;
+//   - Codex: the bolt sits in the box just left of the mic, and the menu has no Fast mode row (the
+//     bolt is its one control); a click steps through the offered tiers and back to off;
 //   - neither draws an effort control of its own (#20946 brought one back): only the model button
 //     names the effort;
-//   - the button never says Fast in words;
+//   - the button never says Fast;
 //   - a model whose catalog row has no fast mode shows no row, unless fast mode is still on.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
@@ -145,9 +138,8 @@ let client: import("@tanstack/react-query").QueryClient;
 
 /// The composer with the real chips. `catalog`: the chips read the joined model catalog, as the app's
 /// do, so a model's catalog row decides whether it offers fast mode.
-async function render(shot: Snapshot, options: { catalog?: boolean; update?: boolean } = {}) {
+async function render(shot: Snapshot, options: { catalog?: boolean } = {}) {
   const { createRoot } = await import("react-dom/client");
-  const { UpdateOfferContext } = await import("../src/agent-session/acpmux/HarnessHealthNotice");
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
   const { Composer } = await import("../src/agent-session/acpmux/Composer");
   const { ComposerPickers } = await import("../src/agent-session/acpmux/ComposerPickers");
@@ -171,28 +163,13 @@ async function render(shot: Snapshot, options: { catalog?: boolean; update?: boo
   await act(async () => {
     root!.render(
       <QueryClientProvider client={client}>
-        <UpdateOfferContext.Provider
-          value={
-            options.update
-              ? {
-                  harness: shot.summary?.harness ?? "claude",
-                  agent: "Claude Code",
-                  version: "2.1.0",
-                  latest: "2.2.0",
-                  update: () => undefined,
-                  skip: () => undefined,
-                }
-              : undefined
-          }
-        >
-          <Composer
-            snapshot={shot}
-            chips={Chips}
-            onSend={() => undefined}
-            onStop={() => undefined}
-            accessory={<button type="button" className="acpmux-mic" aria-label="Dictation" />}
-          />
-        </UpdateOfferContext.Provider>
+        <Composer
+          snapshot={shot}
+          chips={Chips}
+          onSend={() => undefined}
+          onStop={() => undefined}
+          accessory={<button type="button" className="acpmux-mic" aria-label="Dictation" />}
+        />
       </QueryClientProvider>,
     );
   });
@@ -202,7 +179,6 @@ const settle = () => act(async () => await new Promise((resolve) => setTimeout(r
 const chip = () => host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!;
 const menu = () => dom.window.document.querySelector<HTMLElement>(".acpmux-quick-menu");
 const fastRow = () => menu()?.querySelector<HTMLElement>('.acpmux-quick-fast[role="menuitemcheckbox"]') ?? null;
-const ultraRow = () => menu()?.querySelector<HTMLElement>('.acpmux-quick-ultrafast[role="menuitemcheckbox"]') ?? null;
 const rows = () =>
   [...(menu()?.querySelectorAll<HTMLElement>('[role^="menuitem"]') ?? [])].map((item) =>
     item.textContent?.replace("✓", "").trim(),
@@ -224,16 +200,16 @@ const threeTier: Option[] = [{ value: "standard" }, { value: "fast" }, { value: 
 
 const claude = { harness: "claude", model: "claude-opus-5-5" };
 const codex = { harness: "codex", model: "gpt-6-astra" };
-/// Any speed control in the box or the row (the bolt button #23742 drew left of the mic).
-const speedButton = () => host.querySelector<HTMLElement>(".acpmux-fast");
-/// The glyph inside the model button that says Codex's fast tier runs.
-const boltGlyph = () => chip().querySelector<SVGElement>(".acpmux-model-bolt");
-const anyBolt = () => host.querySelector(".acpmux-fast, .acpmux-model-bolt");
+const bolt = () => host.querySelector<HTMLButtonElement>(".acpmux-fast");
+async function clickBolt() {
+  await act(async () => bolt()!.click());
+  await settle();
+}
 
-test("Claude: no bolt anywhere; the model button's menu ends on Fast mode, which toggles the speed option", async () => {
+test("Claude: the composer draws no bolt; the model button's menu ends on Fast mode, which toggles the speed option", async () => {
   sent.length = 0;
   await render(snapshot({ options: twoState, current: "off" }, claude));
-  expect(anyBolt()).toBeNull();
+  expect(bolt()).toBeNull();
   // The box keeps the mic and Send; the quiet row holds the chips and the ring, and no bolt.
   expect(host.querySelector(".acpmux-composer-inner .acpmux-composer-actions .acpmux-mic")).not.toBeNull();
   await open();
@@ -243,7 +219,7 @@ test("Claude: no bolt anywhere; the model button's menu ends on Fast mode, which
   expect(sent).toEqual(["fast-mode=on"]);
 
   await render(snapshot({ options: twoState, current: "on" }, claude));
-  expect(anyBolt()).toBeNull();
+  expect(bolt()).toBeNull();
   // The button never says Fast: the menu row carries it.
   expect(chip().textContent).not.toMatch(/fast/i);
   await open();
@@ -252,171 +228,59 @@ test("Claude: no bolt anywhere; the model button's menu ends on Fast mode, which
   expect(sent).toEqual(["fast-mode=on", "fast-mode=off"]);
 });
 
-test("Codex: no speed button in the box; Fast mode is the menu's last row, and a running fast tier is a bolt in the model button", async () => {
+test("Codex: the bolt sits just left of the mic, and the model button's menu has no Fast mode row", async () => {
   sent.length = 0;
   await render(snapshot({ options: twoState, current: "off" }, codex));
-  expect(speedButton()).toBeNull();
-  expect(boltGlyph()).toBeNull();
-  await open();
-  expect(rows().at(-1)).toBe("Fast mode");
-  expect(ultraRow()).toBeNull();
-  expect(fastRow()!.getAttribute("aria-checked")).toBe("false");
-  await toggleFast();
+  const actions = host.querySelector<HTMLElement>(".acpmux-composer-actions")!;
+  expect(bolt()).not.toBeNull();
+  expect(actions.contains(bolt())).toBe(true);
+  // Left of the mic: the bolt comes before the mic in the box's trailing cluster.
+  const mic = actions.querySelector(".acpmux-mic")!;
+  expect(bolt()!.compareDocumentPosition(mic) & dom.window.Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(bolt()!.getAttribute("aria-pressed")).toBe("false");
+  // A plain outline glyph: no filled bolt, no disc.
+  expect(bolt()!.querySelector("svg")!.getAttribute("fill")).toBe("none");
+  await clickBolt();
   expect(sent).toEqual(["fast-mode=on"]);
+  await open();
+  expect(fastRow()).toBeNull();
+  expect(rows()).not.toContain("Fast mode");
 
   await render(snapshot({ options: twoState, current: "on" }, codex));
-  expect(speedButton()).toBeNull();
-  const bolt = boltGlyph()!;
-  expect(bolt).not.toBeNull();
-  // Before the model's name, inside the one button; an outline glyph, no fill and no disc.
-  const name = chip().querySelector(".acpmux-model-name")!;
-  expect(bolt.compareDocumentPosition(name) & dom.window.Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  expect(bolt.getAttribute("fill")).toBe("none");
-  expect(bolt.getAttribute("aria-hidden")).toBe("true");
-  // The glyph is drawn, not written: the button's text never says Fast; its tooltip does.
+  expect(bolt()!.getAttribute("aria-pressed")).toBe("true");
+  expect(bolt()!.querySelector("svg")!.getAttribute("fill")).toBe("none");
   expect(chip().textContent).not.toMatch(/fast/i);
-  expect(chip().title).toContain("Fast Mode");
-  await open();
-  expect(fastRow()!.getAttribute("aria-checked")).toBe("true");
-  await toggleFast();
+  await clickBolt();
   expect(sent).toEqual(["fast-mode=on", "fast-mode=off"]);
 });
 
-test("Codex: with a tier past Fast, any tier on shows the bolt and checks the row; a click goes back to off", async () => {
+test("Codex: with a tier past Fast, the bolt steps Fast, Ultrafast, then back to off", async () => {
   sent.length = 0;
-  await render(snapshot({ options: threeTier, current: "ultrafast" }, codex));
-  expect(speedButton()).toBeNull();
-  expect(boltGlyph()).not.toBeNull();
-  await open();
-  expect(fastRow()!.getAttribute("aria-checked")).toBe("true");
-  await toggleFast();
-  expect(sent).toEqual(["fast-mode=standard"]);
   await render(snapshot({ options: threeTier, current: "standard" }, codex));
-  expect(boltGlyph()).toBeNull();
-  await open();
-  expect(fastRow()!.getAttribute("aria-checked")).toBe("false");
-  await toggleFast();
-  expect(sent).toEqual(["fast-mode=standard", "fast-mode=fast"]);
-});
-
-test("Codex: a tier past Fast is an Ultrafast row under Fast mode; on picks it, off steps back to Fast", async () => {
-  sent.length = 0;
+  await clickBolt();
   await render(snapshot({ options: threeTier, current: "fast" }, codex));
-  await open();
-  expect(rows().slice(-2)).toEqual(["Fast mode", "Ultrafast"]);
-  expect(fastRow()!.getAttribute("aria-checked")).toBe("true");
-  expect(ultraRow()!.getAttribute("aria-checked")).toBe("false");
-  await act(async () => ultraRow()!.click());
-  await settle();
-  expect(sent).toEqual(["fast-mode=ultrafast"]);
-
+  expect(bolt()!.getAttribute("aria-pressed")).toBe("true");
+  await clickBolt();
   await render(snapshot({ options: threeTier, current: "ultrafast" }, codex));
-  await open();
-  expect(ultraRow()!.getAttribute("aria-checked")).toBe("true");
-  await act(async () => ultraRow()!.click());
-  await settle();
-  expect(sent).toEqual(["fast-mode=ultrafast", "fast-mode=fast"]);
-  // The button still never says it in words.
-  expect(chip().textContent).not.toMatch(/fast/i);
+  expect(bolt()!.dataset.tier).toBe("ultrafast");
+  await clickBolt();
+  expect(sent).toEqual(["fast-mode=fast", "fast-mode=ultrafast", "fast-mode=standard"]);
 });
 
-// Codex review of #24151: the second row is Codex's Ultrafast only where the tier says so; any other
-// harness's tier past Fast keeps the name the agent gives it (else its value), never "Ultrafast".
-test("a tier past Fast that is not Ultrafast is a row under Fast mode with the agent's own name for it", async () => {
-  sent.length = 0;
-  const turbo: Option[] = [{ value: "standard" }, { value: "fast" }, { value: "turbo", name: "Turbo" }];
-  await render(snapshot({ options: turbo, current: "fast" }, claude));
-  await open();
-  expect(rows().slice(-2)).toEqual(["Fast mode", "Turbo"]);
-  await act(async () => ultraRow()!.click());
-  await settle();
-  expect(sent).toEqual(["fast-mode=turbo"]);
-  const unnamed: Option[] = [{ value: "standard" }, { value: "fast" }, { value: "flex" }];
-  await render(snapshot({ options: unnamed, current: "fast" }, codex));
-  await open();
-  expect(rows().slice(-2)).toEqual(["Fast mode", "flex"]);
-  // Codex's own tier, named or not, reads Ultrafast in the app's words.
-  const named: Option[] = [{ value: "standard" }, { value: "fast" }, { value: "ultrafast", name: "ultra fast" }];
-  await render(snapshot({ options: named, current: "fast" }, codex));
-  await open();
-  expect(rows().slice(-2)).toEqual(["Fast mode", "Ultrafast"]);
-});
-
-// Codex review of #24151 at 9da89d36: the full picker's Fast mode row read only the first tier as on,
-// so with Codex's Ultrafast running it said off and a click picked Fast. It reads the same on/off as
-// the menu's row (fastModeToggle): Ultrafast is on, named, and a click turns it off.
-/// The full picker, as More models' shortcut (Cmd-Ctrl-M) opens it.
-async function openFullPicker() {
-  await act(async () =>
-    dom.window.dispatchEvent(
-      new dom.window.KeyboardEvent("keydown", { key: "m", metaKey: true, ctrlKey: true, bubbles: true }),
-    ),
-  );
-  await settle();
-  return dom.window.document.querySelector<HTMLElement>(".acpmux-mp .acpmux-mp-fast")!;
-}
-test("Codex: the full picker's Fast mode row is on while Ultrafast runs, names it, and a click turns it off", async () => {
-  sent.length = 0;
-  await render(snapshot({ options: threeTier, current: "ultrafast" }, codex));
-  let row = await openFullPicker();
-  expect(row.getAttribute("aria-pressed")).toBe("true");
-  expect(row.textContent).toContain("Ultrafast");
-  await act(async () => row.click());
-  await settle();
-  expect(sent).toEqual(["fast-mode=standard"]);
-
-  await render(snapshot({ options: threeTier, current: "fast" }, codex));
-  row = await openFullPicker();
-  expect(row.getAttribute("aria-pressed")).toBe("true");
-  await act(async () => row.click());
-  await settle();
-  expect(sent).toEqual(["fast-mode=standard", "fast-mode=standard"]);
-
-  await render(snapshot({ options: threeTier, current: "standard" }, codex));
-  row = await openFullPicker();
-  expect(row.getAttribute("aria-pressed")).toBe("false");
-  await act(async () => row.click());
-  await settle();
-  expect(sent).toEqual(["fast-mode=standard", "fast-mode=standard", "fast-mode=fast"]);
-});
-
-// #24488 made Fast and Ultrafast direct choices of the speed control; with the bolt button gone they
-// are the model menu's rows: from off, one click on Ultrafast picks it.
 test("Codex exposes Fast and Ultrafast as direct choices", async () => {
   sent.length = 0;
   await render(snapshot({ options: threeTier, current: "standard" }, codex));
-  await open();
-  expect(rows().slice(-2)).toEqual(["Fast mode", "Ultrafast"]);
-  await act(async () => ultraRow()!.click());
-  await settle();
+  expect(bolt()?.textContent).toContain("Fast");
+  await act(async () => host.querySelector<HTMLButtonElement>('[data-menu="Speed"]')!.click());
+  const choices = [...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')];
+  expect(choices.map((choice) => choice.textContent)).toContain("Ultrafast");
+  await act(async () => choices.find((choice) => choice.textContent === "Ultrafast")!.click());
   expect(sent).toEqual(["fast-mode=ultrafast"]);
-});
-
-// #24488 named Codex's tiers on the bolt (`priority` is Fast, `ultrafast` Ultrafast, else the
-// agent's name); the full picker's Fast mode row names the running tier the same way. Claude's
-// two-state option keeps its own On.
-test("the full picker names the running tier as the bolt did: Codex's priority is Fast", async () => {
-  sent.length = 0;
-  const codexTiers: Option[] = [{ value: "default" }, { value: "priority" }, { value: "ultrafast" }];
-  await render(snapshot({ options: codexTiers, current: "priority" }, codex));
-  let row = await openFullPicker();
-  expect(row.getAttribute("aria-pressed")).toBe("true");
-  expect(row.lastElementChild!.textContent).toBe("Fast");
-  await render(snapshot({ options: codexTiers, current: "ultrafast" }, codex));
-  row = await openFullPicker();
-  expect(row.lastElementChild!.textContent).toBe("Ultrafast");
-  await act(async () => row.click());
-  await settle();
-  expect(sent).toEqual(["fast-mode=default"]);
-  await render(snapshot({ options: twoState, current: "on" }, claude));
-  row = await openFullPicker();
-  expect(row.lastElementChild!.textContent).toBe("On");
 });
 
 test("Claude: with a tier past Fast, any tier on checks the row, and a click goes back to off", async () => {
   sent.length = 0;
   await render(snapshot({ options: threeTier, current: "ultrafast" }, claude));
-  expect(anyBolt()).toBeNull();
   await open();
   expect(fastRow()!.getAttribute("aria-checked")).toBe("true");
   await toggleFast();
@@ -449,7 +313,7 @@ for (const [name, run] of [
 
 test("a model with no speed option shows no Fast mode row and no bolt", async () => {
   await render(snapshot(undefined, claude));
-  expect(anyBolt()).toBeNull();
+  expect(bolt()).toBeNull();
   expect(host.querySelector(".acpmux-composer-actions .acpmux-mic")).not.toBeNull();
   await open();
   expect(menu()).not.toBeNull();
@@ -478,37 +342,3 @@ test("a model whose catalog row has no fast mode shows the row only while fast m
   await toggleFast();
   expect(sent).toEqual(["fast-mode=off"]);
 });
-
-// Leo 2026-10-21: "BRO WTF NO WE FUCKING HATE THE DOT". Lawrence's build read "Opus 5.5 • Medium": the
-// chip drew an agent-update dot between the model's name and its effort. The button reads the model,
-// then its effort, and nothing between them, in every form the row can give it.
-for (const [name, run] of [
-  ["Claude", claude],
-  ["Codex", codex],
-] as const)
-  test(`${name}: the model button has no dot between the model and its effort, even with an agent update on offer`, async () => {
-    for (const current of ["off", "on"])
-      for (const update of [false, true]) {
-        await render(snapshot({ options: twoState, current }, run), { update });
-        const button = chip();
-        // Every label the button can show: its text and each fit form's drawn label (data-label).
-        const labels = [
-          button.textContent ?? "",
-          ...[...button.querySelectorAll<HTMLElement>("[data-label]")].map((part) => part.dataset.label ?? ""),
-        ];
-        for (const label of labels)
-          expect(label, `${current}, update ${update}`).not.toMatch(/[•·\u2022\u00b7\u2219\u22c5]/);
-        // No dot drawn as an element either: between the name and the effort sits nothing but the effort.
-        expect(button.querySelector(".acpmux-model-update-dot, .rounded-full")).toBeNull();
-        const name = button.querySelector(".acpmux-model-name")!;
-        const effort = button.querySelector(".acpmux-model-detail")!;
-        let between = name.nextElementSibling;
-        const drawn: string[] = [];
-        while (between && between !== effort) {
-          if (!between.classList.contains("acpmux-model-short")) drawn.push(between.className);
-          between = between.nextElementSibling;
-        }
-        expect(drawn, `${current}, update ${update}`).toEqual([]);
-        if (update) expect(button.title).toContain("2.2.0");
-      }
-  });

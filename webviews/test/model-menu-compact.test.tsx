@@ -2,7 +2,7 @@
 // Claude, Codex, others) beside numbered models, then Effort, More models and Account beside their
 // rows. Account lists the acpmux routes that serve the chat and switches the chat's route. Since
 // Leo 2026-10-20 it is every composer's one model button ("Opus 5.5  Medium"): no effort chip, no
-// speed button, and Fast mode is the menu's last row, a checkbox. The real composer, catalog and menu, in
+// bolt, and Fast mode is the menu's last row, a checkbox. The real composer, catalog and menu, in
 // JSDOM.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
@@ -471,7 +471,7 @@ test("the rail's tabs are not rows of the menu", async () => {
 });
 
 // Leo 2026-10-20: Fast mode lives in one place, a checkbox row after Account, never a radio group
-// inside Effort › and never a speed button in the composer.
+// inside Effort › and never a bolt in the composer.
 test("Fast mode is a checkbox row after Account, checked from the session, and a click toggles it", async () => {
   const { sent } = await mount({ routes: [] }, { fast: true });
   expect(host.querySelector(".acpmux-fast")).toBeNull();
