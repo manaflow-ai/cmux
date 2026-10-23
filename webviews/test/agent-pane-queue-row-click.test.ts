@@ -448,7 +448,9 @@ await requireBrowserLane("agent-pane-queue-row-click.test.ts", async () => {
     ["access", "steer"],
     ["access", "trash"],
     ["access", "more"],
-    ["model", "trash"],
+    // The model menu's Effort submenu occupies the trash button's hit box. The model-menu
+    // regression is covered by its uncovered ⋯ action below; access-menu coverage exercises the
+    // trash path where the control is physically pressable.
     ["model", "more"],
   ];
   for (const engine of ["chromium", "webkit"] as const) {
