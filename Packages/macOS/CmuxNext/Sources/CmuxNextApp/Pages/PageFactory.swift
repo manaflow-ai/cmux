@@ -4,6 +4,7 @@ import CmuxNextAgentIntegrations
 import CmuxNextApps
 import CmuxNextDesign
 import CmuxNextHomeEngine
+import CmuxNextMacScreen
 import CmuxNextPages
 import CmuxNextServer
 import CmuxNextSettings
@@ -138,6 +139,20 @@ struct PageFactory {
         )
         provider.harnessesState = { harnesses.state }
         provider.harnessesRun = { params, context in try await harnesses.run(params, context: context) }
+        let devices = services.deviceHub.settingsModel
+        provider.devicesState = { (try? JSONValue.parse(JSONEncoder().encode(devices.state))) ?? .null }
+        provider.devicesRun = { params in
+            let run: MacScreenDevicesSettings.Run
+            do {
+                run = try JSONDecoder().decode(MacScreenDevicesSettings.Run.self,
+                                               from: JSONSerialization.data(withJSONObject: params.foundationObject))
+            } catch {
+                throw PageError.invalidParams("unknown devices action")
+            }
+            let result = await devices.run(run)
+            return (try? JSONValue.parse(JSONEncoder().encode(result))) ?? .object([:])
+        }
+        provider.devicesWatching = { on in if on { devices.beginWatching() } else { devices.endWatching() } }
         provider.integrations = SettingsAgentIntegrations(cli: { LocalServerSource.bundledCLI() })
         provider.setTheme = { [weak services] level, spec in try services?.settingsWindow.setPageTheme(level: level, spec: spec) }
         provider.acceptsTheme = { [weak services] text in services?.settingsWindow.acceptsTheme(text) ?? false }

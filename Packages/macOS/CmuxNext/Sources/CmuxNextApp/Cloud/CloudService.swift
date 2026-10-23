@@ -473,7 +473,12 @@ final class CloudService {
         machines.session(machineID)?.machine.displayName = name.isEmpty ? nil : name
     }
 
+    /// Runs when a sign-out starts, while the account's tokens still work
+    /// (the device hub signs this Mac out of its sessions at once).
+    var willSignOut: [@MainActor () -> Void] = []
+
     func signOut() async {
+        for hook in willSignOut { hook() }
         AgentPaneTailCache.shared.clear() // the panes' chat tails: memory only, forgotten whole
         // No ensure starts from here until the session's final endLink (the
         // signed-out branch above, after auth.signOut).

@@ -153,7 +153,7 @@ using their commit email, link your PR from theirs and thank them. Let a human
 close it; never close an outside PR without a human-written explanation.
 
 The server directories listed in [LICENSE](LICENSE) (`web/`, `workers/ci-artifacts/`,
-`workers/iroh-v2/`, `workers/presence/`, `services/iroh-relay-minter/`,
+`workers/iroh-v2/`, `workers/presence/`, `workers/device-hub/`, `services/iroh-relay-minter/`,
 `cmux-tui/relays/cloudflare-do/`, `backend/`) use the Business Source License, which needs
 every outside author's CLA grant. Do not merge a PR that changes those
 directories while CLA Assistant is red, and do not copy an outside
