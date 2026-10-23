@@ -146,7 +146,14 @@ impl Mux {
             format!("cmux-hook-sequence:{sequence}")
         };
         let (harness, ended) = (agent_provider_identity(ingress), state == AgentState::Done);
-        self.note_relaunch_agent(&terminal_id, harness, explicit_session_id, ended, job);
+        // An end journaled for a terminal's lost process leaves the relaunch record as the
+        // session's start wrote it: a crash or a lost host is when "Resume Agents After
+        // Restart" brings the session back (#22995).
+        if ingress.payload.get("native_event").and_then(Value::as_str)
+            != Some(crate::agent_hooks::TERMINAL_EXIT_NATIVE_EVENT)
+        {
+            self.note_relaunch_agent(&terminal_id, harness, explicit_session_id, ended, job);
+        }
         let hook_state = crate::workspace_registry::AgentHookProjectionState {
             agent_session_id,
             applied_sequence: sequence,
@@ -393,6 +400,55 @@ impl Mux {
             eprintln!(
                 "cmux-tui: agent projection update for {terminal_id} ({kind}) failed: {error}"
             );
+        }
+    }
+
+    /// The process of `terminal_id` ended. A hook session that still claims the
+    /// terminal working or blocked never sends its own end now, so its row would
+    /// spin forever (#22995): journal that end for it, as `agent.plugin.exited`
+    /// does for a crashed plugin. The roster stays a journal-only fold, and the
+    /// projection and broadcast take the same fenced path as a real `SessionEnd`
+    /// (or wait in the pending-hook queue until a respawn gives the terminal a
+    /// surface again). Best effort: an exit never fails on it.
+    pub(super) fn end_agent_session_of_exited_terminal(&self, terminal_id: &TerminalPublicId) {
+        let agent = {
+            let host = self.agent_roster.lock().unwrap();
+            let Some(entry) = host.roster.entries.get(terminal_id.as_str()) else { return };
+            if entry.agent_source() != AgentSource::Hook
+                || !matches!(entry.agent_state(), AgentState::Working | AgentState::Blocked)
+            {
+                return;
+            }
+            entry.agent.clone().unwrap_or_else(|| "cmux".to_owned())
+        };
+        let Some(session) = self
+            .agent_hook_fences
+            .lock()
+            .unwrap()
+            .get(terminal_id)
+            .filter(|fence| !fence.ended)
+            .map(|fence| fence.session_id.clone())
+        else {
+            return;
+        };
+        let ingress = match crate::agent_hooks::terminal_exit_session_ended_journal_ingress(
+            terminal_id,
+            &agent,
+            &session,
+        ) {
+            Ok(ingress) => ingress,
+            Err(error) => {
+                eprintln!("cmux-tui: ending the agent session of {terminal_id} failed: {error}");
+                return;
+            }
+        };
+        // A resumed session can end with its terminal again, so each end is its own record.
+        let idempotency_key =
+            format!("agent-terminal-exit-{}", crate::workspace_registry::new_uuid_v4());
+        if let Err(error) =
+            self.append_journal_ingress(&ingress, "agent-terminal-exit", &idempotency_key)
+        {
+            eprintln!("cmux-tui: ending the agent session of {terminal_id} failed: {error}");
         }
     }
 

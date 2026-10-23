@@ -252,6 +252,45 @@ pub(crate) fn journal_plugin_exit_journal_ingress(
     })
 }
 
+/// Internal lifecycle event emitted when a terminal's process ends while an
+/// agent hook session still claims the terminal working or blocked (#22995).
+pub(crate) const TERMINAL_EXIT_NATIVE_EVENT: &str = "AgentTerminalExited";
+
+/// Build the core-owned end of `agent_session_id`, the hook session of `agent`
+/// in `terminal_id`, whose process ended (it exited, or its host was lost: a
+/// crash, a daemon restart that could not keep it). The agent can no longer
+/// send its own `SessionEnd`, so its last `working` would stay forever. Like
+/// a real `SessionEnd`, this goes through the session fence; its observation
+/// time lets a resumed session (`claude --resume`, same id) start again.
+pub(crate) fn terminal_exit_session_ended_journal_ingress(
+    terminal_id: &TerminalPublicId,
+    agent: &str,
+    agent_session_id: &str,
+) -> anyhow::Result<JournalIngress> {
+    validate_agent_source(agent)?;
+    Ok(JournalIngress {
+        producer_id: AGENT_HOOK_PRODUCER_ID.into(),
+        manifest_version: AGENT_HOOK_MANIFEST_VERSION,
+        kind: "agent.session.ended".into(),
+        schema_version: 1,
+        occurred_at_ms: None,
+        subjects: vec![JournalSubject { kind: "terminal".into(), id: terminal_id.to_string() }],
+        sensitivity: Some(JournalSensitivity::Sensitive),
+        payload: json!({
+            "format": AGENT_HOOK_FORMAT,
+            "adapter": {"id": agent, "version": 1},
+            "native_event": TERMINAL_EXIT_NATIVE_EVENT,
+            "normalized": {
+                "agent_session_id": agent_session_id,
+                "observed_at_ms": crate::workspace_registry::unix_epoch_ms()?.to_string(),
+            },
+            "native": {},
+        }),
+        causation_id: None,
+        correlation_id: None,
+    })
+}
+
 const MAX_TOOL_TARGET_PATH_BYTES: usize = 1024;
 
 /// The file a tool call targets, copied from the tool input before it is
