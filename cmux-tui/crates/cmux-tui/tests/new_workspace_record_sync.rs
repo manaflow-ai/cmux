@@ -25,7 +25,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use serde_json::{Value, json};
 
 /// The extra time of each discovery-file sync.
-const SLOW_SYNC_MS: u64 = 300;
+const SLOW_SYNC_MS: u64 = 1000;
 
 struct Client {
     reader: BufReader<UnixStream>,
