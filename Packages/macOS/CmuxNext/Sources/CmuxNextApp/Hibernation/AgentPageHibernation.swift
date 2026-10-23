@@ -25,7 +25,10 @@ import os
 /// parked workspaces do not hold a page each. A front that stops being warm counts its minute
 /// from then (`countedAt`), not from its hide. Releases go a few at a time
 /// (`HibernationPlanner.Pace`, counting the ones in flight), as browser pages do, so a switch
-/// that parks a workspace's chats starts no burst of snapshots and retires in its frames.
+/// that parks a workspace's chats starts no burst of snapshots and retires in its frames. A
+/// connected page that does not say in time what it holds stays, out of the budget for
+/// `HibernationPlanner.keptHold(times:)` (as a browser page the probe kept), so it does not hold
+/// up the chats behind it, and is asked again after that.
 ///
 /// A page stays when its tab is pinned (unless the setting includes pinned tabs), its chat's
 /// turn runs or waits on the person (acpmux's turn state, `AgentTurnStateStore`), it is a New
@@ -50,7 +53,13 @@ final class AgentPageHibernation {
     /// When each hidden page last became counted in the warm budget (its front stopped being warm).
     private var countedAt: [String: ContinuousClock.Instant] = [:]
     private var shown: Set<String> = []
+    /// Releases in flight, from the wake state ask to the page gone or kept: the pace counts them.
     private var releasing: Set<String> = []
+    /// Hidden pages a release kept (a connected page that did not say what it holds), with how
+    /// many times in a row: each stays out of the budget for `HibernationPlanner.keptHold(times:)`,
+    /// as a browser page the probe kept, so it neither holds back the other chats past the budget
+    /// nor is asked again on every plan.
+    private var kept: [String: (at: ContinuousClock.Instant, times: Int)] = [:]
     private let deadline = DemandTimer(owner: "AgentPageHibernation")
     /// The acpmux turn state of the tab's chat; injected by the App.
     var turnState: (String) -> AgentTurnState? = { _ in nil }
@@ -112,7 +121,8 @@ final class AgentPageHibernation {
         turnObservation?.cancel()
         turnObservation = Task { [weak self] in
             for await _ in ObservationStream({ (turns.stateRevision, turns.watching) }) {
-                self?.replan()
+                guard let self else { return }
+                self.replan()
             }
         }
     }
@@ -143,6 +153,7 @@ final class AgentPageHibernation {
         if visible {
             shown.insert(key)
             hiddenAt[key] = nil
+            kept[key] = nil
             tabs.launchImages.drop(key)
         } else if tabs.existingView(key) != nil {
             shown.remove(key)
@@ -167,6 +178,7 @@ final class AgentPageHibernation {
         shown.remove(key)
         hiddenAt[key] = nil
         countedAt[key] = nil
+        kept[key] = nil
         store()?.launchImages.drop(key)
     }
 
@@ -176,6 +188,7 @@ final class AgentPageHibernation {
         guard let tabs = store() else { return }
         hiddenAt = hiddenAt.filter { tabs.existingView($0.key) != nil }
         countedAt = countedAt.filter { hiddenAt[$0.key] != nil }
+        kept = kept.filter { hiddenAt[$0.key] != nil }
         shown = shown.filter { tabs.existingView($0) != nil }
         guard let planned = plan() else {
             deadline.cancel()
@@ -183,7 +196,8 @@ final class AgentPageHibernation {
             return
         }
         let pace = HibernationPlanner.Pace.at(pressure)
-        let pass = HibernationPlanner.paced(planned.due, inFlight: releasing.count, pace: pace)
+        // The plan ranks the pages in flight (they are live until they go); this pass starts the others.
+        let pass = HibernationPlanner.paced(planned.due.filter { !releasing.contains($0) }, inFlight: releasing.count, pace: pace)
         for key in pass.now { release(key) }
         var next = planned.next
         if pass.more { next = min(next ?? pace.interval, pace.interval) }
@@ -196,16 +210,24 @@ final class AgentPageHibernation {
     }
 
     /// The hidden pages due now (the timed ones longest hidden first, then the ones past the
-    /// budget in budget order) and seconds until the next one is; nil when hibernation is off.
+    /// budget in budget order; the ones in flight among them) and seconds until the next one is;
+    /// nil when hibernation is off. One plan for a pass and for a release that checks it is still due.
     private func plan() -> (due: [String], next: Double?)? {
         guard let threshold = HibernationPlanner.threshold(setting, pressure: pressure).map({ max($0, Self.minimumHidden) }) else {
             return nil
         }
         let current = now()
         var next: Double?
-        // Pages that must stay (a busy turn, pinned) neither go for the budget nor hold a place in it.
-        let releasable = hiddenAt.filter { !releasing.contains($0.key) && keepsPage($0.key, onScreen: false) == nil }
-            .map { (key: $0.key, age: (current - $0.value).seconds) }
+        // Pages that must stay (a busy turn, pinned, kept by a release lately) neither go for the
+        // budget nor hold a place in it.
+        var releasable: [(key: String, age: Double)] = []
+        for (key, at) in hiddenAt where keepsPage(key, onScreen: false) == nil {
+            if let hold = kept[key].map({ HibernationPlanner.keptHold(times: $0.times) - (current - $0.at).seconds }), hold > 0 {
+                next = min(next ?? hold, hold)
+                continue
+            }
+            releasable.append((key, (current - at).seconds))
+        }
         let fronts = self.fronts()
         let overOrder = HibernationPlanner.overBudget(releasable.map { (key: $0.key, idleness: $0.age, front: fronts[$0.key]) },
                                                       warmPages: warmPages(), timeout: threshold)
@@ -266,7 +288,8 @@ final class AgentPageHibernation {
     }
 
     /// Keeps the page's frame and what it holds that acpmux does not, then lets the page go if it
-    /// is still the same hidden page.
+    /// is still the same hidden page. The release counts as in flight until the page is gone or
+    /// stays, the frame's hold included, so the pace bounds all of a release's work.
     private func release(_ key: String) {
         guard let tabs = store(), let view = tabs.existingView(key), releasing.insert(key).inserted else { return }
         let readWake = wakeState
@@ -274,33 +297,44 @@ final class AgentPageHibernation {
             let wake = await readWake(view)
             let frame = await Self.frame(view)
             guard let self else { return }
+            let released = await finishRelease(key, view, in: tabs, wake: wake, frame: frame)
             releasing.remove(key)
-            // A connected page that did not say what it holds (a large attachment still encoding)
-            // stays: letting it go would drop its chips. The next plan asks again.
-            if wake == nil, view.model.hasHandshake {
-                logger.info("agent page \(key, privacy: .public) kept: no wake state in time")
-                return
-            }
-            // The page may have shown, changed or got busy (a turn started) while it was asked
-            // for its frame or the frame was encoded: then it stays, and the next plan decides.
-            guard isDue(key, view, in: tabs) else { return replan() }
-            if let frame { await tabs.launchImages.hold(key, frame.image, size: frame.size, appearance: frame.appearance) }
-            guard isDue(key, view, in: tabs) else {
-                tabs.launchImages.drop(key)
-                return replan()
-            }
-            displace(key)
-            // The tab keeps its session and every other state: the next show builds the page again.
-            let stored = tabs.resolve(key)
-            if let session = view.model.sessionId { tabs.sessions[stored] = session }
-            tabs.wakeStates[stored] = wake.flatMap { $0.isEmpty ? nil : $0 }
-            tabs.views[stored] = nil
-            tabs.retirer.retire(view)
-            tabs.stopCustomizationWhenUnused()
-            hiddenAt[key] = nil
-            releasedCount += 1
-            logger.info("released agent page \(key, privacy: .public)")
+            // It stays: the next plan decides with it out of flight, and arms its deadline.
+            if !released { replan() }
         }
+    }
+
+    /// Lets the page go if it is still due; true when it went.
+    private func finishRelease(_ key: String, _ view: AgentPaneView, in tabs: AgentTabStore, wake: AgentPaneWakeState?,
+                               frame: (image: CGImage, size: NSSize, appearance: NSAppearance.Name?)?) async -> Bool {
+        // A connected page that did not say what it holds (a large attachment still encoding)
+        // stays: letting it go would drop its chips. It is asked again after its hold.
+        if wake == nil, view.model.hasHandshake {
+            kept[key] = (now(), (kept[key]?.times ?? 0) + 1)
+            logger.info("agent page \(key, privacy: .public) kept: no wake state in time")
+            return false
+        }
+        // The page may have shown, changed or got busy (a turn started) while it was asked
+        // for its frame or the frame was encoded: then it stays, and the next plan decides.
+        guard isDue(key, view, in: tabs) else { return false }
+        if let frame { await tabs.launchImages.hold(key, frame.image, size: frame.size, appearance: frame.appearance) }
+        guard isDue(key, view, in: tabs) else {
+            tabs.launchImages.drop(key)
+            return false
+        }
+        displace(key)
+        // The tab keeps its session and every other state: the next show builds the page again.
+        let stored = tabs.resolve(key)
+        if let session = view.model.sessionId { tabs.sessions[stored] = session }
+        tabs.wakeStates[stored] = wake.flatMap { $0.isEmpty ? nil : $0 }
+        tabs.views[stored] = nil
+        tabs.retirer.retire(view)
+        tabs.stopCustomizationWhenUnused()
+        hiddenAt[key] = nil
+        kept[key] = nil
+        releasedCount += 1
+        logger.info("released agent page \(key, privacy: .public)")
+        return true
     }
 
     /// Still the same hidden page and still due by the plan now: budget membership can change

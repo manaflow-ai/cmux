@@ -21,7 +21,9 @@ default 4), samples the footprint again and wakes --wakes hibernated tabs, readi
 own record (`wakes`: snapshot shown, mounted_ms).
 
 PASS when all hold:
-  live      hidden live bench pages <= the budget (+ 1: the workspace left last, with --parked)
+  live      hidden live bench pages <= the budget (+ 1: the workspace left last, with --parked);
+            a bench page kept for a reason (live_kept: form_input, audio, ...) still counts: the
+            bench pages hold nothing to keep, so a reason there is a false keep in the app
   bounded   footprint after - footprint before <= that x --live-page-mb (default 90, a live
             renderer with its heap) + tabs opened after the sample x --max-mb-per-tab (default 3,
             a hibernated tab's record and pictures)
@@ -157,7 +159,10 @@ def main() -> int:
         per_tab = round(delta / added, 2)
         bound = round(allowed * args.live_page_mb + added * args.max_mb_per_tab, 1)
         status = bh.hibernation(sock)
-        print(f"PERF-HIDDEN live={len(live)} budget={budget} allowed={allowed} settled={bool(done)} settled_s={settled_s} "
+        # A bench page holds nothing to keep (no media, no edits): a live one the app reports as
+        # kept for a reason is a false keep, and it still counts against the budget.
+        exempt = {tab: reason for tab, reason in (status.get("exemptions") or {}).items() if tab in live}
+        print(f"PERF-HIDDEN live={len(live)} live_kept={json.dumps(exempt)} budget={budget} allowed={allowed} settled={bool(done)} settled_s={settled_s} "
               f"delta_mb={delta} bound_mb={bound} per_tab_mb={per_tab} hidden_live_pages={status.get('hidden_live_pages')} "
               f"snapshots={status.get('snapshots')} snapshot_bytes={status.get('snapshot_bytes')} "
               f"exemptions={json.dumps(status.get('exemptions') or {})}", flush=True)
@@ -170,7 +175,7 @@ def main() -> int:
         checks = {"live": len(live) <= allowed, "bounded": delta <= bound,
                   "picture": pictures if report["wakes"] else False}
         verdict = 0 if all(checks.values()) else 1
-        report.update({"tabs": tabs, "budget": budget, "allowed": allowed, "live": live, "delta_mb": delta, "bound_mb": bound,
+        report.update({"tabs": tabs, "budget": budget, "allowed": allowed, "live": live, "live_kept": exempt, "delta_mb": delta, "bound_mb": bound,
                        "per_tab_mb": per_tab, "settled_s": settled_s,
                        "checks": checks, "pass": verdict == 0})
         mounted = [w.get("app_mounted_ms") for w in report["wakes"]]
