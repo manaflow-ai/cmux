@@ -62,13 +62,27 @@ function standIn() {
     removeEventListener: (name: string) => page.added.set(name, (page.added.get(name) ?? 0) - 1),
     getComputedStyle: () => ({ overflowY: "auto", overflowX: "hidden" }),
   };
+  /// The document: whether it is hidden, and its visibility listeners.
+  const doc = {
+    defaultView: page,
+    hidden: false,
+    visibility: new Set<() => void>(),
+    addEventListener: (name: string, listener: () => void) =>
+      name === "visibilitychange" && doc.visibility.add(listener),
+    removeEventListener: (name: string, listener: () => void) =>
+      name === "visibilitychange" && doc.visibility.delete(listener),
+    hide() {
+      doc.hidden = true;
+      for (const listener of [...doc.visibility]) listener();
+    },
+  };
   const scroller = {
     scrollTop: 400,
     scrollHeight: 1000,
     clientHeight: 200,
     scrollWidth: 300,
     clientWidth: 300,
-    ownerDocument: { defaultView: page },
+    ownerDocument: doc,
     getAttribute: () => null,
     addEventListener: (name: string, listener: (event: unknown) => void) => {
       if (!listeners.has(name)) listeners.set(name, new Set());
@@ -96,7 +110,7 @@ function standIn() {
       return prevented;
     },
   };
-  return { scroller, page };
+  return { scroller, page, doc };
 }
 
 /// One macOS WebKit notch up (100px) and one down.
@@ -131,9 +145,9 @@ describe("installWheelGlide", () => {
     }
   };
   const setup = () => {
-    const { scroller, page } = standIn();
+    const { scroller, page, doc } = standIn();
     const glide = installWheelGlide(scroller as unknown as HTMLElement);
-    return { scroller, page, glide };
+    return { scroller, page, doc, glide };
   };
 
   test("a notch glides over several frames to its distance, and the loop ends there", () => {
@@ -175,6 +189,8 @@ describe("installWheelGlide", () => {
       { ...UP, shiftKey: true },
       { ...UP, altKey: true },
       { deltaX: 300, deltaY: 1 },
+      // As much sideways as down: diagonal, the engine's (as wheelPassThrough leaves it).
+      { ...UP, deltaX: 100.006103515625 },
     ]) {
       const { scroller } = setup();
       scroller.wheel(UP);
@@ -213,8 +229,34 @@ describe("installWheelGlide", () => {
     expect(scroller.scrollTop).toBe(at);
   });
 
+  test("a diagonal notch, as much sideways as down, is the engine's", () => {
+    const { scroller } = setup();
+    expect(scroller.wheel({ ...DOWN, deltaX: -100.006103515625 })).toBe(false);
+    run(20);
+    expect(scroller.scrollTop).toBe(400);
+    expect(frames.size).toBe(0);
+  });
+
+  test("a page hidden mid-glide ends it at once: no frame is left for its return", () => {
+    const { scroller, page, doc } = setup();
+    scroller.wheel(UP);
+    run(3);
+    const at = scroller.scrollTop;
+    expect(doc.visibility.size).toBe(1);
+    doc.hide();
+    // WebKit holds a hidden page's frames: the glide cannot wait for one to end.
+    expect(frames.size).toBe(0);
+    expect(doc.visibility.size).toBe(0);
+    expect(page.added.get("keydown")).toBe(0);
+    // Shown again a while later, the old glide does not jump to its end.
+    now += 5_000;
+    doc.hidden = false;
+    run(20);
+    expect(scroller.scrollTop).toBe(at);
+  });
+
   test("remove() with a frame pending cancels it and takes every listener off", () => {
-    const { scroller, page, glide } = setup();
+    const { scroller, page, doc, glide } = setup();
     scroller.wheel(UP);
     run(2);
     expect(frames.size).toBe(1);
@@ -224,5 +266,6 @@ describe("installWheelGlide", () => {
     expect(scroller.listening("scroll")).toBe(0);
     for (const name of ["pointerdown", "touchstart", "keydown"])
       expect([name, page.added.get(name)]).toEqual([name, 0]);
+    expect(doc.visibility.size).toBe(0);
   });
 });

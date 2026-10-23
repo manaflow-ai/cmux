@@ -3,7 +3,8 @@
 // Where a mouse wheel's glide on the transcript stops (wheelGlide.ts, #24327 review): a switch to
 // another chat ends it, so the old chat's distance never moves the new one; and a notch over a part
 // that scrolls on its own (a code view, a long tool output) ends it where it is, since the wheel
-// belongs to that part now.
+// belongs to that part now; and a page hidden mid-glide ends it at once, since WebKit holds a hidden
+// page's frames and the first one back would finish the glide in one jump.
 //
 // The transcript harness (test/browser/transcript-follow.harness.tsx) in real Chromium and WebKit;
 // the notch is the event macOS WebKit dispatches for a mouse wheel (100.006103515625px,
@@ -179,6 +180,51 @@ await requireBrowserLane("transcript-wheel-glide.test.ts", async () => {
         });
         expect(after.taken).toBe(false);
         expect(after.tops.slice(1).filter((top) => Math.abs(top - after.tops[0]!) > 1)).toEqual([]);
+        await page.close();
+      });
+
+      test("a page hidden mid-glide ends the glide where it is, and it stays there when shown", async () => {
+        const page = await open(name);
+        // Three notches up: 300px to glide.
+        for (let index = 0; index < 3; index += 1) expect(await notch(page, -100.006103515625)).toBe(true);
+        await painted(page, 2);
+        // The document turns hidden, as a WKWebView's does when its tab, workspace or the app goes to
+        // the background. A headless engine's page never hides, and its frames keep running, so the
+        // page says it is hidden and fires the event the engine fires; any glide left running would
+        // go on moving the content in those frames.
+        const tops = await page.evaluate(async () => {
+          const box = document.querySelector(".acpmux-scroll")!.getBoundingClientRect();
+          const row = (
+            document
+              .elementFromPoint(box.x + box.width / 2, box.y + box.height / 2)!
+              .closest(".acpmux-row") as HTMLElement
+          ).dataset.rowId!;
+          const top = () => Math.round(document.querySelector(`[data-row-id="${row}"]`)!.getBoundingClientRect().top);
+          const visibility = (hidden: boolean) => {
+            Object.defineProperty(document, "hidden", { configurable: true, get: () => hidden });
+            Object.defineProperty(document, "visibilityState", {
+              configurable: true,
+              get: () => (hidden ? "hidden" : "visible"),
+            });
+            document.dispatchEvent(new Event("visibilitychange"));
+          };
+          visibility(true);
+          const hidden = top();
+          const whileHidden: number[] = [];
+          for (let frame = 0; frame < 15; frame += 1) {
+            await window.cmuxPaintFrame();
+            whileHidden.push(top());
+          }
+          visibility(false);
+          const shown: number[] = [];
+          for (let frame = 0; frame < 15; frame += 1) {
+            await window.cmuxPaintFrame();
+            shown.push(top());
+          }
+          return { hidden, whileHidden, shown };
+        });
+        const moved = [...tops.whileHidden, ...tops.shown].filter((top) => Math.abs(top - tops.hidden) > 1);
+        expect(moved).toEqual([]);
         await page.close();
       });
     });
