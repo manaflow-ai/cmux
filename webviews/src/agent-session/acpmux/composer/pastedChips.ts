@@ -27,6 +27,8 @@ export function usePastedChips(
   attachments: RefObject<ComposerAttachment[]>,
   setAttachments: (update: (current: ComposerAttachment[]) => ComposerAttachment[]) => void,
   field: RefObject<MarkdownFieldHandle | null>,
+  /// The most chips the composer holds.
+  limit = MAX_ATTACHMENTS,
 ) {
   /// Until when a paste goes in as it is: Paste as Plain Text just ran.
   const plainUntil = useRef(0);
@@ -60,7 +62,7 @@ export function usePastedChips(
     /// Makes pasted `text` a chip when it is huge; true when it did. A composer already holding the
     /// most chips takes the text as it is.
     take(text: string): boolean {
-      if (raw() || !isLargePaste(text) || attachments.current.length >= MAX_ATTACHMENTS) return false;
+      if (raw() || !isLargePaste(text) || attachments.current.length >= limit) return false;
       const chip = pastedTextAttachment(text);
       // Ahead of the render, so a second paste at once counts this one.
       attachments.current = [...attachments.current, chip];

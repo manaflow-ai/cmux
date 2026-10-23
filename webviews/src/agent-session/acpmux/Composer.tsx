@@ -5,13 +5,7 @@ import "../../theme/messages.css";
 import type { ConnectKind, OffloadKind } from "./environments";
 import { useEscapingList } from "../../ui/popupHost";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
-import {
-  MAX_ATTACHMENTS,
-  type AttachmentError,
-  type ComposerAttachment,
-  type DroppedKind,
-  type LinkItem,
-} from "./attachments";
+import { type AttachmentError, type ComposerAttachment, type DroppedKind, type LinkItem } from "./attachments";
 import type { UploadResult } from "./cloudUploads";
 import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellRuns";
 import type { Project } from "./ProjectChooser";
@@ -56,7 +50,7 @@ import {
   writePersistedDraft,
 } from "./composerDraft";
 import type { MarkdownFieldHandle } from "./MarkdownField";
-import { type StringKey, useT } from "./i18n";
+import { type StringKey, usePaneLanguage, useT } from "./i18n";
 import { remoteComposer } from "./remoteEditing";
 import { useComposerChrome } from "./composerChrome";
 import { useQueueing } from "./queueing";
@@ -73,6 +67,7 @@ import {
   useSendWhenAttached,
 } from "./composer/attachmentIntake";
 import { type KeptAttachments, useKeptAttachments } from "./composer/keptAttachments";
+import { MAX_STAGED_ATTACHMENTS, megabytes, messageLimit, splitForMessage } from "./composer/messageLimit";
 import { usePasteAnywhere } from "./composer/pasteAnywhere";
 import { DropOverlay } from "./composer/DropOverlay";
 import type { SendBlock } from "./useFolderTrustAsk";
@@ -338,6 +333,7 @@ export function Composer({
   onOpenContext,
 }: Props) {
   const t = useT();
+  const language = usePaneLanguage();
   const chrome = useComposerChrome();
   // Off (a queued row's ⋯ menu, queueing.ts), what is sent mid-turn steers on every key.
   const queueing = useQueueing();
@@ -448,6 +444,8 @@ export function Composer({
   const { attachments, setAttachments, pending, attachError, setAttachError, drop, dropLanded, attach } =
     useAttachmentIntake({
       allowImages,
+      // More than one message takes: Send takes a message's worth and the rest wait (messageLimit.ts).
+      limit: MAX_STAGED_ATTACHMENTS,
       dropZone: () => composerBox.current?.closest(".acpmux-main") ?? null,
       // A file pasted in shell mode is kept for the next prompt and uploads nothing; the mode stays.
       pasteTarget: (target) =>
@@ -467,13 +465,26 @@ export function Composer({
         void keptAttachments
           .read(chat)
           .catch(() => [])
-          .then((kept) => keptAttachments.write(chat, appendAttachments(kept, chips).slice(0, MAX_ATTACHMENTS)))
+          .then((kept) => keptAttachments.write(chat, appendAttachments(kept, chips).slice(0, MAX_STAGED_ATTACHMENTS)))
           .catch(() => {});
       },
       carries: () => carryPrompt.current || Boolean(switching),
     });
   const attachmentsRef = useRef(attachments);
   attachmentsRef.current = attachments;
+  // What one message of this chat takes (composer/messageLimit.ts): Send takes the first chips that
+  // fit, the rest stay staged; after such a send the strip offers to send the rest.
+  const limit = messageLimit({
+    ...(snapshot.summary?.family ? { family: snapshot.summary.family } : {}),
+    ...(snapshot.summary?.harness ? { harness: snapshot.summary.harness } : {}),
+    ...(snapshot.summary?.usage ? { contextWindow: snapshot.summary.usage.size } : {}),
+  });
+  const split = splitForMessage(attachments, limit);
+  const [restWaits, setRestWaits] = useState(false);
+  useEffect(() => {
+    if (attachments.length === 0) setRestWaits(false);
+  }, [attachments.length]);
+  useEffect(() => setRestWaits(false), [sessionId]);
   // A prompt sent while a pasted screenshot is still being read goes once its chip is ready.
   const holdForAttachments = useSendWhenAttached(pending.length, sessionId);
   // The box makes a huge paste a chip; Paste as Plain Text keeps it raw (composer/pastedChips.ts).
@@ -532,15 +543,17 @@ export function Composer({
         // A pick past the most the composer holds says so, as a dropped file does.
         const held = attachmentsRef.current;
         const next = appendAttachments(held, [attachment]);
-        if (next.length > MAX_ATTACHMENTS) {
-          setAttachError(attachmentErrorText({ name: attachment.name, reason: "tooMany" }, tRef.current));
+        if (next.length > MAX_STAGED_ATTACHMENTS) {
+          setAttachError(
+            attachmentErrorText({ name: attachment.name, reason: "tooMany" }, tRef.current, MAX_STAGED_ATTACHMENTS),
+          );
           return;
         }
         // Ahead of the render, so each of several picks attached at once counts the ones before it.
         attachmentsRef.current = next;
         setAttachments((current) => {
           const next = appendAttachments(current, [attachment]);
-          return next.length > MAX_ATTACHMENTS ? current : next;
+          return next.length > MAX_STAGED_ATTACHMENTS ? current : next;
         });
       },
       detach(ids) {
@@ -567,7 +580,10 @@ export function Composer({
         const back = state.attachments ?? [];
         if (back.length)
           setAttachments((current) =>
-            [...back, ...current.filter((chip) => !back.some((kept) => kept.id === chip.id))].slice(0, MAX_ATTACHMENTS),
+            [...back, ...current.filter((chip) => !back.some((kept) => kept.id === chip.id))].slice(
+              0,
+              MAX_STAGED_ATTACHMENTS,
+            ),
           );
         if (state.shell) {
           setShell(true);
@@ -830,12 +846,13 @@ export function Composer({
       return true;
     }
     const fromSend = document.activeElement?.classList.contains("acpmux-send") ?? false;
-    const sent = attachments;
+    const sent = split.now;
     const taken = onSend(prompt, sent, steer);
     if (taken === false) return false;
     const written = field.current?.value() ?? "";
     const clear = (rest = "") => {
       setAttachments((current) => current.filter((attachment) => !sent.includes(attachment)));
+      setRestWaits(split.later.length > 0);
       setAttachError(undefined);
       plusDraft.current = undefined;
       if (field.current && rest) field.current.type(rest);
@@ -1514,6 +1531,13 @@ export function Composer({
         setAttachments={setAttachments}
         attachmentsRef={attachmentsRef}
         attachError={attachError}
+        attachmentCap={MAX_STAGED_ATTACHMENTS}
+        attachmentLimit={{
+          ...(split.over === "count" ? { over: { count: limit.count } } : {}),
+          ...(split.over === "bytes" ? { over: { size: megabytes(limit.bytes, language) } } : {}),
+          sendsNow: split.now.length,
+          ...(restWaits ? { sendRest: () => submitNow.current(false) } : {}),
+        }}
         codex={snapshot.summary?.family === "codex" || snapshot.summary?.harness === "codex"}
         onRemoveAttachment={(id) => {
           setAttachments((current) => current.filter((item) => item.id !== id));

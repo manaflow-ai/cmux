@@ -160,6 +160,31 @@ function pasteFiles(ctx: PlayContext, files: File[]): void {
   ctx.find({ selector: ".acpmux-md" }).dispatchEvent(paste);
 }
 
+/// A finished OpenCode chat that takes images: its model's per-message limit is the composer's
+/// default for a harness it does not know (20, composer/messageLimit.ts).
+const overLimitChat = ((base) => ({
+  ...base,
+  summary: { ...base.summary!, harness: "opencode", family: "opencode", promptCapabilities: { image: true } },
+}))(chat(finished));
+
+/// `count` small screenshots, each a different hue, as PNG files.
+async function screenshots(ctx: PlayContext, count: number): Promise<File[]> {
+  const view = ctx.document.defaultView!;
+  return Promise.all(
+    Array.from({ length: count }, async (_, index) => {
+      const canvas = new view.OffscreenCanvas(160, 100);
+      const paint = canvas.getContext("2d")!;
+      paint.fillStyle = `hsl(${(index * 360) / count} 60% 55%)`;
+      paint.fillRect(0, 0, 160, 100);
+      paint.fillStyle = "#ffffff";
+      paint.fillRect(20, 30, 120, 10);
+      paint.fillRect(20, 50, 80, 10);
+      const blob = await canvas.convertToBlob({ type: "image/png" });
+      return new view.File([blob], `screenshot-${index + 1}.png`, { type: "image/png" });
+    }),
+  );
+}
+
 // A side session `/btw` opened: the question and its answer, its composer replying in it.
 const sideSession = (() => {
   const side = chat(
@@ -723,6 +748,30 @@ export default agentPaneEntry({
         Object.defineProperty(paste, "clipboardData", { value: { files: [file], types: ["Files"] } });
         field.dispatchEvent(paste);
         await ctx.waitFor(() => ctx.document.querySelector("output.acpmux-attachment-note"));
+      },
+    },
+    // Leo 2026-10-22: "why only 10 attachments per message? ... we should have better situation
+    // handling for that". One message takes what the chat's harness takes (composer/messageLimit.ts);
+    // past it the files stay staged, the ones past the limit fade back, and the note names the limit.
+    "attachments-over-limit": {
+      note: "24 screenshots pasted into an OpenCode chat, whose model takes 20 per message: all 24 stay staged, the last 4 fade back, and the note says Send takes 20 and the rest stay for the next message.",
+      snapshot: overLimitChat,
+      play: async (ctx) => {
+        pasteFiles(ctx, await screenshots(ctx, 24));
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-attachment-image img").length === 24);
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-limit output"));
+      },
+    },
+    "attachments-send-rest": {
+      note: "Play: Send on 24 staged screenshots sends the first 20; the 4 left stay staged with Send the rest, which sends them as the next message.",
+      snapshot: overLimitChat,
+      play: async (ctx) => {
+        pasteFiles(ctx, await screenshots(ctx, 24));
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-attachment-image img").length === 24);
+        await ctx.click({ selector: ".acpmux-send" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-send-rest"));
+        if (ctx.document.querySelectorAll(".acpmux-attachment-image").length !== 4)
+          throw new Error("Send must leave the 4 screenshots past the limit staged");
       },
     },
     "image-sent-as-path": {

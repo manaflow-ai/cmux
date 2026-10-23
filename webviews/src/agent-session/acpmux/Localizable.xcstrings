@@ -67687,133 +67687,529 @@
       }
     },
     "composer.tooMany": {
-      "comment": "Agent pane",
+      "comment": "Agent pane: a file past the most attachments the composer holds at once is refused; {count} is that number (10 or 100)",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "حتى 10 مرفقات لكل رسالة"
+            "value": "الحد الأقصى للمرفقات: {count}"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Najviše 10 priloga po poruci"
+            "value": "Najviše {count} priloga"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Op til 10 vedhæftninger pr. besked"
+            "value": "Op til {count} vedhæftninger"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Maximal 10 Anhänge pro Nachricht"
+            "value": "Maximal {count} Anhänge"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Up to 10 attachments per message"
+            "value": "Up to {count} attachments"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hasta 10 adjuntos por mensaje"
+            "value": "Hasta {count} adjuntos"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "10 pièces jointes maximum par message"
+            "value": "{count} pièces jointes maximum"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Massimo 10 allegati per messaggio"
+            "value": "Massimo {count} allegati"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "1メッセージにつき添付は最大10件です"
+            "value": "添付は最大{count}件です"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ភ្ជាប់បានរហូតដល់ 10 ក្នុងមួយសារ"
+            "value": "ភ្ជាប់បានរហូតដល់ {count}"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "메시지당 첨부 파일은 최대 10개입니다"
+            "value": "첨부 파일은 최대 {count}개입니다"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Opptil 10 vedlegg per melding"
+            "value": "Opptil {count} vedlegg"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Maksymalnie 10 załączników na wiadomość"
+            "value": "Maksymalnie {count} załączników"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Até 10 anexos por mensagem"
+            "value": "Até {count} anexos"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Не более 10 вложений в сообщении"
+            "value": "Не более {count} вложений"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "แนบได้สูงสุด 10 ไฟล์ต่อข้อความ"
+            "value": "แนบได้สูงสุด {count} ไฟล์"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mesaj başına en fazla 10 ek"
+            "value": "En fazla {count} ek"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "До 10 вкладень в одному повідомленні"
+            "value": "До {count} вкладень"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tối đa 10 tệp đính kèm cho mỗi tin nhắn"
+            "value": "Tối đa {count} tệp đính kèm"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "每条消息最多 10 个附件"
+            "value": "最多 {count} 个附件"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "每則訊息最多 10 個附件"
+            "value": "最多 {count} 個附件"
+          }
+        }
+      }
+    },
+    "composer.overLimit": {
+      "comment": "Agent pane composer note: more attachments are staged than one message of this chat's model takes; Send takes the first {limit} and the rest stay staged for the next message. {limit} is the model's per-message number (20, 100, 600, 1500 or 3600)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الحد الأقصى للمرفقات في الرسالة الواحدة: {limit}، ويبقى الباقي هنا للرسالة التالية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Najviše {limit} priloga po poruci; ostali ostaju ovdje za sljedeću."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Op til {limit} vedhæftninger pr. besked; resten bliver her til den næste."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maximal {limit} Anhänge pro Nachricht; der Rest bleibt hier für die nächste."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Up to {limit} attachments per message; the rest stay here for the next one."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hasta {limit} adjuntos por mensaje; el resto se queda aquí para el siguiente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{limit} pièces jointes maximum par message ; les autres restent ici pour le suivant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Massimo {limit} allegati per messaggio; gli altri restano qui per il prossimo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1メッセージにつき添付は最大{limit}件です。残りは次のメッセージ用にここに残ります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្ជាប់បានរហូតដល់ {limit} ក្នុងមួយសារ។ ឯកសារដែលនៅសល់នៅទីនេះសម្រាប់សារបន្ទាប់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메시지당 첨부 파일은 최대 {limit}개입니다. 나머지는 다음 메시지를 위해 여기에 남습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opptil {limit} vedlegg per melding; resten blir her til den neste."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maksymalnie {limit} załączników na wiadomość; pozostałe zostają tutaj na następną."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Até {limit} anexos por mensagem; o restante fica aqui para a próxima."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не более {limit} вложений в сообщении; остальные останутся здесь для следующего."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แนบได้สูงสุด {limit} ไฟล์ต่อข้อความ ที่เหลือจะรออยู่ที่นี่สำหรับข้อความถัดไป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mesaj başına en fazla {limit} ek; kalanlar bir sonraki mesaj için burada kalır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "До {limit} вкладень в одному повідомленні; решта залишиться тут для наступного."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tối đa {limit} tệp đính kèm cho mỗi tin nhắn; phần còn lại ở đây cho tin nhắn tiếp theo."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每条消息最多 {limit} 个附件，其余的会留在这里，随下一条发送。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每則訊息最多 {limit} 個附件，其餘的會留在這裡，隨下一則傳送。"
+          }
+        }
+      }
+    },
+    "composer.overSize": {
+      "comment": "Agent pane composer note: the staged attachments are more bytes than one message carries; Send takes the first ones that fit and the rest stay staged for the next message. {size} is that size in the reader's units (14 MB)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الحد الأقصى لحجم المرفقات في الرسالة الواحدة: {size}، ويبقى الباقي هنا للرسالة التالية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Najviše {size} priloga po poruci; ostali ostaju ovdje za sljedeću."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Op til {size} vedhæftninger pr. besked; resten bliver her til den næste."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maximal {size} an Anhängen pro Nachricht; der Rest bleibt hier für die nächste."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Up to {size} of attachments per message; the rest stay here for the next one."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hasta {size} de adjuntos por mensaje; el resto se queda aquí para el siguiente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{size} de pièces jointes maximum par message ; les autres restent ici pour le suivant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Massimo {size} di allegati per messaggio; gli altri restano qui per il prossimo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1メッセージの添付は合計{size}までです。残りは次のメッセージ用にここに残ります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឯកសារភ្ជាប់បានរហូតដល់ {size} ក្នុងមួយសារ។ ឯកសារដែលនៅសល់នៅទីនេះសម្រាប់សារបន្ទាប់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메시지당 첨부 파일은 최대 {size}입니다. 나머지는 다음 메시지를 위해 여기에 남습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opptil {size} med vedlegg per melding; resten blir her til den neste."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maksymalnie {size} załączników na wiadomość; pozostałe zostają tutaj na następną."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Até {size} de anexos por mensagem; o restante fica aqui para a próxima."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не более {size} вложений в сообщении; остальные останутся здесь для следующего."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แนบได้สูงสุด {size} ต่อข้อความ ที่เหลือจะรออยู่ที่นี่สำหรับข้อความถัดไป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mesaj başına en fazla {size} ek; kalanlar bir sonraki mesaj için burada kalır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "До {size} вкладень в одному повідомленні; решта залишиться тут для наступного."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tối đa {size} tệp đính kèm cho mỗi tin nhắn; phần còn lại ở đây cho tin nhắn tiếp theo."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每条消息的附件最多 {size}，其余的会留在这里，随下一条发送。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每則訊息的附件最多 {size}，其餘的會留在這裡，隨下一則傳送。"
+          }
+        }
+      }
+    },
+    "composer.sendRest": {
+      "comment": "Agent pane composer button: after a message took the first of the staged attachments, sends the ones still staged as the next message",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إرسال الباقي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pošalji ostale"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send resten"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rest senden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send the rest"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviar el resto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envoyer le reste"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invia il resto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "残りを送信"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ញើដែលនៅសល់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "나머지 보내기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send resten"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wyślij pozostałe"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviar o restante"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отправить остальные"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ส่งที่เหลือ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kalanları gönder"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Надіслати решту"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gửi phần còn lại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发送其余的"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "傳送其餘的"
           }
         }
       }

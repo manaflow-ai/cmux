@@ -38,18 +38,25 @@ const ATTACHMENT_LABELS = {
   unsupported: "composer.unsupported",
   imagesUnsupported: "composer.imagesUnsupported",
   tooMany: "composer.tooMany",
+  overLimit: "composer.overLimit",
+  overSize: "composer.overSize",
+  sendRest: "composer.sendRest",
   pastedText: "composer.pastedText",
   pastedLines: "transcript.pastedLines",
   editPasted: "composer.pastedText.edit",
 } as const satisfies Record<string, StringKey>;
 
-export function attachmentErrorText(error: AttachmentError, t: Translate): string {
-  return t(ATTACHMENT_LABELS[error.reason], { name: error.name });
+/// A refusal's note; `limit` is the most chips the composer holds (a `tooMany` names it).
+export function attachmentErrorText(error: AttachmentError, t: Translate, limit = MAX_ATTACHMENTS): string {
+  return t(ATTACHMENT_LABELS[error.reason], { name: error.name, count: error.limit ?? limit });
 }
 
 export type AttachmentIntakeOptions = {
   /// The agent takes images (`promptCapabilities.image`); false refuses an image with a note.
   allowImages: boolean;
+  /// The most chips the composer holds; MAX_ATTACHMENTS unset. A chat's holds more than one message
+  /// takes and sends them a message's worth at a time (composer/messageLimit.ts).
+  limit?: number;
   /// Whether a paste on `target` is this composer's: undefined is not; `uploads` false keeps its
   /// files for the next prompt and uploads nothing (a chat's shell mode).
   pasteTarget(target: Node): { uploads: boolean } | undefined;
@@ -151,11 +158,12 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   const [attach] = useState(() => async (files: File[], uploads = false, kind?: DroppedKind) => {
     if (files.length === 0) return;
     const { options: current, t: translate, held } = live.current;
+    const limit = current.limit ?? MAX_ATTACHMENTS;
     const ahead = reading.current;
     const batch = { scope: current.scope };
     // In the paste's or drop's own task, so React draws them before the next frame.
     const shown: PendingAttachment[] = files
-      .slice(0, Math.max(0, MAX_ATTACHMENTS - held - ahead))
+      .slice(0, Math.max(0, limit - held - ahead))
       .map((file) => ({ id: crypto.randomUUID(), name: file.name, image: isImageFile(file), scope: batch.scope }));
     const ids = new Set(shown.map((chip) => chip.id));
     reading.current += files.length;
@@ -172,6 +180,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     try {
       taken = await intakeFiles(files, {
         held: held + ahead,
+        limit,
         allowImages: current.allowImages,
         ...(kind && paths ? { localPaths: (batch: File[]) => paths(kind, batch) } : {}),
         ...(uploads && current.upload ? { upload: current.upload } : {}),
@@ -189,7 +198,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     }
     setAttachments((staged) => appendAttachments(staged, taken.attachments));
     const error = taken.error;
-    setAttachError(error && ("text" in error ? error.text : attachmentErrorText(error, translate)));
+    setAttachError(error && ("text" in error ? error.text : attachmentErrorText(error, translate, limit)));
   });
   useEffect(() => {
     const paste = (event: ClipboardEvent) => {
@@ -277,11 +286,21 @@ function pasteTextInto(event: ClipboardEvent, text: string) {
   target.dispatchEvent(new view.Event("input", { bubbles: true }));
 }
 
+/// What the strip says about one message's limit (composer/messageLimit.ts): past it, which limit and
+/// from which chip on they wait (`sendsNow`); after a message took the first ones, the offer to send
+/// the rest (`sendRest`).
+export type AttachmentLimitNotice = {
+  over?: { count: number } | { size: string };
+  sendsNow?: number;
+  sendRest?(): void;
+};
+
 /// The staged attachments' chips over the prompt, with a refusal's note.
 export function AttachmentStrip({
   attachments,
   pending = [],
   error,
+  limit,
   codex = false,
   onRemove,
   onExpand,
@@ -290,6 +309,7 @@ export function AttachmentStrip({
   /// Files still being read: a placeholder chip each, after the staged ones (PendingAttachment).
   pending?: readonly PendingAttachment[];
   error?: string;
+  limit?: AttachmentLimitNotice;
   codex?: boolean;
   onRemove(id: string): void;
   /// A pasted text chip's click: its text goes back into the prompt (pastedText.ts). Unset, the chip
@@ -303,17 +323,20 @@ export function AttachmentStrip({
   // The drop overlay says what a drag does (composer/DropOverlay.tsx); a note here would grow the
   // composer mid-drag.
   if (attachments.length === 0 && pending.length === 0 && !error) return null;
-  return (
+  const sendsNow = limit?.sendsNow ?? attachments.length;
+  const over = limit?.over;
+  const strip = (
     <fieldset
       ref={edges}
       className="acpmux-attachments"
       aria-label={t(ATTACHMENT_LABELS.attachments)}
       style={{ "--acpmux-md-fade-band": `${FADE_BAND_PX}px` } as React.CSSProperties}
     >
-      {attachments.map((attachment) => (
+      {attachments.map((attachment, index) => (
         <AttachmentChip
           key={attachment.id}
           attachment={attachment}
+          later={index >= sendsNow}
           codex={codex}
           onRemove={onRemove}
           {...(onExpand ? { onExpand } : {})}
@@ -324,6 +347,26 @@ export function AttachmentStrip({
       ))}
       {error && <output className="acpmux-attachment-note">{error}</output>}
     </fieldset>
+  );
+  if (!over && !(limit?.sendRest && attachments.length)) return strip;
+  return (
+    <>
+      {strip}
+      <div className="acpmux-attachment-limit">
+        {over && (
+          <output>
+            {"count" in over
+              ? t(ATTACHMENT_LABELS.overLimit, { limit: over.count })
+              : t(ATTACHMENT_LABELS.overSize, { size: over.size })}
+          </output>
+        )}
+        {limit?.sendRest && attachments.length > 0 && (
+          <button type="button" className="acpmux-attachment-send-rest" onClick={limit.sendRest}>
+            {t(ATTACHMENT_LABELS.sendRest)}
+          </button>
+        )}
+      </div>
+    </>
   );
 }
 
@@ -350,17 +393,21 @@ function PendingChip({ chip }: { chip: PendingAttachment }) {
 
 function AttachmentChip({
   attachment,
+  later = false,
   codex = false,
   onRemove,
   onExpand,
 }: {
   attachment: ComposerAttachment;
+  /// Past what this message takes: it waits for the next one (AttachmentLimitNotice).
+  later?: boolean;
   codex?: boolean;
   onRemove(id: string): void;
   onExpand?(id: string): void;
 }) {
   const t = useT();
   const language = usePaneLanguage();
+  const mark = later ? { "data-later": "" } : {};
   const openImage = useContext(ImageViewerContext);
   const [broken, setBroken] = useState(false);
   const [thumb, setThumb] = useState<{ url: string; width: number; height: number }>();
@@ -433,6 +480,7 @@ function AttachmentChip({
       openImage ? () => openImage(source, name) : undefined,
       <div
         className="acpmux-attachment acpmux-attachment-image"
+        {...mark}
         /* tooltip-allow: an image thumbnail shows no name */ title={name}
       >
         {openImage ? (
@@ -456,7 +504,7 @@ function AttachmentChip({
   if (isImage)
     return menu(
       undefined,
-      <div className="acpmux-attachment acpmux-attachment-image acpmux-attachment-image-failed">
+      <div className="acpmux-attachment acpmux-attachment-image acpmux-attachment-image-failed" {...mark}>
         <ImageIcon size={16} className="acpmux-attachment-failed-icon" />
         <span className="acpmux-attachment-failed-text">{t("image.failed")}</span>
         {remove}
@@ -478,7 +526,7 @@ function AttachmentChip({
     );
     return menu(
       expand,
-      <div className="acpmux-attachment acpmux-attachment-pasted">
+      <div className="acpmux-attachment acpmux-attachment-pasted" {...mark}>
         {expand ? (
           <button
             type="button"
@@ -501,6 +549,7 @@ function AttachmentChip({
     return menu(
       undefined,
       <PdfAttachmentChip
+        later={later}
         attachment={{ ...attachment, kind: "document", data: attachment.data }}
         remove={remove}
         codex={codex}
@@ -514,6 +563,7 @@ function AttachmentChip({
       undefined,
       <div
         className="acpmux-attachment acpmux-attachment-file acpmux-attachment-link"
+        {...mark}
         data-saved={attachment.saved || undefined}
         /* tooltip-allow: the chip shows a file's name; its path is where the agent reads it */ title={attachment.path}
       >
@@ -524,7 +574,7 @@ function AttachmentChip({
     );
   return menu(
     undefined,
-    <div className="acpmux-attachment acpmux-attachment-file">
+    <div className="acpmux-attachment acpmux-attachment-file" {...mark}>
       <span>{attachment.name}</span>
       {remove}
     </div>,
@@ -533,10 +583,12 @@ function AttachmentChip({
 
 function PdfAttachmentChip({
   attachment,
+  later,
   remove,
   codex,
 }: {
   attachment: ComposerAttachment & { kind: "document"; data: string };
+  later: boolean;
   remove: React.ReactNode;
   codex: boolean;
 }) {
@@ -565,7 +617,11 @@ function PdfAttachmentChip({
   const deliveryLabel = codex ? `${pageLabel} · ${t(ATTACHMENT_LABELS.sentAsFileForCodex)}` : pageLabel;
   return (
     <>
-      <div className="acpmux-attachment acpmux-attachment-document" data-page-count={attachment.pageCount ?? undefined}>
+      <div
+        className="acpmux-attachment acpmux-attachment-document"
+        data-later={later ? "" : undefined}
+        data-page-count={attachment.pageCount ?? undefined}
+      >
         <button
           type="button"
           className="acpmux-attachment-document-open"

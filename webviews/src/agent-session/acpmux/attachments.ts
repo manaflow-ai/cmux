@@ -29,7 +29,12 @@ export type ComposerAttachment = {
   saved?: boolean;
 };
 
-export type AttachmentError = { name: string; reason: "tooLarge" | "unsupported" | "imagesUnsupported" | "tooMany" };
+/// `limit`: for `tooMany`, the number it refused past when that is not the composer's own (one upload's).
+export type AttachmentError = {
+  name: string;
+  reason: "tooLarge" | "unsupported" | "imagesUnsupported" | "tooMany";
+  limit?: number;
+};
 /// A refusal with the file it refuses, so a caller can send that file another way (a chat's upload).
 export type RefusedFile = AttachmentError & { file: File; unreadable?: boolean };
 
@@ -55,6 +60,8 @@ export const IMAGE_BUDGET_BYTES = 1536 * 1024;
 export const MAX_DOCUMENT_BYTES = 10 * 1024 * 1024;
 /** A text file this large is already a lot of prompt. */
 export const MAX_TEXT_BYTES = 256 * 1024;
+/// The chips a composer holds unless it says otherwise (New Tab); a chat's composer holds more and
+/// sends them a message's worth at a time (composer/messageLimit.ts).
 export const MAX_ATTACHMENTS = 10;
 const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 /// Pictures the models do not take as they are (an iPhone's HEIC, TIFF, BMP, AVIF) but the engine
@@ -74,16 +81,17 @@ function isPdf(file: File): boolean {
   return file.type === "application/pdf" || /\.pdf$/i.test(file.name);
 }
 
-/// Reads `files` for a composer that already holds `held` attachments.
+/// Reads `files` for a composer that already holds `held` attachments of the `limit` it holds.
 export async function readAttachments(
   files: File[],
   held: number,
   allowImages: boolean,
+  limit = MAX_ATTACHMENTS,
 ): Promise<{ attachments: ComposerAttachment[]; errors: RefusedFile[] }> {
   const attachments: ComposerAttachment[] = [];
   const errors: RefusedFile[] = [];
   for (const file of files) {
-    if (held + attachments.length >= MAX_ATTACHMENTS) {
+    if (held + attachments.length >= limit) {
       errors.push({ name: file.name, reason: "tooMany", file });
       continue;
     }
