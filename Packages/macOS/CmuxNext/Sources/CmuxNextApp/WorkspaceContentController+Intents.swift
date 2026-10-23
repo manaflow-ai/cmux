@@ -66,14 +66,8 @@ extension WorkspaceContentController {
             return
         case .dropTab(let tabID, let target):
             drop(tabID, on: target)
-        case .newColumn(let after, let width):
-            guard let handle = handles.panes[after] else { return }
-            let cwd = panes[after]?.selectedTab?.cwd
-            let key = workspace.key
-            let request = layoutModel.prepareNewColumn(nextTo: after)
-            spawnPane("new-pane-right", then: { [layoutModel] in layoutModel.commitNewColumnResize(request) }) {
-                try await $0.newColumn(rightOf: handle, width: width, options: SpawnOptions(cwd: cwd, workspace: key))
-            }
+        case .newColumn(let after, _):
+            newColumn(after: after, options: SpawnOptions(cwd: panes[after]?.selectedTab?.cwd, workspace: workspace.key))
         case .split(let pane, let axis):
             guard let handle = handles.panes[pane], let model = daemon.store.pane(handle) else { return }
             let cwd = panes[pane]?.selectedTab?.cwd
@@ -96,11 +90,57 @@ extension WorkspaceContentController {
 
     /// A new terminal column right of `after`, its shell spawned with `options` (a person's new
     /// terminal from Home's pinned dock alone, `ChatColumnPlacement.openBesideDock`).
+    ///
+    /// On a daemon with client keys the column shows, focused, in this turn (instant-new-surfaces,
+    /// as Cmd-D's split): a provisional pane in a provisional column at the planned width, with the
+    /// width changes it brings, laid out and mounted before the key's frame; the daemon's pane
+    /// takes it over under the same public id. Otherwise it waits for the reply.
     func newColumn(after: LayoutPaneID, options: SpawnOptions) {
         guard let handle = handles.panes[after] else { return }
         let request = layoutModel.prepareNewColumn(nextTo: after)
-        spawnPane("new-pane-right", then: { [layoutModel] in layoutModel.commitNewColumnResize(request) }) {
-            try await $0.newColumn(rightOf: handle, width: request.width, options: options)
+        let command = NewColumnCommand(pane: handle, width: request.width, options: options)
+        guard command.isOptimistic(on: daemon) else {
+            spawnPane("new-pane-right", then: { [layoutModel] in layoutModel.commitNewColumnResize(request) }) { connection in
+                try await connection.newColumn(rightOf: handle, width: request.width, options: options)
+            }
+            return
+        }
+        var widths: [DaemonColumnID: Double] = [:]
+        var treeWidth: Double?
+        let columns = daemon.store.screen(containing: handle)?.columns ?? []
+        for change in request.widthChanges {
+            guard let pane = change.panes.lazy.compactMap({ self.handles.panes[$0] }).first else { continue }
+            if let column = columns.first(where: { $0.layout.paneIDs.contains(pane) }) {
+                widths[column.id] = change.width
+            } else if columns.isEmpty {
+                treeWidth = change.width
+            }
+        }
+        let provisional = ProvisionalPane(columnWidth: request.width, widths: widths, treeWidth: treeWidth)
+        let intent = beginFocusIntent()
+        focus.expect(.tab(provisional.tabID), generation: intent)
+        let window = layoutView.window
+        let keyRouter = services.keyRouter
+        let keys = keyRouter.creationInputCoordinator.begin(in: window, generation: intent,
+                                                            earlyTab: daemon.queuesCreatingInput ? provisional.tabID : nil,
+                                                            tab: provisional.tabID)
+        // In the store now; laid out and mounted in this turn, so it draws in the key's frame.
+        let send = BenchSpans.measure("newColumn.intend") { command.intendNow(on: daemon, provisional: provisional) }
+        BenchSpans.measure("newColumn.layout") { applyCurrent() }
+        let logger = daemon.logger
+        // [services, state]: the task pins this controller's owners until it ends (cx-6so P1b).
+        Task { [services, state, layoutModel] in
+            var landed = false
+            defer { keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window) }
+            do {
+                _ = try await send()
+                BenchSpans.mark("newColumn.reply.optimistic")
+                landed = true
+                layoutModel.commitNewColumnResize(request)
+            } catch {
+                logger.error("new-pane-right failed: \(String(describing: error), privacy: .public)")
+            }
+            withExtendedLifetime((services, state)) {}
         }
     }
 
