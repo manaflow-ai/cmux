@@ -31,7 +31,6 @@ def prepare(m, sim_names):
     if not os.path.exists(stamp):
         p = m.info
         res = os.path.join(m.app, "Contents/Resources")
-        pb(p, f"Set :LSEnvironment:CMUX_SHELL_INTEGRATION_DIR {res}/shell-integration")
         pb(p, f"Set :LSEnvironment:CMUX_BUNDLED_CLI_PATH {res}/bin/cmux")
         pb(p, f"Set :LSEnvironment:CMUXD_UNIX_PATH {os.path.expanduser('~')}/Library/Application Support/cmux/cmuxd-dev-{m.tag}.sock")
         for k in ("LSEnvironment:CMUXTERM_REPO_ROOT", "SUFeedURL", "SUPublicEDKey"):

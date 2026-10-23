@@ -330,9 +330,7 @@ class ThisTree(unittest.TestCase):
             "tests/test_remote_daemon_notices.py",
             "tests/test_remote_daemon_release_assets.py",
             "tests/test_remote_daemon_release_verification.py",
-            "tests/test_shell_claude_rereports_pwd.py",
             "tests/test_socket_control_schema.py",
-            "tests/test_zsh_git_head_watch_no_fork.py",
         )
         for test in in_tooling_tests + in_area_jobs:
             with self.subTest(test=test):
