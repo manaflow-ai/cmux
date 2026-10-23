@@ -213,6 +213,37 @@ await requireBrowserLane("transcript-gutter-select-browser.test.ts", async () =>
       });
     }
 
+    test(`${name}: a selection whose end moves to another message (Shift-click) is kept when the old end row goes`, async () => {
+      const page = await open(name);
+      const first = await box(page, "m1");
+      const second = await box(page, "m2");
+      await drag(page, { x: first.left / 2, y: first.top + 4 }, { x: second.left + 300, y: second.top + 4 });
+      expect(await selected(page)).toContain("Bravo");
+      // The end moves into the third message, as a Shift-click there does.
+      await page.evaluate(() => {
+        const text = document.querySelector('.acpmux-row[data-row-id="m3"] .cv-md')!;
+        const walker = document.createTreeWalker(text, NodeFilter.SHOW_TEXT);
+        const node = walker.nextNode()!;
+        window.getSelection()!.extend(node, 7);
+      });
+      await page.evaluate(async () => {
+        for (let left = 2; left > 0; left--) await window.cmuxPaintFrame();
+      });
+      expect(await selected(page)).toContain("Charlie");
+      // The second message goes: the selection the reader made from the first into the third stays.
+      await page.evaluate(
+        (shown) => (window as unknown as { __showRows(rows: unknown): void }).__showRows(shown),
+        rows.filter((each) => each.id !== "m2"),
+      );
+      await page.evaluate(async () => {
+        for (let left = 3; left > 0; left--) await window.cmuxPaintFrame();
+      });
+      const text = await selected(page);
+      expect(text.startsWith("Alpha keeper.")).toBe(true);
+      expect(text).toContain("Charlie");
+      await page.close();
+    });
+
     test(`${name}: a drag that stays in the left margin selects whole lines up to the line beside the pointer`, async () => {
       const page = await open(name);
       const first = await box(page, "m1");

@@ -209,7 +209,19 @@ export function installGutterSelect(
     if (clearIfRowGone()) return;
     const selection = doc.getSelection();
     const anchor = selection?.anchorNode;
-    if (!held || !selection || selection.isCollapsed || !anchor || !held.row.contains(anchor)) release();
+    // The selection was cleared, or moved off the rows the drag left it in (a Shift-click moved its
+    // end elsewhere): it is the reader's own now, and the rows go back to being virtualized as for
+    // any other selection.
+    const focus = selection?.focusNode;
+    if (
+      !held ||
+      !selection ||
+      selection.isCollapsed ||
+      !anchor ||
+      !held.row.contains(anchor) ||
+      (held.focus && (!focus || !held.focus.contains(focus)))
+    )
+      release();
   }
   /// Ends the drag. A selection it made keeps its end rows mounted until it lets go (`release`).
   const stop = () => {
