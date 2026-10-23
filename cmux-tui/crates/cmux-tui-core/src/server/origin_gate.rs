@@ -364,11 +364,63 @@ pub(super) fn set_hello(
 /// Records kernel peer identity at accept, before a legacy client can skip hello.
 pub(super) fn set_peer_identity_at_accept(mux: &Mux, client: u64, peer_key: Option<String>) {
     let local_peer = classify_local_peer(mux, peer_key.as_deref(), peer_session_id);
+    let mobile_host = peer_key.as_deref().and_then(peer_pid).is_some_and(is_bundled_mobile_host);
     let mut state = mux.control_clients.state.lock().recover_poison();
     if let Some(record) = state.clients.get_mut(&client) {
         record.origin.peer_key = peer_key;
         record.origin.local_peer = local_peer;
+        record.origin.mobile_host = mobile_host;
     }
+}
+
+/// Name of the phone host beside the daemon's executable
+/// (`Contents/Resources/bin/cmux-mobile-host` next to `.../bin/cmux-tui`).
+const MOBILE_HOST_NAME: &str = "cmux-mobile-host";
+
+/// Whether live process `pid` runs this build's bundled `cmux-mobile-host`:
+/// its executable, by real path, is the regular file of that name beside the
+/// daemon's own (canonical) executable. Read while the accepted peer is
+/// live, like the terminal ancestry; any lookup failure is false.
+fn is_bundled_mobile_host(pid: u32) -> bool {
+    static SIBLING: OnceLock<Option<PathBuf>> = OnceLock::new();
+    let sibling = SIBLING.get_or_init(|| {
+        let own = std::fs::canonicalize(std::env::current_exe().ok()?).ok()?;
+        let sibling = std::fs::canonicalize(own.parent()?.join(MOBILE_HOST_NAME)).ok()?;
+        std::fs::metadata(&sibling).ok()?.is_file().then_some(sibling)
+    });
+    let Some(sibling) = sibling else { return false };
+    process_executable(pid)
+        .and_then(|path| std::fs::canonicalize(path).ok())
+        .is_some_and(|path| &path == sibling)
+}
+
+#[cfg(target_os = "macos")]
+fn process_executable(pid: u32) -> Option<PathBuf> {
+    let pid = libc::c_int::try_from(pid).ok()?;
+    let mut path = [0u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
+    // SAFETY: proc_pidpath writes at most `path.len()` bytes and returns the
+    // written byte count (0 on failure).
+    let written = unsafe { libc::proc_pidpath(pid, path.as_mut_ptr().cast(), path.len() as u32) };
+    let written = usize::try_from(written).ok().filter(|written| *written > 0)?;
+    let path = std::str::from_utf8(&path[..written]).ok()?;
+    Some(PathBuf::from(path))
+}
+
+#[cfg(target_os = "linux")]
+fn process_executable(pid: u32) -> Option<PathBuf> {
+    std::fs::read_link(format!("/proc/{pid}/exe")).ok()
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn process_executable(_pid: u32) -> Option<PathBuf> {
+    None
+}
+
+/// Whether `client` is a phone's lane spliced by this build's
+/// cmux-mobile-host (fixed at accept; a client with no record is not).
+pub(super) fn is_mobile_host_lane(mux: &Mux, client: u64) -> bool {
+    let state = mux.control_clients.state.lock().recover_poison();
+    state.clients.get(&client).is_some_and(|record| record.origin.mobile_host)
 }
 
 /// The page a WebSocket connection serves, from its handshake Origin
@@ -546,6 +598,11 @@ mod test_hooks {
         verified: bool,
     ) {
         with_origin(mux, client, |origin| origin.verified_app = verified);
+    }
+
+    /// What accept sets for a connection from the bundled cmux-mobile-host.
+    pub(in crate::server) fn set_mobile_host_peer_for_test(mux: &Arc<Mux>, client: u64) {
+        with_origin(mux, client, |origin| origin.mobile_host = true);
     }
 
     pub(in crate::server) fn set_peer_key_for_test(mux: &Arc<Mux>, client: u64, peer_key: &str) {
