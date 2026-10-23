@@ -13,11 +13,13 @@ import Testing
     final class FakeFork {
         var contextID: UInt32 = 7
         private(set) var calls: [(browser: Int32, enabled: Bool)] = []
+        /// `cmux_browser_set_resize_sync` calls (fork API 27).
+        private(set) var syncs: [(browser: Int32, timeoutMs: Int32)] = []
         var fork: CEFLayerHosting.Fork {
-            CEFLayerHosting.Fork { [self] browser, enabled in
+            CEFLayerHosting.Fork(setLayerHosting: { [self] browser, enabled in
                 calls.append((browser, enabled))
                 return enabled ? contextID : 0
-            }
+            }, setResizeSync: { [self] browser, timeout in syncs.append((browser, timeout)) })
         }
     }
 
@@ -207,5 +209,28 @@ import Testing
         #expect(page.contextID == 5)
         #expect(page.host(contextID: 0))
         #expect(page.contextID == 0)
+    }
+
+    /// Resize sync (fork API 27): a hosted page holds the window's commit for its frame at a new
+    /// size up to the deadline, so it resizes in its pane's frame; a page back in its own window
+    /// never holds it (Chromium's 500 ms wait made every page resize stall a cmux frame).
+    @Test func aHostedPageWaitsForItsResizeFrameAndAnUnhostedOneNever() {
+        var enabled = true
+        let hosting = makeHosting(enabled: { enabled })
+        hosting.pageWindowCreated(browser: 3, fork: fake.fork)
+        turn.end()
+        #expect(fake.syncs.map { $0.browser } == [3])
+        #expect(fake.syncs.first.map { $0.timeoutMs > 0 } == true)
+        enabled = false
+        hosting.pageShown(browser: 3)
+        #expect(fake.syncs.last.map { $0.timeoutMs } == 0)
+    }
+
+    @Test func aRefusedPageNeverAsksToHoldTheCommit() {
+        let hosting = makeHosting()
+        fake.contextID = 0
+        hosting.pageWindowCreated(browser: 3, fork: fake.fork)
+        turn.end()
+        #expect(fake.syncs.isEmpty)
     }
 }

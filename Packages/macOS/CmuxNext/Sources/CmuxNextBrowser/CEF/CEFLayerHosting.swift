@@ -25,9 +25,16 @@ final class CEFLayerHosting {
         /// `cmux_shim_browser_set_layer_hosting`: the page window's context
         /// id (> 0) for `enabled`, 0 when off or refused.
         let setLayerHosting: (_ browser: Int32, _ enabled: Bool) -> UInt32
+        /// `cmux_shim_browser_set_resize_sync` (fork API 27): how long a
+        /// resize of the page window may hold this window's commit for
+        /// Chromium's frame at the new size, in ms; 0 never holds it. Nil
+        /// below API 27, where Chromium holds it up to 500 ms on every resize.
+        let setResizeSync: ((_ browser: Int32, _ timeoutMs: Int32) -> Void)?
 
-        init(setLayerHosting: @escaping (_ browser: Int32, _ enabled: Bool) -> UInt32) {
+        init(setLayerHosting: @escaping (_ browser: Int32, _ enabled: Bool) -> UInt32,
+             setResizeSync: ((_ browser: Int32, _ timeoutMs: Int32) -> Void)? = nil) {
             self.setLayerHosting = setLayerHosting
+            self.setResizeSync = setResizeSync
         }
 
         /// The shim's call; nil without a shim or below fork API 26, where
@@ -35,6 +42,8 @@ final class CEFLayerHosting {
         init?(shim: CEFShimLibrary?, apiVersion: Int32) {
             guard let shim, apiVersion >= CEFLayerHosting.forkAPI else { return nil }
             setLayerHosting = { browser, enabled in shim.browserSetLayerHosting(browser, enabled ? 1 : 0) }
+            setResizeSync = apiVersion >= CEFLayerHosting.resizeSyncForkAPI
+                ? { browser, timeout in _ = shim.browserSetResizeSync(browser, timeout) } : nil
         }
     }
 
@@ -49,6 +58,8 @@ final class CEFLayerHosting {
 
     /// The first fork API with `cmux_browser_set_layer_hosting`.
     static let forkAPI: Int32 = 26
+    /// The first fork API with `cmux_browser_set_resize_sync`.
+    static let resizeSyncForkAPI: Int32 = 27
 
     weak var view: NSView?
     /// The page's pixels in this window's layer tree; nil while the page
@@ -66,6 +77,7 @@ final class CEFLayerHosting {
     private let isEnabled: () -> Bool
     private let schedule: Scheduler
     private let makePage: (CGRect) -> CEFHostedPageView
+    private let resizeDeadlineMs: () -> Int32
 
     /// Runs a block later on the main actor.
     typealias Scheduler = (_ block: @escaping @MainActor @Sendable () -> Void) -> Void
@@ -76,8 +88,10 @@ final class CEFLayerHosting {
     ///   - makePage: the hosted view for a frame; tests pass one whose layer host fails.
     init(isEnabled: @escaping () -> Bool = { BrowserResizeTunables.layerHosting.value },
          schedule: @escaping Scheduler = { CEFLayerHosting.atEndOfTurn($0) },
-         makePage: @escaping (CGRect) -> CEFHostedPageView = { CEFHostedPageView(frame: $0) }) {
+         makePage: @escaping (CGRect) -> CEFHostedPageView = { CEFHostedPageView(frame: $0) },
+         resizeDeadlineMs: @escaping () -> Int32 = { Int32(BrowserResizeTunables.syncDeadlineMs.value.rounded()) }) {
         self.isEnabled = isEnabled
+        self.resizeDeadlineMs = resizeDeadlineMs
         self.schedule = schedule
         self.makePage = makePage
     }
@@ -113,6 +127,7 @@ final class CEFLayerHosting {
             pending = .none
             forkCalls += 1
             _ = fork.setLayerHosting(browser, false)
+            fork.setResizeSync?(browser, 0)
             dropPage()
         }
     }
@@ -131,6 +146,7 @@ final class CEFLayerHosting {
         if page != nil, let fork, let browser {
             forkCalls += 1
             _ = fork.setLayerHosting(browser, false)
+            fork.setResizeSync?(browser, 0)
         }
         dropPage()
         browser = nil
@@ -152,7 +168,11 @@ final class CEFLayerHosting {
         let id = fork.setLayerHosting(browser, true)
         if id != 0 {
             let page = self.page ?? addPage(to: view)
-            if page.host(contextID: id) { return }
+            if page.host(contextID: id) {
+                // The page's frame at a new size commits with the pane's only while hosted.
+                fork.setResizeSync?(browser, resizeDeadlineMs())
+                return
+            }
             // No CALayerHost to show the context: the page window would stay
             // see-through over a blank view, so give the page its pixels back.
             forkCalls += 1

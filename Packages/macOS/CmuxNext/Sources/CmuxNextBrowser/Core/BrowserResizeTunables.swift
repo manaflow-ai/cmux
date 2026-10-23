@@ -26,5 +26,14 @@ public nonisolated struct BrowserResizeTunables {
         help: "A Chromium page draws inside the cmux window's own layer tree, so it moves, clips and shows with the panes in one frame. Its page window stays on top only to take input. Needs Chromium fork API 26; applies when a page is shown next.",
         default: false, code: "BrowserResizeTunables.layerHosting")
 
-    public static var all: [TunableDescriptor] { [pageBackdrop.descriptor, layerHosting.descriptor] }
+    /// While a page is layer hosted (`layerHosting`), how long a resize of
+    /// its pane may hold the window's frame for Chromium's frame at the new
+    /// size (fork API 27), so the page resizes in the same frame as the pane.
+    /// 0: never wait (the page shows its last frame until the new one comes).
+    public static let syncDeadlineMs = Tunable<Double>.number(
+        "browserResize.syncDeadlineMs", section, "Hosted page resize wait",
+        help: "How long a pane resize waits for a layer-hosted Chromium page to draw at the new size, so the page and the pane change in the same frame. 0 never waits.",
+        default: 8, range: 0...100, step: 1, unit: .milliseconds, code: "BrowserResizeTunables.syncDeadlineMs")
+
+    public static var all: [TunableDescriptor] { [pageBackdrop.descriptor, layerHosting.descriptor, syncDeadlineMs.descriptor] }
 }
