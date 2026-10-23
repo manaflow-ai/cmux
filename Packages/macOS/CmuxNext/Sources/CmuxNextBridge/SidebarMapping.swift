@@ -181,6 +181,10 @@ public struct SidebarMapping {
         row.lastMessage = lastMessage(front, tabs)
         if showsUnread { row.notificationText = newestUnread(tabs).flatMap(notificationText) }
         row.reported = Self.reported(workspace.status, asset: iconAsset)
+        if tabs.contains(where: { $0.agentSession?.session.map(AgentBypassSessions.shared.contains) == true }) {
+            let reported = row.reported ?? SidebarWorkspaceStatus()
+            row.reported = SidebarWorkspaceStatus(entries: [.bypass] + reported.entries, log: reported.log, progressLabel: reported.progressLabel)
+        }
         row.workspaceDescription = workspace.workspaceDescription
         row.taskStatus = workspace.taskStatus.map(Self.taskStatus)
         row.checklist = workspace.checklist.map(Self.checklistItem)
@@ -345,7 +349,8 @@ public struct SidebarMapping {
     static func reported(_ status: WorkspaceStatus?, asset: (String) -> SidebarFavicon? = { _ in nil }) -> SidebarWorkspaceStatus? {
         guard let status else { return nil }
         let block = SidebarWorkspaceStatus(
-            entries: status.entries.filter { $0.key != portsKey && $0.key != pullRequestKey }.map {
+            // The bypass key is the app's own warning: no reporter shows it or hides it.
+            entries: status.entries.filter { ![portsKey, pullRequestKey, SidebarWorkspaceStatus.Entry.bypassKey].contains($0.key) }.map {
                 SidebarWorkspaceStatus.Entry(key: $0.key, text: $0.text, icon: $0.icon, tint: SidebarWorkspaceStatus.Tint($0.color), state: $0.state,
                                              image: $0.icon.flatMap(asset))
             },

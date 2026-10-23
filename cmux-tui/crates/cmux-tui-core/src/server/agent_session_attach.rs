@@ -15,6 +15,8 @@ use std::time::Duration;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+#[path = "agent_session_adopt.rs"]
+mod agent_session_adopt;
 #[path = "agent_session_children.rs"]
 pub(super) mod agent_session_children;
 #[path = "agent_session_link.rs"]
@@ -30,6 +32,7 @@ mod inventory_socket;
 use super::{MessageWriter, OutboundStream, Response, SurfaceId, send_response};
 use crate::mux::Mux;
 use crate::state::conversation_tabs_store::ConversationTabRecord;
+pub use agent_session_adopt::AGENT_SESSION_ADOPT_CAPABILITY;
 use agent_session_link::{AcpmuxLink, Inbound, LinkError};
 pub use agent_session_start::{
     AGENT_SESSION_START_CAPABILITY, AGENT_SESSION_START_KEYED_REASON_CAPABILITY, AcpmuxStarter,
@@ -164,6 +167,12 @@ struct Attachment {
     permissions: Mutex<VecDeque<String>>,
     /// Prompt ids waiting for `_acpmux/prompt_accepted`, with their reply slot.
     prompts: Mutex<HashMap<String, std::sync::mpsc::SyncSender<Value>>>,
+    /// The attach asked for `agent-session-mode` pushes (`mode_events`).
+    mode_events: bool,
+    /// A mode read runs on a worker thread, and whether another change came
+    /// since it began (it reads again): one reader at a time, in order.
+    mode_reading: AtomicBool,
+    mode_again: AtomicBool,
     /// The session's descendants this attachment follows
     /// (`agent-session-children-v1`): their changes are streamed too.
     children: Mutex<HashSet<String>>,
@@ -237,6 +246,11 @@ struct PageParams {
     limit: Option<u64>,
     #[serde(default)]
     kinds: Option<Vec<String>>,
+    /// Attach only: the attachment also pushes `agent-session-mode` when the
+    /// chat's mode changes (an app that reads it asks; any other client would
+    /// not know the event).
+    #[serde(default)]
+    mode_events: bool,
 }
 
 enum AgentSessionCommand {
@@ -335,6 +349,8 @@ pub(crate) enum Refusal {
     UnknownPermission,
     /// `agent-session-start`: the tab already has a session.
     Bound,
+    /// `agent-session-adopt`: this machine's acpmux lists no such chat of its own.
+    UnknownSession,
     /// `agent-session-start`: acpmux is not running and could not be started.
     AcpmuxUnavailable,
     /// `agent-session-start`: the agent has no mode that asks before acting.
@@ -369,6 +385,7 @@ impl Refusal {
             Self::Refused => "agent_session.refused",
             Self::UnknownPermission => "agent_session.unknown_permission",
             Self::Bound => "agent_session.bound",
+            Self::UnknownSession => "agent_session.unknown_session",
             Self::AcpmuxUnavailable => "agent_session.acpmux_unavailable",
             Self::NotAsking => "agent_session.not_asking",
             Self::UntrustedFolder => "agent_session.untrusted_folder",
@@ -394,6 +411,7 @@ impl Refusal {
             Self::Refused => "acpmux refused the request",
             Self::UnknownPermission => "no such pending permission request on this attachment",
             Self::Bound => "the agent tab already has a session",
+            Self::UnknownSession => "this machine runs no such chat of its own",
             Self::AcpmuxUnavailable => {
                 "acpmux is not running on this machine and could not be started"
             }
@@ -456,6 +474,12 @@ pub(super) fn try_handle(
     if cmd == "agent-session-trust" {
         return Some(trust(mux, client, id, object, writer));
     }
+    if cmd == "agent-session-adopt" {
+        return Some(adopt(mux, client, id, object, writer));
+    }
+    if cmd == "agent-session-mode" {
+        return Some(mode(mux, client, id, object, writer));
+    }
     let Some(command) = AgentSessionCommand::parse(&cmd, Value::Object(object)) else {
         return Some(refuse(writer, id, Refusal::BadRequest));
     };
@@ -506,6 +530,46 @@ fn start(
         return refuse(writer, id, Refusal::Unavailable);
     };
     agent_session_start::start(mux, client, id, socket, params, writer)
+}
+
+/// `agent-session-adopt` (agent_session_adopt.rs), with the same checks.
+fn adopt(
+    mux: &Arc<Mux>,
+    client: u64,
+    id: Option<Value>,
+    params: serde_json::Map<String, Value>,
+    writer: &MessageWriter,
+) -> bool {
+    let Ok(params) = serde_json::from_value(Value::Object(params)) else {
+        return refuse(writer, id, Refusal::BadRequest);
+    };
+    if !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {
+        return refuse(writer, id, Refusal::NotTrusted);
+    }
+    let Some(socket) = mux.control_clients.agent_sessions.socket() else {
+        return refuse(writer, id, Refusal::Unavailable);
+    };
+    agent_session_adopt::adopt(mux, client, id, socket, params, writer)
+}
+
+/// `agent-session-mode` (agent_session_adopt.rs), with the attach verbs' checks.
+fn mode(
+    mux: &Arc<Mux>,
+    client: u64,
+    id: Option<Value>,
+    params: serde_json::Map<String, Value>,
+    writer: &MessageWriter,
+) -> bool {
+    let Ok(params) = serde_json::from_value(Value::Object(params)) else {
+        return refuse(writer, id, Refusal::BadRequest);
+    };
+    if !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {
+        return refuse(writer, id, Refusal::NotTrusted);
+    }
+    let Some(socket) = mux.control_clients.agent_sessions.socket() else {
+        return refuse(writer, id, Refusal::Unavailable);
+    };
+    agent_session_adopt::mode(mux, id, socket, params, writer)
 }
 
 /// `agent-session-trust` (agent_session_trust.rs), with the same checks.
@@ -627,6 +691,7 @@ fn attach(
     let worker_writer = writer.clone();
     let worker_id = id.clone();
     let surface = params.surface;
+    let mode_events = params.mode_events;
     let spawned = std::thread::Builder::new()
         .name("mux-agent-attach".into())
         .stack_size(THREAD_STACK_BYTES)
@@ -640,6 +705,7 @@ fn attach(
                 record_session,
                 acpmux_params,
                 read_only,
+                mode_events,
                 worker_writer,
             );
         });
