@@ -1181,6 +1181,32 @@ def bisect_step(state, cur, part_rows, regs):
     return verdict, f"{verdict} ({', '.join(sorted(regressed)[:6]) or 'every row within its threshold'}); {where}"
 
 
+def rebase_faster_rows(state, part_rows, skipped, refresh_ms, t):
+    """Take each refresh-skipped row measured at a faster known refresh than its last good value (or against an
+    unknown one) as its new reference: last_good's row and its history restart from this value. Returns the rebased
+    names. A slower refresh (a VDISPLAY-FALLBACK run on a 60 Hz panel after 120 Hz runs) rebases nothing: that row
+    stays not judged. Without this, a frame row regressed at 60 Hz stays open forever once the 120 Hz display
+    works, and every later measurement is incomplete."""
+    good = state.get("last_good") or {}
+    rows = dict(good.get("rows") or {})
+    hist = state.setdefault("row_history", {})
+    rebased = []
+    for name in sorted(skipped):
+        r = part_rows.get(name)
+        if r is None or r.get("p95") is None:
+            continue
+        now = row_refresh(r, refresh_ms)
+        then = row_refresh(rows.get(name) or {}, good.get("refresh_ms"))
+        if not now or (then and now >= then):
+            continue
+        rows[name] = r
+        hist[name] = [{"at": iso(t), "p95": r["p95"]}]
+        rebased.append(name)
+    if rebased:
+        state["last_good"] = {**good, "rows": rows}
+    return rebased
+
+
 def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_mod):
     """Fold a finished measurement into the state. Returns the issue event: 'regressed', 'still', 'recovered',
     'narrowed' or 'skipped' (a bisect step), 'first', 'good', 'partial' (no measured row regressed, but a planned
@@ -1217,6 +1243,21 @@ def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_m
               "run_url": run_url, "failed_parts": failed,
               "refresh_skipped": sorted(skipped)}
     row_ok = state.setdefault("row_ok", {})
+    if good:
+        rebased = rebase_faster_rows(state, part_rows, skipped, refresh_ms, t)
+        if rebased:
+            # The row's reference is now this run's value: an open regression of it (measured at the old, slower
+            # refresh) can never be judged again, so it closes here instead of staying open with the stale clock
+            # running; a row that regresses at the new refresh opens again against the new reference.
+            record["refresh_rebased"] = rebased
+            row_ok.update({name: cur["sha"] for name in rebased})
+            entry["rebased"] = rebased
+            closed = sorted(n for n in rebased if any(r.get("name") == n for r in state.get("regressions") or []))
+            if closed:
+                entry["rebased_note"] = (f"rebased on a faster display refresh, not judged: {', '.join(closed[:6])}"
+                                         + (f" and {len(closed) - 6} more" if len(closed) > 6 else ""))
+            skipped = skipped - set(rebased)
+            judged = {**judged, **{n: part_rows[n] for n in rebased}}
     if not good:
         state["last_good"] = record
         remember_good(state, part_rows, refresh_ms, t)
@@ -1265,17 +1306,12 @@ def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_m
     if regressions:
         entry["status"] = "regressed"
         return "still" if old else "regressed"
-    # A frame row from another display refresh replaces its last good value only when it ran faster: a 60 Hz
-    # fallback run never rebases a 120 Hz baseline, and the first 120 Hz run rebases a 60 Hz one.
-    merged = dict(good.get("rows") or {})
-    accepted = {}
-    for name, r in part_rows.items():
-        prev = merged.get(name) or {}
-        if name in skipped and (row_refresh(r, refresh_ms) or 1e9) >= (row_refresh(prev, good.get("refresh_ms")) or 1e9):
-            continue
-        if name in skipped:
-            state.setdefault("row_history", {}).pop(name, None)  # a faster display rebases the row: old values go
-        merged[name] = accepted[name] = r
+    # A frame row from another display refresh is not merged here: rebase_faster_rows already took it when it ran
+    # faster (a 60 Hz fallback run never rebases a 120 Hz baseline, and the first 120 Hz run rebases a 60 Hz one).
+    rebased = set(record.get("refresh_rebased") or [])
+    merged = dict(state["last_good"].get("rows") or {})
+    accepted = {n: r for n, r in part_rows.items() if n not in skipped and n not in rebased}
+    merged.update(accepted)
     remember_good(state, accepted, refresh_ms, t, good)
     state["last_good"] = {**record, "rows": merged}
     entry["status"] = "good"
@@ -1722,12 +1758,14 @@ def cmd_report(o):
         fleet_ran = any(p.get("state") == "done" and not is_linux_part(n) for n, p in cur["parts"].items())
         host = BENCH_WORKER if fleet_ran else "a GitHub Linux runner (no Mac part ran)"
         event = finish_measurement(state, rows, refresh_ms, host, o.run_url, t, mod)
+        rebased_note = (state.get("history") or [{}])[-1].get("rebased_note") or ""
         clear_parts(o.dir)
         regs = state.get("regressions") or []
         note = (state.get("history") or [{}])[-1].get("note") or ""
         summary = {"first": f"first measurement {sha[:12]} ({len(rows)} rows) is the baseline",
                    "good": f"{sha[:12]}: no row regressed ({len(rows)} rows)",
-                   "recovered": f"{sha[:12]}: every row is back within its threshold ({len(rows)} rows)",
+                   "recovered": f"{sha[:12]}: every row is back within its threshold ({len(rows)} rows)"
+                                + (f"; {rebased_note}" if rebased_note else ""),
                    "regressed": f"{sha[:12]}: {len(regs)} row(s) regressed: " + ", ".join(r["name"] for r in regs[:8]),
                    "still": f"{sha[:12]}: still regressed, {len(regs)} row(s): " + ", ".join(r["name"] for r in regs[:8])
                             + (f"; {note}" if note else ""),

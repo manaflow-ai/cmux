@@ -970,5 +970,38 @@ class Review2Tests(unittest.TestCase):
         self.assertEqual(state["history"][-1]["status"], "abandoned")
 
 
+class RefreshRebaseTests(unittest.TestCase):
+    """A frame row regressed at one refresh, then measured only at another (the 120 Hz virtual display starts to
+    work, or falls back to the panel)."""
+
+    def setUp(self):
+        self.state = cron.empty_state(T0)
+
+    def measured(self, sha, frame, refresh, hours):
+        rows = {"panes.x.frame": {**row(frame), "refresh_ms": refresh}, "t.e2e": {**row(5.0), "refresh_ms": refresh}}
+        self.state["current"] = cron.new_measurement(sha, "tip", [], at(hours))
+        self.state["current"]["parts"] = {"motion": {"state": "done"}}
+        return cron.finish_measurement(self.state, rows, refresh, "bench", "u", at(hours), budgets_mod)
+
+    def test_a_faster_refresh_rebases_a_regressed_frame_row_instead_of_holding_it_open_forever(self):
+        self.assertEqual(self.measured("a" * 40, 16.7, 16.67, 0), "first")
+        self.assertEqual(self.measured("b" * 40, 30.0, 16.67, 1), "regressed")
+        self.assertEqual(self.measured("c" * 40, 8.4, 8.33, 2), "recovered")
+        self.assertEqual(self.state["regressions"], [])
+        self.assertEqual(self.state["last"]["sha"], "c" * 40, "the stale clock resets")
+        self.assertIn("panes.x.frame", self.state["history"][-1]["rebased_note"])
+        self.assertEqual(self.state["last_good"]["rows"]["panes.x.frame"]["p95"], 8.4)
+        self.assertEqual(self.measured("d" * 40, 8.4, 8.33, 3), "good")
+        self.assertEqual(self.measured("e" * 40, 12.0, 8.33, 4), "regressed", "a regression at the new refresh opens")
+
+    def test_a_slower_fallback_refresh_keeps_the_regression_open_and_rebases_nothing(self):
+        self.assertEqual(self.measured("a" * 40, 8.4, 8.33, 0), "first")
+        self.assertEqual(self.measured("b" * 40, 12.0, 8.33, 1), "regressed")
+        self.assertEqual(self.measured("c" * 40, 16.7, 16.67, 2), "still")
+        self.assertEqual([r["name"] for r in self.state["regressions"]], ["panes.x.frame"])
+        self.assertEqual(self.state["last_good"]["rows"]["panes.x.frame"]["p95"], 8.4)
+        self.assertEqual(self.measured("d" * 40, 8.4, 8.33, 3), "recovered")
+
+
 if __name__ == "__main__":
     unittest.main()
