@@ -663,6 +663,14 @@ def handle_prompt(rid, params):
         sys.stderr.write(text[4:].strip() + "\n")
         sys.stderr.flush()
         os._exit(3)
+    # "die-later: X" streams a moment, then dies as "die: X" does mid-turn. The wait leaves a
+    # test time to queue a prompt behind it on a loaded machine.
+    if text.startswith("die-later:"):
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "dying "}})
+        time.sleep(3.0)
+        sys.stderr.write(text[10:].strip() + "\n")
+        sys.stderr.flush()
+        os._exit(3)
     if text.startswith("limit:"):
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "You've reached your usage limit for this account"}})
         return
@@ -886,6 +894,12 @@ def handle_prompt(rid, params):
     for k in range(int(os.environ.get("FAKE_TOOL_CALLS", "0") or 0)):
         update(sid, {"sessionUpdate": "tool_call", "toolCallId": f"run-{k}", "kind": "execute",
                      "status": "completed", "title": f"echo probe {k}"})
+    # "[hold]" anywhere: the reply comes 1.5 s later, so a prompt sent meanwhile queues.
+    if "[hold]" in text:
+        time.sleep(1.5)
+    # "cwd-probe" anywhere in the prompt: the reply names the folder the agent runs in.
+    if "cwd-probe" in text:
+        text = "cwd: " + os.getcwd() + " | " + text
     # FAKE_SHORT_ECHO=1: echo only the prompt's last line (a Chief envelope is 100+ KB).
     if os.environ.get("FAKE_SHORT_ECHO") == "1" and text.strip():
         text = text.strip().splitlines()[-1]
