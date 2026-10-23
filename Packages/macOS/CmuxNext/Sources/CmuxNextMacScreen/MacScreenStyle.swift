@@ -1,39 +1,37 @@
 import AppKit
 import CmuxNextDesign
-import Observation
-import SwiftUI
 
 /// Mac Screen's colors: the tokens of the tab's theme scope (Settings >
-/// Appearance: theme, accent, light or dark), resolved by the hosting view
-/// that shows them (`MacScreenHostingView`) inside `performWithTheme`, and
-/// again on every theme change. Until then, the app theme's
+/// Appearance: theme, accent, light or dark), resolved by the view that
+/// shows them (`MacScreenThemedView`) inside `performWithTheme`, and again
+/// on every theme change. Until then, the app theme's
 /// (`ThemeTokens.unresolved`), never macOS's grays or blue.
 struct MacScreenColors: Equatable {
     /// The home page: the pane's fill, like other page tabs (clear over a window backdrop).
-    var page = Color.clear
+    var page = NSColor.clear
     /// The screen's toolbar.
-    var chrome = ThemeTokens.unresolved.chromeBackground.swiftUIColor
+    var chrome = ThemeTokens.unresolved.chromeBackground.nsColor
     /// A card over the screen (connect, connecting, failed).
-    var popup = ThemeTokens.unresolved.elevatedBackground.swiftUIColor
+    var popup = ThemeTokens.unresolved.elevatedBackground.nsColor
     /// A group of rows on the home page: a tint, never an opaque fill.
-    var card = ThemeTokens.unresolved.cardFill.swiftUIColor
-    var primary = ThemeTokens.unresolved.textPrimary.swiftUIColor
-    var secondary = ThemeTokens.unresolved.textSecondary.swiftUIColor
-    var tertiary = ThemeTokens.unresolved.textTertiary.swiftUIColor
-    var hover = ThemeTokens.unresolved.hoverFill.swiftUIColor
-    var selection = ThemeTokens.unresolved.selectionFill.swiftUIColor
-    var pressed = ThemeTokens.unresolved.pressedFill.swiftUIColor
-    var separator = ThemeTokens.unresolved.separator.swiftUIColor
+    var card = ThemeTokens.unresolved.cardFill.nsColor
+    var primary = ThemeTokens.unresolved.textPrimary.nsColor
+    var secondary = ThemeTokens.unresolved.textSecondary.nsColor
+    var tertiary = ThemeTokens.unresolved.textTertiary.nsColor
+    var hover = ThemeTokens.unresolved.hoverFill.nsColor
+    var selection = ThemeTokens.unresolved.selectionFill.nsColor
+    var pressed = ThemeTokens.unresolved.pressedFill.nsColor
+    var separator = ThemeTokens.unresolved.separator.nsColor
     /// The theme's accent: the default button's fill, a viewer's status.
-    var accent = ThemeTokens.unresolved.accent.swiftUIColor
-    var onAccent = ThemeTokens.unresolved.onAccent.swiftUIColor
+    var accent = ThemeTokens.unresolved.accent.nsColor
+    var onAccent = ThemeTokens.unresolved.onAccent.nsColor
     /// A lit (on, connected) glyph: the accent, never fainter than the rest ink.
-    var litGlyph = ThemeTokens.unresolved.litGlyph.swiftUIColor
+    var litGlyph = ThemeTokens.unresolved.litGlyph.nsColor
     /// Control tint (switches): the theme's focus color, never blue.
-    var focus = ThemeTokens.unresolved.focusRing.swiftUIColor
-    var success = ThemeTokens.unresolved.success.swiftUIColor
-    var attention = ThemeTokens.unresolved.attention.swiftUIColor
-    var danger = ThemeTokens.unresolved.danger.swiftUIColor
+    var focus = ThemeTokens.unresolved.focusRing.nsColor
+    var success = ThemeTokens.unresolved.success.nsColor
+    var attention = ThemeTokens.unresolved.attention.nsColor
+    var danger = ThemeTokens.unresolved.danger.nsColor
     /// Draw hairlines at all (`appearance.borders`).
     var borders = true
     var isDark = ThemeTokens.unresolved.isDark
@@ -43,7 +41,7 @@ struct MacScreenColors: Equatable {
     @MainActor
     static func resolved(in view: NSView) -> MacScreenColors {
         let isDark = view.themeTokens.isDark
-        let card = view.themeTokens.cardFill.swiftUIColor
+        let card = color(view.themeTokens.cardFill.nsColor)
         return view.performWithTheme {
             MacScreenColors(
                 page: color(Palette.surfaceOverride(.internalPage) ?? Palette.paneFill), chrome: color(Palette.chromeBackground),
@@ -59,52 +57,36 @@ struct MacScreenColors: Equatable {
     }
 
     /// A static color: dynamic ones would re-resolve outside the theme scope.
-    private static func color(_ color: NSColor) -> Color {
-        Color(nsColor: color.usingColorSpace(.sRGB) ?? color)
+    private static func color(_ color: NSColor) -> NSColor {
+        color.usingColorSpace(.sRGB) ?? color
     }
 }
 
-@Observable
-final class MacScreenAppearance {
-    var colors = MacScreenColors()
+/// A Mac Screen view that draws in its colors (`MacScreenColors`): a label,
+/// a button, a card. Its themed ancestor hands it the colors once it is
+/// added and again on every theme change.
+@MainActor
+protocol MacScreenInked: NSView {
+    func apply(_ colors: MacScreenColors)
 }
 
-extension EnvironmentValues {
-    @Entry var macScreenColors = MacScreenColors()
-}
+/// The root of a Mac Screen surface (home page, toolbar, card, approval
+/// prompt) in the theme scope it sits in: its colors are resolved when it
+/// moves into a window and again on every theme change (`ThemeScope` calls
+/// `viewDidChangeEffectiveAppearance` on every view of the scope), and every
+/// `MacScreenInked` view under it is repainted, so Settings > Appearance
+/// changes show at once. It also takes the theme's light or dark, so stock
+/// pieces (menus, scrollers) match. Fonts are `Typography`, which follows the
+/// interface size when the surface builds its content.
+@MainActor
+class MacScreenThemedView: NSView {
+    private(set) var colors = MacScreenColors()
+    /// The colors were painted at least once (a first resolve paints even when they match the defaults).
+    private var painted = false
 
-/// Gives `content` the appearance's colors, and its light or dark.
-struct MacScreenThemed<Content: View>: View {
-    let appearance: MacScreenAppearance
-    let content: Content
-
-    var body: some View {
-        content
-            .environment(\.macScreenColors, appearance.colors)
-            .environment(\.colorScheme, appearance.colors.isDark ? .dark : .light)
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
     }
-}
-
-/// Hosts a Mac Screen view in the theme scope it sits in: its colors are
-/// resolved when it moves into a window and again on every theme change
-/// (`ThemeScope` calls `viewDidChangeEffectiveAppearance` on every view of
-/// the scope), so Settings > Appearance changes show at once. Fonts are
-/// `Typography`, which follows the interface size live.
-///
-/// Not generic: the Release optimizer (Swift 6.3.3, Xcode 26.6) crashed
-/// inlining the deinit of a generic `NSHostingView` subclass in this module
-/// (EarlyPerfInliner, `isCallerAndCalleeLayoutConstraintsCompatible`).
-final class MacScreenHostingView: NSHostingView<MacScreenThemed<AnyView>> {
-    let themeAppearance: MacScreenAppearance
-
-    init<Content: View>(_ content: Content) {
-        let appearance = MacScreenAppearance()
-        themeAppearance = appearance
-        super.init(rootView: MacScreenThemed(appearance: appearance, content: AnyView(content)))
-    }
-
-    @available(*, unavailable)
-    @MainActor required init(rootView: MacScreenThemed<AnyView>) { fatalError("init(rootView:) is not supported") }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
@@ -121,90 +103,43 @@ final class MacScreenHostingView: NSHostingView<MacScreenThemed<AnyView>> {
 
     func resolveColors() {
         let colors = MacScreenColors.resolved(in: self)
-        if themeAppearance.colors != colors { themeAppearance.colors = colors }
+        let look = NSAppearance(named: colors.isDark ? .darkAqua : .aqua)
+        if appearance?.name != look?.name { appearance = look }
+        guard colors != self.colors || !painted else { return }
+        self.colors = colors
+        painted = true
+        colorsChanged()
+    }
+
+    /// The colors changed: paints this view and every inked view under it.
+    func colorsChanged() {
+        paint(self)
+    }
+
+    /// Paints `view` and the inked views under it in the current colors (call after adding new ones).
+    func paint(_ view: NSView) {
+        if view !== self, let inked = view as? any MacScreenInked { inked.apply(colors) }
+        for subview in view.subviews { paint(subview) }
     }
 }
 
 /// Mac Screen's type: the design system's scale (`Typography`).
-struct MacScreenType {
-    static var title: Font { Font(Typography.title) }
-    static var subtitle: Font { Font(Typography.subtitle) }
-    static var body: Font { Font(Typography.body) }
-    static var emphasized: Font { Font(Typography.bodyEmphasized) }
-    static var header: Font { Font(Typography.header) }
-    static var caption: Font { Font(Typography.caption) }
+@MainActor
+enum MacScreenType {
+    static var title: NSFont { Typography.title }
+    static var subtitle: NSFont { Typography.subtitle }
+    static var body: NSFont { Typography.body }
+    static var emphasized: NSFont { Typography.bodyEmphasized }
+    static var header: NSFont { Typography.header }
+    static var caption: NSFont { Typography.caption }
+    /// A card's title.
+    static var cardTitle: NSFont { Typography.system(size: Typography.subtitle.pointSize, weight: .semibold) }
+    /// The View Only badge.
+    static var badge: NSFont { Typography.system(size: Typography.caption.pointSize, weight: .semibold) }
     /// Numbers that change in place (the stats line).
-    static var stats: Font { Font(Typography.caption).monospacedDigit() }
-    /// A link shown as text.
-    static var code: Font { Font(NSFont.monospacedSystemFont(ofSize: Typography.caption.pointSize, weight: .regular)) }
+    static var stats: NSFont { Typography.system(.monospacedDigit, size: Typography.caption.pointSize) }
+    /// A key fingerprint shown as text.
+    static var code: NSFont { Typography.system(.monospaced, size: Typography.caption.pointSize) }
     /// A card's or a row's glyph.
-    static var glyph: Font { Font(NSFont.systemFont(ofSize: Typography.title.pointSize, weight: .regular)) }
-}
-
-/// Buttons in the theme: `primary` is the accent fill (the default
-/// action), `plain` a faint fill, `destructive` the danger color, `icon`
-/// a bare glyph that fills on hover.
-struct MacScreenButtonStyle: ButtonStyle {
-    enum Role {
-        case primary
-        case plain
-        case destructive
-        case icon
-    }
-
-    var role: Role = .plain
-    var compact = false
-
-    func makeBody(configuration: Configuration) -> some View {
-        MacScreenButtonBody(label: configuration.label, isPressed: configuration.isPressed, role: role, compact: compact)
-    }
-}
-
-/// The button's look; a view so it can keep its hover state.
-private struct MacScreenButtonBody<Label: View>: View {
-    let label: Label
-    let isPressed: Bool
-    let role: MacScreenButtonStyle.Role
-    let compact: Bool
-    @Environment(\.macScreenColors) private var colors
-    @Environment(\.isEnabled) private var isEnabled
-    @State private var hovering = false
-
-    var body: some View {
-        label
-            .font(role == .primary ? MacScreenType.emphasized : MacScreenType.body)
-            .lineLimit(1)
-            .foregroundStyle(foreground)
-            .padding(.horizontal, role == .icon ? Metrics.space1 : (compact ? Metrics.space3 : Metrics.space4))
-            .frame(minWidth: role == .icon ? Metrics.space6 : nil, minHeight: compact || role == .icon ? 22 : 26)
-            .background(RoundedRectangle(cornerRadius: Metrics.itemCornerRadius, style: .continuous).fill(fill))
-            .opacity(isEnabled ? 1 : 0.45)
-            .contentShape(Rectangle())
-            .onHover { hovering = $0 }
-    }
-
-    private var foreground: Color {
-        switch role {
-        case .primary: colors.onAccent
-        case .destructive: colors.danger
-        case .plain: colors.primary
-        case .icon: hovering ? colors.primary : colors.secondary
-        }
-    }
-
-    private var fill: Color {
-        switch role {
-        case .primary: colors.accent.opacity(isPressed ? 0.75 : (hovering ? 0.9 : 1))
-        case .icon: isPressed ? colors.pressed : (hovering && isEnabled ? colors.hover : .clear)
-        case .plain, .destructive: isPressed ? colors.pressed : (hovering ? colors.selection : colors.hover)
-        }
-    }
-}
-
-extension View {
-    /// A menu whose label draws in the theme's ink (not AppKit's borderless
-    /// button). Menu labels render through AppKit, which keeps images and text.
-    func macScreenMenu(_ color: Color) -> some View {
-        menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).foregroundStyle(color).fixedSize()
-    }
+    static var glyph: NSFont { Typography.system(size: Typography.title.pointSize) }
 }

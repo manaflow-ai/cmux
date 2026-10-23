@@ -3,7 +3,6 @@ import CmuxNextCompat
 public import CmuxNextDevices
 import CmuxScreenKit
 import Foundation
-import SwiftUI
 
 /// What a Mac Screen tab asks of the app that hosts its tabs.
 public struct MacScreenTabEvents {
@@ -353,12 +352,8 @@ public final class MacScreenPages {
         var actions = MacScreenHomeActions()
         actions.openDevice = { [weak self] id, scope in self?.openDeviceFromHome(id, scope: scope, in: key) }
         actions.openDeviceInNewTab = { [weak self] id, scope in self?.openDeviceInNewTab(id, scope: scope, from: key) }
-        // In the tab's theme scope: Settings > Appearance changes show at once.
-        let home = MacScreenHostingView(MacScreenHomeView(host: host, actions: actions, systemShortcuts: systemShortcuts,
-                                                          devices: MacScreenHomeDevices(pages: self)))
-        // The page fills the tab; its content never sizes the tab's layout.
-        home.sizingOptions = []
-        return home
+        // In the tab's theme scope: Settings > Appearance changes show at once. The page fills the tab.
+        return MacScreenHomeView(host: host, actions: actions, systemShortcuts: systemShortcuts, devices: MacScreenHomeDevices(pages: self))
     }
 
     /// A device hub device's screen. A tab a person opened with a scope asks
