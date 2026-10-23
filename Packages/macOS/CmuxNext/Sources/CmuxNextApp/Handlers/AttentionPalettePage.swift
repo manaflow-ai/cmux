@@ -14,11 +14,18 @@ struct AttentionPalettePage {
     var tabs: AgentPaneAttentionTabs = .shared
 
     static let id: ActionID = "attention.goTo"
+    /// The page's `PalettePageSpec.id`.
+    static let pageID = "attention"
 
     /// Binds the action and routes every Go to (this page's and the agent pages') through the
     /// user's jump, ``AppServices/revealTab(_:intent:)``.
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         AgentPaneAttentionTabs.shared.onOpen = { [weak services = context.services] id in services?.revealTab(id) ?? false }
+        // An open page follows the marks: a cleared mark's row goes, a new one comes.
+        AgentPaneAttentionTabs.shared.onChange = { [weak services = context.services] in
+            guard let model = services?.palette.model, model.currentPageID == pageID else { return }
+            model.reload()
+        }
         context.services.palette.sources.actionPages[id] = { AttentionPalettePage().page() }
         registry.bind(id, run: { invocation in
             // An agent's `cmux action run attention.goTo` must not open the palette over the
@@ -31,8 +38,14 @@ struct AttentionPalettePage {
     }
 
     func page() -> PalettePageSpec {
+        PalettePageSpec(id: Self.pageID, title: AttentionPaletteStrings.title, placeholder: AttentionPaletteStrings.placeholder,
+                        symbol: "hand.raised", providers: [AttentionPaletteProvider(page: self)])
+    }
+
+    /// The rows, read from the marked tabs now.
+    func rows() -> [PaletteItem] {
         let formatter = RelativeDateTimeFormatter()
-        let rows = tabs.items.map { item in
+        return tabs.items.map { item in
             PaletteItem(
                 id: "attention:\(item.tabId)", title: item.reason,
                 subtitle: [item.workspaceTitle, item.tabTitle].filter { !$0.isEmpty }.joined(separator: " · "),
@@ -41,9 +54,24 @@ struct AttentionPalettePage {
                 primary: PaletteCommand(id: "open", title: AttentionPaletteStrings.open, symbol: "return",
                                         effect: .perform { [tabs] in _ = tabs.open(item.tabId) }))
         }
-        return PalettePageSpec(id: "attention", title: AttentionPaletteStrings.title, placeholder: AttentionPaletteStrings.placeholder,
-                               symbol: "hand.raised", providers: [StaticPaletteProvider(id: "attention", items: rows)])
     }
+}
+
+/// Go to What Needs Me's rows, read from the marked tabs at each load (open, and each reload on a
+/// change), never a list taken when the page opened.
+final class AttentionPaletteProvider: PaletteProvider {
+    let id = AttentionPalettePage.pageID
+    private let page: AttentionPalettePage
+
+    init(page: AttentionPalettePage) {
+        self.page = page
+    }
+
+    // A palette reset can release a provider off the main actor (TabPaletteProvider, #17590).
+    nonisolated deinit {}
+
+    var immediateItems: [PaletteItem]? { page.rows() }
+    func items() async -> [PaletteItem] { page.rows() }
 }
 
 /// Text of the Go to What Needs Me page. Keys live in Resources/MiscHandlers.xcstrings.
