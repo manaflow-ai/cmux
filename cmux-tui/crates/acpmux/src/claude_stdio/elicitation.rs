@@ -14,7 +14,9 @@
 //! turn cancels, and so does an answer acpmux cannot carry as the person gave
 //! it (a choice not offered, a number that does not parse): the server never
 //! gets content the person did not give. URL mode and any other schema keep
-//! the error reply that tells Claude Code acpmux does not support the request.
+//! the error reply that tells Claude Code acpmux does not support the request;
+//! so does a form with an optional string field, whose typed "No answer" the
+//! card's one-string answer could not tell from the "No answer" option.
 //! A form Claude Code withdraws (`control_cancel_request`) is forgotten, so a
 //! late answer sends it nothing.
 
@@ -66,8 +68,12 @@ impl Translator {
         };
         let n = self.next_control.fetch_add(1, Ordering::SeqCst);
         let acp_id = Value::from(1_000_000 + n);
-        self.control_out.lock().await.insert(rid.to_owned(), acp_id.clone());
-        self.elicitations.lock().await.insert(rid.to_owned(), form);
+        {
+            // Request map first, as everywhere (`forget_elicitation`).
+            let mut out = self.control_out.lock().await;
+            out.insert(rid.to_owned(), acp_id.clone());
+            self.elicitations.lock().await.insert(rid.to_owned(), form);
+        }
         let server = server_name(req);
         let message = text(&req["message"]).unwrap_or_default();
         let call = json!({
@@ -115,9 +121,12 @@ impl Translator {
     /// its card sends Claude Code nothing (`outbound.rs` finds no request).
     /// The card itself stays until it is answered or the turn is stopped;
     /// taking it back from the hub is a follow-up. Other requests are untouched.
+    /// Both maps are held, the request map first, as the answer's path holds
+    /// them (`outbound.rs`), so only one of the two takes the form.
     pub(super) async fn forget_elicitation(&self, rid: &str) {
+        let mut out = self.control_out.lock().await;
         if self.elicitations.lock().await.remove(rid).is_some() {
-            self.control_out.lock().await.remove(rid);
+            out.remove(rid);
         }
     }
 }
@@ -254,6 +263,13 @@ fn form(req: &Value) -> Option<(Form, Vec<Value>)> {
             }
         }
         let is_required = required.contains(&key.as_str());
+        // An optional string field is not asked: the card answers it with one
+        // string, the typed text or the "No answer" option's label alike, so
+        // typed "No answer" could not be told from leaving the field out. (A
+        // number field may offer it: typed "No answer" is no number anyway.)
+        if matches!(kind, Kind::Text) && !is_required {
+            return None;
+        }
         // "No answer" leaves an optional field out, so it is no choice of one.
         if let Kind::Choice { choices, .. } = &kind
             && !is_required

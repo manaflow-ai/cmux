@@ -335,16 +335,19 @@ impl Translator {
             }
             Message::Response { id, result, error } => {
                 // The hub answered a permission request we raised.
-                let ctl = self
-                    .control_out
-                    .lock()
-                    .await
-                    .iter()
-                    .find(|(_, v)| **v == *id)
-                    .map(|(k, _)| k.clone());
-                let Some(ctl_id) = ctl else { return Outbound::Lines(vec![]) };
-                self.control_out.lock().await.remove(&ctl_id);
-                if let Some(form) = self.elicitations.lock().await.remove(&ctl_id) {
+                // The request and its form (an elicitation's) are taken under
+                // the request map's lock, as a withdrawal takes them
+                // (`elicitation.rs` forget_elicitation): one of the two wins,
+                // and a withdrawn form never falls through to a tool reply.
+                let (ctl_id, form) = {
+                    let mut out = self.control_out.lock().await;
+                    let ctl = out.iter().find(|(_, v)| **v == *id).map(|(k, _)| k.clone());
+                    let Some(ctl_id) = ctl else { return Outbound::Lines(vec![]) };
+                    out.remove(&ctl_id);
+                    let form = self.elicitations.lock().await.remove(&ctl_id);
+                    (ctl_id, form)
+                };
+                if let Some(form) = form {
                     let reply =
                         super::elicitation::reply(&ctl_id, &form, result.as_ref(), error.is_some());
                     return Outbound::Lines(vec![reply]);
