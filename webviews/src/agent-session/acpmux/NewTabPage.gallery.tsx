@@ -26,6 +26,7 @@ function useGlassPreview(mode?: GlassPreview) {
     root.setAttribute("data-glass", mode === "reduce" ? "plain" : mode);
     root.toggleAttribute("data-reduce-transparency", mode === "reduce");
     root.style.setProperty("--agent-page-bg", "transparent");
+    root.style.setProperty("--cmux-surface-background", "transparent");
     root.style.setProperty("background", `url("${wallpaper}") center / cover no-repeat fixed`, "important");
     const host = window as unknown as { cmuxTheme?: { backdrop?: (value: unknown) => void } };
     const send = () =>
