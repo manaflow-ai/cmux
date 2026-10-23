@@ -174,8 +174,11 @@ final class PaneHostView: NSView, RestingPlacement {
     }
 
     override func setFrameSize(_ newSize: NSSize) {
+        let changed = newSize != frame.size
         super.setFrameSize(newSize)
-        layoutClip()
+        // `frame =` with only a new origin calls this too: the clip and content keep their size
+        // (held content is pinned by the rest offset, which a move changes: it lays out).
+        if changed || heldContentSize != nil { layoutClip() }
     }
 
     /// Clip and content layouts this host ran, cumulative (PaneMotionWorkTests: a pane that only
