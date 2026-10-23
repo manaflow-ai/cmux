@@ -140,7 +140,9 @@ final class KeyRouter: BrowserKeyRouting {
                 if case .terminal = focus.resolved, !WhenClause.has(KeyContext.terminalCopyMode).evaluate(context) { return .deliver }
                 if candidate.tier == .content { return .deliver }
             }
-            if Self.allows(candidate.tier, id: candidate.id, focus: focus) { return .run(candidate) }
+            if Self.allows(candidate.tier, id: candidate.id, focus: focus) {
+                return Self.offersToPage(candidate, focus: focus, facts: facts) ? .offerToPage(candidate) : .run(candidate)
+            }
         }
         // The code editor's Cmd-[ / Cmd-] are outdent and indent (Monaco), not page Back / Forward.
         guard !context.bits.contains(.codeEditorFocused), consumesBrowserOnlyChord(event, focus: focus) else { return .deliver }
