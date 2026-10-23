@@ -34,25 +34,6 @@ export function browserLaneRequired(env: Record<string, string | undefined> = pr
   return env.GITHUB_ACTIONS === "true";
 }
 
-/**
- * For a file's own engine probe that failed with `error`: where the lane is required
- * (browserLaneRequired), throws, naming the launch error, so the file fails rather than reporting
- * tests that never ran; elsewhere reports why the file skips, and the caller skips.
- */
-export function engineUnavailable(
-  name: string,
-  engine: string,
-  error: unknown,
-  {
-    env = process.env,
-    report = console.warn,
-  }: { env?: Record<string, string | undefined>; report?: (message: string) => void } = {},
-): void {
-  const reason = String(error).split("\n")[0];
-  if (browserLaneRequired(env)) throw new Error(`${name}: ${engine} did not launch (${reason}), and the browser lane is required here`);
-  report(`${name}: skipping, ${engine} did not launch here (${reason}); run \`bunx playwright install ${engine}\` if it is missing`);
-}
-
 /** What a browser file's engine probe launches: an engine's `launch`, the Browser it gives closed after. */
 type Launch = () => Promise<{ close(): Promise<void> }>;
 
@@ -82,7 +63,10 @@ export async function probeEngineOrSkip(
     await (await launch()).close();
     return true;
   } catch (error) {
-    engineUnavailable(name, engine, error, { env, report });
+    const reason = String(error).split("\n")[0];
+    if (browserLaneRequired(env))
+      throw new Error(`${name}: ${engine} did not launch (${reason}), and the browser lane is required here`);
+    report(`${name}: skipping, ${engine} did not launch here (${reason}); run \`bunx playwright install ${engine}\` if it is missing`);
     skip(name);
     return false;
   }
