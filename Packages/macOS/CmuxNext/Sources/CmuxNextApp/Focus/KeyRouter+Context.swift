@@ -38,9 +38,7 @@ extension KeyRouter {
         if implied.browser { bits.insert(.browserFocused) }
         if implied.agent { bits.insert(.agentPaneFocused) }
         if case .addressBar = focus.resolved { bits.insert(.omnibarFocused) }
-        if facts.pageID == Self.markdownPageID { bits.formUnion(.markdown(readOnly: facts.markdownReadOnly)) }
-        if facts.pageID == Self.diffPageID { bits.insert(.diffViewerFocused) }
-        if facts.pageID == Self.codeEditorPageID { bits.insert(.codeEditorFocused) }
+        bits.formUnion(pageContext(pageID: facts.pageID, markdownReadOnly: facts.markdownReadOnly))
         if facts.textBoxFocused { bits.insert(.textBoxFocused) }
         if isPhone(focus.resolved, internalPage: facts.internalPage) { bits.insert(.simulatorFocused) }
         if facts.fileExplorerFocused { bits.insert(.fileExplorerFocused) }
@@ -62,6 +60,22 @@ extension KeyRouter {
         if facts.sidebarMultiSelection, case .sidebar = resolved { context[KeyContext.sidebarMultiSelection] = .bool(true) }
         if facts.workspacesAsTabs { context[KeyContext.workspacesAsTabs] = .bool(true) }
         return context
+    }
+
+    /// The context bits a focused page with `pageID` sets (the markdown, diff viewer and code editor pages).
+    nonisolated static func pageContext(pageID: String?, markdownReadOnly: Bool) -> ActionContext {
+        switch pageID {
+        case markdownPageID?: .markdown(readOnly: markdownReadOnly)
+        case diffPageID?: .diffViewerFocused
+        case codeEditorPageID?: .codeEditorFocused
+        default: []
+        }
+    }
+
+    /// Whether a focused page with `pageID` can own bare keys (``ActionContext/bareKeyOwners``), in the
+    /// most permissive reading of its facts (a markdown page read-only): the cheap check before the facts.
+    nonisolated static func pageMayOwnBareKeys(_ pageID: String) -> Bool {
+        !pageContext(pageID: pageID, markdownReadOnly: true).isDisjoint(with: .bareKeyOwners)
     }
 
     /// Whether a phone tab has the keyboard (`simulatorFocused`: the Simulator shortcuts).
