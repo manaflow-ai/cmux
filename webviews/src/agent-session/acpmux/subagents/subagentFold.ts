@@ -346,7 +346,8 @@ export function agentIdIn(text: string): string | undefined {
 /// something (`worktreePath: /repo/.claude/worktrees/x` and `worktreeBranch: worktree-x`, a line
 /// each), or undefined.
 export function worktreeIn(text: string): { path: string; branch?: string } | undefined {
-  const path = /^worktreePath:[ \t]*(\/\S*)/m.exec(text)?.[1];
+  // The rest of the line: a worktree path may hold a space.
+  const path = /^worktreePath:[ \t]*(\/[^\r\n]*?)[ \t]*$/m.exec(text)?.[1];
   if (!path) return undefined;
   const branch = /^worktreeBranch:[ \t]*(\S+)/m.exec(text)?.[1];
   return branch ? { path, branch } : { path };

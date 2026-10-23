@@ -70,6 +70,11 @@ export function workedLabel(t: Translate, row: AcpmuxRow): string {
   return row.status === "cancelled" ? t("turn.stopped", { time }) : t("turn.worked", { time });
 }
 
+/// A turn summary for a turn that was stopped (Stop, Esc, or an interruption) and did not go on
+/// under a prompt sent now (`continued`).
+export const isStopped = (row: AcpmuxRow) =>
+  row.kind === "turnSummary" && (row.status === "cancelled" || row.status === "interrupted") && !row.continued;
+
 /// What a turn's footer says before its buttons, or nothing: a turn whose work folds under "Worked
 /// for" says it there, and a turn under a second says nothing, since "Worked for 0s" is no news
 /// (Leo, 2026-10-21: "IF WE 0 SECONDS THEN IT DOESNT NEED TO TAKE UP SPACE"). A stopped turn still
@@ -82,11 +87,17 @@ const footerSays = (row: AcpmuxRow) =>
   (row.previous !== undefined || row.durationMs === undefined || row.durationMs >= 1000 || row.status === "cancelled");
 
 /// A footer with nothing to show at rest and only hover controls (Pin, Fork, its age): no label, no
-/// answer to copy or read aloud, and the turn did not fail. It takes no line in the transcript
+/// answer to copy or read aloud, the turn did not fail, and it offers no Continue (a stopped last
+/// turn whose work folds draws its line for Continue alone). It takes no line in the transcript
 /// (conversation.css `.cv-turn-actions--empty`, model.ts fallbackRowHeight); pointed at, its controls
 /// show over the turn gap below, so nothing moves.
 export const isEmptyFooter = (row: AcpmuxRow) =>
-  row.kind === "turnSummary" && row.status !== "failed" && row.status !== "error" && !row.text && !footerSays(row);
+  row.kind === "turnSummary" &&
+  row.status !== "failed" &&
+  row.status !== "error" &&
+  !row.text &&
+  !row.resumable &&
+  !footerSays(row);
 
 const isEditTool = (tool: { kind?: string } | undefined) => tool?.kind === "edit" || tool?.kind === "fileChange";
 const isEdit = (row: AcpmuxRow) => row.kind === "activity" && (row.items ?? []).some((item) => isEditTool(item.tool));
@@ -483,11 +494,20 @@ function shapeTurn(
   const preview = turnPreviewCardsOn() ? turnPreviewUrl(user, turn) : undefined;
   if (preview) shaped.push({ id: `${PREVIEW}-${user.id}`, version, at: summary.at, kind: PREVIEW, text: preview });
   // The footer copies the answer, so it carries the answer's text; the last turn's also retries
-  // its prompt, and stops offering to once a later prompt goes (or waits to).
+  // its prompt, and stops offering to once a later prompt goes (or waits to). A last turn the
+  // reader stopped also offers Continue, as Codex does, until a prompt follows it or it runs again.
+  // After a turn the agent started on its own (a later summary in its tail), that turn's summary is
+  // the one that offers it, when the reader stopped that one.
+  let lastSummary = -1;
+  for (let at = turn.length - 1; at > end && lastSummary < 0; at -= 1)
+    if (turn[at]!.kind === "turnSummary") lastSummary = at - end - 1;
+  const offers = retryable && !live;
+  const resumable = offers && lastSummary < 0 && isStopped(summary);
   shaped.push({
     ...summary,
     folded,
     text: answer?.text ?? summary.text,
+    ...(resumable && { resumable }),
     ...(answer && { answerId: answer.id }),
     // Retry sends the prompt as the agent got it: an incoming message with its sender. A
     // notification is the harness's, not a prompt to send again (incomingMessage.ts).
@@ -498,7 +518,7 @@ function shapeTurn(
         retryRowId: user.id,
         retryAttachments: user.retryAttachments,
       }),
-    version: version * 2 + (retryable ? 1 : 0),
+    version: version * 4 + (retryable ? 1 : 0) + (resumable ? 2 : 0),
   });
   // Anything after the summary (late tool updates, or a turn the agent started on its own)
   // draws as it came.
@@ -507,6 +527,11 @@ function shapeTurn(
   // bare command rows stacked under "Worked for 1s"): its finished runs folded, the call in
   // flight on the one live line under them, timed from the summary.
   const tail = turn.slice(end + 1);
+  // Its version moves past any acpmux gives the row (VERSION_SPAN), so the memoized footer redraws.
+  if (offers && lastSummary >= 0 && isStopped(tail[lastSummary]!)) {
+    const stopped = tail[lastSummary]!;
+    tail[lastSummary] = { ...stopped, resumable: true, version: stopped.version + VERSION_SPAN };
+  }
   if (live && liveRuns && lineBelow && tail.some((row) => row.kind === "activity"))
     shaped.push(...liveTurn(summary, tail, clockOffset, liveRuns, sessionStatus, lineBelow));
   else shaped.push(...(live ? tail : tail.flatMap(withoutDrafts).map(endedPlan)));
