@@ -73,13 +73,16 @@ final class BookmarkStarButton: NSView, PointerHoverReporting {
         if let rect = ClickableButton.cursorRect(of: self) { addCursorRect(rect, cursor: .pointingHand) }
     }
 
-    /// The rects `resetCursorRects` registered, while non-nil (tests).
+    #if DEBUG
+    /// The rects `resetCursorRects` registered, while non-nil: a test hook, left out of release
+    /// builds.
     var recordedCursorRects: [(rect: NSRect, cursor: NSCursor)]?
 
     override func addCursorRect(_ rect: NSRect, cursor object: NSCursor) {
         recordedCursorRects?.append((rect, object))
         super.addCursorRect(rect, cursor: object)
     }
+    #endif
 
     override func viewDidHide() {
         super.viewDidHide()

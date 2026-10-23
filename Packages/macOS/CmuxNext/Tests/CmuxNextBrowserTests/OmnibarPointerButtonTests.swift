@@ -109,6 +109,7 @@ struct OmnibarPointerButtonTests {
         withExtendedLifetime(host) {}
     }
 
+    #if DEBUG // the star's test hook (`recordedCursorRects`) is left out of release builds
     /// The star registers its own pointing-hand cursor rect (the key window) over what shows of
     /// it, and none while hidden.
     @Test func theStarRegistersAPointingHandRectOverItsVisibleRect() {
@@ -125,6 +126,7 @@ struct OmnibarPointerButtonTests {
         #expect(star.recordedCursorRects?.isEmpty == true)
         withExtendedLifetime(host) {}
     }
+    #endif
 
     /// The row reads the real pointer through the shared conversion and topmost-window gate.
     @Test func theRowsPointerReadUsesTheSharedWindowGate() {
