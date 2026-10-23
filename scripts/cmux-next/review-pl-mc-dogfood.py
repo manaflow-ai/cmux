@@ -128,11 +128,13 @@ def read_text():
 def scenario_a():
     fresh()
     original = pane_ids()
+    marker = f"/tmp/rplmc-a-{os.getpid()}-{int(time.time())}"
+    command = f"touch {marker}"
 
     def act():
         rpc("debug.key", {"key": "d", "modifiers": ["command"]})
         action("newColumn")
-        for char in "echo dogfoodA":
+        for char in command:
             rpc("debug.key", {"key": "space" if char == " " else char})
         rpc("debug.key", {"key": "return"})
         return True
@@ -141,8 +143,8 @@ def scenario_a():
     ok = wait(lambda: len(panes()) == 3, 10)
     ids = pane_ids()
     row("A: Cmd-D then New Column on the pending pane, both stay", ok and original[0] in ids, f"panes {ids}")
-    shown = wait(lambda: "dogfoodA" in read_text(), 8)
-    row("A: typing at once reaches the focused terminal", shown, (read_text() or "")[-200:].replace("\n", " / "))
+    made = wait(lambda: os.path.exists(marker), 10)
+    row("A: typing at once runs the whole command in the focused terminal (no key lost)", made, f"{command!r} -> exists {bool(made)}")
 
 
 def scenario_b():
@@ -226,7 +228,8 @@ def main():
     rpc("debug.window.focus", {})
     frames = rpc("debug.frames") or {}
     print("DISPLAY " + json.dumps({k: frames.get(k) for k in ("refresh_ms", "refresh", "display") if isinstance(frames, dict)}), flush=True)
-    for run in (scenario_a, scenario_b, scenario_c, scenario_d, scenario_e):
+    only = os.environ.get("RPLMC_ONLY", "abcde")
+    for run in [f for f in (scenario_a, scenario_b, scenario_c, scenario_d, scenario_e) if f.__name__[-1] in only]:
         try:
             run()
         except Exception as error:  # report and go on to the next scenario
