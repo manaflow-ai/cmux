@@ -124,7 +124,7 @@ public final class PageInputReadiness {
 
     /// A function body that makes `edit` in the focused editable element; false when none has focus.
     static func editScript(_ edit: Edit, token: String? = nil) -> String {
-        let tokenLiteral = token.map(JSONValue.string(_:).compactText) ?? "null"
+        let tokenLiteral = token.map { JSONValue.string($0).compactText } ?? "null"
         """
         \(editable)
         const el = document.activeElement;
