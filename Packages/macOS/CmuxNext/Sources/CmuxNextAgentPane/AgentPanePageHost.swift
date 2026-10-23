@@ -34,6 +34,7 @@ enum AgentPanePageHost {
         events.append(view.recentlyClosed.event)
         events.append(AgentPaneNowPlaying.shared.event(for: view))
         events.append(AgentPaneImportCards.shared.event(for: view))
+        events.append(AgentPaneAttentionTabs.shared.event(for: view))
         events.append(.editedFiles(view.editedFiles))
         events.append(.composer(view.model.composer))
         events.append(.sidebarPreviewVariant(view.model.sidebarPreviewVariant))

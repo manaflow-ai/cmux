@@ -4,6 +4,7 @@ import { useMemo, useRef } from "react";
 import { revealTurnWhenShown } from "../links";
 import type { AcpmuxSnapshot } from "../model";
 import { reply, replyParams, selection } from "../question/model";
+import { ATTENTION_OPEN_OP, useAttentionTabs } from "./attentionTabs";
 import { nextAsk, needsYouPillOn, type TranscriptNeedsYou } from "./JumpPill";
 import { needsYouItems, type NeedsYouAnswer, type NeedsYouItem } from "./model";
 import { needsYouMode, type NeedsYouActions, type NeedsYouMode } from "./NeedsYou";
@@ -46,12 +47,13 @@ export function useNeedsYou({
   const mode = needsYouMode();
   const pillOn = needsYouPillOn();
   const { sessions, asks, sessionId, rows } = snapshot;
+  const tabs = useAttentionTabs();
   const items = useMemo(
     () =>
       mode === "off" && !pillOn
         ? []
-        : needsYouItems({ sessions, asks: asks ?? [], open: { ...(sessionId ? { sessionId } : {}), rows } }),
-    [mode, pillOn, sessions, asks, sessionId, rows],
+        : needsYouItems({ sessions, asks: asks ?? [], open: { ...(sessionId ? { sessionId } : {}), rows }, tabs }),
+    [mode, pillOn, sessions, asks, sessionId, rows, tabs],
   );
   /// Another chat's ask: the app shows that chat's tab or opens one (`chat.asks.open`,
   /// AgentPaneAskOpen). Never `chat.select`, which replaced the chat on screen in its own tab
@@ -59,6 +61,11 @@ export function useNeedsYou({
   const openElsewhere = (item: NeedsYouItem) =>
     callNative("chat.asks.open", { sessionId: item.sessionId }).catch(() => undefined);
   const goTo = (item: NeedsYouItem) => {
+    // A tab an agent marked: the app shows it as Search Tabs does (AgentPaneAttentionTabs).
+    if (item.kind === "tab") {
+      if (item.tabId) void callNative(ATTENTION_OPEN_OP, { tabId: item.tabId }).catch(() => undefined);
+      return;
+    }
     const reveal = () => {
       if (item.turnId) void revealTurnWhenShown(item.turnId);
       else
@@ -85,7 +92,8 @@ export function useNeedsYou({
     goTo,
     ask: async (item, question) => {
       // `_acpmux/btw` is session scoped like an answer: another chat's ask opens in that chat's
-      // tab, asked about there.
+      // tab, asked about there. A marked tab names no chat to ask.
+      if (item.kind === "tab") throw new Error("no chat");
       if (item.sessionId !== sessionId) {
         await openElsewhere(item);
         throw new Error();
