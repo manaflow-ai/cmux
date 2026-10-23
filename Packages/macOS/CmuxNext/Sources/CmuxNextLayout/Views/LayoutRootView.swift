@@ -162,8 +162,6 @@ public final class LayoutRootView: NSView {
             if let eventMonitor { NSEvent.removeMonitor(eventMonitor) }
             for token in keyWindowObservers { NotificationCenter.default.removeObserver(token) }
             driver.detach()
-            // No frame lands a motion of a root that goes: its observers hear it ended now.
-            setLayoutInMotion(false)
         }
     }
 
@@ -540,12 +538,7 @@ public final class LayoutRootView: NSView {
             self.eventMonitor = nil
         }
         driver.detach()
-        if !live {
-            for view in screenViews.values { view.settleMotion() }
-            // Parked or hidden mid-spring: the motion ended where it was going, so observers
-            // (a Chromium page in motion mode) hear it now, not at the next motion.
-            setLayoutInMotion(false)
-        }
+        if !live { for view in screenViews.values { view.settleMotion() } }
         if !live, let planeHost {
             planeHost.releasePlane(overlayPlane)
             self.planeHost = nil
