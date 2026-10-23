@@ -156,8 +156,15 @@ impl HolderService {
         custody: OwnedFd,
         sink: Arc<HolderSink>,
     ) -> Arc<HolderTerminal> {
-        let terminal =
-            Arc::new(HolderTerminal { chan, id, pid, custody, sink, service: self.clone() });
+        let terminal = Arc::new(HolderTerminal {
+            chan,
+            id,
+            pid,
+            custody,
+            sink,
+            service: self.clone(),
+            replay: std::sync::Mutex::new(None),
+        });
         self.live.lock().recover_poison().insert(chan, Arc::downgrade(&terminal));
         terminal
     }
@@ -178,14 +185,19 @@ impl HolderService {
         let live: Vec<_> =
             self.live.lock().recover_poison().values().filter_map(Weak::upgrade).collect();
         for terminal in live {
+            // The old holder is gone, so nothing more arrives: once the
+            // reader parsed what it had, the daemon's screen is the screen
+            // at `base`, the new holder's prologue for a later restart.
+            terminal.sink.wait_drained(std::time::Duration::from_secs(1));
             let base = terminal.sink.received();
+            let prologue = terminal.prologue();
             let sink = terminal.sink.clone() as Arc<dyn TerminalSink>;
             if let Err(error) = link.adopt(
                 terminal.chan,
                 &terminal.id,
                 (terminal.pid, base),
                 &terminal.custody,
-                sink,
+                (sink, &prologue),
             ) {
                 eprintln!("cmux-tui: hand terminal {} to the new holder: {error}", terminal.chan);
             }

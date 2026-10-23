@@ -23,6 +23,9 @@ pub trait TerminalSink: Send + Sync {
     fn gap(&self, requested: u64, oldest: u64);
     /// The terminal ended after `end` output bytes.
     fn exit(&self, status: ExitStatus, end: u64);
+    /// A VT replay of the screen as of the next output byte (a holder that
+    /// adopted this terminal after a crash keeps one).
+    fn prologue(&self, _bytes: &[u8]) {}
 }
 
 type SpawnReply = io::Result<(i32, OwnedFd)>;
@@ -118,19 +121,26 @@ impl HolderLink {
         id: &[u8; 16],
         (pid, base): (i32, u64),
         master: &OwnedFd,
-        sink: Arc<dyn TerminalSink>,
+        (sink, prologue): (Arc<dyn TerminalSink>, &[u8]),
     ) -> io::Result<()> {
         self.lock().sinks.insert(chan, sink);
-        let payload = Out::default().i32(pid).u64(base).bytes(id).0;
+        let payload = Out::default().i32(pid).u64(base).bytes(id).bytes(prologue).0;
         self.send(Kind::Adopt, chan, &payload, Some(master))?;
         self.send(Kind::Attach, chan, &Out::default().u64(base).0, None)
     }
 
-    /// Stream a listed terminal's output to `sink` from `from` (a restarted
-    /// daemon re-attaching).
+    /// Stream a listed terminal's output to `sink` from `from`, after its
+    /// prologue if it has one (a restarted daemon re-attaching).
     pub fn attach(&self, chan: u32, from: u64, sink: Arc<dyn TerminalSink>) -> io::Result<()> {
         self.lock().sinks.insert(chan, sink);
-        self.send(Kind::Attach, chan, &Out::default().u64(from).0, None)
+        let frame = wire::encode_flagged(
+            Kind::Attach,
+            wire::FLAG_WITH_PROLOGUE,
+            chan,
+            &Out::default().u64(from).0,
+        );
+        let writer = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
+        wire::send_all(writer.as_raw_fd(), &frame, &[])
     }
 
     pub fn write(&self, chan: u32, bytes: &[u8]) -> io::Result<()> {
@@ -213,7 +223,11 @@ fn read_loop(stream: &UnixStream, mut reader: wire::Reader, link: &std::sync::We
                     if let Ok(offset) = input.u64()
                         && let Some(sink) = link.lock().sinks.get(&chan).cloned()
                     {
-                        sink.data(offset, input.rest());
+                        if frame.flags & wire::FLAG_PROLOGUE != 0 {
+                            sink.prologue(input.rest());
+                        } else {
+                            sink.data(offset, input.rest());
+                        }
                     }
                 }
                 Some(Kind::Gap) => {

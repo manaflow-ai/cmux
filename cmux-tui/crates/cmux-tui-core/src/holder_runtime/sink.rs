@@ -53,6 +53,19 @@ impl HolderSink {
         }
     }
 
+    /// Wait (at most `limit`) until the reader took every queued byte.
+    pub(crate) fn wait_drained(&self, limit: std::time::Duration) {
+        let deadline = std::time::Instant::now() + limit;
+        let mut state = self.state.lock().recover_poison();
+        while !state.bytes.is_empty() && !state.detached {
+            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            if left.is_zero() {
+                return;
+            }
+            state = self.changed.wait_timeout(state, left).recover_poison().0;
+        }
+    }
+
     /// The holder is gone for good: the reader drains and the wait ends lost.
     pub(crate) fn lose(&self) {
         self.state.lock().recover_poison().lost = true;
@@ -83,6 +96,11 @@ impl HolderSink {
         let n = buf.len().min(state.bytes.len());
         for (slot, byte) in buf.iter_mut().zip(state.bytes.drain(..n)) {
             *slot = byte;
+        }
+        if state.bytes.is_empty() {
+            drop(state);
+            // A re-adoption waits for the queue to drain (`wait_drained`).
+            self.changed.notify_all();
         }
         n
     }
@@ -120,6 +138,11 @@ impl TerminalSink for HolderSink {
         eprintln!("cmux-tui: holder terminal lost output {requested}..{oldest}");
         let mut state = self.state.lock().recover_poison();
         state.received = state.received.max(oldest);
+    }
+
+    fn prologue(&self, bytes: &[u8]) {
+        self.state.lock().recover_poison().bytes.extend(bytes);
+        self.changed.notify_all();
     }
 
     fn exit(&self, status: ExitStatus, _end: u64) {

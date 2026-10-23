@@ -53,6 +53,12 @@ struct Terminal {
     input: VecDeque<u8>,
     /// SIGKILL the group at this time (a CLOSE's grace).
     kill_at: Option<Instant>,
+    /// A VT replay of the screen at `prologue_base` (an adopted terminal:
+    /// the daemon's parsed screen when this holder took it over), sent
+    /// before the ring to a daemon that asks, so a restart after a holder
+    /// crash still restores the screen.
+    prologue: Vec<u8>,
+    prologue_base: u64,
 }
 
 struct Link {
@@ -253,7 +259,7 @@ impl Holder {
             Some(Kind::Hello) => return self.hello(&frame.payload),
             Some(Kind::Spawn) => self.spawn(frame.chan, &frame.payload),
             Some(Kind::Adopt) => self.adopt(frame),
-            Some(Kind::Attach) => self.attach(frame.chan, &frame.payload),
+            Some(Kind::Attach) => self.attach(frame.chan, frame.flags, &frame.payload),
             Some(Kind::Write) => self.terminal(frame.chan).map(|terminal| {
                 terminal.input.extend(&frame.payload);
             }),
@@ -347,17 +353,31 @@ impl Holder {
             return Err((error_code::BAD_PAYLOAD, "adopt carried no descriptor".to_string()));
         };
         pty::set_nonblocking(master.as_raw_fd());
-        self.terminals.insert(frame.chan, Terminal::new(id, master, pid, false, base));
+        let mut terminal = Terminal::new(id, master, pid, false, base);
+        terminal.prologue = input.rest().to_vec();
+        self.terminals.insert(frame.chan, terminal);
         Ok(())
     }
 
-    fn attach(&mut self, chan: u32, payload: &[u8]) -> Result<(), (u16, String)> {
+    fn attach(&mut self, chan: u32, flags: u16, payload: &[u8]) -> Result<(), (u16, String)> {
         let from =
             In(payload).u64().map_err(|error| (error_code::BAD_PAYLOAD, error.to_string()))?;
         let terminal = self.terminal(chan)?;
         let oldest = terminal.ring.oldest();
         terminal.sent = Some(from.max(oldest));
         terminal.exit_sent = false;
+        // The prologue holds while the ring still starts at its base.
+        if oldest > terminal.prologue_base {
+            terminal.prologue = Vec::new();
+        }
+        if flags & wire::FLAG_WITH_PROLOGUE != 0 && !terminal.prologue.is_empty() {
+            let payload = Out::default().u64(terminal.prologue_base).bytes(&terminal.prologue).0;
+            let frame = wire::encode_flagged(Kind::Data, wire::FLAG_PROLOGUE, chan, &payload);
+            if let Some(link) = self.link.as_mut() {
+                link.out_bytes += frame.len();
+                link.out.push_back((frame, None));
+            }
+        }
         if from < oldest {
             self.queue(Kind::Gap, chan, &Out::default().u64(from).u64(oldest).0, None);
         }
@@ -584,6 +604,8 @@ impl Terminal {
             sent: None,
             input: VecDeque::new(),
             kill_at: None,
+            prologue: Vec::new(),
+            prologue_base: base,
         }
     }
 }

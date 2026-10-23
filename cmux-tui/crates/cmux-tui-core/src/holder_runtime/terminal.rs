@@ -27,7 +27,13 @@ pub(crate) struct HolderTerminal {
     pub(crate) custody: OwnedFd,
     pub(crate) sink: Arc<HolderSink>,
     pub(super) service: Arc<HolderService>,
+    /// A VT replay of the daemon's parsed screen, handed to a new holder
+    /// after a holder crash as the terminal's prologue.
+    pub(super) replay: std::sync::Mutex<Option<Replay>>,
 }
+
+/// Builds a terminal's VT replay (its surface registers it).
+pub(crate) type Replay = Box<dyn Fn() -> Vec<u8> + Send + Sync>;
 
 impl HolderTerminal {
     /// The daemon exits and leaves the shell to the holder: the reader and
@@ -35,6 +41,21 @@ impl HolderTerminal {
     pub(crate) fn detach(&self) {
         self.sink.detach();
         self.service.untrack(self.chan);
+    }
+
+    /// How to replay the screen for a new holder (the surface sets it).
+    pub(crate) fn set_replay(&self, replay: Replay) {
+        *self.replay.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(replay);
+    }
+
+    /// The screen replay for a new holder; empty when none is known.
+    pub(super) fn prologue(&self) -> Vec<u8> {
+        self.replay
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_ref()
+            .map(|replay| replay())
+            .unwrap_or_default()
     }
 
     pub(crate) fn is_detached(&self) -> bool {
