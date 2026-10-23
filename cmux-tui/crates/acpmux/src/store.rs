@@ -555,6 +555,8 @@ pub trait Store: Send + Sync {
     fn flush(&self) -> Result<()> {
         Ok(())
     }
+    /// Close the session's log until it is next written (a closed session's).
+    fn close_log(&self, _id: &str) {}
     fn delete(&self, id: &str) -> Result<()>;
     fn session_dir(&self, _id: &str) -> Option<PathBuf> {
         None
@@ -628,13 +630,37 @@ impl Store for MemoryStore {
 pub struct LocalStore {
     root: PathBuf,
     segment_bytes: u64,
-    writers: Mutex<HashMap<String, SegmentWriter>>,
+    writers: Mutex<Writers>,
 }
+
+/// The logs held open, at most [`OPEN_LOGS`]: the least recently written one
+/// is closed for a new one. A daemon held one descriptor per session it wrote
+/// since it started, closed ones too, and ran out (cmux16, 2026-10-22: 193 of
+/// its 256, every agent start failing with "Too many open files").
+#[derive(Default)]
+struct Writers {
+    open: HashMap<String, SegmentWriter>,
+    /// Counts appends; a writer's `used` is the count at its last one.
+    clock: u64,
+}
+
+const OPEN_LOGS: usize = 64;
 
 struct SegmentWriter {
     index: u32,
     file: File,
     written: u64,
+    used: u64,
+}
+
+impl SegmentWriter {
+    /// Closes the log, durable first as `flush` would have made it. Called off
+    /// the writers' lock: a sync must not hold up every other session's append.
+    fn close(self, id: &str) {
+        if let Err(e) = self.file.sync_data() {
+            tracing::warn!(session = %id, "sync event log on close: {e}");
+        }
+    }
 }
 
 impl LocalStore {
@@ -644,7 +670,7 @@ impl LocalStore {
         Ok(Self {
             root,
             segment_bytes: segment_bytes.max(64 * 1024),
-            writers: Mutex::new(HashMap::new()),
+            writers: Mutex::new(Writers::default()),
         })
     }
 
@@ -696,7 +722,7 @@ impl LocalStore {
         };
         let file = open_private_append(&path)?;
         let written = file.metadata().map(|m| m.len()).unwrap_or(0);
-        Ok(SegmentWriter { index, file, written })
+        Ok(SegmentWriter { index, file, written, used: 0 })
     }
 }
 
@@ -952,19 +978,42 @@ impl Store for LocalStore {
     }
 
     fn append(&self, id: &str, record: &EventRecord) -> Result<()> {
-        let mut writers = self.writers.lock_or_recover();
-        if !writers.contains_key(id) {
-            writers.insert(id.to_owned(), self.open_writer(id)?);
-        }
-        let Some(w) = writers.get_mut(id) else {
-            anyhow::bail!("no segment writer for session {id}");
+        // The least recently written log is closed before this one opens, so the cache never
+        // holds more than `OPEN_LOGS`; its sync runs off the lock.
+        let mut writers = loop {
+            let mut writers = self.writers.lock_or_recover();
+            if writers.open.contains_key(id) || writers.open.len() < OPEN_LOGS {
+                break writers;
+            }
+            let oldest = writers.open.iter().min_by_key(|(_, w)| w.used).map(|(k, _)| k.clone());
+            let evicted = oldest.and_then(|k| writers.open.remove(&k).map(|w| (k, w)));
+            drop(writers);
+            match evicted {
+                Some((oldest, w)) => w.close(&oldest),
+                None => break self.writers.lock_or_recover(),
+            }
         };
-        if w.written >= self.segment_bytes {
-            let index = w.index + 1;
+        if !writers.open.contains_key(id) {
+            let writer = self.open_writer(id)?;
+            writers.open.insert(id.to_owned(), writer);
+        }
+        writers.clock += 1;
+        let clock = writers.clock;
+        let full = writers.open.get(id).is_some_and(|w| w.written >= self.segment_bytes);
+        if full && let Some(old) = writers.open.remove(id) {
+            // The full segment closes before the next one opens (rare: once per segment).
+            let index = old.index + 1;
+            old.close(id);
             let path = self.dir(id).join("events").join(format!("{index:06}.ndjson"));
             let file = open_private_append(&path)?;
-            *w = SegmentWriter { index, file, written: 0 };
+            writers
+                .open
+                .insert(id.to_owned(), SegmentWriter { index, file, written: 0, used: clock });
         }
+        let Some(w) = writers.open.get_mut(id) else {
+            anyhow::bail!("no segment writer for session {id}");
+        };
+        w.used = clock;
         let mut line = serde_json::to_string(record)?;
         line.push('\n');
         w.file.write_all(line.as_bytes())?;
@@ -1119,7 +1168,7 @@ impl Store for LocalStore {
     }
 
     fn flush(&self) -> Result<()> {
-        for w in self.writers.lock_or_recover().values() {
+        for w in self.writers.lock_or_recover().open.values() {
             w.file.sync_data()?;
         }
         Ok(())
@@ -1134,8 +1183,15 @@ impl Store for LocalStore {
         Ok(out)
     }
 
+    fn close_log(&self, id: &str) {
+        let writer = self.writers.lock_or_recover().open.remove(id);
+        if let Some(w) = writer {
+            w.close(id);
+        }
+    }
+
     fn delete(&self, id: &str) -> Result<()> {
-        self.writers.lock_or_recover().remove(id);
+        self.writers.lock_or_recover().open.remove(id);
         let dir = self.dir(id);
         // macOS returns ENOTEMPTY when a file lands mid-removal; retry briefly.
         let mut last = None;
