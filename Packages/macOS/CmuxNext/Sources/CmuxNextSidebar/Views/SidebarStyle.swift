@@ -22,8 +22,9 @@ enum SidebarStyle {
     /// row title (cap height and stroke matched to the text).
     static var kindGlyphSize: CGFloat { .iconRowSize(forLabelPointSize: titleFont.pointSize) }
     /// Where a list row's title text starts when its leading icon slot begins at `leading`: one
-    /// `iconBox` slot, drawn or empty, then a Chrome-like gap after the glyph's drawing, so rows
-    /// with and without an icon line up (Lawrence 2026-10-21: "weird spacing").
+    /// `iconBox` slot, then a Chrome-like gap after the glyph's drawing (Lawrence 2026-10-21:
+    /// "weird spacing"). An item row keeps the slot drawn or empty; a workspace row without an
+    /// icon starts its title at `leading` instead (2026-10-22).
     static func titleTextX(leading: CGFloat) -> CGFloat {
         leading + iconBox + Metrics.space3 - Swift.max(0, (iconBox - kindGlyphSize) / 2)
     }
