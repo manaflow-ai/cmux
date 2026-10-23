@@ -193,6 +193,13 @@ const isCallUsage = (update: any) => update?._meta?.acpmux?.call === true;
 /// acpmux's `contextBreakdown` (a Claude Code chat's /context), or unset when it sent none.
 const contextBreakdownOf = (value: any): AcpmuxContextBreakdown | undefined =>
   value && typeof value === "object" && Array.isArray(value.categories) ? value : undefined;
+/// The part of the held context the agent took before the conversation (its system prompt, tools
+/// and memory), when the harness reports it on a usage record (`_meta.acpmux.setup`). Only a
+/// count within what is used counts; without one the context ring's card draws one bar.
+const usageSetup = (update: any, used: number): number | undefined => {
+  const setup = Number(update?._meta?.acpmux?.setup);
+  return Number.isFinite(setup) && setup > 0 && setup <= used ? setup : undefined;
+};
 /// The agent's own change of a config option (a reasoning level, a model): the whole option list.
 const CONFIG_KIND = "config_option_update";
 const SESSION_INFO_KIND = "session_info_update";
@@ -1021,7 +1028,7 @@ export class AcpmuxDirectClient {
   /// receipt (`permissionRecord`, permissions/record.ts).
   private askedPermissions = new Map<string, AcpmuxPermission>();
   private commands: SlashCommand[] = [];
-  private usage: { used: number; size: number } | undefined;
+  private usage: { used: number; size: number; setup?: number } | undefined;
   /// The running turn's tokens: its model calls' usage added up from its `turn_started`, the
   /// running line's count (conversation/WorkingFor.tsx). Unset outside a turn, and for a turn
   /// whose start this client did not see (it missed calls before it attached).
@@ -2837,7 +2844,10 @@ export class AcpmuxDirectClient {
       // Counted before the window: Claude Code reports a size of 0 until its first result.
       if (this.turnTokens !== undefined && isCallUsage(update) && Number.isFinite(used) && used > 0)
         this.turnTokens += used;
-      if (Number.isFinite(used) && Number.isFinite(size) && size > 0) this.usage = { used, size };
+      if (Number.isFinite(used) && Number.isFinite(size) && size > 0) {
+        const setup = usageSetup(update, used);
+        this.usage = setup === undefined ? { used, size } : { used, size, setup };
+      }
       return;
     }
     if (update?.sessionUpdate === CONFIG_KIND) {
