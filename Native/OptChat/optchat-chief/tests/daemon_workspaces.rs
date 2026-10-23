@@ -3,8 +3,8 @@
 //! subagent runs on this machine, so its workspace belongs to this machine's
 //! session (data-model.md 1.2), and every cmux app connected to that session
 //! shows it, even while the user's laptop sleeps. One workspace per
-//! subagent, named by the caller's key, with a terminal in the subagent's
-//! directory and the agent chat tab on the SAME acpmux session, owned by this
+//! subagent, named by the caller's key, holding only the agent chat tab on
+//! the SAME acpmux session (no shell; Lawrence 2026-10-21), owned by this
 //! install. A daemon without agent session tabs is refused, never half done.
 
 use std::io::{BufRead, BufReader, Write};
@@ -205,11 +205,11 @@ fn a_subagent_workspace_is_made_in_the_hosts_own_session() {
         "the caller's key names the workspace"
     );
     assert_eq!(created[0]["name"], "a1 · summarize");
-    let terminal = commands(&requests, "create-terminal");
-    assert_eq!(terminal[0]["workspace"], 7);
-    assert_eq!(terminal[0]["cwd"], "/Users/x/fun/repo");
+    // The chat tab only: no shell, so no terminal host and no PTY per
+    // subagent (Lawrence 2026-10-21).
+    assert!(commands(&requests, "create-terminal").is_empty());
     let tab = commands(&requests, "new-conversation-tab");
-    assert_eq!(tab[0]["pane"], 9);
+    assert_eq!(tab[0]["workspace"], 7);
     assert_eq!(
         tab[0]["agent_session"],
         json!({"host": "install:inst_test", "host_name": "cmux-lawrence", "session": "sess-1", "harness": "claude-sr"})
@@ -293,7 +293,7 @@ fn a_refused_group_never_stops_the_subagent_start() {
         vec!["create-workspace-group", "move-workspace-to-group"],
     );
     open(&w).unwrap();
-    assert_eq!(commands(&requests, "create-terminal").len(), 1);
+    assert!(commands(&requests, "create-terminal").is_empty());
     assert_eq!(commands(&requests, "new-conversation-tab").len(), 1);
 }
 

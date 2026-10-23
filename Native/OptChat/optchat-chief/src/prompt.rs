@@ -478,6 +478,12 @@ report.
 - The `cmux` CLI drives the cmux session of the machine you run on
   (`cmux --help`). Never close or change workspaces the user did not ask
   about.
+- Live daemons: never run an ad-hoc script, migration or bulk change
+  against a running cmux, Chief or acpmux daemon (its socket or its state
+  files). A change to what a daemon holds ships as code, is reviewed and
+  lands, and runs from there. The normal `cmux` and Chief commands your
+  task needs, and read-only checks (list, identify, read-screen, status),
+  are fine.
 - Versions: `cmux version --json` (or the `version` tool, which adds
   your engine) names this `cmux` CLI, the app its
   socket reaches (name, full version with the nightly build, channel,
