@@ -87,14 +87,16 @@ import Testing
 
     // MARK: Alignment
 
-    /// Every row's title starts at one x: a row without an icon keeps the empty icon slot.
+    /// A row without an icon starts its title flush with the leading inset, with no empty icon
+    /// slot (2026-10-22); every such row at one x. A row with an icon starts its title after it.
     @Test(arguments: [false, true])
-    func everyTitleStartsAtOneX(minimal: Bool) throws {
+    func iconlessTitlesStartFlushAtOneX(minimal: Bool) throws {
         let sidebar = Self.sidebar(minimal: minimal)
-        let xs = try [Self.busy, Self.favicon, Self.plain, Self.reported].map { try Self.row(sidebar, $0).title.frame.minX }
-        #expect(Set(xs).count == 1, "title x per row: \(xs)")
+        let xs = try [Self.busy, Self.plain, Self.reported].map { try Self.row(sidebar, $0).title.frame.minX }
+        #expect(Set(xs) == [SidebarStyle.horizontalInset - WorkspaceRowView.labelInset], "title x per icon-less row: \(xs)")
         let withIcon = try Self.row(sidebar, Self.favicon)
         #expect(!withIcon.icon.isHidden && withIcon.icon.frame.maxX <= withIcon.title.frame.minX + WorkspaceRowView.labelInset)
+        #expect(withIcon.title.frame.minX == SidebarStyle.titleTextX(leading: SidebarStyle.horizontalInset) - WorkspaceRowView.labelInset)
     }
 
     /// Rows with and without an icon are equally tall.
