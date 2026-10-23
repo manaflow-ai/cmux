@@ -77,21 +77,24 @@ public final class DaemonStore: StateResourceQueries {
         var sequence: UInt64?
         var body: @MainActor () -> Void
     }
-    /// Called on the main actor, synchronously, once the loaded workspace
-    /// list (membership or sidebar order) changed: right after the event
-    /// batch, snapshot, or intent that changed it, before any
-    /// observer or frame runs. The App keeps window membership in step here,
-    /// so a window never shows after its last workspace is gone.
+    /// Called on the main actor, synchronously, once the set of loaded
+    /// workspaces changed (one joined or left, or a provisional one was
+    /// confirmed): right after the event batch, snapshot, or intent that
+    /// changed it, before any observer or frame runs. The App keeps window
+    /// membership in step here, so a window never shows after its last
+    /// workspace is gone. A move, a group change or a change to one
+    /// workspace keeps the set and never calls it: the App's membership pass
+    /// visits every workspace, and the sidebar churn ran it per change.
     @ObservationIgnored public var onWorkspaceListChanged: (() -> Void)?
     /// Runs when the connection drops or the daemon shuts down (before any reconnect).
     @ObservationIgnored public var onDisconnected: (@MainActor () -> Void)?
     /// Bookmark and conversation events (not in the tree snapshot), on the main actor.
     @ObservationIgnored public let sideEvents = DaemonSideEvents()
-    /// The list last reported to `onWorkspaceListChanged`.
-    @ObservationIgnored var notifiedWorkspaceList: [String]?
+    /// The workspace set (`listID`s) last reported to `onWorkspaceListChanged`.
+    @ObservationIgnored var notifiedWorkspaceList: Set<String>?
     /// Bumped by every sidebar flattening (`recomputeSidebar`, which every
-    /// structural change runs): while it stays, the workspace list is the one
-    /// last checked, so `workspaceListMayHaveChanged` skips its O(n) list
+    /// structural change runs): while it stays, the workspace set is the one
+    /// last checked, so `workspaceListMayHaveChanged` skips its O(n) set
     /// build (status ticks apply batches several hundred times a second).
     @ObservationIgnored var listGeneration: UInt64 = 0
     @ObservationIgnored var checkedListGeneration: UInt64?
@@ -385,16 +388,21 @@ public final class DaemonStore: StateResourceQueries {
         if index.takeTabListChange() { tabListRevision &+= 1 }
     }
 
-    /// Runs `onWorkspaceListChanged` when the workspace list differs from
-    /// the last one reported (outside a batch, once loaded).
+    /// Runs `onWorkspaceListChanged` when the workspace set differs from
+    /// the last one reported (outside a batch, once loaded). Order is not
+    /// membership: a move or a group change leaves the set as it was.
     func workspaceListMayHaveChanged() {
-        guard applyDepth == 0, isLoaded, let hook = onWorkspaceListChanged else { return }
+        // Tracked without a hook too: a hook installed later runs for the next change, not for
+        // a set its installer (`reconcileMembership`) has just read.
+        guard applyDepth == 0, isLoaded else { return }
         guard checkedListGeneration != listGeneration else { return }
         checkedListGeneration = listGeneration
-        let list = sidebarSections.flatMap(\.workspaces).map(\.listID) + ["|"] + workspaces.map(\.listID)
+        if let notified = notifiedWorkspaceList, notified.count == workspaces.count,
+           workspaces.allSatisfy({ notified.contains($0.listID) }) { return }
+        let list = Set(workspaces.map(\.listID))
         guard list != notifiedWorkspaceList else { return }
         notifiedWorkspaceList = list
-        hook()
+        onWorkspaceListChanged?()
     }
 
     func recomputeSidebar() {

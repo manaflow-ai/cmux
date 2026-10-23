@@ -305,8 +305,12 @@ extension WindowManager {
 
     // MARK: Reconcile with the daemons
 
-    /// Re-runs `reconcileMembership` whenever any machine's workspace list,
-    /// load state, or the Cloud machine list changes.
+    /// Re-runs `reconcileMembership` whenever a machine joins, leaves or
+    /// loads, the Cloud machine list changes, or a room's rules change. A
+    /// loaded machine's workspace set reaches it through the store's
+    /// `onWorkspaceListChanged` hook, never through its order: a move or a
+    /// group change keeps every window's membership, and this pass visits
+    /// every workspace (sidebar churn B).
     func observeMembership() {
         let machines = services.machines
         let cloud = services.cloud
@@ -314,7 +318,7 @@ extension WindowManager {
         membershipObservation = Task { [weak self] in
             for await _ in ObservationStream({ () -> [String] in
                 [String(cloud.hasLoadedMachines), String(cloud.isSignedIn)]
-                    + machines.daemons.map { "\($0.machineID):\($0.store.isLoaded):\(Self.order(of: $0, machines: machines))" }
+                    + machines.daemons.map { "\($0.machineID):\($0.store.isLoaded)" }
                     + [Self.profileTags(of: machines.local)]
             }) {
                 self?.reconcileMembership()
@@ -418,13 +422,15 @@ extension WindowManager {
         return sidebar + daemon.store.workspaces.map(\.id).filter { !listed.contains($0) }
     }
 
-    /// Each workspace's profile and the profile list, so a profile move or
-    /// a new profile re-runs reconcile.
+    /// The room rules (each room's followed sessions, each workspace pin)
+    /// and the profile list, so a profile move or a new profile re-runs
+    /// reconcile. Not the personal revision: a group change or a placement
+    /// bumps it and leaves every window's membership as it was.
     private static func profileTags(of daemon: DaemonService) -> String {
-        "\(daemon.store.personal.revision)|" + daemon.store.profileIDs.map(\.rawValue).joined(separator: ",")
-    }
-
-    private static func order(of daemon: DaemonService, machines: MachineRegistry) -> String {
-        orderedIDs(of: daemon, machines: machines).joined(separator: ",")
+        let personal = daemon.store.personal
+        let pins = personal.pins.map { "\($0.sessionID)/\($0.workspaceKey.rawValue)=\($0.profile.rawValue)" }
+        let follows = personal.follows.map { "\($0.key.rawValue)>\($0.value.sorted().joined(separator: "+"))" }.sorted()
+        return "\(personal.isLoaded)|" + pins.joined(separator: ",") + "|" + follows.joined(separator: ",") + "|"
+            + daemon.store.profileIDs.map(\.rawValue).joined(separator: ",")
     }
 }
