@@ -32,11 +32,22 @@ export default appsPageEntry({
     "pages/apps/UpdatesView.tsx",
     "pages/apps/GrantsPanel.tsx",
     "pages/apps/parts.tsx",
+    "pages/apps/items.tsx",
   ],
   variants: {
     list: {
       note: "The discover grid with first-party, verified and unverified apps, under the featured Cloud banner.",
       hash: "#/discover?layout=grid",
+      data: base,
+    },
+    "card-compact": {
+      note: "The compact card style (DEV, card=compact): one line of description and the action.",
+      hash: "#/discover?layout=grid&card=compact",
+      data: base,
+    },
+    "card-artwork": {
+      note: "The artwork card style (DEV, card=artwork): the icon leads on a tinted panel.",
+      hash: "#/discover?layout=grid&card=artwork",
       data: base,
     },
     detail: {

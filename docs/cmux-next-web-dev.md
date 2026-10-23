@@ -34,8 +34,10 @@ Use `--freestyle-vms N` or the CI equivalent for the real run. Choose `N` from f
 one web capture per 0.5 GB), and leave native tagged-app capture batching to its one GUI session
 policy.
 
-The daemon runs with `ACPMUX_HOME=$HOME/.acpmux/web-dev`, a random per-run WebSocket token, and
-`--listen 127.0.0.1:0`. Its only allowed browser origins are the four Vite origins above. The
+The daemon runs with a temporary per-run `ACPMUX_HOME` (override with
+`CMUX_WEB_DEV_ACPMUX_HOME` when session persistence is intentional), a random per-run WebSocket token, and
+`--listen 127.0.0.1:0`. Its allowed browser origins are the four core Vite origins above, plus the
+gallery origin when that optional server is enabled. The
 `--dev` and `--allow-dev-origin` flags are the acpmux development path; the origin list is not
 written into the shared acpmux config. The token stays in the agent link fragment, which browsers
 do not send to the Vite server or include in its logs.
@@ -48,19 +50,41 @@ daemon to run `acpmux daemon shutdown --end-agents`, then terminates only the re
 
 The browser host lives in `webviews/src/dev-host/host.ts`. It is imported only by the Vite
 `dev.tsx` entry. The shim hands ACP frames to the real WebSocket transport, opens files in the
-dev editor, returns empty local git/search results, and issues gesture tickets only after a real
-DOM pointer or keyboard event. The shipped pane entry does not import this folder; verify after a
-bundle build with:
+dev editor, serves read-only git/search results from the checkout selected by `web-dev.sh`, and
+issues gesture tickets only after a real DOM pointer or keyboard event. A pane-only server without
+a dev state directory refuses checkout reads. The main dev server also points diff,
+Markdown, and editor reads at the checkout while keeping their write roots in the temporary run
+directory. The shipped pane entry does not import this
+folder; verify after a bundle build with:
 
 ```sh
 ! rg -n "dev-host|dev-gesture" webviews/dist  # no matches in shipped output
 ```
 
-Focused shim tests use Bun and the existing jsdom-compatible test environment:
+Focused dev-host checkout tests use Bun and the existing jsdom-compatible test environment:
 
 ```sh
 cd webviews
-bun test src/dev-host/host.test.ts src/agent-session/acpmux/devHost.test.ts
+bun test test/dev-host-git-reads.test.ts
 ```
 
 No Playwright, headless browser, Cargo, Zig, Xcode, or Swift test command is part of this loop.
+
+## Sharing a preview
+
+Keep `web-dev.sh` loopback-only. It runs a real acpmux daemon and exposes read-only checkout
+operations, so making that server public would publish a live agent endpoint and a development
+host. Publish the gallery surface instead, through the private gallery host:
+
+```sh
+# from a pushed branch, in the cmuxterm-hq checkout
+scripts/gallery-live.sh up <branch>        # static exact-branch preview
+scripts/gallery-live.sh dev <branch>       # temporary HMR preview
+scripts/gallery-deploy.sh --ref <sha>      # static exact-commit preview at /latest/
+```
+
+The host returns a `/dev/<name>/` or `/wt/<name>/` URL. The stable team gallery is
+`https://cmux-lawrences-mac-mini.tail137216.ts.net:18796/live/`; open an exact entry with
+`#/entry.id/variant`. These routes publish the real gallery components and fixtures while keeping
+acpmux, file reads and editor operations private. They are tailnet/team previews, not anonymous
+Internet hosting; an Internet-public URL needs the separately designed Cloud publication path.
