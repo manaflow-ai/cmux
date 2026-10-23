@@ -177,8 +177,11 @@ final class CEFLayerHosting {
 
     /// The host view moved to another window (`CEFHostView.viewDidMoveToWindow`):
     /// a tunable edit made while it was out of every window applies now. Leaving
-    /// a window changes nothing: the cap is every display's, not the window's.
+    /// a window makes no fork call: the cap is every display's, not the window's.
+    /// The new window's live resize state replaces the old one: AppKit tells only
+    /// the views in a window when its live resize starts and ends.
     func windowDidChange() {
+        inLiveResize = view?.window?.inLiveResize ?? false
         guard view?.window != nil else { return }
         syncDeadline()
     }
