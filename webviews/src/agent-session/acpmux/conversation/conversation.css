@@ -55,6 +55,11 @@
   --cv-message-gap: 8px; /* a message (or its meta row) to the next row in its turn */
   --cv-live-gap: 10px; /* over the running turn's live line, inside its row: 16px under a reply */
   --cv-turn-gap: 24px; /* a turn's footer to the next prompt */
+  /* Tool rows follow Codex's compact transcript rhythm: a 22px line with a small, quiet gap
+     after the run before the next reply. Gallery-only attributes compare this against the prior
+     roomier rhythm without adding a product setting. */
+  --cv-tool-row-height: 22px;
+  --cv-tool-run-bottom-gap: 4px;
   /* A message's hover row fades as Claude Code desktop's (--cds-message-actions-reveal-*): in after
      100ms over 120ms, out at once (Claude's 60ms is off the motion scale: its quick 80ms), both on
      Claude's snap curve. */
@@ -1600,6 +1605,23 @@ pre.cv-math-source {
   letter-spacing: var(--cv-tracking, 0.045px);
   -webkit-font-smoothing: antialiased;
 }
+/* Tool work ends closer to the following reply than a full message does. The row's own min-height
+   still protects cards and one-line activity, while a run with several calls keeps the compact
+   22px rhythm below. */
+.acpmux-row.acpmux-activity {
+  min-height: 0;
+  padding-bottom: var(--cv-tool-run-bottom-gap);
+}
+/* Gallery versions for the transcript spacing review. The selected default is the root rhythm
+   above; these are capture-only comparisons. */
+:root[data-transcript-tool-spacing="tight"] {
+  --cv-tool-row-height: 20px;
+  --cv-tool-run-bottom-gap: 2px;
+}
+:root[data-transcript-tool-spacing="roomy"] {
+  --cv-tool-row-height: 26px;
+  --cv-tool-run-bottom-gap: 8px;
+}
 /* An opened run's calls; past nine 26px rows the list scrolls. */
 .cv-tool-run {
   max-height: 234px;
@@ -1653,7 +1675,7 @@ pre.cv-math-source {
   align-items: center;
   gap: 8px;
   width: 100%;
-  min-height: 26px;
+  min-height: var(--cv-tool-row-height);
   line-height: 20px;
   color: var(--cv-text-dim);
 }
