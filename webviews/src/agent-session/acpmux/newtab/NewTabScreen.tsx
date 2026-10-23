@@ -83,6 +83,7 @@ import { useMinuteClock } from "../clock";
 import { usePasteAnywhere } from "../composer/pasteAnywhere";
 import { SlashMenu } from "../SlashMenu";
 import { applyCommand, matchCommands, slashQuery, type SlashCommand } from "../slashCommands";
+import { NewTabExtras } from "./NewTabExtras";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
 export type NewTabScreenActions = {
@@ -1257,6 +1258,7 @@ export function NewTabScreen(props: Props) {
       now={at}
     />
   );
+  const extras = <NewTabExtras widgets={widgets} now={at} />;
   // The stage's widgets, in the user's order (`tabs.newTabWidgets.order`): Projects and Quick
   // Actions are cards (cards next to each other share a column), Recent Chats is the player and the
   // lists, as before the order; with Recent Chats off the player and the other lists come last.
@@ -1360,6 +1362,7 @@ export function NewTabScreen(props: Props) {
               {!order.includes("chats") && playerAndLists}
             </div>
             {composerCard}
+            {extras}
             {props.notice}
             {environmentPanel}
           </>
@@ -1376,6 +1379,7 @@ export function NewTabScreen(props: Props) {
               headline
             )}
             {composerCard}
+            {extras}
             {ambient}
             {props.notice}
             {environmentPanel}
