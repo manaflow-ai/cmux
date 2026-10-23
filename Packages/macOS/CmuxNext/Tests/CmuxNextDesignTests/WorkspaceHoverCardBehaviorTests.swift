@@ -2,6 +2,7 @@
 import CoreGraphics
 import Foundation
 import Testing
+import CmuxNextDesignTokens
 
 /// Leo 2026-10-21 on the sidebar's workspace card: it opens after a short hover, moving between
 /// rows swaps its content without closing and reopening it (no flicker), and a scroll or a click
