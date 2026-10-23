@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextDaemon
+import CmuxNextDesign
 @testable import CmuxNextHomeEngine
 import Testing
 
@@ -65,18 +66,25 @@ struct HomeDaemonNoticeTests {
         return done()
     }
 
-    /// Each text field's text and whether it shows, for a failure's message.
+    /// Each text and whether it shows, for a failure's message.
     static func labels(_ view: NSView) -> String {
         view.layoutSubtreeIfNeeded()
-        return descendants(of: view).compactMap { $0 as? NSTextField }
-            .map { "\($0.stringValue.prefix(40))\($0.isHiddenOrHasHiddenAncestor ? " (hidden)" : "")" }
+        return texts(in: view)
+            .map { text, field in "\(text.prefix(40))\(field.isHiddenOrHasHiddenAncestor ? " (hidden)" : "")" }
             .joined(separator: " | ")
     }
 
     static func showsUnavailable(_ view: NSView) -> Bool {
         view.layoutSubtreeIfNeeded()
-        return descendants(of: view).contains { field in
-            (field as? NSTextField)?.stringValue == HomeStrings.unavailable && !field.isHiddenOrHasHiddenAncestor
+        return texts(in: view).contains { text, field in text == HomeStrings.unavailable && !field.isHiddenOrHasHiddenAncestor }
+    }
+
+    /// Each text the view tree draws: Home's notice is a `ChromeLabel` (an NSView), other text fields are `NSTextField`s.
+    static func texts(in view: NSView) -> [(String, NSView)] {
+        descendants(of: view).compactMap { field in
+            if let label = field as? ChromeLabel { return (label.stringValue, field) }
+            if let label = field as? NSTextField { return (label.stringValue, field) }
+            return nil
         }
     }
 
