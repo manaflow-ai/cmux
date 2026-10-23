@@ -337,8 +337,9 @@ pub async fn handle(
         return Err(RpcError::invalid_params("no such chat"));
     }
     if m == method::MUX_MEDIA_OPEN {
-        let path = params.get("path").and_then(Value::as_str).unwrap_or_default().to_owned();
         let home = dirs::home_dir();
+        let raw_path = params.get("path").and_then(Value::as_str).unwrap_or_default();
+        let path = expand_reply_path(raw_path, &session.meta().cwd, home.as_deref());
         let mut roots = vec![session.meta().cwd.clone(), PathBuf::from("/tmp")];
         if let Some(home) = &home {
             roots.push(home.clone());
@@ -374,6 +375,34 @@ pub async fn handle(
         "identity": identity.token(),
         "data": base64::engine::general_purpose::STANDARD.encode(bytes),
     }))
+}
+
+/// Resolve the harmless spelling conveniences accepted by reply markdown before the descriptor
+/// walk. The walk itself still rejects symlinks, mounts and every component outside its roots.
+fn expand_reply_path(path: &str, cwd: &Path, home: Option<&Path>) -> String {
+    if let Some(home) = home {
+        if path == "~" {
+            return home.to_string_lossy().into_owned();
+        }
+        if let Some(rest) = path.strip_prefix("~/") {
+            return home.join(rest).to_string_lossy().into_owned();
+        }
+    }
+    if path.starts_with("./") || path.starts_with("../") {
+        let mut expanded = cwd.to_path_buf();
+        for component in Path::new(path).components() {
+            match component {
+                Component::CurDir => {}
+                Component::ParentDir => {
+                    expanded.pop();
+                }
+                Component::Normal(name) => expanded.push(name),
+                Component::RootDir | Component::Prefix(_) => return path.to_owned(),
+            }
+        }
+        return expanded.to_string_lossy().into_owned();
+    }
+    path.to_owned()
 }
 
 /// The refusal of `m` for a peer that does not serve the reader: the app shows the media as a
