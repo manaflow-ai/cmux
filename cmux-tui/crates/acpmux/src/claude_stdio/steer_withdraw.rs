@@ -20,6 +20,8 @@ impl Translator {
         let Some(uuid) = uuid.filter(|_| waits) else {
             return Outbound::Reply(Message::ok(id.clone(), json!({"withdrawn": false})));
         };
+        // Waits like any request to claude: `fail_pending` answers it if its answer is lost.
+        self.pending.lock().await.insert(id.to_string(), Pending::Withdraw);
         // The uuid rides in the request id: its answer names the line it dropped.
         Outbound::Lines(vec![json!({
             "type": "control_request",
@@ -38,6 +40,8 @@ impl Translator {
     ) -> Vec<Message> {
         let Some((uuid, acp)) = rest.split_once(':') else { return Vec::new() };
         let id: Id = serde_json::from_str(acp).unwrap_or(Value::String(acp.to_owned()));
+        // Answered already (`fail_pending`): no second answer.
+        let waited = self.pending.lock().await.remove(&id.to_string()).is_some();
         let cancelled = ok && inner.get("cancelled").and_then(Value::as_bool) == Some(true);
         let mut out = Vec::new();
         // Withdrawn only while its prompt still waits here: a steer answered meanwhile (the turn
@@ -55,7 +59,9 @@ impl Translator {
                 withdrawn = true;
             }
         }
-        out.push(Message::ok(id, json!({"withdrawn": withdrawn})));
+        if waited {
+            out.push(Message::ok(id, json!({"withdrawn": withdrawn})));
+        }
         out
     }
 }

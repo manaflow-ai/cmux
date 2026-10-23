@@ -448,6 +448,8 @@ enum Pending {
     /// `end_background_asks` unmarks them when nothing moved, at that
     /// deadline, or when the turn ends.
     Background(Vec<String>, Option<std::time::Instant>),
+    /// A steer's take-back (`MUX_STEER_WITHDRAW`), answered when claude takes it.
+    Withdraw,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -505,7 +507,11 @@ impl Translator {
     /// the agent host's frame limit), so no turn waits forever.
     pub async fn fail_pending(&self, message: &str) -> Vec<Message> {
         let mut ids: Vec<String> = self.pending.lock().await.drain().map(|(id, _)| id).collect();
-        ids.extend(self.steers.lock().await.drain(..).map(|(_, id)| id));
+        // Held while the lines clear: a steer `outbound` adds meanwhile keeps its line.
+        let mut steers = self.steers.lock().await;
+        ids.extend(steers.drain(..).map(|(_, id)| id));
+        self.steer_lines.lock().await.clear();
+        drop(steers);
         ids.into_iter()
             .map(|id| {
                 let id: Id = serde_json::from_str(&id).unwrap_or(Value::String(id));
@@ -517,10 +523,12 @@ impl Translator {
     /// Error answers for the steered prompts Claude Code never echoed: the
     /// turn ended without reading them (no echo support).
     async fn fail_steers(&self) -> Vec<Message> {
-        self.steers
-            .lock()
-            .await
-            .drain(..)
+        let mut steers = self.steers.lock().await;
+        let failed: Vec<_> = steers.drain(..).collect();
+        self.steer_lines.lock().await.clear();
+        drop(steers);
+        failed
+            .into_iter()
             .map(|(_, id)| {
                 let id: Id = serde_json::from_str(&id).unwrap_or(Value::String(id));
                 Message::err(
