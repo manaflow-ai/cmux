@@ -109,11 +109,16 @@ extension ScreenContentView {
             let springing = frame.rect != frame.targetRect
             if springing { host.isOnLayoutSpring = true }
             defer { if !springing { host.isOnLayoutSpring = false } }
-            if host.frame != placed {
+            if host.frame.size != placed.size {
                 host.frame = placed
                 // Its tab strip and content lay out in this frame's step, with the frame: never a
                 // layout pass behind it (`PaneContentView.layout` sizes the strip).
                 host.layoutSubtreeIfNeeded()
+                changed = true
+            } else if host.frame.origin != placed.origin {
+                // A pane that only moves (the strip camera, a column opening beside it) keeps its
+                // size: no layout of its strip or content, no terminal resize.
+                host.frame = placed
                 changed = true
             }
             if host.alphaValue != frame.alpha.value {
