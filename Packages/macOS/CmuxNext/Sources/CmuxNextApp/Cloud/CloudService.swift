@@ -25,7 +25,9 @@ final class CloudService {
     /// The tunnel's SOCKS socket, starting it when needed: how the browser reaches a machine's
     /// localhost over this Mac's own WireGuard tunnel (RemoteLocalhostService). Nil without the hub.
     var tunnelSocket: (@Sendable () async throws -> String)? {
-        hub.map { hub in { try await hub.socketPath() } }
+        guard let hub else { return nil }
+        let socket: @Sendable () async throws -> String = { try await hub.socketPath() }
+        return socket
     }
     /// This Mac's Cloud install principal (cx-wb5.64): install tokens for the
     /// credential relay; registered at sign-in, revoked at sign-out.
