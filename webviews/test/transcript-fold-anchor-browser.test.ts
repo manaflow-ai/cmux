@@ -313,24 +313,34 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     ]);
     await settle(page);
     const button = '[data-row-id="tall-user"] .cv-user__more';
-    // The prompt sits mid-transcript, so the view first walks up until its row is mounted.
-    const place = () =>
-      page.evaluate(async (query) => {
-        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-        for (let step = 0; step < 40 && !document.querySelector(query); step += 1) {
-          scroller.scrollTop -= scroller.clientHeight / 2;
-          await window.cmuxPaintFrame();
-        }
-        const more = document.querySelector<HTMLElement>(query)!;
-        scroller.scrollTop += more.getBoundingClientRect().top - scroller.getBoundingClientRect().top - 200;
-      }, button);
+    // The prompt sits mid-transcript, so the view first walks up until its row is mounted, then puts
+    // the button 200 px down. Rows that mount on the way are measured and shift it, so it tries again
+    // until the button rests there.
+    const place = async () => {
+      for (let attempt = 0; attempt < 6; attempt += 1) {
+        await page.evaluate(async (query) => {
+          const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+          for (let step = 0; step < 40 && !document.querySelector(query); step += 1) {
+            scroller.scrollTop -= scroller.clientHeight / 2;
+            await window.cmuxPaintFrame();
+          }
+          const more = document.querySelector<HTMLElement>(query)!;
+          scroller.scrollTop += more.getBoundingClientRect().top - scroller.getBoundingClientRect().top - 200;
+        }, button);
+        await settle(page);
+        const off = await page.evaluate((query) => {
+          const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+          const top = document.querySelector<HTMLElement>(query)?.getBoundingClientRect().top;
+          return top === undefined ? Infinity : Math.abs(top - scroller.getBoundingClientRect().top - 200);
+        }, button);
+        if (off <= 1) return;
+      }
+    };
     await place();
-    await settle(page);
     await page.locator(button).click();
     await settle(page);
     expect(await page.locator(button).getAttribute("aria-expanded")).toBe("true");
     await place();
-    await settle(page);
     await page.evaluate(() => document.querySelector("[data-probe]")?.removeAttribute("data-probe"));
     await probe(page, button);
     const closed = await clickAndWatch(page, 250);
