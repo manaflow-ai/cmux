@@ -12,6 +12,8 @@ import Testing
 struct PageWebViewDebugHoverTests {
     private let root: URL
     private let descriptor = PageDescriptor(id: "test.hover-page", resource: "hover-page", namespaces: [])
+    /// A page makes its Chromium page once it shows (``PageChromiumCostTests``).
+    private let stage = PageTestWindow()
 
     init() throws {
         root = FileManager.default.temporaryDirectory.appendingPathComponent("page-hover-\(UUID().uuidString)", isDirectory: true)
@@ -21,7 +23,7 @@ struct PageWebViewDebugHoverTests {
 
     private func chromiumPage(center: String?, hoveredAfter: Bool = true) async throws -> (PageWebView, FakeChromiumPage) {
         let hosting = FakeChromiumHosting()
-        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], route: "#/", chromium: hosting))
+        let view = stage.show(try #require(PageWebView(descriptor: descriptor, root: root, routes: [], route: "#/", chromium: hosting)))
         view.chromiumClock = PageTestClock.never
         await view.chromiumStart?.value
         let page = try #require(hosting.made.first)

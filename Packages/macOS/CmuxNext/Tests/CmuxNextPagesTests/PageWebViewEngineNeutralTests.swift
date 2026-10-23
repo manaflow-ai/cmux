@@ -11,6 +11,8 @@ import Testing
 struct PageWebViewEngineNeutralTests {
     private let root: URL
     private let descriptor = PageDescriptor(id: "test.engine-neutral", resource: "engine-neutral", namespaces: [])
+    /// A page makes its Chromium page once it shows (``PageChromiumCostTests``).
+    private let stage = PageTestWindow()
 
     init() throws {
         root = FileManager.default.temporaryDirectory.appendingPathComponent("page-neutral-\(UUID().uuidString)", isDirectory: true)
@@ -19,7 +21,7 @@ struct PageWebViewEngineNeutralTests {
     }
 
     private func started(_ hosting: FakeChromiumHosting, before: (PageWebView) -> Void = { _ in }) async throws -> (PageWebView, FakeChromiumPage) {
-        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], chromium: hosting))
+        let view = stage.show(try #require(PageWebView(descriptor: descriptor, root: root, routes: [], chromium: hosting)))
         view.chromiumClock = PageTestClock.never
         before(view)
         await view.chromiumStart?.value
