@@ -2,23 +2,22 @@
 // pastes or chooses, checked from the files to the ACP prompt blocks the agent receives.
 // - Images (png, jpg, gif, webp) go as image blocks; HEIC, TIFF, BMP and AVIF are converted to PNG
 //   or JPEG when the engine decodes them.
-// - PDFs go as document blocks; text, code, CSV, JSON and SVG go in the prompt's text, fenced.
+// - Every non-image file goes as a session path with short name/type/size metadata.
 // - Anything else (zip, video, audio, an unknown binary, a file past a block's size, an image for an
 //   agent that takes none) goes to the chat's host, which saves it; its chip sends the saved path as
-//   a resource_link, and the prompt's text never names it or carries its bytes.
+//   a resource_link plus a short name/type/size note, never its bytes.
 // - A folder's bytes cannot be read: it is not sent, and the rest of the batch still is.
 // - In a chat whose folder is on this Mac, a dropped or pasted folder, or a file no block takes,
 //   goes as a resource_link to where it is (the host's `chat.attach.dropped` answers its real
-//   path): nothing is copied or uploaded. Images, PDFs and text files still go as blocks.
-import { afterEach, describe, expect, test } from "bun:test";
+//   path): nothing is copied or uploaded. Images retain a normalized preview plus the original path.
+import { beforeEach, afterEach, describe, expect, test } from "bun:test";
 import {
-  MAX_TEXT_BYTES,
   linkItems,
   promptBlocks,
   type ComposerAttachment,
   type LinkItem,
 } from "../src/agent-session/acpmux/attachments";
-import { MAX_UPLOAD_FILE_BYTES, type UploadResult } from "../src/agent-session/acpmux/cloudUploads";
+import { type UploadResult } from "../src/agent-session/acpmux/cloudUploads";
 import { intakeFiles } from "../src/agent-session/acpmux/composer/intakeFiles";
 
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
@@ -34,7 +33,9 @@ function sized(name: string, type: string, size: number): File {
 /// A dropped folder: WebKit hands a File whose bytes cannot be read.
 function folder(name: string): File {
   const entry = new File([], name, { type: "" });
-  Object.defineProperty(entry, "arrayBuffer", { value: () => Promise.reject(new Error("not a file")) });
+  Object.defineProperty(entry, "arrayBuffer", {
+    value: () => Promise.reject(new Error("not a file")),
+  });
   return entry;
 }
 
@@ -65,13 +66,20 @@ async function take(
     ...(options.localPaths ? { localPaths: options.localPaths } : {}),
   });
   const blocks = promptBlocks("Look at these", taken.attachments);
-  return { ...taken, blocks, sent: saving.sent, text: blocks.find((block) => block.type === "text")?.text ?? "" };
+  return {
+    ...taken,
+    blocks,
+    sent: saving.sent,
+    text: blocks.find((block) => block.type === "text")?.text ?? "",
+  };
 }
 
 function only<T>(items: readonly T[]): T {
   expect(items.length).toBe(1);
   return items[0]!;
 }
+
+beforeEach(() => installEngine());
 
 afterEach(() => {
   const g = globalThis as Record<string, unknown>;
@@ -107,8 +115,12 @@ describe("attachment matrix: what the agent receives per file type", () => {
     test(`${name} goes as an image block`, async () => {
       const result = await take([file(name, type, PNG)]);
       const image = only(result.blocks.filter((block) => block.type === "image"));
-      expect(image).toMatchObject({ type: "image", mimeType: type, name });
-      expect(result.sent).toEqual([]);
+      expect(image).toMatchObject({
+        type: "image",
+        mimeType: type === "image/jpeg" ? type : "image/png",
+        name: name.replace(/\.(gif|webp)$/, ".png"),
+      });
+      expect(result.sent.map((batch) => batch.map((each) => each.name))).toEqual([[name]]);
       expect(result.error).toBeUndefined();
     });
 
@@ -125,10 +137,11 @@ describe("attachment matrix: what the agent receives per file type", () => {
       const image = only(result.blocks.filter((block) => block.type === "image"));
       expect(image.type === "image" && ["image/png", "image/jpeg"].includes(image.mimeType)).toBe(true);
       expect(image.type === "image" && /\.(png|jpg)$/.test(image.name ?? "")).toBe(true);
-      expect(result.sent).toEqual([]);
+      expect(result.sent.map((batch) => batch.map((each) => each.name))).toEqual([[name]]);
     });
 
   test("a HEIC the engine cannot decode goes as its saved path", async () => {
+    delete (globalThis as Record<string, unknown>).createImageBitmap;
     const result = await take([file("IMG_0002.HEIC", "image/heic")]);
     expect(result.blocks.filter((block) => block.type === "image")).toEqual([]);
     expect(only(result.blocks.filter((block) => block.type === "resource_link"))).toEqual({
@@ -151,16 +164,15 @@ describe("attachment matrix: what the agent receives per file type", () => {
     expect(result.error).toBeUndefined();
   });
 
-  test("a PDF goes as a document block", async () => {
+  test("a PDF goes as a session file path", async () => {
     const result = await take([file("spec.pdf", "application/pdf", "%PDF-1.4\n")]);
-    expect(only(result.blocks.filter((block) => block.type === "document"))).toMatchObject({
-      type: "document",
-      mimeType: "application/pdf",
+    expect(result.blocks.some((block) => block.type === "document")).toBe(false);
+    expect(only(result.blocks.filter((block) => block.type === "resource_link"))).toMatchObject({
       name: "spec.pdf",
     });
   });
 
-  for (const [name, type, fence] of [
+  for (const [name, type] of [
     ["notes.txt", "text/plain", "txt"],
     ["README.md", "text/markdown", "md"],
     ["main.rs", "", "rs"],
@@ -168,10 +180,11 @@ describe("attachment matrix: what the agent receives per file type", () => {
     ["config.json", "application/json", "json"],
     ["logo.svg", "image/svg+xml", "svg"],
   ] as const)
-    test(`${name} goes in the prompt's text, fenced`, async () => {
+    test(`${name} goes as a file path without the file body`, async () => {
       const result = await take([file(name, type, "hello, world\n")]);
-      expect(result.blocks.map((block) => block.type)).toEqual(["text"]);
-      expect(result.text).toContain(`${name}\n\`\`\`${fence}\nhello, world\n\`\`\``);
+      expect(result.blocks.map((block) => block.type)).toEqual(["text", "resource_link"]);
+      expect(result.text).toContain(name);
+      expect(result.text).not.toContain("hello, world");
     });
 
   for (const [name, type, size] of [
@@ -179,7 +192,7 @@ describe("attachment matrix: what the agent receives per file type", () => {
     ["clip.mov", "video/quicktime", 64],
     ["voice.mp3", "audio/mpeg", 64],
     ["blob.bin", "", 64],
-    ["huge.log", "text/plain", MAX_TEXT_BYTES + 1],
+    ["huge.log", "text/plain", 256 * 1024 + 1],
     ["dataset.parquet", "", 12 * 1024 * 1024],
   ] as const)
     test(`${name} goes as a resource_link to the copy the host saved`, async () => {
@@ -192,7 +205,7 @@ describe("attachment matrix: what the agent receives per file type", () => {
         name,
       });
       // The path is not pasted into the prompt's text: the link carries it.
-      expect(result.text).toBe("Look at these");
+      expect(result.text).not.toContain("/saved/");
       expect(result.error).toBeUndefined();
     });
 
@@ -214,10 +227,10 @@ describe("attachment matrix: what the agent receives per file type", () => {
     expect(result.attachments.map((chip) => chip.path)).toEqual(["/saved/1-0/notes.zip", "/saved/1-1/notes.zip"]);
   });
 
-  test("a file past the upload's size is not sent; the files that fit still are", async () => {
-    const result = await take([sized("disk.img", "", MAX_UPLOAD_FILE_BYTES + 1), file("small.zip", "application/zip")]);
-    expect(result.sent.map((batch) => batch.map((each) => each.name))).toEqual([["small.zip"]]);
-    expect(result.error).toEqual({ name: "disk.img", reason: "tooLarge" });
+  test("large files are passed to session storage without a composer cap", async () => {
+    const result = await take([sized("disk.img", "", 80 * 1024 * 1024), file("small.zip", "application/zip")]);
+    expect(result.sent.map((batch) => batch.map((each) => each.name))).toEqual([["disk.img", "small.zip"]]);
+    expect(result.error).toBeUndefined();
   });
 
   test("where the host saves nothing, a file no block takes leaves a note and no chip", async () => {
@@ -227,7 +240,9 @@ describe("attachment matrix: what the agent receives per file type", () => {
   });
 
   test("a host that does not take uploads leaves the composer's own note", async () => {
-    const result = await take([file("archive.zip", "application/zip")], { upload: async () => undefined });
+    const result = await take([file("archive.zip", "application/zip")], {
+      upload: async () => undefined,
+    });
     expect(result.attachments).toEqual([]);
     expect(result.error).toEqual({ name: "archive.zip", reason: "unsupported" });
   });
@@ -257,11 +272,10 @@ describe("attachment matrix: what the agent receives per file type", () => {
       file("spec.pdf", "application/pdf", "%PDF-1.4\n"),
       file("archive.zip", "application/zip"),
     ]);
-    expect(result.text).toBe("Look at these");
     expect(result.text).not.toContain("data:");
     expect(result.text).not.toContain("/saved/");
     const kinds = result.attachments.map((chip: ComposerAttachment) => chip.kind);
-    expect(kinds).toEqual(["image", "image", "document", "link"]);
+    expect(kinds).toEqual(["image", "image", "link", "link"]);
   });
 });
 
@@ -271,7 +285,10 @@ function paths(folders: string[] = []) {
   const asked: string[][] = [];
   const localPaths = async (batch: File[]): Promise<LinkItem[]> => {
     asked.push(batch.map((each) => each.name));
-    return batch.map((each) => ({ path: `/Users/dev/${each.name}`, folder: folders.includes(each.name) }));
+    return batch.map((each) => ({
+      path: `/Users/dev/${each.name}`,
+      folder: folders.includes(each.name),
+    }));
   };
   return { asked, localPaths };
 }
@@ -292,24 +309,35 @@ describe("attachment matrix: a chat on this Mac links what no block takes where 
       ["link", "src/", "/Users/dev/src", undefined],
       ["link", "build.zip", "/Users/dev/build.zip", undefined],
     ]);
-    expect(result.blocks.map((block) => block.type)).toEqual(["text", "image", "resource_link", "resource_link"]);
+    expect(result.blocks.map((block) => block.type)).toEqual([
+      "text",
+      "image",
+      "resource_link",
+      "resource_link",
+      "resource_link",
+    ]);
     expect(result.blocks.filter((block) => block.type === "resource_link")).toEqual([
+      { type: "resource_link", uri: "file:///Users/dev/shot.png", name: "shot.png" },
       { type: "resource_link", uri: "file:///Users/dev/src", name: "src/" },
       { type: "resource_link", uri: "file:///Users/dev/build.zip", name: "build.zip" },
     ]);
-    expect(result.text).toBe("Look at these");
+    expect(result.text).not.toContain("data:");
   });
 
   for (const [name, type, size] of [
     ["clip.mov", "video/quicktime", 64],
-    ["huge.log", "text/plain", MAX_TEXT_BYTES + 1],
-    ["disk.img", "", MAX_UPLOAD_FILE_BYTES + 1],
+    ["huge.log", "text/plain", 256 * 1024 + 1],
+    ["disk.img", "", 80 * 1024 * 1024],
   ] as const)
     test(`${name} goes as a link to where it is, however large`, async () => {
       const local = paths();
       const result = await take([sized(name, type, size)], { localPaths: local.localPaths });
-      expect(result.sent).toEqual([]);
-      expect(only(result.attachments)).toMatchObject({ kind: "link", name, path: `/Users/dev/${name}` });
+      expect(result.sent.map((batch) => batch.map((each) => each.name))).toEqual([[name]]);
+      expect(only(result.attachments)).toMatchObject({
+        kind: "link",
+        name,
+        path: `/Users/dev/${name}`,
+      });
       expect(result.error).toBeUndefined();
     });
 
@@ -323,12 +351,12 @@ describe("attachment matrix: a chat on this Mac links what no block takes where 
     expect(only(result.attachments)).toMatchObject({ kind: "link", path: "/Users/dev/shot.png" });
   });
 
-  test("a batch every file of which is a block links nothing", async () => {
+  test("an image retains its preview and text files become links", async () => {
     const local = paths();
     const result = await take([file("shot.png", "image/png", PNG), file("notes.txt", "text/plain", "hi\n")], {
       localPaths: local.localPaths,
     });
-    expect(result.attachments.map((chip) => chip.kind)).toEqual(["image", "text"]);
+    expect(result.attachments.map((chip) => chip.kind)).toEqual(["image", "link"]);
   });
 
   test("the host is asked before any file is read: its record of the drop lasts only seconds", async () => {
@@ -359,7 +387,11 @@ describe("attachment matrix: a chat on this Mac links what no block takes where 
     });
     expect(result.sent).toEqual([]);
     expect(result.error).toBeUndefined();
-    expect(only(result.attachments)).toMatchObject({ kind: "link", name: "assets/", path: "/Users/dev/assets" });
+    expect(only(result.attachments)).toMatchObject({
+      kind: "link",
+      name: "assets/",
+      path: "/Users/dev/assets",
+    });
   });
 
   test("a host that knows no paths for the batch: the upload, as before", async () => {
@@ -368,7 +400,11 @@ describe("attachment matrix: a chat on this Mac links what no block takes where 
         localPaths: async () => answer,
       });
       expect(result.sent.map((batch) => batch.map((each) => each.name))).toEqual([["build.zip"]]);
-      expect(only(result.attachments)).toMatchObject({ kind: "link", saved: true, path: "/saved/1-0/build.zip" });
+      expect(only(result.attachments)).toMatchObject({
+        kind: "link",
+        saved: true,
+        path: "/saved/1-0/build.zip",
+      });
       expect(result.error).toEqual({ name: "src", reason: "unsupported" });
     }
   });
