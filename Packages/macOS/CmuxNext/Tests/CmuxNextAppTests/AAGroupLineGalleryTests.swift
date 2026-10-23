@@ -38,7 +38,7 @@ import Testing
         root.appearance = window.appearance
         window.contentView = root
         let input = try AANestedGroupsGalleryTests.input(theme)
-        _ = ThemeStore.shared.apply(input)
+        _ = ThemeScope.app.store.apply(input)
         let scope = ThemeScope(level: .room)
         scope.setOverride(ThemeSpec(theme), input: input, animated: false)
         scope.root(root)
