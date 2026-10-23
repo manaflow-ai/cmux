@@ -220,10 +220,17 @@ final class CEFPaneHost {
             ChatOpenTrace.shared.mark(.cefWindowCreate, chromiumPane: key.pane.rawValue)
             #endif
             let initialURL = tab.takeInitialURLString()
-            let started = CEFStartSteps.shared.createWindow {
-                shim.createWindow(request, Unmanaged.passUnretained(hostView).toOpaque(),
-                                  max(size.width, 1).clampedInt32, max(size.height, 1).clampedInt32, initialURL, contextKey)
+            let create = {
+                CEFStartSteps.shared.createWindow {
+                    shim.createWindow(request, Unmanaged.passUnretained(self.hostView).toOpaque(),
+                                      max(size.width, 1).clampedInt32, max(size.height, 1).clampedInt32, initialURL, contextKey)
+                }
             }
+            #if DEBUG
+            let started = CEFBenchMarks.shared.span("cef.create_window", create)
+            #else
+            let started = create()
+            #endif
             if started != 1 {
                 runtime.pendingWindows[request] = nil
                 window = .none
@@ -244,7 +251,12 @@ final class CEFPaneHost {
         }
         tab.isCreationPending = true
         runtime.tabBeingAdded = tab
-        let browser = shim.tabAdd(anchor, tab.takeInitialURLString(), -1, visibleTab === tab ? 1 : 0)
+        let add = { shim.tabAdd(anchor, tab.takeInitialURLString(), -1, self.visibleTab === tab ? 1 : 0) }
+        #if DEBUG
+        let browser = CEFBenchMarks.shared.span("cef.tab_add", add)
+        #else
+        let browser = add()
+        #endif
         runtime.tabBeingAdded = nil
         if browser == 0 {
             tab.creationFailed()
@@ -259,6 +271,7 @@ final class CEFPaneHost {
         guard case .creating(let expected) = window, expected == request, let tab = windowTab else { return }
         #if DEBUG
         ChatOpenTrace.shared.mark(.cefWindowCreated, chromiumPane: key.pane.rawValue)
+        CEFBenchMarks.shared.point("cef.window_created")
         #endif
         let windowID = runtime.shim?.tabWindowID(browser) ?? 0
         window = .live(window: windowID)

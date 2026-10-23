@@ -64,6 +64,7 @@ final class CEFFirstPaintBridge {
         if Self.isFirstContentfulPaint(json, mainFrame: mainFrame) {
             #if DEBUG
             ChatOpenTrace.shared.mark(.firstContentfulPaint, chromiumPane: tab?.host.key.pane.rawValue)
+            if let tab { CEFBenchMarks.shared.firstPaint(tab.id.rawValue) }
             #endif
             tab?.documentDidSettle()
         }
