@@ -221,7 +221,22 @@ import Testing
         let (store, feed) = Self.make(daemon)
         feed.treeChanged(TerminalFeedTests.tree(), macID: "mac", connection: TerminalFeedTests.connection)
         await TerminalFeedTests.settle { store.items.count == 1 }
-        #expect(feed.pendingQuestion(tabID: "s1")?.0.id == "term-mac-ntf_9")
-        #expect(feed.pendingQuestion(tabID: "s2") == nil)
+        #expect(feed.pendingQuestion(tabID: "s1", eventID: "q-toolu_1")?.0.id == "term-mac-ntf_9")
+        #expect(feed.pendingQuestion(tabID: "s2", eventID: "q-toolu_1") == nil)
+    }
+
+    /// A notification answers only the question it was sent for (review B1): an old
+    /// notification (Notification Center, or a Retry) for question A never types into a
+    /// newer question B on the same tab, even when their options share labels. A push
+    /// that names no question (an older Mac) does not answer from the notification.
+    @Test func aPushAnswersOnlyItsOwnQuestion() async {
+        let daemon = Daemon()
+        daemon.rows = [Self.row()]
+        let (store, feed) = Self.make(daemon)
+        feed.treeChanged(TerminalFeedTests.tree(), macID: "mac", connection: TerminalFeedTests.connection)
+        await TerminalFeedTests.settle { store.items.count == 1 }
+        #expect(feed.pendingQuestion(tabID: "s1", eventID: "q-toolu_other") == nil)
+        #expect(feed.pendingQuestion(tabID: "s1", eventID: "n-4") == nil)
+        #expect(feed.pendingQuestion(tabID: "s1", eventID: nil) == nil)
     }
 }

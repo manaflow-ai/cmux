@@ -519,6 +519,28 @@ mod tests {
         assert!(!w.allows("failed", t0 + WANTS_TTL));
     }
 
+    /// Claude Code fires PreToolUse and PermissionRequest for one AskUserQuestion, and the
+    /// daemon posts a notification for each (review B2): the question pushes once, named by
+    /// its tool use, so the phone matches an answer to it and the Worker collapses repeats.
+    #[test]
+    fn one_terminal_question_pushes_once_named_by_its_tool_use() {
+        let mut c = TerminalClassifier::default();
+        let t0 = Instant::now();
+        let ask = |n: u64, tool: &str| {
+            let mut hook = event(n, Some(7), "agent");
+            hook["title"] = json!("Claude asked a question");
+            hook["question"] = json!({"harness":"claude","tool_use_id":tool,"questions":[
+                {"question":"Which branch?","multiSelect":false,"options":[{"label":"main"},{"label":"dev"}]}]});
+            hook
+        };
+        let first = c.handle_at(&ask(70, "toolu_A1"), &places(), t0).expect("the question pushes");
+        assert_eq!(first.event_id, "q-toolu_A1");
+        assert!(c.handle_at(&ask(71, "toolu_A1"), &places(), t0 + Duration::from_millis(200)).is_none());
+        // The next question (another tool use) is new.
+        let next = c.handle_at(&ask(72, "toolu_B2"), &places(), t0 + Duration::from_secs(1)).unwrap();
+        assert_eq!(next.event_id, "q-toolu_B2");
+    }
+
     /// Claude Code reports its own "asks a question" program status (an OSC the terminal
     /// posts) before its hook's notification arrives with the question. The question is not
     /// that OSC's echo: it still pushes, with its options (found live on the termq rig: the
@@ -580,9 +602,11 @@ mod tests {
         let e = c.handle_at(&codex, &places(), Instant::now() + Duration::from_secs(20)).unwrap();
         assert_eq!(e.kind, "question");
         assert!(!e.questions[0].allows_other);
-        // An ask right after another push on the same tab is not held back by the tab limit.
+        // Another question right after another push on the same tab is not held back by the
+        // tab limit (the same question again is: `one_terminal_question_pushes_once_named_by_its_tool_use`).
         let mut again = hook.clone();
         again["notification"] = json!(53);
+        again["question"]["tool_use_id"] = json!("toolu_2");
         assert_eq!(
             c.handle_at(&again, &places(), Instant::now() + Duration::from_secs(21)).unwrap().kind,
             "question"
