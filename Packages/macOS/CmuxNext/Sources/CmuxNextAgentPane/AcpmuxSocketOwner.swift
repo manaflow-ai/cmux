@@ -47,7 +47,8 @@ public nonisolated struct AcpmuxSocketOwner: Equatable, Sendable {
     /// - reports, on that connection, the peer's own pid, this app's home, and agent hosts (an
     ///   older daemon without them would end its agents, so it keeps running).
     /// A launchd job that runs that pid is booted out first so KeepAlive does not start it again,
-    /// and only while that pid still runs the peer's binary (a reused pid is left alone).
+    /// and only while the connection to that very process is still open: a process that exited
+    /// closed it, so its pid, even reused by the same binary, is never booted out.
     @concurrent static func takeOver(environment: AcpmuxEnvironment, owner: AcpmuxSocketOwner) async -> Bool {
         guard let descriptor = try? AcpmuxServerPeer.connect(environment.socketPath) else { return false }
         var open = true
@@ -74,7 +75,7 @@ public nonisolated struct AcpmuxSocketOwner: Equatable, Sendable {
             return false
         }
         logger.info("acpmux \(pid) at \(peer.executablePath, privacy: .public) is not this app's; a person asked to restart it from \(environment.executable.path, privacy: .public)")
-        if await AcpmuxStrayDaemon.bootOutLaunchdJob(runningPID: pid, executablePath: peer.executablePath) {
+        if await AcpmuxStrayDaemon.bootOutLaunchdJob(runningPID: pid, stillRunning: { connected(descriptor) }) {
             return await AgentPaneProcessExit(pid: pid).event(within: .seconds(15))
         }
         do {
@@ -89,6 +90,17 @@ public nonisolated struct AcpmuxSocketOwner: Equatable, Sendable {
         open = false
         // The old daemon holds its lock until it exits; the new one needs it.
         return await AgentPaneProcessExit(pid: pid).event(within: .seconds(15))
+    }
+
+    /// Whether the peer still holds its end of `descriptor`: no hang-up, and no end of stream
+    /// waiting to be read (a peek leaves any pending reply in place).
+    private static func connected(_ descriptor: Int32) -> Bool {
+        var poller = pollfd(fd: descriptor, events: Int16(POLLIN), revents: 0)
+        guard Darwin.poll(&poller, 1, 0) >= 0 else { return false }
+        if poller.revents & Int16(POLLHUP | POLLERR | POLLNVAL) != 0 { return false }
+        guard poller.revents & Int16(POLLIN) != 0 else { return true }
+        var byte: UInt8 = 0
+        return Darwin.recv(descriptor, &byte, 1, MSG_PEEK | MSG_DONTWAIT) > 0
     }
 
     /// Sends `method` (after `initialize` when asked) on `descriptor` and returns the result of

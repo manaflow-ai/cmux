@@ -76,6 +76,11 @@ public nonisolated struct AcpmuxChiefSessionRouter: AgentPaneHostProviding {
         try await host(for: sessionId).sessionFolder(sessionId: sessionId)
     }
 
+    /// Restart acpmux replaces the daemon on this Mac's socket, never the Chief home's.
+    public func restartAcpmux(owner: AcpmuxSocketOwner) async -> Bool {
+        await local.restartAcpmux(owner: owner)
+    }
+
     public func putFile(sessionId: String, name: String, data: Data) async throws -> String {
         try await host(for: sessionId).putFile(sessionId: sessionId, name: name, data: data)
     }
