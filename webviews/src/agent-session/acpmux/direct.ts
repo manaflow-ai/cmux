@@ -1799,6 +1799,7 @@ export class AcpmuxDirectClient {
     // Changes that came while the pages did are newer than the pages.
     this.sessions = this.sessionPages.settle(list);
     this.recheckSenders(this.sessions);
+    this.learnChatThread();
     const missing =
       this.selectedSessionId !== undefined &&
       !this.sessions.some((session) => session.sessionId === this.selectedSessionId);
@@ -1936,6 +1937,7 @@ export class AcpmuxDirectClient {
   private addSessions = (more: Session[]): void => {
     this.sessions = [...this.sessions, ...more];
     this.recheckSenders(more);
+    this.learnChatThread();
     if (!this.opening) this.emit("session changed");
   };
 
@@ -2568,12 +2570,12 @@ export class AcpmuxDirectClient {
     return typeof thread === "string" && thread ? thread : undefined;
   }
 
-  /// The chat's thread became known after its records were folded: when an older acpmux recorded
-  /// that thread as one of its own subagents (a Codex child reporting its parent thread), they are
+  /// The chat's thread became known after its records were folded (an attach, a listing, a reread):
+  /// when an older acpmux recorded that thread as one of its own subagents, a parent or an owner (a Codex child reporting its parent thread), they are
   /// folded again by lineage, so the chat's own rows come back and its subagents stop nesting.
   private learnChatThread(): void {
     const thread = this.chatThread();
-    if (!thread || this.subagents.chat === thread || !this.subagents.holds(thread)) return;
+    if (!thread || this.subagents.chat === thread || !this.subagents.names(thread)) return;
     this.rebuildKeepingLiveState();
   }
 

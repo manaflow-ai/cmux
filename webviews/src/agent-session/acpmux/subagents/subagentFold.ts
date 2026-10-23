@@ -88,6 +88,8 @@ export class SubagentFold {
   /// pane knows it. It is never one of its subagents (``isChat``). Learned only after records that
   /// made it one were folded, the pane folds them again (direct.ts ``learnChatThread``).
   chat: string | undefined;
+  /// Every id a record named as a subagent, a parent or an owner (``names``).
+  private readonly named = new Set<string>();
 
   constructor(private readonly stops: SubagentStops = subagentStops()) {}
   /// The subagents whose end the harness reported (not one ``stopRunning`` guessed): a progress
@@ -106,6 +108,7 @@ export class SubagentFold {
     const mux = event.msg?.params?._meta?.acpmux;
     const events: any[] = Array.isArray(mux?.subagents) ? mux.subagents : [];
     const tag = typeof mux?.subagent === "string" ? mux.subagent : undefined;
+    if (tag !== undefined) this.named.add(tag);
     // Met first through its progress, its spawn is older than what this fold read: not this turn's.
     const spawn = update?.sessionUpdate !== "subagent_progress";
     for (const change of events) this.apply(change, event, spawn);
@@ -232,13 +235,16 @@ export class SubagentFold {
     return id === this.chat;
   }
 
-  /// Whether `id` was folded as a subagent.
-  holds(id: string): boolean {
-    return this.agents.has(id);
+  /// Whether a folded record named `id` as a subagent, a subagent's parent or an update's owner.
+  names(id: string): boolean {
+    return this.named.has(id);
   }
 
   private apply(change: any, event: Event, spawn = true): void {
-    if (typeof change?.id !== "string" || this.isChat(change.id)) return;
+    if (typeof change?.id !== "string") return;
+    this.named.add(change.id);
+    if (typeof change.parent === "string") this.named.add(change.parent);
+    if (this.isChat(change.id)) return;
     if (typeof change.toolCallId === "string") {
       this.spawnCalls.add(change.toolCallId);
       this.spawnedBy.set(change.toolCallId, change.id);

@@ -271,10 +271,21 @@ describe("lineage from a Codex chat's records", () => {
     ]);
   });
 
-  test("without the chat's thread the fold holds it, so the pane knows to fold again", () => {
+  test("without the chat's thread the fold names it, so the pane knows to fold again", () => {
     const fold = new SubagentFold();
     records(fold);
-    expect(fold.holds(chat)).toBe(true);
+    expect(fold.names(chat)).toBe(true);
+    // A page that starts after the record that made the chat a subagent names it only as a parent
+    // and an owner.
+    const later = new SubagentFold();
+    at(
+      later,
+      chat,
+      { sessionUpdate: "subagent_spawned", subagentSessionId: priorArt, name: "needs_you_prior_art" },
+      { subagent: chat, subagents: [{ id: priorArt, parent: chat, name: "needs_you_prior_art" }] },
+    );
+    expect(later.names(chat)).toBe(true);
+    expect(later.names("01a1658b-0000-7000-8000-000000000000")).toBe(false);
   });
 
   test("a page that starts after the bad record reads the chat from the summary", () => {

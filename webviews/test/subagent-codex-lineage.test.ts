@@ -64,7 +64,9 @@ const history = [
   msg,
 }));
 
-function fakeDaemon(thread: string | undefined) {
+/// A daemon over a fake socket: attach answers with the history from `from` on (a page that starts
+/// mid-history), and the chat's summary names its thread only when `thread` is given.
+function fakeDaemon(thread: string | undefined, from = 1) {
   let socket: any;
   const session: Record<string, unknown> = {
     sessionId: CHAT,
@@ -82,9 +84,10 @@ function fakeDaemon(thread: string | undefined) {
       case "initialize":
         return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
       case "_acpmux/watch":
+      case "_acpmux/sessions":
         return { sessions: [session] };
       case "_acpmux/attach":
-        return { session, lastSeq: history.length, events: history };
+        return { session, lastSeq: history.length, events: history.filter((event) => event.seq >= from) };
       case "_acpmux/events":
         return { events: [], hasMore: false, more: false, lastSeq: history.length };
       default:
@@ -119,7 +122,14 @@ function fakeDaemon(thread: string | undefined) {
       }),
     });
   };
-  return { open, changed };
+  /// The watch lagged: the pane reads the session list again, which now names the thread.
+  const lagged = (fields: Record<string, unknown>) => {
+    Object.assign(session, fields);
+    socket.onmessage?.({
+      data: JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/lagged", params: { watch: true, sessionIds: [] } }),
+    });
+  };
+  return { open, changed, lagged };
 }
 
 async function connect(daemon: ReturnType<typeof fakeDaemon>) {
@@ -162,5 +172,28 @@ test("a thread learned after the fold folds the records again by lineage", async
     ["needs_you_prior_art", null],
   ]);
   expect(said(rows()).join(" ")).toContain("Both reviewers are running.");
+  client.close?.();
+});
+
+test("a page that starts after the record that made the chat a subagent folds again too", async () => {
+  // From the prior_art spawn on: the chat is named only as that spawn's parent and as an owner.
+  const daemon = fakeDaemon(undefined, 6);
+  const { client, rows } = await connect(daemon);
+  daemon.changed({ agentSessionId: THREAD });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(lineage(rows())).toEqual([["needs_you_prior_art", null]]);
+  expect(said(rows()).join(" ")).toContain("Both reviewers are running.");
+  client.close?.();
+});
+
+test("a thread learned from a reread of the session list folds the records again", async () => {
+  const daemon = fakeDaemon(undefined);
+  const { client, rows } = await connect(daemon);
+  daemon.lagged({ agentSessionId: THREAD });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(lineage(rows())).toEqual([
+    ["needs_you_review", null],
+    ["needs_you_prior_art", null],
+  ]);
   client.close?.();
 });
