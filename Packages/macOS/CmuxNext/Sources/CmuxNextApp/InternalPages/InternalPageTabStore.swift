@@ -18,7 +18,7 @@ final class InternalPageTabStore {
     @ObservationIgnored private var windows: [String: WindowController] = [:]
     /// The daemon tree each pane with page tabs belongs to; watched so the
     /// tabs of a pane closed out of sight close once the tree drops it.
-    @ObservationIgnored private var paneStores: [String: DaemonStore] = [:]
+    @ObservationIgnored private var paneStores = StoreKeys()
     @ObservationIgnored private var watches: [ObjectIdentifier: Task<Void, Never>] = [:]
     /// Go Back (true) or Go Forward (false) from a page view's mouse buttons and swipes.
     @ObservationIgnored var navigate: ((Bool) -> Void)?
@@ -40,7 +40,7 @@ final class InternalPageTabStore {
     /// key its view and state live under.
     @ObservationIgnored private var storeKeys: [String: String] = [:]
     /// The daemon tree each store page tab belongs to.
-    @ObservationIgnored private var storeTabStores: [String: DaemonStore] = [:]
+    @ObservationIgnored private var storeTabStores = StoreKeys()
     /// Store page tabs a live tree has listed; gone from it, they closed.
     @ObservationIgnored private var seenLive: Set<String> = []
 
@@ -270,8 +270,8 @@ final class InternalPageTabStore {
     /// Lets the view of every store page tab `store` listed and lists no
     /// longer go (closed here or on another client).
     func closeGoneStoreTabs(in store: DaemonStore) {
-        guard store.liveTabListRevision != nil else { return }
-        for (id, owner) in storeTabStores where owner === store {
+        guard store.liveTabMembershipRevision != nil else { return }
+        for id in storeTabStores.keys(in: store) {
             if store.tab(id: id) != nil {
                 seenLive.insert(id)
             } else if seenLive.contains(id) {
@@ -307,11 +307,11 @@ final class InternalPageTabStore {
     }
 
     /// Closes the page tabs of every pane `store` no longer lists, once it
-    /// is connected with a live tree. Costs the panes this store holds page
-    /// tabs in (O(1) lookups), not the tree: every pane teardown calls it.
+    /// is connected with a live tree. Costs the panes of this store that hold
+    /// page tabs (O(1) lookups), not the tree: every pane teardown calls it.
     func closeGonePanes(in store: DaemonStore) {
-        guard store.liveTabListRevision != nil else { return }
-        for (paneKey, owner) in paneStores where owner === store && store.pane(id: paneKey) == nil {
+        guard store.liveTabMembershipRevision != nil else { return }
+        for paneKey in paneStores.keys(in: store) where store.pane(id: paneKey) == nil {
             closePane(paneKey)
         }
     }
@@ -327,8 +327,8 @@ final class InternalPageTabStore {
         guard watches[id] == nil else { return }
         // task-owner: stored in watches; cancelled once the store has no page tabs
         watches[id] = Task { [weak self] in
-            // One tracked read: `tabListRevision` also moves when a pane comes or goes.
-            for await revision in ObservationStream({ store.liveTabListRevision }) where revision != nil {
+            // One tracked read: the membership revision also moves when a pane comes or goes.
+            for await revision in ObservationStream({ store.liveTabMembershipRevision }) where revision != nil {
                 guard let self else { return }
                 self.closeGonePanes(in: store)
                 self.closeGoneStoreTabs(in: store)
@@ -337,8 +337,8 @@ final class InternalPageTabStore {
     }
 
     private func forgetUnusedStores() {
-        paneStores = paneStores.filter { tabsByPane[$0.key] != nil }
-        let used = Set((Array(paneStores.values) + Array(storeTabStores.values)).map { ObjectIdentifier($0) })
+        paneStores.keep { tabsByPane[$0] != nil }
+        let used = paneStores.storeIDs.union(storeTabStores.storeIDs)
         for id in watches.keys where !used.contains(id) {
             watches.removeValue(forKey: id)?.cancel()
         }

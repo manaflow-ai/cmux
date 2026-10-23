@@ -1,3 +1,4 @@
+import CmuxNextActions
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
 import Foundation
@@ -54,12 +55,19 @@ struct LiveTreeWorkPerEventTests {
         let farPane = try #require(far.screens.first?.panes.first)
         let watch = GoneTabWatch()
         let pages = InternalPageTabStore()
-        defer { watch.forget(tracked.id) }
+        let agents = AgentTabStore(build: nil, registry: ActionRegistry.standard(), environment: [:], showcase: true)
+        defer {
+            watch.forget(tracked.id)
+            agents.release(tracked.id)
+        }
 
         let reached = OSAllocatedUnfairLock(initialState: false)
         withObservationTracking {
             // A terminal's first surface: the cache starts following its tab.
             watch.track(tracked.id, in: store) { _ in }
+            // An agent page: its view state follows its tab.
+            agents.track(tracked.id, in: store)
+            agents.releaseGoneTabs(in: store)
             // A pane controller's teardown: page tabs of panes the tree no longer lists close.
             pages.closeGonePanes(in: store)
             pages.closeGoneStoreTabs(in: store)
@@ -73,6 +81,46 @@ struct LiveTreeWorkPerEventTests {
         farPane.tabs = Array(farPane.tabs.reversed())
         #expect(!reached.withLock { $0 },
                 "following one tab tracked every workspace's screens and every pane's tabs (O(all) per tab-list change)")
+    }
+
+    /// A pane with no tab that leaves the tree still moves the tab list revision (the index folds
+    /// one hash per listed pane id into its digest), and the internal page tabs it held close: the
+    /// page tab owner asks `pane(id:)`, not a list of every pane.
+    @Test func aPaneWithNoTabThatLeavesMovesTheRevisionAndClosesItsPageTabs() throws {
+        let empty = PaneSnapshot(id: PaneID(rawValue: 50), tabs: [])
+        let other = PaneSnapshot(id: PaneID(rawValue: 51), tabs: [TabSnapshot(surface: SurfaceID(rawValue: 60), title: "~")])
+        func tree(listingEmpty: Bool) -> DaemonTree {
+            var screens = [ScreenSnapshot(id: ScreenID(rawValue: 71), layout: .leaf(other.id), panes: [other])]
+            if listingEmpty { screens.insert(ScreenSnapshot(id: ScreenID(rawValue: 70), layout: .leaf(empty.id), panes: [empty]), at: 0) }
+            return DaemonTree(workspaces: [WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 80), key: nil, name: "w", screens: screens)])
+        }
+        let store = DaemonStore()
+        store.connectionState = .connected(try Self.connected())
+        store.apply(snapshot: tree(listingEmpty: true))
+        let paneKey = try #require(store.workspaces.first?.screens.flatMap(\.panes).first { $0.handle == empty.id }?.id)
+        let pages = InternalPageTabStore()
+        let key = pages.open(.settings, in: paneKey, of: store)
+        pages.closeGonePanes(in: store)
+        #expect(pages.tabIDs(in: paneKey) == [key], "a page tab of a pane the tree lists closed")
+
+        let revision = store.liveTabMembershipRevision
+        store.apply(snapshot: tree(listingEmpty: false))
+        #expect(store.liveTabMembershipRevision != revision, "a pane with no tab left and the membership revision stayed")
+        #expect(store.pane(id: paneKey) == nil)
+        pages.closeGonePanes(in: store)
+        #expect(pages.tabIDs(in: paneKey).isEmpty, "the page tabs of a pane the tree dropped stayed open")
+    }
+
+    /// A reorder (a tab dragged inside its pane, the workspaces reordered) lists the same tabs in
+    /// the same panes: the owners of per-tab state do not wake for it.
+    @Test func aReorderDoesNotWakeTheOwnersOfPerTabState() throws {
+        let store = try Self.liveStore(workspaces: 2, tabs: 3)
+        let before = store.liveTabMembershipRevision
+        var tree = Self.tree(workspaces: 2, tabs: 3)
+        tree.workspaces.reverse()
+        tree.workspaces[0].screens[0].panes[0].tabs.reverse()
+        store.apply(snapshot: tree)
+        #expect(store.liveTabMembershipRevision == before, "a reorder woke every owner of per-tab state")
     }
 
     /// The narrow check keeps the rule: a followed tab goes once its live tree, having listed it,

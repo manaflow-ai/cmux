@@ -102,7 +102,7 @@ final class AgentTabStore {
     var seenLive: Set<String> = []
     /// The tree each opened or shown tab belongs to, so a tab closed out of sight (by the CLI,
     /// another client, its pane closing) lets its view state go once that tree is live without it.
-    var tabStores: [String: DaemonStore] = [:]
+    var tabStores = StoreKeys()
     var watches: [ObjectIdentifier: Task<Void, Never>] = [:]
     /// Chats outside any pane (onboarding's first task), weakly held, so
     /// they get customization changes too.
