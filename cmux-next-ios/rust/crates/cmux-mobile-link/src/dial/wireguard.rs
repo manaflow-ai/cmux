@@ -217,6 +217,7 @@ fn offered(endpoints: impl IntoIterator<Item = SocketAddr>, options: &DialOption
 }
 
 /// What [`gather_endpoints`] found.
+#[derive(Debug)]
 struct Gathered {
     /// Host and server-reflexive endpoints, as offered to the peer.
     endpoints: Vec<String>,
@@ -2084,6 +2085,54 @@ mod tests {
         assert!(!underlay.confirmed);
         underlay.apply(Control::Reached { from: Some(relayed), via_turn: false });
         assert!(underlay.confirmed, "a reach naming the new allocation confirms the route");
+    }
+
+    /// A local STUN server that answers every binding request with the
+    /// sender's address.
+    async fn answering_stun() -> SocketAddr {
+        let server = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let addr = server.local_addr().unwrap();
+        tokio::spawn(async move {
+            let mut buffer = [0u8; 1500];
+            while let Ok((len, from)) = server.recv_from(&mut buffer).await {
+                if len < 20 {
+                    continue;
+                }
+                let mut transaction = [0u8; 12];
+                transaction.copy_from_slice(&buffer[8..20]);
+                let reply = cmux_transport::stun::binding_success(transaction, from);
+                let _ = server.send_to(&reply, from).await;
+            }
+        });
+        addr
+    }
+
+    /// Cloudflare lists STUN on 3478 and on 53, and many cellular networks
+    /// answer port 53 themselves (their DNS) or drop it. One silent server
+    /// must not hold every dial and every roam for the whole STUN wait: once
+    /// one answered, the others get a short grace.
+    #[tokio::test]
+    async fn a_silent_stun_server_does_not_hold_the_gather() {
+        let answering = answering_stun().await;
+        // Nothing listens there: no answer ever comes.
+        let silent = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let silent_addr = silent.local_addr().unwrap();
+        let options = DialOptions {
+            include_loopback: true,
+            ice_servers: vec![crate::api::IceServer {
+                urls: vec![format!("stun:{answering}"), format!("stun:{silent_addr}")],
+                username: None,
+                credential: None,
+            }],
+            ..DialOptions::default()
+        };
+        let socket = bind_udp().unwrap();
+        let started = Instant::now();
+        let gathered = gather_endpoints(&socket, &options).await;
+        let took = started.elapsed();
+        assert_eq!(gathered.answered, 1, "{gathered:?}");
+        assert!(took < Duration::from_millis(600), "gathering waited {took:?} for a silent STUN server");
+        drop(silent);
     }
 
     #[test]
