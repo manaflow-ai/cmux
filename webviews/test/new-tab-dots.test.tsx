@@ -9,7 +9,13 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { setComposerLook } from "../src/agent-session/acpmux/composerLook";
-import { editedPageWidgets, type WidgetEdit } from "../src/agent-session/acpmux/newtab/pageWidgets";
+import {
+  editedPageWidgets,
+  shownPageWidgets,
+  withWidgetEdit,
+  type PageWidget,
+  type WidgetEdit,
+} from "../src/agent-session/acpmux/newtab/pageWidgets";
 import { translateNewTab } from "../src/agent-session/acpmux/newtab/strings";
 import { DOT_STATES, NEW_TAB_DOTS, dotName, pickDot, shownDot } from "../src/agent-session/acpmux/newtab/tabDots";
 
@@ -175,3 +181,66 @@ test("the page draws three dots, the derived one checked, and a click on each pi
     await act(async () => root.unmount());
   }
 });
+
+// The dots draw on every page style, and the quick actions are Minimal's widget
+// (`tabs.newTabWidgets.actions`). A pick on Default or Cards edits only that one widget of Minimal's
+// list: the style on screen keeps everything it draws, and Minimal keeps its other widgets, whether
+// the host sent the list or not (App.tsx's PageDots wiring, pageWidgets.ts withWidgetEdit).
+async function renderPage(template: "default" | "cards", pageWidgets: PageWidget[] | undefined) {
+  const { createRoot } = await import("react-dom/client");
+  const { useState } = await import("react");
+  const { PageDots } = await import("../src/agent-session/acpmux/newtab/PageDots");
+  const state: { page: { pageWidgets?: PageWidget[] } } = { page: pageWidgets ? { pageWidgets } : {} };
+  function Page() {
+    const [page, setPage] = useState(state.page);
+    state.page = page;
+    return (
+      <PageDots
+        template={template}
+        styleDots={shownPageWidgets(template, page.pageWidgets).has("styleDots")}
+        actions={shownPageWidgets("minimal", page.pageWidgets).has("actions")}
+        callNative={async () => undefined}
+        show={() => {}}
+        showWidgets={(edit) => setPage((current) => withWidgetEdit(current, edit))}
+        onCancel={() => {}}
+      />
+    );
+  }
+  const root = createRoot(host);
+  await act(async () => root.render(<Page />));
+  return { root, state };
+}
+
+for (const template of ["default", "cards"] as const) {
+  for (const sent of [undefined, ["greeting", "projects", "chats", "styleDots"] as PageWidget[]]) {
+    test(`on ${template} (${sent ? "the host's list" : "no list"}), each dot keeps the page's other widgets`, async () => {
+      const { root, state } = await renderPage(template, sent);
+      try {
+        const others = (sent ?? ["greeting"]).filter((widget) => widget !== "actions");
+        for (const [index, dot] of [
+          [1, "claudeActions"],
+          [0, "claude"],
+          [1, "claudeActions"],
+          [2, "codex"],
+        ] as const) {
+          await act(async () => radios()[index]!.click());
+          expect(radios().find((radio) => radio.checked)?.value).toBe(dot);
+          // The style on screen still draws all it drew, its style dots too.
+          expect([...shownPageWidgets(template, state.page.pageWidgets)]).toEqual([
+            "projects",
+            "actions",
+            "chats",
+            "styleDots",
+          ]);
+          expect(host.querySelectorAll(".nt-page-dots .nt-style").length).toBe(2);
+          // Minimal keeps every other widget; only the actions follow the dot.
+          const minimal = shownPageWidgets("minimal", state.page.pageWidgets);
+          for (const widget of others) expect(minimal.has(widget)).toBe(true);
+          expect(minimal.has("actions")).toBe(DOT_STATES[dot].actions);
+        }
+      } finally {
+        await act(async () => root.unmount());
+      }
+    });
+  }
+}

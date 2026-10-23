@@ -62,6 +62,14 @@ export function editedPageWidgets(widgets: readonly PageWidget[] | undefined, ed
   return list.map((widget) => (isMovable(widget) ? (moved[next++] ?? widget) : widget));
 }
 
+/// The page's handshake with an edit shown in place, on any style. `pageWidgets` is always Minimal's
+/// list (`tabs.newTabWidgets.*`; the host's, else Settings' defaults), so a dot's pick on Default or
+/// Cards edits only that widget of Minimal's and the style on screen keeps all it draws
+/// (shownPageWidgets).
+export function withWidgetEdit<Page extends { pageWidgets?: PageWidget[] }>(page: Page, edit: WidgetEdit): Page {
+  return { ...page, pageWidgets: editedPageWidgets(page.pageWidgets, edit) };
+}
+
 /// `order` with `widget` moved `by` places (-1 earlier, 1 later), clamped to the list.
 export function movedWidget(order: readonly MovableWidget[], widget: MovableWidget, by: number): MovableWidget[] {
   const from = order.indexOf(widget);

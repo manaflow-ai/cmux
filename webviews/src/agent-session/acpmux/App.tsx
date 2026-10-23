@@ -65,7 +65,7 @@ import { rememberRecentFolders } from "./newtab/recentProject";
 import { rememberStartedProject } from "./newtab/startedProject";
 import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
 import { PageDots } from "./newtab/PageDots";
-import { editedPageWidgets, editNewTabWidgets, shownPageWidgets } from "./newtab/pageWidgets";
+import { editNewTabWidgets, shownPageWidgets, withWidgetEdit } from "./newtab/pageWidgets";
 import { screenTemplate, shownTemplate } from "./newtab/templates";
 import { newTabPageSubmit } from "./newtab/pageSubmit";
 import { isAgentHome, projectLabel, recentLocalFolders, sessionTitle, type AcpmuxSessionEntry } from "./sessionList";
@@ -8135,11 +8135,7 @@ function AcpmuxPane() {
               actions={shownPageWidgets("minimal", newTab.pageWidgets).has("actions")}
               callNative={callNative}
               show={(next) => setNewTab((current) => current && { ...current, template: next })}
-              showWidgets={(done) =>
-                setNewTab(
-                  (current) => current && { ...current, pageWidgets: editedPageWidgets(current.pageWidgets, done) },
-                )
-              }
+              showWidgets={(done) => setNewTab((current) => current && withWidgetEdit(current, done))}
               onCancel={() => window.dispatchEvent(new Event(FOCUS_LOCATION_EVENT))}
             />
           )}
@@ -8195,10 +8191,7 @@ function AcpmuxPane() {
               onEditWidgets={(edit) =>
                 editNewTabWidgets(edit, {
                   callNative,
-                  show: (done) =>
-                    setNewTab(
-                      (current) => current && { ...current, pageWidgets: editedPageWidgets(current.pageWidgets, done) },
-                    ),
+                  show: (done) => setNewTab((current) => current && withWidgetEdit(current, done)),
                 })
               }
               snapshot={newTabSnapshot}

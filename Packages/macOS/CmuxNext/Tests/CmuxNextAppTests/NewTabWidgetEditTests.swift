@@ -121,6 +121,19 @@ import Testing
         await #expect(throws: SettingNotInSchema.self) { try await settings.showNewTabWidget("order") }
     }
 
+    /// A `show` with a well-formed name that is no widget (it passes the request's name check) is
+    /// refused by the schema, and the settings file stays as it was.
+    @Test func aDotsShowOfAnUnknownWidgetIsRefused() async throws {
+        let (settings, directory) = try await Self.settings()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        #expect(AgentPaneNewTabEdit(widgetParams: ["edit": "show", "widget": "weather"]) == .show("weather"))
+        let before = settings.fileRoot
+        await #expect(throws: SettingNotInSchema.self) { try await settings.showNewTabWidget("weather") }
+        await #expect(throws: SettingNotInSchema.self) { try await settings.showNewTabWidget("weatherCity") }
+        #expect(settings.fileRoot == before)
+        #expect(settings.snapshot.newTabWidgets.ids == ["greeting"])
+    }
+
     /// The page's + opens Settings on the widget rows: the anchor exists.
     @Test func plusOpensTheWidgetSettings() {
         #expect(SettingsAnchor(key: "tabs.newTabWidgets.greeting") != nil)
