@@ -19,39 +19,49 @@ import Testing
         return scope
     }
 
-    /// The card at its width, the Classifier disclosure open, in `scope`.
-    static func card(in scope: ThemeScope) async -> HomeChiefSettingsView {
+    /// The card at its width in a window (as the popover shows it), rooted in `scope`, the
+    /// Classifier disclosure open. The window is returned so the caller keeps it alive.
+    static func card(in scope: ThemeScope) async -> (HomeChiefSettingsView, NSWindow) {
         let view = HomeChiefSettingsView(muxHome: FileManager.default.temporaryDirectory, source: LayoutChief())
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: HomeChiefSettingsView.width, height: 900),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = view
         scope.root(view)
         await view.refresh().value
         view.reactionRows.showsClassifier = true
-        view.frame.size = NSSize(width: HomeChiefSettingsView.width, height: view.fittingSize.height)
+        window.setContentSize(NSSize(width: HomeChiefSettingsView.width, height: view.fittingSize.height))
         view.layoutSubtreeIfNeeded()
-        return view
+        return (view, window)
     }
 
-    static func labels(in view: NSView) -> [NSTextField] {
-        var found: [NSTextField] = []
-        if let label = view as? NSTextField, !label.isEditable, !label.stringValue.isEmpty { found.append(label) }
+    static func labels(in view: NSView) -> [ChromeLabel] {
+        var found: [ChromeLabel] = []
+        if let label = view as? ChromeLabel, !label.stringValue.isEmpty, !label.isHidden { found.append(label) }
         for subview in view.subviews { found += labels(in: subview) }
         return found
     }
 
     @Test func everyReactionsTitleShowsWhole() async {
-        let view = await Self.card(in: Self.scope(dark: false))
+        let (view, window) = await Self.card(in: Self.scope(dark: false))
+        defer { window.close() }
         let labels = Self.labels(in: view.reactionRows)
         #expect(labels.count >= 4)
         for label in labels {
-            let bounds = NSRect(x: 0, y: 0, width: label.frame.width, height: .greatestFiniteMagnitude)
-            let needed = label.cell?.cellSize(forBounds: bounds) ?? .zero
-            #expect(needed.width <= label.frame.width + 0.5 && needed.height <= label.frame.height + 0.5,
+            let text = label.attributedStringValue
+            let needed = label.wraps
+                ? text.boundingRect(with: NSSize(width: label.frame.width, height: .greatestFiniteMagnitude),
+                                    options: [.usesLineFragmentOrigin, .usesFontLeading]).size
+                : text.size()
+            #expect(needed.width.rounded(.up) <= label.frame.width + 0.5 && needed.height.rounded(.up) <= label.frame.height + 1,
                     "\"\(label.stringValue)\" is cut off: needs \(needed), has \(label.frame.size)")
         }
     }
 
     @Test(arguments: [false, true]) func theFieldBoxesDrawTheRoomsFieldFill(dark: Bool) async throws {
         let scope = Self.scope(dark: dark)
-        let view = await Self.card(in: scope)
+        let (view, window) = await Self.card(in: scope)
+        defer { window.close() }
         let fill = scope.perform { Palette.chromeBackground }
         let boxes = [view.reactionRows.harness, view.reactionRows.model, view.reactionRows.prompt].compactMap { $0.superview as? ThemedFieldBox }
         #expect(boxes.count == 3)
