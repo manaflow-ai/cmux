@@ -139,6 +139,11 @@ Process (Lawrence 2026-10-23): every agent session's landed code is reviewed twi
 
 Ratchet rule: a count only goes down, and renaming a pattern to dodge a count (a singleton by another name, an observer behind a wrapper) counts as the same debt.
 
+Daemon decision (Lawrence 2026-10-23): the journal writer is never on the request path. A reply goes out once the
+in-memory state is applied; the journal append is a best-effort, non-blocking, coalescing enqueue (newest state of each
+record wins when the queue is full, so the journal ends consistent, never torn); recovery = last journal state plus the
+holder's live terminals, with the A3 reconcile notice. Target: every daemon op < 2 ms p95 send to reply, creates included.
+
 ## 4. Workstreams (batch 1)
 
 Each workstream is one subagent in its own worktree, lands on feat-cmux-next (rebase, plain
