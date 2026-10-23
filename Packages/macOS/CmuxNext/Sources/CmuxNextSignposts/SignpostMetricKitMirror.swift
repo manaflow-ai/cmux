@@ -23,7 +23,7 @@ public final class SignpostMetricKitMirror: Sendable {
     private let on = Atomic<Bool>(false)
 
     /// One MetricKit log per category, made at the first read (``setOn(_:)`` with true, never while off).
-    // OSLog handles are immutable and thread-safe; a static let is initialized once (dispatch_once), so readers need no lock.
+    // crash-allow: OSLog handles are immutable and thread-safe (OSLog is not marked Sendable); a static let is initialized once (dispatch_once) and never written, so readers need no lock.
     nonisolated(unsafe) private static let logs: [SignpostCategory: OSLog] = Dictionary(
         uniqueKeysWithValues: SignpostCategory.allCases.map { ($0, MXMetricManager.makeLogHandle(category: $0.rawValue)) })
 
