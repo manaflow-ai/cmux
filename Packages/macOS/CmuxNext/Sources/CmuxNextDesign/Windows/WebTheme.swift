@@ -79,10 +79,13 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     /// - Parameter app: The app theme the page's `--cmux-app-*` tokens come from: the store's
     ///   (`appearance.appTheme`) when it names one, else the scope's own (`tokens.app`).
     /// - Parameter glass: The glass mode pages draw; nil reads ``GlassLensMode/current``.
+    /// - Parameter store: The theme store of the page's scope (`themeScope.store`): its app theme
+    ///   (`appearance.appTheme`) when `app` is nil, and whether colors blend yet
+    ///   (``ColorTransition/current(for:)``). Nil (a test's value) has no app theme and is instant.
     @MainActor
     public init(_ tokens: ThemeTokens, reduceTransparency: Bool = false, surface surfaceKind: SurfaceKind? = nil,
                 backgrounds: SurfaceBackgrounds = ThemeScope.app.surfaceBackgrounds, scrollers: String? = nil,
-                app: AppTheme? = nil, glass: GlassLensMode? = nil) {
+                app: AppTheme? = nil, glass: GlassLensMode? = nil, store: ThemeStore? = nil) {
         let pageOpaque = WindowBackdrop.current(tokens, reduceTransparency: reduceTransparency).panesPaintBackground
         let surface = tokens.surfaceBackground
         let windowTint = WindowBackdrop.currentTint(tokens)
@@ -132,9 +135,9 @@ public nonisolated struct WebTheme: Equatable, Sendable {
             "--cmux-lit-glyph": Self.css(tokens.litGlyph),
             // The modal scrim (`Scrim`), the same as native dialogs'.
             "--cmux-scrim": Self.css(tokens.scrim),
-        ].merging((app ?? ThemeScope.app.store.appTheme ?? tokens.app).cssVariables) { own, _ in own }
+        ].merging((app ?? store?.appTheme ?? tokens.app).cssVariables) { own, _ in own }
         colorScheme = tokens.isDark ? "dark" : "light"
-        let colors = ColorTransition.current
+        let colors = ColorTransition.current(for: store)
         transition = ["duration": colors.cssDuration, "easing": colors.cssEasing, "space": colors.space.rawValue]
         self.scrollers = scrollers ?? SystemScrollers.pageValue
         terminal = Terminal(tokens, fontFamily: DesignSettings.shared.effectiveTerminalFontFamily)

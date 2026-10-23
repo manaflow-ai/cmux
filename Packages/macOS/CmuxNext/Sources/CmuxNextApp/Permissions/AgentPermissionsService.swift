@@ -22,7 +22,7 @@ final class AgentPermissionsService {
         self.requests = requests
         presenter = PermissionRequestPresenter(requests: requests, appURL: { [weak setup] kind in
             kind.heldByComputerUseHelper ? setup?.helperAppURL : Bundle.main.bundleURL
-        })
+        }, theme: services.themeRoot)
         presenter.start()
     }
 
