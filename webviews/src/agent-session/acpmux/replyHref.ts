@@ -17,14 +17,14 @@ export function safeHref(href: string): string | undefined {
 }
 
 /// A cmux app link (`cmux://workspace/ws_…`, `pane/pane_…`, `tab/tab_…`, `session/<id>`,
-/// `chief/<home>/session/<id>`, `agent/<harness>/<session>?host=&name=`) in this build's scheme or the plain `cmux` one: drawn as a link,
+/// `chief/<home>/session/<id>`, `agent/<harness>/<session>?host=&name=`, `stashed`, the Stashed Tabs page) in this build's scheme or the plain `cmux` one: drawn as a link,
 /// and a click goes to the host, which opens it inside the app (`link.open`) and never in another
 /// app. The host checks the ids again (DeepLink.parse); this only keeps every other scheme
 /// (`javascript:`, `file:`, `data:`, `ssh:`...) as text.
 export function appHref(href: string): string | undefined {
   const text = href.trim();
   if (
-    !/^cmux(-[a-z0-9-]+)?:\/\/(workspace|pane|tab|session|chief|agent)\/[A-Za-z0-9._~/-]+(\?[A-Za-z0-9._~=&-]+)?(#[A-Za-z0-9._~-]+)?$/.test(
+    !/^cmux(-[a-z0-9-]+)?:\/\/((workspace|pane|tab|session|chief|agent)\/[A-Za-z0-9._~/-]+(\?[A-Za-z0-9._~=&-]+)?(#[A-Za-z0-9._~-]+)?|stashed\/?)$/.test(
       text,
     )
   )

@@ -1,6 +1,7 @@
-// cmux app links (`cmux://workspace/ws_…`, pane, tab, session, a Chief subagent's chat) in
-// rendered Markdown: the Markdown file page follows them through the host as kind "app" (opened
-// inside cmux), the agent pane draws them as links, and every other scheme stays inert.
+// cmux app links (`cmux://workspace/ws_…`, pane, tab, session, a Chief subagent's chat, the
+// Stashed Tabs page) in rendered Markdown: the Markdown file page follows them through the host
+// as kind "app" (opened inside cmux), the agent pane draws them as links, and every other scheme
+// stays inert.
 import { expect, test } from "bun:test";
 import { appHref, linkHref, safeHref } from "../src/agent-session/acpmux/replyHref";
 import { MARKDOWN_OPEN_LINK_OP } from "../src/pages/markdown/host";
@@ -18,6 +19,9 @@ const APP_LINKS = [
   "cmux-dev-mytag://workspace/ws_0123456789abcdef0123456789abcdef",
   "cmux://agent/claude/0cfd5322-a913-4e01-b71c-aaf0edfb4de8",
   "cmux://agent/codex/019a-thread?host=build-mac&name=Lanternfish",
+  // The Stashed Tabs page.
+  "cmux://stashed",
+  "cmux-dev-mytag://stashed/",
 ];
 const UNSAFE = [
   "javascript:alert(1)",
@@ -26,6 +30,7 @@ const UNSAFE = [
   "vbscript:msgbox",
   "ssh://host",
   "cmux://auth-callback/x",
+  "cmux://stashed/x",
   "cmux://user:pw@workspace/ws_0123456789abcdef0123456789abcdef",
   "cmuxx://workspace/ws_0123456789abcdef0123456789abcdef",
 ];

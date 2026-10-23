@@ -1,26 +1,30 @@
 import CmuxNextActions
+import CmuxNextHistory
 import CmuxNextLayout
 import Foundation
 
 /// A click on a cmux app link in rendered Markdown (the Home transcript, an agent chat, a
 /// Markdown file page) or a terminal: a path (`file:///…`, ``openPath(_:services:)``),
 /// `cmux://workspace/<ws_…>`, `pane/<pane_…>`, `tab/<tab_…>`,
-/// `session/<id>`, or a Chief subagent's `chief/<home id>/session/<id>` (optchat-chief
-/// `workspaces::subagent_link`). The Chief and its documents write the `cmux` scheme whatever the
-/// build, so the link is opened as this build's `link.open` (the one shared path) and never goes
-/// to another app through the system: the plain `cmux` scheme belongs to the Release app.
+/// `session/<id>`, a Chief subagent's `chief/<home id>/session/<id>` (optchat-chief
+/// `workspaces::subagent_link`), or `stashed` (the Stashed Tabs page). The Chief and its
+/// documents write the `cmux` scheme whatever the build, so the link is opened as this build's
+/// `link.open` (the one shared path) and never goes to another app through the system: the plain
+/// `cmux` scheme belongs to the Release app.
 enum CmuxAppLinks {
     /// The scheme the Chief writes.
     static let chiefScheme = "cmux"
 
-    /// Runs `link.open` on `url` when ``link(for:linkScheme:chiefHost:)`` accepts it; false
-    /// (nothing runs) for any other URL.
+    /// Runs `link.open` on `url` when ``link(for:linkScheme:chiefHost:)`` accepts it or it is the
+    /// Stashed Tabs page (``isStashedPage(_:linkScheme:)``); false (nothing runs) for any other URL.
     @MainActor
     @discardableResult
     static func open(_ url: URL, services: AppServices) -> Bool {
         if url.isFileURL { return openPath(url, services: services) }
-        guard let link = link(for: url, linkScheme: services.linkScheme, chiefHost: services.agentTabs.chiefHost),
-              let text = link.url(scheme: services.linkScheme)?.absoluteString else { return false }
+        let text = isStashedPage(url, linkScheme: services.linkScheme) ? url.absoluteString
+            : link(for: url, linkScheme: services.linkScheme, chiefHost: services.agentTabs.chiefHost)?
+                .url(scheme: services.linkScheme)?.absoluteString
+        guard let text else { return false }
         return services.registry.perform("link.open", invocation: ActionInvocation(arguments: ["url": .string(text)], origin: .user))
     }
 
@@ -50,6 +54,13 @@ enum CmuxAppLinks {
             }
         }
         return true
+    }
+
+    /// The Stashed Tabs page's address in the `cmux` scheme (the address bar's, `isStashedPage`)
+    /// or `linkScheme` (this build's): a top page, no ``DeepLink``, which `link.open` shows.
+    static func isStashedPage(_ url: URL, linkScheme: String) -> Bool {
+        url.isStashedPage
+            || (url.scheme?.caseInsensitiveCompare(linkScheme) == .orderedSame && url.host()?.lowercased() == "stashed")
     }
 
     /// The link `url` opens in this app, in the `cmux` scheme or `linkScheme` (this build's): a

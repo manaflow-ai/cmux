@@ -34,6 +34,7 @@ struct AgentPaneAppLinkTests {
     @Test func onlyCmuxSchemesWithAKnownHostAreAppLinks() {
         #expect(AgentPaneNavigation.isCmuxAppLink(workspace))
         #expect(AgentPaneNavigation.isCmuxAppLink(URL(string: "cmux-dev-tag://session/abc")!))
+        #expect(AgentPaneNavigation.isCmuxAppLink(URL(string: "cmux://stashed")!), "the Stashed Tabs page")
         #expect(!AgentPaneNavigation.isCmuxAppLink(URL(string: "cmux://auth-callback")!))
         #expect(!AgentPaneNavigation.isCmuxAppLink(URL(string: "cmux://u:p@workspace/ws_x")!))
         #expect(!AgentPaneNavigation.isCmuxAppLink(URL(string: "https://workspace/ws_x")!))

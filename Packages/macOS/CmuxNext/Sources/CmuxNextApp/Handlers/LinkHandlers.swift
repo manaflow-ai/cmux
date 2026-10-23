@@ -16,9 +16,9 @@ enum LinkHandlers {
             // start (a script, an agent) still navigates, as it asked, but
             // never takes the key window.
             let background = invocation["background"]?.boolValue == true || !ActionRunScope.viewChangeAllowed()
-            // `<scheme>://stashed` (opened from another app, Open Link…) is the Stashed Tabs page.
-            if let url = URL(string: trimmed), url.scheme?.caseInsensitiveCompare(services.linkScheme) == .orderedSame,
-               url.host()?.lowercased() == "stashed" {
+            // `<scheme>://stashed` (opened from another app, Open Link…) is the Stashed Tabs page, and
+            // so is the address bar's `cmux://stashed` in a build with another scheme (dev, nightly).
+            if let url = URL(string: trimmed), CmuxAppLinks.isStashedPage(url, linkScheme: services.linkScheme) {
                 _ = try StashHandlers.show(services, focus: !background)
                 return
             }

@@ -311,6 +311,8 @@ struct StashTests {
 
     /// `<scheme>://stashed` opened from another app (ExternalOpenRouter's deep link) or Open Link…
     /// goes through `link.open`, which shows the Stashed Tabs page instead of refusing the link.
+    /// So does the address bar's `cmux://stashed` in a build whose scheme is another (dev,
+    /// nightly), typed into Open Link… or clicked in Markdown, Home or an agent chat.
     @Test func theStashedLinkOpensThePage() async throws {
         try await PinnedPageTests.withApp { services, _ in
             try #require(services.pages.keys(of: .stashed).isEmpty, "a Stashed Tabs page was open before the link")
@@ -318,6 +320,31 @@ struct StashTests {
             let failures = try await Self.perform("link.open", ActionInvocation(arguments: ["url": .string(link)], origin: .cli), services)
             #expect(failures.isEmpty, "\(failures)")
             #expect(!services.pages.keys(of: .stashed).isEmpty, "the link opened no Stashed Tabs page")
+
+            try #require(services.linkScheme != "cmux", "the test build's scheme is cmux: the literal link proves nothing")
+            let literal = try await Self.perform("link.open", ActionInvocation(arguments: ["url": .string("cmux://stashed")], origin: .cli),
+                                                 services)
+            #expect(literal.isEmpty, "cmux://stashed: \(literal)")
+            #expect(CmuxAppLinks.open(try #require(URL(string: "cmux://stashed/")), services: services),
+                    "a clicked cmux://stashed is no app link")
+        }
+    }
+
+    /// Shift-Return on `cmux://stashed` in the address bar (a new window) shows the Stashed Tabs
+    /// page, as a plain Return does, instead of a new workspace whose page tries to load it.
+    @Test func shiftReturnOnTheStashedAddressShowsThePage() async throws {
+        try await PinnedPageTests.withApp { services, connection in
+            let pane = try MoveToNewWindowTests.firstPane(services)
+            let tab = try await MoveToNewWindowTests.browserTab(in: pane, services, connection)
+            let page = try #require(services.cache.existingBrowser(tab.id)?.tab)
+            @MainActor func shown() -> Bool {
+                services.windows.active?.state.page == .page(.stashed) || !services.pages.keys(of: .stashed).isEmpty
+            }
+            try #require(!shown(), "the Stashed Tabs page showed before Shift-Return")
+            let workspaces = services.daemon.store.workspaces.count
+            services.cache.pageRequests.openFromOmnibar(try #require(URL(string: "cmux://stashed")), .newWindow, page: page)
+            try await PinnedPageTests.until({ shown() }, report: { "no Stashed Tabs page; workspaces \(services.daemon.store.workspaces.count)" })
+            #expect(services.daemon.store.workspaces.count == workspaces, "Shift-Return made a workspace for cmux://stashed")
         }
     }
 
