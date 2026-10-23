@@ -45,7 +45,7 @@ import { postNative } from "./native";
 import { NativeError } from "./nativeError";
 import { errorMessage } from "./transportErrors";
 import { pageHostClient, startHostEvents } from "./pageHost";
-import { NewTabPage, newTabHost, type NewTabHost } from "./NewTabPage";
+import { FOCUS_LOCATION_EVENT, NewTabPage, newTabHost, type NewTabHost } from "./NewTabPage";
 import { setDeviceChats } from "./newtab/deviceChats";
 import { setRecentlyClosed } from "./newtab/recentlyClosed";
 import { setNowPlaying } from "./newtab/nowPlaying";
@@ -63,6 +63,7 @@ import { rememberRecentFolders } from "./newtab/recentProject";
 import { rememberStartedProject } from "./newtab/startedProject";
 import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
 import { TaskGoalStrip } from "./TaskGoalStrip";
+import { PageDots } from "./newtab/PageDots";
 import { useSessionCommands } from "./newtab/useSessionCommands";
 import { editedPageWidgets, editNewTabWidgets, shownPageWidgets } from "./newtab/pageWidgets";
 import { screenTemplate, shownTemplate } from "./newtab/templates";
@@ -8180,6 +8181,18 @@ function AcpmuxPane() {
           data-dock={!reviewing && !freshView && !diffView && !inspectorOpen ? "float" : undefined}
           data-summary={summaryCard.column ? "inline" : "popover"}
         >
+          {!harnessesOpen && showNewTab && !newTab.history && (
+            // The page's dots, under it: the composer's two looks, then with the style dots on (on
+            // Minimal a widget, off by default: newtab/pageWidgets.ts) the page's other styles
+            // (newtab/PageDots.tsx); a pick shows in place at once.
+            <PageDots
+              template={shownTemplate(newTab)}
+              styleDots={shownPageWidgets(shownTemplate(newTab), newTab.pageWidgets).has("styleDots")}
+              callNative={callNative}
+              show={(next) => setNewTab((current) => current && { ...current, template: next })}
+              onCancel={() => window.dispatchEvent(new Event(FOCUS_LOCATION_EVENT))}
+            />
+          )}
           {!showNewTab && snapshot.summary?.goal && (
             <TaskGoalStrip
               key={snapshot.summary.sessionId}
