@@ -8,8 +8,8 @@
 -- when no relation of its name exists.
 DO $$
 BEGIN
-	IF to_regclass('hang_reports') IS NULL THEN
-		CREATE TABLE "hang_reports" (
+	IF to_regclass('public.hang_reports') IS NULL THEN
+		CREATE TABLE "public"."hang_reports" (
 			"report_id" uuid PRIMARY KEY NOT NULL,
 			"install_id" uuid NOT NULL,
 			"received_day" date NOT NULL,
@@ -34,14 +34,14 @@ END $$;
 -- when no relation of its name exists: the replay is then a real no-op.
 DO $$
 BEGIN
-	IF to_regclass('hang_reports_install_day_idx') IS NULL THEN
-		CREATE INDEX "hang_reports_install_day_idx" ON "hang_reports" USING btree ("install_id","received_day");
+	IF to_regclass('public.hang_reports_install_day_idx') IS NULL THEN
+		CREATE INDEX "hang_reports_install_day_idx" ON "public"."hang_reports" USING btree ("install_id","received_day");
 	END IF;
 END $$;
 --> statement-breakpoint
 DO $$
 BEGIN
-	IF to_regclass('hang_reports_received_at_idx') IS NULL THEN
-		CREATE INDEX "hang_reports_received_at_idx" ON "hang_reports" USING btree ("received_at");
+	IF to_regclass('public.hang_reports_received_at_idx') IS NULL THEN
+		CREATE INDEX "hang_reports_received_at_idx" ON "public"."hang_reports" USING btree ("received_at");
 	END IF;
 END $$;
