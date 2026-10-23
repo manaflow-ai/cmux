@@ -306,7 +306,7 @@ public final class LayoutModel {
                 if abs(column.width - hold.value) < 0.002 {
                     if hold.ended && hold.settled { columnWidthHolds[pane] = nil }
                 } else {
-                    layout = layout.settingWidth(hold.value, for: column.id)
+                    _ = hold
                 }
             }
             for (column, override) in widthOverrides {
