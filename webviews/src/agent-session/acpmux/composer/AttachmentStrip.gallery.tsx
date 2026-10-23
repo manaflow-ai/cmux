@@ -21,11 +21,15 @@ const localMovieHost: ChipHostFixture = {
 function GalleryAttachmentStrip(props: AttachmentStripProps) {
   const [attachments, setAttachments] = useState(props.attachments);
   return (
-    <AttachmentStrip
-      {...props}
-      attachments={attachments}
-      onRemove={(id) => setAttachments((items) => items.filter((item) => item.id !== id))}
-    />
+    <div className="acpmux-composer">
+      <div className="acpmux-composer-box">
+        <AttachmentStrip
+          {...props}
+          attachments={attachments}
+          onRemove={(id) => setAttachments((items) => items.filter((item) => item.id !== id))}
+        />
+      </div>
+    </div>
   );
 }
 
