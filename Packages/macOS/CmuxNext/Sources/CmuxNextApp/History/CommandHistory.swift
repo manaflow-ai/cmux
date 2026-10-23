@@ -155,6 +155,18 @@ final class CommandHistory {
         }
     }
 
+    /// The text of the `limit` newest commands that have one, newest first, across machines: a
+    /// New Tab page's command suggestions, built on the key's turn of Cmd-T and Cmd-N. Reads only
+    /// the newest `limit` rows of each machine (a mirror keeps up to 1,000, oldest first) and
+    /// makes no history entry per row, as ``entries()`` does for the History list.
+    func recentTitles(_ limit: Int) -> [String] {
+        guard limit > 0 else { return [] }
+        let newest = mirrors.values.flatMap { mirror in
+            mirror.commands.reversed().lazy.filter { $0.command?.isEmpty == false }.prefix(limit)
+        }
+        return newest.sorted { $0.startedAt > $1.startedAt }.prefix(limit).compactMap(\.command)
+    }
+
     // MARK: Deleting
 
     /// Deletes, in every connected daemon, the commands that started at or

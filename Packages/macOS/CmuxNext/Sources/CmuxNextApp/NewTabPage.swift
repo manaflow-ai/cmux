@@ -59,14 +59,20 @@ enum NewTabPage {
     /// The bar's suggestions: the open tabs and other workspaces a jump lands somewhere real on
     /// (``places(_:current:excluding:home:)``), the open tabs' folders (the current one first),
     /// and recent pages, newest first.
+    ///
+    /// Built on the key's turn of Cmd-T and Cmd-N, so its cost is the open tabs' text plus a
+    /// bounded head of each history: the 40 newest pages (``InMemoryBrowserHistory/recent(_:)``,
+    /// no sort of every visit), their icons through one scan of the open tabs, the 40 newest
+    /// commands, and icons encoded once per image (``TabFaviconStore/dataURL(_:)``).
     static func omnibar(_ services: AppServices, excluding selectedID: String?) -> AgentPaneOmnibar {
         let (tabs, workspaces, folders) = places(services, excluding: selectedID)
-        let history = services.cache.history(for: .default).entries.prefix(AgentPaneOmnibar.maximumEntries).map {
-            AgentPaneOmnibar.Page(url: $0.url.absoluteString, title: $0.title, icon: AppServices.dataURL(services.siteFavicon($0.url, profile: .default)))
+        let openTabIcons = services.openTabFaviconsByOrigin()
+        let history = services.cache.history(for: .default).recent(AgentPaneOmnibar.maximumEntries).map {
+            AgentPaneOmnibar.Page(url: $0.url.absoluteString, title: $0.title,
+                                  icon: services.favicons.dataURL(services.siteFavicon($0.url, profile: .default, openTabs: openTabIcons)))
         }
-        let commands = services.history.commands.entries().prefix(AgentPaneOmnibar.maximumEntries).compactMap(\.title)
-        let actionIDs: Set<String> = ["palette.openCmuxSettingsFile", "keybindings.open"]
-        let actions = services.registry.descriptors.filter { actionIDs.contains($0.id.rawValue) }.map {
+        let commands = services.history.commands.recentTitles(AgentPaneOmnibar.maximumEntries)
+        let actions = (["palette.openCmuxSettingsFile", "keybindings.open"] as [ActionID]).compactMap(services.registry.descriptor(for:)).map {
             AgentPaneOmnibar.Action(id: $0.id.rawValue, title: $0.title, keywords: $0.keywords)
         }
         return AgentPaneOmnibar(
@@ -90,7 +96,7 @@ enum NewTabPage {
         }
         let current = current ?? services.windows.active?.state.workspaceID
         return places(sources, current: current, excluding: selectedID, home: NSHomeDirectory()) {
-            AppServices.dataURL(services.tabFavicon($0))
+            services.favicons.dataURL(services.tabFavicon($0))
         }
     }
 
@@ -104,9 +110,9 @@ enum NewTabPage {
         -> (tabs: [AgentPaneOmnibar.Tab], workspaces: [AgentPaneOmnibar.Workspace], folders: [String]) {
         var tabs: [AgentPaneOmnibar.Tab] = []
         var others: [AgentPaneOmnibar.Workspace] = []
-        var folders: [String] = []
+        var folders: [String] = [], listedFolders: Set<String> = [home]
         for workspace in workspaces {
-            for folder in workspace.tabs.compactMap(\.cwd) where folder != home && !folders.contains(folder) { folders.append(folder) }
+            for folder in workspace.tabs.compactMap(\.cwd) where listedFolders.insert(folder).inserted { folders.append(folder) }
             let rows = workspace.tabs.filter { $0.id != selectedID }.compactMap { tab in
                 place(tab, home: home).map { place in
                     AgentPaneOmnibar.Tab(id: tab.id, kind: place.kind, title: place.title, detail: place.detail,

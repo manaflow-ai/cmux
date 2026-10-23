@@ -34,20 +34,16 @@ extension AppServices {
     }
 
     /// The favicon of the page at `url` for `profile`, nil while it loads or without one.
-    func siteFavicon(_ url: URL, profile: BrowserProfileID) -> TabImage? {
+    /// `openTabs`: ``openTabFaviconsByOrigin()`` read once for a list of pages (a New Tab page's
+    /// recent pages), so each page costs a lookup instead of a scan of every open tab.
+    func siteFavicon(_ url: URL, profile: BrowserProfileID, openTabs: [String: String]? = nil) -> TabImage? {
         guard let origin = BookmarkURL.faviconKey(for: url) else { return nil }
-        return favicons.image(for: siteFaviconAddress(origin: origin), profile: profile)
+        let address = openTabs.map { $0[origin] ?? origin + "/favicon.ico" } ?? siteFaviconAddress(origin: origin)
+        return favicons.image(for: address, profile: profile)
     }
 
     /// Browser tab `tab`'s favicon as it is drawn in the strip (never an incognito tab's record).
     func tabFavicon(_ tab: TabModel) -> TabImage? {
         browserFavicon(key: tab.id, recordFavicon: cache.browserTabs.isIncognitoTab(tab.id) ? nil : tab.faviconURL)
-    }
-
-    /// `image` as the inline image a cmux page may draw (its CSP allows `img-src data:` only).
-    static func dataURL(_ image: TabImage?) -> String? {
-        guard let image, let png = NSBitmapImageRep(cgImage: image.cgImage).representation(using: .png, properties: [:])
-        else { return nil }
-        return "data:image/png;base64," + png.base64EncodedString()
     }
 }

@@ -10,22 +10,20 @@ import Foundation
 @MainActor
 enum NewTabClosed {
     /// Keeps every page of `tabs` showing the newest closed items. Favicons
-    /// are looked up outside the observed read and encoded once per URL, so
+    /// are looked up outside the observed read (one scan of the open tabs per
+    /// change) and encoded once per icon (``TabFaviconStore/dataURL(_:)``), so
     /// a favicon landing elsewhere re-runs nothing.
     static func wire(_ tabs: AgentTabStore, services: AppServices) {
         Task { [weak tabs, weak services] in
-            var icons: [String: String] = [:]
             var last: [AgentPaneClosedItem]?
             for await listed in ObservationStream({ [weak services] in services.map(items) ?? [] }) where listed != last {
                 guard let tabs, let services else { return }
                 last = listed
+                let openTabIcons = listed.contains { $0.kind == .browser } ? services.openTabFaviconsByOrigin() : [:]
                 let shown = listed.map { item in
-                    guard item.kind == .browser, let address = item.detail else { return item }
-                    if icons[address] == nil, let url = URL(string: address) {
-                        icons[address] = AppServices.dataURL(services.siteFavicon(url, profile: .default))
-                    }
+                    guard item.kind == .browser, let address = item.detail, let url = URL(string: address) else { return item }
                     var item = item
-                    item.icon = icons[address]
+                    item.icon = services.favicons.dataURL(services.siteFavicon(url, profile: .default, openTabs: openTabIcons))
                     return item
                 }
                 // Encoded once here; every page gets the same payload (a251: one encode per page before).

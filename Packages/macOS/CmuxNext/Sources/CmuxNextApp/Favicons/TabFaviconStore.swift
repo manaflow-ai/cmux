@@ -31,9 +31,36 @@ final class TabFaviconStore {
     @ObservationIgnored private var pending: [Key: Task<Void, Never>] = [:]
     @ObservationIgnored private var failed = LRUCache<Key, Bool>(capacity: 256)
     @ObservationIgnored private let loader: any BrowserFaviconLoading
+    /// Each icon's inline image (``dataURL(_:)``), by icon identity. The entry holds its icon, so
+    /// an identifier is never reused while it is cached; as many entries as icons.
+    @ObservationIgnored private var dataURLs = LRUCache<ObjectIdentifier, (image: TabImage, url: String)>(capacity: 256)
+    @ObservationIgnored private let encode: (CGImage) -> Data?
 
-    init(loader: any BrowserFaviconLoading = BrowserFaviconLoader.shared) {
+    /// - Parameters:
+    ///   - loader: Fetches an icon no live page fetches.
+    ///   - encode: An icon's PNG bytes for ``dataURL(_:)`` (tests count its calls).
+    init(loader: any BrowserFaviconLoading = BrowserFaviconLoader.shared, encode: @escaping (CGImage) -> Data? = TabFaviconStore.png) {
         self.loader = loader
+        self.encode = encode
+    }
+
+    /// `image` as the inline image a cmux page may draw (its CSP allows `img-src data:` only),
+    /// encoded once per icon: a New Tab page, built on the key's turn of every Cmd-T and Cmd-N,
+    /// lists every open browser tab's icon and up to 40 recent pages' icons, and each was a PNG
+    /// encode per build. An icon's `TabImage` is the same object while it is cached, so its
+    /// encoding is too.
+    func dataURL(_ image: TabImage?) -> String? {
+        guard let image else { return nil }
+        if let known = dataURLs.peek(ObjectIdentifier(image)), known.image === image { return known.url }
+        guard let png = encode(image.cgImage) else { return nil }
+        let url = "data:image/png;base64," + png.base64EncodedString()
+        dataURLs.set((image: image, url: url), for: ObjectIdentifier(image))
+        return url
+    }
+
+    /// `image`'s PNG bytes.
+    nonisolated static func png(_ image: CGImage) -> Data? {
+        NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])
     }
 
     /// The icon at `address` for a page of `profile`, or nil while it loads

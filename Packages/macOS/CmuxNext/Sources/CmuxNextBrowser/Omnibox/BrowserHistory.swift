@@ -68,6 +68,30 @@ public final class InMemoryBrowserHistory: BrowserHistoryStore {
         byKey.values.sorted { $0.lastVisit > $1.lastVisit }
     }
 
+    /// The `limit` most recently visited entries, newest first: the head of ``entries`` without
+    /// sorting every entry. A New Tab page lists 40 pages of a history an import can make tens of
+    /// thousands long, and it is built on the key's turn of Cmd-T and Cmd-N.
+    ///
+    /// - Parameter limit: How many entries at most; 0 or less gives none.
+    /// - Returns: At most `limit` entries, newest first.
+    public func recent(_ limit: Int) -> [BrowserHistoryEntry] {
+        guard limit > 0 else { return [] }
+        var newest: [BrowserHistoryEntry] = []
+        newest.reserveCapacity(limit + 1)
+        for entry in byKey.values {
+            if newest.count == limit, let oldest = newest.last, entry.lastVisit <= oldest.lastVisit { continue }
+            // Binary search for the first kept entry older than this one (newest first).
+            var low = 0, high = newest.count
+            while low < high {
+                let mid = (low + high) / 2
+                if newest[mid].lastVisit >= entry.lastVisit { low = mid + 1 } else { high = mid }
+            }
+            newest.insert(entry, at: low)
+            if newest.count > limit { newest.removeLast() }
+        }
+        return newest
+    }
+
     public func recordVisit(url: URL, title: String?, at date: Date) {
         guard Self.isRecordable(url) else { return }
         let key = BrowserHistoryRanker.dedupeKey(for: url)
