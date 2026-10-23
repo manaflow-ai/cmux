@@ -230,9 +230,6 @@
     "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/TabSearch.xcstrings": {
       "needs_review": 21
     },
-    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/TextBox.xcstrings": {
-      "identical": 1
-    },
     "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/VSCodeInline.xcstrings": {
       "needs_review": 70
     },
@@ -309,7 +306,7 @@
       "needs_review": 64
     },
     "Packages/macOS/CmuxNext/Sources/CmuxNextFilesUI/Resources/FileExplorer.xcstrings": {
-      "needs_review": 245
+      "needs_review": 210
     },
     "Packages/macOS/CmuxNext/Sources/CmuxNextFilesUI/Resources/Files.xcstrings": {
       "identical": 8
@@ -323,7 +320,7 @@
       "needs_review": 423
     },
     "Packages/macOS/CmuxNext/Sources/CmuxNextHome/Resources/Localizable.xcstrings": {
-      "identical": 51,
+      "identical": 27,
       "needs_review": 964
     },
     "Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/Resources/Home.xcstrings": {
@@ -392,12 +389,12 @@
       "needs_review": 540
     },
     "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings": {
-      "identical": 418,
+      "identical": 417,
       "needs_review": 6183
     },
     "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings": {
       "identical": 122,
-      "needs_review": 2339
+      "needs_review": 2323
     },
     "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Resources/Localizable.xcstrings": {
       "identical": 63,

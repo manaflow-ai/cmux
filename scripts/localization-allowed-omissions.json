@@ -6772,5 +6772,47 @@
     "identityLocales": {
       "de": "Updates is the standard German UI word for software updates, spelled as in English."
     }
+  },
+  "home.chief.backend.claude": {
+    "class": "brand",
+    "source": "Claude"
+  },
+  "home.chief.backend.codex": {
+    "class": "brand",
+    "source": "Codex"
+  },
+  "home.chief.backend.unii": {
+    "class": "brand",
+    "source": "UniiChat"
+  },
+  "home.chief.backend.muse": {
+    "class": "brand",
+    "source": "Muse Code"
+  },
+  "home.engine.reactions.prompt": {
+    "source": "Instructions",
+    "identityLocales": {
+      "fr": "Instructions is the standard French noun for a prompt's instructions, spelled as in English; the translated entry is still required."
+    }
+  },
+  "addDevice.platform.windows": {
+    "class": "brand",
+    "source": "Windows"
+  },
+  "addDevice.platform.phone": {
+    "class": "brand",
+    "source": "iPhone"
+  },
+  "devices.state.offline": {
+    "source": "Offline",
+    "identityLocales": {
+      "de": "Offline is the standard German UI word for a device that is not connected (macOS and iOS use it), spelled as in English; the translated entry is still required."
+    }
+  },
+  "textbox.action.textEntry": {
+    "source": "Text",
+    "identityLocales": {
+      "de": "Text is the German noun, spelled as in English; the translated entry is still required."
+    }
   }
 }
