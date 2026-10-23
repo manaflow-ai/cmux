@@ -24,6 +24,23 @@ import Testing
         #expect(entry.tab.state.url?.absoluteString == BrowserNewTabPage.chromiumURL)
     }
 
+    /// A new tab's stand-in (BrowserTabStandIn, PL-cef-tab) on any address, a link's page
+    /// included, has its page and chrome when the pane first shows it: a tab opened here has no
+    /// saved history to read first. Only the New Tab page did, so a link's tab showed empty
+    /// until an asynchronous page task ran.
+    @Test func aStandInOnAnyAddressHasItsChromeWhenThePaneFirstShowsIt() throws {
+        let cache = TabContentCache(daemon: DaemonService(), cef: CEFEngine(layout: nil))
+        cache.browserTabs.cefUnavailable = { nil }
+        cache.chromiumNow.runs = { true }
+        cache.chromiumNow.make = { MockBrowserEngine(kind: .cef, completesNavigationsImmediately: false).makeMockTab($0) }
+        let provisional = ProvisionalTab()
+        let tab = TabModel(TabSnapshot(surface: provisional.surface, tabResourceID: ResourceID(rawValue: provisional.id), kind: .browser,
+                                       url: "https://example.com/", browserRenderer: "frontend", browserEngine: "cef"))
+        defer { cache.release(tab.id) }
+        let entry = try #require(cache.browser(for: tab), "the stand-in's page exists in the turn the pane shows it")
+        #expect(entry.tab.state.url?.absoluteString == "https://example.com/")
+    }
+
     /// A reopened tab on the New Tab page whose page cannot be made now (Chromium still
     /// starting) takes the asynchronous path, which must still find the tab's closed history:
     /// the fast path may claim it only for the page it makes.
