@@ -816,7 +816,7 @@ export function ComposerPickers({
   // the chat's, else the one the chips draw while acpmux lists it as installed, marked and named as
   // the model button's rail names it. The chips' fallback is the picker's first entry, which can be
   // a bundled catalog harness acpmux does not have: with none installed the row names none, and the
-  // model button's place says Add harness instead (picksModel below).
+  // model button's place says Add harness instead (picksModel below), and no mode chip shows.
   const switchTarget = snapshot.switching?.phase === "failed" ? undefined : snapshot.switching;
   const footHarness =
     switchTarget?.harness ??
@@ -896,13 +896,23 @@ export function ComposerPickers({
           </span>
         )
       )}
-      {modes.length === 0 && !hasGrants && startMode && startModeName && pendingAccessModes.length === 0 && (
-        <PendingMode
-          label={startModeName}
-          modeId={startMode.borrowed ? undefined : startMode.modeId}
-          icon={startMode.borrowed ? undefined : pendingMenu?.rows.find((row) => row.id === startMode.modeId)?.icon}
-        />
-      )}
+      {/* With no harness installed (the Add harness chip above) there is nothing to set a mode for:
+          the start mode, its highest-level fallback and the inert "Mode" placeholder are the chips'
+          catalog fallback's, a harness acpmux does not have, so the row shows none of them. While
+          acpmux has not listed its harnesses yet, `picksModel` holds and the placeholder keeps its
+          place (#24517). */}
+      {picksModel &&
+        modes.length === 0 &&
+        !hasGrants &&
+        startMode &&
+        startModeName &&
+        pendingAccessModes.length === 0 && (
+          <PendingMode
+            label={startModeName}
+            modeId={startMode.borrowed ? undefined : startMode.modeId}
+            icon={startMode.borrowed ? undefined : pendingMenu?.rows.find((row) => row.id === startMode.modeId)?.icon}
+          />
+        )}
       {/* Granted folder trust and chat allowance stay revocable when the harness offers no modes. */}
       {(modes.length > 0 || hasGrants || pendingAccessModes.length > 0) && (
         <AccessMenu

@@ -10,8 +10,11 @@
 //   - it draws no pill at rest; a started chat's harness is fixed, so its item is not a button;
 //   - a new chat can still switch: the item is a button that opens the model button's menu, whose
 //     rail lists the harnesses;
-//   - with no harness installed (acpmux lists none) the row names no harness: the model button's
-//     place says Add harness, and nothing else (gallery `agent-pane.new-tab`, `no-harness-installed`);
+//   - with no harness installed (acpmux lists none) the row names no harness and no mode: the model
+//     button's place says Add harness, and nothing else (gallery `agent-pane.new-tab`,
+//     `no-harness-installed`);
+//   - while a switch is starting, the row names the target harness; a new chat with none picked
+//     names the installed harness the model button draws;
 //   - at 410 px the row reads the harness's mark, the mode's glyph, the model's family, then the
 //     ring, and no two items overlap.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -192,17 +195,40 @@ await requireBrowserLane("composer-footer-harness.test.ts", async () => {
 
   // acpmux lists no harness (a Mac with no agent CLI): the chips' fallback is the model catalog's
   // first harness, which is not installed, so the row must not name it (Codex review, 2026-10-23).
-  test("with no harness installed the row names none; the model button's place says Add harness", async () => {
+  // Nor a mode: there is nothing to set one for, and its "Mode" placeholder (#24517) would be the
+  // fallback harness's too.
+  test("with no harness installed the row names no harness and no mode; it says Add harness", async () => {
     const page = await open("no-harness-installed", 760, {
       entry: "agent-pane.new-tab",
       settled: ".acpmux-composer-foot .acpmux-add-harness",
     });
     const foot = await page.$eval(".acpmux-composer-foot", (element) => ({
       harness: element.querySelectorAll(".acpmux-foot-harness").length,
+      modes: element.querySelectorAll(".acpmux-mode, .acpmux-access").length,
       marks: element.querySelectorAll(".agent-mark").length,
       text: element.textContent?.trim(),
     }));
-    expect(foot).toEqual({ harness: 0, marks: 0, text: "Add harness" });
+    expect(foot).toEqual({ harness: 0, modes: 0, marks: 0, text: "Add harness" });
+    await page.close();
+  });
+
+  test("while a switch to Codex is starting, the row names Codex, the harness it starts", async () => {
+    const page = await open("model-switching", 760);
+    const [first] = await page.evaluate(measure);
+    expect(first?.className).toContain("acpmux-foot-harness");
+    expect(first?.text).toBe("Codex");
+    expect(first?.mark).toBe("openai");
+    await page.close();
+  });
+
+  test("a new chat with none picked names the installed harness the model button draws", async () => {
+    const page = await open("footer-harness-unpicked", 760);
+    const drawn = await page.$eval(".acpmux-composer-foot", (foot) => ({
+      harness: foot.querySelector<SVGElement>(".acpmux-foot-harness svg.agent-mark")?.dataset.agent,
+      model: foot.querySelector<SVGElement>(".acpmux-model svg.agent-mark")?.dataset.agent,
+    }));
+    expect(drawn.harness).toBeTruthy();
+    expect(drawn.harness).toBe(drawn.model);
     await page.close();
   });
 

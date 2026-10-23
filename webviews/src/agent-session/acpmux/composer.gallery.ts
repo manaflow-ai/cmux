@@ -552,6 +552,11 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-menu"));
       },
     },
+    "footer-harness-unpicked": {
+      note: "A new chat with harnesses installed and none picked yet: the row names the installed harness the model button draws, never another.",
+      ready: { newSession: true, cwd: CWD },
+      snapshot: noChat([session({ sessionId: "older", title: "An older chat" })]),
+    },
     // Leo 2026-10-19: no composer button draws a pill at rest (test/composer-quiet-chips.test.ts).
     // Fast mode is on, and shows only in the model button's menu (Leo 2026-10-20: no bolt).
     // The + is a bare glyph: its tooltip is Codex's short "Add files and more" (Leo, 2026-10-21).
