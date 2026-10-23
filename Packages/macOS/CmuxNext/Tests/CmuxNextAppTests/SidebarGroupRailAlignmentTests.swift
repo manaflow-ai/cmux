@@ -105,6 +105,27 @@ import Testing
         }
     }
 
+    /// The six-level tree in the default sidebar: every level's header at its own x, one step in from the level above
+    /// (four steps stopped it before: Caches drew at Xcode 26's x, a sibling to the eye).
+    @Test(arguments: SidebarDensity.allCases)
+    func sixLevelsEachDrawAtTheirOwnX(_ density: SidebarDensity) throws {
+        try Self.with(density, .off) {
+            let (list, window) = Self.list(SidebarNestedFixture(scenario: .deep))
+            defer { window.close() }
+            var headerX: [Int: Set<CGFloat>] = [:]
+            for row in list.displayed.rows {
+                guard case .group = row.key else { continue }
+                headerX[row.depth + 1, default: []].insert(list.frame(for: row).minX)
+            }
+            #expect(headerX.keys.max() == 6, "\(density.rawValue): the fixture draws six group levels: \(headerX.keys.sorted())")
+            for level in 2...6 {
+                let x = try #require(headerX[level]?.first), above = try #require(headerX[level - 1]?.first)
+                #expect(headerX[level]?.count == 1)
+                #expect(x - above == list.indent.step, "\(density.rawValue): level \(level) header at \(x), level \(level - 1) at \(above)")
+            }
+        }
+    }
+
     /// The fix moves no member row: a top-level group's members keep the ungrouped rows' x and every level its one x.
     @Test(arguments: SidebarDensity.allCases)
     func membersKeepTheirX(_ density: SidebarDensity) throws {
