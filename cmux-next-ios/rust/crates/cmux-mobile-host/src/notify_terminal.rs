@@ -566,6 +566,32 @@ mod tests {
         assert_eq!(next.event_id, "q-toolu_B2");
     }
 
+    /// Live (Claude Code 2.1.309): the PermissionRequest hook of an AskUserQuestion carries
+    /// no `tool_use_id`, so its notification names no tool use. The same questions on the
+    /// same tab as the pushed one are that ask, not a new push.
+    #[test]
+    fn the_second_hook_without_a_tool_use_id_is_the_same_question() {
+        let mut c = TerminalClassifier::default();
+        let t0 = Instant::now();
+        let ask = |n: u64, tool: Option<&str>| {
+            let mut hook = event(n, Some(7), "agent");
+            hook["title"] = json!("Claude asked a question");
+            let mut q = json!({"harness":"claude","questions":[
+                {"question":"Which branch next?","multiSelect":false,"options":[{"label":"main"},{"label":"dev"}]}]});
+            if let Some(tool) = tool {
+                q["tool_use_id"] = json!(tool);
+            }
+            hook["question"] = q;
+            hook
+        };
+        assert_eq!(c.handle_at(&ask(1, Some("toolu_X")), &places(), t0).unwrap().event_id, "q-toolu_X");
+        assert!(c.handle_at(&ask(3, None), &places(), t0 + Duration::from_millis(300)).is_none());
+        // On another tab, or after the agent moved on (a while later), it is a new push.
+        let mut later = ask(4, None);
+        later["notification"] = json!(4);
+        assert!(c.handle_at(&later, &places(), t0 + QUESTION_REPEAT_WINDOW + Duration::from_secs(1)).is_some());
+    }
+
     /// Claude Code reports its own "asks a question" program status (an OSC the terminal
     /// posts) before its hook's notification arrives with the question. The question is not
     /// that OSC's echo: it still pushes, with its options (found live on the termq rig: the
