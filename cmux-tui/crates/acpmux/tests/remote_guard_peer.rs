@@ -80,8 +80,13 @@ async fn a_proven_peer_starts_an_approve_all_session_and_the_web_still_cannot() 
     // Only the policy at start: a peer's later widening keeps the Web's rule.
     let r = call(&hub, Origin::Peer, "session/new", new(json!({}))).await;
     let id = r["result"]["sessionId"].as_str().unwrap().to_owned();
-    let r = call(&hub, Origin::Peer, "_acpmux/set_policy", json!({"sessionId": id, "policy": "approve-all"}))
-        .await;
+    let r = call(
+        &hub,
+        Origin::Peer,
+        "_acpmux/set_policy",
+        json!({"sessionId": id, "policy": "approve-all"}),
+    )
+    .await;
     assert!(err(&r).contains(WEB_ONLY), "{r}");
 }
 
@@ -101,7 +106,8 @@ async fn a_proven_peer_with_no_folder_gets_a_scratch_folder_named_after_the_sess
     let scratch = std::fs::canonicalize(acpmux::config::home().join("scratch")).unwrap();
     assert_eq!(cwd, scratch.join(format!("lane-x-{}", std::process::id())), "{r}");
     assert!(cwd.is_dir());
-    let mode = std::os::unix::fs::PermissionsExt::mode(&std::fs::metadata(&cwd).unwrap().permissions());
+    let mode =
+        std::os::unix::fs::PermissionsExt::mode(&std::fs::metadata(&cwd).unwrap().permissions());
     assert_eq!(mode & 0o077, 0, "owner-only");
 
     // A Web connection with no folder is still refused.
