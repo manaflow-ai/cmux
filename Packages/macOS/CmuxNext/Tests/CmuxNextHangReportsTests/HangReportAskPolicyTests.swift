@@ -1,17 +1,24 @@
 @testable import CmuxNextHangReports
 import Testing
 
-/// The one-time question goes only to people who have not been asked, have reports off, and have
-/// not turned off anonymous telemetry (lead decision 2026-10-23).
+/// The file alone never starts sending; a person who turned off anonymous telemetry is never
+/// invited but can still confirm a switch they turned on (lead decision 2026-10-23).
 struct HangReportAskPolicyTests {
+    typealias Decision = HangReportAskPolicy.Decision
+
     @Test(arguments: [
-        (false, false, true, true),
-        (false, false, false, false),  // anonymous telemetry off: never asked
-        (true, false, true, false),
-        (false, true, true, false),
-        (true, true, false, false),
+        // settingOn, consented, invited, telemetry -> decision
+        (true, true, true, true, Decision.send),
+        (true, true, false, false, .send),
+        (true, false, true, true, .confirm),   // a synced or agent-edited file: confirm on this Mac
+        (true, false, false, false, .confirm), // telemetry off, but the person turned it on: confirm
+        (false, false, false, true, .invite),
+        (false, false, false, false, .off),    // telemetry off: never invited
+        (false, true, false, true, .invite),
+        (false, false, true, true, .off),
     ])
-    func asksOnlyWhenNotAskedReportsOffAndTelemetryOn(asked: Bool, on: Bool, telemetry: Bool, expected: Bool) {
-        #expect(HangReportAskPolicy().shouldAsk(alreadyAsked: asked, reportsOn: on, telemetryOptIn: telemetry) == expected)
+    func decides(settingOn: Bool, consented: Bool, invited: Bool, telemetry: Bool, expected: Decision) {
+        #expect(HangReportAskPolicy().decision(settingOn: settingOn, consented: consented, invited: invited,
+                                               telemetryOptIn: telemetry) == expected)
     }
 }

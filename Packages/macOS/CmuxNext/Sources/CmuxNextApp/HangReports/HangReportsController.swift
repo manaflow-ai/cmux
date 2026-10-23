@@ -19,6 +19,9 @@ import os
 @MainActor
 final class HangReportsController {
     static let askedKey = "cmux.next.hangReports.asked"
+    /// This Mac's consent record (the time of the person's Send Hang Reports click). Only the card
+    /// writes it; turning reports off removes it. The synced cmux-next.json alone never sends.
+    static let consentKey = "cmux.next.hangReports.consentedAt"
     static let devOptInKey = "CMUX_NEXT_DEV_HANG_REPORTS"
     static let devEndpointKey = "CMUX_NEXT_HANG_REPORTS_URL"
 
@@ -32,6 +35,8 @@ final class HangReportsController {
     private var subscriber: MetricKitSubscriber?
     private var settingsObservation: Task<Void, Never>?
     private var launchedOnce = false
+    /// A card was put up this launch (one per launch at most).
+    private var askedThisLaunch = false
 
     init(service: HangReportService?, managedDisables: @escaping @Sendable () -> Bool, defaults: UserDefaults = .standard) {
         self.service = service
@@ -78,28 +83,38 @@ final class HangReportsController {
     /// Whether this build can send hang reports at all.
     var isAvailable: Bool { service != nil }
 
-    /// Follows the setting from the first load on; asks once (NIGHTLY, setting off) after
-    /// `firstWindow` resolves.
+    /// Follows the setting from the first load on (``HangReportAskPolicy``): sends only with this
+    /// Mac's consent record; otherwise shows the confirm or the one-time invitation card after
+    /// `firstWindow` resolves. A managed `DisableTelemetry` turns everything off and clears what
+    /// an earlier opted-in period left (read once per launch).
     func start(settings: SettingsController, asks: SidebarAsks, firstWindow: @escaping @MainActor () async -> Void) {
         guard service != nil else { return }
         let managedDisables = managedDisables
         settingsObservation = Task { [weak self, weak settings] in
             guard let settings else { return }
             await settings.waitForLoad(atLeast: 1)
-            guard await Task.detached(priority: .utility, operation: { !managedDisables() }).value else { return }
-            var asked = false
+            guard await Task.detached(priority: .utility, operation: { !managedDisables() }).value else {
+                await self?.apply(false, settingOn: false)
+                return
+            }
             for await on in ObservationStream({ settings.snapshot.hangReports }) {
                 guard let self else { return }
-                await apply(on)
-                if !asked, Self.shouldAsk(defaults: defaults, reportsOn: on) {
-                    asked = true
-                    // task-owner: one question after the first frame; it ends when the person answers.
-                    Task { [weak self] in
-                        await firstWindow()
-                        await self?.ask(asks: asks, settings: settings)
-                    }
-                }
+                await follow(settingOn: on, settings: settings, asks: asks, firstWindow: firstWindow)
             }
+        }
+    }
+
+    /// The policy's decision for the setting's value now, then sends, or asks once this launch.
+    private func follow(settingOn: Bool, settings: SettingsController, asks: SidebarAsks,
+                        firstWindow: @escaping @MainActor () async -> Void) async {
+        let decision = Self.decision(defaults: defaults, settingOn: settingOn)
+        await apply(decision == .send, settingOn: settingOn)
+        guard decision == .confirm || decision == .invite, !askedThisLaunch else { return }
+        askedThisLaunch = true
+        // task-owner: one question after the first frame; it ends when the person answers.
+        Task { [weak self] in
+            await firstWindow()
+            await self?.ask(asks: asks, settings: settings)
         }
     }
 
@@ -118,14 +133,19 @@ final class HangReportsController {
         }
     }
 
-    private func apply(_ on: Bool) async {
+    /// Reports on (`send`) or off. Off with the setting off also removes this Mac's consent, so a
+    /// file that turns reports on again needs a new click.
+    private func apply(_ on: Bool, settingOn: Bool) async {
         guard let service else { return }
+        if !settingOn { defaults.removeObject(forKey: Self.consentKey) }
         await service.setEnabled(on)
         // The catalog's Release intervals reach MetricKit only while reports are on.
         SignpostMetricKitMirror.shared.setOn(on)
         if on {
             if subscriber == nil {
-                let subscriber = MetricKitSubscriber { input in
+                // MetricKit hands over payloads it kept from before the consent: dropped.
+                let since = defaults.object(forKey: Self.consentKey) as? Date ?? Date()
+                let subscriber = MetricKitSubscriber(since: since) { input in
                     // task-owner: one delivery handed to the service actor.
                     Task { await service.receive(input) }
                 }
@@ -142,20 +162,30 @@ final class HangReportsController {
         }
     }
 
-    /// The one-time question on the sidebar's notice card (no dialog). Any answer, the x
-    /// included, means asked; only Send Hang Reports writes the setting (as the person).
-    /// The ask policy over this app's defaults: never for a person who turned off anonymous telemetry.
-    static func shouldAsk(defaults: UserDefaults, reportsOn: Bool) -> Bool {
-        HangReportAskPolicy().shouldAsk(alreadyAsked: defaults.bool(forKey: askedKey), reportsOn: reportsOn,
-                                        telemetryOptIn: CrashReportingPolicy.telemetryOptIn(in: defaults))
+    /// The policy over this app's defaults (``HangReportAskPolicy``).
+    static func decision(defaults: UserDefaults, settingOn: Bool) -> HangReportAskPolicy.Decision {
+        HangReportAskPolicy().decision(settingOn: settingOn, consented: defaults.object(forKey: consentKey) is Date,
+                                       invited: defaults.bool(forKey: askedKey),
+                                       telemetryOptIn: CrashReportingPolicy.telemetryOptIn(in: defaults))
     }
 
+    /// The question on the sidebar's notice card (no dialog), as an invitation or as the confirm
+    /// of a setting this Mac never agreed to. Any answer, the x included, marks the invitation
+    /// asked; only Send Hang Reports writes the consent record (and the setting, as the person).
     private func ask(asks: SidebarAsks, settings: SettingsController) async {
-        guard Self.shouldAsk(defaults: defaults, reportsOn: settings.snapshot.hangReports) else { return }
+        let decision = Self.decision(defaults: defaults, settingOn: settings.snapshot.hangReports)
+        guard decision == .confirm || decision == .invite else { return }
         let yes = await asks.ask(HangReportsStrings.askTitle, detail: HangReportsStrings.askDetail, symbol: "gauge.with.dots.needle.33percent",
                                  yes: HangReportsStrings.askYes, no: HangReportsStrings.askNo)
         defaults.set(true, forKey: Self.askedKey)
-        guard yes, let descriptor = SettingsSchema.descriptor(for: HangReportsSetting.path) else { return }
+        guard yes else { return }
+        defaults.set(Date(), forKey: Self.consentKey)
+        if settings.snapshot.hangReports {
+            // Already on in the file: the setting will not change, so follow it again now.
+            await apply(true, settingOn: true)
+            return
+        }
+        guard let descriptor = SettingsSchema.descriptor(for: HangReportsSetting.path) else { return }
         do { try await settings.setSetting(descriptor, to: .bool(true), by: .user) } catch {
             logger.error("diagnostics.hangReports not written: \(String(describing: error), privacy: .public)")
         }

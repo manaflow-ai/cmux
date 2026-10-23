@@ -19,9 +19,17 @@ Related: `perf-lead.md` (the lab numbers these reports check in the field),
   diagnostics.hangReports true --confirm` and the palette's Toggle Setting write the same key
   through `SettingsController.setSetting` (one write path). The key is agent-refused
   (`AgentRefusal.privacy`): an agent cannot turn it on without the person's confirmation sheet.
-- One ask, once, on NIGHTLY, and never to a person who turned off anonymous telemetry
-  (`sendAnonymousTelemetry`; lead decision 2026-10-23, `HangReportAskPolicy`); they can still
-  turn reports on in Settings: a sidebar notice card (`SidebarAsks`, the same card as an agent's
+- Consent is per Mac (`HangReportAskPolicy`). cmux-next.json is synced between Macs and agents
+  can edit it, so the setting alone never sends: this Mac also needs its consent record
+  (`cmux.next.hangReports.consentedAt` in the app's defaults), which only the person's Send Hang
+  Reports click on the card writes. A file that turns reports on without it shows the confirm
+  card and sends nothing. Turning reports off (or a managed `DisableTelemetry`, read once per
+  launch) removes the record, the queued reports and the install id. MetricKit payloads that
+  began before the consent time are dropped (MetricKit hands over kept payloads at the first
+  subscription).
+- The one-time invitation is never shown to a person who turned off anonymous telemetry
+  (`sendAnonymousTelemetry`; lead decision 2026-10-23); they can still turn reports on in
+  Settings and confirm on the card. The invitation: a sidebar notice card (`SidebarAsks`, the same card as an agent's
   Cloud machine request; no dialog, no sheet) with **Send Hang Reports** and **Not Now**. Either
   answer, or the x, records that it was asked (`cmux.next.hangReports.asked` in the app's
   defaults); it never shows again. The card waits for the first window and never takes focus.

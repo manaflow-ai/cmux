@@ -1,22 +1,40 @@
-/// Whether NIGHTLY shows the one-time hang report question (the sidebar notice card).
+/// What NIGHTLY does about hang reports on this Mac, from the setting, this Mac's own consent
+/// record and the anonymous telemetry choice.
 ///
-/// It asks only a person who has not been asked, has hang reports off, and has not turned off
-/// anonymous telemetry (`sendAnonymousTelemetry`): someone who already said no to data
-/// collection is not asked again; the Settings switch still turns reports on.
+/// `diagnostics.hangReports` lives in cmux-next.json, which people sync between Macs and agents
+/// can edit, so the file alone never starts sending: this Mac must also hold a consent record
+/// that only the person's own click writes (the card's Send Hang Reports). A file that turns
+/// reports on without a record shows the confirm card instead. A person who turned off anonymous
+/// telemetry is never invited (lead decision 2026-10-23), but can still turn reports on in
+/// Settings and confirm on the card.
 ///
 /// ```swift
-/// HangReportAskPolicy().shouldAsk(alreadyAsked: false, reportsOn: false, telemetryOptIn: true)  // true
+/// HangReportAskPolicy().decision(settingOn: true, consented: false, invited: true, telemetryOptIn: false)  // .confirm
 /// ```
 public nonisolated struct HangReportAskPolicy: Sendable {
+    /// What to do.
+    public enum Decision: Sendable, Equatable {
+        /// Reports on: record and send.
+        case send
+        /// The setting is on but this Mac never confirmed: show the confirm card, send nothing yet.
+        case confirm
+        /// Reports off and never asked: show the one-time invitation card.
+        case invite
+        /// Reports off: send nothing, ask nothing.
+        case off
+    }
+
     /// Makes the policy.
     public init() {}
 
     /// - Parameters:
-    ///   - alreadyAsked: The question was shown before on this Mac (any answer).
-    ///   - reportsOn: `diagnostics.hangReports` is on.
+    ///   - settingOn: `diagnostics.hangReports` is on in the file.
+    ///   - consented: This Mac holds the person's consent record.
+    ///   - invited: The one-time invitation was shown before on this Mac (any answer).
     ///   - telemetryOptIn: The anonymous telemetry choice (on until the person turns it off).
-    /// - Returns: Whether to show the question.
-    public func shouldAsk(alreadyAsked: Bool, reportsOn: Bool, telemetryOptIn: Bool) -> Bool {
-        !alreadyAsked && !reportsOn && telemetryOptIn
+    /// - Returns: What to do now.
+    public func decision(settingOn: Bool, consented: Bool, invited: Bool, telemetryOptIn: Bool) -> Decision {
+        if settingOn { return consented ? .send : .confirm }
+        return !invited && telemetryOptIn ? .invite : .off
     }
 }
