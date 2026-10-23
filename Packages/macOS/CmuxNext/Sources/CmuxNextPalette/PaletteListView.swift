@@ -20,7 +20,8 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
     private var rows: [DisplayRow] = []
     private var rowIndexByID: [String: Int] = [:]
     private var selectedID: String?
-    private var hoveredID: String?
+    /// The row drawn hovered.
+    private(set) var hoveredID: String?
     /// No rubber band while every result fits.
     private var scrollFit: ScrollFitElasticity?
 
