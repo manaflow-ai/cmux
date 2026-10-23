@@ -42,6 +42,9 @@ enum AgentSessionWorkspace {
         // The Chief host's own acpmux runs the session (`chief:<home id>`); absent: this Mac's.
         let host = invocation["host"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
         let group = invocation["group"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+        if let group, !validGroupName(group) {
+            throw ActionFailure(message: "agent.openSessionWorkspace: group must be a non-empty human label, not a cmux id; omit group or use a label such as \"GUI push\"")
+        }
         let task = try open(session: session, name: name, key: key, cwd: cwd, host: host, group: group, services: context.services)
         context.services.registry.track(task)
     }
@@ -142,12 +145,42 @@ enum AgentSessionWorkspace {
     /// new group of that name when none can hold it: the path of a row drag and of New Group, so it is one
     /// undoable sidebar edit.
     @MainActor static func join(_ id: String, group name: String, sidebar: SidebarBridge) {
+        guard containsWorkspace(id, in: sidebar.model.sections) else { return }
         let ids = [SidebarWorkspaceID(id)]
         if let target = group(named: name, accepting: SidebarWorkspaceID(id), in: sidebar.model.sections) {
             sidebar.handle(.move(ids, toGroup: target))
             return
         }
         sidebar.groupFlow.newGroup(of: ids, name: name, byUser: false)
+    }
+
+    /// A workspace must still be listed before a group is created. A late or
+    /// failed agent-tab attach otherwise leaves an empty persistent group.
+    static func containsWorkspace(_ id: String, in sections: [CmuxNextSidebar.SidebarSection]) -> Bool {
+        sections.contains { section in
+            section.nodes.contains { node in
+                switch node {
+                case .workspace(let workspace):
+                    return workspace.id.rawValue == id
+                case .group(let group):
+                    return group.workspaces.contains { $0.id.rawValue == id }
+                case .item:
+                    return false
+                }
+            }
+        }
+    }
+
+    /// Sidebar group arguments are labels. Object ids are rejected so an
+    /// automation retry cannot turn an id into a persistent visible title.
+    static func validGroupName(_ name: String) -> Bool {
+        let label = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !label.isEmpty else { return false }
+        let lower = label.lowercased()
+        if ["grp_", "ws_", "tab_", "pane_", "win_", "workspace_group:"].contains(where: lower.hasPrefix) {
+            return false
+        }
+        return UUID(uuidString: label) == nil
     }
 
     /// The first listed group named `name` that may hold workspace `id` (the drag's rule,

@@ -6,7 +6,7 @@ by who is calling, not by what is possible.
 
 | You are | Start an agent for a task | Talk to it, wait | Show it to the person |
 | --- | --- | --- | --- |
-| A script, a person, or an agent with a shell | `acpmux new -n NAME --worktree REPO[@BASE] --prompt-file F --report-to ME --group G -d` | `acpmux send`, `acpmux wait`, `acpmux last` | `--group G` on the same command (runs `cmux agent open`) |
+| A script, a person, or an agent with a shell | `acpmux new -n NAME --worktree REPO[@BASE] --prompt-file F --report-to ME -d` | `acpmux send`, `acpmux wait`, `acpmux last` | Optional `--group G` on the same command (runs `cmux agent open`) |
 | An agent inside acpmux that wants a child (`cmux-subsessions` MCP) | `start_session {prompt, name, worktree: true}` | `send_message`, `wait_for_sessions`, `get_session` | `app_agent_open {session, group}` through the cmux MCP |
 | The cmux app or an agent with the cmux MCP | the app's own New Chat, or one of the two above | the chat pane | `app_agent_open` (`cmux agent open SESSION [--group G]`), or a tab of a pane: `app_agent_open_tab` (`cmux agent open-tab SESSION --target PANE`) |
 
@@ -47,9 +47,15 @@ acpmux new -n gui/composer \
   every other run of characters becomes one `-`, at most 48 characters
   (`Gui/Composer` is session `gui-composer`, folder `gui-composer`, branch
   `cmux/gui-composer`); the name as given is the sidebar title.
-- **Sidebar.** `--group G` runs `cmux agent open SESSION --group G` with a
-  workspace key derived from the session id, so a second run finds the same
-  row and opens nothing. A failed sidebar step warns; the prompt is still sent.
+- **Sidebar (opt-in).** `--group G` is a persistent app-side effect: it runs
+  `cmux agent open SESSION --group G`, creates a workspace, and places it in
+  the named sidebar group (made when missing). Use a human label, never a
+  `grp_…`/`ws_…`/UUID object id; omit it unless the person asked for placement.
+  The workspace key is derived from the session id, so a second run finds the
+  same row and opens nothing. A failed sidebar step warns; the prompt is still
+  sent. To recover, run `cmux --json workspace group list`, then use
+  `cmux workspace group remove --workspace <WORKSPACE>` or
+  `cmux workspace group <GROUP> delete` for the affected empty group.
   It needs the cmux app on this machine. Another machine's session cannot
   be opened in a group yet: `cmux agent open` takes only this Mac's session
   ids (no `HOST/NAME`), and its `host` only a Chief home (`chief:<id>`).
