@@ -15,11 +15,16 @@ import Testing
         private(set) var calls: [(browser: Int32, enabled: Bool)] = []
         /// `cmux_browser_set_resize_sync` calls (fork API 27).
         private(set) var syncs: [(browser: Int32, timeoutMs: Int32)] = []
+        /// Whether `cmux_browser_set_resize_sync` takes the value (false: a closed browser's id).
+        var syncAccepts = true
         var fork: CEFLayerHosting.Fork {
             CEFLayerHosting.Fork(setLayerHosting: { [self] browser, enabled in
                 calls.append((browser, enabled))
                 return enabled ? contextID : 0
-            }, setResizeSync: { [self] browser, timeout in syncs.append((browser, timeout)) })
+            }, setResizeSync: { [self] browser, timeout in
+                syncs.append((browser, timeout))
+                return syncAccepts
+            })
         }
     }
 
@@ -246,7 +251,7 @@ import Testing
     func makeHosting(enabled: Bool) -> CEFLayerHosting {
         let hosting = CEFLayerHosting(isEnabled: { enabled }, schedule: { $0() },
                                       makePage: { CEFHostedPageView(frame: $0, makeLayerHost: { _ in CALayer() }) },
-                                      resizeDeadlineMs: { 8 }, liveResizeDeadlineMs: { 50 })
+                                      resizeDeadlineMs: { 8 }, liveResizeDeadlineMs: { 50 }, refreshIntervals: { [] })
         hosting.view = view
         return hosting
     }
