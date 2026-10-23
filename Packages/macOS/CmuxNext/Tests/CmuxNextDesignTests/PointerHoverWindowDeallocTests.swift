@@ -5,10 +5,11 @@ import Testing
 /// p1361 follow-up: a window that deallocates tears its views down, and a view that refreshes
 /// its hover there (the layout root settles its motion in `viewWillMove(toWindow: nil)`, and the
 /// strip scrollbar refreshes its `PointerHover`) still reports the dying window as its window.
-/// The hover index filed the target under that window with a weak reference, and the runtime
-/// aborts on a weak reference to an object in deallocation ("Cannot form weak reference to
-/// instance ... of class NSWindow"). It crashed PaneCloseMotionTests and
-/// PaneHorizontalScrollClaimTests, and can crash the app when a window closes.
+/// The runtime aborts on any weak reference to an object in deallocation ("Cannot form weak
+/// reference to instance ... of class NSWindow"); it crashed PaneCloseMotionTests and
+/// PaneHorizontalScrollClaimTests, and can crash the app when a window closes. The hover owner
+/// keeps no window now, but a refresh during the teardown still must not form a weak reference
+/// to the dying window or its views, nor read a pointer from it (`isBeingDeallocated`).
 @MainActor
 struct PointerHoverWindowDeallocTests {
     /// Refreshes its hover as it leaves its window, as the strip scrollbar does in a teardown.
@@ -22,7 +23,7 @@ struct PointerHoverWindowDeallocTests {
 
     @Test func aHoverRefreshInsideAWindowDeallocDoesNotCrash() {
         let view = RefreshingView(frame: NSRect(x: 0, y: 0, width: 100, height: 40))
-        // Made before the view is in a window: the index has not filed it under the window yet.
+        // Made before the view is in a window, so its first refresh with a window is the teardown's.
         let hover = PointerHover(view)
         view.hover = hover
         weak var released: NSWindow?

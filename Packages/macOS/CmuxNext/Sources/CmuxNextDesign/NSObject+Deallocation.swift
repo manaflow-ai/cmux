@@ -1,7 +1,6 @@
 public import AppKit
 
-// Looked up once: the hover index asks every target's window on each key change (Cmd-Tab), and
-// NSSelectorFromString per call was a tenth of that cost in a large session.
+// Looked up once rather than per call: `PointerHover.refresh(in:)` asks it on every refresh.
 // crash-allow: ARC marks allowsWeakReference unavailable, so #selector cannot name it; NSObject always implements it.
 private let allowsWeakReferenceSelector = NSSelectorFromString("allowsWeakReference")
 
