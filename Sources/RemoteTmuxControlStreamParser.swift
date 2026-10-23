@@ -265,9 +265,13 @@ struct RemoteTmuxControlStreamParser {
             guard let id = Self.fieldId(line, 1, sigil: "@") else { return .unparsed(line) }
             return .unlinkedWindowAdd(windowId: id)
         }
-        if line.hasPrefix("%window-close ") || line.hasPrefix("%unlinked-window-close ") {
+        if line.hasPrefix("%unlinked-window-close ") {
             guard let id = Self.fieldId(line, 1, sigil: "@") else { return .unparsed(line) }
             return .windowClose(windowId: id)
+        }
+        if line.hasPrefix("%window-close ") {
+            guard let id = Self.fieldId(line, 1, sigil: "@") else { return .unparsed(line) }
+            return .windowUnlinkedElsewhere(windowId: id)
         }
         if line.hasPrefix("%window-renamed ") {
             guard let id = Self.fieldId(line, 1, sigil: "@") else { return .unparsed(line) }
