@@ -181,7 +181,8 @@ impl Hub {
         let joined = super::digest::DigestTurn::default();
         let result = self.run_prompt_joined(session, blocks, client, steer, opts, &joined).await;
         // `finish_turn` put them back already, held, when the turn itself failed, and a turn that
-        // never started put them back unheld (`fail_unstarted_turn`); this is any other way.
+        // ended before its prompt reached the agent (its agent could not start, or the turn was
+        // refused) put them back unheld: they get their own try. This is any other way.
         if result.is_err() {
             self.requeue_joined(session, &joined, true);
         }
@@ -380,12 +381,14 @@ impl Hub {
         {
             self.refuse_started_turn(session, &prompt_id, &turn_id, &e);
             drop(guard);
+            self.requeue_joined(session, joined, false);
             return Err(e);
         }
         if let Err(e) = self.family_dispatch_check(session, run.provenance.as_ref()).await {
             self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
             self.refuse_started_turn(session, &prompt_id, &turn_id, &e);
             drop(guard);
+            self.requeue_joined(session, joined, false);
             return Err(e);
         }
         if session.rehydrate.swap(false, Ordering::SeqCst)
@@ -425,6 +428,7 @@ impl Hub {
             self.refuse_started_turn(session, &prompt_id, &turn_id, &e);
             self.forum_turn_end(session, &told, false);
             drop(guard);
+            self.requeue_joined(session, joined, false);
             return Err(e);
         }
         // A prompt that cannot be put into blocks (a bad document, an attachment that cannot be
