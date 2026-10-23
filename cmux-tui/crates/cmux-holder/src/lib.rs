@@ -11,6 +11,7 @@
 #![cfg(unix)]
 
 pub mod client;
+mod exits;
 pub mod holder;
 pub mod link;
 pub mod pty;

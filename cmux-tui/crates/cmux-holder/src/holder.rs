@@ -3,8 +3,9 @@
 //! One `poll` set: the listening socket, the daemon link, connections that
 //! have not said HELLO yet, links another daemon superseded that still
 //! finish their last frame, a self-pipe for SIGCHLD (and a launchd SIGTERM),
-//! the start report of each child that has not run its program yet, and
-//! every PTY master. No handler waits: a SPAWN forks and returns, and its
+//! the kqueue that reports the exit of each child it adopted
+//! ([`crate::exits`]), the start report of each child that has not run its
+//! program yet, and every PTY master. No handler waits: a SPAWN forks and returns, and its
 //! SPAWNED (or its error) follows when the child's report arrives. While no daemon is attached to a terminal its
 //! output is read as soon as it is ready and its ring keeps the newest
 //! bytes. While a daemon is attached nothing is lost: the holder reads a
@@ -25,6 +26,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::time::{Duration, Instant};
 
+use crate::exits::{ExitWatch, Watch};
 use crate::ring::Ring;
 use crate::wire::{self, Frame, In, Kind, Out};
 use crate::{ExitStatus, Listed, SpawnRequest, pty};
@@ -63,7 +65,8 @@ pub const IDLE_EXIT: Duration = Duration::from_secs(30);
 const POISON_STRIKES: usize = 2;
 const STRIKE_WINDOW: Duration = Duration::from_secs(10);
 /// A child's end ends its terminal once the master has nothing more to
-/// read, even while a background job keeps the PTY open. Not on Linux: a
+/// read, even while a background job keeps the PTY open: a child this
+/// holder started (SIGCHLD) or adopted ([`ExitWatch`]). Not on Linux: a
 /// slave's last write reaches the master through an asynchronous flip
 /// buffer, so "nothing to read" right after the child's end can still miss
 /// its last output; there the terminal ends at end of file (which Linux
@@ -311,6 +314,8 @@ pub struct Holder {
     /// Terminals and no daemon link since this time.
     orphan_since: Option<Instant>,
     sigchld: OwnedFd,
+    /// Exits of the children this holder adopted (it is not their parent).
+    exits: ExitWatch,
 }
 
 static SIGNAL_WRITE: AtomicI32 = AtomicI32::new(-1);
@@ -405,6 +410,7 @@ impl Holder {
             orphan_grace: None,
             orphan_since: None,
             sigchld,
+            exits: ExitWatch::new()?,
         })
     }
 
@@ -447,6 +453,10 @@ impl Holder {
             pollfd(self.listener.as_raw_fd(), libc::POLLIN),
             pollfd(self.sigchld.as_raw_fd(), libc::POLLIN),
         ];
+        let exits_at = self.exits.fd().map(|fd| {
+            fds.push(pollfd(fd, libc::POLLIN));
+            fds.len() - 1
+        });
         let link_at = self.link.as_ref().map(|link| {
             let mut events = libc::POLLIN;
             if link.has_output() || self.unsent_output(link.credit) {
@@ -507,6 +517,14 @@ impl Holder {
         }
         if fds[1].revents != 0 {
             self.reap();
+        }
+        if exits_at.is_some_and(|index| fds[index].revents != 0) {
+            for pid in self.exits.exited() {
+                let adopted = self.terminals.iter().find(|(_, t)| t.pid == pid && !t.own_child);
+                if let Some(chan) = adopted.map(|(chan, _)| *chan) {
+                    self.child_ended(chan);
+                }
+            }
         }
         // From the back, before anything adds to `retiring`: swap_remove
         // moves only entries already handled.
@@ -934,6 +952,11 @@ impl Holder {
         terminal.prologue = input.rest().to_vec();
         terminal.prologue_base = base;
         self.terminals.insert(frame.chan, terminal);
+        // Not this holder's child: the kernel reports its exit, or it is
+        // gone already (it ended while no holder ran).
+        if self.exits.watch(pid) == Watch::Exited {
+            self.child_ended(frame.chan);
+        }
         Ok(())
     }
 
@@ -1169,14 +1192,24 @@ impl Holder {
             } else {
                 ExitStatus::Exited(libc::WEXITSTATUS(status))
             };
-            if let Some((chan, terminal)) =
-                self.terminals.iter_mut().find(|(_, t)| t.pid == pid && t.own_child)
-            {
-                terminal.status = Some(exit);
-                if ENDS_ON_CHILD_EXIT && !terminal.eof {
-                    self.ending.push(*chan);
-                }
+            let reaped = self.terminals.iter_mut().find(|(_, t)| t.pid == pid && t.own_child).map(
+                |(chan, terminal)| {
+                    terminal.status = Some(exit);
+                    *chan
+                },
+            );
+            if let Some(chan) = reaped {
+                self.child_ended(chan);
             }
+        }
+    }
+
+    /// `chan`'s child ended (reaped, or an adopted one the kernel reported):
+    /// where [`ENDS_ON_CHILD_EXIT`], its terminal ends once the holder read
+    /// what the child printed ([`Self::finish_ending`]).
+    fn child_ended(&mut self, chan: u32) {
+        if ENDS_ON_CHILD_EXIT && self.terminals.get(&chan).is_some_and(|terminal| !terminal.eof) {
+            self.ending.push(chan);
         }
     }
 
