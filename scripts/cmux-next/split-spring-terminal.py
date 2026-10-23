@@ -27,6 +27,28 @@ Usage: split-spring-terminal.py --tag <tag> --app PATH [--rounds 3] [--presses 5
 """
 import argparse, glob, json, os, signal, subprocess, sys, tempfile, time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from bench_launch import BenchApp, require_gui_session  # noqa: E402
+
+# Every suite but pane-bench (package tests, no window) needs this account's GUI login session on the console:
+# without it the app never opens its socket (bench_launch.py). Say so at once instead of after a launch timeout.
+if "--suite=pane-bench" not in sys.argv:
+    require_gui_session("split-spring")
+# `--suite=launch-check`: only launch the app, wait for its socket and a window, quit (bench_launch.py check): is
+# this worker able to run GUI benches at all.
+if "--suite=launch-check" in sys.argv:
+    def _flag(name, default=None):
+        for i, a in enumerate(sys.argv):
+            if a.startswith(name + "="):
+                return a.split("=", 1)[1]
+            if a == name and i + 1 < len(sys.argv):
+                return sys.argv[i + 1]
+        return default
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bench_launch.py")
+    rest = ["check", "--app", _flag("--app"), "--out", _flag("--out", "/tmp")]
+    if _flag("--json"):
+        rest += ["--json", _flag("--json")]
+    os.execv(sys.executable, [sys.executable, suite] + rest)
 # `--suite=pane-perf` (through the allowlisted fleet entry scripts/measure/split-spring.sh): the whole pane
 # motion suite instead, scripts/cmux-next/pane-perf-terminal.py, with the same --tag/--app/--out/--json.
 # `--suite=budgets`: every perf budget row, scripts/cmux-next/perf-budgets.py (one table, one gate).
@@ -244,24 +266,17 @@ def cleanup():
 
 
 def main():
-    global app
-    if os.path.exists(SOCKET):
-        os.remove(SOCKET)
-    env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
-           "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_CONFIG_FILE": CONFIG,
-           "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(SCRATCH, "ghostty"), "CMUX_NEXT_TEST_WINDOW_FRAME": "80,80,1600,1000"}
-    log = open(os.path.join(opts.out, f"app-{TAG}.log"), "a")
-    app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
-    LAUNCHED.append(app.pid)
+    global app, SOCKET
+    # One launch path (bench_launch.py): socket in the state folder, bench env, a clear reason when it does not come up.
+    bench = BenchApp(APP, out=opts.out, log_name=f"app-{TAG}.log", window=(80, 80, 1600, 1000), screen=None, teardown=False,
+                     env={"CMUX_NEXT_CONFIG_FILE": CONFIG, "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(SCRATCH, "ghostty")})
+    try:
+        bench.launch(timeout=120, on_start=lambda process: LAUNCHED.append(process.pid))
+    finally:
+        app = bench.process
+    SOCKET = bench.socket
     print(f"launched pid {app.pid} macOS {subprocess.run(['sw_vers', '-productVersion'], capture_output=True, text=True).stdout.strip()}",
           flush=True)
-    if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.windows") or {}).get("windows"), 120):
-        # The step log is stdout only: say why here, with the app's own log.
-        print(f"the tagged app did not come up: socket {SOCKET} exists={os.path.exists(SOCKET)} "
-              f"debug.windows={rpc('debug.windows')} alive={app.poll() is None}", flush=True)
-        log.flush()
-        print(open(os.path.join(opts.out, f"app-{TAG}.log"), errors="replace").read()[-6000:], flush=True)
-        sys.exit(1)
     time.sleep(5)  # test harness: launch work settles
     report = {"tag": TAG, "stream": opts.stream, "scrollback": opts.scrollback, "presses": opts.presses,
               "interval_ms": opts.interval, "runs": []}
