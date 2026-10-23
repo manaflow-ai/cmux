@@ -163,11 +163,23 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         let state = state
         workspaceObservation = Task { [weak self] in
             for await _ in ObservationStream({ Self.readShowInputs(state, cloud: cloud, machines: machines, windows: windows) }) {
-                self?.showWorkspace(requested: state.workspaceID)
+                self?.followShowInputs()
                 // A parked terminal (the classic migration's background workspaces) starts on its first show.
                 if let id = state.workspaceID, let (workspace, daemon) = machines.workspace(id: id) { daemon.wakeParkedTabs(in: workspace) }
             }
         }
+    }
+
+    /// The observation hop after a change of what the window shows. A create its window claimed
+    /// already mounted the new workspace in the store's turn (`WindowManager.sync`), and a switch
+    /// in its entry point's turn, so this hop usually finds the selection drawn: it then only lets
+    /// go of parked workspaces that left and re-arranges the side-by-side set (a no-op compare with
+    /// `sidebar.multiView` off), and does not run the show path a second time. Anything else (a
+    /// top page, a Cloud creation view, a removed or not-yet-mounted selection) shows it.
+    private func followShowInputs() {
+        guard drawsSelection else { return showWorkspace(requested: state.workspaceID) }
+        releaseGoneParked()
+        arrangeOnScreen()
     }
 
     /// Reads what `showWorkspace` depends on (the request, each machine's workspace list): O(machines), no id list.
@@ -187,12 +199,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     /// (launch, a Cloud machine reconnecting) the connecting state shows.
     func showWorkspace(requested: String?) {
         let machines = services.machines
-        // A parked workspace that closed, whose machine left, or that moved to another window goes now.
-        let listed = Set(services.windows.registry.members(of: state.id))
-        for (id, controller) in parked where !listed.contains(id) || machines.workspace(id: id)?.0 !== controller.workspace {
-            parked[id] = nil
-            controller.teardown()
-        }
+        releaseGoneParked()
         if state.page.map(showTopPage) == true || showCreation() { return arrangeOnScreen() }
         if let requested, let (workspace, daemon) = machines.workspace(id: requested) {
             if !showsHomePage(instead: workspace) { show(workspace, on: daemon) }
@@ -214,9 +221,28 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     /// (`WindowManager.sync`) is not followed by a second show and arrange from the entry point
     /// that ran it (`openWindow`, `show(workspaceID:in:)`).
     func showSelectionIfNeeded() {
-        if state.page == nil, state.cloudCreation == nil, let shown = content?.workspace, let selected = state.workspaceID,
-           services.machines.workspace(id: selected)?.0 === shown { return }
+        if drawsSelection { return }
         showWorkspace(requested: state.workspaceID)
+    }
+
+    /// The content draws the window's selection as `showWorkspace` would leave it: no top page or
+    /// Cloud creation view, the selected workspace's model mounted, and not one the Home page
+    /// stands in for.
+    private var drawsSelection: Bool {
+        guard state.page == nil, state.cloudCreation == nil, let shown = content?.workspace, let selected = state.workspaceID,
+              services.machines.workspace(id: selected)?.0 === shown else { return false }
+        return !homePageStandsIn(for: shown)
+    }
+
+    /// Lets go of each parked workspace that closed, whose machine left, or that moved to another window.
+    private func releaseGoneParked() {
+        guard !parked.isEmpty else { return }
+        let machines = services.machines
+        let listed = Set(services.windows.registry.members(of: state.id))
+        for (id, controller) in parked where !listed.contains(id) || machines.workspace(id: id)?.0 !== controller.workspace {
+            parked[id] = nil
+            controller.teardown()
+        }
     }
 
     /// The local daemon's first connection, connecting or unavailable, until a workspace shows.

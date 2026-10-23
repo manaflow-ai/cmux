@@ -23,10 +23,16 @@ extension WindowController {
         return true
     }
 
+    /// Whether the Home page shows in place of `workspace` (the store's home workspace while the
+    /// Home item stands for it).
+    func homePageStandsIn(for workspace: WorkspaceModel) -> Bool {
+        services.home.dock.isClassic && workspace.kind == "home" && SidebarBridge.hidesHome(services.sidebarLayout.document)
+    }
+
     /// Shows the Home page in place of the store's home workspace while the
     /// Home item stands for it (its row is hidden then). False: show `workspace`.
     func showsHomePage(instead workspace: WorkspaceModel) -> Bool {
-        guard services.home.dock.isClassic, workspace.kind == "home", SidebarBridge.hidesHome(services.sidebarLayout.document) else { return false }
+        guard homePageStandsIn(for: workspace) else { return false }
         if state.workspaceID != workspace.id { state.workspaceID = workspace.id }
         if state.page != .home { state.page = .home }
         return showTopPage(.home)
