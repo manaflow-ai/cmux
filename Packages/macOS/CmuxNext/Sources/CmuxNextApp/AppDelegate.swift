@@ -89,7 +89,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // The composition root's one read of the ambient theme root; everything below gets it injected.
         let themeRoot = ThemeScope.app  // theme-root-allow: the composition root; Palette still falls back to it
         ThemeBridge.start(store: themeRoot.store)
-        DesignSettings.shared.repaintAll = { [store = themeRoot.store] in store.repaintAll() }
         // The diff page's files live in the app bundle (markdown-viewer/webviews-app).
         PageDescriptor.registerDiffRoot()
         PageDescriptor.registerFilePageRoots()
@@ -196,7 +195,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DebugTimings.markLaunch("dfl.windows")
         // After two quick unexpected ends in a row, Chromium starts only
         // when the user reloads a browser tab.
-        services.observeBorders()
+        services.observeWindowRepaints()
         services.observeGlass()
         services.updateFeedObservation = UpdateFeedPosting.follow(services)
         // The runtime pack check wires the engine reason at once; its download waits until asked.
