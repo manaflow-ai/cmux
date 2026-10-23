@@ -370,6 +370,10 @@ pub struct Translator {
     /// Running Workflow tool calls (`workflows.rs`), each with its run's
     /// transcript dir once its launch named it.
     workflows: Mutex<HashMap<String, Option<std::path::PathBuf>>>,
+    /// How far each workflow journal was read and what it counted (`workflows.rs`): each
+    /// progress line reads only what the run appended since the last one.
+    journals:
+        std::sync::Arc<std::sync::Mutex<HashMap<std::path::PathBuf, workflows::JournalTally>>>,
     /// The chat model's context window as Claude Code last reported it (a
     /// result's `modelUsage`), 0 until then: `usage_update`'s `size`.
     context_window: AtomicU64,
@@ -476,6 +480,7 @@ impl Translator {
             background_subagents: Mutex::new(HashSet::new()),
             subagent_tasks: Mutex::new(HashMap::new()),
             workflows: Mutex::new(HashMap::new()),
+            journals: Default::default(),
             background_shells: Mutex::new(HashMap::new()),
             context_window: AtomicU64::new(0),
             context_used: AtomicU64::new(0),
