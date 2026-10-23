@@ -136,6 +136,13 @@ impl SizeLeases {
             .collect()
     }
 
+    /// The daemon is gone: no worker runs and no lease is left.
+    fn stop_worker(&self) {
+        let mut state = self.lock();
+        state.leases.clear();
+        state.worker = false;
+    }
+
     /// Waits until the earliest lease ends (or a renewal changes it). False
     /// when no lease is left: the worker stops.
     fn wait_for_expiry(&self) -> bool {
@@ -168,26 +175,31 @@ pub(super) fn renew_size_lease(mux: &Arc<Mux>, client: u64, surface: SurfaceId) 
     if !mux.control_clients.size_leases.renew(client, surface, until) {
         return; // The worker is running and reads the new deadline.
     }
+    // The worker holds the leases, never the Mux, while it waits: a daemon
+    // that is going away is not kept alive by a lease (as exit_settle's worker).
     let weak = Arc::downgrade(mux);
+    let leases = Arc::clone(&mux.control_clients.size_leases);
     let spawned = std::thread::Builder::new()
         .name("terminal-size-lease".into())
-        .spawn(move || run_worker(&weak));
+        .spawn(move || run_worker(&leases, &weak));
     if spawned.is_err() {
         // No timer can run: no leases (sizes stay until their views leave).
-        let mut state = mux.control_clients.size_leases.lock();
-        state.leases.clear();
-        state.worker = false;
+        mux.control_clients.size_leases.stop_worker();
     }
 }
 
-fn run_worker(mux: &Weak<Mux>) {
+fn run_worker(leases: &SizeLeases, mux: &Weak<Mux>) {
     loop {
-        let Some(owner) = mux.upgrade() else { return };
         // The lease's own bounded wait, on a condition variable that
-        // renewals signal; not a synchronization sleep.
-        if !owner.control_clients.size_leases.wait_for_expiry() {
+        // renewals signal; not a synchronization sleep. No Mux reference
+        // is held across it.
+        if !leases.wait_for_expiry() {
             return;
         }
+        let Some(owner) = mux.upgrade() else {
+            leases.stop_worker();
+            return;
+        };
         expire(&owner);
     }
 }

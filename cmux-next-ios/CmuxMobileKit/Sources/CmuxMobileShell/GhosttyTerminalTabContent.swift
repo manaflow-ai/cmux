@@ -59,15 +59,11 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
                 // terminal's size at once. A short background task keeps the
                 // app running for the releases to reach the Mac (bounded:
                 // the Mac's size lease covers a release that never lands).
-                let task = UIApplication.shared.beginBackgroundTask(withName: "terminal-size-release")
+                let release = SizeReleaseBackgroundTask()
+                release.begin()
                 self?.setAppActive(false)
                 self?.saveFrames()
-                if task != .invalid {
-                    Task { @MainActor in
-                        try? await Task.sleep(for: .seconds(2))
-                        UIApplication.shared.endBackgroundTask(task)
-                    }
-                }
+                release.endAfter(.seconds(2))
             }
         }
         foregroundObserver = NotificationCenter.default.addObserver(
@@ -442,6 +438,36 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     /// DEBUG demos drive the open terminal tab through its model.
     func model(forTabID id: String) -> TerminalModel? { hosts[id]?.model }
     #endif
+}
+
+/// A short background task for the background release: begun before the
+/// sessions release their sizes, ended after `endAfter`'s bound or when iOS
+/// runs out of time, whichever is first (the size lease covers a lost release).
+@MainActor
+private final class SizeReleaseBackgroundTask {
+    private var id = UIBackgroundTaskIdentifier.invalid
+
+    func begin() {
+        id = UIApplication.shared.beginBackgroundTask(withName: "terminal-size-release") { [weak self] in
+            // iOS calls this on the main thread; hop explicitly all the same.
+            Task { @MainActor in self?.end() }
+        }
+    }
+
+    func endAfter(_ bound: Duration) {
+        guard id != .invalid else { return }
+        // An intentional bounded delay (the release's time to reach the Mac).
+        Task { @MainActor in
+            try? await Task.sleep(for: bound)
+            self.end()
+        }
+    }
+
+    private func end() {
+        guard id != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(id)
+        id = .invalid
+    }
 }
 
 /// The host a tab's page shows now. Observed: when a placeholder host is

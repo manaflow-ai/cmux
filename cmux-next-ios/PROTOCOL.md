@@ -827,8 +827,8 @@ Mechanisms, phone first, then the Mac:
   it, the phone sends its claimed size again every 15 s while it claims (a
   same-size `resize-surface` renews the lease and never resizes the PTY). A
   size not refreshed for 45 s is released by the daemon; a connection that
-  ended without releasing ends its terminal's departed-view hold at that
-  moment. A suspended or dead phone can never pin the Mac's grid past it.
+  ended without releasing ends the departed-view hold its own departure set
+  at that moment (a later departure's hold runs on). A suspended or dead phone can never pin the Mac's grid past it.
 - **Departed-view hold (daemon).** A phone's connection that ends without a
   release (the link dropped) keeps the grid from growing for 30 s, so a link
   blip that reattaches finds the grid it left (termqa V2-5); capped by the

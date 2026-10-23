@@ -323,7 +323,7 @@ pub(crate) struct ClientRegistry {
     #[cfg(unix)]
     pub(super) browser_runtimes: super::browser_runtime::BrowserRuntimes,
     /// Size leases of connections with `size-lease-v1` (size_lease.rs).
-    pub(super) size_leases: super::size_lease::SizeLeases,
+    pub(super) size_leases: Arc<super::size_lease::SizeLeases>,
     /// Connection-scoped agent session attachments (`agent-session-attach-v1`).
     #[cfg(unix)]
     pub(super) agent_sessions: agent_session_attach::AgentSessions,
