@@ -12,8 +12,9 @@
 //!   with `O_DIRECTORY | O_NOFOLLOW` and must be the folder that was resolved (same device and
 //!   inode), so nothing swapped in after the resolve is followed;
 //! - every component below it is opened with `openat` and `O_NOFOLLOW`, so no component inside
-//!   the root can be a link, and each must be on the root's device, so no mount point or firmlink
-//!   below the root (a bind mount of another folder) is crossed;
+//!   the root can be a link, and each must be on the root's mount (its device, and on Linux its
+//!   mount id, since a bind mount of a folder on the same filesystem keeps the device), so no
+//!   mount point or firmlink below the root is crossed;
 //! - the opened descriptor must be a regular file with one link, its own path (`F_GETPATH`,
 //!   `/proc/self/fd`) inside the root's, and no part of it below the root a dot name, nor a key
 //!   file, nor under `~/Library`;
@@ -218,21 +219,21 @@ pub fn open_in(
         return Err(unreadable());
     }
     let root_path = sys::fd_path(&dir).ok_or_else(unreadable)?;
-    let device = root.id.0;
+    let device = sys::mount(&dir).ok_or_else(unreadable)?;
     at(Step::Root);
     let (name, folders) = parts.split_last().ok_or_else(unreadable)?;
     for (index, folder) in folders.iter().enumerate() {
         dir = sys::open_below(&dir, folder, true).ok_or_else(unreadable)?;
-        if sys::dev_ino(&dir.metadata().map_err(|_| unreadable())?).0 != device {
+        if sys::mount(&dir).ok_or_else(unreadable)? != device {
             return Err(mount());
         }
         at(Step::Dir(index));
     }
     let file = sys::open_below(&dir, name, false).ok_or_else(unreadable)?;
-    let meta = file.metadata().map_err(|_| unreadable())?;
-    if sys::dev_ino(&meta).0 != device {
+    if sys::mount(&file).ok_or_else(unreadable)? != device {
         return Err(mount());
     }
+    let meta = file.metadata().map_err(|_| unreadable())?;
     if !meta.is_file() {
         return Err(refused("media.notFile", "the path is not a regular file"));
     }
@@ -330,6 +331,26 @@ mod sys {
         file.read_at(buf, offset)
     }
 
+    /// The mount an open descriptor is on: its device, and on Linux its mount id
+    /// (`/proc/self/fdinfo`), because a bind mount on the same filesystem keeps the device. macOS
+    /// has no bind mounts, and a firmlink crosses volumes, so the device names the mount there.
+    pub fn mount(file: &File) -> Option<(u64, u64)> {
+        let dev = file.metadata().ok()?.dev();
+        Some((dev, mount_id(file)?))
+    }
+
+    #[cfg(target_os = "linux")]
+    fn mount_id(file: &File) -> Option<u64> {
+        let info =
+            std::fs::read_to_string(format!("/proc/self/fdinfo/{}", file.as_raw_fd())).ok()?;
+        info.lines().find_map(|line| line.strip_prefix("mnt_id:")?.trim().parse().ok())
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    fn mount_id(_: &File) -> Option<u64> {
+        Some(0)
+    }
+
     /// The resolved root folder, never through a link put in its place.
     pub fn open_root(root: &Path) -> Option<File> {
         let mut options = std::fs::OpenOptions::new();
@@ -401,6 +422,10 @@ mod sys {
 
     pub fn read_at(_: &File, _: &mut [u8], _: u64) -> std::io::Result<usize> {
         Err(std::io::ErrorKind::Unsupported.into())
+    }
+
+    pub fn mount(_: &File) -> Option<(u64, u64)> {
+        None
     }
 
     pub fn open_root(_: &Path) -> Option<File> {

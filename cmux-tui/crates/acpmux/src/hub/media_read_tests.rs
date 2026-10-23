@@ -333,6 +333,16 @@ fn a_folder_on_another_mount_than_the_root_is_refused() {
     assert_eq!(reason(&e), "media.mount", "{}", e.message);
 }
 
+/// A bind mount keeps the device, so the mount is named by its id too, and an open folder has one.
+#[test]
+#[cfg(target_os = "linux")]
+fn a_folder_names_its_mount_id() {
+    let s = Scratch::new("mount");
+    let (_, id) = super::sys::mount(&std::fs::File::open(s.root()).unwrap()).unwrap();
+    let (_, proc_id) = super::sys::mount(&std::fs::File::open("/proc").unwrap()).unwrap();
+    assert_ne!(id, proc_id);
+}
+
 /// A FIFO opens without blocking and is refused, a socket never opens, and a device is no file.
 #[test]
 fn a_fifo_a_socket_or_a_device_is_refused() {
