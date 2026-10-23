@@ -15,7 +15,12 @@ struct WorkspaceAutoNameWiring {
             isNewTabPage: { [weak services] tab in services.map { RestoredNewTabPages.shows(tab, in: $0.agentTabs) } ?? false },
             livePage: { [weak services] tab in services?.cache.existingBrowser(tab.id).map { ($0.tab.state.title, $0.tab.state.url) } },
             incognitoTitle: { [weak services] tab in services.flatMap { s -> String?? in s.cache.browserTabs.isIncognitoTab(tab.id) ? .some(s.cache.incognitoDisplay(tab).title) : nil } },
-            terminal: { [weak services] tab in services.map { TabMoves.nameInput(tab, services: $0) } ?? .init(kind: .terminal, userName: nil, title: nil, pageTitle: nil, url: nil, cwd: nil) }, hold: services.autoNameHold)
+            terminal: { [weak services] tab in services.map { TabMoves.nameInput(tab, services: $0) } ?? .init(kind: .terminal, userName: nil, title: nil, pageTitle: nil, url: nil, cwd: nil) },
+            hold: services.autoNameHold,
+            allowsLegacyDefaults: { [weak services] workspace in
+                guard let services, let daemon = services.machines.daemon(forWorkspace: workspace.id) else { return true }
+                return !daemon.supports(DaemonCapabilities.workspaceNameSource)
+            })
     }
 
     /// Variant B's one-time rename (`WorkspaceAutoNamer`) on every daemon that

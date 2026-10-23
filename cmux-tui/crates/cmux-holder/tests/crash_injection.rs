@@ -691,6 +691,47 @@ fn an_idle_holder_exits_and_a_scripts_sigterm_does_not_end_one_with_terminals() 
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Holder item 5 (parity with terminal hosts before the holder is the
+/// default): a holder started with an orphan grace (`CMUX_HOLDER_ORPHAN_GRACE_MS`,
+/// the grace a DEV or test daemon gives its hosts) ends its terminals once no
+/// daemon was linked for that long, then exits idle, so throwaway daemons do
+/// not keep shells and PTYs for ever. A daemon that comes back in time keeps
+/// them.
+#[test]
+fn an_orphan_grace_ends_the_terminals_of_a_holder_no_daemon_came_back_to() {
+    let dir = temp_dir();
+    let socket = dir.join("h.sock");
+    let mut holder = launch_with(holder_binary(), &socket, &TOKEN, |command| {
+        command.args(["--idle-exit-ms", "500"]).env("CMUX_HOLDER_ORPHAN_GRACE_MS", "1500");
+    })
+    .unwrap();
+    let (mut client, _) = HolderClient::connect(&socket, &TOKEN).unwrap();
+    let (pid, master) = client.spawn(1, &shell(1)).unwrap();
+    client.attach(1, 0).unwrap();
+    let mut screens = BTreeMap::from([(1, Screen { master, pid, base: 0, bytes: Vec::new() })]);
+    pump_until(&mut client, &mut screens, |chan| format!("ready-{chan}"));
+    // A daemon that reconnects within the grace keeps the shell.
+    drop(client);
+    std::thread::sleep(Duration::from_millis(700));
+    let (client, listed) = HolderClient::connect(&socket, &TOKEN).unwrap();
+    assert_eq!(listed.len(), 1, "the holder dropped its terminal before the grace");
+    drop(client);
+    std::thread::sleep(Duration::from_millis(1000));
+    assert!(alive(pid), "the grace counted from the first link's end, not the last");
+    // No daemon comes back: the shell ends, then the idle holder exits.
+    let deadline = Instant::now() + Duration::from_secs(15);
+    while alive(pid) {
+        assert!(Instant::now() < deadline, "an orphaned holder kept its shell");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    while holder.try_wait().unwrap().is_none() {
+        assert!(Instant::now() < deadline, "the orphaned holder kept running");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    drop(screens);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// Review 2: a frontend shell started through login(1), as the daemon
 /// starts it on macOS, is a login shell, and a CLOSE reaches it (it runs in
 /// a process group of its own under login's) well before the grace's

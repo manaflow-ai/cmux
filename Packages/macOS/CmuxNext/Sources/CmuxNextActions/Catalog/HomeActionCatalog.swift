@@ -173,6 +173,10 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 keywords: ["home", "chief", "agent", "subchief", "new", "create", "orchestrator"],
                 category: .window, symbol: "sparkles", surfaces: [.palette, .menu],
                 arguments: [ActionArgument(name: "name", title: t("argument.home.chief.name", "Chief Name"), kind: .string,
+                                           isRequired: false),
+                            ActionArgument(name: "harness", title: t("argument.home.chief.harness", "Harness"), kind: .string,
+                                           isRequired: false),
+                            ActionArgument(name: "engine", title: t("argument.home.chief.engine", "Engine"), kind: .string,
                                            isRequired: false)],
                 cliName: "home new-chief", mainMenu: .file,
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)

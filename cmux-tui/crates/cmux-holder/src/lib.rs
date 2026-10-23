@@ -160,6 +160,14 @@ impl ExitStatus {
 /// every shell. The same name a spawned terminal host reads.
 pub const NOFILE_SOFT_ENV: &str = "CMUX_TUI_HOST_NOFILE_SOFT";
 
+/// The environment variable that gives a holder an orphan grace in
+/// milliseconds: once no daemon was linked for that long it ends every
+/// terminal (a DEV build's, debug build's or test's daemon sets it, as it
+/// gives its terminal hosts one; normal installs never do). An environment
+/// variable, not an argument, so an older holder that does not know it
+/// still starts.
+pub const ORPHAN_GRACE_ENV: &str = "CMUX_HOLDER_ORPHAN_GRACE_MS";
+
 /// What `cmux-holder --version` prints: the program and the wire versions
 /// it serves. A daemon starts a holder binary only when it reports this
 /// shape (`cmux-holder wire MIN-MAX`) with a range it speaks. No build
@@ -213,6 +221,11 @@ pub fn serve(args: &[String]) -> io::Result<()> {
     }
     let child_open_file_limit =
         std::env::var(NOFILE_SOFT_ENV).ok().and_then(|value| value.parse::<u64>().ok());
+    let orphan_grace = std::env::var(ORPHAN_GRACE_ENV)
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .filter(|millis| *millis > 0)
+        .map(|millis| std::time::Duration::from_millis(millis.min(30 * 24 * 3600 * 1000)));
     let socket = socket.ok_or_else(|| invalid("--socket PATH is required"))?;
     let mut line = String::new();
     io::stdin().lock().read_line(&mut line)?;
@@ -237,6 +250,7 @@ pub fn serve(args: &[String]) -> io::Result<()> {
     let listener = UnixListener::bind(&socket)?;
     let mut holder = holder::Holder::new(listener, token)?;
     holder.set_child_open_file_limit(child_open_file_limit);
+    holder.set_orphan_grace(orphan_grace);
     if let Some(idle_exit) = idle_exit {
         holder.set_idle_exit(idle_exit);
     }

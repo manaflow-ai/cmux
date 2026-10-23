@@ -65,12 +65,19 @@ public final class WorkspaceModel: Identifiable {
     }
 
     /// Nobody named the workspace: no title, and the daemon's default name.
-    public var isUnnamed: Bool { (title ?? "").isEmpty && Self.isDefaultName(name) }
+    public var isUnnamed: Bool {
+        guard (title ?? "").isEmpty, Self.isDefaultName(name) else { return false }
+        let legacyMarker = name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || name == "~"
+        return !legacyMarker || nameSource == .auto || nameRevision > 0
+    }
 
-    /// True for a name the daemon gave (`workspace-N`, its default).
+    /// True for a name the daemon gave (`workspace-N`, its default), including
+    /// the empty and home-folder defaults retained by older daemons.
     /// A user could name a workspace `workspace-7` by hand; the daemon
     /// records no "named by the user" flag, so that name reads as default.
     public nonisolated static func isDefaultName(_ name: String) -> Bool {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if name.isEmpty || name == "~" { return true }
         guard name.hasPrefix("workspace-") else { return false }
         let number = name.dropFirst("workspace-".count)
         return !number.isEmpty && number.allSatisfy(\.isASCII) && number.allSatisfy(\.isNumber)
