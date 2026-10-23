@@ -12,6 +12,61 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testAppStoreCloudUIHasNoSystemVPN() {
+        let app = launchApp(mockData: true, launchArguments: [
+            "-dev.cmux.mobile.onboarding.redesign.progress.v1", "complete",
+            "-mobile.cloud.onboarding.completed.v2", "NO",
+        ])
+        defer { app.terminate() }
+        let cloudTab = app.tabBars.buttons["Cloud"]
+        XCTAssertTrue(cloudTab.waitForExistence(timeout: 15))
+        cloudTab.tap()
+
+        let progress = app.descendants(matching: .any)["CloudOnboardingProgressIndicator"]
+        let primary = app.buttons["CloudOnboardingPrimaryButton"]
+        func assertNoVPN() {
+            XCTAssertFalse(app.staticTexts["System VPN"].exists)
+            XCTAssertFalse(app.descendants(matching: .any)["CloudOnboardingVPNToggle"].exists)
+            XCTAssertFalse(app.descendants(matching: .any)["CloudOnboardingGraphic-vpn"].exists)
+        }
+        func capture(_ name: String) {
+            assertNoVPN()
+            let attachment = XCTAttachment(screenshot: app.screenshot())
+            attachment.name = name
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+        XCTAssertTrue(primary.waitForExistence(timeout: 10))
+        XCTAssertEqual(progress.value as? String, "Step 1 of 2")
+        XCTAssertEqual(primary.label, "Continue")
+        capture("appstore-cloud-page-1")
+        primary.tap()
+        XCTAssertTrue(app.staticTexts["A private key keeps it private"].waitForExistence(timeout: 5))
+        XCTAssertEqual(progress.value as? String, "Step 2 of 2")
+        XCTAssertEqual(primary.label, "Get started")
+        capture("appstore-cloud-page-2")
+        app.buttons["CloudOnboardingSecondaryButton"].tap()
+        XCTAssertEqual(progress.value as? String, "Step 1 of 2")
+        capture("appstore-cloud-back")
+        primary.tap()
+        XCTAssertEqual(progress.value as? String, "Step 2 of 2")
+        primary.tap()
+        let basics = app.buttons["CloudBasicsButton"]
+        XCTAssertTrue(basics.waitForExistence(timeout: 5))
+        capture("appstore-cloud-settings")
+        basics.tap()
+        XCTAssertTrue(primary.waitForExistence(timeout: 5))
+        XCTAssertEqual(progress.value as? String, "Step 1 of 2")
+        capture("appstore-cloud-basics-reopened")
+        primary.tap()
+        XCTAssertEqual(progress.value as? String, "Step 2 of 2")
+        capture("appstore-cloud-basics-final-page")
+        primary.tap()
+        XCTAssertTrue(basics.waitForExistence(timeout: 5))
+        assertNoVPN()
+    }
+
+    @MainActor
     func testFeedStartsBelowToolbar() {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_FEED_FULL_TEXT_PREVIEW": "1",
