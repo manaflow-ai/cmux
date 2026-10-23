@@ -5,7 +5,10 @@
 import { expect, test } from "bun:test";
 import { browserLaneRequired, engineUnavailable } from "./support/requireBrowserLane";
 
-const launch = new Error("TimeoutError: launch: Timeout 30000ms exceeded.\nCall log:\n  - <launched> pid=1");
+/// Playwright's launch timeout: a TimeoutError whose message goes on with the launch's call log.
+const launch = Object.assign(new Error("launch: Timeout 30000ms exceeded.\nCall log:\n  - <launched> pid=1"), {
+  name: "TimeoutError",
+});
 
 test("on GitHub Actions the lane is required: an engine that does not launch fails the file, naming the error", () => {
   const env = { CI: "true", GITHUB_ACTIONS: "true" };
