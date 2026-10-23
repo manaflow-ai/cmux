@@ -425,7 +425,9 @@ export const MINIMAL_SCROLLER_ATTRIBUTE = "data-cmux-minimal-scroller";
  * `auto` rule, since its track is transparent and a box with nothing to scroll draws no thumb.
  * (`scrollbar-gutter: stable` does not do it: WebKit ignores it on a custom scrollbar.) Take
  * `--cmux-scroller-size` out of the scroller's right padding to keep its text width. The track
- * stops `--cmux-minimal-scroller-inset` short of each end, clear of a rounded corner. The `:root`
+ * stops `--cmux-minimal-scroller-inset` short of each end, clear of a rounded corner;
+ * `--cmux-minimal-scroller-inset-end`, when set, replaces it at the bottom end (the composer's
+ * track stops above Send, composerLocation.css). The `:root`
  * prefix outranks the legacy rule's hidden thumb above and the scroller's own `overflow-y`.
  */
 export const MINIMAL_SCROLLER_CSS = `
@@ -439,7 +441,7 @@ export const MINIMAL_SCROLLER_CSS = `
 }
 :root [${MINIMAL_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-track {
   margin-top: var(--cmux-minimal-scroller-inset, 0px);
-  margin-bottom: var(--cmux-minimal-scroller-inset, 0px);
+  margin-bottom: var(--cmux-minimal-scroller-inset-end, var(--cmux-minimal-scroller-inset, 0px));
   background: transparent;
 }
 :root [${MINIMAL_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-corner {

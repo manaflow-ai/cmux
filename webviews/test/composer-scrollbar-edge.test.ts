@@ -8,11 +8,15 @@
 //     scrollbar lane is the box's last 8 px;
 //   - the draft's text keeps clear of the mic and Send: it ends left of them;
 //   - the mic and Send still take a click at their centre.
+// And in the gallery's `agent-pane.composer-scrollbar` (the placements drawn for the pick): with the
+// draft scrolled to its end, the drawn thumb stops above Send in the shipped `edge`, and runs past
+// Send's top in `edge-full` (so the probe sees the thumb at all).
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
-import { chromium, type Browser } from "playwright";
+import { chromium, type Browser, type Page } from "playwright";
+import { PNG } from "pngjs";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
@@ -30,8 +34,9 @@ await requireBrowserLane("composer-scrollbar-edge.test.ts", async () => {
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
   const ENTRY = "agent-pane.composer";
-  const stageURL = (variant: string) =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame(ENTRY, { variant })}`;
+  const PLACEMENTS = "agent-pane.composer-scrollbar";
+  const stageURL = (variant: string, entry = ENTRY) =>
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame(entry, { variant })}`;
 
   beforeAll(async () => {
     vite = await createServer({
@@ -40,9 +45,10 @@ await requireBrowserLane("composer-scrollbar-edge.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    browser = await chromium.launch({ headless: true });
+    browser = await chromium.launch({ headless: true, ignoreDefaultArgs: ["--hide-scrollbars"] });
     // Warm the stage once: the first load can run Vite's dependency optimizer and reload mid-compile.
     await warmGalleryFrame(vite, ENTRY, { browser, params: { variant: "long-draft" } });
+    await warmGalleryFrame(vite, PLACEMENTS, { browser, params: { variant: "edge" } });
   });
   afterAll(async () => {
     await browser?.close();
@@ -88,5 +94,61 @@ await requireBrowserLane("composer-scrollbar-edge.test.ts", async () => {
         textClearOfActions: drawn.textClearOfActions,
         unreachable: drawn.unreachable,
       }).toEqual({ overflows: true, laneOnBoxEdge: true, textClearOfActions: true, unreachable: [] });
+    });
+  /// The lowest drawn row of the draft's thumb with the draft scrolled to its end, and Send's top.
+  /// The box's last scroller-lane column is shot with the draft at its start and at its end: only the
+  /// thumb moves between them (the box's rim and rounded corner stay), so the lowest row that differs
+  /// is the bottom of the thumb at its end.
+  async function thumbEnd(page: Page) {
+    const geometry = await page.evaluate(() => {
+      const field = document.querySelector<HTMLElement>(".acpmux-composer-box .acpmux-md-field")!;
+      const rect = field.getBoundingClientRect();
+      const send = [
+        ...document.querySelectorAll<HTMLElement>(".acpmux-composer-box .acpmux-composer-actions button"),
+      ].filter((button) => button.offsetWidth > 0);
+      const top = Math.min(...send.map((button) => button.getBoundingClientRect().top));
+      return {
+        x: Math.round(rect.right - 4),
+        top: Math.round(rect.top),
+        bottom: Math.round(rect.bottom),
+        sendTop: top,
+      };
+    });
+    const column = async (to: "start" | "end") => {
+      await page.evaluate((to) => {
+        const field = document.querySelector<HTMLElement>(".acpmux-composer-box .acpmux-md-field")!;
+        field.scrollTop = to === "end" ? field.scrollHeight : 0;
+        return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      }, to);
+      return PNG.sync.read(
+        await page.screenshot({
+          clip: { x: geometry.x, y: geometry.top, width: 1, height: geometry.bottom - geometry.top },
+        }),
+      );
+    };
+    const start = await column("start");
+    const end = await column("end");
+    let last = -1;
+    for (let y = 0; y < end.height; y++) {
+      const at = y * end.width * 4;
+      const diff = [0, 1, 2].reduce((sum, c) => sum + Math.abs(end.data[at + c]! - start.data[at + c]!), 0);
+      if (diff > 24) last = y;
+    }
+    return { thumbBottom: last < 0 ? undefined : geometry.top + last + 1, sendTop: geometry.sendTop };
+  }
+
+  for (const [variant, aboveSend] of [
+    ["edge", true],
+    ["edge-full", false],
+  ] as const)
+    test(`placement ${variant}: the thumb ${aboveSend ? "stops above" : "runs past"} Send's top`, async () => {
+      const page = await browser!.newPage({ viewport: { width: 760, height: 420 } });
+      await page.goto(stageURL(variant, PLACEMENTS));
+      await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+      await page.locator(".acpmux-composer-box .acpmux-md-field").waitFor();
+      const end = await thumbEnd(page);
+      await page.close();
+      expect(end.thumbBottom).toBeDefined();
+      expect({ aboveSend: end.thumbBottom! <= end.sendTop }).toEqual({ aboveSend });
     });
 });

@@ -17,10 +17,10 @@ const BOX = ".acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-i
 const FIELD = `${BOX} > .acpmux-composer-field-menu > .acpmux-md-field`;
 const SCALE = "var(--cmux-interface-scale, 1)";
 const ALT: Record<string, string> = {
-  "edge-full": `${FIELD} { --acpmux-md-track-end: var(--cmux-minimal-scroller-inset, 0px); }`,
-  lane: `${FIELD} { grid-column: 2; padding-right: max(0px, calc(8px * ${SCALE} - var(--cmux-scroller-size, 8px))); --acpmux-md-track-end: var(--cmux-minimal-scroller-inset, 0px); }
+  "edge-full": `${FIELD} { --cmux-minimal-scroller-inset-end: var(--cmux-minimal-scroller-inset, 0px); }`,
+  lane: `${FIELD} { grid-column: 2; padding-right: max(0px, calc(8px * ${SCALE} - var(--cmux-scroller-size, 8px))); --cmux-minimal-scroller-inset-end: var(--cmux-minimal-scroller-inset, 0px); }
 ${FIELD} .acpmux-md-placeholder { right: calc(8px * ${SCALE}); }`,
-  outside: `${FIELD} { margin-right: -14px; padding-right: calc(var(--acpmux-actions-width, 64px) + 22px + max(0px, calc(8px * ${SCALE} - var(--cmux-scroller-size, 8px)))); --acpmux-md-track-end: var(--cmux-minimal-scroller-inset, 0px); }`,
+  outside: `${FIELD} { margin-right: -14px; padding-right: calc(var(--acpmux-actions-width, 64px) + 22px + max(0px, calc(8px * ${SCALE} - var(--cmux-scroller-size, 8px)))); --cmux-minimal-scroller-inset-end: var(--cmux-minimal-scroller-inset, 0px); }`,
 };
 const ALT_ID = "composer-scrollbar-alt";
 

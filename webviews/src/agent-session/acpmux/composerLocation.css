@@ -1219,17 +1219,16 @@
    the actions: the right padding gives their column back (--acpmux-actions-width, measured by
    composerScrollLane.ts), and the actions draw and take the pointer over the prompt's empty corner.
    Other placements (the lane beside the text, outside the box as Codex, the box's full height) are
-   the gallery's agent-pane.composer-scrollbar variants. */
+   the gallery's agent-pane.composer-scrollbar variants. New Tab's box is its own textarea
+   (.nt-field, newtab/screen.css) with the system scroller and keeps its placement. */
 .acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) > .acpmux-composer-field-menu > .acpmux-md-field {
   grid-column: 2 / -1;
   padding-right: calc(
     var(--acpmux-actions-width, 64px) + 8px + max(0px, calc(8px * var(--cmux-interface-scale, 1) - var(--cmux-scroller-size, 8px)))
   );
-  /* Send's 28 px row, the 8 px under it and a 4 px gap: the thumb ends above Send. */
-  --acpmux-md-track-end: calc(40px * var(--cmux-interface-scale, 1));
-}
-:root .acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) .acpmux-md-field::-webkit-scrollbar-track {
-  margin-bottom: var(--acpmux-md-track-end, var(--cmux-minimal-scroller-inset, 0px));
+  /* Send's 28 px row, the 8 px under it and a 4 px gap: the thumb ends above Send (the minimal
+     scroller's end inset, scrollers.ts). */
+  --cmux-minimal-scroller-inset-end: calc(40px * var(--cmux-interface-scale, 1));
 }
 .acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) > .acpmux-composer-field-menu > .acpmux-md-field .acpmux-md-placeholder {
   right: calc(var(--acpmux-actions-width, 64px) + 8px + 8px * var(--cmux-interface-scale, 1));
