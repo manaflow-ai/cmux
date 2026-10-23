@@ -10,7 +10,8 @@
 #   ghostty-next/zig-out/share/{ghostty,terminfo}  (a local zig build), else
 #   Resources/ghostty/{themes,terminfo}             (checked in),
 #   Resources/cmux-themes (cmux's own themes, added to ghostty/themes),
-#   Resources/terminfo-overlay, ghostty-next/src/shell-integration,
+#   Resources/terminfo-overlay, ghostty-next/src/shell-integration (with
+#   cmux-tui's shell_integration/ghostty-preexec.bash appended to ghostty.bash),
 #   Resources/cmux-cli-path.
 # Not Resources/shell-integration: that is the classic app's integration
 # (report_pwd, git and PR watchers, per-path-part checks, #21977), which no
@@ -49,6 +50,14 @@ fi
 
 if [[ -d "$SRCROOT/ghostty-next/src/shell-integration" ]]; then
   sync_dir "$SRCROOT/ghostty-next/src/shell-integration" "$dest/ghostty/shell-integration"
+  # cmux's interim fix to Ghostty's bash preexec hook (no fork per command on
+  # bash 5.3), appended as the cmux-tui daemon appends it to its embedded copy
+  # (shell_integration.rs SCRIPTS), so both spawn paths run the same script.
+  # The sync above restores Ghostty's file first, so the append runs once.
+  bash_fix="$SRCROOT/cmux-tui/crates/cmux-tui-core/src/shell_integration/ghostty-preexec.bash"
+  if [[ -f "$bash_fix" && -f "$dest/ghostty/shell-integration/bash/ghostty.bash" ]]; then
+    cat "$bash_fix" >>"$dest/ghostty/shell-integration/bash/ghostty.bash"
+  fi
 else
   echo "warning: no ghostty-next/src/shell-integration; shells start without Ghostty's integration"
 fi
