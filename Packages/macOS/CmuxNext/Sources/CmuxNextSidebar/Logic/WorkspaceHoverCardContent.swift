@@ -35,6 +35,9 @@ struct WorkspaceHoverCardContent: Equatable {
         var ink: HoverCardTone?
         /// The machine a machine row names: its icon draws that machine's color pick, if any.
         var machine: String?
+        /// The markdown `text` was rendered from (an agent's last message): the card draws its
+        /// bold, italic and code, never the raw marks (`renderedMarkdown`).
+        var markdown: String?
 
         /// The row the shared hover card row draws (`HoverCardRowView`).
         var row: HoverCardRowContent {
@@ -56,6 +59,8 @@ struct WorkspaceHoverCardContent: Equatable {
     var icon: IconName
     /// How long ago the workspace was last active ("4w"); nil without activity.
     var age: String?
+    /// The workspace has something unread: a dot after the age, as on ChatGPT's session card.
+    var unread = false
     var facts: [Fact]
     /// The workspace's merged status and its style hint (the row's indicator).
     var activity: StatusIndicatorState = .idle
@@ -114,6 +119,10 @@ struct WorkspaceHoverCardContent: Equatable {
         case .classic:
             break
         case .compact:
+            // The default (Leo 2026-10-20: "more useful, no scroll, crisp"): what the workspace is,
+            // where it runs and what it said last, then the last three moments, one line each.
+            card.facts.removeAll { !Self.compactKinds.contains($0.kind) }
+            for index in card.facts.indices where card.facts[index].kind == Fact.lastReplyKind { card.facts[index].lines = 3 }
             card.timeline = Array(shown.prefix(options.historyRows))
         case .timeline:
             card.timeline = Array(shown.prefix(options.historyRows))
@@ -132,6 +141,37 @@ struct WorkspaceHoverCardContent: Equatable {
         }
         return card
     }
+
+    /// The facts the compact card keeps: what its agents did since you looked, why it waits or what
+    /// it works on, where it runs, its pull request, and the agent's last message.
+    static let compactKinds: Set<String> = [WorkspaceHoverCardContent.sinceLookedKind, "needsInput", "task", "folder", "branch",
+                                            "pullRequest", "ports", "machine", "machineStatus", Fact.lastReplyKind]
+
+    /// `markdown` as one paragraph of inline markdown: code fences, heading, quote and list marks
+    /// dropped, its lines joined by a space, so a few lines of the card read as prose.
+    static func inlineMarkdown(_ markdown: String) -> String {
+        markdown.split(whereSeparator: \.isNewline).compactMap { line -> String? in
+            var text = line.trimmingCharacters(in: .whitespaces)
+            if text.hasPrefix("```") { return nil }
+            let heading = text.drop { $0 == "#" }
+            if heading.count < text.count, heading.first == " " { text = heading.trimmingCharacters(in: .whitespaces) }
+            while text.hasPrefix(">") { text = text.dropFirst().trimmingCharacters(in: .whitespaces) }
+            if let mark = ["- ", "* ", "+ "].first(where: { text.hasPrefix($0) }) { text = String(text.dropFirst(mark.count)) }
+            let number = text.prefix { $0.isNumber }
+            if !number.isEmpty, text.dropFirst(number.count).hasPrefix(". ") { text = String(text.dropFirst(number.count + 2)) }
+            return text.isEmpty ? nil : text
+        }.joined(separator: " ")
+    }
+
+    /// `markdown`'s inline styles (bold, italic, code, links) parsed; the raw text when it is not markdown.
+    static func renderedMarkdown(_ markdown: String) -> AttributedString {
+        let inline = inlineMarkdown(markdown)
+        return (try? AttributedString(markdown: inline, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
+            ?? AttributedString(inline)
+    }
+
+    /// `markdown` as the words it reads as, without its marks.
+    static func plainMarkdown(_ markdown: String) -> String { String(renderedMarkdown(markdown).characters) }
 
     /// "Prompts: 4 · Worked 12m" over `timeline` (newest first): the time from each prompt or
     /// start to the next moment after it that is a wait, finish, failure or later prompt, a running
@@ -231,11 +271,15 @@ struct WorkspaceHoverCardContent: Equatable {
         // The agent chat's last reply, when no task says more: the card's last line, under the
         // metadata, two lines at most (Leo 2026-10-19, Claude desktop's session card).
         if detail.task == nil, let message = workspace.lastMessage, !message.isEmpty {
-            facts.append(Fact(icon: .agentChatList, text: message, lines: 2, kind: Fact.lastReplyKind))
+            let text = Self.plainMarkdown(message)
+            if !text.isEmpty {
+                facts.append(Fact(icon: .agentChatList, text: text, lines: 2, kind: Fact.lastReplyKind, markdown: message))
+            }
         }
         return WorkspaceHoverCardContent(
             title: workspace.title, icon: remote.map(hostIcon) ?? workspace.kind.iconName,
-            age: workspace.lastActivity.flatMap { age(since: $0, now: now) }, facts: facts,
+            age: workspace.lastActivity.flatMap { age(since: $0, now: now) }, unread: workspace.unread.isUnread,
+            facts: facts,
             activity: workspace.activity, activityStyle: workspace.activityStyle, activitySince: detail.activitySince)
     }
 
