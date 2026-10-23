@@ -170,11 +170,27 @@ impl HolderLink {
         &self,
         chan: u32,
         id: &[u8; 16],
-        (pid, base, resume): (i32, u64, u64),
-        (master, ring): (&OwnedFd, Option<&OwnedFd>),
+        offsets: (i32, u64, u64),
+        fds: (&OwnedFd, Option<&OwnedFd>),
         (sink, prologue): (Arc<dyn TerminalSink>, &[u8]),
     ) -> io::Result<()> {
         self.lock().sinks.insert(chan, sink);
+        self.hand_over(chan, id, offsets, fds, prologue)?;
+        self.send(Kind::Attach, chan, &Out::default().u64(offsets.2).0, None)
+    }
+
+    /// [`Self::adopt`] without streaming: the holder takes the terminal over
+    /// and keeps its output in its ring until a later [`Self::attach`] (a
+    /// terminal a restarted daemon has not re-attached yet when its holder
+    /// died).
+    pub fn hand_over(
+        &self,
+        chan: u32,
+        id: &[u8; 16],
+        (pid, base, resume): (i32, u64, u64),
+        (master, ring): (&OwnedFd, Option<&OwnedFd>),
+        prologue: &[u8],
+    ) -> io::Result<()> {
         match ring.filter(|_| self.has_rings()) {
             Some(ring) => {
                 let payload =
@@ -182,14 +198,13 @@ impl HolderLink {
                 let fds = [master.as_raw_fd(), ring.as_raw_fd()];
                 let writer = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
                 let fd = writer.as_raw_fd();
-                wire::send_frame(fd, Kind::Adopt, wire::FLAG_RING, chan, &payload, &fds)?;
+                wire::send_frame(fd, Kind::Adopt, wire::FLAG_RING, chan, &payload, &fds)
             }
             None => {
                 let payload = Out::default().i32(pid).u64(resume).bytes(id).bytes(prologue).0;
-                self.send(Kind::Adopt, chan, &payload, Some(master))?;
+                self.send(Kind::Adopt, chan, &payload, Some(master))
             }
         }
-        self.send(Kind::Attach, chan, &Out::default().u64(resume).0, None)
     }
 
     /// Stream a listed terminal's output to `sink` from `from`, after its

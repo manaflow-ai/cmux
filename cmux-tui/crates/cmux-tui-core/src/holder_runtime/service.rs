@@ -122,25 +122,81 @@ impl HolderService {
         for entry in &listed {
             self.next_chan.fetch_max(entry.chan + 1, Ordering::AcqRel);
         }
-        if had_link {
-            // A reconnect: what the holder lists are this daemon's own
-            // terminals (the same holder) or nothing (a new one). Their
-            // master dups drop here; the daemon keeps its own custody
-            // copies. The link is published only after the re-adoption, so
-            // a CLOSE meanwhile waits for it instead of reaching a holder
-            // that does not know the terminal yet.
-            let still_held: HashMap<u32, [u8; 16]> =
-                listed.iter().map(|entry| (entry.chan, entry.id)).collect();
-            drop(listed);
-            self.readopt(&link, &still_held);
-        } else {
-            let mut known = self.listed.lock().recover_poison();
-            for entry in listed {
-                known.entry(entry.id).or_insert(entry);
-            }
-        }
+        // The link is published only after its ownership pass, so a CLOSE
+        // meanwhile waits for it instead of reaching a holder that does not
+        // know the terminal yet.
+        self.take_ownership(&link, listed, !had_link);
         self.publish(&link);
         Ok(link)
+    }
+
+    /// Apply a new link's ownership pass ([`ownership`]) to what it lists,
+    /// this daemon's live terminals and the startup pass's entries. The
+    /// master dups of what it lists drop here unless an entry keeps them:
+    /// the daemon keeps its own custody copies.
+    fn take_ownership(&self, link: &HolderLink, listed: Vec<Listed>, reserve_new: bool) {
+        let live: HashMap<u32, Arc<HolderTerminal>> = self
+            .live
+            .lock()
+            .recover_poison()
+            .values()
+            .filter_map(Weak::upgrade)
+            .map(|terminal| (terminal.chan, terminal))
+            .collect();
+        let reserved_by_chan: HashMap<u32, [u8; 16]> = self
+            .listed
+            .lock()
+            .recover_poison()
+            .values()
+            .map(|entry| (entry.chan, entry.id))
+            .collect();
+        let claims = ownership(
+            &listed.iter().map(|entry| (entry.chan, entry.id)).collect::<Vec<_>>(),
+            &live.values().map(|terminal| (terminal.chan, terminal.id)).collect::<Vec<_>>(),
+            &reserved_by_chan.iter().map(|(chan, id)| (*chan, *id)).collect::<Vec<_>>(),
+            reserve_new,
+        );
+        // Live terminals and channels to end first: an adoption reads its
+        // surface's screen, under that surface's lock, with no lock of
+        // this service held.
+        for (chan, claim) in &claims {
+            match (claim, live.get(chan)) {
+                (Claim::Resume, Some(terminal)) => resume(link, terminal),
+                (Claim::Adopt, Some(terminal)) => adopt(link, terminal),
+                (Claim::Close, _) => {
+                    // A shell's usual hang-up grace; the holder forgets it
+                    // once it ended.
+                    if let Err(error) = link.close(*chan, 2000) {
+                        eprintln!("cmux-tui: end unowned holder terminal {chan}: {error}");
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut listed: HashMap<u32, Listed> =
+            listed.into_iter().map(|entry| (entry.chan, entry)).collect();
+        let mut reserved = self.listed.lock().recover_poison();
+        for (chan, claim) in claims {
+            let id = reserved_by_chan.get(&chan);
+            match claim {
+                Claim::Refresh => {
+                    if let (Some(id), Some(entry)) = (id, listed.remove(&chan)) {
+                        reserved.insert(*id, entry);
+                    }
+                }
+                Claim::HandOver => {
+                    if let Some(entry) = id.and_then(|id| reserved.get_mut(id)) {
+                        hand_over(link, entry);
+                    }
+                }
+                Claim::Reserve => {
+                    if let Some(entry) = listed.remove(&chan) {
+                        reserved.entry(entry.id).or_insert(entry);
+                    }
+                }
+                Claim::Resume | Claim::Adopt | Claim::Close => {}
+            }
+        }
     }
 
     /// Make `link` the current link and send the CLOSEs that waited for it.
@@ -316,40 +372,6 @@ impl HolderService {
         }
     }
 
-    /// After the link was lost: a terminal the holder `link` still runs
-    /// (`still_held`, by channel: the same holder) resumes from the last
-    /// byte this daemon received; every other live terminal goes to the new
-    /// holder with its custody master, pid, ring segment and a prologue
-    /// built at the exact offset the parser confirmed
-    /// ([`HolderTerminal::adoption`]). Output the shells wrote meanwhile
-    /// waited in their PTYs; output the dead holder read but never sent is
-    /// in the ring segment.
-    fn readopt(&self, link: &HolderLink, still_held: &HashMap<u32, [u8; 16]>) {
-        let live: Vec<_> =
-            self.live.lock().recover_poison().values().filter_map(Weak::upgrade).collect();
-        for terminal in live {
-            if still_held.get(&terminal.chan) == Some(&terminal.id) {
-                let sink = terminal.sink.clone() as Arc<dyn TerminalSink>;
-                if let Err(error) = link.resume(terminal.chan, terminal.sink.received(), sink) {
-                    eprintln!("cmux-tui: resume holder terminal {}: {error}", terminal.chan);
-                }
-                continue;
-            }
-            let adoption =
-                terminal.adoption(link.has_rings(), super::terminal::ADOPT_PROLOGUE_MAX_BYTES);
-            let sink = terminal.sink.clone() as Arc<dyn TerminalSink>;
-            if let Err(error) = link.adopt(
-                terminal.chan,
-                &terminal.id,
-                (terminal.pid, adoption.base, adoption.resume),
-                (&terminal.custody, adoption.ring.as_ref()),
-                (sink, &adoption.prologue),
-            ) {
-                eprintln!("cmux-tui: hand terminal {} to the new holder: {error}", terminal.chan);
-            }
-        }
-    }
-
     fn connect(self: &Arc<Self>) -> io::Result<(Arc<HolderLink>, Vec<Listed>)> {
         let weak = Arc::downgrade(self);
         HolderLink::connect(
@@ -439,6 +461,105 @@ impl HolderService {
             return Err(io::Error::other(format!("the terminal holder did not start: {line:?}")));
         }
         Ok(())
+    }
+}
+
+/// What a new link does with one terminal it lists, this daemon shows
+/// (live) or keeps for the startup pass ([`ownership`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Claim {
+    /// A live terminal the holder still runs on its channel (the same
+    /// holder): stream it again from the newest byte this daemon has.
+    Resume,
+    /// A live terminal the holder does not run (a new holder): hand it the
+    /// custody master, pid, ring segment and a prologue built at the exact
+    /// offset the parser confirmed ([`HolderTerminal::adoption`]). Output
+    /// the shell wrote meanwhile waited in its PTY; output the dead holder
+    /// read but never sent is in the ring segment.
+    Adopt,
+    /// A startup-pass entry the holder still runs: keep it, with this
+    /// listing's descriptors and offsets.
+    Refresh,
+    /// A startup-pass entry whose holder died: hand its custody master and
+    /// ring to this holder, unattached, for the startup pass to re-attach.
+    HandOver,
+    /// A listed terminal nobody claims yet, kept for the startup pass.
+    Reserve,
+    /// A listed terminal nobody claims: end it.
+    Close,
+}
+
+/// The ownership pass of a new link: which of the terminals involved this
+/// daemon keeps, and how. `listed` is what the holder runs, `live` what
+/// this daemon shows and `reserved` what it keeps for its startup pass,
+/// each as (channel, terminal id); `reserve_new` keeps what nobody claims
+/// for the startup pass. A terminal without a claim is left as it is. Pure:
+/// [`HolderService::take_ownership`] applies it.
+fn ownership(
+    listed: &[(u32, [u8; 16])],
+    live: &[(u32, [u8; 16])],
+    reserved: &[(u32, [u8; 16])],
+    reserve_new: bool,
+) -> Vec<(u32, Claim)> {
+    let held: HashMap<u32, [u8; 16]> = listed.iter().copied().collect();
+    let mut claims = Vec::new();
+    if !reserve_new {
+        // A reconnect: what the holder lists are this daemon's own
+        // terminals (the same holder) or nothing (a new one).
+        for (chan, id) in live {
+            let claim = if held.get(chan) == Some(id) { Claim::Resume } else { Claim::Adopt };
+            claims.push((*chan, claim));
+        }
+        return claims;
+    }
+    let kept: std::collections::HashSet<[u8; 16]> = reserved.iter().map(|(_, id)| *id).collect();
+    for (chan, id) in listed {
+        if !kept.contains(id) {
+            claims.push((*chan, Claim::Reserve));
+        }
+    }
+    claims
+}
+
+/// Stream `terminal` again on `link`, the same holder after the link
+/// dropped, from the newest byte this daemon received.
+fn resume(link: &HolderLink, terminal: &Arc<HolderTerminal>) {
+    let sink = terminal.sink.clone() as Arc<dyn TerminalSink>;
+    if let Err(error) = link.resume(terminal.chan, terminal.sink.received(), sink) {
+        eprintln!("cmux-tui: resume holder terminal {}: {error}", terminal.chan);
+    }
+}
+
+/// Hand `terminal` to the new holder of `link` ([`Claim::Adopt`]).
+fn adopt(link: &HolderLink, terminal: &Arc<HolderTerminal>) {
+    let adoption = terminal.adoption(link.has_rings(), super::terminal::ADOPT_PROLOGUE_MAX_BYTES);
+    let sink = terminal.sink.clone() as Arc<dyn TerminalSink>;
+    if let Err(error) = link.adopt(
+        terminal.chan,
+        &terminal.id,
+        (terminal.pid, adoption.base, adoption.resume),
+        (&terminal.custody, adoption.ring.as_ref()),
+        (sink, &adoption.prologue),
+    ) {
+        eprintln!("cmux-tui: hand terminal {} to the new holder: {error}", terminal.chan);
+    }
+}
+
+/// Hand a startup-pass entry whose holder died to the new holder of `link`
+/// ([`Claim::HandOver`]): its custody master and (when the link takes
+/// rings) the dead holder's ring, which the new holder continues. Without
+/// the ring the new holder starts a fresh one at the entry's end, so the
+/// entry then starts there too.
+fn hand_over(link: &HolderLink, entry: &mut Listed) {
+    let Some(master) = entry.master.as_ref() else { return };
+    let ring = entry.ring.as_ref().filter(|_| link.has_rings());
+    let offsets = (entry.pid, entry.oldest, entry.end);
+    match link.hand_over(entry.chan, &entry.id, offsets, (master, ring), &[]) {
+        Ok(()) if ring.is_none() => entry.oldest = entry.end,
+        Ok(()) => {}
+        Err(error) => {
+            eprintln!("cmux-tui: hand holder terminal {} to the new holder: {error}", entry.chan);
+        }
     }
 }
 
