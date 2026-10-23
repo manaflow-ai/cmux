@@ -238,6 +238,28 @@ struct HangReportServiceTests {
         #expect(transport.sent.isEmpty)
     }
 
+    /// Schema 1 marks a client without the review 1 and 2 privacy fixes: its queued report is
+    /// dropped, even when the build number matches (a re-signed or rebuilt bundle).
+    @Test func aQueuedSchemaOneReportIsDroppedNotSent() async throws {
+        let failing = RecordingTransport([.retryLater])
+        let queuing = service(failing)
+        await queuing.setEnabled(true)
+        await queuing.receive(HangReportFixtures.metricKitInput())
+        let body = try #require(failing.sent.first)
+        var old = try JSONDecoder().decode(HangReport.self, from: body)
+        #expect(old.schema == HangReport.schemaVersion)
+        old.schema = 1
+        let store = HangReportStore(directory: directory)
+        for entry in await store.outbox(now: clock.now) { await store.remove(entry.url) }
+        await store.enqueue(try HangReport.encoder.encode(old), reportId: old.reportId)
+        let transport = RecordingTransport()
+        let next = service(transport)
+        await next.setEnabled(true)
+        await next.launched()
+        #expect(transport.sent.isEmpty)
+        #expect(await store.outbox(now: clock.now).isEmpty)
+    }
+
     @Test func viewBeforeAnySendIsAPreviewThatSendsNothing() async throws {
         let transport = RecordingTransport()
         let service = service(transport)
