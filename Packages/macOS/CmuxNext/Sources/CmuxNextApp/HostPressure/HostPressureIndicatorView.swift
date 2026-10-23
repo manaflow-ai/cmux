@@ -7,7 +7,11 @@ import CmuxNextHostPressure
 /// and the incognito badge (`WindowRootView.hostPressureIndicator`; never the
 /// sidebar). Hidden while the host is normal; at warning and critical a still
 /// glyph in the theme's attention color (no pulse, no animation), whose click
-/// opens the popover.
+/// opens the popover. At critical, with the Debug Settings toggle
+/// `hostPressure.banner` on (off by default), it also shows a banner (an
+/// untilClosed toast) whose Show Details opens the popover; closing it keeps it
+/// closed in that window until the next critical spell. The banner has no timer of its
+/// own: it follows the same level observation, and ends with it.
 ///
 /// Off by default (cmux#22662): it subscribes to the app's `HostPressureService`
 /// only while `HostPressureSampling.samples` holds (the Debug Settings toggle
@@ -19,7 +23,13 @@ import CmuxNextHostPressure
 /// unsubscribe (`HostPressureSubscription` ends itself if it is released without that). While the toggle is off it never creates the service at all.
 final class HostPressureIndicatorView: NSView {
     static let identifier = "cmux.titlebar.hostPressure"
-    let button = TitlebarBandButton(symbol: HostPressureIndicatorView.symbol(.warning))
+    let button = TitlebarBandButton(symbol: HostPressureIndicatorView.symbol(.warning, style: .gauge))
+    /// The load against its limit beside the glyph (`HostPressureIndicatorStyle.load`).
+    let loadLabel = ThemedLabel(labelWithString: "")
+    private var style = HostPressureIndicatorStyle.gauge
+    private var banner: HostPressureBanner?
+    /// The critical spell whose banner this window's person closed (or opened the details of).
+    private var closedSpell: Int?
     private let services: AppServices
     private let store: TunableStore
     private let windowVisible: @MainActor (NSWindow?) -> Bool
@@ -53,21 +63,32 @@ final class HostPressureIndicatorView: NSView {
         button.target = self
         button.action = #selector(togglePopover)
         button.setAccessibilityIdentifier(Self.identifier)
+        loadLabel.font = Typography.caption
+        loadLabel.ink = .secondary
+        loadLabel.isHidden = true
         addSubview(button)
+        addSubview(loadLabel)
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    static func symbol(_ level: HostPressureLevel) -> String {
-        level == .critical ? "exclamationmark.triangle" : "gauge.with.dots.needle.67percent"
+    static func symbol(_ level: HostPressureLevel, style: HostPressureIndicatorStyle) -> String {
+        level == .critical || style == .triangle ? "exclamationmark.triangle" : "gauge.with.dots.needle.67percent"
     }
 
-    static var side: CGFloat { TitlebarBandButton.side }
+    /// The glyph's square, plus the load label after it in the `load` style.
+    var width: CGFloat {
+        TitlebarBandButton.side + (loadLabel.isHidden ? 0 : Metrics.space1 + ceil(loadLabel.intrinsicContentSize.width))
+    }
 
     override func layout() {
         super.layout()
-        button.frame = bounds
+        let side = TitlebarBandButton.side
+        button.frame = CGRect(x: 0, y: 0, width: side, height: bounds.height)
+        let label = loadLabel.intrinsicContentSize
+        loadLabel.frame = CGRect(x: side + Metrics.space1, y: ((bounds.height - label.height) / 2).rounded(),
+                                 width: ceil(label.width), height: label.height)
     }
 
     override func viewDidMoveToWindow() {
@@ -81,9 +102,14 @@ final class HostPressureIndicatorView: NSView {
         applyTint()
     }
 
-    /// The gate's inputs now: the toggle and whether the window can be seen.
+    /// The gate's inputs now: the toggle and whether the window can be seen. A forced level
+    /// (Debug Settings only, for captures) counts as seen while the indicator is in a window:
+    /// capture minis run windows the occlusion state calls hidden. The 15 s read then runs while
+    /// the level stays forced; Off restores the window gate, and leaving the window still stops it.
     var sampling: HostPressureSampling {
-        HostPressureSampling(enabled: HostPressureTunables.enabled.value(in: store), windowVisible: windowVisible(window))
+        let forced = HostPressureTunables.force.value(in: store) != .off && window != nil
+        return HostPressureSampling(enabled: HostPressureTunables.enabled.value(in: store),
+                                    windowVisible: forced || windowVisible(window))
     }
 
     /// Subscribes while `sampling.samples`, else unsubscribes (idempotent).
@@ -116,10 +142,10 @@ final class HostPressureIndicatorView: NSView {
                 }
             })
         }
-        let (store, enabled) = (store, HostPressureTunables.enabled)
+        let (store, enabled, force) = (store, HostPressureTunables.enabled, HostPressureTunables.force)
         // task-owner: `watching` (cancelled on a window change, on willClose and in deinit); event-driven (Observation of the tunable store)
         watching.add(Task { [weak self] in
-            for await _ in ObservationStream({ enabled.value(in: store) }) {
+            for await _ in ObservationStream({ (enabled.value(in: store), force.value(in: store)) }) {
                 guard !Task.isCancelled, let self else { return }
                 reconcile()
             }
@@ -131,11 +157,17 @@ final class HostPressureIndicatorView: NSView {
         let service = makeService()
         subscription = HostPressureSubscription(service)
         // task-owner: `levels` (cancelled when it stops sampling and in deinit); event-driven (Observation)
+        let store = store
         levels.add(Task { [weak self] in
-            for await (level, verdict) in ObservationStream({ (service.level, service.verdict) }) {
+            for await (level, verdict, style, bannerOn, spell) in ObservationStream({
+                (service.level, service.verdict, HostPressureTunables.style.value(in: store),
+                 HostPressureTunables.banner.value(in: store), service.criticalSpell)
+            }) {
                 // A value queued before leave() cancelled this shows nothing.
                 guard !Task.isCancelled, let self else { return }
+                self.style = style
                 show(level: level, verdict: verdict)
+                showBanner(bannerOn && level == .critical && closedSpell != spell, verdict: verdict, spell: spell)
             }
         })
     }
@@ -146,13 +178,16 @@ final class HostPressureIndicatorView: NSView {
         subscription.cancel()
         self.subscription = nil
         show(level: .normal, verdict: nil)
+        showBanner(false, verdict: nil)
     }
 
     private func show(level: HostPressureLevel, verdict: HostBudgetVerdict?) {
-        let (wasHidden, wasLevel) = (isHidden, self.level)
+        let (wasHidden, wasLevel, oldWidth) = (isHidden, self.level, width)
         self.level = level
         isHidden = level == .normal
-        button.symbol = Self.symbol(level)
+        button.symbol = Self.symbol(level, style: style)
+        loadLabel.isHidden = style != .load || verdict?.load1 == nil
+        loadLabel.stringValue = verdict.map(Self.loadText) ?? ""
         let title = level == .critical ? HostPressureStrings.criticalTitle : HostPressureStrings.warningTitle
         button.setAccessibilityLabel(title)
         button.themedToolTip = title
@@ -163,7 +198,49 @@ final class HostPressureIndicatorView: NSView {
         } else {
             popover.content.update(level: level, verdict: verdict, canStop: service?.isForced == false)
         }
-        if wasHidden != isHidden { onVisibilityChange() }
+        if wasHidden != isHidden || oldWidth != width {
+            // The root lays the top row out: without this its layoutSubtreeIfNeeded keeps the old frame
+            // (zero the first time) until something else relayouts the window.
+            superview?.needsLayout = true
+            onVisibilityChange()
+        }
+    }
+
+    /// "9.6 / 12": the 1-minute load against the budget's limit.
+    static func loadText(_ verdict: HostBudgetVerdict) -> String {
+        let load = verdict.load1.map { $0.formatted(.number.precision(.fractionLength(1))) } ?? "–"
+        return "\(load) / \(verdict.loadLimit.formatted(.number.precision(.fractionLength(0 ... 1))))"
+    }
+
+    /// The critical banner: shown once per critical spell, ended when the level falls, the toggle
+    /// goes off or the indicator stops sampling. Closing it or Show Details keeps this window's
+    /// banner closed for the spell (`HostPressureService.criticalSpell`).
+    private func showBanner(_ shows: Bool, verdict: HostBudgetVerdict?, spell: Int = 0) {
+        guard shows else {
+            // Cleared first: this end is the level's, not the person's close.
+            let shown = banner
+            banner = nil
+            shown?.end()
+            return
+        }
+        guard banner == nil, let window, let verdict else { return }
+        // The popover's lines: the load against its limit in words, then acpmux's other reasons.
+        let reasons = HostPressurePopoverView.reasons(verdict).joined(separator: "; ")
+        let toast = CmuxToast(id: "host-pressure.critical", message: HostPressureStrings.banner(reasons),
+                              action: CmuxToast.Action(title: HostPressureStrings.showDetails), duration: CmuxToast.untilClosed)
+        let handle = CmuxToastCenter.shared.show(toast, in: window)
+        banner = HostPressureBanner(handle)
+        handle.onAction = { [weak self] in self?.openPopover() }
+        handle.onDismiss = { [weak self, weak handle] reason in
+            guard let self, let handle, banner?.handle === handle else { return }
+            banner = nil
+            switch reason {
+            // The close button, Show Details, or this window closing (which also ends with .closed):
+            // only this window remembers it, so a closing window never keeps other windows' banners shut.
+            case .action, .closed: closedSpell = spell
+            case .replaced, .timeout: break
+            }
+        }
     }
 
     private func applyTint() {
@@ -181,6 +258,7 @@ final class HostPressureIndicatorView: NSView {
     }
 
     var isPopoverShown: Bool { level != .normal && popover.isShown }
+    var isBannerShown: Bool { banner != nil }
 
     func closePopover() {
         if isPopoverShown { popover.close() }
@@ -211,8 +289,9 @@ final class HostPressureIndicatorView: NSView {
         }
     }
 
-    /// Cancels every observation on whatever thread it runs; the subscription ends itself on
-    /// the main actor when it is released (`HostPressureSubscription`).
+    /// Cancels every observation on whatever thread it runs; the subscription and the banner end
+    /// themselves on the main actor when they are released (`HostPressureSubscription`,
+    /// `HostPressureBanner`).
     nonisolated deinit {
         watching.cancelAll()
         levels.cancelAll()
