@@ -244,6 +244,31 @@ private final class RunTimingRecorder: ActionRunTiming {
         #expect(confirmed.count == 2)
     }
 
+    /// The answer to a question outside any dispatch (an automation or VoiceOver answer, a SwiftUI
+    /// button action that runs after its event) reports -1 even when the carried press is younger
+    /// than the old 1 s cap: `proceed(true)` strips the stamp, so the person's 300 ms of reading
+    /// never counts as latency. The same press without a question keeps its age. Before
+    /// 3f9a1c0c4ce the asked run reported about 300 ms, and it does again if the strip goes.
+    @Test(arguments: [true, false])
+    func aCarriedPressYoungerThanASecondCountsOnlyWithoutAQuestion(_ asked: Bool) throws {
+        let recorder = RunTimingRecorder()
+        let registry = Self.gatedRegistry(recorder) { _, _ in }
+        var pending: (@MainActor (Bool) -> Void)?
+        registry.confirmationPresenter = { _, _, proceed in pending = proceed }
+        var dispatching: NSEvent? = try Self.key(at: ProcessInfo.processInfo.systemUptime - 0.3)
+        registry.dispatchingInputEvent = { dispatching }
+        #expect(registry.perform("tabGroup.close"))
+        dispatching = nil  // answered outside any dispatch
+        let proceed = try #require(pending)
+        proceed(asked)
+        let age: Double = try #require(recorder.runs.last?.inputAge)
+        if asked {
+            #expect(age == -1, "the run answered a question and reported \(age) ms: the press's age with the reading time")
+        } else {
+            #expect(age >= 300, "the unasked confirmation reported \(age) ms, not the 0.3 s press's age")
+        }
+    }
+
     /// A confirmation that asked nothing (a slow TabCloseGuard or process-info round trip) and
     /// comes back more than a second later, outside any dispatch, still reports the press's age:
     /// that wait is the person's latency. Before 3f9a1c0c4ce a 1 s cap reported -1.
