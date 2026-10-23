@@ -8,6 +8,11 @@ import Testing
 /// every `sidebar.density` (compact, comfortable, expanded) and Minimal Mode on and off, with the
 /// group collapsed and open, loading (its spinner), pinned, and nested one level in. Each case
 /// prints a `HEIGHTS|` line so a fleet log shows the measured numbers.
+///
+/// Measured on the fleet at 740e58fa28d: every header matched a one-line row, but Expanded rows are
+/// two lines (a dim preview under the title: 36 pt at compact app density) while the headers stayed
+/// one line (24 pt). A workspace row with its usual content (here a folder and a branch) must be
+/// exactly as tall as the group header at every density, Expanded included.
 @MainActor @Suite(.serialized) struct SidebarGroupHeaderEveryDensityTests {
     private static let group = GroupID("grp-every")
     private static let pinned = GroupID("grp-pinned")
@@ -108,6 +113,10 @@ import Testing
             parts.append("member \(memberSlot.height)")
             #expect(abs(memberSlot.height - row.height) <= 0.5, "\(label): member \(memberSlot.height) vs loose \(row.height)")
         }
+        // The usual workspace row: a folder and a branch. Compact and comfortable show one line,
+        // Expanded two, Minimal Mode one; a group header matches it at each.
+        let header = try #require(list.displayed.row(for: .group(group))).height
+        #expect(abs(rich - header) <= 0.5, "\(label): a workspace row is \(rich) pt, its group header \(header) pt")
         print("HEIGHTS|\(label)|" + parts.joined(separator: "|"))
     }
 }
