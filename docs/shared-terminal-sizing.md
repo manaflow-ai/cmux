@@ -158,6 +158,21 @@ grid without reason (plans/cmux-next/ghostty-next.md section 6):
 - A preview (a Home list thumbnail, a tab switcher) attaches with
   `counts_override: false`.
 
+A phone or tablet view never gets a PTY grid larger than its own unless it
+lists `host-grid-view-v1` in `set-client-info` (it shows a larger grid itself,
+by letterbox or pan). No phone build does yet: each renders the PTY's output
+into its own grid, so a wider PTY overprints and cuts its rows. While such a
+view is attached with a reported size and counts (a preview with
+`counts_override: false` does not), the daemon caps the grid it applies, per
+dimension, at that size, under every policy and whoever is active. Under the
+default `latest` a Mac that was active last therefore keeps its own grid only
+up to the phone's size while the phone shows the terminal; it gets it back when
+the phone releases its size, its size lease ends, or it leaves (after the
+departed-view hold below). The published size state stays the engine's
+decision, as during a hold. A relayed phone is capped unless its relay lists
+the capability. This is the daemon applying the engine's decision late, so the
+fixtures do not change.
+
 Rotation, split view and pinch report once, at the end of the transition or
 gesture. The fixtures "phone grid walkthrough", "a preview attach with counts
 off never shrinks the grid" and "a hidden phone stops counting and counts
