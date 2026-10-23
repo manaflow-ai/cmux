@@ -10,7 +10,7 @@ import Foundation
 public nonisolated enum DiffPrefKey {
     public static let section = "diff"
     static let booleans: Set<String> = ["wordWrap", "wordDiffs", "lineNumbers", "showBackgrounds", "expandUnchanged",
-                                       "groupByKind"]
+                                       "groupByKind", "hideWhitespace"]
     static let choices: [String: Set<String>] = [
         "layout": ["split", "unified"],
         "diffIndicators": ["bars", "classic", "none"],
