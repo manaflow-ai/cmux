@@ -47,6 +47,8 @@ enum AgentPaneTheme {
             "turnActionsPlacement": AgentPaneTunables.turnActionsPlacement.value.rawValue,
             // Debug Settings agentPane.debug.subagentTray (AgentPaneTunables+SubagentTray.swift).
             "subagentTray": AgentPaneTunables.subagentTray.value,
+            // Debug Settings agentPane.debug.scrollerFade (AgentPaneTunables+ScrollerFade.swift).
+            "scrollerFade": AgentPaneTunables.scrollerFade.value,
             "text": css(tokens.textPrimary),
             "mutedText": css(tokens.textSecondary),
             "softText": css(tokens.textTertiary),

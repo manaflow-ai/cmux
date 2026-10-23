@@ -89,6 +89,7 @@ mod remote_cli {
         1
     }
 }
+mod devices;
 mod owner_start;
 mod remote_host;
 #[cfg(unix)]
@@ -1784,6 +1785,14 @@ fn run_main() {
     if cli::remote_host_requested(&raw_args) {
         discard_provider_secret_environment();
         client_log::exit(remote_host::run(&raw_args[1..]));
+    }
+    // `cmux device list|remove|audit|network|invite` and `add --yes`: one
+    // device list over every store (plans/cmux-next/add-device-DESIGN.md).
+    // `cmux device add` without `--yes` is the app's Add Device card. Both
+    // surfaces: the app runs its bundled `cmux-tui device list --json`.
+    if devices::handles(&raw_args) {
+        discard_provider_secret_environment();
+        client_log::exit(devices::run(&raw_args[1..]));
     }
     #[cfg(unix)]
     if let Some(run) = cli::early_unix_scope(&raw_args) {
