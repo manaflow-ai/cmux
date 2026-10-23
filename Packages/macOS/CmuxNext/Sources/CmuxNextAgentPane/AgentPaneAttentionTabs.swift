@@ -29,7 +29,7 @@ public final class AgentPaneAttentionTabs {
     /// The pages pushed so far, held weakly, for the pushes on a change.
     private let views = NSHashTable<AgentPaneView>.weakObjects()
 
-    /// Longest tab id a page may name (daemon ids are `tab_` and 32 hex digits).
+    /// Longest row key a page may name (the App's machine id, `/`, and a daemon tab id).
     static let maximumTabID = 256
 
     /// One marked tab as the page draws it.
