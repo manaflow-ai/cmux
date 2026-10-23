@@ -17,16 +17,16 @@ impl Hub {
                     if m == method::SESSION_UPDATE {
                         // A /context breakdown from an agent that was replaced (a failover's
                         // dying primary answering late) is not the chat's context now. The
-                        // child lock is held while it is applied: a failover takes it to
-                        // detach the old agent before it clears the breakdown, so the check
-                        // and the write cannot straddle the failover.
+                        // child lock is held while it is applied: a failover takes it to retire
+                        // the old agent, and again to detach it, before it clears the
+                        // breakdown, so the check and the write cannot straddle the failover.
                         let breakdown = params
                             .as_ref()
                             .and_then(|p| p.pointer("/update/_meta/acpmux/contextBreakdown"))
                             .is_some();
                         if breakdown {
                             let child = session.child.lock().await;
-                            if child.as_ref().is_some_and(|c| c.generation == agent) {
+                            if child.as_ref().is_some_and(|c| c.generation == agent && !c.is_retired()) {
                                 self.on_update(&session, params.as_ref());
                             }
                             continue;
