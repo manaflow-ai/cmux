@@ -9,7 +9,8 @@ import Testing
 @Suite(.serialized)
 struct CloudHubLoopbackTests {
     /// One connection's SOCKS5 server: greeting, then CONNECT, answered `reply`; after a success it echoes.
-    final class FakeHub: @unchecked Sendable {
+    /// Nonisolated: this target defaults to the main actor, and its accept loop runs on its own thread.
+    nonisolated final class FakeHub: @unchecked Sendable {
         let path = "/tmp/cmux-hubtest-\(UUID().uuidString.prefix(8)).sock"
         private let listener: Int32
         private let lock = NSLock()
