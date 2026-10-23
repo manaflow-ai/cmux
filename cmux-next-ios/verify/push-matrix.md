@@ -32,6 +32,11 @@ gesture recognizer.
 | 2 | permission | background | inline Deny | Needed and finished | one | tunnel | Pass. Background action, no Face ID, Mac: `chose no` | `evidence/r02-actions.png`, `r02-permission-deny-bg.mp4` |
 | 2b | permission offering only Always | background | buttons shown | Needed and finished | one | tunnel | Pass (after fix 3). Only Deny is offered | `evidence/v2c-actions.png` |
 | 3 | question, multi-select | background | long look: check lint and e2e, Submit | Needed and finished | one | tunnel | Pass. Checkboxes, Submit enables, app opens, Face ID, Mac: `chose allow_once {"Which checks should run?": "lint, e2e"}` | `evidence/r03-expanded.png`, `r03-checked.png`, `r03-after-submit.png`, `r03-answered.png`, `r03-multi-submit.mp4` |
+| 4 | finished turn (real Claude Code chat, `claude/haiku`) | background | long look shows its last line ("Ready"); system Reply, typed text, Send | Needed and finished | one | tunnel | Pass (delivery). The phone sent `session/prompt` over the link; the Mac's acpmux refused it as a Mac-started chat ("This chat runs with your Mac's Claude permissions…"), and the phone posted that reason as "Not sent to Rig Mac". The refusal is acpmux's existing policy, not this PR's; a phone-started chat is not refused | `evidence/rows/rows-claude-longlook.jpg`, `rows-claude-reply-typed.jpg`, `rows-claude-reply-sent.jpg` |
+| 5 | error (fake agent `net-fail-once`) | background | system Reply | Needed and finished | one | tunnel | Pass (delivery). Banner "stopped with an error" with the error text; the reply reached the Mac, which refused it because the fake agent's mode (`normal`) is not one a phone may prompt (`acpmux_policy` `PHONE_MODES`); the phone showed that reason | `evidence/rows/` (banner in `rows-terminal-banner.jpg`) |
+| 6 | terminal (OSC 9 from a shell, `printf '\e]9;…'`) | background | banner | Everything | one | tunnel | Pass. Title "Terminal · rows-shell" (fixed, never the program's), body "Build finished on the rig", subtitle "rows-shell · Rig Mac" | `evidence/rows/rows-terminal-banner.jpg` |
+| 7 | question | background | banner with Show previews off | previews off | one | tunnel | Pass. Banner "Your agent has a question" / "Rig Mac"; the question's text is nowhere on the lock screen | `evidence/rows/rows-previews-off-banner.jpg` |
+| 8 | terminal agent question (real Claude Code in a cmux terminal) | foreground, background, not running | Feed card, long look multi-choice, cold open | Needed and finished | one | tunnel | Pass. See "Terminal-hosted questions" below | `push-matrix-terminal-questions.md` |
 
 Rows 1 to 3 were rerun on the head with the review fixes (`85e23d99`):
 same results (`v1-*`, `v2-*`, `v3-*` on the rig).
@@ -56,9 +61,31 @@ same results (`v1-*`, `v2-*`, `v3-*` on the rig).
    already says). The notification button and the long look's row are gone;
    Allow once and Deny stay. `PushAlwaysAllowTests` (red, then green).
 
+4. **A terminal agent's question pushed without its options** and **5. its tap opened an
+   empty chat**: see `push-matrix-terminal-questions.md` ("Failures found and fixed").
+
 ## Pruned
 
 - **Delivery "fallback"**: PR B only.
+- **Levels "Only when I'm needed" and "Everything", and a Mac turned off**: the phone's
+  setting is a filter in the Worker (`kinds`, `mutedMacs`, `wants`); a simulator cannot
+  hold an APNs token, so the Worker never sends to it and a live row shows nothing the
+  Worker tests do not (`backend/test/rich-push.test.ts`: per-kind filtering, muted Macs,
+  `wants`). The phone side of the setting (Settings → Notifications syncing `kinds`,
+  `mutedMacs`, `previews`) is `NotificationLevelTests` and was seen live (row 7's page).
+- **App state "foreground" for every kind**: a foreground app shows the same banner
+  (`willPresent` returns `.banner`) unless that chat is on screen, which
+  `PushResponseTests` covers; rows 1–3 and 8 ran foreground and background.
+- **Two Macs, push from the non-focused Mac**: the second rig Mac on this account
+  (another agent's, same computer) folds into one listed Mac (`MacRoster`, #24167), so
+  this rig cannot show two separate Macs. Routing a push to its own Mac is
+  `NotificationRouteTests.anotherMacsWorkspaceWithTheSameIdIsNotOpened` and
+  `MultiMacFeedTests`; a tap `touch`es the push's own Mac (live: answers above went to
+  the pushing Mac while another Mac was focused).
+- **Long look "+" attachment**: PHPicker inside a notification extension needs a photo
+  library and a person's pick; the simulator's picker cannot be driven from AXe inside
+  SpringBoard's extension host. The attachment path is unit tested
+  (`PushFormTests`, `PushOutbox` attachments, L4 cleanup).
 
 ## Terminal-hosted questions
 
