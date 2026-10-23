@@ -35,6 +35,14 @@ class CloudOnboardingUITests(unittest.TestCase):
         self.assertIn(".tag(1)", SOURCE)
         self.assertIn(".tag(systemVPN == nil ? 1 : 2)", SOURCE)
 
+        self.assertIn("primaryTitle: page < pageCount - 1", SOURCE)
+        primary_action_start = SOURCE.index("onPrimary:")
+        primary_action_end = SOURCE.index("onSecondary:", primary_action_start)
+        self.assertIn(
+            "if page < pageCount - 1",
+            SOURCE[primary_action_start:primary_action_end],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
