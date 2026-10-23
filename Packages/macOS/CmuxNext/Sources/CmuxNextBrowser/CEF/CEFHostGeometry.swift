@@ -32,6 +32,7 @@ nonisolated struct CEFHostGeometry: Equatable, Sendable {
         screenRect = window?.convertToScreen(inWindow) ?? inWindow
         visibleInWindow = Self.visibleRectInWindow(of: view)
         clip = CEFClipShape.Inputs(around: view)
+        CEFHostView.trackerStats.clipInputWalks += 1
         occlusion = view.occlusionRects
         let bounds = view.bounds
         windowOcclusion = ((window as? any BrowserWindowOcclusionProviding)?.browserOcclusionRectsInWindow ?? []).compactMap { rect in

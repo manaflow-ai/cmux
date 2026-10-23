@@ -146,6 +146,7 @@ final class CEFHostView: NSView {
         let started = CEFTrackerStats.now()
         defer { Self.trackerStats.clipSeconds += CEFTrackerStats.now() - started }
         let inputs = CEFClipShape.Inputs(around: self)
+        Self.trackerStats.clipInputWalks += 1
         if let clipMemo, clipMemo.inputs == inputs {
             Self.trackerStats.clipHits += 1
             return clipMemo

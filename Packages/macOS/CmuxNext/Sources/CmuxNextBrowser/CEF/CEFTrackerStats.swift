@@ -29,6 +29,9 @@ public nonisolated struct CEFTrackerStats: Equatable, Sendable {
     /// Page update requests a page answered with no post: nothing the fork reads had changed
     /// since its last read (`CEFHostView.pagesNeedUpdate`).
     public var geometrySkips = 0
+    /// Walks of a host's ancestors for its clip inputs (`CEFClipShape.Inputs(around:)`): one per
+    /// fork read of a page's occlusion rects or clip.
+    public var clipInputWalks = 0
 
     public init() {}
 
