@@ -172,15 +172,24 @@ extension SidebarListViewComponents {
         // workspace at the top it's a huge cascade"). Only for workspaces new to the model: one a group's expand, a
         // filter or a "Show more" brings back into the list moves as before, on `.move` over the whole distance.
         let insertMotion = animate && insertsWorkspace && opensOnlyNewWorkspaces(layout, from: old) ? SidebarInsertMotion.tunable.value : nil
-        let nudge = SidebarInsertMotion.nudgeDistance.value
         appliedSections = model.sections
         // A row is opening until the spring it opens on settles (`.move`, or the insert motion's shorter one): past that
         // a later move moves it, it does not open it again.
-        openingRows = openingRows.filter { $0.value > now }
+        openingRows = openingRows.filter { $0.value.until > now }
         let reopened = animate ? Set(layout.rows.filter { openingRows[$0.key] != nil && old.row(for: $0.key)?.y != $0.y }.map(\.key)) : []
-        let opensUntil = now + Motion.sidebar.spring(insertMotion?.token ?? .move).settlingTime()
-        for row in layout.rows where animate && (old.row(for: row.key) == nil || reopened.contains(row.key)) { openingRows[row.key] = opensUntil } // only animated applies open rows (hq-1d)
         let insertRuns = SidebarRowTransition.runTops(of: layout, missingFrom: old, reopened: reopened)
+        // How far the rows travel: the nudge, never past the shortest run of new rows (a row below never starts above them).
+        let insertTravel = insertMotion.flatMap { motion in
+            SidebarInsertMotion.travel(motion.travel(nudge: SidebarInsertMotion.nudgeDistance.value),
+                                       within: SidebarInsertMotion.shortestRun(insertRuns) { layout.row(for: $0).map { $0.y + $0.height } })
+        }
+        let nudge = insertTravel ?? 0
+        // Snap and a zero nudge open nothing: the new rows stand at their slots (one realized later shows there at once).
+        if insertTravel != 0 {
+            let opening = SidebarRowOpening(until: now + Motion.sidebar.spring(insertMotion?.token ?? .move).settlingTime(),
+                                            motion: insertMotion, travel: insertTravel)
+            for row in layout.rows where animate && (old.row(for: row.key) == nil || reopened.contains(row.key)) { openingRows[row.key] = opening } // only animated applies open rows (hq-1d)
+        }
         // Without motion the rows that leave park first (as they would after the loop), so the rows that
         // come take their views: a space switch reuses the old space's views, it makes none (space-switch-fast).
         if !animate, !adopting {
@@ -283,7 +292,8 @@ extension SidebarListViewComponents {
             SidebarDragSpring.move(history + lines.springs, in: self)
             return adoptRows(targets: targets, leaving: leaving, lines: lines)
         }
-        RowMotion(targets: targets, appearing: appearing, leaving: leaving, lines: lines, companions: history, insert: insertMotion)
+        RowMotion(targets: targets, appearing: appearing, leaving: leaving, lines: lines, companions: history, insert: insertMotion,
+                  travel: insertTravel)
             .run(in: self, from: old, to: layout, animated: animate)
     }
     /// Every workspace row `layout` lists and `old` does not is a workspace the model did not hold at the last apply
@@ -397,8 +407,8 @@ extension SidebarListViewComponents {
             guard rowViews[row.key] == nil else { continue }
             let target = frame(for: row)
             guard target.intersects(realize) else { continue }
-            let opening = openingRows[row.key].map { $0 > CACurrentMediaTime() } ?? false
-            let view = dequeue(row.key, rebinding: !opening)
+            let opening = openingRows[row.key].flatMap { $0.until > CACurrentMediaTime() ? $0 : nil }
+            let view = dequeue(row.key, rebinding: opening == nil)
             view.targetSize = target.size
             configure(view, row: row, animated: false)
             if view.superview !== self { addSubview(view, positioned: .above, relativeTo: decorations) } // a parked view is still here (`recycle`)

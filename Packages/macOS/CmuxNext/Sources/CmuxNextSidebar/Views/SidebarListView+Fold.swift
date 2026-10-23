@@ -102,7 +102,7 @@ extension SidebarListViewComponents {
                     view.alphaValue = 1
                 }
             }
-            if opens { openingRows[row.key] = now + Motion.sidebar.spring(.move).settlingTime() }
+            if opens { openingRows[row.key] = SidebarRowOpening(until: now + Motion.sidebar.spring(.move).settlingTime()) }
             addSubview(view, positioned: .above, relativeTo: decorations)
             rowViews[row.key] = view
             if opens { appearing.append((view, target)) } else { targets.append((view, target)) }
