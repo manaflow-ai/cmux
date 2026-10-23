@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import collections
 import datetime
+import importlib.util
 import json
 import re
 import subprocess
@@ -26,7 +27,6 @@ SOURCES = PKG + "/Sources/"
 APP = "CmuxNextApp"
 OUT = "plans/cmux-next/codebase-health.md"
 BENCHES = "scripts/cmux-next/perf-hot-benches.json"
-PERF_HOT_ID = re.compile(r"//\s*perf-hot:\s*\S+\s+([\w-]+)")
 
 # (id, title, pattern on comment-stripped code, waiver marker or None, note)
 CATEGORIES = (
@@ -327,18 +327,36 @@ def file_list(counter: collections.Counter, limit: int | None = None) -> str:
     return text
 
 
+def load_guardrails():
+    """guardrails.py beside this file: its perf-hot marker resolver decides which functions are marked."""
+    spec = importlib.util.spec_from_file_location("cmux_next_guardrails", Path(__file__).with_name("guardrails.py"))
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module  # dataclasses resolve their module through sys.modules
+    spec.loader.exec_module(module)
+    return module
+
+
+def perf_hot_markers(texts: dict[str, list[str]]) -> tuple[dict[str, set[str]], list[str]]:
+    """({path id: files with a marked declaration}, ["file:line" of each marker that marks no declaration])."""
+    guardrails = load_guardrails()
+    marked: dict[str, set[str]] = collections.defaultdict(set)
+    dangling = []
+    for path, lines in texts.items():
+        for marker in guardrails.perf_hot_markers(lines):
+            if marker.span is None:
+                dangling.append(f"{path[len(SOURCES):]}:{marker.line}")
+            elif marker.path_id:
+                marked[marker.path_id].add(path[len(SOURCES):])
+    return marked, sorted(dangling)
+
+
 def perf_hot_coverage(repo: Path, texts: dict[str, list[str]]) -> list[tuple[str, str, list[str]]]:
-    """(path id, owner, files with its `// perf-hot:` marker) per id in perf-hot-benches.json, in its order."""
+    """(path id, owner, files with a declaration its `// perf-hot:` marks) per id in perf-hot-benches.json, in order."""
     try:
         paths = json.loads((repo / BENCHES).read_text(encoding="utf-8")).get("paths", {})
     except (OSError, ValueError):
         paths = {}
-    marked: dict[str, set[str]] = collections.defaultdict(set)
-    for path, lines in texts.items():
-        for line in lines:
-            match = PERF_HOT_ID.search(line)
-            if match:
-                marked[match.group(1)].add(path[len(SOURCES):])
+    marked, _ = perf_hot_markers(texts)
     return [(pid, entry.get("owner", "?"), sorted(marked.get(pid, ()))) for pid, entry in paths.items()]
 
 
@@ -504,10 +522,15 @@ def report(repo: Path) -> str:
     w("`scripts/cmux-next/perf-hot-benches.json`) or an area in [OWNERS.md](OWNERS.md).")
     w("")
     w("Perf-hot markers per path id. An id with no marker never warns: its owner marks the hot function")
-    w("(a trailing `// perf-hot: <budget> <path-id>` on the declaration line adds no line).")
+    w("(a trailing `// perf-hot: <budget> <path-id>` on the declaration line, or on the `{` line of a wrapped signature, adds no line).")
     w("")
     for pid, owner, files in perf_hot_coverage(repo, data["texts"]):
         w(f"- `{pid}`: " + (", ".join(files) if files else f"**no marker** (owner {owner})"))
+    _, dangling = perf_hot_markers(data["texts"])
+    if dangling:
+        w("")
+        w("Markers that mark no declaration (they never warn; move each into the comment block above its function):")
+        w(", ".join(dangling))
     w("")
     return "\n".join(out) + "\n"
 

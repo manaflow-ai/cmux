@@ -448,7 +448,7 @@ It also warns (never refuses) when a push changes a `// perf-hot:` function (nam
 `scripts/cmux-next/perf-hot-benches.json`) or an area in [OWNERS.md](OWNERS.md).
 
 Perf-hot markers per path id. An id with no marker never warns: its owner marks the hot function
-(a trailing `// perf-hot: <budget> <path-id>` on the declaration line adds no line).
+(a trailing `// perf-hot: <budget> <path-id>` on the declaration line, or on the `{` line of a wrapped signature, adds no line).
 
 - `key-dispatch`: CmuxNextActions/KeyBindingTable+Sequence.swift, CmuxNextApp/Focus/ChordTracker.swift, CmuxNextApp/Focus/KeyRouter.swift, CmuxNextApp/Notifications/NotificationCenterService+Lookup.swift
 - `terminal-key`: CmuxNextTerminal/TerminalSurfaceView+Keyboard.swift
