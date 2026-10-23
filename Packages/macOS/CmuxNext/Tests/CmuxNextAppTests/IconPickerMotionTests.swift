@@ -14,7 +14,7 @@ import Testing
         window.orderFrontRegardless()
         let content = try #require(window.contentView)
         try #require(window.screen != nil)
-        let picker = IconPickerService(services: nil)
+        let picker = IconPickerService(services: nil, lowPowerMode: LowPowerMode(enabled: false))
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in picker.prepare { done.resume() } }
         var results: [IconPickerResult] = []
         // Synchronous inside: the override is process-wide.

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSettings
 import Foundation
@@ -28,9 +29,12 @@ final class ChiefInspectorPageService: InternalPageProvider {
     private weak var services: AppServices?
     /// The server whose Chief the open tabs inspect.
     private(set) var machineID: String?
+    /// The app's Low Power Mode, which the page renders by.
+    private let lowPowerMode: LowPowerMode
 
     init(services: AppServices) {
         self.services = services
+        lowPowerMode = services.lowPowerMode
     }
 
     var page: InternalPageID { .chiefInspector }
@@ -55,7 +59,7 @@ final class ChiefInspectorPageService: InternalPageProvider {
             return server?.daemon.connection
         }
         let routes = [PageRoute(prefix: "cmux.chief_inspector.", provider: provider)]
-        return PageWebView(descriptor: .chiefInspector, routes: routes) ?? NSView()
+        return PageWebView(descriptor: .chiefInspector, routes: routes, lowPowerMode: lowPowerMode) ?? NSView()
     }
 }
 

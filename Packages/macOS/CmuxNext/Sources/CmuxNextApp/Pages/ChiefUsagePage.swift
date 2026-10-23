@@ -19,6 +19,7 @@ enum ChiefUsagePageTab {
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let services = context.services
+        let lowPowerMode = services.lowPowerMode
         // The bundle and the environment do not change while the app runs: resolved once.
         let tool = ChiefUsageTool.resolve()
         let hasLocalChief = tool != nil || HomeBrainHost.canStart()
@@ -30,7 +31,8 @@ enum ChiefUsagePageTab {
                 guard let tool else { return nil }
                 return try await tool.run(arguments, muxHome: muxHome)
             }
-            return PageWebView(descriptor: .chiefUsage, routes: [PageRoute(prefix: "cmux.chief_usage.", provider: provider)])
+            return PageWebView(descriptor: .chiefUsage, routes: [PageRoute(prefix: "cmux.chief_usage.", provider: provider)],
+                               lowPowerMode: lowPowerMode)
         })
         registry.bind(actionID, unavailable: {
             hasLocalChief ? nil : ChiefUsagePageProvider.noLocalChief

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import CmuxNextPages
 
 /// The agent page host's pieces that need no view state of their own: making the page and the
@@ -14,7 +15,9 @@ enum AgentPanePageHost {
                                documentAttributes: AgentPaneTunables.documentAttributes,
                                options: PageEngineOptions(renderRate: renderRate == .capped ? .capped : .full,
                                                           chromiumAgentChat: AgentPaneTunables.chromium.value),
-                               chromium: chromium)
+                               chromium: chromium,
+                               // Its rates (`.full`, `.capped`) never follow Low Power Mode; the pane sets them.
+                               lowPowerMode: LowPowerMode(enabled: false))
         // The composer menu's edits run as the page view's own responder actions.
         provider.onEdit = { [weak page] command in page?.performEdit(command.selector) }
         return page

@@ -1,3 +1,4 @@
+import CmuxNextDesign
 @testable import CmuxNextApp
 import Testing
 
@@ -7,7 +8,7 @@ import Testing
 @MainActor
 struct IconPickerWarmTests {
     @Test func preparingMakesThePickerWarmBeforeAnyOpen() async {
-        let picker = IconPickerService(services: nil)
+        let picker = IconPickerService(services: nil, lowPowerMode: LowPowerMode(enabled: false))
         #expect(!picker.isWarm)
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
             picker.prepare { done.resume() }

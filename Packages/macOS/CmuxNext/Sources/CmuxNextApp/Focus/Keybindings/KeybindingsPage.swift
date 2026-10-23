@@ -41,7 +41,7 @@ final class KeybindingsPageService: InternalPageProvider {
     func makeView(for key: String, in window: WindowController?) -> NSView {
         let provider = KeybindingsPageProvider(services: services)
         let routes = [PageRoute(prefix: "cmux.keybindings.", provider: provider)]
-        guard let page = PageWebView(descriptor: .keybindings, routes: routes) else { return NSView() }
+        guard let page = PageWebView(descriptor: .keybindings, routes: routes, lowPowerMode: services.lowPowerMode) else { return NSView() }
         provider.pageWindow = { [weak page] in page?.window }
         return page
     }

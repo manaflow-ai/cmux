@@ -1,3 +1,4 @@
+import CmuxNextDesign
 import AppKit
 @testable import CmuxNextPages
 import CmuxNextPagesTestSupport
@@ -23,7 +24,8 @@ struct PageChromiumWindowImageTests {
 
     private func chromiumView() async throws -> (PageWebView, FakeChromiumPage) {
         let hosting = FakeChromiumHosting()
-        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], route: "#/", chromium: hosting))
+        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], route: "#/", chromium: hosting,
+                                                   lowPowerMode: LowPowerMode(enabled: false)))
         view.chromiumClock = PageTestClock.never
         await view.chromiumStart?.value
         return (view, try #require(hosting.made.first))

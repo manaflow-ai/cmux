@@ -61,15 +61,21 @@ public final class ChiefViewsPage {
     public nonisolated static var tunables: [TunableDescriptor] { ChiefViewsTunables.all }
 
     private let host: ChiefViewsHost
+    private let lowPowerMode: LowPowerMode
 
-    public init(host: ChiefViewsHost) {
+    /// - Parameters:
+    ///   - host: The app's machines and navigation the page reads and drives.
+    ///   - lowPowerMode: The app's Low Power Mode, which the page renders by.
+    public init(host: ChiefViewsHost, lowPowerMode: LowPowerMode) {
         self.host = host
+        self.lowPowerMode = lowPowerMode
     }
 
     /// A new page view with its own provider; nil when the page's bundle is missing.
     public func makeView() -> PageWebView? {
         let provider = ChiefViewsPageProvider(host: .live(host))
-        return PageWebView(descriptor: .chiefViews, routes: [PageRoute(prefix: ChiefViewsPageProvider.prefix, provider: provider)])
+        return PageWebView(descriptor: .chiefViews, routes: [PageRoute(prefix: ChiefViewsPageProvider.prefix, provider: provider)],
+                           lowPowerMode: lowPowerMode)
     }
 }
 
