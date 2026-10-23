@@ -6,7 +6,8 @@ usage:
   python3 -I scripts/cmux-next/shell-integration-bench.py            # this checkout (needs ghostty-next)
   options: --shells zsh,bash,fish  --bash /opt/homebrew/bin/bash  --require zsh,bash (default: the
            requested zsh and bash; --require= to allow skipping)
-           --layouts app,daemon,daemon-bare  --reps 9  --cycles 20  --max-overhead-ms 15  --json out.json
+           --layouts app,daemon,daemon-bare  --reps 9  --cycles 20  --idle-s 1.2  --max-overhead-ms 15
+           --json out.json
 
 What it runs. Every shell starts the way a cmux-next terminal starts it: a login shell on a pty
 (`-zsh`, `-bash --posix`, `-fish`, as the daemon's login(1) start does) with the environment the
@@ -17,7 +18,10 @@ CMUX_TUI_AGENT_SHIMS): Ghostty's integration from ghostty-next under the app's
 Ghostty files with cmux-tui's agent shims appended, as shell_integration.rs writes them) under the
 same layer, as the daemon wraps it when it knows the app's bundled CLI; layout `daemon-bare` is that
 daemon-integrated shell with no layer and no bundled CLI (a daemon started outside the app, or one
-whose `<Resources>/cmux-cli-path` is missing: cli_path::wrap then leaves the injection alone). Each
+whose `<Resources>/cmux-cli-path` is missing: cli_path::wrap then leaves the injection alone). The
+daemon layouts rebuild the daemon's scripts from this checkout (daemon_integration mirrors
+shell_integration.rs SCRIPTS); the guard on what the daemon really writes is cmux-tui-core's
+shell_integration/fork_count_tests.rs, which materializes SCRIPTS and counts the same forks. Each
 shell has an empty HOME whose only startup file sets a plain prompt, so the integration is the only
 code that differs from the control: the same shell, same flags, without the integration env.
 bash also runs with two more HOMEs whose .bashrc sets PROMPT_COMMAND the way prompt tools do, as a
@@ -26,22 +30,28 @@ the branches where Ghostty's and cmux's hooks read PROMPT_COMMAND's type, and wh
 prompt hook must still run. After the counted cycles each integrated bash run moves PATH's front
 (`PATH=/bin:$PATH`) and checks the next command sees the agent shim directory first again.
 
-What it counts. Each run takes three PID probes (a forked child that exits at once): before the
-spawn, at the first prompt, and after `--cycles` prompt cycles. A cycle types `true` one key at a
-time (each key waits for its echo), presses Return and waits for the next prompt, so keystrokes,
-preexec, precmd and the prompt all fall in the window. PIDs are handed out in sequence (macOS and
-Linux), so the PID gap is the number of processes forked in the window: by the shell, plus any
-other process on the host. The minimum over `--reps` runs drops that noise. Integration cost =
-min(integrated) minus min(control):
+What it counts. Each run takes four PID probes (a forked child that exits at once): before the
+spawn, at the first prompt, after `--cycles` prompt cycles, and after `--idle-s` seconds idle at
+the prompt. A cycle types one command one key at a time (each key waits for its echo), presses
+Return and waits for the next prompt, so keystrokes, preexec, precmd and the prompt all fall in
+the window. Every other cycle changes directory, between a plain directory and a git repository
+(`cd ~/g`, `true`, `cd ~/p`, `true`, ...), so work triggered by a cwd change or a repository is
+counted too. The idle window is a fixed measurement window at the prompt (no input), so a timer or
+watcher that wakes on its own (a once-a-second poll) forks in it; it hides no work. PIDs are
+handed out in sequence (macOS and Linux), so the PID gap is the number of processes forked in the
+window: by the shell, plus any other process on the host. The minimum over `--reps` runs drops
+that noise. Integration cost = min(integrated) minus min(control):
   startup forks   forks from the spawn to the first prompt
-  forks/cycle     (cycle-window forks) / cycles; a cycle with one fork shows as >= 1.0
+  forks/cycle     (cycle-window forks) / cycles
+  idle forks      forks in the idle window
   first prompt    median time from the spawn to the first prompt, and its overhead over control
 
-Pass (exit 0): for every shell that ran, startup forks <= 0, forks/cycle < budget + 0.5, the
-first-prompt overhead <= --max-overhead-ms, each integrated run wrote its prompt marks (OSC 133;C
-per command; the OSC 2 title `true` for zsh and bash) with no shell error, and every integrated
-bash run put the agent shim directory back in front. Budgets are 0
-except bash 4.4-5.2, where Ghostty runs its preexec hook from PS0 in a command substitution (the
+Pass (exit 0): for every shell that ran, startup forks <= 0, cycle-window forks <= budget x cycles
+(no tolerance: the minimum over reps already drops host noise, so any extra fork is the shell's),
+idle forks <= 0, the first-prompt overhead <= --max-overhead-ms, each integrated run wrote its
+prompt marks (OSC 133;C per command; the OSC 2 title `true` for zsh and bash) with no shell error,
+and every integrated bash run put the agent shim directory back in front. Budgets are 0 except
+bash 4.4-5.2, where Ghostty runs its preexec hook from PS0 in a command substitution (the
 only pre-command hook bash has before 5.3, 2 forks per command). Exit 1 on a failure, 2 when no
 shell could run or a `--require`d shell is missing (zsh and bash are required by default, so a host
 with only Apple's /bin/bash 3.2, which Ghostty does not integrate, fails instead of skipping bash).
@@ -75,12 +85,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 SHIMS_SRC = ROOT / "cmux-tui/crates/cmux-tui-core/src/shell_integration"
 # cmux's interim fix to Ghostty's bash preexec hook, appended to ghostty.bash in the daemon's
-# copy (shell_integration.rs) and the bundle's (bundle-ghostty-resources.sh).
+# copy (shell_integration.rs) and the bundle's (bundle-ghostty-resources.sh). Interim: delete with
+# the ghostty-next bump to 72578da (see that file).
 BASH_FIX = SHIMS_SRC / "ghostty-preexec.bash"
 PROMPT = b"@@P@@ "
 BARRIER = b"^"
 KILL_LINE = b"\x15"
-COMMAND = b"true"
+# The commands of the cycles, in turn: half change directory (a git repository, a plain one).
+COMMANDS = (b"cd ~/g", b"true", b"cd ~/p", b"true")
 ERRORS = (b"bad substitution", b"command not found", b"parse error", b"syntax error",
           b"fork failed", b"nknown command")
 GHOSTTY_FEATURES = "cursor:blink,path,title"
@@ -119,6 +131,7 @@ class Shell:
 class Run:
     startup_forks: int
     cycle_forks: int
+    idle_forks: int
     first_prompt_ms: float
     output: bytes = field(repr=False, default=b"")
     shims_dir: str = ""
@@ -181,8 +194,8 @@ class Session:
         self.type_key(BARRIER)
         os.write(self.fd, KILL_LINE)
 
-    def cycle(self) -> None:
-        for key in COMMAND:
+    def cycle(self, command: bytes) -> None:
+        for key in command:
             self.type_key(bytes([key]))
         seen = self.prompts()
         os.write(self.fd, b"\r")
@@ -207,8 +220,8 @@ class Session:
 SHIM_PROBE = b"@@F@@"
 
 
-def run_once(shell: Shell, argv: list[str], env: dict[str, str], cycles: int, timeout: float,
-             check_shims: bool = False) -> Run:
+def run_once(shell: Shell, argv: list[str], env: dict[str, str], cycles: int, idle_s: float,
+             timeout: float, check_shims: bool = False) -> Run:
     before = probe_pid()
     start = time.perf_counter()
     session = Session(shell.path, argv, env, timeout)
@@ -217,10 +230,14 @@ def run_once(shell: Shell, argv: list[str], env: dict[str, str], cycles: int, ti
         first_prompt_ms = (time.perf_counter() - start) * 1000
         session.barrier()
         at_prompt = probe_pid()
-        for _ in range(cycles):
-            session.cycle()
+        for index in range(cycles):
+            session.cycle(COMMANDS[index % len(COMMANDS)])
         session.barrier()
         after = probe_pid()
+        # A fixed measurement window at the prompt, not a wait for the shell: whatever the
+        # integration starts on its own (a timer, a watcher) forks in it.
+        time.sleep(idle_s)
+        idle_after = probe_pid()
         if check_shims:
             # Outside the counted window. The agent shim hook runs at each prompt
             # (bash), so the command after the one that moves PATH's front sees
@@ -231,10 +248,11 @@ def run_once(shell: Shell, argv: list[str], env: dict[str, str], cycles: int, ti
                 session.wait_for(lambda b, seen=seen: b.count(PROMPT) > seen, "the prompt after a shim check")
     finally:
         session.close()
-    if not before < at_prompt < after:
+    if not before < at_prompt < after < idle_after:
         raise PidWrapped()
-    # before -> shell -> its forks -> at_prompt -> its forks -> after
-    return Run(at_prompt - before - 2, after - at_prompt - 1, first_prompt_ms, session.buf)
+    # before -> shell -> its forks -> at_prompt -> its forks -> after -> its forks -> idle_after
+    return Run(at_prompt - before - 2, after - at_prompt - 1, idle_after - after - 1, first_prompt_ms,
+               session.buf)
 
 
 # The startup PROMPT_COMMAND of each bash HOME: none, a string, an array.
@@ -244,8 +262,13 @@ BASH_HOMES = {"plain": "", "pc-string": "PROMPT_COMMAND='history -a'\n",
 
 def write_home(home: Path, bash_extra: str = "") -> None:
     """A HOME whose startup files only set a prompt the bench can find (and, for
-    bash, `bash_extra`)."""
+    bash, `bash_extra`), with the cycles' directories: `p` (plain) and `g` (a git repository,
+    made without running git)."""
     home.mkdir(parents=True, exist_ok=True)
+    (home / "p").mkdir(exist_ok=True)
+    for sub in ("objects", "refs/heads"):
+        (home / "g/.git" / sub).mkdir(parents=True, exist_ok=True)
+    (home / "g/.git/HEAD").write_text("ref: refs/heads/main\n")
     prompt = PROMPT.decode()
     # An existing .zshrc also keeps zsh-newuser-install from asking questions.
     (home / ".zshrc").write_text(f"PS1='{prompt}'\nSAVEHIST=0\n")
@@ -318,7 +341,8 @@ def integrated_env(base: dict[str, str], shell: Shell, layout: Layout, shims: Pa
 
 
 def daemon_integration(ghostty: Path, dest: Path) -> Path:
-    """The scripts the cmux-tui daemon materializes (shell_integration.rs SCRIPTS)."""
+    """The scripts the cmux-tui daemon materializes, rebuilt from this checkout: keep in step with
+    shell_integration.rs SCRIPTS (fork_count_tests.rs runs the real ones)."""
     files = {
         "zsh/.zshenv": [ghostty / "zsh/.zshenv"],
         "zsh/ghostty-integration": [ghostty / "zsh/ghostty-integration", SHIMS_SRC / "agent-shims.zsh"],
@@ -444,7 +468,7 @@ def measure(shell: Shell, layout: Layout, home: Path, home_name: str, shims: Pat
         for variant, argv, env in order:
             for attempt in range(3):
                 try:
-                    run = run_once(shell, argv, env, args.cycles, args.timeout,
+                    run = run_once(shell, argv, env, args.cycles, args.idle_s, args.timeout,
                                    check_shims=variant == "integrated" and shell.name == "bash")
                     run.shims_dir = str(shims)
                     break
@@ -458,26 +482,33 @@ def measure(shell: Shell, layout: Layout, home: Path, home_name: str, shims: Pat
     control, integ = runs["control"], runs["integrated"]
     control_startup = stable_min([r.startup_forks for r in control], "startup", problems)
     control_cycle = stable_min([r.cycle_forks for r in control], "cycle", problems)
+    control_idle = stable_min([r.idle_forks for r in control], "idle", problems)
     startup = min(r.startup_forks for r in integ) - control_startup
     cycle_total = min(r.cycle_forks for r in integ) - control_cycle
+    idle = min(r.idle_forks for r in integ) - control_idle
     per_cycle = cycle_total / args.cycles
     first_control = statistics.median(r.first_prompt_ms for r in control)
     first_integrated = statistics.median(r.first_prompt_ms for r in integ)
     overhead = first_integrated - first_control
     if startup > 0:
         problems.append(f"{startup} fork(s) from the spawn to the first prompt (budget 0)")
-    if cycle_total >= (shell.cycle_budget + 0.5) * args.cycles:
-        problems.append(f"{per_cycle:.2f} forks per prompt cycle (budget {shell.cycle_budget})")
+    if cycle_total > shell.cycle_budget * args.cycles:
+        problems.append(f"{cycle_total} forks in {args.cycles} prompt cycles ({per_cycle:.2f} per cycle, "
+                        f"budget {shell.cycle_budget})")
+    if idle > 0:
+        problems.append(f"{idle} fork(s) in {args.idle_s:g} s idle at the prompt (budget 0)")
     if overhead > args.max_overhead_ms:
         problems.append(f"first prompt {overhead:.1f} ms slower than without the integration "
                         f"(budget {args.max_overhead_ms:g} ms)")
     return {
         "shell": shell.name, "path": shell.path, "version": shell.version, "layout": layout.name,
         "home": home_name, "startup_forks": startup, "forks_per_cycle": round(per_cycle, 2),
+        "cycle_forks": cycle_total, "idle_forks": idle, "idle_s": args.idle_s,
         "cycle_budget": shell.cycle_budget,
         "control_startup_forks_min": control_startup,
         "integrated_startup_forks_min": min(r.startup_forks for r in integ),
         "control_cycle_forks_min": control_cycle,
+        "control_idle_forks_min": control_idle,
         "first_prompt_ms": {"control": round(first_control, 1), "integrated": round(first_integrated, 1),
                             "overhead": round(overhead, 1),
                             "integrated_max": round(max(r.first_prompt_ms for r in integ), 1)},
@@ -498,6 +529,8 @@ def main() -> int:
     parser.add_argument("--reps", type=int, default=9)
     parser.add_argument("--warmup", type=int, default=1)
     parser.add_argument("--cycles", type=int, default=20)
+    parser.add_argument("--idle-s", type=float, default=1.2,
+                        help="seconds idle at the prompt after the cycles (a 1 Hz poll forks in it)")
     parser.add_argument("--max-overhead-ms", type=float, default=15.0)
     parser.add_argument("--timeout", type=float, default=20.0, help="seconds per wait for the shell")
     parser.add_argument("--json", type=Path)
@@ -587,18 +620,19 @@ def main() -> int:
                                         "problems": [str(error)]})
 
         print(f"\nhost: {os.uname().nodename} {sys.platform} {os.uname().release}; "
-              f"reps {args.reps} (min forks, median time), cycles {args.cycles}")
-        print(f"{'shell':<16} {'layout':<7} {'home':<9} {'startup forks':>13} {'forks/cycle':>11} "
-              f"{'first prompt ms (ctrl/int/+)':>30}  result")
+              f"reps {args.reps} (min forks, median time), cycles {args.cycles}, idle {args.idle_s:g} s")
+        print(f"{'shell':<16} {'layout':<11} {'home':<9} {'startup forks':>13} {'forks/cycle':>11} "
+              f"{'idle forks':>10} {'first prompt ms (ctrl/int/+)':>30}  result")
         for r in results:
             label = f"{r['shell']} {r['version']}"
             if "first_prompt_ms" in r:
                 fp = r["first_prompt_ms"]
                 times = f"{fp['control']:.1f} / {fp['integrated']:.1f} / {fp['overhead']:+.1f}"
-                print(f"{label:<16} {r['layout']:<7} {r['home']:<9} {r['startup_forks']:>13} {r['forks_per_cycle']:>11.2f} "
-                      f"{times:>30}  {'PASS' if r['pass'] else 'FAIL'}")
+                print(f"{label:<16} {r['layout']:<11} {r['home']:<9} {r['startup_forks']:>13} "
+                      f"{r['forks_per_cycle']:>11.2f} {r['idle_forks']:>10} {times:>30}  "
+                      f"{'PASS' if r['pass'] else 'FAIL'}")
             else:
-                print(f"{label:<16} {r['layout']:<7} {r['home']:<9} {'-':>13} {'-':>11} {'-':>30}  FAIL")
+                print(f"{label:<16} {r['layout']:<11} {r['home']:<9} {'-':>13} {'-':>11} {'-':>10} {'-':>30}  FAIL")
             for problem in r["problems"]:
                 print(f"    {problem}")
         if args.json:
