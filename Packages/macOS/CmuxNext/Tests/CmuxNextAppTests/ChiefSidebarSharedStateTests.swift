@@ -1,3 +1,4 @@
+import AppKit
 import CmuxNextAgentActivity
 import CmuxHomeCore
 @testable import CmuxNextAgentLanes
@@ -99,6 +100,7 @@ struct ChiefSidebarSharedStateTests {
     /// The App's services with Home listing the Chief's conversation: read unless `unread` messages wait, muted
     /// with `muted`, and not marked.
     static func services(unread: Int = 0, muted: Bool = false) -> AppServices {
+        _ = NSApplication.shared // the services read NSApp
         let services = AppServices(environment: AppEnvironment.current([:]))
         services.home.groupMuting.debugRows = [HomeUnreadIndicatorTests.row("chief", unread: unread, muted: muted)]
         services.home.groupMuting.setMarkedUnread(false, ConversationID("chief"))
