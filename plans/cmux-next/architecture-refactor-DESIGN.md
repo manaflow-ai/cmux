@@ -247,8 +247,8 @@ Ordered by perf impact, then risk, then collisions (unowned areas first).
 |---|---|---|---|---|---|
 | A1 | This doc, `architecture-layers.json`, `arch-layers.py` | - | none | - | landed 415ee799b49 |
 | A2 | `CmuxNextSignposts` + `CommitBoundary` + `action.perform` in ActionRegistry + `perf-signposts.py`; existing signposters onto the catalog | high: Release numbers for every action | low | none (Actions unowned); hooks for owners by message | action.perform/commit landed; owner hooks and old signposters open |
-| A3 | `MainActorObservation` (Compat) and migration of unowned observer sites | medium (code health, -assumeIsolated) | low | skip owned files | 24 files done; rest open |
-| A4 | `WindowEvents` per-window fan-out; migrate unowned class-B sites (StatusIndicatorView, Design, Pages, AgentPane); hand TerminalSurfaceView and Sidebar sites to PL-ghostty and a590 | medium (row 8 Cmd-Tab O(views)) | medium | Terminal, Sidebar by message | |
+| A3 | `MainActorObservation` (Compat) and migration of unowned observer sites | medium (code health, -assumeIsolated) | low | skip owned files | 42 files done; left: queue:nil observers and the no-activate guard (moving them to queue:.main changes when they run), owned files |
+| A4 | (WindowKeyFamily landed: one key tracker per window for the inactive wash) `WindowEvents` per-window fan-out; migrate unowned class-B sites (StatusIndicatorView, Design, Pages, AgentPane); hand TerminalSurfaceView and Sidebar sites to PL-ghostty and a590 | medium (row 8 Cmd-Tab O(views)) | medium | Terminal, Sidebar by message | |
 | A5 | Class C: reduceMotion / accessibility / speed / inactive-dim as Appearance observables, hidden views off the path | medium (F3/F8 hidden cost) | medium | none for Design/Pages/AgentPane leaf files | |
 | B1 | CmuxNextApp leaf directories (zero-outside rows of section 4) | - (lines) | low | none | TextBox, Router, Refusals, Process done (SleepyMode stays: its raw font sizes are baselined at the App path) |
 | B2 | `CmuxNextDesignTokens` split of Design (re-exported) | - (unblocks 4 hard edges) | medium (43 importers, but re-export keeps sources) | WindowOverlayHost stays in Design | |
@@ -267,3 +267,9 @@ violations), sha ranges on feat-cmux-next:
 | Date | Batch | sha range | App lines | shared | assumeIsolated | observers | hard / soft |
 |---|---|---|---|---|---|---|---|
 | 2026-10-23 | baseline | 184fa32532c | 141,651 | 148 | 290 | 163 | 32 / 12 |
+| 2026-10-23 | 1: A2 signposts, B1 4 dirs, A3 24 files | 1549981b654..5846e103ece | 141,393 | 148 | 253 | 130 | 32 / 12 |
+| 2026-10-23 | 2: review-1 fixes, A3 18 files, B1 53 leaf files, A4 WindowKeyFamily | this push | 139,814 | 148 | 228 | 108 | 32 / 12 |
+
+App lines are measured at each tip, so other lanes' additions count too (the base grew about 1,000
+lines during batch 2; batch 2 moved 2,399 lines out). The hard/soft edges are unchanged so far:
+the moves only used existing edges by design (B2, the DesignTokens split, removes the first four).
