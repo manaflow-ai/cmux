@@ -93,7 +93,7 @@ describe("push registration and notify", () => {
     expect((await call("POST", `/v1/devices/${mac}/notify`, await token("owen"), body)).status).toBe(403)
     expect((await call("POST", `/v1/devices/${mac}/notify`, t, { ...body, kind: "shell" })).status).toBe(400)
     expect((await call("POST", `/v1/devices/${mac}/notify`, t, { ...body, eventId: "has space" })).status).toBe(400)
-    expect(await call("POST", `/v1/devices/${mac}/notify`, t, body)).toEqual({ status: 200, json: { configured: false, sent: 0, failed: 0, dropped: 0 } })
+    expect(await call("POST", `/v1/devices/${mac}/notify`, t, body)).toEqual({ status: 200, json: { configured: false, sent: 0, failed: 0, dropped: 0, wants: [] } })
   })
 
   it("ice reports whether TURN is included", async () => {
@@ -110,7 +110,8 @@ describe("APNs payload and sender", () => {
     const p = apnsPayload(event)
     expect(p.aps.alert).toEqual({ title: "Claude needs permission", body: "cmux · Studio" })
     expect(p.aps["interruption-level"]).toBe("time-sensitive")
-    expect(p.cmuxMobile).toEqual({ mac: "m1", kind: "permission", eventId: "e1", tabId: "t1", sessionId: "s1" })
+    // 0.13.0: the v2 object adds the Mac's name, the labels and previews; still no agent output.
+    expect(p.cmuxMobile).toEqual({ v: 2, mac: "m1", macName: "Studio", kind: "permission", eventId: "e1", agent: "Claude", place: "cmux", tabId: "t1", sessionId: "s1", previews: true })
     expect(apnsPayload({ ...event, kind: "chief" }).aps.alert.title).toBe("Chief replied")
     expect(apnsPayload({ ...event, kind: "completed", agent: "" }).aps.alert.title).toBe("Your agent finished")
     expect(clean("a\u0000b‮\nc", 40)).toBe("a b c")
@@ -118,7 +119,7 @@ describe("APNs payload and sender", () => {
   })
 
   it("collapses a session's finished turns into one notification and keeps each ask", () => {
-    const target: PushRegistration = { deviceId: "d", ownerUserId: "o", token: "aa", environment: "production", topic: "dev.cmux.mobile", kinds: ["completed"], updatedAt: "" }
+    const target: PushRegistration = { deviceId: "d", ownerUserId: "o", token: "aa", environment: "production", topic: "dev.cmux.mobile", kinds: ["completed"], mutedMacs: [], previews: true, updatedAt: "" }
     const done = { ...event, kind: "completed" as const, eventId: "t-s1-t9" }
     // A newer finished turn (or error, or Chief reply) of the same session replaces the older one.
     expect(collapseId(done)).toBe("turn-s1")
@@ -135,8 +136,8 @@ describe("APNs payload and sender", () => {
     expect(long.length).toBeLessThanOrEqual(64)
     expect(long).toBe(collapseId({ ...done, sessionId: "x".repeat(128) }))
     expect(long).not.toBe(collapseId({ ...done, sessionId: "x".repeat(127) + "y" }))
-    // Grouped per session.
-    expect(apnsPayload(done).aps["thread-id"]).toBe("s1")
+    // Grouped per Mac and session (0.13.0; was the bare session id).
+    expect(apnsPayload(done).aps["thread-id"]).toBe("m1:s1")
   })
 
   it("lets one turn end per Mac, session and finished-or-error through the window; asks always pass", async () => {
@@ -169,6 +170,8 @@ describe("APNs payload and sender", () => {
       environment,
       topic: "dev.cmux.mobile",
       kinds: ["permission"],
+      mutedMacs: [],
+      previews: true,
       updatedAt: ""
     })
     const seen: Array<Request> = []
