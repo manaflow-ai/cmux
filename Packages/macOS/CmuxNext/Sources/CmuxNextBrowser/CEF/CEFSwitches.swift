@@ -20,6 +20,10 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// example `show-browser-frame-regions` or `enable-ui-devtools=9223`.
     var extraSwitches: [String] = []
 
+    /// The longest one Chromium pump pass runs before it returns to the main run loop: a quarter
+    /// of a 120 Hz frame, so the app's own frame work and the display link fit beside a pass.
+    static let pumpTimeSliceMicroseconds = 2_000
+
     var arguments: [String] {
         var result: [String] = []
         if forkAPIVersion >= 1 {
@@ -39,6 +43,12 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // to UMA, which cmux does not upload; in some idle sessions it raised the
         // app's energy with 20 hidden tabs from about 0.24 to 4 mW (msg 2654).
         result.append("disable-stack-profiler")
+        // Chromium's UI thread is the app's main thread (external message pump): one
+        // `CefDoMessageLoopWork` pass ran ready work for up to CEF's 10 ms slice, longer than a
+        // 120 Hz frame, so a pass during a split or a divider drag dropped the frame. The fork
+        // (cef-cmux 066b083f, `--cmux-pump-time-slice-us`) ends a pass after this slice and asks for
+        // "now" again when work is left, so display frames run between passes. Older forks ignore it.
+        result.append("cmux-pump-time-slice-us=\(Self.pumpTimeSliceMicroseconds)")
         result.append(contentsOf: Self.chromePromptOffSwitches)
         // Never pass a feature-list switch expecting it to replace CEF's own
         // list: the shim merges disable-features/enable-features into it
