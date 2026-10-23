@@ -324,6 +324,7 @@ import { registerChatDisplayHost, useChatDisplay } from "./chatDisplay";
 import { ChatDisplaySettings } from "./ChatDisplaySettings";
 import { configureCodexToolRuns, useCodexToolRuns } from "./codexToolRuns";
 import { configureLiveLineBelow, useLiveLineBelow } from "./liveLineBelow";
+import { configureToolRunLook } from "./toolRunLook";
 import { configureNativeSidebarPreviewVariant, configureSidebarPreviewVariant } from "./sidebarPreview";
 import { configureTurnActionsPlacement } from "./turnActionsPlacement";
 import { archiveRow, markUnreadRow } from "./header/archiveRow";
@@ -5787,6 +5788,7 @@ function AcpmuxPane() {
         configureChatWidth(theme.chatWidth);
         configureCodexToolRuns(theme.codexToolRuns);
         configureLiveLineBelow(theme.liveLineBelow);
+        configureToolRunLook(theme.toolRunLook);
         configureTurnActionsPlacement(theme.turnActionsPlacement);
         configureSubagentTray(theme.subagentTray);
       },
@@ -8136,6 +8138,18 @@ function AcpmuxPane() {
       </ShortcutsContext.Provider>
     );
   if (paneRenderStart > 0) acpmuxPerf.span("pane.body", performance.now() - paneRenderStart);
+  // Sources' Use tools (cx-thur3): only where acpmux can change the chat's tools. A browser over
+  // the web relay (`remote`) cannot: acpmux refuses it there (`tools.remote`). A subagent's pane
+  // is read-only.
+  const chatTools =
+    snapshot.summary?.toolsMutable && snapshot.summary.tools && snapshot.origin !== "remote" && !readOnlySubagent
+      ? {
+          rows: snapshot.summary.tools,
+          set: (id: string, enabled: boolean) =>
+            // l10n-allow: never shown; the row says summary.tools.failed.
+            directClient.current?.setTool(id, enabled) ?? Promise.reject(new Error("no connection")),
+        }
+      : undefined;
   const summaryPanel = (
     // Its Subagents tab draws the transcript's subagent rows, avatars carrying the harness's mark and
     // a running one's stop button.
@@ -8160,6 +8174,7 @@ function AcpmuxPane() {
             onAttach={
               localCwd && !quick && !readOnlySubagent ? () => void attachLinks().catch(() => undefined) : undefined
             }
+            tools={chatTools}
           />
         </SubagentHarnessContext.Provider>
       </SubagentClockContext.Provider>
