@@ -95,8 +95,7 @@ public final class AgentPageProvider: PageProvider {
     /// True when the provider's own gap queue, rather than a subscriber handoff, overflowed. A
     /// replacement socket may discard only this queue after its explicit resync signal.
     private var bufferedQueueOverflowed = false
-    /// Subscribers whose replay queue reached the bound; a socket reconnect resets that stalled
-    /// handoff and reapplies current replay state while keeping the subscription alive.
+    /// Subscribers whose replay queue reached the bound.
     private var overflowedPendingListeners: Set<UInt64> = []
     /// A subscriber's replay is held in one queue until its subscription reply has reached the
     /// page. Events arriving during that handoff append to the same queue instead of overtaking it.
