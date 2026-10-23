@@ -23,10 +23,10 @@ final class PaneContentView: NSView, PaneContentChrome {
     let paneScope = ThemeScope(level: .workspace)
     /// The pane's own background and tint (`PaneContentView+Backdrop`).
     let backdropState = PaneBackdropState()
-    private var paneBackgroundsObservation: Task<Void, Never>?
+    private(set) var paneBackgroundsObservation: Task<Void, Never>?
     let contentHost = NSView()
     private(set) weak var content: NSView?
-    private var tokenObservation: Task<Void, Never>?
+    private(set) var tokenObservation: Task<Void, Never>?
     /// The pane's size changed (divider drag, window resize, animation).
     var onResize: (() -> Void)?
     var onPaneHeaderHeightChange: (() -> Void)?
@@ -36,14 +36,14 @@ final class PaneContentView: NSView, PaneContentChrome {
     var barPosition: TabBarPosition = .top {
         didSet { if barPosition != oldValue { updateBand() } }
     }
-    private var placementObservation: Task<Void, Never>?
+    private(set) var placementObservation: Task<Void, Never>?
     /// The pane's buttons at the strip's trailing end (`PaneContentView+Toolbar`).
     var toolbar: PaneToolbar? { didSet { installToolbar(replacing: oldValue) } }
     /// Its tab bar's empty space drags the pane onto another to swap them (cx-8bv1j).
     var swapDrag: PaneSwapDrag?
     /// The acting agent's name tag (`PaneContentView+AgentTag`).
     let agentTag = AgentPresenceTagView()
-    private var agentTagObservation: Task<Void, Never>?
+    private(set) var agentTagObservation: Task<Void, Never>?
     /// No strip: the person hid this pane's tab bar (``PaneTabBar``).
     var hidesStrip = false {
         didSet {
