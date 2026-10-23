@@ -74,7 +74,12 @@ export default componentEntry<UrlChipProps>({
   ],
   load: () => import("./LinkChips").then((module) => module.UrlChip),
   styles: () =>
-    Promise.all([import("../styles.css"), import("../conversation/conversation.css"), import("./chips.css")]),
+    Promise.all([
+      import("../../shared/styles.css"),
+      import("../styles.css"),
+      import("../conversation/conversation.css"),
+      import("./chips.css"),
+    ]),
   widths: { narrow: 360, normal: 640, wide: 860 },
   variants: {
     globe: { props: { href: "https://example.test/docs/getting-started", children: "example.test/docs" } },
