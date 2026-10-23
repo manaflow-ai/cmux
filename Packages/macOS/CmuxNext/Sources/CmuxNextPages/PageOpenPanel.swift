@@ -19,7 +19,11 @@ public final class PageOpenPanel: NSObject, WKUIDelegate {
         initiatedByFrame frame: WKFrameInfo,
         completionHandler: @escaping @MainActor ([URL]?) -> Void
     ) {
-        let panel = MadeAheadOpenPanel.shared.panel()
+        // A dead panel (no GUI session) shows no sheet: the page gets a cancel now, not a handler that never comes.
+        guard let panel = MadeAheadOpenPanel.shared.panel() else {
+            completionHandler(nil)
+            return
+        }
         panel.allowsMultipleSelection = parameters.allowsMultipleSelection
         panel.canChooseDirectories = parameters.allowsDirectories
         panel.canChooseFiles = true

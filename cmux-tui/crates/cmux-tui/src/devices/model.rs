@@ -177,14 +177,13 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
         }
         let added_at = text(paired, "created_at");
         let role = text(paired, "role").unwrap_or_default();
-        if role == "daemon" {
-            if let Some(row) =
+        if role == "daemon"
+            && let Some(row) =
                 devices.iter_mut().find(|d| d.via.contains(&Via::Peer { name: name.clone() }))
-            {
-                row.via.push(Via::Paired { id });
-                row.added_at = added_at;
-                continue;
-            }
+        {
+            row.via.push(Via::Paired { id });
+            row.added_at = added_at;
+            continue;
         }
         let open = paired["connections"].as_u64().unwrap_or(0) > 0;
         devices.push(Device {
@@ -367,7 +366,7 @@ pub(crate) fn find<'a>(listing: &'a Listing, key: &str) -> Option<&'a Device> {
                     let addr = r.address.to_ascii_lowercase();
                     addr == lower
                         || addr.split('.').next() == Some(lower.as_str())
-                        || r.ips.iter().any(|ip| *ip == lower)
+                        || r.ips.contains(&lower)
                 })
             })
         })

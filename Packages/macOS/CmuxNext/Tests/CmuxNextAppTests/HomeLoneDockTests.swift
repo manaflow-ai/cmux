@@ -15,15 +15,15 @@ import Testing
 struct HomeLoneDockTests {
     private static let homeDock = DockColumn(edge: .left, role: .agentChat, isPinned: true)
 
-    /// Home as the daemon lists it: the pinned chat dock (pane 1, Home's page tab), and, when
-    /// `right` is given, a scrolling column (pane 2) holding those tabs.
-    private static func home(right: [TabSnapshot]?) -> DaemonStore {
+    /// Home as the daemon lists it: the pinned chat dock (pane 1, Home's page tab, then `inDock`),
+    /// and, when `right` is given, a scrolling column (pane 2) holding those tabs.
+    private static func home(right: [TabSnapshot]?, inDock: [TabSnapshot] = []) -> DaemonStore {
         let store = DaemonStore()
         var page = TabSnapshot(surface: 1, kind: .conversation, title: "Home")
         page.conversation = ConversationTabRef(page: HomeDock.page)
-        let dock = DockSnapshot(edge: .left, mode: .docked, role: .agentChat, isPinned: true)
+        let dock = DockSnapshot(edge: .left, mode: .docked, role: .agentChat, isPinned: true, allowsTabs: !inDock.isEmpty)
         var columns = [ColumnSnapshot(id: 10, width: 0.5, layout: .leaf(1), dock: dock)]
-        var panes = [PaneSnapshot(id: 1, tabs: [page])]
+        var panes = [PaneSnapshot(id: 1, tabs: [page] + inDock)]
         if let right {
             columns.append(ColumnSnapshot(id: 11, width: 0.5, layout: .leaf(2)))
             panes.append(PaneSnapshot(id: 2, tabs: right))
@@ -71,16 +71,20 @@ struct HomeLoneDockTests {
     }
 
     /// A person's new tab, and a new chat, from the dock alone open in a new column right of it:
-    /// the pinned dock takes neither, and there is no scrolling pane to send them to.
+    /// the pinned dock takes neither, and there is no scrolling pane to send them to. Home's dock
+    /// takes dragged tabs (`allow_tabs`, Leo 2026-10-21) and still opens new ones beside it, so
+    /// Cmd-D and Cmd-T from Home keep working.
     @Test func newTabsFromTheLoneDockOpenBesideIt() {
         let lone = [LayoutColumn(id: "home", root: .leaf("dock"), dock: Self.homeDock)]
         #expect(ChatColumnPlacement.resolve(from: "dock", columns: lone) { _ in false } == .besideDock)
         #expect(NewChatPlacement.resolve(from: "dock", columns: lone, isLoneChat: false) == .besideDock)
-        // A chat dock that takes tabs keeps them, alone or not.
         let open = [LayoutColumn(id: "home", root: .leaf("dock"),
                                  dock: DockColumn(edge: .left, role: .agentChat, isPinned: true, allowsTabs: true))]
-        #expect(ChatColumnPlacement.resolve(from: "dock", columns: open) { _ in false } == .here)
-        #expect(NewChatPlacement.resolve(from: "dock", columns: open, isLoneChat: false) == .dock("dock"))
+        #expect(ChatColumnPlacement.resolve(from: "dock", columns: open) { _ in false } == .besideDock)
+        #expect(NewChatPlacement.resolve(from: "dock", columns: open, isLoneChat: false) == .besideDock)
+        // An unpinned chat dock alone keeps what it opens.
+        let plain = [LayoutColumn(id: "chat", root: .leaf("dock"), dock: DockColumn(edge: .left, role: .agentChat))]
+        #expect(ChatColumnPlacement.resolve(from: "dock", columns: plain) { _ in false } == .here)
         // With a column beside it, the strip takes them as before.
         let beside = lone + [LayoutColumn(id: "c1", root: .leaf("p1"))]
         #expect(ChatColumnPlacement.resolve(from: "dock", columns: beside) { _ in false } == .tab(in: "p1"))
@@ -105,6 +109,16 @@ struct HomeLoneDockTests {
         #expect(TabDragResolver.verdict(.newWorkspace(groupID: nil, index: 0), context: context) == .accept)
         context.sourceStaysPut = TabPromotion.staysPut(tab: page.id, in: home)
         #expect(TabDragResolver.verdict(.newWorkspace(groupID: nil, index: 0), context: context) == .refuse(.staysPut))
+    }
+
+    /// A tab dragged into Home's dock is the person's: it drags out again, to the strip, a new
+    /// workspace or a new window, like any tab. Only Home's own page stays.
+    @Test func aTabDraggedIntoHomesDockDragsOutAgain() throws {
+        let store = Self.home(right: nil, inDock: [Self.shell(5)])
+        let home = try #require(store.workspaces.first)
+        let page = try #require(store.tab(surface: 1)), joined = try #require(store.tab(surface: 5))
+        #expect(TabPromotion.staysPut(tab: page.id, in: home))
+        #expect(!TabPromotion.staysPut(tab: joined.id, in: home), "a tab dragged into Home's dock was kept there")
     }
 
     /// A Home restored from before keeps the shell the dock move left on its right only while it is

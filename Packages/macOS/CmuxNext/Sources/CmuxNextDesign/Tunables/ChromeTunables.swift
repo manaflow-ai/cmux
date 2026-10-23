@@ -1,5 +1,6 @@
 public import CoreGraphics
 public import Foundation
+public import CmuxNextDesignTokens
 
 /// Fixed chrome constants (the 2 pt spacing grid, divider widths, insets)
 /// and the glass and scroll-fade parameters, as Debug Settings tunables.
@@ -85,7 +86,7 @@ public nonisolated enum ChromeTunables {
 public nonisolated enum DesignTunables {
     public static var all: [TunableDescriptor] {
         MotionTunables.all + MetricTunables.metrics.map(\.descriptor) + ChromeTunables.fixed + [Borders.tunable.descriptor] + FocusIndicatorTunables.all
-            + StatusIndicatorTunables.all + [LaunchMarkStyle.tunable.descriptor, AttentionHighlightLook.tunable.descriptor, AgentTurnRing.tunable.descriptor, GlassLensMode.tunable.descriptor] + MotionTunables.launchDelays.map(\.descriptor)
+            + StatusIndicatorTunables.all + [LaunchMarkStyle.tunable.descriptor, AttentionHighlightLook.tunable.descriptor, GlassLensMode.tunable.descriptor] + MotionTunables.launchDelays.map(\.descriptor)
             + ChromeTunables.mainPane + [HoverCardEscapeGeometry.escapeSlotTunable.descriptor]
     }
 }

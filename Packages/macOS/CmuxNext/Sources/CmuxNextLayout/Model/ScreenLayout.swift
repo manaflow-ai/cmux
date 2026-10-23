@@ -70,6 +70,16 @@ public nonisolated enum ScreenLayout: Hashable, Sendable {
         }
     }
 
+    /// Panes in the order the user sees them: a docked column at its edge,
+    /// whatever its place in `columns` (``visualColumns``). Focus Next Pane,
+    /// Focus Pane 1…9 and Move Tab to Next Pane count in this order.
+    public var visualPanes: [PaneID] {
+        switch self {
+        case let .splits(root): root.panes
+        case .columns: visualColumns.flatMap(\.root.panes)
+        }
+    }
+
     public func contains(_ pane: PaneID) -> Bool {
         switch self {
         case let .splits(root): root.contains(pane)

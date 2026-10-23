@@ -56,6 +56,27 @@ test("a send's delivery: sending, sent, queued, delivered or failed, from its st
   expect(messageDelivery(done("error: no session named grid\n"))).toBe("failed");
 });
 
+test("a subagent's agentId resolves to its description; an unknown id reads short", async () => {
+  const { agentIdIn } = await import("../subagents/subagentFold");
+  const { recipientName, shortId } = await import("./agentNames");
+  // Claude Code's Agent call answers in prose, with the id in the middle of it.
+  const answer = [
+    "Async agent launched successfully. (This tool result is internal metadata.)",
+    "agentId: a5b7309ddf7afa44d (internal ID - do not mention to user. Use SendMessage with to: 'a5b7309ddf7afa44d')",
+    "The agent is working in the background.",
+  ].join("\n");
+  expect(agentIdIn(answer)).toBe("a5b7309ddf7afa44d");
+  const names = new Map([["a5b7309ddf7afa44d", "Time-cap the pre-push check"]]);
+  const message = agentMessage(
+    call("SendMessage", { to: "a5b7309ddf7afa44d", recipient: "a5b7309ddf7afa44d", message: "Resume." }),
+  )!;
+  expect(recipientName(message.to, names)).toBe("Time-cap the pre-push check");
+  expect(recipientName("a997582716e0ae335", names)).toBeUndefined();
+  expect(shortId("a997582716e0ae335")).toBe("a9975827");
+  expect(shortId(" 01a0ebd5-0efe-721d-9edc-cf1a6ba78d98 ")).toBe("01a0ebd5");
+  expect(shortId("grid")).toBe("grid");
+});
+
 test("a recipient id nothing names is never shown", async () => {
   const { looksLikeId, recipientName } = await import("./agentNames");
   expect(looksLikeId("a39e817af38ddf5e7")).toBe(true);

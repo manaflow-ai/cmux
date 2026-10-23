@@ -201,19 +201,22 @@ actor AgentPaneProjectIcons {
         self.avatars = avatars
     }
 
-    /// The `project.icon` answer: an icon file in the folder, else in its repository's main checkout
-    /// (a worktree whose icon is not checked in yet, or a folder inside the repository), else the
-    /// GitHub owner's avatar; and the manifest's language mark, which the page draws only without an
-    /// icon. Both nil keep the page's letters.
+    /// The `project.icon` answer: the GitHub owner's avatar (a user's or an organization's), else an
+    /// icon file in the folder, else in its repository's main checkout (a worktree whose icon is not
+    /// checked in yet, or a folder inside the repository); and the manifest's language mark, which
+    /// the page draws only without an image. Both nil keep the page's letters. The avatar comes
+    /// first so every clone and worktree of one GitHub repository wears the same picture (Leo
+    /// 2026-10-21: "why are the project icons not showing up for SOME of the cmux...? only one has
+    /// my github icon?").
     func answer(for folder: String) async -> (src: String?, glyph: String?) {
         let reader = self.reader.batched()
         let repos = self.repos.batched(sharing: reader)
         let repo = reader.allows(folder) ? repos.repo(for: folder) : nil
         let root = repo.map(\.root).flatMap { $0 == folder ? nil : $0 }
         let glyph = reader.glyph(in: folder) ?? root.flatMap(reader.glyph(in:))
-        if let src = icon(for: folder, reader: reader) ?? root.flatMap({ icon(for: $0, reader: reader) }) { return (src, glyph) }
-        guard let owner = repo?.github?.split(separator: "/").first.map(String.init) else { return (nil, glyph) }
-        return (await avatars.avatar(for: owner), glyph)
+        if let owner = repo?.github?.split(separator: "/").first.map(String.init),
+           let avatar = await avatars.avatar(for: owner) { return (avatar, glyph) }
+        return (icon(for: folder, reader: reader) ?? root.flatMap({ icon(for: $0, reader: reader) }), glyph)
     }
 
     /// The first candidate that is an image; a cached answer stands until its file changes.

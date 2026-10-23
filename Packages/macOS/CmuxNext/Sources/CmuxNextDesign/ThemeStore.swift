@@ -2,6 +2,7 @@ public import AppKit
 public import CmuxTheme
 public import Observation
 import CmuxNextCompat
+public import CmuxNextDesignTokens
 
 /// A non-view object (controller, layer owner) that caches resolved theme
 /// colors and must refresh them on a theme change. Views need nothing: the
@@ -40,6 +41,9 @@ public final class ThemeStore {
     public private(set) var machineColors = MachineColorOverrides.none
 
     @ObservationIgnored private let publishesGlobally: Bool
+    /// Bumped when any theme scope's shown picture or tuning changes (``ThemeScope/shownWindowOpacity``
+    /// readers observe it).
+    @ObservationIgnored package let backdropRevision = BackdropRevision()
     /// The Ghostty config's colors reached the windows once: later changes are color changes that
     /// animate (`ColorTransition.current` is instant until then, so launch never fades in).
     @ObservationIgnored public private(set) var hasAppliedConfig = false

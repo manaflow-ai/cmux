@@ -94,10 +94,15 @@ export function isHomeFolder(path: string): boolean {
   return /^\/(?:Users|home)\/[^/]+$/.test(trim(path));
 }
 
-/// A lane's or agent's scratch folder: Spotlight-hidden `.noindex` checkouts and caches. Never a
-/// project row of its own; it shows only folded under a repository it is known to belong to.
+/// A lane's or agent's scratch folder: Spotlight-hidden `.noindex` checkouts, caches, temp folders
+/// and the lane mirrors (`.wt-mirrors/<owner>/<repo>.git`). Never a project row of its own; it shows
+/// only folded under a repository it is known to belong to. Judged by where it lives, never by its
+/// name alone: `~/leo--feature` is an ordinary folder, and a lane checkout under `checkouts/<repo>/`
+/// is placed under its repository by `guessProjectRepo`.
 export function isScratchFolder(path: string): boolean {
-  return /\/[^/]+\.noindex(?:\/|$)|\/\.cache\/|^\/(?:private\/)?tmp\/|^\/(?:private\/)?var\/folders\//.test(trim(path));
+  return /\/[^/]+\.noindex(?:\/|$)|\/\.wt-mirrors\/|\/\.cache\/|^\/(?:private\/)?tmp\/|^\/(?:private\/)?var\/folders\//.test(
+    trim(path),
+  );
 }
 
 /// One repository however many clones hold it: its GitHub `owner/name`, else its main checkout.

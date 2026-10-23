@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { installMenuPressGuard } from "../src/agent-session/acpmux/menuPressGuard";
+import { installMenuPressGuard, swallowsPress } from "../src/agent-session/acpmux/menuPressGuard";
 
 let dom: JSDOM | undefined;
 let remove: (() => void) | undefined;
@@ -48,7 +48,7 @@ function fixture() {
     action.dispatchEvent(event);
     return event;
   };
-  return { view, trigger, action, received, pointer, mouse };
+  return { view, doc, trigger, action, received, pointer, mouse };
 }
 
 test("a completed outside press only dismisses the menu and the next press works", () => {
@@ -67,6 +67,21 @@ test("a completed outside press only dismisses the menu and the next press works
   f.mouse("mouseup");
   expect(f.mouse("click").defaultPrevented).toBe(false);
   expect(f.received).toEqual(["pointerdown", "mousedown", "pointerup", "mouseup", "click"]);
+});
+
+test("other press handlers can tell a press that only closes the menu (the transcript's margin drag)", () => {
+  const f = fixture();
+  expect(swallowsPress(f.doc)).toBe(false);
+  f.pointer("pointerdown");
+  expect(swallowsPress(f.doc)).toBe(true);
+  f.mouse("mousedown");
+  f.pointer("pointerup");
+  f.mouse("mouseup");
+  f.mouse("click");
+  expect(swallowsPress(f.doc)).toBe(false);
+  // The menu is closed now: the next press is the page's own.
+  f.pointer("pointerdown");
+  expect(swallowsPress(f.doc)).toBe(false);
 });
 
 test("a canceled outside gesture does not consume the next keyboard activation", () => {
@@ -126,4 +141,37 @@ test("a dismissing click delivered as a PointerEvent is swallowed whatever its p
   f.action.dispatchEvent(click);
   expect(click.defaultPrevented).toBe(true);
   expect(f.received).toEqual([]);
+});
+
+// A queued prompt's controls (ComposerQueue.tsx) act on the press that closes a chip's menu: Steer
+// and the trash can on nightly 331e2e9 only closed the menu (Leo: "WHY CAN'T I CLICK THESE BUTTONS").
+test("a press on a queued prompt's control closes the menu and still reaches the control", () => {
+  dom = new JSDOM(
+    '<!doctype html><html><body><main><div class="acpmux-composer"><ol class="acpmux-composer-queue"><li class="acpmux-queued"><button id="steer">Steer</button></li></ol><button aria-haspopup="menu" aria-expanded="true">Model</button><div id="field" contenteditable="true"></div></div></main></body></html>',
+  );
+  const view = dom.window;
+  const doc = view.document;
+  globalThis.Element = view.Element;
+  remove = installMenuPressGuard(doc);
+  const trigger = doc.querySelector<HTMLButtonElement>("[aria-haspopup]")!;
+  const received: string[] = [];
+  doc.addEventListener("pointerdown", () => trigger.setAttribute("aria-expanded", "false"), true);
+  doc.querySelector("main")!.addEventListener("click", (event) => received.push((event.target as Element).id));
+  const press = (target: Element) => {
+    const options = { bubbles: true, cancelable: true, button: 0, pointerId: 1, pointerType: "mouse", isPrimary: true };
+    target.dispatchEvent(new view.PointerEvent("pointerdown", options));
+    target.dispatchEvent(new view.MouseEvent("mousedown", { ...options, detail: 1 }));
+    target.dispatchEvent(new view.PointerEvent("pointerup", options));
+    target.dispatchEvent(new view.MouseEvent("mouseup", { ...options, detail: 1 }));
+    const click = new view.MouseEvent("click", { ...options, detail: 1 });
+    target.dispatchEvent(click);
+    return click;
+  };
+  expect(press(doc.getElementById("steer")!).defaultPrevented).toBe(false);
+  expect(trigger.getAttribute("aria-expanded")).toBe("false");
+  expect(received).toEqual(["steer"]);
+  // The prompt field still takes nothing from the press that closes a menu.
+  trigger.setAttribute("aria-expanded", "true");
+  expect(press(doc.getElementById("field")!).defaultPrevented).toBe(true);
+  expect(received).toEqual(["steer"]);
 });

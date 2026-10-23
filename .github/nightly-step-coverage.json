@@ -142,10 +142,9 @@
         "Verify signed app SSH daemon contract": {"pr": "cmux-next-remote-daemon.yml:release-packaging:Reject broken app bundles and daemon artifacts"},
         "Smoke launch signed app": {"nightly_only": "launches the Developer ID signed Release app on a Mac and scans for crash reports; needs the signed Release app"},
         "Smoke bundled CLI against the signed app": {"nightly_only": "drives the bundled CLI against the running signed Release app; nightly-next-canary.yml runs the --canary mode against the published app on pull requests that change it"},
-        "Visual smoke the signed app": {"pr": "nightly-next-canary.yml:canary:Visual smoke", "note": "the same visual-smoke/gate.sh, on the published app, for pull requests that change it"},
         "Resolve the canary mode": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly-next canary mode and its one-week flip"},
         "Canary the signed app": {"pr": "nightly-next-canary.yml:canary:Run the canary"},
-        "Stop the daemons the smokes left": {"plumbing": true}},
+        "Stop the daemons the canary left": {"plumbing": true}},
       "verify-final-dmg-nightly": {
         "Initialize cmux-next notices submodule": {"plumbing": true}, "Select Xcode": {"plumbing": true},
         "Smoke final DMG": {"nightly_only": "needs notarized stapled final DMG"},
@@ -162,8 +161,8 @@
         "Generate the recovered Sparkle appcast": {"nightly_only": "signs appcast with Sparkle key"}},
       "verify-recovered-nightly-next": {
         "Initialize cmux-next notices submodule": {"plumbing": true}, "Select Xcode": {"plumbing": true},
-        "Smoke the recovered DMG": {"nightly_only": "needs notarized stapled recovered DMG"},
-        "Visual smoke the recovered app": {"pr": "nightly-next-canary.yml:canary:Visual smoke", "note": "the same visual-smoke/gate.sh, on the published app, for pull requests that change it"}},
+        "Smoke the recovered DMG": {"nightly_only": "needs notarized stapled recovered DMG"}
+      },
       "publish-nightly": {
         "Select the build to publish": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly-next pending notarization continuation"},
         "Require every DMG to match a tested digest": {"nightly_only": "inline shell over the verify jobs' tested/*.sha256 and the signed DMGs; no pull-request dry run yet. Follow-up: tests/test_nightly_tested_dmg_gate.py runs this run block on fixture DMGs"},
@@ -238,10 +237,6 @@
       "publish-nightly-reel": {
         "Install ffmpeg": {"plumbing": true},
         "Build and publish the reel": {"nightly_only": "publishes reel with media secrets (reel.py tested by tests/test_cmux_next_reel.py)"}},
-      "nightly-next-macos15-launch": {
-        "Download and mount the published DMG": {"plumbing": true},
-        "Check every bundled Mach-O loads on macOS 14": {"nightly_only": "macho_minos.py scan of the published DMG's app; no pull-request dry run yet. Follow-up: tests/test_macho_minos.py runs the same command on a bundle of synthetic Mach-O files"},
-        "Launch on macOS 15 and open each tab kind": {"nightly_only": "boots the published DMG in a macOS 15 guest and opens each tab kind; needs the published, notarized DMG and a macOS 15 host"}},
       "report-nightly-failure": {
         "Open or update the nightly failure issue": {"nightly_only": "writes the nightly failure issue"}},
       "close-nightly-failure-issue": {

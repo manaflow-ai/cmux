@@ -309,6 +309,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/app_reply",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/stats",
       "params": true,
       "result": true

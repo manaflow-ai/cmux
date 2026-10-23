@@ -374,7 +374,7 @@ public final class WorkspaceCreator {
 
     /// The active team's Macs this backend can create on, in team order.
     public var availableMacs: [MacDevice] {
-        (store.activeTeam?.macs ?? []).filter { $0.isOnline && backend.canCreate(on: $0.id) }
+        (store.activeTeam?.listedMacs ?? []).filter { $0.isOnline && backend.canCreate(on: $0.id) }
     }
 
     /// The preferred Mac when available, else the first available one.

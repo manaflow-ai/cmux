@@ -14,8 +14,12 @@ import { loadLastChips, rememberLastChips } from "./chipMemory";
 import type { AcpmuxSnapshot } from "./model";
 import type { SpeedSection } from "./EffortPicker";
 import { type SpeedTiers, useSpeedToggle } from "./FastToggle";
+import { pendingSpeed } from "./pendingSpeed";
 import { type StringKey, useT } from "./i18n";
-import { ModelPicker } from "./ModelPicker";
+import { ModelPicker, pickerFaceHarness } from "./ModelPicker";
+import { ComposerHarness } from "./ComposerHarness";
+import { knownMark } from "../shared/AgentMark";
+import { agentName } from "./agents";
 import { AgentOptionsMenu } from "./AgentOptionsMenu";
 import { extraConfigOptions } from "./agentOptions";
 import type { CatalogRefreshState, ModelCombo, ModelPickerProps } from "./modelPickerLayout";
@@ -24,23 +28,42 @@ import { rememberPick } from "./lastPick";
 import { defaultModel } from "./harnessSwitch";
 import { catalogRow } from "./catalogRow";
 import { harnessProfiles } from "./harnessProfiles";
-import { useStartMode } from "./startMode";
+import {
+  HELD_EFFORT_ID,
+  HELD_FAST_ID,
+  HELD_FAST_ON,
+  heldOptionPick,
+  isEffortOption,
+  isFastModeOption,
+} from "./heldOptions";
+import { type KeptStartMode, useStartMode } from "./startMode";
 import type { PickerCatalog } from "./modelCatalogData";
+import { catalogProfiles } from "./pickerProfiles";
 import { useModelCatalogState } from "./modelCatalogHost";
 import { focusWithRing } from "../../ui/focusWithRing";
-import { Popover } from "../../ui/Popover";
+import { AnchoredCard } from "../../ui/Tooltip";
+import { HOVER_INTENT } from "../../ui/hoverIntent";
+import { useHoverCard } from "./chips/useHoverCard";
+import { ContextCardBody } from "./ContextCard";
+import { contextBreakdown } from "./inspector/ContextSection";
 import { ContextMenu } from "../../ui/ContextMenu";
 import { useComposerSettings } from "./composerSettings";
 import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
 import { registerPicker } from "./pickerOpeners";
-import { ContextBreakdownView, contextBreakdown } from "./inspector/ContextSection";
 import { UI_ANCHOR_GAP, useUiAnchor } from "../../ui/anchor";
 import { useEscapingPopup } from "../../ui/popupHost";
 import { usePopupHost } from "../../ui/UiProvider";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import { isMousePress } from "../../ui/pressRelease";
 import { focusAfterEscape } from "../../ui/escapeFocus";
-import { type ModeIconName, RECOMMENDED_BADGE, type ShownMode, harnessModeMenu, shownModes } from "./harnessModes";
+import {
+  type ModeIconName,
+  RECOMMENDED_BADGE,
+  type ShownMode,
+  harnessModeMenu,
+  highestMode,
+  shownModes,
+} from "./harnessModes";
 
 /// Picker copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 export const PICKER_LABELS = {
@@ -134,8 +157,13 @@ type Props = {
   settleTimer?: SettleTimer;
   /// Starts a new chat in another harness (the model picker offers it), on `model` when a model
   /// row of that harness was picked: the switch carries it, so the new chat starts on that model
-  /// and draws it at once, also before it opens (a New Tab's deferred switch).
-  onHarness?(harness: string, model?: string): void;
+  /// and draws it at once, also before it opens (a New Tab's deferred switch). `options`: a typed
+  /// combo's effort and Fast, held under their kind's id (heldOptions.ts); the switch applies them
+  /// to the new session before its first prompt.
+  onHarness?(harness: string, model?: string, options?: Readonly<Record<string, string>>): void;
+  /// Forks a started chat into a new chat on another harness (see ModelPickerProps.fork): with it,
+  /// a started chat's model menu keeps the whole harness rail, each other harness a Fork to row.
+  fork?: { to(harness: string): void; ready: boolean };
   /// The folder a pick is remembered for (lastPick.ts), when the chat has none yet (a New Tab's).
   folder?: string;
   /// The pointer or keyboard rests on a harness row (undefined: it left them), for a prewarm hint.
@@ -183,6 +211,7 @@ export function ComposerPickers({
   onMode,
   onEffort,
   onHarness,
+  fork,
   onHarnessHint,
   onHarnessEnable,
   onAddAgent,
@@ -211,8 +240,10 @@ export function ComposerPickers({
   // Once a chat has a message its harness is fixed (Leo 2026-10-13): the picker lists that
   // harness's models only, with no harness rail and no Add harness… (Leo 2026-10-19: a rail of one
   // harness, then Add harness…, read as an offer to switch), and another harness is Continue In…,
-  // never a pick. Debug Settings' "Allow switching harness in a started chat" (`harnessSwitch`)
-  // keeps the whole rail and its switch.
+  // never a pick. Where the chat can fork (`fork`), the compact menu keeps the whole rail again
+  // (Leo 2026-10-22: "why did you guys even remove the fucking harness model picker"), its other
+  // harnesses Fork to rows. Debug Settings' "Allow switching harness in a started chat"
+  // (`harnessSwitch`) keeps the whole rail and its switch.
   const locked = !harnessSwitch && !!summary?.harness && ((summary.turnCount ?? 0) > 0 || snapshot.rows.length > 0);
   const allEntries: ModelPickerProps["catalog"] = pickerCatalog
     ? [
@@ -234,9 +265,12 @@ export function ComposerPickers({
       ]
     : snapshot.catalog;
   // A harness acpmux has not listed yet (the first open after launch) keeps the whole list rather
-  // than an empty picker.
-  const ownEntries = locked ? allEntries.filter((entry) => entry.id === summary?.harness) : [];
+  // than an empty picker. A chat that can fork keeps every harness: the picker offers the others as
+  // Fork to, never as a switch in place (Leo 2026-10-22: "can expose as fork").
+  const ownEntries = locked && !fork ? allEntries.filter((entry) => entry.id === summary?.harness) : [];
   const pickerEntries = ownEntries.length > 0 ? ownEntries : allEntries;
+  // The profiles each catalog harness folded into its one entry: its accounts in the model menu.
+  const profiles = pickerCatalog ? catalogProfiles(snapshot.catalog, pickerCatalog.harnesses) : undefined;
   const switchHarness = locked ? undefined : onHarness;
   // An agent's own default remains an internal sentinel. The picker omits it
   // instead of exposing a separate "Default" row.
@@ -355,9 +389,7 @@ export function ComposerPickers({
           onPick: (value) => onEffort(effort?.id ?? "effort", value === "on" ? "ultracode" : "xhigh"),
         }
       : undefined;
-  const fastOption = snapshot.summary?.configOptions?.find(
-    (option) => option.id === "fast-mode" || /fast[ _-]?mode/i.test(option.name ?? ""),
-  );
+  const fastOption = snapshot.summary?.configOptions?.find(isFastModeOption) ?? pendingSpeed(snapshot);
   const fastOn =
     fastOption?.options.find((option) => /^(on|true|enabled)$/i.test(option.value)) ?? fastOption?.options[1];
   const fastOff =
@@ -388,6 +420,7 @@ export function ComposerPickers({
           current: fastOption.currentValue,
           off: fastMode.offValue,
           tiers: fastOption.options.map((option) => option.value).filter((value) => value !== fastMode.offValue),
+          names: Object.fromEntries(fastOption.options.map((option) => [option.value, option.name ?? option.value])),
           onPick: fastMode.onPick,
         }
       : undefined;
@@ -442,29 +475,41 @@ export function ComposerPickers({
   // that model offering it (the effect above); the same model only changes the effort.
   // A pick in a chat on another machine names that machine's models: this one's new chats keep theirs.
   const remembers = !summary?.host && summary?.hostKind !== "cloud";
+  // Before the chat has a session (a New Tab's deferred chat, a harness still starting) the switch
+  // holds every pick and applies it before the first prompt (harnessSwitch.ts): a combo's effort and
+  // Fast go to it at once, so a prompt sent right after the pick runs on the whole combo. An option
+  // the chat shows no row for yet goes under its kind's id, which the switch maps onto the option
+  // the session names once it opens (heldOptions.ts), or drops when it offers none.
+  const presession = holdsModePick && !summary?.sessionId;
   const land = (pickedModel: string, pickedEffort?: string) => {
     // Any new pick replaces a combo still waiting on its effort.
     pending.current = undefined;
     if (harness && remembers) rememberPick({ harness, model: pickedModel }, folder ?? summary?.cwd);
     if (pickedModel !== shown) {
-      pending.current = pickedEffort
-        ? { sessionId: summary?.sessionId, from: current, model: pickedModel, effort: pickedEffort }
-        : undefined;
+      pending.current =
+        pickedEffort && !presession
+          ? { sessionId: summary?.sessionId, from: current, model: pickedModel, effort: pickedEffort }
+          : undefined;
       onModel(pickedModel);
+      if (pickedEffort && presession) onEffort(effort?.id ?? HELD_EFFORT_ID, pickedEffort);
     } else if (
-      effort &&
       pickedEffort &&
       pickedEffort !== currentEffort &&
-      efforts.some((choice) => choice.id === pickedEffort)
+      (effort ? efforts.some((choice) => choice.id === pickedEffort) : presession)
     )
-      onEffort(effort.id, pickedEffort);
+      onEffort(effort?.id ?? HELD_EFFORT_ID, pickedEffort);
   };
   // A typed combo ("gpt medium fast", ModelPicker): its model and effort land as a pick does, and
   // fast mode turns on once the agent reports the model and offers it. A combo for another harness
-  // starts that harness and waits for its new session, then lands the same way. A failed switch,
-  // or a session that is not the one the pick started, drops it.
+  // starts that harness with the whole combo held on the switch (applied before the first prompt),
+  // then checks the effort and Fast once its new session opens. A failed switch, or a session that
+  // is not the one the pick started, drops it.
   const crossing = useRef<(ModelCombo & { from?: string }) | undefined>(undefined);
   const fastWanted = useRef<{ sessionId?: string; model: string } | undefined>(undefined);
+  // A combo's "fast" on the Fast option this chat draws, as the switch maps a held one onto a
+  // session (heldOptions.ts): its plain fast tier, never a higher one; none where the option has no
+  // such tier (standard and ultrafast only). Every path a combo's Fast takes sends this or nothing.
+  const comboFast = fastOption ? heldOptionPick(HELD_FAST_ID, HELD_FAST_ON, [fastOption]) : undefined;
   const combo = (picked: ModelCombo) => {
     crossing.current = undefined;
     fastWanted.current = undefined;
@@ -472,15 +517,26 @@ export function ComposerPickers({
       if (!switchHarness) return;
       crossing.current = { ...picked, from: summary?.sessionId };
       if (remembers) rememberPick({ harness: picked.harness, model: picked.model }, folder ?? summary?.cwd);
-      switchHarness(picked.harness, picked.model);
+      // The effort and Fast ride the switch, so a prompt sent right after the pick (it queues on the
+      // switch) runs its first turn on the whole combo; the effect below only fills in what the new
+      // session still reports otherwise.
+      const held: Record<string, string> = {
+        ...(picked.effort ? { [HELD_EFFORT_ID]: picked.effort } : {}),
+        ...(picked.fast ? { [HELD_FAST_ID]: HELD_FAST_ON } : {}),
+      };
+      switchHarness(picked.harness, picked.model, Object.keys(held).length > 0 ? held : undefined);
       return;
     }
     land(picked.model, picked.effort);
     if (!picked.fast) return;
     // The model already runs: fast mode changes now; else once the agent reports the model.
     if (picked.model === current && fastMode) {
-      if (fastMode.currentValue !== fastMode.onValue) fastMode.onPick(fastMode.onValue);
-    } else fastWanted.current = { sessionId: summary?.sessionId, model: picked.model };
+      if (comboFast && fastMode.currentValue !== comboFast.value) onEffort(comboFast.configId, comboFast.value);
+    } else if (presession)
+      // Held as what it means on the option drawn now (a catalog's priority tier, pendingSpeed.ts),
+      // else as plain on: the switch maps either onto the names the session reports.
+      onEffort(comboFast?.configId ?? fastOption?.id ?? HELD_FAST_ID, comboFast?.value ?? HELD_FAST_ON);
+    else fastWanted.current = { sessionId: summary?.sessionId, model: picked.model };
   };
   const switchFailed = snapshot.switching?.phase === "failed";
   useEffect(() => {
@@ -492,8 +548,10 @@ export function ComposerPickers({
     }
     if (switching || !summary?.sessionId || summary.sessionId === wanted.from || harness !== wanted.harness) return;
     crossing.current = undefined;
-    // The switch already sent the model: only its effort remains, now when the agent runs that
-    // model (its default, or it reported the switch first), else once it reports it.
+    // The switch already sent the model, and the effort and Fast it could resolve against the new
+    // session's options: each is sent again only where the session still reports another value
+    // (an older acpmux whose attach named no options), now when the agent runs that model (its
+    // default, or it reported the switch first), else once it reports it.
     pending.current = undefined;
     if (wanted.effort && current === wanted.model) {
       if (effort && wanted.effort !== currentEffort && efforts.some((choice) => choice.id === wanted.effort))
@@ -512,7 +570,7 @@ export function ComposerPickers({
     }
     if (current !== wanted.model || !fastMode) return;
     fastWanted.current = undefined;
-    if (fastValue !== fastMode.onValue) fastMode.onPick(fastMode.onValue);
+    if (comboFast && fastValue !== comboFast.value) onEffort(comboFast.configId, comboFast.value);
   });
   // A default model draws as the model it resolves to: the running session's, else the one this
   // harness's default last resolved to, else the model placeholder.
@@ -536,8 +594,9 @@ export function ComposerPickers({
     if (harness && resolvedNow) rememberResolvedDefault(harness, resolvedNow);
   }, [harness, resolvedNow]);
   // A new chat draws its chips for the harness its first prompt starts: the one named, else the
-  // catalog's first, as the model picker's face does.
-  const chipHarness = harness ?? pickerEntries[0]?.id;
+  // picker's first installed, pickable one, the one the model picker's face draws (a bundled
+  // harness acpmux does not have can come first in `pickerEntries`); else the catalog's first.
+  const chipHarness = harness ?? pickerFaceHarness(pickerEntries) ?? pickerEntries[0]?.id;
   const chipEntry = pickerCatalog?.harnesses.find((entry) => (entry.acpmuxHarness ?? entry.id) === chipHarness);
   const unreported = shown === undefined && chipHarness !== undefined && (!summary?.sessionId || switching);
   // A fresh chat on this Mac whose session has not reported its model yet names the one its New Tab
@@ -647,7 +706,24 @@ export function ComposerPickers({
   // never the mode this harness's last chat showed; nothing when it sets none. A chat on another
   // machine (a peer, the cloud) starts in what that machine decides: none until it reports.
   const local = fresh && snapshot.origin !== "remote" && snapshot.origin !== "peer";
-  const startMode = useStartMode(chipHarness, folder ?? summary?.cwd, awaiting && local && modes.length === 0);
+  const asksStart = awaiting && local && modes.length === 0;
+  const startAnswer = useStartMode(chipHarness, folder ?? summary?.cwd, asksStart);
+  // Before acpmux has ever answered for this harness here (a first New Tab), the chip names the
+  // harness's highest permission level, the level acpmux starts a chat in when the person chose
+  // none (hub/start_mode.rs); acpmux's answer, which carries a saved choice, then replaces it.
+  const highest =
+    asksStart && startAnswer === undefined
+      ? highestMode(summary?.family ?? snapshot.catalog.find((entry) => entry.id === chipHarness)?.family, chipHarness)
+      : undefined;
+  // The access chip holds its place from the first frame of a chat that has not reported its modes
+  // (Leo 2026-10-23, the New Tab: "why is this thing still not showing on the very beginning ... It
+  // keeps switching around"): with no mode to name (acpmux sets none, has not answered, or the
+  // chat is another machine's) it is the inert "Mode" chip, which the session's own replaces in
+  // place, so nothing in the row moves when the harness, its model or its modes arrive.
+  const startMode: KeptStartMode | undefined =
+    startAnswer ??
+    (highest ? { modeId: highest.id, name: highest.name } : undefined) ??
+    (awaiting && modes.length === 0 ? MODE_PLACEHOLDER : undefined);
   // Another folder's answer (acpmux has not answered for this one yet) only holds the chip's
   // place: this folder's profile or preset may start the chat in another mode, so it names none.
   // The harness's own menu names the start mode as it names the mode once the chat reports it.
@@ -769,10 +845,44 @@ export function ComposerPickers({
       ? t(PICKER_LABELS.context, { percent: Math.round(Math.min(1, Math.max(0, usage.used / usage.size)) * 100) })
       : undefined;
 
+  // The quiet row starts with the harness (ComposerHarness.tsx): the one a switch is starting, else
+  // the chat's, else the one the chips draw while acpmux lists it as installed, marked and named as
+  // the model button's rail names it. The chips' fallback is the picker's first installed harness;
+  // with none (none installed, or acpmux has not listed them yet) it is the catalog's first, a
+  // bundled harness acpmux may not have: then the row names none. With none installed the model
+  // button's place says Add harness instead (picksModel below), and no mode chip shows.
+  const switchTarget = snapshot.switching?.phase === "failed" ? undefined : snapshot.switching;
+  const footHarness =
+    switchTarget?.harness ??
+    harness ??
+    (chipHarness && snapshot.catalog.some((entry) => entry.id === chipHarness) ? chipHarness : undefined);
+  const footEntry = footHarness ? snapshot.catalog.find((entry) => entry.id === footHarness) : undefined;
+  const footPicker =
+    footHarness === chipHarness
+      ? chipEntry
+      : pickerCatalog?.harnesses.find((entry) => (entry.acpmuxHarness ?? entry.id) === footHarness);
+  const harnessMark = footHarness
+    ? knownMark(footEntry?.icon, footEntry?.family, footPicker?.brand ?? undefined, footHarness)
+    : undefined;
+  const harnessName = footHarness
+    ? (switchTarget?.name ?? footPicker?.name ?? agentName(footHarness, footEntry?.name))
+    : undefined;
+  // The model button's menu, which the harness item opens while the chat can still switch.
+  const switcher = useRef<(() => void) | undefined>(undefined);
+  const picksModel =
+    snapshot.catalog.length > 0 || Boolean(harness) || Boolean(pickerCatalog?.harnesses.length && !harnessesListed);
   const chips = (
     <div className="acpmux-chips">
-      {snapshot.catalog.length > 0 || harness || Boolean(pickerCatalog?.harnesses.length && !harnessesListed) ? (
+      {picksModel && harnessMark && harnessName && (
+        <ComposerHarness
+          mark={harnessMark}
+          name={harnessName}
+          {...(switchHarness && picksModel ? { openSwitcher: () => switcher.current?.() } : {})}
+        />
+      )}
+      {picksModel ? (
         <ModelPicker
+          opener={switcher}
           catalog={pickerEntries}
           harness={harness}
           model={shown}
@@ -788,6 +898,8 @@ export function ComposerPickers({
             if (effort) onEffort(effort.id, value);
           }}
           onHarness={switchHarness}
+          {...(locked && fork ? { fork } : {})}
+          {...(profiles ? { profiles } : {})}
           onCombo={combo}
           onHarnessHint={onHarnessHint}
           onHarnessEnable={onHarnessEnable}
@@ -818,13 +930,23 @@ export function ComposerPickers({
           </span>
         )
       )}
-      {modes.length === 0 && !hasGrants && startMode && startModeName && pendingAccessModes.length === 0 && (
-        <PendingMode
-          label={startModeName}
-          modeId={startMode.borrowed ? undefined : startMode.modeId}
-          icon={startMode.borrowed ? undefined : pendingMenu?.rows.find((row) => row.id === startMode.modeId)?.icon}
-        />
-      )}
+      {/* With no harness installed (the Add harness chip above) there is nothing to set a mode for:
+          the start mode, its highest-level fallback and the inert "Mode" placeholder are the chips'
+          catalog fallback's, a harness acpmux does not have, so the row shows none of them. While
+          acpmux has not listed its harnesses yet, `picksModel` holds and the placeholder keeps its
+          place (#24517). */}
+      {picksModel &&
+        modes.length === 0 &&
+        !hasGrants &&
+        startMode &&
+        startModeName &&
+        pendingAccessModes.length === 0 && (
+          <PendingMode
+            label={startModeName}
+            modeId={startMode.borrowed ? undefined : startMode.modeId}
+            icon={startMode.borrowed ? undefined : pendingMenu?.rows.find((row) => row.id === startMode.modeId)?.icon}
+          />
+        )}
       {/* Granted folder trust and chat allowance stay revocable when the harness offers no modes. */}
       {(modes.length > 0 || hasGrants || pendingAccessModes.length > 0) && (
         <AccessMenu
@@ -872,13 +994,16 @@ export function ComposerPickers({
           </button>
         </ContextMenu>
       )}
-      {/* The harness's other settings (Codex's collaboration mode, a custom harness's own
-          options): each config option no chip above owns, picked like the effort level. */}
+      {/* A custom harness's other settings: each config option no chip above owns, picked like the
+          effort level. Codex's collaboration mode stays on its command/mode paths. */}
       <AgentOptionsMenu options={extraConfigOptions(summary)} onPick={(configId, value) => onEffort(configId, value)} />
     </div>
   );
   return chips;
 }
+
+/// No start mode to name: the access chip holds its place as "Mode" (a borrowed answer's face).
+const MODE_PLACEHOLDER: KeptStartMode = { modeId: "", borrowed: true };
 
 /// The mode a chat will start in, before it reports its modes: the access chip's face (AccessMenu),
 /// inert until the session's own replaces it in place. `modeId` is read from storage: only a
@@ -1103,65 +1228,140 @@ export function isPlan(modeId: string): boolean {
   return /(^|[-_])plan$/i.test(modeId);
 }
 
-/// How much of the context window the session has used, as a pie that fills. A click opens
-/// the details: the share used, tokens used of the window, what fills it by category when the
-/// harness reports a breakdown (Claude Code's /context, drawn as the Inspector's Context draws it),
-/// and Compact when the agent offers it.
+/// What the keyboard tabs to, for leaving the context card forward.
+const TABBABLE =
+  'a[href],button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),[tabindex]:not([tabindex="-1"])';
+
+/// How much of the context window the session has used, as a ring that fills. Resting the pointer
+/// on it, or focusing it, shows the context card with no click (ContextCard.tsx; Leo 2026-10-21,
+/// after Claude's and Codex's): the share and tokens used, the window as a stacked bar, and
+/// Details ›, which opens the Inspector's Context section. A click pins the card until a press
+/// outside; Escape closes it however it opened. Tab from the ring moves into the card's buttons,
+/// and Tab past them goes on to what follows the ring. The ring itself never takes a hover pill
+/// (contextCard.css).
 export function ContextRing({
   used,
   size,
   setup,
   breakdown: reported,
   onCompact,
+  onOpenDetails,
   working = false,
 }: {
   used?: number;
   size?: number;
-  /// Tokens the agent took before the conversation; the details split it out when known.
+  /// Tokens the agent took before the conversation; the card splits it out when known.
   setup?: number;
   /// Claude Code's /context (`summary.contextBreakdown`): its categories replace the bar and parts.
   breakdown?: unknown;
   onCompact?(): void;
+  /// Opens the Inspector at its Context section; the card shows Details › only with it.
+  onOpenDetails?(): void;
   working?: boolean;
 }) {
   const t = useT();
-  const [open, setOpen] = useState(false);
+  const hover = useHoverCard(HOVER_INTENT.tooltipDelay);
+  const [pinned, setPinned] = useState(false);
+  const wrapper = useRef<HTMLSpanElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
-  // Whether the details were open when a press on the ring began. That press is also the
-  // popover's outside press, which can close it before the click lands; the click then
-  // toggles from the state the press saw, so the press that closed it does not reopen it.
-  const openAtPress = useRef<boolean | null>(null);
+  const card = useRef<HTMLDivElement>(null);
   const known = used !== undefined && size !== undefined && size > 0;
   const fraction = known ? Math.min(1, Math.max(0, used / size)) : 0;
   const percent = Math.round(fraction * 100);
   const label = known ? t(PICKER_LABELS.context, { percent }) : t("context.title");
+  const breakdown = known ? contextBreakdown(reported) : undefined;
+  const shown = known && (pinned || hover.open);
   // As Claude desktop's: a 14 px ring, a faint track with the share used drawn over it as an arc
   // from twelve o'clock (round ends), not a pie and not a spinner.
   const arcRadius = 6;
   const arcCircumference = 2 * Math.PI * arcRadius;
   useEffect(() => {
     // Keep the automation path truthful too: before the first usage report the ring is
-    // intentionally inert, so opening it by label must not reveal an empty 0% popover.
+    // intentionally inert, so opening it by label must not reveal an empty 0% card.
     const unregister = registerPicker(t("context.title"), () => {
-      if (known) setOpen(true);
+      if (known) setPinned(true);
     });
     return unregister;
   }, [known, t]);
   useEffect(() => {
-    // Usage can disappear when a session resets. Do not leave an already-open details
-    // surface showing a stale zeroed reading.
-    if (!known) setOpen(false);
+    // Usage can disappear when a session resets: no pinned card over a stale reading.
+    if (!known) setPinned(false);
   }, [known]);
-  const tokens = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
+  const dismissHover = hover.dismiss;
+  useEffect(() => {
+    // Escape closes the card however it opened (hover, keyboard focus or a click), and takes the
+    // press, so it doesn't also reach the composer.
+    if (!shown) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      // Focus in the card goes back to the ring, before the card closes (the ring's focus would
+      // open it again otherwise).
+      if (card.current?.contains(document.activeElement)) trigger.current?.focus();
+      setPinned(false);
+      dismissHover();
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  }, [shown, dismissHover]);
+  useEffect(() => {
+    // A pinned card goes on a press outside the ring and the card. The card is its outer element,
+    // so a press on its padding is inside.
+    if (!pinned) return;
+    const onPress = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (target && (wrapper.current?.contains(target) || card.current?.contains(target))) return;
+      setPinned(false);
+    };
+    document.addEventListener("pointerdown", onPress, true);
+    return () => document.removeEventListener("pointerdown", onPress, true);
+  }, [pinned]);
   const full = fraction >= 0.8 ? " acpmux-context-full" : "";
-  const breakdown = known ? contextBreakdown(reported) : undefined;
-  // On the wrapper, so it also shows while the ring is inert before the first usage report.
-  const tooltip = known
-    ? t("context.ringTooltip", { percent, used: tokens.format(used), size: tokens.format(size) })
-    : t("context.ringTooltipEmpty");
+  /// The card's buttons the keyboard reaches (Compact, Details ›).
+  const cardButtons = () => [...(card.current?.querySelectorAll<HTMLElement>("button:not(:disabled)") ?? [])];
+  /// Leaves the card forward: to whatever the page tabs to after the ring, and the card closes.
+  const tabPastCard = () => {
+    const ring = trigger.current;
+    if (!ring) return;
+    const order = [...ring.ownerDocument.querySelectorAll<HTMLElement>(TABBABLE)].filter(
+      (element) => element.tabIndex >= 0 && !card.current?.contains(element),
+    );
+    const next = order[order.indexOf(ring) + 1];
+    if (next) next.focus();
+    else ring.blur();
+    setPinned(false);
+    dismissHover();
+  };
+  // Tab inside the open card: Shift-Tab off its first button goes back to the ring, Tab off its
+  // last goes on past the ring. A document listener, as Escape's, since the card is a portal.
+  const tabFromCard = useRef<(event: KeyboardEvent) => void>(() => {});
+  tabFromCard.current = (event) => {
+    if (event.key !== "Tab") return;
+    const buttons = cardButtons();
+    const at = buttons.indexOf(event.target as HTMLElement);
+    if (at < 0) return;
+    if (event.shiftKey && at === 0) {
+      event.preventDefault();
+      trigger.current?.focus();
+    } else if (!event.shiftKey && at === buttons.length - 1) {
+      event.preventDefault();
+      tabPastCard();
+    }
+  };
+  useEffect(() => {
+    if (!shown) return;
+    const onKey = (event: KeyboardEvent) => tabFromCard.current(event);
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  }, [shown]);
   return (
-    // tooltip-allow: names the icon-only ring's reading, and why it is inert before any usage.
-    <span className={`acpmux-picker acpmux-context${full}`} title={open ? undefined : tooltip}>
+    // tooltip-allow: before any usage the inert ring says why; once usage is known the card replaces it.
+    <span
+      ref={wrapper}
+      className={`acpmux-picker acpmux-context${full}`}
+      title={known ? undefined : t("context.ringTooltipEmpty")}
+    >
       <button
         ref={trigger}
         type="button"
@@ -1169,13 +1369,19 @@ export function ContextRing({
         data-menu={t("context.title")}
         aria-label={label}
         aria-haspopup="dialog"
-        aria-expanded={open}
+        aria-expanded={shown}
         // Before the first usage report there is nothing to show: the ring keeps its place, off.
         disabled={!known}
-        onPointerDown={() => (openAtPress.current = open)}
-        onClick={() => {
-          setOpen(!(openAtPress.current ?? open));
-          openAtPress.current = null;
+        {...hover.trigger}
+        onClick={() => setPinned((was) => !was)}
+        onKeyDown={(event) => {
+          // Tab goes into the open card (it sits in a portal, out of the page's tab order).
+          if (event.key !== "Tab" || event.shiftKey || !shown) return;
+          const first = cardButtons()[0];
+          if (!first) return;
+          event.preventDefault();
+          setPinned(true);
+          first.focus();
         }}
       >
         <svg width={14} height={14} viewBox="0 0 14 14" aria-hidden="true" focusable="false">
@@ -1203,54 +1409,44 @@ export function ContextRing({
           )}
         </svg>
       </button>
-      <Popover
-        open={open}
-        onOpenChange={setOpen}
-        anchor={open ? trigger.current : null}
-        label={t("context.title")}
-        className={`acpmux-context-pop${full}${breakdown ? " acpmux-context-pop--breakdown" : ""}`}
-        finalFocus={trigger}
+      <AnchoredCard
+        anchor={shown ? trigger.current : null}
+        // AnchoredCard makes it the shared glass hover card (ui-tooltip ui-card ui-glass).
+        className={`acpmux-context-card acpmux-context-pop${breakdown ? " acpmux-context-pop--breakdown" : " acpmux-context-pop--compact"}${full}`}
+        side="top"
+        interactive
+        ariaLabel={t("context.title")}
+        popupRef={card}
+        // On the card's outer element, so its padding counts as inside the card.
+        onPointerEnter={hover.card.onPointerEnter}
+        onPointerLeave={hover.card.onPointerLeave}
       >
-        <div className="acpmux-context-title">{t("context.title")}</div>
-        <div className="acpmux-context-percent">{t("context.percent", { percent })}</div>
-        {!breakdown && (
-          <div className="acpmux-context-bar" aria-hidden="true">
-            <span style={{ width: `${percent}%` }} />
-          </div>
-        )}
         {known && (
-          <div className="acpmux-context-tokens">
-            {t("context.tokens", { used: tokens.format(used), size: tokens.format(size) })}
+          <div onFocusCapture={hover.card.onFocusCapture} onBlurCapture={hover.card.onBlurCapture}>
+            <ContextCardBody
+              used={used}
+              size={size}
+              setup={setup}
+              breakdown={reported}
+              working={working}
+              onCompact={
+                onCompact &&
+                (() => {
+                  setPinned(false);
+                  onCompact();
+                })
+              }
+              onOpenDetails={
+                onOpenDetails &&
+                (() => {
+                  setPinned(false);
+                  onOpenDetails();
+                })
+              }
+            />
           </div>
         )}
-        {breakdown && <ContextBreakdownView breakdown={breakdown} />}
-        {known && !breakdown && setup !== undefined && setup <= used && (
-          <div className="acpmux-context-parts">
-            <div className="acpmux-context-part">
-              <span className="acpmux-context-part-name">{t("context.setup")}</span>
-              <span className="acpmux-context-part-tokens">{tokens.format(setup)}</span>
-              <span className="acpmux-context-part-detail">{t("context.setupDetail")}</span>
-            </div>
-            <div className="acpmux-context-part">
-              <span className="acpmux-context-part-name">{t("context.conversation")}</span>
-              <span className="acpmux-context-part-tokens">{tokens.format(used - setup)}</span>
-            </div>
-          </div>
-        )}
-        {onCompact && (
-          <button
-            type="button"
-            className="acpmux-context-compact"
-            disabled={working}
-            onClick={() => {
-              setOpen(false);
-              onCompact();
-            }}
-          >
-            {t("context.compact")}
-          </button>
-        )}
-      </Popover>
+      </AnchoredCard>
     </span>
   );
 }
@@ -1787,11 +1983,6 @@ export function shortModelName(name: string, short?: string, harnessName?: strin
 export function modelFamily(name: string): string | undefined {
   const first = name.trim().split(/\s+/)[0] ?? "";
   return first !== name.trim() && /\p{L}{3,}/u.test(first) ? first : undefined;
-}
-
-/// The session's reasoning option, whatever the harness calls it.
-function isEffortOption(option: { id: string; category?: string | null }): boolean {
-  return option.category === "thought_level" || option.id === "effort" || option.id === "reasoning_effort";
 }
 
 /// The plain levels a catalog row can list (`PickerModel.efforts`).

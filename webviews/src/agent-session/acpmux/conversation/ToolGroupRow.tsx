@@ -13,8 +13,10 @@ import { ChevronRight, Magnifier, OpenBook, Pencil, Spinner, TerminalSquare } fr
 import { groupCalls, isFailed, isRunning, toolGroupLabel, type ToolGroupKind } from "./toolGroups";
 import { useT } from "../i18n";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
-import { useFold } from "./fold";
+import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { WriteLabel, writeCall } from "./WriteLabel";
+import { toolFailure } from "./toolFailure";
+import { failureWord, InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
 
 function groupIcon(kind: ToolGroupKind): ReactNode {
   switch (kind) {
@@ -65,7 +67,7 @@ export function ToolGroupRow({
   const t = useT();
   const [open, setOpen] = useTranscriptDisclosure(disclosureKey, kind !== "edits" && !folded);
   const [all, setAll] = useTranscriptDisclosure(`${disclosureKey}:all`);
-  const fold = useFold(open);
+  const fold = useAnchoredCollapse({ open, onOpenChange: setOpen });
   // The calls behind "+K more", and where the shown tail starts (a thought between two hidden
   // calls hides with them).
   const cut = kind === "edits" || all ? 0 : tailStart(items);
@@ -97,6 +99,8 @@ export function ToolGroupRow({
   const deletions = counted.reduce((sum, file) => sum + file.deletions, 0);
   // A lone Write reads as what it wrote, "Wrote notes.md +18", not as an edit (WriteLabel.tsx).
   const write = kind === "edits" && tools.length === 1 ? writeCall(tools[0]!) : undefined;
+  // A group of one call says why it failed as a lone call does (toolFailure.ts); several say how many.
+  const failure = useMemo(() => (tools.length === 1 ? toolFailure(tools[0]!) : undefined), [tools]);
   return (
     <>
       <button
@@ -104,7 +108,8 @@ export function ToolGroupRow({
         className={`cv-tool is-toggle${running ? " is-live" : " is-strong"}`}
         aria-expanded={open}
         aria-controls={open ? detailsId : undefined}
-        onClick={() => setOpen((value) => !value)}
+        ref={fold.headerRef}
+        onClick={fold.toggle}
       >
         <span className="cv-tool__icon">{running ? <Spinner size={16} /> : groupIcon(kind)}</span>
         <span className="cv-tool__text" data-find-skip>
@@ -129,9 +134,10 @@ export function ToolGroupRow({
           {failures > 0 && (
             <span className="cv-tool__failed">
               {" "}
-              {write ? t("tools.failed") : t("tools.failedCount", { n: failures })}
+              {failure ? failureWord(t, failure) : t("tools.failedCount", { n: failures })}
             </span>
           )}
+          <InlineFailureCause failure={failure} />
         </span>
         <ChevronRight
           size={14}
@@ -139,8 +145,9 @@ export function ToolGroupRow({
           className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
         />
       </button>
+      <ToolFailureCause failure={failure} />
       {fold.present && (
-        <div ref={fold.ref} className="cv-fold">
+        <div {...fold.bodyProps}>
           <div className={kind === "edits" ? "cv-tool-group" : "cv-tool-group is-flat"} id={detailsId}>
             {hidden > 0 && (
               <button type="button" className="cv-tool cv-tool-group__more" onClick={() => setAll(true)}>
