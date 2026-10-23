@@ -85,6 +85,13 @@ pub struct RbCallbacks {
     pub on_cursor: Option<unsafe extern "C" fn(*mut c_void, c_int, c_int)>,
     /// browser, target URL, `cef_window_open_disposition_t`, user gesture.
     pub on_open_tab: Option<unsafe extern "C" fn(*mut c_void, c_int, *const c_char, c_int, c_int)>,
+    /// A `file:` URL about to load (navigation or subresource); 1 allows.
+    /// UI and IO threads.
+    pub on_file_load: Option<unsafe extern "C" fn(*mut c_void, *const c_char) -> c_int>,
+    /// browser, `ui::TextInputType`, composition rects (x y w h each), their
+    /// count, the caret (x y w h, or NULL).
+    pub on_text_input:
+        Option<unsafe extern "C" fn(*mut c_void, c_int, c_int, *const c_int, c_int, *const c_int)>,
 }
 
 unsafe extern "C" {
