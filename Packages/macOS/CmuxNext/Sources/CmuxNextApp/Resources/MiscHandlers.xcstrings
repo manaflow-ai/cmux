@@ -1,6 +1,137 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "handlers.attention.needsFocus": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يُفتح «الانتقال إلى ما يحتاجني» إلا عند طلب التركيز؛ اقرأ علامات التبويب المعلّمة باستخدام tab.list"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Idi na ono što me treba otvara se samo kada se zatraži fokus; označene kartice pročitaj pomoću tab.list"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gå til det, der kræver mig, åbner kun, når der anmodes om fokus; læs de markerede faner med tab.list"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "„Zu dem, was mich braucht“ öffnet sich nur, wenn Fokus angefordert wird; lies die markierten Tabs mit tab.list"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Go to What Needs Me opens only when focus is requested; read the marked tabs with tab.list"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ir a lo que me necesita solo se abre cuando se solicita el foco; lee las pestañas marcadas con tab.list"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aller à ce qui m’attend ne s’ouvre que si le focus est demandé ; lisez les onglets marqués avec tab.list"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vai a ciò che richiede me si apre solo quando viene richiesto il focus; leggi le schede contrassegnate con tab.list"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「自分の対応が必要な場所へ移動」はフォーカスが要求された場合にのみ開きます。マークされたタブは tab.list で読み取ってください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទៅកាន់អ្វីដែលត្រូវការខ្ញុំ បើកតែនៅពេលស្នើសុំការផ្ដោតប៉ុណ្ណោះ; អានផ្ទាំងដែលបានសម្គាល់ដោយ tab.list"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "내가 필요한 곳으로 이동은 포커스를 요청할 때만 열립니다. 표시된 탭은 tab.list로 읽으세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gå til det som trenger meg åpnes bare når fokus er bedt om; les de merkede fanene med tab.list"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przejdź do tego, co mnie potrzebuje otwiera się tylko na żądanie fokusu; odczytaj oznaczone karty przez tab.list"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ir para o que precisa de mim só abre quando o foco é solicitado; leia as abas marcadas com tab.list"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«Перейти к тому, что ждёт меня» открывается только при запросе фокуса; читайте отмеченные вкладки через tab.list"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไปยังสิ่งที่ต้องการฉัน จะเปิดเมื่อมีการขอโฟกัสเท่านั้น อ่านแท็บที่ทำเครื่องหมายด้วย tab.list"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bana ihtiyaç duyulan yere git yalnızca odak istendiğinde açılır; işaretli sekmeleri tab.list ile oku"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«Перейти до того, що чекає на мене» відкривається лише на запит фокуса; читайте позначені вкладки через tab.list"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đi tới việc cần tôi chỉ mở khi có yêu cầu tiêu điểm; hãy đọc các thẻ được đánh dấu bằng tab.list"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“前往需要我处理的地方”仅在请求焦点时打开；请用 tab.list 读取已标记的标签页"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「前往需要我處理的地方」僅在要求焦點時開啟；請用 tab.list 讀取已標記的分頁"
+          }
+        }
+      }
+    },
     "handlers.attention.title": {
       "extractionState": "manual",
       "localizations": {

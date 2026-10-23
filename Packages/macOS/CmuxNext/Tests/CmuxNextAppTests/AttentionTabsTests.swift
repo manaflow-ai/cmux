@@ -58,6 +58,21 @@ struct AttentionTabsTests {
         #expect(shown == [tabs[0].id])
     }
 
+    @Test func anAgentsRunOpensNoPalette() throws {
+        _ = NSApplication.shared
+        let shared = AgentPaneAttentionTabs.shared
+        let (items, onOpen) = (shared.items, shared.onOpen)
+        defer { shared.items = items; shared.onOpen = onOpen }
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        AppActions.bind(services)
+        shared.items = [AgentPaneAttentionTabs.Item(tabId: "tab_1", reason: "Log in to GitHub", workspaceTitle: "cmux next",
+                                                    tabTitle: "GitHub", atMs: 1_000)]
+        let refusal = services.registry.capturingRefusal {
+            _ = services.registry.perform(AttentionPalettePage.id, invocation: ActionInvocation(origin: .cli))
+        }
+        #expect(refusal == AttentionPaletteStrings.needsFocus, "an agent's run must not take the person's focus")
+    }
+
     @Test func theActionIsInThePaletteAndTakesNoKey() throws {
         let descriptor = try #require(ActionCatalog.all.first { $0.id == AttentionPalettePage.id })
         #expect(descriptor.isPaletteVisible)

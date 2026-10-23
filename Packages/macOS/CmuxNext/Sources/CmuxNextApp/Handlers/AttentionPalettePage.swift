@@ -20,7 +20,10 @@ struct AttentionPalettePage {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         AgentPaneAttentionTabs.shared.onOpen = { [weak services = context.services] id in services?.revealTab(id) ?? false }
         context.services.palette.sources.actionPages[id] = { AttentionPalettePage().page() }
-        registry.bind(id, run: { _ in
+        registry.bind(id, run: { invocation in
+            // An agent's `cmux action run attention.goTo` must not open the palette over the
+            // person's work; agents read the marks with `tab.list` and focus only when asked.
+            guard invocation.allowsViewChange else { throw ActionFailure(message: AttentionPaletteStrings.needsFocus) }
             let page = AttentionPalettePage()
             guard !page.tabs.items.isEmpty else { throw ActionFailure(message: AttentionPaletteStrings.nothing) }
             context.services.palette.show(page: page.page(), relativeTo: context.activeWindow?.window)
@@ -48,5 +51,10 @@ struct AttentionPaletteStrings {
     static var title: String { String(localized: "handlers.attention.title", defaultValue: "What Needs You", table: "MiscHandlers", bundle: .module) }
     static var placeholder: String { String(localized: "handlers.attention.placeholder", defaultValue: "Search what needs you", table: "MiscHandlers", bundle: .module) }
     static var open: String { String(localized: "handlers.attention.open", defaultValue: "Go to Tab", table: "MiscHandlers", bundle: .module) }
+    static var needsFocus: String {
+        String(localized: "handlers.attention.needsFocus",
+               defaultValue: "Go to What Needs Me opens only when focus is requested; read the marked tabs with tab.list",
+               table: "MiscHandlers", bundle: .module)
+    }
     static var nothing: String { String(localized: "handlers.attention.nothing", defaultValue: "No agent needs you in a tab right now.", table: "MiscHandlers", bundle: .module) }
 }

@@ -1436,6 +1436,7 @@ let package = Package(
                 "CmuxNextFeed",
                 "CmuxNextFileGrid",
                 "CmuxNextFiles",
+                "CmuxNextFilesUI",
                 "CmuxNextFloating",
                 "CmuxNextFocus",
                 "CmuxNextFocusUI",
