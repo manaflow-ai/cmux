@@ -98,7 +98,11 @@ impl Hub {
         tokio::task::spawn_blocking(move || {
             matches!(
                 origin_of(&cwd, &GitState::read(&cwd)),
-                Some(Some(found)) if found == expected
+                Some(Some(found))
+                    if found.cwd == expected.cwd
+                        && found.root == expected.root
+                        && found.common_dir == expected.common_dir
+                        && found.branch == expected.branch
             )
         })
         .await
