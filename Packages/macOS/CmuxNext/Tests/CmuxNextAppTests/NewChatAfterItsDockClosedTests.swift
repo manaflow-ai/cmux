@@ -26,7 +26,7 @@ struct NewChatAfterItsDockClosedTests {
             /// The workspace's agent chats the store made (no provisional stand-in), with their panes.
             @MainActor func chats() -> [(tab: TabModel, pane: PaneModel)] {
                 content.workspace.screens.flatMap(\.panes).flatMap { model in
-                    model.tabs.filter { $0.conversation != nil && !ProvisionalTab.isProvisional($0.id) }.map { ($0, model) }
+                    model.tabs.filter { $0.conversation != nil && !ProvisionalTab.isProvisional($0.id) }.map { (tab: $0, pane: model) }
                 }
             }
             @MainActor func describe() -> String {
