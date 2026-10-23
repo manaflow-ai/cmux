@@ -1067,6 +1067,7 @@ impl Hub {
                     host_seq: None,
                 }),
                 remote: None,
+                update_line: Default::default(),
             });
             // After the last write of its record (`meta_writer.rs`), off the executor: the
             // delete removes the session's folder.
