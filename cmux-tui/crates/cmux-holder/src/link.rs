@@ -29,6 +29,10 @@ pub trait TerminalSink: Send + Sync {
     /// with). Output from `base` follows; a `base` before the next byte the
     /// sink expects means the bytes between are gone.
     fn prologue(&self, _base: u64, _bytes: &[u8]) {}
+    /// The holder refused to stream this terminal: it does not run the
+    /// channel an ATTACH named, or it could not take an ADOPT over. No
+    /// event comes for it any more.
+    fn refused(&self, _message: &str) {}
     /// Whether this sink acknowledges what it consumed itself, with
     /// [`HolderLink::ack`] (a sink that queues bytes for a slower reader).
     /// When false, the link acknowledges each byte as it delivers it.
