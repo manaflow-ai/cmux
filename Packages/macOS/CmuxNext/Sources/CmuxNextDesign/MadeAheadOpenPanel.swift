@@ -45,6 +45,9 @@ public final class MadeAheadOpenPanel {
     // mini with no open-panel service) would wait 10 s per ViewBridge endpoint, then die.
     // Checked when the check fires, not at schedule time: launch windows come before the loop runs.
     guard NSApp?.isRunning == true else { return .never }
+    // Only in a login session on the console: from SSH or a fleet worker whose account is not the console user,
+    // `NSOpenPanel()` blocks the main thread about 40 s on ViewBridge and comes back dead (2026-10-23).
+    guard sessionIsOnConsole() else { return .never }
     // In the background the person types elsewhere: nothing here waits on the main thread.
     // In front, the time since the last input event (kCGAnyInputEventType, ~0).
     let anyInput = CGEventType(rawValue: ~0) ?? .null
@@ -53,4 +56,12 @@ public final class MadeAheadOpenPanel {
     // RunLoop.current is unavailable in async code; this runs on the main actor.
     guard idle >= 1, RunLoop.main.currentMode == .default else { return .busy }
     return .ready
+}
+
+/// Whether this process's login session is the one on the console (`kCGSessionOnConsoleKey`, spelled out as
+/// `NotificationPreviews.screenIsLocked` spells its key). No session dictionary at all (no window server session)
+/// counts as off the console.
+@MainActor private func sessionIsOnConsole() -> Bool {
+    let session = CGSessionCopyCurrentDictionary() as? [String: Any]
+    return session?["kCGSSessionOnConsoleKey"] as? Bool ?? false
 }

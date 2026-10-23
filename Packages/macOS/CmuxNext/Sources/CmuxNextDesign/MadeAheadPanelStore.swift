@@ -1,4 +1,8 @@
 import CmuxNextWakeups
+import os
+
+/// Says when a made-ahead panel is dropped, so a silent loss of the made-ahead path shows in a bench's log.
+private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "openPanel")
 
 /// What ``MadeAheadOpenPanel`` does, over any ``ReusableOpenPanel``: keep one panel made ahead of the click, hand
 /// it out while it is free, and make it while the person is idle. The panel factory, the warm-up check and the
@@ -13,6 +17,12 @@ final class MadeAheadPanelStore<Panel: ReusableOpenPanel> {
 
     /// Whether a panel was made ahead of a click.
     var isMade: Bool { made != nil }
+    /// Whether the last panel made came back dead (no prompt: its view service never answered). No warm-up runs
+    /// again until a click makes a working panel: each `NSOpenPanel()` with no view service blocks the main
+    /// thread about 40 s (no GUI session, 2026-10-23).
+    private(set) var warmGaveUp = false
+    /// The dead panels dropped so far.
+    private(set) var droppedPanels = 0
     /// The warm-up checks run so far.
     private(set) var warmChecks = 0
     /// Whether a warm-up check is pending.
@@ -47,23 +57,33 @@ final class MadeAheadPanelStore<Panel: ReusableOpenPanel> {
     }
 
     /// Makes the panel once the person has paused: the first check 2 s from now, then one a second while busy,
-    /// ten at most.
+    /// ten at most. Nothing after a dead panel (``warmGaveUp``).
     func warmWhenIdle() {
-        guard made == nil, !timer.isScheduled else { return }
+        guard made == nil, !warmGaveUp, !timer.isScheduled else { return }
         check(after: .seconds(2), triesLeft: 10)
     }
 
-    /// Keeps `panel` for later clicks, unless its view service never answered (no prompt).
+    /// Keeps `panel` for later clicks, unless its view service never answered (no prompt): then the warm-up
+    /// gives up and the next click makes a new panel.
     private func keep(_ panel: Panel) {
-        guard let defaults = OpenPanelDefaults(of: panel) else { return }
+        guard let defaults = OpenPanelDefaults(of: panel) else {
+            warmGaveUp = true
+            droppedPanels += 1
+            let dropped = droppedPanels
+            logger.notice(
+                "made-ahead open panel dropped (no prompt, its view service never answered): \(dropped, privacy: .public) so far; no warm-up until a click makes a working panel"
+            )
+            return
+        }
         made = (panel, defaults)
+        warmGaveUp = false
     }
 
     private func check(after delay: Duration, triesLeft: Int) {
         timer.schedule(after: delay) { @MainActor [weak self] in
             guard let self else { return }
             warmChecks += 1
-            guard made == nil else { return }
+            guard made == nil, !warmGaveUp else { return }
             switch warmCheck() {
             case .never:
                 return
