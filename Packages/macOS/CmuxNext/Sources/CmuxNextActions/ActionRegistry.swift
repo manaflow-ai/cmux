@@ -149,16 +149,28 @@ public final class ActionRegistry {
         self.init(catalog: [])
     }
 
-    /// A registry seeded with `catalog`.
+    /// A registry seeded with `catalog` whose runs are not timed (``NoActionRunTiming``): a
+    /// test's registry writes no signposts and adds no run-loop observer.
+    ///
+    /// A separate symbol, not a default argument of ``init(catalog:aliases:runTiming:)``: objects
+    /// compiled before the timing was injected call this one (warm fleet build trees link them).
+    ///
+    /// - Parameters:
+    ///   - catalog: The descriptors.
+    ///   - aliases: Old ids folded into canonical ids.
+    public convenience init(catalog: [ActionDescriptor], aliases: [ActionID: ActionID] = [:]) {
+        self.init(catalog: catalog, aliases: aliases, runTiming: NoActionRunTiming())
+    }
+
+    /// A registry seeded with `catalog` whose runs `runTiming` times.
     ///
     /// - Parameters:
     ///   - catalog: The descriptors (``ActionCatalog/all`` in the App).
     ///   - aliases: Old ids folded into canonical ids.
     ///   - runTiming: Times every run that does work. The App passes ``SignpostActionRunTiming``
-    ///     at its composition root; the default, ``NoActionRunTiming``, records nothing, so a test's
-    ///     registry writes no signposts and adds no run-loop observer (tests pass a recorder).
+    ///     at its composition root; tests pass a recorder.
     public init(catalog: [ActionDescriptor], aliases: [ActionID: ActionID] = [:],
-                runTiming: any ActionRunTiming = NoActionRunTiming()) {
+                runTiming: any ActionRunTiming) {
         self.aliases = aliases
         self.runTiming = runTiming
         seed(catalog)
