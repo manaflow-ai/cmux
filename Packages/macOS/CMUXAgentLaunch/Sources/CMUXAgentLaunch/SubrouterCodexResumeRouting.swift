@@ -246,6 +246,46 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
         return providerEvidenceFromAssignments(in: tokens)
     }
 
+    /// The launch record a legacy Codex restore uses when its persisted shell
+    /// command proves Subrouter, or nil when it doesn't.
+    ///
+    /// The result is the canonical capture `codex -c model_provider=subrouter`
+    /// (plus an inline `CODEX_HOME`/`HOME` the command set), which the restore
+    /// planner resumes through the fixed `sr codex resume <id>` route. The
+    /// legacy command's own words, including any captured per-process
+    /// `model_providers.subrouter.*` endpoint and other options, are never
+    /// carried into the resume.
+    public func legacyRestoreLaunchCommand(
+        legacyCommand: String,
+        sessionID: String,
+        workingDirectory: String?
+    ) -> AgentLaunchCommand? {
+        let evidence: SubrouterCodexProviderEvidence
+        var environment: [String: String] = [:]
+        if let parsed = CodexLegacyRestoreCommand(command: legacyCommand, sessionID: sessionID) {
+            evidence = providerEvidence(in: parsed.arguments)
+            environment = parsed.environment
+        } else {
+            evidence = providerEvidence(inShellCommand: legacyCommand)
+        }
+        guard evidence == .provider("subrouter") else { return nil }
+        return AgentLaunchCommand(
+            launcher: "codex",
+            arguments: ["codex", "-c", "model_provider=subrouter"],
+            workingDirectory: workingDirectory,
+            environment: environment.isEmpty ? nil : environment,
+            source: "legacy-command"
+        )
+    }
+
+    /// Whether a legacy command names Subrouter at all, even if it can't be
+    /// parsed. Such a command must not be replayed: its captured route points
+    /// at a provider process that no longer exists.
+    public func legacyCommandMentionsSubrouter(_ legacyCommand: String) -> Bool {
+        let lowered = legacyCommand.lowercased()
+        return lowered.contains("model_provider") && lowered.contains("subrouter")
+    }
+
     /// Splits a legacy persisted command into words the way a POSIX shell
     /// would for literal text, or returns nil for anything that is not
     /// literal: operators `; & | < > ( )`, `$` and backquote expansion, globs
