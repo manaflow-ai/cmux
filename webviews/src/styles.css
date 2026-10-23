@@ -1511,8 +1511,8 @@ body[data-loading="true"] #status::before {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   padding: 0;
   border: 0;
   border-radius: 5px;
@@ -1526,8 +1526,8 @@ body[data-loading="true"] #status::before {
 }
 .file-review-revert svg,
 .diff-hunk-action-icon svg {
+  /* The viewBox sets the height. */
   width: 16px;
-  height: 16px;
   fill: none;
   stroke: currentcolor;
   stroke-width: 1.5;
@@ -1542,8 +1542,6 @@ body[data-loading="true"] #status::before {
   position: absolute;
   display: flex;
   align-items: center;
-  gap: 2px;
-  padding: 2px;
   border-radius: 7px;
   /* The cmux NEXT chrome (#23154): a hairline rim and the files panel's lift, opaque over code. */
   background: color-mix(in srgb, var(--cmux-diff-fg) 4%, var(--cmux-diff-files-bg));
@@ -1559,7 +1557,6 @@ body[data-loading="true"] #status::before {
 .diff-hunk-actions {
   right: 12px;
   z-index: var(--layer-overlay);
-  gap: 0;
   border-radius: 999px;
   transform: translateY(-50%);
 }
@@ -1579,7 +1576,7 @@ body[data-loading="true"] #status::before {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  height: 22px;
+  height: 24px;
   padding: 0 8px;
   border: 0;
   border-radius: 5px;
@@ -1590,8 +1587,8 @@ body[data-loading="true"] #status::before {
   cursor: pointer;
 }
 .diff-bulk-action {
-  height: 26px;
-  padding: 0 10px;
+  height: 28px;
+  padding: 0 12px;
 }
 .diff-hunk-action {
   justify-content: center;
@@ -2453,7 +2450,7 @@ button.file-header-open:focus-visible {
 /* Inline previews (InlinePreview.tsx): an image file's two sides, or Markdown rendered, in place of
    its diff (the line annotation of the file's one-line item). */
 .inline-preview {
-  padding: 16px 24px 20px;
+  padding: 16px 24px 24px;
   font-family: var(--cmux-diff-ui-font-family);
   color: var(--cmux-diff-fg);
   white-space: normal;
@@ -2497,7 +2494,7 @@ button.file-header-open:focus-visible {
 }
 .rich-preview-markdown pre {
   overflow: auto;
-  padding: 12px 14px;
+  padding: 12px 16px;
   border-radius: 8px;
   background: color-mix(in lab, var(--cmux-diff-fg) 6%, transparent);
 }
@@ -2514,7 +2511,7 @@ button.file-header-open:focus-visible {
   border-collapse: collapse;
 }
 .rich-preview-markdown :is(th, td) {
-  padding: 6px 12px;
+  padding: 8px 12px;
   border: 1px solid var(--cmux-diff-border);
 }
 .rich-preview-markdown .md-link {

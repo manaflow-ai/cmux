@@ -35,9 +35,11 @@ struct DiffLastTurnTests {
     nonisolated final class PatchSidecar: DiffSidecarRunning, @unchecked Sendable {
         func run(_ request: Data) async throws -> Data {
             let body = try JSONValue.parse(request)
-            let reply: JSONValue = ["id": body["id"] ?? .null, "version": 1, "result": [
+            let id: JSONValue = body["id"] ?? .null
+            let source: JSONValue = body["params"]?["source"] ?? .null
+            let reply: JSONValue = ["id": id, "version": 1, "result": [
                 "type": "sessionOpened",
-                "value": ["sessionId": "11111111-2222-3333-4444-555555555555", "source": body["params"]?["source"] ?? .null,
+                "value": ["sessionId": "11111111-2222-3333-4444-555555555555", "source": source,
                           "patch": ["id": "cmux-page://cmux.diff/__patch/t/turn.patch", "mediaType": "text/x-diff", "revision": 1],
                           "generatedPaths": []],
             ]]
