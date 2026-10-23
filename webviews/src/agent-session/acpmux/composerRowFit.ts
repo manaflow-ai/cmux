@@ -227,10 +227,31 @@ export function useRowFit(bar: RefObject<HTMLElement | null>, row?: unknown): vo
     const fit = () => show(element, rowStep(element));
     fit();
     // The row's own width (the pane), and a chip's (a new model or mode name, a chip that comes or goes).
+    // The row's own items too, through `display: contents` wrappers (the quiet row's `.acpmux-chips`,
+    // whose box a ResizeObserver never reports): a label that sets wider without the row resizing (a
+    // font that loads late, Linux's wider metrics) runs the fit again, so the row never keeps a form
+    // it no longer has room for (narrow-layouts `new-tab-wide-type`). The fit's own form changes
+    // resize them as well; the next pass computes the same step (fitStep's LABELS_BACK keeps it from
+    // flipping), so it settles. An item that leaves the row stops being observed; `disconnect` below
+    // ends the rest.
     const resize = new ResizeObserver(fit);
     resize.observe(element);
+    const watched = new Set<Element>();
     const watchChips = () => {
-      for (const chip of element.querySelectorAll(".acpmux-chips, .acpmux-composer-actions")) resize.observe(chip);
+      const now = new Set<Element>([
+        ...element.querySelectorAll(".acpmux-chips, .acpmux-composer-actions"),
+        ...items(element),
+      ]);
+      for (const old of watched)
+        if (!now.has(old)) {
+          resize.unobserve(old);
+          watched.delete(old);
+        }
+      for (const item of now)
+        if (!watched.has(item)) {
+          resize.observe(item);
+          watched.add(item);
+        }
     };
     watchChips();
     const mutation = new MutationObserver(() => {
