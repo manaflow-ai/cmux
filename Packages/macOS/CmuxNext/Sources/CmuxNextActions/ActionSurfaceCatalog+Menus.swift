@@ -36,6 +36,8 @@ nonisolated extension ActionSurfaceCatalog {
         "palette.closeWorkspacesAbove": [p(.workspaceRow, .close, 503, folder: .close)],
         "workspace.closeAll": [p(.workspaceRow, .close, 505, folder: .close)],
         "palette.toggleWorkspacePin": [p(.workspaceRow, .identity, 110)],
+        // In More: the row menu keeps 12 top-level rows (ContextMenuEssentialsTests).
+        "workspace.toggleArchive": [p(.workspaceRow, .identity, 113)],
         "workspace.toggleTop": [p(.workspaceRow, .move, 206, folder: .move)],
         "palette.markWorkspaceRead": [p(.workspaceRow, .identity, 111, folder: .options)],
         "palette.markWorkspaceUnread": [p(.workspaceRow, .identity, 112, folder: .options)],
@@ -58,6 +60,7 @@ nonisolated extension ActionSurfaceCatalog {
         "workspaceGroup.newSubgroup": [p(.workspaceGroup, .identity, 109, folder: .options)],
         "workspaceGroup.rename": [p(.workspaceGroup, .identity, 1)],
         "workspaceGroup.togglePin": [p(.workspaceGroup, .identity, 3)],
+        "workspaceGroup.toggleArchive": [p(.workspaceGroup, .identity, 108, folder: .options)],
         "workspaceGroup.markRead": [p(.workspaceGroup, .identity, 110, folder: .options)],
         "workspaceGroup.markUnread": [p(.workspaceGroup, .identity, 111, folder: .options)],
         "workspaceGroup.clearNotifications": [p(.workspaceGroup, .identity, 112, folder: .options)],

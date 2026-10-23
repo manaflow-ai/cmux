@@ -114,6 +114,8 @@ enum SidebarStyle {
     }
     /// How much of the header's ink the member count takes: lighter than the name.
     static let groupHeaderCountInkAlpha: CGFloat = 0.7
+    /// An archived row's ink, icon and group bar (plans/cmux-next/archiving-DESIGN.md): dimmed, still legible.
+    static let archivedAlpha: CGFloat = 0.45
     /// The members' line: 2 pt, as Chrome's (Leo 2026-10-19), at every density.
     static var groupBarWidth: CGFloat { Metrics.space1 }
     static var groupBarX: CGFloat { (Metrics.sidebarRowHeight * 0.12).rounded() }
