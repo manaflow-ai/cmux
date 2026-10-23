@@ -210,6 +210,17 @@ class App:
             return False
         if not wait(up, 180, step=0.25):
             log.flush()
+            if self.process.poll() is None:
+                # Why: the main thread's stack while the socket is missing.
+                stuck = os.path.join(OUT, "sample-launch.txt")
+                subprocess.run(["/usr/bin/sample", str(self.process.pid), "3", "-file", stuck], capture_output=True, timeout=90)
+                try:
+                    graph = open(stuck, errors="replace").read().split("Call graph:", 1)[-1].splitlines()
+                    note("== main thread while the socket is missing\n" + "\n".join(l[:220] for l in graph[:90]))
+                except OSError:
+                    pass
+            note(f"every-action: env {sorted(env)}; /tmp sockets {glob.glob('/tmp/cmux-debug-*.sock')[:10]}; "
+                 f"state sockets {glob.glob(os.path.expanduser('~/.local/state/cmux/*.sock'))[:10]}")
             tail = open(os.path.join(OUT, "app.log"), errors="replace").read()[-4000:]
             raise SystemExit(f"every-action: the tagged app did not come up (exit={self.process.poll()}, sockets "
                              f"{[(p, os.path.exists(p)) for p in SOCKETS]}, debug.windows={rpc('debug.windows')})\n{tail}")
