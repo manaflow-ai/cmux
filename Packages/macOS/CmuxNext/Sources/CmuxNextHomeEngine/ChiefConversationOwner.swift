@@ -119,6 +119,8 @@ public final class ChiefConversationOwner {
                 await connection.close()
                 return
             }
+            // It answered as current: a refusal from an earlier try no longer holds while it gets ready below.
+            self.noteHandshakeAccepted()
             // Before anything uses the connection: an owner without this home's key (DEV only) restarts once while
             // idle; a busy one (a Chief turn, an open `cmux chief` chat, another app or page) on a later owner event.
             let restart = await Self.restartIfUnverified(home: self.home, launcher: launcher, connection: connection,
@@ -163,6 +165,11 @@ public final class ChiefConversationOwner {
         lastError = error.description
         // A retry that times out after a refusal says nothing new about the build.
         if let refused = DaemonCompatibility(refusal: error) { refusal = refused }
+    }
+
+    /// The handshake succeeded: the owner's build is current, whatever an earlier try said.
+    func noteHandshakeAccepted() {
+        refusal = nil
     }
 
     private func attach(_ connection: DaemonConnection, identity: DaemonIdentity) {

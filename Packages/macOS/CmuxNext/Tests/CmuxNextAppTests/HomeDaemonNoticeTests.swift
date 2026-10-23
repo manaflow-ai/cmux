@@ -40,6 +40,19 @@ struct HomeDaemonNoticeTests {
         #expect(shownAfterRetry, "a timeout after the refusal hid the notice: \(Self.labels(view))")
     }
 
+    @Test func aSuccessfulHandshakeAfterARefusalTakesTheNoticeDown() async {
+        let (services, view) = Self.home()
+        services.home.chief.noteFailure(.missingCapabilities([DaemonCapabilities.shared.localConversations]))
+        let shownOnRefusal = await Self.wait { Self.showsUnavailable(view) }
+        #expect(shownOnRefusal, "the too-old notice never showed after a refusal: \(Self.labels(view))")
+        // A newer owner answers; it gets ready (restart check, prepare) before it attaches.
+        services.home.chief.noteHandshakeAccepted()
+        let refusedAfterAnswer = services.home.isRefused
+        #expect(!refusedAfterAnswer, "the old refusal outlived a successful handshake")
+        let hiddenAfterAnswer = await Self.wait { !Self.showsUnavailable(view) }
+        #expect(hiddenAfterAnswer, "the too-old notice stayed up after the owner answered: \(Self.labels(view))")
+    }
+
     // MARK: Fixtures
 
     static func home() -> (AppServices, HomeHostView) {
