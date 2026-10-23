@@ -124,7 +124,7 @@ enum DebugKey {
         TerminalKeyEquivalent.trace = { trace.append($0) }
         defer { services.keyRouter.trace = nil; TerminalKeyEquivalent.trace = nil }
         // As in AppKit's dispatch, the menu gate sees this key as the current event.
-        let (handledBy, action) = services.keyRouter.dispatchingSynthetic(event) { () -> (String, JSONValue) in
+        let (handledBy, action) = DebugInputCommit.dispatching(event, in: shell) { services.keyRouter.dispatchingSynthetic(event) { () -> (String, JSONValue) in
             if services.keyRouter.interceptKeyDown(event, in: window) {
                 return ("app", services.keyRouter.lastInterception.map { verdict($0)["action"] ?? .null } ?? .null)
             } else if isChord, window.performKeyEquivalent(with: event) {
@@ -147,7 +147,7 @@ enum DebugKey {
             // typing probe writes its row at the frame that commits the edit, not at a terminal echo.
             if params["probe"]?.stringValue == "commit" { TypingLatencyProbe.shared.closeAtCommit() }
             return (window !== shell ? "page" : "responder", .null)
-        }
+        } }
         if params["target"]?.stringValue == "palette" {
             // The palette's own report: open or closed, its page, a refusal
             // notice, and key-downs that reached the system beep.
