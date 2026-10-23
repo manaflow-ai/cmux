@@ -128,6 +128,37 @@ struct CreateOnPendingStandInTests {
         #expect(store.mirrorViolations.isEmpty)
     }
 
+    /// New Column, then Split Left on its stand-in right away (review 2 of PL-motion-core): Split
+    /// Left is a reply-path create, with no intent in the log that names the stand-in. The
+    /// column's reply settles in the same lift that brings its daemon pane: the stand-in stays
+    /// known for the waiting split, which names the daemon pane, never `CreateTargetGone`.
+    @Test func aReplyPathCreateFindsTheDaemonPaneWhenItsStandInSettlesInTheSameLift() async throws {
+        let store = Self.store()
+        let column = ProvisionalPane(columnWidth: 0.5, treeWidth: 0.5)
+        let transaction = ClientTransactionID.generate()
+        store.intend(.splitPane(pane: Self.pane, direction: .right, ratio: 0.5, provisional: column), transaction: transaction)
+
+        // Split Left's send on the stand-in: no intent of its own.
+        let target = Task { try await store.daemonTarget(for: column.handle) }
+        await Task.yield()
+        #expect(store.standInWaiters.count == 1, "the split's send did not wait for the column's daemon pane")
+
+        // The column's reply settles it with the next snapshot, which also brings its pane.
+        store.noteSettledAtNextSnapshot(transaction)
+        let columnPane = PaneID(rawValue: 9)
+        var tree = Self.base
+        tree.screens[0].layout = .split(id: nil, resourceID: nil, direction: .right, ratio: 0.5,
+                                        a: .leaf(Self.pane), b: .leaf(columnPane))
+        tree.screens[0].columns = [ColumnSnapshot(id: ColumnID(rawValue: 1), width: 0.5, layout: .leaf(Self.pane)),
+                                   ColumnSnapshot(id: ColumnID(rawValue: 2), width: 0.5, layout: .leaf(columnPane))]
+        tree.screens[0].panes.append(PaneSnapshot(id: columnPane, resourceID: ResourceID(rawValue: column.paneID),
+                                                  tabs: [TabSnapshot(surface: SurfaceID(rawValue: 7))]))
+        store.apply(snapshot: DaemonTree(workspaceRevision: 2, workspaces: [tree]))
+        #expect(!store.intentLog.contains(transaction), "the column's create did not settle in the snapshot's lift")
+        #expect(try await target.value == columnPane, "the split was refused although the column's daemon pane exists")
+        #expect(store.mirrorViolations.isEmpty)
+    }
+
     /// A stand-in the store does not know (never intended, or long gone) is refused, never sent.
     @Test func aCreateOnAnUnknownStandInIsRefused() async {
         let store = Self.store()
