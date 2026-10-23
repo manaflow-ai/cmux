@@ -171,4 +171,17 @@ struct ChiefTileDragOutTests {
                 beside ? "a band release beside the sidebar, sent to another window, kept the Chief" : "a band release over the sidebar removed the Chief")
         #expect(!h.dragging, "the band's drag stayed alive after its release went to another window")
     }
+
+    /// The sidebar leaves its window mid-drag (the window closes, the band is rebuilt): the band's release monitor goes
+    /// with it, so no later release in the app reaches a drag nothing shows.
+    @Test func aBandDragsMonitorGoesWhenTheSidebarLeavesItsWindow() throws {
+        defer { Motion.reduceMotionOverride = nil }
+        let h = Harness(document: false)
+        defer { h.window.orderOut(nil) }
+        _ = try h.dragChiefOut()
+        let drag = try #require(h.region?.reorder, "the band holds no drag")
+        try #require(drag.pointerEnd != nil, "the band's drag watches no release")
+        h.sidebar.removeFromSuperview()
+        #expect(drag.pointerEnd == nil, "the band's release monitor outlived its window")
+    }
 }
