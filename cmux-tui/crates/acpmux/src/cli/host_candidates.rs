@@ -68,9 +68,15 @@ fn peer_for(node: &Node, peers: &[Value]) -> Option<(String, String)> {
         names.into_iter().filter(|n| !n.is_empty()).map(|n| n.to_ascii_lowercase()).collect();
     peers.iter().find_map(|p| {
         let url = p.get("url").and_then(Value::as_str)?;
+        let target = crate::peer::ssh_target(url).ok()?;
         let host = url_host(url)?;
         names.contains(&host).then(|| {
-            (p.get("name").and_then(Value::as_str).unwrap_or("").to_owned(), url.to_owned())
+            let canonical = if target.port == crate::peer::SSH_PEER_PORT {
+                format!("ssh://{}", target.destination)
+            } else {
+                format!("ssh://{}:{}", target.destination, target.port)
+            };
+            (p.get("name").and_then(Value::as_str).unwrap_or("").to_owned(), canonical)
         })
     })
 }
@@ -264,6 +270,16 @@ mod tests {
         assert_eq!(line["peer_url"], "ssh://100.64.0.3:47812");
         assert_eq!(list[2].peer, None);
         assert!(serde_json::to_value(&list[2]).unwrap().get("peer_url").is_none());
+        // Only ssh peers can use the Add Machine peer path; websocket URLs stay out of the
+        // already-peer marker and never carry arbitrary query text into candidate JSON.
+        let list = candidates(
+            &status(),
+            &[
+                json!({"name": "web", "url": "ws://huge-blue.tail9.ts.net:47811?token=secret"}),
+                json!({"name": "bad", "url": "ssh://huge-blue.tail9.ts.net:47812?token=secret"}),
+            ],
+        );
+        assert!(!list[1].already_peer && list[1].peer_url.is_none());
         // A short-name peer URL matches too.
         let list = candidates(&status(), &[json!({"name": "p", "url": "ssh://phone"})]);
         assert_eq!(list[2].peer.as_deref(), Some("p"));
