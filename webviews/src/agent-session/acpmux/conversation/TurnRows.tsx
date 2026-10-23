@@ -13,11 +13,11 @@ import { ToolGroupRow } from "./ToolGroupRow";
 import { ToolRow } from "./ToolRow";
 import { ToolRun } from "./ToolRun";
 import { ThoughtRow } from "./ThoughtRow";
-import { toolGroups, type ToolGroup } from "./toolGroups";
-import { isFoldedRun, toolRunCategory } from "./toolRunSummary";
+import { awaitsPermission, toolGroups, type ToolGroup } from "./toolGroups";
+import { isFoldedRun } from "./toolRunSummary";
 import { TurnActionsContext } from "./turnActions";
 import { footerLabel, isEmptyFooter, workedLabel } from "./turns";
-import { ChevronRight, Retry } from "./icons";
+import { ArrowRight, ChevronRight, Retry } from "./icons";
 import {
   ForkButton,
   MessageCopy,
@@ -125,8 +125,8 @@ function groupNode(
 /// Codex-style runs (Debug toggle `agentPane.debug.codexToolRuns`, on by default) fold a finished
 /// run (`foldRun`) of two or more entries under one summary line (toolRunSummary.ts: "Read 6 files,
 /// ran 4 commands"), and a run that is one group under that group's closed line ("Ran 3 commands"),
-/// so finished work is one click away between the paragraphs; coordination cards and edits stay in
-/// sight between such lines (`runStretches`). Off, each group and call keeps its own line.
+/// so finished work is one click away between the paragraphs; coordination cards stay in sight
+/// between such lines (`runStretches`). Off, each group and call keeps its own line.
 /// Whether the whole run folds under one summary line.
 export function shouldFoldToolRun(row: AcpmuxRow, groups: readonly ToolGroup[]): boolean {
   const stretches = runStretches(row, groups);
@@ -134,9 +134,9 @@ export function shouldFoldToolRun(row: AcpmuxRow, groups: readonly ToolGroup[]):
 }
 
 /// A folded run's entries in stretches: a coordination card (a message, a sub-session started,
-/// messaged or waited on) and an edit stay in sight, each its own stretch, and the work between
-/// them folds under its own summary line ("Read 6 files, ran 4 commands") once it holds two calls
-/// in more than one entry, so one card or edit never leaves the whole run spread out as a list
+/// messaged or waited on) stays in sight, its own stretch, and the work between cards folds under
+/// its own summary line ("Edited a file, read 6 files, ran 4 commands") once it holds two calls in
+/// more than one entry, so one card never leaves the whole run spread out as a list
 /// (Leo 2026-10-21: "it can consolidate a ton of these tool calls"). A run that is not folded
 /// (`foldRun`, the Codex-style runs) is one stretch that folds nothing.
 export type RunStretch = { from: number; groups: ToolGroup[]; items: AcpmuxActivity[]; fold: boolean };
@@ -177,12 +177,15 @@ export function thoughtIds(groups: readonly ToolGroup[]): number[] {
   });
 }
 
-/// An entry a folded run keeps in sight beside its summary lines: a coordination card or an edit.
+/// An entry a folded run keeps in sight beside its summary lines: a coordination card, or a file
+/// change still waiting for its permission (toolGroups.ts `awaitsPermission`). Other edits fold with
+/// the rest of the work and the line names them (Leo 2026-10-22: "this is pretty good ui: … the
+/// collapsing i mean"); the turn's edited-files card lists them once it ends.
 function staysInSight(group: ToolGroup): boolean {
   if (group.type === "message" || group.type === "subsession") return true;
-  if (group.type === "group") return group.kind === "edits";
-  if (group.type === "item") return toolRunCategory(group.item.tool?.kind) === "edited" && Boolean(group.item.tool);
-  return false;
+  // A pending change draws as its own item (toolGroups.ts `toolGroupKind`); any entry holding one
+  // stays in sight all the same.
+  return ("items" in group ? group.items : [group.item]).some((item) => awaitsPermission(item.tool));
 }
 
 export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: string }) {
@@ -234,7 +237,7 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
 /// count here first.
 export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const t = useT();
-  const { fork, forkSeq, forkAny, retry, retryWith, reauthenticate, route, switchModel } =
+  const { fork, forkSeq, forkAny, retry, retryWith, reauthenticate, resume, route, switchModel } =
     useContext(TurnActionsContext);
   const text = row.text;
   const prompt = row.prompt;
@@ -244,6 +247,13 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   // Only the CLI's own login (or an unexplained 401 on a direct route) asks to sign in (cx-w10a).
   const authenticationFailed = kind === "subscription-login" || kind === "auth";
   const label = footerLabel(t, row);
+  // The last turn, stopped and not yet followed by a prompt, offers Continue (Codex's): it sends the
+  // continue prompt as the composer would, and the button goes once that prompt shows (turns.ts).
+  const resumable = row.resumable === true && resume !== undefined;
+  // One click sends one prompt: the button stays disabled while the send is in flight (its pending
+  // prompt row takes the button away first). A chat without the action (View Only, disconnected)
+  // draws no Continue, so its footer is empty or not as it would be without one.
+  const [resuming, setResuming] = useState(false);
   // A failure reads as the turn's answer does: its own block above the footer row, never squeezed
   // into it (Codex, Claude desktop). The row is one quiet line under the answer's left edge; it
   // shows on hover or keyboard focus, and always for a failed turn (VirtualTranscript marks the
@@ -255,12 +265,28 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
         className={
           failed
             ? "cv-turn-actions cv-turn-actions--failed"
-            : isEmptyFooter(row)
-              ? "cv-turn-actions cv-turn-actions--empty"
-              : "cv-turn-actions"
+            : resumable
+              ? "cv-turn-actions cv-turn-actions--resumable"
+              : isEmptyFooter(row.resumable ? { ...row, resumable: undefined } : row)
+                ? "cv-turn-actions cv-turn-actions--empty"
+                : "cv-turn-actions"
         }
       >
         {label && <span className="cv-turn-summary">{label}</span>}
+        {resumable && (
+          <button
+            type="button"
+            className="cv-iconbtn cv-turn-continue"
+            disabled={resuming}
+            onClick={() => {
+              setResuming(true);
+              void resume().finally(() => setResuming(false));
+            }}
+          >
+            {t("turn.continue")}
+            <ArrowRight size={ROW_ICON} aria-hidden="true" />
+          </button>
+        )}
         <span className="cv-turn-action-group">
           {text && <MessageCopy text={text} />}
           {failed && retry && prompt && (
