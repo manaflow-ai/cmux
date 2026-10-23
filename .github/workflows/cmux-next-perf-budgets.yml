@@ -29,6 +29,12 @@ name: cmux-next perf cron
 # perf counter gate (scripts/cmux-next/perf-gate.py) and launch time.
 # CMUX_NEXT_PERF_CRON_YIELD=running (repository variable) also yields while a nightly or dev build
 # runs, not only while one waits.
+#
+# The measure job runs only on its own gateway label, vars.CI_PERF_CRON_GATEWAY, never the required
+# compile's CI_COMPILE_CHECK_GATEWAY: a gateway job holds its runner for the whole part (up to 35
+# minutes), and on 2026-10-22 an advisory gateway job held 13 of the 19 runners serving that pool while
+# 71 required app compiles queued (fleet-test-compile.yml). Unset, the plan picks no Mac part (only the
+# Linux one) and the measure job is skipped.
 
 on:
   workflow_dispatch:
@@ -80,12 +86,15 @@ jobs:
         id: plan
         env:
           GH_TOKEN: ${{ github.token }}
+          MAC_GATEWAY: ${{ vars.CI_PERF_CRON_GATEWAY }}
         run: |
           set -euo pipefail
           dir="$RUNNER_TEMP/perf-cron"
+          no_mac=()
+          [ -n "$MAC_GATEWAY" ] || no_mac=(--no-mac)
           python3 -I scripts/cmux-next/perf-cron.py fetch-state --repo "$GITHUB_REPOSITORY" --dir "$dir"
           python3 -I scripts/cmux-next/perf-cron.py plan --repo "$GITHUB_REPOSITORY" --dir "$dir" \
-            --yield-mode "$YIELD_MODE" --output "$GITHUB_OUTPUT" | tee "$RUNNER_TEMP/plan.log"
+            --yield-mode "$YIELD_MODE" ${no_mac[@]+"${no_mac[@]}"} --output "$GITHUB_OUTPUT" | tee "$RUNNER_TEMP/plan.log"
           { echo "### perf cron plan"; echo; sed -n 's/^perf-cron plan: //p' "$RUNNER_TEMP/plan.log"; } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Keep the working state for the report
@@ -99,8 +108,9 @@ jobs:
   measure:
     name: perf cron part (fleet, background)
     needs: plan
-    if: ${{ needs.plan.outputs.part != '' && (vars.CI_PERF_CRON_GATEWAY != '' || vars.CI_COMPILE_CHECK_GATEWAY != '') }}
-    runs-on: ${{ vars.CI_PERF_CRON_GATEWAY || vars.CI_COMPILE_CHECK_GATEWAY }}
+    # Its own gateway label only (see the top of this file); unset, this job is skipped.
+    if: ${{ needs.plan.outputs.part != '' && vars.CI_PERF_CRON_GATEWAY != '' }}
+    runs-on: ${{ vars.CI_PERF_CRON_GATEWAY }}
     permissions:
       contents: read
     # One part: up to 5 minutes in the queue and 15 running (the build 20), plus the checks and the artifact.

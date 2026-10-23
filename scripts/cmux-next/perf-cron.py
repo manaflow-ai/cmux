@@ -11,9 +11,11 @@ runs on a cron instead, only on idle fleet capacity, behind every nightly and de
                     published (a fleet build needs it) when it is newer than the last measured one (commits
                     in between are skipped), else one bisect step of an open regression. Skips while a
                     nightly or dev build waits for a Mac on GitHub.
-  measure (gateway) skips unless the bench host is idle and no dev build waits in the controller queue, then
+  measure (gateway) runs only on its own runner label (vars.CI_PERF_CRON_GATEWAY; unset: no Mac part is planned),
+                    skips unless the bench host is idle and no dev build waits in the controller queue, then
                     runs ONE part (at most 15 minutes, the build included) as a background (lowest priority)
-                    measurement step on the bench host, and cancels it when another job queues for that host.
+                    measurement step on the bench host, and cancels it when a foreground job queues that the
+                    host could run (its labels, its name, or a target worker).
   report (Linux)    stores the part; after the last part compares every row with the last good run, and opens,
                     updates or closes the one issue "cmux-next perf regression". No check fails on a
                     regression; a missing measurement for 24 h is noted in the issue.
@@ -32,6 +34,12 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
 SCHEMA = 1
 STATE_ARTIFACT = "perf-cron-state"
+# The only runs whose state artifact the cron trusts: this workflow, on this branch, in this repository (a fork
+# pull request or a run on any other branch can upload an artifact of the same name).
+STATE_WORKFLOW = ".github/workflows/cmux-next-perf-budgets.yml"
+STATE_BRANCH = "feat-cmux-next"
+STATE_EVENTS = ("workflow_dispatch", "schedule", "push")
+SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 ISSUE_TITLE = "cmux-next perf regression"
 ISSUE_MARK = "<!-- cmux-next-perf-cron -->"
 BENCH_WORKER = "cmux20-bench"
@@ -128,8 +136,71 @@ def animation_budgets(budgets_mod):
 
 
 def empty_state(t):
-    return {"schema": SCHEMA, "created_at": iso(t), "current": None, "last": None, "last_good": None,
-            "first_bad": None, "range": None, "regressions": [], "issue": None, "stale_noted_for": None, "history": []}
+    """last: the newest finished tip measurement that re-measured every open regression (the stale clock).
+    last_tried: the newest tip measurement that finished at all (the new-commit search starts after it, so a commit
+    that does not build is not rebuilt every tick). row_ok: per row, the newest tip measurement in which it was
+    measured and within its threshold (a row that regresses later gets its own culprit range from there). Each
+    regression carries its own range {good, bad, skip, steps} and first_bad."""
+    return {"schema": SCHEMA, "created_at": iso(t), "current": None, "last": None, "last_tried": None, "last_good": None,
+            "row_ok": {}, "regressions": [], "issue": None, "stale_noted_for": None, "history": []}
+
+
+def is_sha(value):
+    return isinstance(value, str) and bool(SHA_RE.match(value))
+
+
+def migrate_state(state):
+    """States before 2026-10-23 kept one first_bad and range for every regressed row; each row now has its own."""
+    rng, bad = state.pop("range", None), state.pop("first_bad", None)
+    for r in state.get("regressions") or []:
+        if isinstance(r, dict) and "range" not in r and isinstance(rng, dict):
+            r["range"] = {"good": rng.get("good"), "bad": rng.get("bad"), "skip": [], "steps": 0}
+            r["first_bad"] = bad
+    state.setdefault("row_ok", {})
+    state.setdefault("last_tried", None)
+    return state
+
+
+def sanitize_state(state, ok):
+    """Drop every part of the state that names a commit `ok(sha)` rejects (not 40 hex characters, or not on the
+    measured branch), and unknown part names: a sha from the state goes to `git rev-list` and to `cmux-ci run
+    --ref` on the bench host. Returns what was dropped."""
+    dropped = []
+    cur = state.get("current")
+    if cur is not None:
+        rng = cur.get("bisect_range") if isinstance(cur, dict) else None
+        if (not isinstance(cur, dict) or not ok(cur.get("sha")) or cur.get("kind") not in ("tip", "bisect")
+                or (cur.get("kind") == "bisect" and not (isinstance(rng, dict) and ok(rng.get("good")) and ok(rng.get("bad"))))):
+            state["current"] = None
+            dropped.append("current")
+        else:
+            cur["parts_todo"] = [p for p in cur.get("parts_todo") or [] if p in PART_BY_NAME]
+            cur["parts"] = {k: v for k, v in (cur.get("parts") or {}).items() if k in PART_BY_NAME and isinstance(v, dict)}
+    for key in ("last", "last_tried", "last_good"):
+        v = state.get(key)
+        if v is not None and not (isinstance(v, dict) and ok(v.get("sha"))):
+            state[key] = None
+            dropped.append(key)
+    regs = []
+    for r in state.get("regressions") or []:
+        rng = r.get("range") if isinstance(r, dict) else None
+        valid = isinstance(r, dict) and isinstance(r.get("name"), str) and (rng is None or (
+            isinstance(rng, dict) and ok(rng.get("good")) and ok(rng.get("bad")) and all(ok(x) for x in rng.get("skip") or [])))
+        if valid and isinstance(r.get("first_bad"), dict) and not ok(r["first_bad"].get("sha")):
+            valid = False
+        if valid:
+            regs.append(r)
+        else:
+            dropped.append(f"regression {r.get('name') if isinstance(r, dict) else r!r}")
+    state["regressions"] = regs
+    row_ok = state.get("row_ok") if isinstance(state.get("row_ok"), dict) else {}
+    state["row_ok"] = {k: v for k, v in row_ok.items() if isinstance(k, str) and ok(v)}
+    if len(state["row_ok"]) != len(row_ok):
+        dropped.append(f"{len(row_ok) - len(state['row_ok'])} row_ok entries")
+    if state.get("issue") is not None and not (isinstance(state["issue"], int) and state["issue"] > 0):
+        state["issue"] = None
+        dropped.append("issue")
+    return dropped
 
 
 def part_for_row(name):
@@ -192,8 +263,15 @@ def rows_of_part(part, report, budgets_mod, budgets):
     elif part["kind"] == "launch":
         for _tag, modes in report.items():
             for mode, runs in (modes or {}).items() if isinstance(modes, dict) else []:
+                runs = runs if isinstance(runs, list) else []
                 for mark, budget in LAUNCH_BUDGETS.items():
-                    values = [r[mark] for r in runs or [] if isinstance(r, dict) and isinstance(r.get(mark), (int, float))]
+                    values = [r[mark] for r in runs if isinstance(r, dict) and isinstance(r.get(mark), (int, float))]
+                    if runs:
+                        # A launch that hangs never sends the mark: the old CI budget failed on that, so it is a
+                        # row of its own (target 0), and a run with no marks at all misses every one.
+                        missing = len(runs) - len(values)
+                        out[f"launch.{mode}.{mark}.missing_runs"] = {"p50": missing, "p95": missing, "unit": "runs",
+                                                                     "budget": 0, "floor": 0.5}
                     if values:
                         p50, p95 = budgets_mod.pct(values, 0.5), budgets_mod.pct(values, 0.95)
                         out[f"launch.{mode}.{mark}"] = {"p50": round(p50, 1), "p95": round(p95, 1), "unit": "ms",
@@ -286,8 +364,11 @@ def find_regressions(rows, base_rows, refresh_ms, base_refresh_ms, budgets_mod):
 
 # ---------- plan (pure parts) ----------
 
-def new_measurement(sha, kind, parts, t):
-    return {"sha": sha, "kind": kind, "started_at": iso(t), "parts_todo": list(parts), "parts": {}}
+def new_measurement(sha, kind, parts, t, bisect_range=None):
+    m = {"sha": sha, "kind": kind, "started_at": iso(t), "parts_todo": list(parts), "parts": {}}
+    if bisect_range:
+        m["bisect_range"] = {"good": bisect_range["good"], "bad": bisect_range["bad"]}
+    return m
 
 
 def is_linux_part(name):
@@ -317,11 +398,12 @@ def drop_dead_measurement(state, t, measurable):
     return why
 
 
-def decide(state, t, candidate, bisect_sha, supported_parts, github_busy, measurable=lambda sha: True):
+def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable=lambda sha: True):
     """The tick's work: {'action': 'part'|'none'|'finish', 'part': a fleet part or '', 'linux_part': '' or one}.
     May set state['current'] (a new measurement).
     candidate: the newest measurable tip commit newer than the last one measured (or None).
-    bisect_sha: a measurable commit inside an open regression's range (or None).
+    bisect: {'sha', 'range': {good, bad}, 'rows': [row names]}: a measurable commit inside one group of regressed
+    rows' culprit range (or None); the step measures only the parts of those rows.
     supported_parts(sha) -> the PARTS names the commit can run. github_busy: a reason string or None (it holds
     back the Mac parts only; the Linux part takes no Mac). measurable(sha): the fleet would still run the commit
     (its scripts/measure/split-spring.sh is the reviewed one)."""
@@ -330,11 +412,11 @@ def decide(state, t, candidate, bisect_sha, supported_parts, github_busy, measur
     if not cur:
         if candidate:
             state["current"] = cur = new_measurement(candidate, "tip", with_build(supported_parts(candidate)), t)
-        elif bisect_sha:
-            regressed = {part_for_row(r["name"]) for r in state.get("regressions") or []}
-            parts = [p for p in supported_parts(bisect_sha) if p in regressed]
+        elif bisect:
+            regressed = {part_for_row(name) for name in bisect["rows"]}
+            parts = [p for p in supported_parts(bisect["sha"]) if p in regressed]
             if parts:
-                state["current"] = cur = new_measurement(bisect_sha, "bisect", with_build(parts), t)
+                state["current"] = cur = new_measurement(bisect["sha"], "bisect", with_build(parts), t, bisect["range"])
     if not cur:
         return {"action": "none", "reason": "nothing new to measure: the newest measurable feat-cmux-next commit "
                                             "was measured, and no regression range to bisect"}
@@ -353,9 +435,10 @@ def decide(state, t, candidate, bisect_sha, supported_parts, github_busy, measur
                       + (f"; the Mac parts wait: {github_busy}" if github_busy and linux else "")}
 
 
-def bisect_midpoint(commits, measurable):
+def bisect_midpoint(commits, measurable, skip=()):
     """commits: first-parent commits strictly between good and bad, oldest first. The measurable one nearest
-    the middle, or None."""
+    the middle that is not in skip (commits a bisect step could not judge: `git bisect skip`), or None."""
+    commits = [c for c in commits if c not in set(skip)]
     if not commits:
         return None
     mid = len(commits) // 2
@@ -364,6 +447,21 @@ def bisect_midpoint(commits, measurable):
         if measurable(commits[i]):
             return commits[i]
     return None
+
+
+def bisect_groups(state):
+    """The open regressions grouped by culprit range, in the order they regressed: [{'range', 'rows'}]. Rows with
+    no range on record are left out."""
+    groups = {}
+    for r in state.get("regressions") or []:
+        rng = r.get("range") or {}
+        if rng.get("good") and rng.get("bad"):
+            groups.setdefault((rng["good"], rng["bad"]), {"range": rng, "rows": []})["rows"].append(r["name"])
+    return list(groups.values())
+
+
+def same_range(a, b):
+    return bool(a) and bool(b) and a.get("good") == b.get("good") and a.get("bad") == b.get("bad")
 
 
 # ---------- fleet (gateway) ----------
@@ -422,11 +520,28 @@ def fleet_verdict(status, workers, jobs, worker, yield_mode, mine=()):
     return None
 
 
-def wanted_by_other(status, mine):
-    """A foreground job queued for the bench host (it carries the `bench` label), or None."""
+def wanted_by_other(status, mine, jobs=None, worker=BENCH_WORKER):
+    """A queued foreground job that could run on the bench host, or None: the perf cron yields to it.
+    status: /v1/status (queue entries carry labels, `background`, blocked and placement_wait, but no target worker;
+    workers carry their labels). jobs: `cmux-ci status` (/v1/jobs, with target_worker), or None when not read this
+    round. A job wants the bench host when it carries the `bench` label, when every label it needs is one the host
+    has, when its blocked or placement_wait text names the host, or when it targets the host."""
+    host_labels = set()
+    for w in (status or {}).get("workers") or []:
+        if w.get("name") == worker:
+            host_labels = set(w.get("labels") or [])
     for q in (status or {}).get("queue") or []:
-        if q.get("id") not in mine and "bench" in (q.get("labels") or []) and q.get("priority_class") != "background":
+        if q.get("id") in mine or q.get("background"):
+            continue
+        labels = set(q.get("labels") or [])
+        text = f"{q.get('blocked') or ''} {q.get('placement_wait') or ''}"
+        if "bench" in labels or (labels and host_labels and labels <= host_labels) or worker in text:
             return q
+    for j in jobs or []:
+        if j.get("id") in mine or j.get("state") != "queued" or j.get("background"):
+            continue
+        if j.get("target_worker") == worker:
+            return j
     return None
 
 
@@ -508,12 +623,43 @@ def download_redirected(url, timeout=120):
         return r.read()
 
 
+def untrusted_state_artifact(artifact, repo_id, run_of):
+    """Why the state artifact cannot be trusted, or None. Only a run of STATE_WORKFLOW on STATE_BRANCH of this
+    repository writes the state: the artifact search covers every run of the repository, and a fork pull request
+    or a run on any branch can upload an artifact named perf-cron-state. run_of(run_id) -> the workflow run."""
+    wr = artifact.get("workflow_run") or {}
+    if not repo_id or wr.get("repository_id") != repo_id or wr.get("head_repository_id") != repo_id:
+        return f"run {wr.get('id')} is from another repository"
+    if wr.get("head_branch") != STATE_BRANCH:
+        return f"run {wr.get('id')} is on {wr.get('head_branch')!r}, not {STATE_BRANCH}"
+    run = run_of(wr.get("id")) or {}
+    path = (run.get("path") or "").split("@")[0]
+    if path != STATE_WORKFLOW:
+        return f"run {wr.get('id')} is {path or 'an unknown workflow'}, not {STATE_WORKFLOW}"
+    if run.get("event") not in STATE_EVENTS:
+        return f"run {wr.get('id')} was started by {run.get('event')!r}"
+    if (run.get("head_repository") or {}).get("id") != repo_id or run.get("head_branch") != STATE_BRANCH:
+        return f"run {wr.get('id')} does not run {STATE_BRANCH} of this repository"
+    return None
+
+
 def fetch_state(repo, out_dir):
-    """Download the newest perf-cron-state artifact into out_dir; True when one was found."""
+    """Download the newest trusted perf-cron-state artifact into out_dir; True when one was found."""
     os.makedirs(out_dir, exist_ok=True)
-    found = gh_request(f"/repos/{repo}/actions/artifacts?name={STATE_ARTIFACT}&per_page=20").get("artifacts", [])
+    repo_id = gh_request(f"/repos/{repo}").get("id")
+    found = gh_request(f"/repos/{repo}/actions/artifacts?name={STATE_ARTIFACT}&per_page=100").get("artifacts", [])
+
+    def run_of(run_id):
+        try:
+            return gh_request(f"/repos/{repo}/actions/runs/{int(run_id)}")
+        except (TypeError, ValueError, urllib.error.HTTPError):
+            return None
     for a in sorted(found, key=lambda a: a.get("created_at") or "", reverse=True):
         if a.get("expired"):
+            continue
+        why = untrusted_state_artifact(a, repo_id, run_of)
+        if why:
+            print(f"perf-cron: state artifact {a.get('id')} skipped: {why}")
             continue
         blob = download_redirected(a["archive_download_url"])
         zipfile.ZipFile(io.BytesIO(blob)).extractall(out_dir)
@@ -596,13 +742,37 @@ def fleet_runs(sha, tip_blob):
 
 
 def is_ancestor(a, b):
-    return subprocess.run(["git", "-C", ROOT, "merge-base", "--is-ancestor", a, b], capture_output=True).returncode == 0
+    return subprocess.run(["git", "-C", ROOT, "merge-base", "--is-ancestor", "--end-of-options", a, b],
+                          capture_output=True).returncode == 0
+
+
+def commit_on_branch(repo, tip):
+    """ok(sha): the sha is 40 hex characters and an ancestor of tip (or tip). The plan's checkout is shallow, so a
+    commit it does not have is asked of the GitHub compare API ('ahead' or 'identical': on the branch)."""
+    cache = {}
+
+    def ok(sha):
+        if not is_sha(sha):
+            return False
+        if sha not in cache:
+            have = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}^{{commit}}"], capture_output=True).returncode == 0
+            if have:
+                cache[sha] = is_ancestor(sha, tip)
+            else:
+                try:
+                    cache[sha] = gh_request(f"/repos/{repo}/compare/{sha}...{tip}").get("status") in ("ahead", "identical")
+                except (urllib.error.URLError, ValueError, KeyError):  # KeyError: no GH_TOKEN
+                    cache[sha] = False
+        return cache[sha]
+    return ok
 
 
 # ---------- report (pure) ----------
 
 def stale_basis(state):
-    """When the newest tip measurement finished, else when the cron first ran."""
+    """When the newest complete tip measurement finished (rows, and every open regression measured again), else
+    when the cron first ran. A commit that does not build, or a regressed row's part that keeps failing, does not
+    reset it."""
     return (state.get("last") or {}).get("measured_at") or state.get("created_at")
 
 
@@ -624,23 +794,31 @@ def fmt(v):
 
 
 def issue_body(state, repo, now):
-    good, bad, rng = state.get("last_good"), state.get("first_bad"), state.get("range")
+    good = state.get("last_good")
     last = state.get("last") or {}
     lines = [ISSUE_MARK, ""]
     regs = state.get("regressions") or []
-    if regs and good and bad:
-        g, b = (rng or {}).get("good") or good["sha"], (rng or {}).get("bad") or bad["sha"]
-        lines += [f"**{len(regs)} row(s) regressed.** Last good {link(repo, good['sha'])} ([run]({good.get('run_url')})), "
-                  f"first bad {link(repo, bad['sha'])} ([run]({bad.get('run_url')})).",
-                  f"Culprit range: [`{g[:11]}...{b[:11]}`](https://github.com/{repo}/compare/{g}...{b})"
-                  + (" (narrowed by bisect)" if rng and (rng.get("good") != good["sha"] or rng.get("bad") != bad["sha"]) else "") + ".",
-                  "", "| row | last good p95 | now p95 | change | target | display | why |", "|---|---|---|---|---|---|---|"]
+    if regs:
+        lines.append(f"**{len(regs)} row(s) regressed.** " + (f"Last good {link(repo, good['sha'])} ([run]({good.get('run_url')}))."
+                                                              if good else "No good run on record."))
+        for g in bisect_groups(state):
+            rng, rows = g["range"], g["rows"]
+            first = next((r.get("first_bad") for r in regs if r["name"] == rows[0]), None) or {}
+            narrowed = [f"{rng['steps']} bisect step(s)"] if rng.get("steps") else []
+            narrowed += [f"{len(rng['skip'])} commit(s) skipped"] if rng.get("skip") else []
+            lines.append(f"- Culprit range of {', '.join(rows[:6])}{f' and {len(rows) - 6} more' if len(rows) > 6 else ''}: "
+                         f"[`{rng['good'][:11]}...{rng['bad'][:11]}`](https://github.com/{repo}/compare/{rng['good']}...{rng['bad']})"
+                         + (f" ({', '.join(narrowed)})" if narrowed else "")
+                         + (f"; first bad tip measurement {link(repo, first['sha'])} ([run]({first.get('run_url')}))" if first.get("sha") else "")
+                         + ".")
+        lines += ["", "| row | last good p95 | now p95 | change | target | display | why | range |", "|---|---|---|---|---|---|---|---|"]
         for r in regs:
-            change = f"+{round(100 * (r['p95'] - r['base']) / r['base'], 1)} %" if r["base"] else "new"
-            lines.append(f"| {r['name']} | {fmt(r['base'])} {r['unit']} | {fmt(r['p95'])} {r['unit']} | {change} | "
-                         f"{fmt(r['target'])} | {hz(r.get('refresh_ms'))} | {r['why']} |")
-    elif regs:
-        lines.append(f"**{len(regs)} row(s) regressed** (no good run on record).")
+            change = f"+{round(100 * (r['p95'] - r['base']) / r['base'], 1)} %" if r.get("base") else "new"
+            rng = r.get("range") or {}
+            why = r.get("why", "") + (" (not measured again since)" if r.get("unmeasured_at") else "")
+            lines.append(f"| {r['name']} | {fmt(r.get('base'))} {r.get('unit', '')} | {fmt(r.get('p95'))} {r.get('unit', '')} | {change} | "
+                         f"{fmt(r.get('target'))} | {hz(r.get('refresh_ms'))} | {why} | "
+                         f"{str(rng.get('good') or '?')[:7]}..{str(rng.get('bad') or '?')[:7]} |")
     else:
         lines.append("No row regressed in the last measurement.")
     if last:
@@ -652,9 +830,14 @@ def issue_body(state, repo, now):
             lines += ["", f"Not compared: {len(last['refresh_skipped'])} frame row(s) ran at another display refresh than "
                           f"their last good value ({', '.join(last['refresh_skipped'][:8])}"
                           + (", ..." if len(last["refresh_skipped"]) > 8 else "") + ")."]
+    tried = state.get("last_tried") or {}
+    if tried.get("sha") and tried.get("sha") != last.get("sha"):
+        lines += ["", f"Newest attempt: {link(repo, tried['sha'])} at {tried.get('at')} ([run]({tried.get('run_url')})) measured no row, "
+                      "or not every regressed row; it is not the last measurement."]
     if stale_hours(state, now) > STALE_HOURS:
         lines += ["", f"**Stale:** no finished measurement since {stale_basis(state)} ({round(stale_hours(state, now))} h): "
-                      "the bench host had no idle time, a nightly or dev build kept waiting for a Mac, or the tick failed."]
+                      "the bench host had no idle time, a nightly or dev build kept waiting for a Mac, the commits did not "
+                      "build, the regressed rows' parts kept failing, or the tick failed."]
     rows = (last or {}).get("rows") or {}
     if rows:
         lines += ["", "<details><summary>Every row of the last measurement</summary>", "",
@@ -674,58 +857,110 @@ def issue_body(state, repo, now):
     return "\n".join(lines)
 
 
+def bisect_step(state, cur, part_rows, regs):
+    """Fold a bisect step into the culprit range it searched (pure). bad: a row of that range regressed; good: every
+    row of it was measured and is within its threshold; skip (`git bisect skip`): some row of it was not measured
+    (the commit did not build, a part failed or yielded), so the next step picks another commit. Returns
+    (verdict, note)."""
+    key = cur.get("bisect_range") or {}
+    group = [r for r in state.get("regressions") or [] if same_range(r.get("range"), key)]
+    if not group:
+        return "gone", f"the range {str(key.get('good'))[:11]}...{str(key.get('bad'))[:11]} is no longer open"
+    names = {r["name"] for r in group}
+    regressed = names & {r["name"] for r in regs}
+    unmeasured = sorted(names - set(part_rows))
+    verdict = "bad" if regressed else ("skip" if unmeasured else "good")
+    for r in group:
+        rng = r["range"]
+        rng["steps"] = rng.get("steps", 0) + 1
+        if verdict == "bad":
+            rng["bad"] = cur["sha"]
+        elif verdict == "good":
+            rng["good"] = cur["sha"]
+        elif cur["sha"] not in (rng.setdefault("skip", [])):
+            rng["skip"].append(cur["sha"])
+    rng = group[0]["range"]
+    where = f"range now {rng['good'][:11]}...{rng['bad'][:11]}"
+    if verdict == "skip":
+        return verdict, f"skipped, {', '.join(unmeasured[:6])} not measured; {where}"
+    return verdict, f"{verdict} ({', '.join(sorted(regressed)[:6]) or 'every row within its threshold'}); {where}"
+
+
 def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_mod):
     """Fold a finished measurement into the state. Returns the issue event: 'regressed', 'still', 'recovered',
-    'narrowed', 'first', 'good', or 'empty' (no row measured: neither a baseline nor a verdict)."""
+    'narrowed' or 'skipped' (a bisect step), 'first', 'good', or 'empty' (no row measured: neither a baseline nor
+    a verdict). The newest history entry gets the status and a note.
+
+    A tip measurement counts as recovered only when it measured every open regression's row again and each is
+    within its threshold. When it misses one (its part failed or yielded, or the bench printed no value), the
+    missing rows stay regressed, the event is 'still', and last and last_good stay as they were (the stale clock
+    keeps running). A row that regresses while another regression is open gets its own culprit range: from the
+    newest tip measurement in which it was within its threshold to this commit."""
     cur = state["current"]
     failed = sorted(n for n, p in cur["parts"].items() if p.get("state") != "done")
     good = state.get("last_good")
-    base = state.get("last_good") or {}
+    state["current"] = None
+    entry = {"sha": cur["sha"], "kind": cur["kind"], "at": iso(t), "run_url": run_url, "failed_parts": failed}
+    state.setdefault("history", []).append(entry)
+    state["history"] = state["history"][-60:]
+    regs = find_regressions(part_rows, (good or {}).get("rows") or {}, refresh_ms, (good or {}).get("refresh_ms"),
+                            budgets_mod) if part_rows else []
+    if cur["kind"] == "bisect":
+        entry["status"], entry["note"] = bisect_step(state, cur, part_rows, regs)
+        return "narrowed" if entry["status"] in ("good", "bad") else "skipped"
+    state["last_tried"] = {"sha": cur["sha"], "at": iso(t), "run_url": run_url}
+    if not part_rows:
+        entry["status"] = "empty"
+        return "empty"
     record = {"sha": cur["sha"], "measured_at": iso(t), "rows": part_rows, "refresh_ms": refresh_ms, "host": host,
               "run_url": run_url, "failed_parts": failed,
-              "refresh_skipped": refresh_skipped(part_rows, base.get("rows") or {}, refresh_ms, base.get("refresh_ms"))}
-    state["current"] = None
-    state.setdefault("history", []).append({"sha": cur["sha"], "kind": cur["kind"], "at": iso(t), "run_url": run_url,
-                                            "failed_parts": failed})
-    state["history"] = state["history"][-60:]
-    if not part_rows:
-        state["history"][-1]["status"] = "empty"
-        return "empty"
-    if cur["kind"] == "bisect":
-        regs = find_regressions(part_rows, (good or {}).get("rows") or {}, refresh_ms, (good or {}).get("refresh_ms"), budgets_mod)
-        names = {r["name"] for r in state.get("regressions") or []}
-        rng = state.get("range") or {}
-        if any(r["name"] in names for r in regs):
-            rng["bad"] = cur["sha"]
-        else:
-            rng["good"] = cur["sha"]
-        state["range"] = rng
-        return "narrowed"
-    regs = find_regressions(part_rows, (good or {}).get("rows") or {}, refresh_ms, (good or {}).get("refresh_ms"), budgets_mod)
-    was = bool(state.get("regressions"))
-    state["last"] = record
+              "refresh_skipped": refresh_skipped(part_rows, (good or {}).get("rows") or {}, refresh_ms, (good or {}).get("refresh_ms"))}
+    row_ok = state.setdefault("row_ok", {})
     if not good:
-        state["last_good"] = record
+        state["last"] = state["last_good"] = record
         state["regressions"] = []
+        row_ok.update({name: cur["sha"] for name in part_rows})
+        entry["status"] = "first"
         return "first"
-    if regs:
-        state["regressions"] = regs
-        if not state.get("first_bad"):
-            state["first_bad"] = {"sha": cur["sha"], "run_url": run_url, "measured_at": iso(t)}
-            state["range"] = {"good": good["sha"], "bad": cur["sha"]}
-        return "still" if was else "regressed"
+    old = {r["name"]: r for r in state.get("regressions") or []}
+    regressions = []
+    for r in regs:
+        prev = old.get(r["name"])
+        if prev and prev.get("range"):
+            r["range"], r["first_bad"] = prev["range"], prev.get("first_bad")
+        else:
+            r["range"] = {"good": row_ok.get(r["name"]) or good["sha"], "bad": cur["sha"], "skip": [], "steps": 0}
+            r["first_bad"] = {"sha": cur["sha"], "run_url": run_url, "measured_at": iso(t)}
+        regressions.append(r)
+    now_bad = {r["name"] for r in regressions}
+    row_ok.update({name: cur["sha"] for name in part_rows if name not in now_bad})
+    missing = sorted(n for n in old if n not in part_rows)
+    for name in missing:
+        regressions.append({**old[name], "unmeasured_at": cur["sha"]})
+    regressions.sort(key=lambda r: r["name"])
+    state["regressions"] = regressions
+    if missing:
+        parts = sorted({part_for_row(n) or "?" for n in missing})
+        entry["status"] = "incomplete"
+        entry["note"] = (f"{len(missing)} regressed row(s) not measured again (part(s) {', '.join(parts)}"
+                         + (f"; failed: {', '.join(failed)}" if failed else "") + ")")
+        return "still"
+    state["last"] = record
+    if regressions:
+        entry["status"] = "regressed"
+        return "still" if old else "regressed"
     # A frame row from another display refresh replaces its last good value only when it ran faster: a 60 Hz
     # fallback run never rebases a 120 Hz baseline, and the first 120 Hz run rebases a 60 Hz one.
     merged = dict(good.get("rows") or {})
     skipped = set(record["refresh_skipped"])
     for name, r in part_rows.items():
-        old = merged.get(name) or {}
-        if name in skipped and (r.get("refresh_ms") or refresh_ms or 1e9) >= (old.get("refresh_ms") or good.get("refresh_ms") or 1e9):
+        prev = merged.get(name) or {}
+        if name in skipped and (r.get("refresh_ms") or refresh_ms or 1e9) >= (prev.get("refresh_ms") or good.get("refresh_ms") or 1e9):
             continue
         merged[name] = r
     state["last_good"] = {**record, "rows": merged}
-    state["regressions"], state["first_bad"], state["range"] = [], None, None
-    return "recovered" if was else "good"
+    entry["status"] = "good"
+    return "recovered" if old else "good"
 
 
 # ---------- subcommands ----------
@@ -746,8 +981,8 @@ def cmd_fetch_state(o):
 def load_state(d, t):
     try:
         state = json.load(open(os.path.join(d, "state.json")))
-        if state.get("schema") == SCHEMA:
-            return state
+        if isinstance(state, dict) and state.get("schema") == SCHEMA:
+            return migrate_state(state)
     except (OSError, ValueError):
         pass
     return empty_state(t)
@@ -756,13 +991,21 @@ def load_state(d, t):
 def cmd_plan(o):
     t = now_utc()
     state = load_state(o.dir, t)
-    tip = git("rev-parse", o.tip)
+    tip = git("rev-parse", "--verify", "--end-of-options", f"{o.tip}^{{commit}}")
     tip_blob = script_blob(tip)
     before = json.dumps(state, sort_keys=True)
-    dropped = drop_dead_measurement(state, t, lambda sha: fleet_runs(sha, tip_blob))
+    dropped = sanitize_state(state, commit_on_branch(o.repo, tip))
     if dropped:
-        print(f"perf-cron: the measurement in flight ended ({dropped}); looking for a new commit")
-    last_sha = (state.get("last") or {}).get("sha")
+        print(f"perf-cron: dropped from the state (not a commit of {o.tip}): {', '.join(dropped)}")
+    supported = supported_parts_at
+    no_mac = None
+    if o.no_mac:
+        no_mac = "no gateway runner label for the perf cron (vars.CI_PERF_CRON_GATEWAY is not set): no Mac part runs"
+        supported = lambda sha: [p for p in supported_parts_at(sha) if is_linux_part(p)]  # noqa: E731
+    dead = drop_dead_measurement(state, t, lambda sha: fleet_runs(sha, tip_blob))
+    if dead:
+        print(f"perf-cron: the measurement in flight ended ({dead}); looking for a new commit")
+    last_sha = (state.get("last_tried") or state.get("last") or {}).get("sha")
     candidate = None
     if not state.get("current"):
         for sha in git("rev-list", "--first-parent", f"-n{CANDIDATE_DEPTH}", tip).split():
@@ -775,15 +1018,19 @@ def cmd_plan(o):
                 candidate = sha
                 break
             print(f"perf-cron: {sha[:12]} has no published cmux-tui tree yet; trying its parent")
-    bisect_sha = None
-    rng = state.get("range")
-    if not candidate and not state.get("current") and rng and state.get("regressions"):
-        between = git("rev-list", "--first-parent", "--reverse", f"{rng['good']}..{rng['bad']}", check=False).split()[:-1]
-        bisect_sha = bisect_midpoint(between, lambda sha: fleet_runs(sha, tip_blob) and tree_published(sha))
-    busy = None
-    if candidate or bisect_sha or state.get("current"):
+    bisect = None
+    if not candidate and not state.get("current"):
+        for group in bisect_groups(state):
+            rng = group["range"]
+            between = git("rev-list", "--first-parent", "--reverse", f"{rng['good']}..{rng['bad']}", check=False).split()[:-1]
+            sha = bisect_midpoint(between, lambda c: fleet_runs(c, tip_blob) and tree_published(c), rng.get("skip") or [])
+            if sha:
+                bisect = {"sha": sha, "range": rng, "rows": group["rows"]}
+                break
+    busy = no_mac
+    if not busy and (candidate or bisect or state.get("current")):
         busy = github_busy(o.repo, o.yield_mode)
-    d = decide(state, t, candidate, bisect_sha, supported_parts_at, busy, lambda sha: fleet_runs(sha, tip_blob))
+    d = decide(state, t, candidate, bisect, supported, busy, lambda sha: fleet_runs(sha, tip_blob))
     if json.dumps(state, sort_keys=True) != before:
         state["dirty"] = True  # the report job saves it even when no part ran
     json.dump(state, open(os.path.join(o.dir, "state.json"), "w"), indent=1)
@@ -817,9 +1064,27 @@ def cmd_fleet_check(o):
     write_outputs(o.output, {"ok": "false" if reason else "true", "reason": reason or ""})
 
 
+# `cmux-ci run` exit codes that are the fleet's, not the measured commit's (hq build-fleet/ci-client.py): no worker
+# takes steps (69), the step never left the queue within --queue-timeout (75), a newer head superseded it (76). The
+# part gives its place back and runs on a later tick (at most MAX_YIELDS times). A run past --timeout (124) fails.
+STEP_YIELD_EXITS = {69: "no fleet worker takes steps", 75: "queue-timeout", 76: "superseded"}
+STEP_TIMEOUT_EXIT = 124
+JOBS_POLL_EVERY = 4  # read /v1/jobs (target workers) every 4th watch round: it is the slow call
+
+
+def part_state(code, yielded_to):
+    """'done', 'yielded' or 'failed' for a part that exited with code (cancelled by the cron when yielded_to)."""
+    if code == 0:
+        return "done"
+    return "yielded" if yielded_to or code in STEP_YIELD_EXITS else "failed"
+
+
 def cmd_run_part(o):
     """Run one part through `cmux-ci run` (background class, the bench host) and watch the queue: a foreground
-    job for the bench host cancels it (the part runs again on a later tick, at most MAX_YIELDS times)."""
+    job that could run on the bench host cancels it (the part runs again on a later tick, at most MAX_YIELDS
+    times)."""
+    if not is_sha(o.sha):
+        raise SystemExit(f"perf-cron: --sha must be a full commit sha, not {o.sha!r}")
     os.makedirs(o.out, exist_ok=True)
     argv = [o.client, "run", "--class", "exclusive", "--background", "--measurement", "--label", "bench", "--label", "measure",
             "--target-worker", o.worker, "--no-supersede", "--script", "scripts/measure/split-spring.sh", "--ref", o.sha, "--key", o.key,
@@ -828,19 +1093,27 @@ def cmd_run_part(o):
     print("perf-cron: " + " ".join(argv), flush=True)
     log_path = os.path.join(o.out, "step.log")
     started = time.monotonic()
-    step_id, yielded_to = None, None
+    step_id, yielded_to, rounds = None, None, 0
     with open(log_path, "wb") as log:
         proc = subprocess.Popen(argv, stdout=log, stderr=subprocess.STDOUT)
         while proc.poll() is None:
             time.sleep(15)  # the watch interval: a bounded poll of the controller while the step runs
+            rounds += 1
             if not step_id:
                 m = re.search(rb"cmux-ci: step ([0-9a-f]{12,}) ", open(log_path, "rb").read())
                 step_id = m.group(1).decode() if m else None
             if step_id and not yielded_to:
                 try:
-                    other = wanted_by_other(http_json(controller_url() + "/v1/status"), {step_id})
+                    status = http_json(controller_url() + "/v1/status")
                 except (OSError, ValueError, urllib.error.URLError):
-                    other = None
+                    status = None
+                jobs = None
+                if rounds % JOBS_POLL_EVERY == 1:
+                    try:
+                        jobs = json.loads(run_capture([o.client, "status"], timeout=120).stdout or "[]")
+                    except (OSError, ValueError, subprocess.SubprocessError):
+                        jobs = None
+                other = wanted_by_other(status, {step_id}, jobs if isinstance(jobs, list) else None, o.worker)
                 if other:
                     yielded_to = other["id"]
                     print(f"perf-cron: job {other['id'][:12]} queued for {o.worker}; cancelling this part", flush=True)
@@ -850,10 +1123,10 @@ def cmd_run_part(o):
     if not step_id:
         m = re.search(r"cmux-ci: step ([0-9a-f]{12,}) ", text)
         step_id = m.group(1) if m else None
-    state = "done" if code == 0 else ("yielded" if yielded_to or code == 75 else "failed")
+    state = part_state(code, yielded_to)
     result = {"state": state, "exit": code, "step_id": step_id, "seconds": round(time.monotonic() - started),
-              "yielded_to": yielded_to, "worker": o.worker, "tail": text.splitlines()[-40:],
-              "build_failed": BUILD_FAILED_MARK in text}
+              "yielded_to": yielded_to or STEP_YIELD_EXITS.get(code), "timed_out": code == STEP_TIMEOUT_EXIT,
+              "worker": o.worker, "tail": text.splitlines()[-40:], "build_failed": BUILD_FAILED_MARK in text}
     if state == "done" and step_id:
         got = run_capture([o.client, "artifact", step_id, os.path.join(o.out, "report.json")], timeout=600)
         if got.returncode != 0:
@@ -956,6 +1229,8 @@ def record_part(cur, part, result, run_url):
     entry = dict(cur["parts"].get(part) or {"yields": 0})
     entry.update({"state": result["state"], "step_id": result.get("step_id"), "run_url": run_url,
                   "seconds": result.get("seconds")})
+    if result.get("timed_out"):
+        entry["timed_out"] = True
     if result["state"] == "yielded":
         entry["yields"] = entry.get("yields", 0) + 1
         if entry["yields"] >= MAX_YIELDS:
@@ -1018,15 +1293,17 @@ def cmd_report(o):
         for name in os.listdir(os.path.join(o.dir, "parts")) if os.path.isdir(os.path.join(o.dir, "parts")) else []:
             os.remove(os.path.join(o.dir, "parts", name))
         regs = state.get("regressions") or []
+        note = (state.get("history") or [{}])[-1].get("note") or ""
         summary = {"first": f"first measurement {sha[:12]} ({len(rows)} rows) is the baseline",
                    "good": f"{sha[:12]}: no row regressed ({len(rows)} rows)",
                    "recovered": f"{sha[:12]}: every row is back within its threshold ({len(rows)} rows)",
                    "regressed": f"{sha[:12]}: {len(regs)} row(s) regressed: " + ", ".join(r["name"] for r in regs[:8]),
-                   "still": f"{sha[:12]}: still regressed, {len(regs)} row(s): " + ", ".join(r["name"] for r in regs[:8]),
+                   "still": f"{sha[:12]}: still regressed, {len(regs)} row(s): " + ", ".join(r["name"] for r in regs[:8])
+                            + (f"; {note}" if note else ""),
                    "empty": f"{sha[:12]}: no row measured (failed parts: "
                             f"{', '.join((state.get('history') or [{}])[-1].get('failed_parts') or []) or 'none'})",
-                   "narrowed": f"bisect {sha[:12]}: range now {(state.get('range') or {}).get('good', '?')[:11]}..."
-                               f"{(state.get('range') or {}).get('bad', '?')[:11]}"}[event]
+                   "narrowed": f"bisect {sha[:12]}: {note}",
+                   "skipped": f"bisect {sha[:12]}: {note}"}[event]
     if event == "empty":
         event = None  # neither a baseline nor a verdict: the issue is left as it is (staleness still counts)
     line = summary or "no measurement finished this tick"
@@ -1054,6 +1331,7 @@ def main(argv=None):
     s.add_argument("--dir", required=True)
     s.add_argument("--tip", default="HEAD")
     s.add_argument("--yield-mode", default="queued", choices=["queued", "running"])
+    s.add_argument("--no-mac", action="store_true", help="no gateway runner for the Mac parts: plan only the Linux part")
     s.add_argument("--output")
     s = sub.add_parser("fleet-check", help="may a part run on the bench host now (gateway)")
     s.add_argument("--worker", default=BENCH_WORKER)

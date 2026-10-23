@@ -2,7 +2,8 @@
 """The perf cron's decisions (scripts/cmux-next/perf-cron.py): what a tick runs, when it yields to the fleet,
 what counts as a regression, and when the one issue opens, comments and closes. Pure functions only (no
 network, no git). Run: python3 -I scripts/cmux-next/tests/test_perf_cron.py (not a CI job, Lawrence 2026-10-23)."""
-import datetime, importlib.util, os, unittest
+import argparse, datetime, importlib.util, json, os, tempfile, unittest
+from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 spec = importlib.util.spec_from_file_location("perf_cron", os.path.join(HERE, "..", "perf-cron.py"))
@@ -85,10 +86,15 @@ class DecideTests(unittest.TestCase):
 
     def test_bisect_runs_only_the_parts_of_the_regressed_rows(self):
         state = cron.empty_state(T0)
-        state["regressions"] = [{"name": "sidebar.400.scroll.frame"}, {"name": "panes.close.stress.frame"}]
-        d = cron.decide(state, T0, None, "c" * 40, lambda sha: ALL, None)
+        rng = {"good": "a" * 40, "bad": "e" * 40, "skip": [], "steps": 0}
+        state["regressions"] = [{"name": "sidebar.400.scroll.frame", "range": rng}, {"name": "panes.close.stress.frame", "range": rng},
+                                {"name": "tab_switch.x.e2e", "range": {"good": "b" * 40, "bad": "e" * 40}}]
+        group = cron.bisect_groups(state)[0]
+        self.assertEqual(group["rows"], ["sidebar.400.scroll.frame", "panes.close.stress.frame"])
+        d = cron.decide(state, T0, None, {"sha": "c" * 40, **group}, lambda sha: ALL, None)
         self.assertEqual(state["current"]["kind"], "bisect")
-        self.assertEqual(state["current"]["parts_todo"], ["build", "stress", "sidebar"])
+        self.assertEqual(state["current"]["parts_todo"], ["build", "stress", "sidebar"], "only the group's rows' parts")
+        self.assertEqual(state["current"]["bisect_range"], {"good": "a" * 40, "bad": "e" * 40})
         self.assertEqual((d["part"], d["linux_part"]), ("build", ""))
 
     def test_bisect_midpoint_takes_the_measurable_commit_nearest_the_middle(self):
@@ -97,6 +103,8 @@ class DecideTests(unittest.TestCase):
         self.assertEqual(cron.bisect_midpoint(commits, lambda c: c in ("c1", "c4")), "c4")
         self.assertIsNone(cron.bisect_midpoint(commits, lambda c: False))
         self.assertIsNone(cron.bisect_midpoint([], lambda c: True))
+        self.assertNotEqual(cron.bisect_midpoint(commits, lambda c: True, skip=["c3"]), "c3", "a skipped commit is not picked again")
+        self.assertIsNone(cron.bisect_midpoint(commits, lambda c: True, skip=commits))
 
 
 class RegressionTests(unittest.TestCase):
@@ -166,30 +174,99 @@ class FinishTests(unittest.TestCase):
         state["current"]["parts"] = {"motion": {"state": "done"}}
         return cron.finish_measurement(state, rows, 16.67, "bench", f"run-{sha[:1]}", at(hours), budgets_mod)
 
+    def bisected(self, state, sha, rows, hours, parts=None):
+        rng = cron.bisect_groups(state)[0]["range"]
+        state["current"] = cron.new_measurement(sha, "bisect", [], at(hours), rng)
+        state["current"]["parts"] = parts or {"motion": {"state": "done"}}
+        return cron.finish_measurement(state, rows, 16.67, "bench", "r", at(hours), budgets_mod)
+
+    def rng(self, state, name):
+        r = next(r for r in state["regressions"] if r["name"] == name)["range"]
+        return (r["good"], r["bad"])
+
     def test_first_regressed_still_recovered(self):
         state = cron.empty_state(T0)
         self.assertEqual(self.measured(state, "a" * 40, {"t.e2e": row(5.0)}, 0), "first")
         self.assertEqual(self.measured(state, "b" * 40, {"t.e2e": row(9.0)}, 1), "regressed")
-        self.assertEqual(state["range"], {"good": "a" * 40, "bad": "b" * 40})
+        self.assertEqual(self.rng(state, "t.e2e"), ("a" * 40, "b" * 40))
         self.assertEqual(self.measured(state, "c" * 40, {"t.e2e": row(9.1)}, 2), "still")
-        self.assertEqual(state["first_bad"]["sha"], "b" * 40, "the first bad commit stays the earliest")
+        self.assertEqual(state["regressions"][0]["first_bad"]["sha"], "b" * 40, "the first bad commit stays the earliest")
+        self.assertEqual(self.rng(state, "t.e2e"), ("a" * 40, "b" * 40))
         self.assertEqual(self.measured(state, "d" * 40, {"t.e2e": row(5.1)}, 3), "recovered")
         self.assertEqual(state["last_good"]["sha"], "d" * 40)
-        self.assertIsNone(state["range"])
+        self.assertEqual(state["regressions"], [])
 
     def test_bisect_narrows_the_range(self):
         state = cron.empty_state(T0)
         self.measured(state, "a" * 40, {"t.e2e": row(5.0)}, 0)
         self.measured(state, "e" * 40, {"t.e2e": row(9.0)}, 1)
-        state["current"] = cron.new_measurement("c" * 40, "bisect", [], at(2))
-        state["current"]["parts"] = {"motion": {"state": "done"}}
-        self.assertEqual(cron.finish_measurement(state, {"t.e2e": row(5.2)}, 16.67, "bench", "r", at(2), budgets_mod), "narrowed")
-        self.assertEqual(state["range"], {"good": "c" * 40, "bad": "e" * 40})
-        state["current"] = cron.new_measurement("d" * 40, "bisect", [], at(3))
-        state["current"]["parts"] = {"motion": {"state": "done"}}
-        cron.finish_measurement(state, {"t.e2e": row(9.2)}, 16.67, "bench", "r", at(3), budgets_mod)
-        self.assertEqual(state["range"], {"good": "c" * 40, "bad": "d" * 40})
+        self.assertEqual(self.bisected(state, "c" * 40, {"t.e2e": row(5.2)}, 2), "narrowed")
+        self.assertEqual(self.rng(state, "t.e2e"), ("c" * 40, "e" * 40))
+        self.bisected(state, "d" * 40, {"t.e2e": row(9.2)}, 3)
+        self.assertEqual(self.rng(state, "t.e2e"), ("c" * 40, "d" * 40))
         self.assertEqual(state["last"]["sha"], "e" * 40, "a bisect step is not the last tip measurement")
+
+    def test_a_bisect_step_with_no_rows_is_skipped_not_good(self):
+        state = cron.empty_state(T0)
+        self.measured(state, "a" * 40, {"t.e2e": row(5.0)}, 0)
+        self.measured(state, "e" * 40, {"t.e2e": row(9.0)}, 1)
+        self.assertEqual(self.bisected(state, "c" * 40, {}, 2, {"build": {"state": "failed"}}), "skipped")
+        self.assertEqual(self.rng(state, "t.e2e"), ("a" * 40, "e" * 40), "the range is unchanged")
+        self.assertEqual(state["regressions"][0]["range"]["skip"], ["c" * 40])
+        self.assertEqual(state["history"][-1]["status"], "skip")
+        self.assertNotEqual(cron.bisect_midpoint(["b" * 40, "c" * 40, "d" * 40], lambda c: True,
+                                                 state["regressions"][0]["range"]["skip"]), "c" * 40)
+
+    def test_a_bisect_step_that_measured_only_some_regressed_rows_is_skipped(self):
+        state = cron.empty_state(T0)
+        self.measured(state, "a" * 40, {"panes.close.stress.frame": row(10.0), "panes.split.4x2.frame": row(10.0)}, 0)
+        self.measured(state, "e" * 40, {"panes.close.stress.frame": row(30.0), "panes.split.4x2.frame": row(10.0)}, 1)
+        # The stress part failed, motion passed: no regressed row measured, so the commit is not good.
+        verdict = self.bisected(state, "c" * 40, {"panes.split.4x2.frame": row(10.0)}, 2,
+                                {"stress": {"state": "failed"}, "motion": {"state": "done"}})
+        self.assertEqual(verdict, "skipped")
+        self.assertEqual(self.rng(state, "panes.close.stress.frame"), ("a" * 40, "e" * 40))
+
+    def test_a_tip_that_misses_a_regressed_row_stays_regressed(self):
+        state = cron.empty_state(T0)
+        self.measured(state, "a" * 40, {"t.e2e": row(5.0), "panes.close.stress.frame": row(10.0)}, 0)
+        self.measured(state, "b" * 40, {"t.e2e": row(5.0), "panes.close.stress.frame": row(30.0)}, 1)
+        # The stress part failed at c: its row is not back within its threshold, it is unknown.
+        self.assertEqual(self.measured(state, "c" * 40, {"t.e2e": row(5.0)}, 2), "still")
+        self.assertEqual([r["name"] for r in state["regressions"]], ["panes.close.stress.frame"])
+        self.assertEqual(state["regressions"][0]["unmeasured_at"], "c" * 40)
+        self.assertEqual(state["last_good"]["sha"], "a" * 40, "last good does not move to an incomplete measurement")
+        self.assertEqual(state["last"]["sha"], "b" * 40, "the stale clock is not reset")
+        self.assertEqual(state["last_tried"]["sha"], "c" * 40, "the new-commit search does not retry c")
+        self.assertEqual(state["history"][-1]["status"], "incomplete")
+        self.assertEqual(self.measured(state, "d" * 40, {"t.e2e": row(5.0), "panes.close.stress.frame": row(10.2)}, 3), "recovered")
+
+    def test_an_empty_tip_measurement_moves_nothing_but_the_search(self):
+        state = cron.empty_state(T0)
+        self.measured(state, "a" * 40, {"t.e2e": row(5.0)}, 0)
+        self.assertEqual(self.measured(state, "b" * 40, {}, 1), "empty")
+        self.assertEqual((state["last"]["sha"], state["last_good"]["sha"]), ("a" * 40, "a" * 40))
+        self.assertEqual(state["last_tried"]["sha"], "b" * 40, "a commit that does not build is not rebuilt every tick")
+        self.assertEqual(cron.stale_basis(state), cron.iso(at(0)))
+
+    def test_a_row_that_regresses_later_gets_its_own_range(self):
+        state = cron.empty_state(T0)
+        self.measured(state, "a" * 40, {"x.e2e": row(5.0), "y.e2e": row(5.0)}, 0)
+        self.assertEqual(self.measured(state, "b" * 40, {"x.e2e": row(9.0), "y.e2e": row(5.0)}, 1), "regressed")
+        self.assertEqual(self.measured(state, "c" * 40, {"x.e2e": row(9.0), "y.e2e": row(5.1)}, 2), "still")
+        self.assertEqual(self.measured(state, "d" * 40, {"x.e2e": row(5.0), "y.e2e": row(9.0)}, 3), "still")
+        self.assertEqual([r["name"] for r in state["regressions"]], ["y.e2e"], "x recovered, y regressed")
+        self.assertEqual(self.rng(state, "y.e2e"), ("c" * 40, "d" * 40), "from the last tip where y was fine")
+        self.assertEqual(state["regressions"][0]["first_bad"]["sha"], "d" * 40)
+        self.assertEqual([g["rows"] for g in cron.bisect_groups(state)], [["y.e2e"]])
+
+    def test_an_old_state_keeps_its_one_range_on_each_row(self):
+        old = {"schema": cron.SCHEMA, "range": {"good": "a" * 40, "bad": "b" * 40}, "first_bad": {"sha": "b" * 40},
+               "regressions": [{"name": "t.e2e"}]}
+        state = cron.migrate_state(old)
+        self.assertEqual(state["regressions"][0]["range"]["good"], "a" * 40)
+        self.assertEqual(state["regressions"][0]["first_bad"]["sha"], "b" * 40)
+        self.assertNotIn("range", state)
 
 
 class PartTests(unittest.TestCase):
@@ -341,6 +418,167 @@ class FleetTests(unittest.TestCase):
         q = {"queue": [{"id": "mine", "labels": ["bench"]}, {"id": "o" * 24, "labels": ["bench", "measure"], "priority_class": "agent"}]}
         self.assertEqual(cron.wanted_by_other(q, {"mine"})["id"], "o" * 24)
         self.assertIsNone(cron.wanted_by_other({"queue": [{"id": "mine", "labels": ["bench"]}]}, {"mine"}))
+
+    def test_any_foreground_job_the_bench_host_could_run_makes_the_part_yield(self):
+        b = cron.BENCH_WORKER
+        workers = [{"name": b, "labels": ["measure", "gui", "bench"]}, {"name": "cmux7s", "labels": ["cmux"]}]
+        measure_only = {"queue": [{"id": "m" * 24, "labels": ["measure"]}], "workers": workers}
+        self.assertEqual(cron.wanted_by_other(measure_only, {"mine"}, None, b)["id"], "m" * 24, "--label measure only")
+        named = {"queue": [{"id": "n" * 24, "labels": ["x"], "placement_wait": f"{b} runs a step"}], "workers": workers}
+        self.assertEqual(cron.wanted_by_other(named, {"mine"}, None, b)["id"], "n" * 24)
+        jobs = [{"id": "t" * 24, "state": "queued", "target_worker": b, "labels": []}]
+        self.assertEqual(cron.wanted_by_other({"queue": [], "workers": workers}, {"mine"}, jobs, b)["id"], "t" * 24, "--target-worker")
+        background = {"queue": [{"id": "g" * 24, "labels": ["bench"], "background": True, "priority_class": "agent"}]}
+        self.assertIsNone(cron.wanted_by_other(background, {"mine"}, None, b), "background jobs wait like the cron")
+        build = {"queue": [{"id": "c" * 24, "labels": ["cmux"]}], "workers": workers}
+        self.assertIsNone(cron.wanted_by_other(build, {"mine"}, None, b), "a build the bench host cannot take")
+        self.assertIsNone(cron.wanted_by_other({"queue": []}, {"mine"}, [{"id": "t" * 24, "state": "running", "target_worker": b}], b))
+
+    def test_fleet_exit_codes_yield_and_a_timeout_fails(self):
+        self.assertEqual(cron.part_state(0, None), "done")
+        for code in (69, 75, 76):
+            self.assertEqual(cron.part_state(code, None), "yielded", code)
+        self.assertEqual(cron.part_state(124, None), "failed")
+        self.assertEqual(cron.part_state(1, None), "failed")
+        self.assertEqual(cron.part_state(1, "j" * 24), "yielded", "cancelled by the cron for another job")
+        cur = cron.new_measurement("a" * 40, "tip", ["motion"], T0)
+        self.assertTrue(cron.record_part(cur, "motion", {"state": "failed", "timed_out": True}, "r")["timed_out"])
+
+
+class LaunchTests(unittest.TestCase):
+    def test_a_mark_that_never_arrives_is_a_row(self):
+        report = {"split-spring": {"warm": [{"did_finish_launching_end": 300, "first_window_frame_committed": 500},
+                                            {"did_finish_launching_end": 310}, {}]}}
+        rows = cron.rows_of_part(cron.PART_BY_NAME["launch"], report, budgets_mod, {"rows": {}})
+        self.assertEqual(rows["launch.warm.sidebar_rows_shown.missing_runs"]["p95"], 3, "never arrived: still a row")
+        self.assertEqual(rows["launch.warm.first_window_frame_committed.missing_runs"]["p95"], 2)
+        self.assertEqual(rows["launch.warm.did_finish_launching_end.missing_runs"]["p95"], 1, "a run with no marks misses each")
+        self.assertNotIn("launch.warm.sidebar_rows_shown", rows)
+        self.assertTrue(cron.over_target("launch.warm.sidebar_rows_shown.missing_runs", rows["launch.warm.sidebar_rows_shown.missing_runs"], None))
+        base = {"launch.warm.sidebar_rows_shown.missing_runs": row(0, "runs", 0.5, 0)}
+        regs = cron.find_regressions({"launch.warm.sidebar_rows_shown.missing_runs": rows["launch.warm.sidebar_rows_shown.missing_runs"]},
+                                     base, None, None, budgets_mod)
+        self.assertEqual(len(regs), 1, "a launch that starts hanging regresses")
+
+
+class StateTrustTests(unittest.TestCase):
+    REPO = 42
+
+    def artifact(self, **wr):
+        return {"id": 1, "workflow_run": {"id": 7, "repository_id": self.REPO, "head_repository_id": self.REPO,
+                                          "head_branch": "feat-cmux-next", **wr}}
+
+    def run_of(self, **over):
+        run = {"path": cron.STATE_WORKFLOW, "event": "workflow_dispatch", "head_branch": "feat-cmux-next",
+               "head_repository": {"id": self.REPO}, **over}
+        return lambda run_id: run
+
+    def test_only_this_workflow_on_the_branch_of_this_repository_writes_the_state(self):
+        self.assertIsNone(cron.untrusted_state_artifact(self.artifact(), self.REPO, self.run_of()))
+        self.assertIn("another repository", cron.untrusted_state_artifact(self.artifact(head_repository_id=9), self.REPO, self.run_of()))
+        self.assertIn("is on", cron.untrusted_state_artifact(self.artifact(head_branch="evil"), self.REPO, self.run_of()))
+        self.assertIn("not .github", cron.untrusted_state_artifact(self.artifact(), self.REPO, self.run_of(path=".github/workflows/x.yml")))
+        self.assertIn("pull_request", cron.untrusted_state_artifact(self.artifact(), self.REPO, self.run_of(event="pull_request")))
+        self.assertIsNotNone(cron.untrusted_state_artifact(self.artifact(), self.REPO, lambda run_id: None))
+        self.assertIsNotNone(cron.untrusted_state_artifact(self.artifact(), None, self.run_of()))
+
+    def test_a_state_sha_off_the_branch_is_dropped(self):
+        good, evil = "a" * 40, "f" * 40
+        ok = lambda sha: sha == good  # noqa: E731
+        state = cron.empty_state(T0)
+        state["current"] = cron.new_measurement(evil, "tip", ["build", "motion", "nope"], T0)
+        state["last"] = {"sha": "--upload-pack=x"}
+        state["last_good"] = {"sha": good, "rows": {}}
+        state["regressions"] = [{"name": "a", "range": {"good": good, "bad": evil}}, {"name": "b", "range": {"good": good, "bad": good}}]
+        state["row_ok"] = {"a": good, "b": evil}
+        state["issue"] = "1; rm"
+        dropped = cron.sanitize_state(state, ok)
+        self.assertIsNone(state["current"])
+        self.assertIsNone(state["last"])
+        self.assertEqual(state["last_good"]["sha"], good)
+        self.assertEqual([r["name"] for r in state["regressions"]], ["b"])
+        self.assertEqual(state["row_ok"], {"a": good})
+        self.assertIsNone(state["issue"])
+        self.assertIn("current", dropped)
+        state["current"] = cron.new_measurement(good, "tip", ["build", "motion", "nope"], T0)
+        cron.sanitize_state(state, ok)
+        self.assertEqual(state["current"]["parts_todo"], ["build", "motion"], "unknown parts go")
+        state["current"] = cron.new_measurement(good, "bisect", ["motion"], T0, {"good": good, "bad": evil})
+        cron.sanitize_state(state, ok)
+        self.assertIsNone(state["current"], "a bisect step of a range off the branch goes")
+        self.assertFalse(cron.is_sha("A" * 40))
+
+
+class PlanReportTests(unittest.TestCase):
+    """cmd_plan then cmd_report across ticks, with git, GitHub and the fleet faked."""
+
+    def tick(self, d, now, tip):
+        out = os.path.join(d, "plan.out")
+        commits = [tip]
+
+        def git(*args, check=True):
+            if args[0] == "rev-parse":
+                return tip
+            if args[0] == "rev-list":
+                return "\n".join(commits)
+            raise AssertionError(args)
+        with mock.patch.object(cron, "now_utc", lambda: now), mock.patch.object(cron, "git", git), \
+                mock.patch.object(cron, "script_blob", lambda sha: "blob"), \
+                mock.patch.object(cron, "commit_on_branch", lambda repo, t: cron.is_sha), \
+                mock.patch.object(cron, "tree_published", lambda sha: True), \
+                mock.patch.object(cron, "github_busy", lambda *a: None), \
+                mock.patch.object(cron, "is_ancestor", lambda a, b: False), \
+                mock.patch.object(cron, "supported_parts_at", lambda sha: ["motion"]):
+            cron.cmd_plan(argparse.Namespace(repo="o/r", dir=d, tip="HEAD", yield_mode="queued", no_mac=False, output=out))
+            rep = os.path.join(d, "report.out")
+            cron.cmd_report(argparse.Namespace(repo="o/r", dir=d, result=[], run_url="u", finish=False, issues=False, output=rep))
+        with open(out) as f:
+            plan = dict(line.split("=", 1) for line in f.read().splitlines())
+        with open(rep) as f:
+            report = dict(line.split("=", 1) for line in f.read().splitlines())
+        os.remove(out)
+        os.remove(rep)
+        return plan, report
+
+    def test_an_abandoned_measurement_is_saved_and_replaced_in_the_same_tick(self):
+        with tempfile.TemporaryDirectory() as d:
+            state = cron.empty_state(T0)
+            state["persisted"] = True
+            state["last"] = {"sha": "a" * 40, "measured_at": cron.iso(T0), "rows": {}}
+            state["current"] = cron.new_measurement("b" * 40, "tip", ["build", "motion"], T0)
+            with open(os.path.join(d, "state.json"), "w") as f:
+                json.dump(state, f)
+            plan, report = self.tick(d, at(cron.ABANDON_HOURS + 1), "c" * 40)
+            self.assertEqual((plan["action"], plan["sha"], plan["part"]), ("part", "c" * 40, "build"))
+            self.assertEqual(report["changed"], "true", "the drop is saved")
+            with open(os.path.join(d, "state.json")) as f:
+                saved = json.load(f)
+            self.assertEqual(saved["history"][-1]["status"], "abandoned")
+            self.assertNotIn("dirty", saved)
+
+    def test_an_abandoned_measurement_with_nothing_new_is_still_saved(self):
+        with tempfile.TemporaryDirectory() as d:
+            state = cron.empty_state(T0)
+            state["persisted"] = True
+            state["last"] = {"sha": "c" * 40, "measured_at": cron.iso(T0), "rows": {}}
+            state["current"] = cron.new_measurement("b" * 40, "tip", ["build", "motion"], T0)
+            with open(os.path.join(d, "state.json"), "w") as f:
+                json.dump(state, f)
+            plan, report = self.tick(d, at(cron.ABANDON_HOURS + 1), "c" * 40)
+            self.assertEqual(plan["action"], "none")
+            self.assertEqual(report["changed"], "true")
+            plan, report = self.tick(d, at(cron.ABANDON_HOURS + 2), "c" * 40)
+            self.assertEqual(report["changed"], "false", "an idle tick does not save the state again")
+
+    def test_a_forged_current_sha_never_reaches_the_fleet(self):
+        with tempfile.TemporaryDirectory() as d:
+            state = cron.empty_state(T0)
+            state["persisted"] = True
+            state["current"] = cron.new_measurement("refs/pull/1/head", "tip", ["motion"], T0)
+            with open(os.path.join(d, "state.json"), "w") as f:
+                json.dump(state, f)
+            plan, _ = self.tick(d, at(1), "c" * 40)
+            self.assertEqual(plan["sha"], "c" * 40)
 
 
 if __name__ == "__main__":
