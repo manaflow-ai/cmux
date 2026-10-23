@@ -171,7 +171,7 @@ pub const FLAG_PROLOGUE: u16 = 1;
 /// older peer never gets a descriptor it does not expect.
 pub const FLAG_RING: u16 = 2;
 /// Header flag of every frame this build sends, of any kind: the three bits
-/// above it ([`FDS_SHIFT`]) are the number of descriptors the frame passes.
+/// above it are the number of descriptors the frame passes.
 /// A receiver of an older build ignores it (it counts by kind, and this
 /// build passes what the kind says); a receiver of this build takes exactly
 /// that many, so a frame that passes no descriptor where its kind would

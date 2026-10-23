@@ -140,7 +140,9 @@ impl Start {
     /// Read what the pipe has, without blocking. `None` while the child is
     /// still starting; `Some(Ok(()))` once its program runs, or once it
     /// ended without a report (killed before `execve`: its exit status
-    /// says how); `Some(Err(..))` with what it could not do.
+    /// says how); `Some(Err(..))` with what it could not do, or when the
+    /// pipe cannot be read (the caller then ends the child: whether it runs
+    /// is not known).
     pub fn poll(&mut self) -> Option<io::Result<()>> {
         loop {
             let room = &mut self.report[self.got..];
@@ -157,12 +159,14 @@ impl Start {
             if n == 0 {
                 return Some(Ok(()));
             }
-            match io::Error::last_os_error().kind() {
+            let error = io::Error::last_os_error();
+            match error.kind() {
                 io::ErrorKind::Interrupted => {}
                 io::ErrorKind::WouldBlock => return None,
-                // A pipe this process made does not fail otherwise; if it
-                // does, the child's exit status is all that is left.
-                _ => return Some(Ok(())),
+                kind => {
+                    let message = format!("read the start report: {error}");
+                    return Some(Err(io::Error::new(kind, message)));
+                }
             }
         }
     }
