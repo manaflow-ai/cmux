@@ -146,7 +146,7 @@ impl Surface {
         mouse_encoders.sync_from_terminal(&term);
 
         let render_state = RenderState::new()?;
-        let frame_requests = super::frame_producer::FrameRequests::new();
+        let frame_requests = frame_producer::FrameRequests::new();
         let test_master_control = Arc::new(TestMasterPtyControl::default());
         let frame_producer_before_upgrade = Arc::new(Mutex::new(None));
 
