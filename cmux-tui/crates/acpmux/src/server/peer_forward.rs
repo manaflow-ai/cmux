@@ -30,6 +30,11 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_START_MODE,
     method::MUX_IMPORT,
     method::MUX_SHUTDOWN,
+    // Briefs are daemon-scoped and dispatch selects its peer explicitly.
+    method::MUX_DISPATCH,
+    method::MUX_STEER,
+    method::MUX_BRIEFS,
+    method::MUX_REPORT,
     // An agent message is taken back on this daemon only (`hub/withdraw.rs`).
     method::MUX_PROMPT_WITHDRAW,
     // A message to deliver is this daemon's (`outbox.rs`), whatever session it names.
