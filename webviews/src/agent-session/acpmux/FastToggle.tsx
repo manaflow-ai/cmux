@@ -73,8 +73,6 @@ export function FastToggle({ speed, inline = false }: { speed: SpeedTiers; inlin
     <span className="acpmux-speed">
       {inline ? (
         <span
-          role="button"
-          tabIndex={0}
           className="acpmux-fast"
           data-tier={at < 0 ? "off" : at === 0 ? "fast" : "ultrafast"}
           aria-pressed={at >= 0}
@@ -87,13 +85,6 @@ export function FastToggle({ speed, inline = false }: { speed: SpeedTiers; inlin
           onClick={(event) => {
             event.stopPropagation();
             speed.onPick(nextAt < 0 ? speed.off : speed.tiers[nextAt]!);
-          }}
-          onKeyDown={(event) => {
-            event.stopPropagation();
-            if (event.key === "Enter" || event.key === " ") {
-              event.preventDefault();
-              speed.onPick(nextAt < 0 ? speed.off : speed.tiers[nextAt]!);
-            }
           }}
         >
           <BoltIcon />
