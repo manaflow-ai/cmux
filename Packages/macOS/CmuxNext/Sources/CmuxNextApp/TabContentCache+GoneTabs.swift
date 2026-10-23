@@ -22,23 +22,26 @@ final class GoneTabWatch {
         // Seen in another tree is not seen in this one: this tree must list it before it can drop it.
         if stores[key] != nil { seenLive.remove(key) }
         stores[key] = store
-        if AgentTabStore.liveTabs(store)?.contains(key) == true { seenLive.insert(key) }
+        if AgentTabStore.isLive(store), store.tab(id: key) != nil { seenLive.insert(key) }
         let id = ObjectIdentifier(store)
         guard watches[id] == nil else { return }
         // task-owner: stored in watches; cancelled once no tracked terminal belongs to the store
+        // Wakes on the live tree's tab list revision and asks the index per followed tab
+        // (``AgentTabStore/liveRevision(_:)``): no set of every tab per change.
         watches[id] = Task { [weak self] in
-            for await live in ObservationStream({ AgentTabStore.liveTabs(store) }) where live != nil {
-                guard let self, let live else { return }
-                for key in self.gone(in: store, live: live) { release(key) }
+            for await revision in ObservationStream({ AgentTabStore.liveRevision(store) }) where revision != nil {
+                guard let self else { return }
+                for key in self.gone(in: store) { release(key) }
             }
         }
     }
 
     /// The tracked keys of `store` its live tree dropped; the ones it lists count as seen.
-    private func gone(in store: DaemonStore, live: Set<String>) -> [String] {
+    private func gone(in store: DaemonStore) -> [String] {
+        guard AgentTabStore.isLive(store) else { return [] }
         var gone: [String] = []
         for (key, owner) in stores where owner === store {
-            if live.contains(key) {
+            if store.tab(id: key) != nil {
                 seenLive.insert(key)
             } else if seenLive.contains(key) {
                 gone.append(key)

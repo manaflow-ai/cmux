@@ -336,31 +336,38 @@ extension AgentTabStore {
     /// with a live tree. While the daemon is away its tabs keep their views; a tab the tree has
     /// not listed yet (its creation just answered) is kept.
     func releaseGoneTabs(in store: DaemonStore) {
-        guard let live = Self.liveTabs(store) else { return }
+        guard Self.isLive(store) else { return }
         for (key, owner) in tabStores where owner === store {
-            if live.contains(key) {
+            if store.tab(id: key) != nil {
                 seenLive.insert(key)
             } else if seenLive.contains(key) {
                 release(key)
             }
         }
-        aliases = aliases.filter { live.contains($0.key) || !ProvisionalTab.isProvisional($0.key) }
+        aliases = aliases.filter { store.tab(id: $0.key) != nil || !ProvisionalTab.isProvisional($0.key) }
     }
 
-    static func liveTabs(_ store: DaemonStore) -> Set<String>? {
+    /// `store`'s tab list revision while its tree is live (connected and loaded), nil otherwise. A
+    /// watch of the tabs it follows wakes on this and asks the store's index for each of them, so a
+    /// create or close costs the followed tabs, not a set of every tab of every workspace built on
+    /// every tree change (and on every `track`, in the key's turn of each create).
+    static func liveRevision(_ store: DaemonStore) -> UInt64? {
         guard case .connected = store.connectionState, store.isLoaded else { return nil }
-        return Set(store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).map(\.id))
+        return store.tabListRevision
     }
+
+    /// Whether `store`'s tree is live: connected, and loaded.
+    static func isLive(_ store: DaemonStore) -> Bool { liveRevision(store) != nil }
 
     /// Follows tab `key` in `store`'s tree, so its view state goes when the tree drops it.
     func track(_ key: String, in store: DaemonStore) {
         tabStores[key] = store
-        if Self.liveTabs(store)?.contains(key) == true { seenLive.insert(key) }
+        if Self.isLive(store), store.tab(id: key) != nil { seenLive.insert(key) }
         let id = ObjectIdentifier(store)
         guard watches[id] == nil else { return }
         // task-owner: stored in watches; cancelled once no tab belongs to the store
         watches[id] = Task { [weak self] in
-            for await live in ObservationStream({ Self.liveTabs(store) }) where live != nil {
+            for await revision in ObservationStream({ Self.liveRevision(store) }) where revision != nil {
                 guard let self else { return }
                 self.releaseGoneTabs(in: store)
             }
