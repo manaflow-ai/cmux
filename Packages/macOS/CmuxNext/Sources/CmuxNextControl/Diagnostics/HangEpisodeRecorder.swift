@@ -118,10 +118,7 @@ public final class HangEpisodeRecorder: Sendable {
     public func changes() -> AsyncStream<Void> {
         let id = UUID()
         let (stream, continuation) = AsyncStream<Void>.makeStream()
-        continuation.onTermination = { [weak self] _ in
-            guard let self else { return }
-            state.withLock { _ = $0.subscribers.removeValue(forKey: id) }
-        }
+        _ = id // MUTATION: an ended stream is never forgotten
         state.withLock { $0.subscribers[id] = continuation }
         return stream
     }
