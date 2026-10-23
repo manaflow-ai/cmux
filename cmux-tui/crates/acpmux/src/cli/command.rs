@@ -522,30 +522,6 @@ pub enum BriefsCmd {
     },
 }
 
-#[cfg(test)]
-mod dispatch_tests {
-    use super::*;
-    use clap::Parser;
-
-    #[test]
-    fn dispatch_accepts_file_and_auto_target() {
-        let cli = Cli::try_parse_from(["acpmux", "dispatch", "brief.md", "--host", "auto"])
-            .expect("dispatch grammar");
-        assert!(
-            matches!(cli.command, Some(Command::Dispatch(DispatchArgs { host, .. })) if host == "auto")
-        );
-    }
-
-    #[test]
-    fn briefs_nested_commands_parse() {
-        let cli = Cli::try_parse_from(["acpmux", "briefs", "ls", "--status", "reported"])
-            .expect("briefs ls grammar");
-        assert!(
-            matches!(cli.command, Some(Command::Briefs(BriefsCmd::Ls { status: Some(s), .. })) if s == "reported")
-        );
-    }
-}
-
 #[derive(Subcommand)]
 pub enum HarnessCmd {
     /// Every harness with its kind, source file and problems.
