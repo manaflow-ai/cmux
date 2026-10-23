@@ -1808,7 +1808,7 @@ fn run_main() {
     // `cmux route` was removed with the route CLI. Refuse it before the generic
     // unknown-command app fallback or daemon skew re-exec can touch a socket or
     // revive the command through an older daemon.
-    if raw_args.first().map(String::as_str) == Some("route") {
+    if cli::removed_route_requested(&raw_args) {
         eprintln!("cmux: unknown resource scope \"route\"");
         client_log::exit(2);
     }
